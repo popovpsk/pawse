@@ -1,0 +1,11 @@
+[package]
+name = "audio_engine"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+audio_common = { path = "../audio_common" }
+audio_decoder = { path = "../audio_decoder" }
+audio_output = { path = "../audio_output" }
+anyhow = { workspace = true }

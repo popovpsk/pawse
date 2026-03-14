@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/audio_common",
+    "crates/audio_decoder", 
+    "crates/audio_dsp",
+    "crates/audio_output",
+    "crates/audio_engine",
+    "crates/gpui-test",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+gpui = "0.2.2"
+gpui-component = "0.5.1"
+anyhow = "1.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,11 @@
+[package]
+name = "audio_output"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+audio_common = { path = "../audio_common" }
+anyhow = { workspace = true }
+
+cpal = "0.15"

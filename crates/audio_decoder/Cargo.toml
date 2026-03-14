@@ -1,0 +1,17 @@
+[package]
+name = "audio_decoder"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+audio_common = { path = "../audio_common" }
+anyhow = { workspace = true }
+thiserror = "1.0"
+symphonia = { version = "0.5", features = ["all"] }
+
+[dev-dependencies]
+rstest = "0.21"
+
+[lib]
+path = "src/decoder.rs"
