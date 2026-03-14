@@ -15,4 +15,4 @@ path = "src/engine.rs"
 
 [[bin]]
 name = "audio_engine_test"
-path = "src/main.rs"
+path = "src/test/main.rs"

@@ -1,0 +1,11 @@
+[package]
+name = "test_cpal"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "test_cpal"
+path = "test_cpal.rs"
+
+[dependencies]
+cpal = "0.17.3"
