@@ -1,38 +1,39 @@
-use gpui::*;
-use gpui_component::{button::*, *};
-
-pub struct HelloWorld;
-
-impl Render for HelloWorld {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .v_flex()
-            .gap_2()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .child("Audio Engine Ready")
-            .child(
-                Button::new("play")
-                    .primary()
-                    .label("Play Music"),
-            )
-    }
-}
+use audio_engine::AudioEngine;
+use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
 fn main() {
-    let app = Application::new();
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("..");
+    path.push("..");
+    path.push("fixtures");
+    path.push("sine_440_16_44_stereo.wav");
 
-    app.run(move |cx| {
-        gpui_component::init(cx);
+    println!("Opening: {:?}", path);
 
-        cx.spawn(async move |cx| {
-            cx.open_window(WindowOptions::default(), |window, cx| {
-                let view = cx.new(|_| HelloWorld);
-                cx.new(|cx| Root::new(view, window, cx))
-            })
-            .expect("Failed to open window");
-        })
-        .detach();
-    });
+    let mut engine = AudioEngine::new();
+
+    match engine.open(&path) {
+        Ok(info) => {
+            println!("Opened: {:?}, duration: {:?}", info.params, info.duration);
+
+            if let Err(e) = engine.play() {
+                println!("Play error: {:?}", e);
+                return;
+            }
+
+            println!("Playing... waiting 2 seconds");
+            thread::sleep(Duration::from_secs(2));
+
+            println!("Position: {:?}", engine.position());
+            println!("Stopping...");
+            let _ = engine.stop();
+
+            println!("Done");
+        }
+        Err(e) => {
+            println!("Error: {:?}", e);
+        }
+    }
 }

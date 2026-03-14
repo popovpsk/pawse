@@ -9,3 +9,10 @@ audio_common = { path = "../audio_common" }
 audio_decoder = { path = "../audio_decoder" }
 audio_output = { path = "../audio_output" }
 anyhow = { workspace = true }
+
+[lib]
+path = "src/engine.rs"
+
+[[bin]]
+name = "audio_engine_test"
+path = "src/main.rs"

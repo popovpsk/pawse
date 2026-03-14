@@ -1,9 +1,0 @@
-[package]
-name = "audio_dsp"
-version.workspace = true
-edition.workspace = true
-publish = false
-
-[dependencies]
-audio_common = { path = "../audio_common" }
-anyhow = { workspace = true }

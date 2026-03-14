@@ -2,8 +2,7 @@
 resolver = "2"
 members = [
     "crates/audio_common",
-    "crates/audio_decoder", 
-    "crates/audio_dsp",
+    "crates/audio_decoder",
     "crates/audio_output",
     "crates/audio_engine",
     "crates/gpui-test",
