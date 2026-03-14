@@ -27,20 +27,21 @@ pub enum OutputCommand {
 impl Output {
     pub fn new(device: &Device) -> Result<Self, AudioError> {
         let buffer = Arc::new(Mutex::new(Vec::with_capacity(BUFFER_CAPACITY * 2)));
+        let is_playing = Arc::new(AtomicBool::new(true));
+
+        let is_playing_callback = Arc::clone(&is_playing);
         let buffer_clone = Arc::clone(&buffer);
 
-        let is_playing = Arc::new(AtomicBool::new(true));
-        let is_playing_clone = Arc::clone(&is_playing);
-
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-
-        let stream_config = StreamConfig {
-            channels: 2,
-            sample_rate: 44100u32,
-            buffer_size: cpal::BufferSize::Default,
-        };
-
         let callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
+            let playing = is_playing_callback.load(Ordering::SeqCst);
+
+            if !playing {
+                for sample in data.iter_mut() {
+                    *sample = 0.0;
+                }
+                return;
+            }
+
             if let Ok(mut buf) = buffer_clone.try_lock() {
                 let samples_needed = data.len();
 
@@ -65,6 +66,12 @@ impl Output {
             }
         };
 
+        let stream_config = StreamConfig {
+            channels: 2,
+            sample_rate: 44100u32,
+            buffer_size: cpal::BufferSize::Default,
+        };
+
         let stream = device
             .build_output_stream(
                 &stream_config,
@@ -77,6 +84,9 @@ impl Output {
         stream
             .play()
             .map_err(|e| AudioError::Output(e.to_string()))?;
+
+        let is_playing_clone = Arc::clone(&is_playing);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
 
         thread::spawn(move || loop {
             if let Ok(cmd) = cmd_rx.recv_timeout(Duration::from_millis(10)) {
@@ -131,5 +141,9 @@ impl Output {
         if let Ok(mut buf) = self.buffer.lock() {
             buf.clear();
         }
+    }
+
+    pub fn buffer(&self) -> Arc<Mutex<Vec<f32>>> {
+        Arc::clone(&self.buffer)
     }
 }

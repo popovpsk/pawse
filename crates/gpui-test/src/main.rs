@@ -2,7 +2,9 @@ use audio_engine::AudioEngine;
 use gpui::*;
 use gpui_component::{button::*, *};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -17,11 +19,15 @@ enum AudioCommand {
 
 pub struct AudioApp {
     command_sender: Option<mpsc::Sender<AudioCommand>>,
+    is_loaded: Arc<AtomicBool>,
 }
 
 impl AudioApp {
     fn new() -> Self {
         let (cmd_sender, cmd_receiver) = mpsc::channel();
+
+        let is_loaded = Arc::new(AtomicBool::new(false));
+        let is_loaded_for_thread = Arc::clone(&is_loaded);
 
         thread::spawn(move || {
             let mut engine: Option<AudioEngine> = None;
@@ -40,7 +46,10 @@ impl AudioApp {
                                         if let audio_engine::EngineEvent::Loaded { .. } = event {
                                             loaded = true;
                                             if let Some(info) = eng.track_info() {
-                                                eprintln!("[AudioThread] Opened: duration={:?}", info.duration);
+                                                eprintln!(
+                                                    "[AudioThread] Opened: duration={:?}",
+                                                    info.duration
+                                                );
                                             }
                                             break;
                                         }
@@ -49,6 +58,9 @@ impl AudioApp {
                                         break;
                                     }
                                     thread::sleep(Duration::from_millis(10));
+                                }
+                                if loaded {
+                                    is_loaded_for_thread.store(true, Ordering::SeqCst);
                                 }
                                 engine = Some(eng);
                             }
@@ -90,6 +102,7 @@ impl AudioApp {
 
         Self {
             command_sender: Some(cmd_sender),
+            is_loaded,
         }
     }
 
@@ -110,6 +123,7 @@ impl Render for AudioApp {
     fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let sender = self.command_sender.clone();
         let path = Self::audio_path();
+        let is_loaded = Arc::clone(&self.is_loaded);
 
         div()
             .v_flex()
@@ -117,17 +131,23 @@ impl Render for AudioApp {
             .size_full()
             .items_center()
             .justify_center()
-            .child("Audio Player")
+            .child("шо происходит")
             .child({
                 let sender = sender.clone();
                 let path = path.clone();
+                let is_loaded = Arc::clone(&is_loaded);
                 Button::new("play")
                     .primary()
                     .label("Play")
                     .on_click(move |_, _, _| {
-                        eprintln!("[UI] Play clicked");
+                        eprintln!(
+                            "[UI] Play clicked, is_loaded={}",
+                            is_loaded.load(Ordering::SeqCst)
+                        );
                         if let Some(ref s) = sender {
-                            s.send(AudioCommand::Open(path.clone())).ok();
+                            if !is_loaded.load(Ordering::SeqCst) {
+                                s.send(AudioCommand::Open(path.clone())).ok();
+                            }
                             s.send(AudioCommand::Play).ok();
                         }
                     })

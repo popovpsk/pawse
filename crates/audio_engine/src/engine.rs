@@ -159,6 +159,7 @@ fn run_engine_loop(
 
     let mut current_position: u64 = 0;
     let mut is_playing = false;
+    let mut has_started = false;
     let mut last_position_update = Instant::now();
 
     loop {
@@ -168,6 +169,7 @@ fn run_engine_loop(
                     if decoder.is_some() {
                         decoder = None;
                     }
+                    has_started = false;
 
                     match Decoder::open(&path) {
                         Ok(dec) => {
@@ -200,6 +202,39 @@ fn run_engine_loop(
                 }
                 Command::Play => {
                     if decoder.is_some() {
+                        // Pre-buffer only on first play, not on resume from pause
+                        if !has_started {
+                            for _ in 0..5 {
+                                if let Some(ref mut dec) = decoder {
+                                    match dec.next_buffer() {
+                                        Ok(Some(buffer)) => {
+                                            let samples = buffer.as_slice();
+                                            let channels =
+                                                ctx.channels.load(Ordering::SeqCst) as usize;
+                                            let samples_to_write: Vec<f32> = if channels == 1 {
+                                                let mut stereo =
+                                                    Vec::with_capacity(samples.len() * 2);
+                                                for &s in samples {
+                                                    stereo.push(s);
+                                                    stereo.push(s);
+                                                }
+                                                stereo
+                                            } else {
+                                                samples.to_vec()
+                                            };
+                                            output.write(&samples_to_write);
+                                            current_position +=
+                                                samples.len() as u64 / channels as u64;
+                                        }
+                                        Ok(None) => break,
+                                        Err(_) => break,
+                                    }
+                                }
+                            }
+                            ctx.position.store(current_position, Ordering::SeqCst);
+                            has_started = true;
+                        }
+
                         is_playing = true;
                         ctx.state.store(STATE_PLAYING, Ordering::SeqCst);
                         output.resume();
@@ -220,6 +255,7 @@ fn run_engine_loop(
                     current_position = 0;
                     ctx.position.store(0, Ordering::SeqCst);
                     is_playing = false;
+                    has_started = false;
                     ctx.state.store(STATE_STOPPED, Ordering::SeqCst);
                     output.pause();
                     let _ = event_tx.send(EngineEvent::Stopped);
@@ -241,39 +277,50 @@ fn run_engine_loop(
 
         if is_playing {
             if let Some(ref mut dec) = decoder {
-                match dec.next_buffer() {
-                    Ok(Some(buffer)) => {
-                        let samples = buffer.as_slice();
-                        let channels = ctx.channels.load(Ordering::SeqCst) as usize;
+                // Check buffer level - only decode if buffer is not too full
+                let buffer_arc = output.buffer();
+                let buffer_level = {
+                    let buf = buffer_arc.lock().unwrap();
+                    buf.len()
+                };
 
-                        // Convert to stereo if mono
-                        let samples_to_write: Vec<f32> = if channels == 1 {
-                            let mut stereo = Vec::with_capacity(samples.len() * 2);
-                            for &s in samples {
-                                stereo.push(s);
-                                stereo.push(s);
+                // Only decode if buffer has room (backpressure)
+                const MAX_BUFFER_SAMPLES: usize = 44100 * 2; // ~0.5 sec stereo
+                if buffer_level < MAX_BUFFER_SAMPLES {
+                    match dec.next_buffer() {
+                        Ok(Some(buffer)) => {
+                            let samples = buffer.as_slice();
+                            let channels = ctx.channels.load(Ordering::SeqCst) as usize;
+
+                            // Convert to stereo if mono
+                            let samples_to_write: Vec<f32> = if channels == 1 {
+                                let mut stereo = Vec::with_capacity(samples.len() * 2);
+                                for &s in samples {
+                                    stereo.push(s);
+                                    stereo.push(s);
+                                }
+                                stereo
+                            } else {
+                                samples.to_vec()
+                            };
+
+                            output.write(&samples_to_write);
+                            let written = samples.len();
+                            if written > 0 {
+                                current_position += written as u64 / channels as u64;
+                                ctx.position.store(current_position, Ordering::SeqCst);
                             }
-                            stereo
-                        } else {
-                            samples.to_vec()
-                        };
-
-                        output.write(&samples_to_write);
-                        let written = samples.len();
-                        if written > 0 {
-                            current_position += written as u64 / channels as u64;
-                            ctx.position.store(current_position, Ordering::SeqCst);
                         }
-                    }
-                    Ok(None) => {
-                        is_playing = false;
-                        ctx.state.store(STATE_STOPPED, Ordering::SeqCst);
-                        let _ = event_tx.send(EngineEvent::TrackEnded);
-                        output.pause();
-                    }
-                    Err(e) => {
-                        let _ = event_tx.send(EngineEvent::Error(e.to_string()));
-                        is_playing = false;
+                        Ok(None) => {
+                            is_playing = false;
+                            ctx.state.store(STATE_STOPPED, Ordering::SeqCst);
+                            let _ = event_tx.send(EngineEvent::TrackEnded);
+                            output.pause();
+                        }
+                        Err(e) => {
+                            let _ = event_tx.send(EngineEvent::Error(e.to_string()));
+                            is_playing = false;
+                        }
                     }
                 }
             }
@@ -287,6 +334,8 @@ fn run_engine_loop(
             last_position_update = Instant::now();
         }
 
-        thread::sleep(Duration::from_millis(5));
+        // Sleep longer when not playing to reduce CPU usage
+        let sleep_time = if is_playing { 5 } else { 50 };
+        thread::sleep(Duration::from_millis(sleep_time));
     }
 }
