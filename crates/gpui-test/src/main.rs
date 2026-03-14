@@ -2,44 +2,114 @@ use audio_engine::AudioEngine;
 use gpui::*;
 use gpui_component::{button::*, *};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
-pub struct HelloWorld {
-    engine: Mutex<Option<AudioEngine>>,
-    is_playing: Mutex<bool>,
+#[derive(Clone)]
+enum AudioCommand {
+    Open(PathBuf),
+    Play,
+    Pause,
+    Stop,
+    Shutdown,
 }
 
-impl HelloWorld {
+pub struct AudioApp {
+    command_sender: Option<mpsc::Sender<AudioCommand>>,
+}
+
+impl AudioApp {
     fn new() -> Self {
+        let (cmd_sender, cmd_receiver) = mpsc::channel();
+
+        thread::spawn(move || {
+            let mut engine: Option<AudioEngine> = None;
+
+            for cmd in cmd_receiver {
+                match cmd {
+                    AudioCommand::Open(path) => {
+                        eprintln!("[AudioThread] Open: {:?}", path);
+                        let eng = AudioEngine::new().expect("Failed to create AudioEngine");
+                        match eng.load(&path) {
+                            Ok(()) => {
+                                // Wait for Loaded event
+                                let mut loaded = false;
+                                for _ in 0..100 {
+                                    for event in eng.events().try_iter() {
+                                        if let audio_engine::EngineEvent::Loaded { .. } = event {
+                                            loaded = true;
+                                            if let Some(info) = eng.track_info() {
+                                                eprintln!("[AudioThread] Opened: duration={:?}", info.duration);
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    if loaded {
+                                        break;
+                                    }
+                                    thread::sleep(Duration::from_millis(10));
+                                }
+                                engine = Some(eng);
+                            }
+                            Err(e) => eprintln!("[AudioThread] Open error: {:?}", e),
+                        }
+                    }
+                    AudioCommand::Play => {
+                        eprintln!("[AudioThread] Play command");
+                        if let Some(ref mut eng) = engine {
+                            eng.play().ok();
+                            eprintln!("[AudioThread] Playing");
+                        }
+                    }
+                    AudioCommand::Pause => {
+                        eprintln!("[AudioThread] Pause command");
+                        if let Some(ref mut eng) = engine {
+                            eng.pause().ok();
+                            eprintln!("[AudioThread] Paused");
+                        }
+                    }
+                    AudioCommand::Stop => {
+                        eprintln!("[AudioThread] Stop command");
+                        if let Some(ref mut eng) = engine {
+                            eng.stop().ok();
+                            eprintln!("[AudioThread] Stopped");
+                        }
+                    }
+                    AudioCommand::Shutdown => {
+                        eprintln!("[AudioThread] Shutdown");
+                        if let Some(ref mut eng) = engine {
+                            eng.stop().ok();
+                        }
+                        break;
+                    }
+                }
+            }
+            eprintln!("[AudioThread] Exited");
+        });
+
         Self {
-            engine: Mutex::new(None),
-            is_playing: Mutex::new(false),
+            command_sender: Some(cmd_sender),
         }
     }
 
     fn audio_path() -> PathBuf {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("..");
-        path.push("..");
-        path.push("fixtures");
-        path.push("sine_440_16_44_stereo.wav");
-        path
+        PathBuf::from("/Users/popovaleksa/repo/other/gpui-test/fixtures/02 - Selfless.flac")
     }
 }
 
-impl Render for HelloWorld {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let is_playing = *self.is_playing.lock().unwrap();
+impl Drop for AudioApp {
+    fn drop(&mut self) {
+        if let Some(ref sender) = self.command_sender {
+            let _ = sender.send(AudioCommand::Shutdown);
+        }
+    }
+}
 
-        let label = if is_playing {
-            "Playing..."
-        } else {
-            "Audio Engine Ready"
-        };
-        let button_label = if is_playing { "Stop" } else { "Play Music" };
-
-        let engine = self.engine.clone();
-        let is_playing_ref = self.is_playing.clone();
+impl Render for AudioApp {
+    fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let sender = self.command_sender.clone();
+        let path = Self::audio_path();
 
         div()
             .v_flex()
@@ -47,45 +117,44 @@ impl Render for HelloWorld {
             .size_full()
             .items_center()
             .justify_center()
-            .child(label)
-            .child(
+            .child("Audio Player")
+            .child({
+                let sender = sender.clone();
+                let path = path.clone();
                 Button::new("play")
                     .primary()
-                    .label(button_label)
+                    .label("Play")
                     .on_click(move |_, _, _| {
-                        let mut is_playing = is_playing_ref.lock().unwrap();
-                        let mut engine_guard = engine.lock().unwrap();
-
-                        if *is_playing {
-                            if let Some(ref mut eng) = *engine_guard {
-                                let _ = eng.stop();
-                            }
-                            *engine_guard = None;
-                            *is_playing = false;
-                        } else {
-                            let path = HelloWorld::audio_path();
-                            eprintln!("[DEBUG] Creating new AudioEngine...");
-                            let mut eng = AudioEngine::new();
-
-                            eprintln!("[DEBUG] Opening file...");
-                            match eng.open(&path) {
-                                Ok(info) => {
-                                    eprintln!(
-                                        "[DEBUG] File opened: {:?}, duration: {:?}",
-                                        info.params, info.duration
-                                    );
-                                    if eng.play().is_ok() {
-                                        *engine_guard = Some(eng);
-                                        *is_playing = true;
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("[DEBUG] Failed to open audio file: {:?}", e);
-                                }
-                            }
+                        eprintln!("[UI] Play clicked");
+                        if let Some(ref s) = sender {
+                            s.send(AudioCommand::Open(path.clone())).ok();
+                            s.send(AudioCommand::Play).ok();
                         }
-                    }),
-            )
+                    })
+            })
+            .child({
+                let sender = sender.clone();
+                Button::new("pause")
+                    .label("Pause")
+                    .on_click(move |_, _, _| {
+                        eprintln!("[UI] Pause clicked");
+                        if let Some(ref s) = sender {
+                            s.send(AudioCommand::Pause).ok();
+                        }
+                    })
+            })
+            .child({
+                let sender = sender.clone();
+                Button::new("stop")
+                    .danger()
+                    .label("Stop")
+                    .on_click(move |_, _, _| {
+                        eprintln!("[UI] Stop clicked");
+                        if let Some(ref s) = sender {
+                            s.send(AudioCommand::Stop).ok();
+                        }
+                    })
+            })
     }
 }
 
@@ -97,7 +166,7 @@ fn main() {
 
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
-                let view = cx.new(|_| HelloWorld::new());
+                let view = cx.new(|_| AudioApp::new());
                 cx.new(|cx| Root::new(view, window, cx))
             })
             .expect("Failed to open window");

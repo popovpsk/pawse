@@ -17,26 +17,47 @@ fn main() {
 
     println!("Opening: {:?}", path);
 
-    let mut engine = AudioEngine::new();
+    let engine = AudioEngine::new().expect("Failed to create AudioEngine");
 
-    match engine.open(&path) {
-        Ok(info) => {
-            println!("Opened: {:?}", info.params);
-            println!("Duration: {:?}", info.duration);
+    if let Err(e) = engine.load(&path) {
+        println!("Load error: {:?}", e);
+        return;
+    }
 
-            if let Err(e) = engine.play() {
-                println!("Play error: {:?}", e);
-                return;
+    // Wait for Loaded event
+    println!("Waiting for track to load...");
+    let mut info = None;
+    for _ in 0..50 {
+        for event in engine.events().try_iter() {
+            println!("Event: {:?}", event);
+            match event {
+                audio_engine::EngineEvent::Loaded { params, duration } => {
+                    info = Some((params, duration));
+                }
+                _ => {}
             }
-
-            println!("Playing... (waiting for track to finish)");
-            thread::sleep(info.duration + Duration::from_millis(200));
-
-            engine.stop().ok();
-            println!("Done");
         }
-        Err(e) => {
-            println!("Error: {:?}", e);
+        if info.is_some() {
+            break;
         }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    if let Some((params, duration)) = info {
+        println!("Opened: {:?}", params);
+        println!("Duration: {:?}", duration);
+
+        if let Err(e) = engine.play() {
+            println!("Play error: {:?}", e);
+            return;
+        }
+
+        println!("Playing... (waiting for track to finish)");
+        thread::sleep(duration + Duration::from_millis(200));
+
+        engine.stop().ok();
+        println!("Done");
+    } else {
+        println!("Failed to load track");
     }
 }

@@ -8,10 +8,12 @@ publish = false
 audio_common = { path = "../audio_common" }
 audio_decoder = { path = "../audio_decoder" }
 audio_output = { path = "../audio_output" }
+ringbuf = "0.4"
+cpal = "0.17.3"
 anyhow = { workspace = true }
 
 [lib]
-path = "src/engine.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "audio_engine_test"
