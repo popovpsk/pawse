@@ -1,7 +1,10 @@
-use audio_common::{AudioBuffer, AudioError, AudioSource, ChannelCount, StreamParams};
+use audio_common::{
+    AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, Metadata, StreamParams, I24,
+    U24,
+};
 use std::path::Path;
 use std::time::Duration;
-use symphonia::core::audio::SampleBuffer;
+use symphonia::core::audio::{AudioBufferRef, Signal};
 use symphonia::core::codecs::CodecParameters;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::FormatOptions;
@@ -15,21 +18,18 @@ pub struct Decoder {
     track_id: u32,
     codec_params: CodecParameters,
     duration: Option<Duration>,
-    sample_buffer: Option<SampleBuffer<f32>>,
 }
 
 impl Decoder {
     /// Открывает файл, инициализирует format reader и decoder.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, AudioError> {
-        let path_ref = path.as_ref();
-
+    pub fn open(path: &Path) -> Result<Self, AudioError> {
         // Открытие файла
-        let file = std::fs::File::open(path_ref).map_err(AudioError::Io)?;
+        let file = std::fs::File::open(path).map_err(AudioError::Io)?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         // Определение формата (WAV, FLAC, MP3...)
         let mut hint = Hint::new();
-        if let Some(ext) = path_ref.extension() {
+        if let Some(ext) = path.extension() {
             hint.with_extension(ext.to_str().unwrap_or(""));
         }
 
@@ -76,11 +76,10 @@ impl Decoder {
             track_id,
             codec_params,
             duration,
-            sample_buffer: None,
         })
     }
 
-    fn decode_next(&mut self) -> Result<Option<AudioBuffer>, AudioError> {
+    fn decode_next(&mut self) -> Result<Option<AudioBatch>, AudioError> {
         loop {
             // Читаем следующий пакет из файла
             let packet = match self.format.next_packet() {
@@ -93,11 +92,6 @@ impl Decoder {
                 Err(e) => return Err(AudioError::Decoder(e.to_string())),
             };
 
-            // Фильтруем пакеты других треков
-            if packet.track_id() != self.track_id {
-                continue;
-            }
-
             // Декодируем пакет в сэмплы
             let decoded = match self.decoder.decode(&packet) {
                 Ok(decoded_buffer) => decoded_buffer,
@@ -105,20 +99,20 @@ impl Decoder {
                 Err(e) => return Err(AudioError::Decoder(e.to_string())),
             };
 
-            let spec = *decoded.spec();
-            let duration = decoded.capacity() as u64;
+            let symphonia_spec = decoded.spec();
+            let sample_rate = symphonia_spec.rate;
+            let channels = ChannelCount::from_u8(symphonia_spec.channels.count() as u8);
 
-            // Конвертируем в f32, переиспользуем буфер
-            let mut sample_buf = match self.sample_buffer.take() {
-                Some(buf) => buf,
-                None => SampleBuffer::<f32>::new(duration, spec),
-            };
+            let audio_sample = map_audio_buffer_ref(decoded);
 
-            sample_buf.copy_interleaved_ref(decoded);
-            let samples = sample_buf.samples().to_vec();
-            self.sample_buffer = Some(sample_buf);
-
-            return Ok(Some(AudioBuffer::new(samples)));
+            return Ok(Some(AudioBatch {
+                data: audio_sample,
+                metadata: Metadata {
+                    sample_rate,
+                    channels,
+                    bit_depth: self.codec_params.bits_per_sample.unwrap_or(32) as u8,
+                },
+            }));
         }
     }
 }
@@ -132,10 +126,12 @@ impl AudioSource for Decoder {
             .map(|c: symphonia::core::audio::Channels| ChannelCount::from_u8(c.count() as u8))
             .unwrap_or(ChannelCount::Stereo);
 
-        StreamParams::new(sample_rate, channels, 32)
+        let bit_depth = self.codec_params.bits_per_sample.unwrap_or(32);
+
+        StreamParams::new(sample_rate, channels, bit_depth as u8)
     }
 
-    fn next_buffer(&mut self) -> Result<Option<AudioBuffer>, AudioError> {
+    fn next_buffer(&mut self) -> Result<Option<AudioBatch>, AudioError> {
         self.decode_next()
     }
 
@@ -168,6 +164,108 @@ impl AudioSource for Decoder {
     }
 }
 
+/// Конвертирует AudioBufferRef из Symphonia (planar) в interleaved формат
+fn map_audio_buffer_ref(decoded: AudioBufferRef<'_>) -> AudioSamples {
+    let spec = *decoded.spec();
+    let frames = decoded.frames();
+    let channels = spec.channels.count();
+    let total_samples = frames * channels;
+
+    // Конвертируем planar (каналы отдельно) в interleaved (LRLRLRLR...)
+    match decoded {
+        AudioBufferRef::U8(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::U8(interleaved)
+        }
+        AudioBufferRef::U16(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::U16(interleaved)
+        }
+        AudioBufferRef::U24(buf) => {
+            let mut interleaved: Vec<U24> = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(U24::new(buf.chan(ch)[frame].inner()));
+                }
+            }
+            AudioSamples::U24(interleaved)
+        }
+        AudioBufferRef::U32(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::U32(interleaved)
+        }
+        AudioBufferRef::S8(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::S8(interleaved)
+        }
+        AudioBufferRef::S16(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::S16(interleaved)
+        }
+        AudioBufferRef::S24(buf) => {
+            let mut interleaved: Vec<I24> = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(I24::new(buf.chan(ch)[frame].inner()));
+                }
+            }
+            AudioSamples::S24(interleaved)
+        }
+        AudioBufferRef::S32(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::S32(interleaved)
+        }
+        AudioBufferRef::F32(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::F32(interleaved)
+        }
+        AudioBufferRef::F64(buf) => {
+            let mut interleaved = Vec::with_capacity(total_samples);
+            for frame in 0..frames {
+                for ch in 0..channels {
+                    interleaved.push(buf.chan(ch)[frame]);
+                }
+            }
+            AudioSamples::F64(interleaved)
+        }
+    }
+}
+
 // ============================================================================
 // Тесты
 // ============================================================================
@@ -188,14 +286,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case::sine_440_16_44_mono("sine_440_16_44_mono.wav", 44100, 32, ChannelCount::Mono)]
-    #[case::sine_440_16_48_mono("sine_440_16_48_mono.wav", 48000, 32, ChannelCount::Mono)]
-    #[case::sine_440_16_96_mono("sine_440_16_96_mono.wav", 96000, 32, ChannelCount::Mono)]
-    #[case::sine_440_24_44_mono("sine_440_24_44_mono.wav", 44100, 32, ChannelCount::Mono)]
+    #[case::sine_440_16_44_mono("sine_440_16_44_mono.wav", 44100, 16, ChannelCount::Mono)]
+    #[case::sine_440_16_48_mono("sine_440_16_48_mono.wav", 48000, 16, ChannelCount::Mono)]
+    #[case::sine_440_16_96_mono("sine_440_16_96_mono.wav", 96000, 16, ChannelCount::Mono)]
+    #[case::sine_440_24_44_mono("sine_440_24_44_mono.wav", 44100, 24, ChannelCount::Mono)]
     #[case::sine_440_32_44_mono("sine_440_32_44_mono.wav", 44100, 32, ChannelCount::Mono)]
-    #[case::sine_440_16_44_stereo("sine_440_16_44_stereo.wav", 44100, 32, ChannelCount::Stereo)]
-    #[case::silence("silence_16_44_mono.wav", 44100, 32, ChannelCount::Mono)]
-    #[case::original_1khz("1khz_16_44_1.wav", 44100, 32, ChannelCount::Mono)]
+    #[case::sine_440_16_44_stereo("sine_440_16_44_stereo.wav", 44100, 16, ChannelCount::Stereo)]
+    #[case::silence("silence_16_44_mono.wav", 44100, 16, ChannelCount::Mono)]
+    #[case::original_1khz("1khz_16_44_1.wav", 44100, 16, ChannelCount::Mono)]
     fn test_decoder_params(
         #[case] filename: &str,
         #[case] sample_rate: u32,
@@ -245,8 +343,8 @@ mod tests {
             filename
         );
 
-        let audio_buffer = buffer.unwrap();
-        let samples = audio_buffer.as_slice();
+        let audio_batch = buffer.unwrap();
+        let samples = audio_batch.data;
         assert!(
             !samples.is_empty(),
             "Samples should not be empty for {}",
@@ -261,6 +359,7 @@ mod tests {
     #[case::sine_440_24_44_mono("sine_440_24_44_mono.wav")]
     #[case::sine_440_32_44_mono("sine_440_32_44_mono.wav")]
     #[case::sine_440_16_44_stereo("sine_440_16_44_stereo.wav")]
+    #[case::silence("silence_16_44_mono.wav")]
     #[case::original_1khz("1khz_16_44_1.wav")]
     fn test_samples_in_valid_range(#[case] filename: &str) {
         let path = fixture_path(filename);
@@ -269,17 +368,34 @@ mod tests {
         let buffer = decoder
             .next_buffer()
             .expect(&format!("Failed to decode {}", filename));
-        let audio_buffer = buffer.unwrap();
-        let samples = audio_buffer.as_slice();
+        let audio_batch = buffer.unwrap();
 
-        for (i, &sample) in samples.iter().enumerate() {
-            assert!(
-                sample >= -1.0 && sample <= 1.0,
-                "Sample {} out of range [-1.0, 1.0]: {} in {}",
-                i,
-                sample,
-                filename
-            );
+        // Проверяем только float форматы — они должны быть в диапазоне [-1, 1]
+        // Integer форматы доверяем Symphonia
+        match audio_batch.data {
+            AudioSamples::F32(samples) => {
+                for (i, &sample) in samples.iter().enumerate() {
+                    assert!(
+                        sample >= -1.0 && sample <= 1.0,
+                        "Sample {} out of range [-1.0, 1.0]: {} in {}",
+                        i,
+                        sample,
+                        filename
+                    );
+                }
+            }
+            AudioSamples::F64(samples) => {
+                for (i, &sample) in samples.iter().enumerate() {
+                    assert!(
+                        sample >= -1.0 && sample <= 1.0,
+                        "Sample {} out of range [-1.0, 1.0]: {} in {}",
+                        i,
+                        sample,
+                        filename
+                    );
+                }
+            }
+            _ => {} // Integer форматы доверяем Symphonia
         }
     }
 
@@ -289,16 +405,15 @@ mod tests {
         let mut decoder = Decoder::open(&path).expect("Failed to open silence file");
 
         let buffer = decoder.next_buffer().expect("Failed to decode silence");
-        let audio_buffer = buffer.unwrap();
-        let samples = audio_buffer.as_slice();
+        let audio_batch = buffer.unwrap();
 
-        for (i, &sample) in samples.iter().enumerate() {
-            assert!(
-                sample.abs() < 0.001,
-                "Silence sample {} should be ~0, got {}",
-                i,
-                sample
-            );
+        match audio_batch.data {
+            AudioSamples::S16(samples) => {
+                for sample in samples.iter() {
+                    assert_eq!(*sample, 0, "Silence sample should be 0");
+                }
+            }
+            _ => panic!("Expected S16 format for silence file"),
         }
     }
 

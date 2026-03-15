@@ -46,41 +46,127 @@ impl StreamParams {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct AudioBuffer {
-    data: Vec<f32>,
-}
+/// 24-bit unsigned sample
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct U24(u32);
 
-impl AudioBuffer {
-    pub fn new(data: Vec<f32>) -> Self {
-        Self { data }
+impl U24 {
+    pub fn new(val: u32) -> Self {
+        U24(val & 0xFFFFFF)
     }
 
+    pub fn into_u32(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<U24> for u32 {
+    fn from(val: U24) -> u32 {
+        val.0
+    }
+}
+
+/// 24-bit signed sample
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct I24(i32);
+
+impl I24 {
+    pub fn new(val: i32) -> Self {
+        // Sign-extend from 24 bits
+        let extended = (val << 8) >> 8;
+        I24(extended)
+    }
+
+    pub fn into_i32(self) -> i32 {
+        self.0
+    }
+}
+
+impl From<I24> for i32 {
+    fn from(val: I24) -> i32 {
+        val.0
+    }
+}
+
+/// Enum для хранения аудио сэмплов разных типов (как AudioBufferRef в Symphonia)
+#[derive(Clone, Debug)]
+pub enum AudioSamples {
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+    U24(Vec<U24>),
+    U32(Vec<u32>),
+    S8(Vec<i8>),
+    S16(Vec<i16>),
+    S24(Vec<I24>),
+    S32(Vec<i32>),
+    F32(Vec<f32>),
+    F64(Vec<f64>),
+}
+
+impl AudioSamples {
+    /// Возвращает количество сэмплов
     pub fn len(&self) -> usize {
-        self.data.len()
+        match self {
+            AudioSamples::U8(data) => data.len(),
+            AudioSamples::U16(data) => data.len(),
+            AudioSamples::U24(data) => data.len(),
+            AudioSamples::U32(data) => data.len(),
+            AudioSamples::S8(data) => data.len(),
+            AudioSamples::S16(data) => data.len(),
+            AudioSamples::S24(data) => data.len(),
+            AudioSamples::S32(data) => data.len(),
+            AudioSamples::F32(data) => data.len(),
+            AudioSamples::F64(data) => data.len(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.len() == 0
     }
 
-    pub fn as_slice(&self) -> &[f32] {
-        &self.data
-    }
-
-    pub fn as_slice_mut(&mut self) -> &mut [f32] {
-        &mut self.data
-    }
-
-    pub fn as_ptr(&self) -> *const f32 {
-        self.data.as_ptr()
+    /// Конвертирует любой формат сэмплов в f32
+    pub fn to_f32(&self) -> Vec<f32> {
+        match self {
+            AudioSamples::U8(data) => data
+                .iter()
+                .map(|&s| (s as f32 / 255.0) * 2.0 - 1.0)
+                .collect(),
+            AudioSamples::U16(data) => data
+                .iter()
+                .map(|&s| (s as f32 / 32768.0) * 2.0 - 1.0)
+                .collect(),
+            AudioSamples::U24(data) => data
+                .iter()
+                .map(|&s| (s.into_u32() as f32 / 8388608.0) * 2.0 - 1.0)
+                .collect(),
+            AudioSamples::U32(data) => data
+                .iter()
+                .map(|&s| (s as f32 / 2147483648.0) * 2.0 - 1.0)
+                .collect(),
+            AudioSamples::S8(data) => data.iter().map(|&s| s as f32 / 128.0).collect(),
+            AudioSamples::S16(data) => data.iter().map(|&s| s as f32 / 32768.0).collect(),
+            AudioSamples::S24(data) => data
+                .iter()
+                .map(|&s| s.into_i32() as f32 / 8388608.0)
+                .collect(),
+            AudioSamples::S32(data) => data.iter().map(|&s| s as f32 / 2147483648.0).collect(),
+            AudioSamples::F32(data) => data.clone(),
+            AudioSamples::F64(data) => data.iter().map(|&s| s as f32).collect(),
+        }
     }
 }
 
-impl From<Vec<f32>> for AudioBuffer {
-    fn from(data: Vec<f32>) -> Self {
-        Self::new(data)
-    }
+#[derive(Debug, Clone)]
+pub struct AudioBatch {
+    pub data: AudioSamples,
+    pub metadata: Metadata,
+}
+
+#[derive(Debug, Clone)]
+pub struct Metadata {
+    pub sample_rate: u32,
+    pub channels: ChannelCount,
+    pub bit_depth: u8,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -113,7 +199,7 @@ pub enum AudioError {
 pub trait AudioSource: Send {
     fn params(&self) -> StreamParams;
 
-    fn next_buffer(&mut self) -> Result<Option<AudioBuffer>, AudioError>;
+    fn next_buffer(&mut self) -> Result<Option<AudioBatch>, AudioError>;
 
     fn seek(&mut self, position: Duration) -> Result<Duration, AudioError>;
 

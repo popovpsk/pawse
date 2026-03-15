@@ -1,3 +1,4 @@
 /target
 /fixtures
 .DS_Store
+.idea

@@ -1,4 +1,4 @@
-use audio_common::AudioError;
+use audio_common::{AudioBatch, AudioError};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamConfig};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -11,40 +11,46 @@ const BUFFER_CAPACITY: usize = 192_000 * 2 * 5;
 const STATE_PLAYING: u8 = 1;
 const STATE_PAUSED: u8 = 2;
 
-/// Трейт для аудио вывода.
-/// Реализуется Output и OutputHandle.
-pub trait AudioOutput: Send + Sync {
-    /// Записать интерливированные f32 сэмплы (-1.0 до 1.0) в буфер
-    fn write(&self, samples: &[f32]);
-    /// Очистить буфер от всех сэмплов
-    fn clear(&self);
-    /// Получить доступ к буферу (для прямого чтения)
-    fn buffer(&self) -> Arc<Mutex<Vec<f32>>>;
-    /// Приостановить воспроизведение (cpal stream продолжает работать)
-    fn pause(&self);
-    /// Возобновить воспроизведение
-    fn resume(&self);
-    /// Проверить, воспроизводится ли сейчас
-    fn is_playing(&self) -> bool;
+#[derive(Clone, Copy, Debug)]
+pub struct OutputState {
+    pub channels: u8,
+    pub sample_rate: u32,
 }
 
-/// Основной аудио output: владеет cpal stream, хранит буфер и состояние.
-/// Создаётся один раз в главном потоке, управляет воспроизведением.
+impl Default for OutputState {
+    fn default() -> Self {
+        Self {
+            channels: 2,
+            sample_rate: 44100,
+        }
+    }
+}
+
+pub trait AudioOutput: Send + Sync {
+    fn write(&self, samples: AudioBatch);
+    fn clear(&self);
+    fn buffer(&self) -> Arc<Mutex<Vec<f32>>>;
+    fn pause(&self);
+    fn resume(&self);
+    fn is_playing(&self) -> bool;
+    fn output_state(&self) -> OutputState;
+}
+
 pub struct Output {
     buffer: Arc<Mutex<Vec<f32>>>,
     state: Arc<AtomicU8>,
+    output_state: OutputState,
     #[allow(dead_code)]
     command_tx: mpsc::Sender<OutputCommand>,
     #[allow(dead_code)]
     _stream: Stream,
 }
 
-/// Лёгкая копия Output для передачи в AudioEngine.
-/// Реализует Clone, может передаваться между потоками.
 #[derive(Clone)]
 pub struct OutputHandle {
     buffer: Arc<Mutex<Vec<f32>>>,
     state: Arc<AtomicU8>,
+    output_state: OutputState,
     command_tx: mpsc::Sender<OutputCommand>,
 }
 
@@ -57,18 +63,14 @@ enum OutputCommand {
 }
 
 impl Output {
-    /// Создать Output для устройства по умолчанию: инициализирует cpal stream.
-    /// Должен вызываться в главном потоке приложения.
     pub fn default_output() -> Result<Self, AudioError> {
-        let buffer = Arc::new(Mutex::new(Vec::with_capacity(BUFFER_CAPACITY * 2)));
+        let buffer = Arc::new(Mutex::new(Vec::with_capacity(BUFFER_CAPACITY)));
         let state = Arc::new(AtomicU8::new(STATE_PLAYING));
 
-        // Отдельный поток для обработки команд pause/resume
         let (cmd_tx, cmd_rx) = mpsc::channel();
 
         let state_clone = Arc::clone(&state);
 
-        // ToDo: такая простая история не требующая моментальной реакции может делать как корутина а не как целый тред.
         thread::spawn(move || loop {
             if let Ok(cmd) = cmd_rx.recv() {
                 match cmd {
@@ -85,14 +87,12 @@ impl Output {
             }
         });
 
-        // Callback cpal: вызывается потоком устройства, читает из буфера
         let buffer_for_callback = Arc::clone(&buffer);
         let state_for_callback = Arc::clone(&state);
 
         let callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
             let playing = state_for_callback.load(Ordering::SeqCst);
 
-            // Если на паузе — заполняем тишиной
             if playing != STATE_PLAYING {
                 for sample in data.iter_mut() {
                     *sample = 0.0;
@@ -100,7 +100,6 @@ impl Output {
                 return;
             }
 
-            // Берём сэмплы из буфера, если не хватает — дополняем тишиной
             if let Ok(mut buf) = buffer_for_callback.try_lock() {
                 let samples_needed = data.len();
 
@@ -125,15 +124,23 @@ impl Output {
             }
         };
 
-        // Создаём stream для устройства по умолчанию
         let host = cpal::default_host();
         let device = host
             .default_output_device()
             .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))?;
 
+        let supported_config = device
+            .default_output_config()
+            .map_err(|e| AudioError::Output(e.to_string()))?;
+
+        let output_state = OutputState {
+            channels: supported_config.channels() as u8,
+            sample_rate: 44100,
+        };
+
         let stream_config = StreamConfig {
-            channels: 2,
-            sample_rate: cpal::SampleRate::from(44100u32),
+            channels: supported_config.channels(),
+            sample_rate: 44100,
             buffer_size: cpal::BufferSize::Default,
         };
 
@@ -153,32 +160,54 @@ impl Output {
         Ok(Self {
             buffer,
             state,
+            output_state,
             command_tx: cmd_tx,
             _stream,
         })
     }
 
-    /// Получить клонируемый handle для использования в AudioEngine
     pub fn handle(&self) -> OutputHandle {
         OutputHandle {
             buffer: Arc::clone(&self.buffer),
             state: Arc::clone(&self.state),
+            output_state: self.output_state,
             command_tx: self.command_tx.clone(),
         }
     }
 }
 
-impl AudioOutput for Output {
-    fn write(&self, samples: &[f32]) {
+impl OutputHandle {
+    fn do_write(&self, batch: AudioBatch) {
         if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
             return;
         }
+
+        let f32_samples = batch.data.to_f32();
+
         if let Ok(mut buf) = self.buffer.lock() {
-            if buf.capacity() < buf.len() + samples.len() {
-                buf.reserve(samples.len());
+            if buf.capacity() < buf.len() + f32_samples.len() {
+                buf.reserve(f32_samples.len());
             }
-            buf.extend_from_slice(samples);
+            buf.extend_from_slice(&f32_samples);
         }
+    }
+
+    fn do_clear(&self) {
+        if let Ok(mut buf) = self.buffer.lock() {
+            buf.clear();
+        }
+    }
+}
+
+impl AudioOutput for Output {
+    fn write(&self, samples: AudioBatch) {
+        OutputHandle {
+            buffer: Arc::clone(&self.buffer),
+            state: Arc::clone(&self.state),
+            output_state: self.output_state,
+            command_tx: self.command_tx.clone(),
+        }
+        .do_write(samples);
     }
 
     fn clear(&self) {
@@ -201,26 +230,20 @@ impl AudioOutput for Output {
 
     fn is_playing(&self) -> bool {
         self.state.load(Ordering::SeqCst) == STATE_PLAYING
+    }
+
+    fn output_state(&self) -> OutputState {
+        self.output_state
     }
 }
 
 impl AudioOutput for OutputHandle {
-    fn write(&self, samples: &[f32]) {
-        if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
-            return;
-        }
-        if let Ok(mut buf) = self.buffer.lock() {
-            if buf.capacity() < buf.len() + samples.len() {
-                buf.reserve(samples.len());
-            }
-            buf.extend_from_slice(samples);
-        }
+    fn write(&self, samples: AudioBatch) {
+        self.do_write(samples);
     }
 
     fn clear(&self) {
-        if let Ok(mut buf) = self.buffer.lock() {
-            buf.clear();
-        }
+        self.do_clear();
     }
 
     fn buffer(&self) -> Arc<Mutex<Vec<f32>>> {
@@ -237,12 +260,28 @@ impl AudioOutput for OutputHandle {
 
     fn is_playing(&self) -> bool {
         self.state.load(Ordering::SeqCst) == STATE_PLAYING
+    }
+
+    fn output_state(&self) -> OutputState {
+        self.output_state
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use audio_common::{AudioSamples, ChannelCount, Metadata};
+
+    fn make_test_batch(samples: Vec<f32>) -> AudioBatch {
+        AudioBatch {
+            data: AudioSamples::F32(samples),
+            metadata: Metadata {
+                sample_rate: 44100,
+                channels: ChannelCount::Stereo,
+                bit_depth: 32,
+            },
+        }
+    }
 
     #[test]
     fn test_default_output() {
@@ -256,11 +295,10 @@ mod tests {
         let handle1 = output.handle();
         let handle2 = output.handle();
 
-        // Оба handle должны работать
-        handle1.write(&[0.5, -0.5]);
-        handle2.write(&[0.3, -0.3]);
+        handle1.write(make_test_batch(vec![0.5, -0.5]));
+        handle2.write(make_test_batch(vec![0.3, -0.3]));
 
-        let buf = output.buffer();
+        let buf = output.handle().buffer();
         let samples = buf.lock().unwrap();
         assert_eq!(samples.len(), 4);
     }
@@ -272,7 +310,6 @@ mod tests {
         assert!(output.is_playing());
 
         output.pause();
-        // Дать время на обработку команды
         thread::sleep(std::time::Duration::from_millis(10));
         assert!(!output.is_playing());
 
@@ -287,9 +324,9 @@ mod tests {
         output.pause();
         thread::sleep(std::time::Duration::from_millis(10));
 
-        output.write(&[0.5, -0.5]);
+        output.write(make_test_batch(vec![0.5, -0.5]));
 
-        let buf = output.buffer();
+        let buf = output.handle().buffer();
         let samples = buf.lock().unwrap();
         assert!(samples.is_empty(), "Should not write when paused");
     }
@@ -297,9 +334,9 @@ mod tests {
     #[test]
     fn test_clear() {
         let output = Output::default_output().unwrap();
-        output.write(&[0.5, -0.5, 0.3, -0.3]);
+        output.write(make_test_batch(vec![0.5, -0.5, 0.3, -0.3]));
 
-        let buf = output.buffer();
+        let buf = output.handle().buffer();
         let samples = buf.lock().unwrap();
         assert_eq!(samples.len(), 4);
 
@@ -308,5 +345,37 @@ mod tests {
 
         let samples = buf.lock().unwrap();
         assert!(samples.is_empty());
+    }
+
+    #[test]
+    fn test_convert_s16_to_f32() {
+        let samples = AudioSamples::S16(vec![0, 32767, -32768, 0]);
+        let f32_samples = samples.to_f32();
+
+        assert_eq!(f32_samples.len(), 4);
+        assert!((f32_samples[0] - 0.0).abs() < 0.001);
+        assert!((f32_samples[1] - 1.0).abs() < 0.001);
+        assert!((f32_samples[2] - (-1.0)).abs() < 0.001);
+        assert!((f32_samples[3] - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_convert_u8_to_f32() {
+        let samples = AudioSamples::U8(vec![0, 128, 255]);
+        let f32_samples = samples.to_f32();
+
+        assert_eq!(f32_samples.len(), 3);
+        assert!((f32_samples[0] - (-1.0)).abs() < 0.01);
+        assert!((f32_samples[1] - 0.0).abs() < 0.01);
+        assert!((f32_samples[2] - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_output_state() {
+        let output = Output::default_output().unwrap();
+        let state = output.output_state();
+
+        assert_eq!(state.channels, 2);
+        assert_eq!(state.sample_rate, 44100);
     }
 }

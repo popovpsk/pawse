@@ -10,7 +10,7 @@ fn main() {
     path.push("..");
     path.push("..");
     path.push("fixtures");
-    path.push("sine_440_16_44_mono.wav");
+    path.push("1khz_16_44_1.wav");
 
     if !path.exists() {
         eprintln!("File not found: {:?}", path);
