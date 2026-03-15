@@ -11,9 +11,22 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const STATE_STOPPED: u8 = 0;
-const STATE_PLAYING: u8 = 1;
-const STATE_PAUSED: u8 = 2;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum State {
+    Stopped,
+    Playing,
+    Paused,
+}
+
+impl State {
+    fn as_u8(self) -> u8 {
+        match self {
+            State::Stopped => 0,
+            State::Playing => 1,
+            State::Paused => 2,
+        }
+    }
+}
 
 pub struct AudioEngine {
     command_sender: mpsc::Sender<Command>,
@@ -31,27 +44,20 @@ impl AudioEngine {
     pub fn new() -> Result<Self, AudioError> {
         let (event_tx, event_rx) = mpsc::channel();
 
-        let state = Arc::new(AtomicU8::new(STATE_STOPPED));
+        let state = Arc::new(AtomicU8::new(State::Stopped.as_u8()));
         let position = Arc::new(AtomicU64::new(0));
         let sample_rate = Arc::new(AtomicU64::new(44100));
         let channels = Arc::new(AtomicU64::new(2));
         let track_info = Arc::new(Mutex::new(None));
 
-        let state_clone = Arc::clone(&state);
-        let position_clone = Arc::clone(&position);
-        let track_info_clone = Arc::clone(&track_info);
-        let sample_rate_clone = Arc::clone(&sample_rate);
-        let channels_clone = Arc::clone(&channels);
-
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let cmd_tx_clone = cmd_tx.clone();
 
         let ctx = EngineContext {
-            state: state_clone,
-            position: position_clone,
-            track_info: track_info_clone,
-            sample_rate: sample_rate_clone,
-            channels: channels_clone,
+            state: Arc::clone(&state),
+            position: Arc::clone(&position),
+            track_info: Arc::clone(&track_info),
+            sample_rate: Arc::clone(&sample_rate),
+            channels: Arc::clone(&channels),
         };
 
         thread::spawn(move || {
@@ -59,7 +65,7 @@ impl AudioEngine {
         });
 
         Ok(Self {
-            command_sender: cmd_tx_clone,
+            command_sender: cmd_tx,
             state,
             position,
             event_receiver: event_rx,
@@ -134,12 +140,7 @@ struct EngineContext {
 
 /// Convert mono samples to stereo (duplicate each sample to both channels)
 fn convert_to_stereo(samples: &[f32]) -> Vec<f32> {
-    let mut stereo = Vec::with_capacity(samples.len() * 2);
-    for &s in samples {
-        stereo.push(s);
-        stereo.push(s);
-    }
-    stereo
+    samples.iter().flat_map(|&s| [s, s]).collect()
 }
 
 struct PlaybackState<'a> {
@@ -181,7 +182,7 @@ fn handle_load(
             *state.decoder = Some(Box::new(dec));
             *state.current_position = 0;
             ctx.position.store(0, Ordering::SeqCst);
-            ctx.state.store(STATE_STOPPED, Ordering::SeqCst);
+            ctx.state.store(State::Stopped.as_u8(), Ordering::SeqCst);
 
             output.clear();
             output.resume();
@@ -235,7 +236,7 @@ fn handle_play(
         }
 
         *state.is_playing = true;
-        ctx.state.store(STATE_PLAYING, Ordering::SeqCst);
+        ctx.state.store(State::Playing.as_u8(), Ordering::SeqCst);
         output.resume();
         let _ = event_tx.send(EngineEvent::Playing);
     }
@@ -248,7 +249,7 @@ fn handle_pause(
     event_tx: &Sender<EngineEvent>,
 ) {
     *is_playing = false;
-    ctx.state.store(STATE_PAUSED, Ordering::SeqCst);
+    ctx.state.store(State::Paused.as_u8(), Ordering::SeqCst);
     output.pause();
     let _ = event_tx.send(EngineEvent::Paused);
 }
@@ -267,7 +268,7 @@ fn handle_stop(
     ctx.position.store(0, Ordering::SeqCst);
     *state.is_playing = false;
     *state.has_started = false;
-    ctx.state.store(STATE_STOPPED, Ordering::SeqCst);
+    ctx.state.store(State::Stopped.as_u8(), Ordering::SeqCst);
     output.pause();
     let _ = event_tx.send(EngineEvent::Stopped);
 }
@@ -334,7 +335,7 @@ fn process_playback(
         }
         Ok(None) => {
             *is_playing = false;
-            ctx.state.store(STATE_STOPPED, Ordering::SeqCst);
+            ctx.state.store(State::Stopped.as_u8(), Ordering::SeqCst);
             let _ = event_tx.send(EngineEvent::TrackEnded);
             output.pause();
         }
@@ -369,45 +370,35 @@ fn run_engine_loop(
 
     let mut decoder: Option<Box<dyn AudioSource>> = None;
     let mut duration = Duration::ZERO;
-
     let mut current_position: u64 = 0;
     let mut is_playing = false;
     let mut has_started = false;
     let mut last_position_update = Instant::now();
 
+    macro_rules! make_state {
+        () => {
+            PlaybackState {
+                decoder: &mut decoder,
+                duration: &mut duration,
+                current_position: &mut current_position,
+                has_started: &mut has_started,
+                is_playing: &mut is_playing,
+            }
+        };
+    }
+
     loop {
         while let Ok(cmd) = command_rx.try_recv() {
             match cmd {
                 Command::Load(path) => {
-                    let mut state = PlaybackState {
-                        decoder: &mut decoder,
-                        duration: &mut duration,
-                        current_position: &mut current_position,
-                        has_started: &mut has_started,
-                        is_playing: &mut is_playing,
-                    };
-                    handle_load(&path, &mut state, &ctx, &output, &event_tx);
+                    handle_load(&path, &mut make_state!(), &ctx, &output, &event_tx);
                 }
                 Command::Play => {
-                    let mut state = PlaybackState {
-                        decoder: &mut decoder,
-                        duration: &mut duration,
-                        current_position: &mut current_position,
-                        has_started: &mut has_started,
-                        is_playing: &mut is_playing,
-                    };
-                    handle_play(&mut state, &ctx, &output, &event_tx);
+                    handle_play(&mut make_state!(), &ctx, &output, &event_tx);
                 }
                 Command::Pause => handle_pause(&mut is_playing, &ctx, &output, &event_tx),
                 Command::Stop => {
-                    let mut state = PlaybackState {
-                        decoder: &mut decoder,
-                        duration: &mut duration,
-                        current_position: &mut current_position,
-                        has_started: &mut has_started,
-                        is_playing: &mut is_playing,
-                    };
-                    handle_stop(&mut state, &ctx, &output, &event_tx);
+                    handle_stop(&mut make_state!(), &ctx, &output, &event_tx);
                 }
                 Command::Seek(pos) => {
                     handle_seek(pos, &mut decoder, duration, &mut current_position, &ctx, &output)

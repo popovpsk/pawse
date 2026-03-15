@@ -30,11 +30,8 @@ fn main() {
     for _ in 0..50 {
         for event in engine.events().try_iter() {
             println!("Event: {:?}", event);
-            match event {
-                audio_engine::EngineEvent::Loaded { params, duration } => {
-                    info = Some((params, duration));
-                }
-                _ => {}
+            if let audio_engine::EngineEvent::Loaded { params, duration } = event {
+                info = Some((params, duration));
             }
         }
         if info.is_some() {

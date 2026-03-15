@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 pub const BUFFER_CAPACITY: usize = 192_000 * 2 * 5;
 
@@ -89,7 +88,7 @@ impl Output {
         let (cmd_tx, cmd_rx) = mpsc::channel();
 
         thread::spawn(move || loop {
-            if let Ok(cmd) = cmd_rx.recv_timeout(Duration::from_millis(10)) {
+            if let Ok(cmd) = cmd_rx.recv() {
                 match cmd {
                     OutputCommand::Pause => {
                         is_playing_clone.store(false, Ordering::SeqCst);
@@ -102,7 +101,6 @@ impl Output {
                     }
                 }
             }
-            thread::sleep(Duration::from_millis(5));
         });
 
         Ok(Self {
