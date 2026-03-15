@@ -1,0 +1,11 @@
+[package]
+name = "music_library"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "1.0"
+chrono = "0.4"

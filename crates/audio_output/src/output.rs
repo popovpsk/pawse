@@ -67,6 +67,8 @@ impl Output {
         let (cmd_tx, cmd_rx) = mpsc::channel();
 
         let state_clone = Arc::clone(&state);
+
+        // ToDo: такая простая история не требующая моментальной реакции может делать как корутина а не как целый тред.
         thread::spawn(move || loop {
             if let Ok(cmd) = cmd_rx.recv() {
                 match cmd {

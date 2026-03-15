@@ -52,3 +52,25 @@ UI → AudioEngine (один на трек) → Arc<dyn AudioOutput> → Output 
 - Crates: lowercase with underscores
 - `publish = false` для внутренних крейтов
 - Версии и edition из workspace
+
+## Music Library & Indexer
+
+### Компоненты
+
+**`music_library` crate:**
+- `MusicLibrary` — async API для управления музыкальной коллекцией
+- SQLite (bundled) хранит треки, артистов, альбомы
+- Все операции асинхронные через `tokio::spawn_blocking`
+- Не блокирует UI
+
+**`music_indexer` crate:**
+- `MusicIndexer` — сканирует директории, извлекает метаданные через symphonia
+- Поддерживает incremental updates (только изменённые файлы)
+- Удаляет треки для несуществующих файлов
+
+### Пример использования
+
+```rust
+// CLI тест:
+cargo run -p music_indexer --example index /path/to/music
+```

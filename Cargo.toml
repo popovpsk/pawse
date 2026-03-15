@@ -6,6 +6,8 @@ members = [
     "crates/audio_output",
     "crates/audio_engine",
     "crates/gpui-test",
+    "crates/music_library",
+    "crates/music_indexer",
 ]
 
 [workspace.package]

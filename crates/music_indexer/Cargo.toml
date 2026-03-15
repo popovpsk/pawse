@@ -1,0 +1,13 @@
+[package]
+name = "music_indexer"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+music_library = { path = "../music_library" }
+symphonia = { version = "0.5", features = ["all"] }
+walkdir = "2.5"
+tokio = { version = "1", features = ["full"] }
+thiserror = "1.0"
+chrono = "0.4"
