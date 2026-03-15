@@ -488,7 +488,6 @@ dependencies = [
  "audio_common",
  "audio_decoder",
  "audio_output",
- "cpal",
  "ringbuf",
 ]
 
@@ -2409,6 +2408,7 @@ name = "gpui-test"
 version = "0.1.0"
 dependencies = [
  "audio_engine",
+ "audio_output",
  "gpui",
  "gpui-component",
 ]

@@ -9,7 +9,6 @@ audio_common = { path = "../audio_common" }
 audio_decoder = { path = "../audio_decoder" }
 audio_output = { path = "../audio_output" }
 ringbuf = "0.4"
-cpal = "0.17.3"
 anyhow = { workspace = true }
 
 [lib]

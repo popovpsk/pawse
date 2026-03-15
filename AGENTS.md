@@ -1,13 +1,10 @@
-
-
-## Build
+## Build & Lint
 
 ```bash
-cargo build
-cargo run -p gpui-test
+cargo build && cargo clippy
 ```
 
-Не должно быть ворнингов компиляции. Если появляются ворнинги, то нужно их убрать.
+Не должно быть warning'ов. Если появляются — убрать.
 
 ## Test
 
@@ -15,53 +12,43 @@ cargo run -p gpui-test
 cargo test
 ```
 
-Все тесты должны проходить без ошибок. 
-Если какие-то тесты не проходят, то нужно их исправить. 
+Все тесты должны проходить.
 
-## Lint
+## Audio Architecture
 
-```bash
-cargo clippy
+### Кратко
+
+```
+UI → AudioEngine (один на трек) → Arc<dyn AudioOutput> → Output (один на приложение)
 ```
 
-Все линтеры должны проходить без ошибок. 
-Если появляются ошибки, то нужно их исправить. 
+### Компоненты
+
+**`audio_output` crate:**
+- `Output` — создаётся при старте приложения, управляет cpal stream
+- `AudioOutput` trait — единый API для записи и управления
+- `pause/resume` мгновенные, fade logic будет в `AudioEngine`
+
+**`audio_engine` crate:**
+- `AudioEngine` — декодирование, позиция, события
+- Получает `Arc<dyn AudioOutput>` для вывода
+- Не зависит от cpal напрямую
+
+### Правила для cpal
+
+1. **Output создаётся в главном потоке** — иначе crash на macOS
+2. **cpal callback в том же потоке где stream** — иначе не вызовется
+3. **Decode + write в одном потоке** — cpal требует данные сразу
+4. **Stream реализует Send (cpal 0.17+)** — можно хранить в структурах
+
+### Тестирование
+
+- Тестируй без GUI сначала (консольный main)
+- Логируй в callback для отладки
+- Проверяй что буфер заполнён до запроса callback
 
 ## Conventions
 
 - Crates: lowercase with underscores
-- `publish = false` for internal crates
-- Platform-specific code via `cfg` attributes
-- Version and edition from workspace
-
-## Audio Programming on macOS (cpal + symphonia)
-
-### Используй cpal 0.17+
-
-В версии 0.17+ на macOS:
-- Stream реализует Send - можно хранить в структурах без unsafe
-- Используй `description()` вместо deprecated `name()`
-
-### Правила, которые НЕЛЬЗЯ нарушать
-
-1. **Не создавай audio device в static/const контексте**
-   - Audio device должен создаваться в главном потоке приложения
-   - Иначе: segmentation fault
-
-2. **cpal callback работает только в том потоке, где создан stream**
-   - На macOS cpal callback работает только в том потоке, где создан stream
-   - Иначе: callback никогда не вызовется, звука не будет
-
-3. **Не используй worker thread для decode + write**
-   - cpal callback требует чтобы данные были доступны в том же потоке
-   - Решение: делай decode + write в одном потоке (синхронно)
-
-4. **Избегай статической инициализации аудио компонентов**
-   - Инициализируй AudioEngine только при реальном использовании (по кнопке)
-   - Иначе: crash до запуска GUI
-
-### Тестирование аудио
-
-- Тестируй сначала без GUI (простой консольный main)
-- Добавь дебаг-логирование в callback чтобы видеть вызывается ли он
-- Проверяй что буфер заполняется данными до того как callback их запрашивает
+- `publish = false` для внутренних крейтов
+- Версии и edition из workspace

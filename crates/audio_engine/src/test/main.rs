@@ -1,5 +1,7 @@
 use audio_engine::AudioEngine;
+use audio_output::Output;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -17,7 +19,8 @@ fn main() {
 
     println!("Opening: {:?}", path);
 
-    let engine = AudioEngine::new().expect("Failed to create AudioEngine");
+    let output = Output::default_output().expect("Failed to create Output");
+    let engine = AudioEngine::new(Arc::new(output)).expect("Failed to create AudioEngine");
 
     if let Err(e) = engine.load(&path) {
         println!("Load error: {:?}", e);

@@ -1,9 +1,8 @@
-use crate::output::Output;
+use audio_output::AudioOutput;
+
 use crate::types::{Command, EngineEvent, TrackInfo};
 use audio_common::{AudioError, AudioSource};
 use audio_decoder::Decoder;
-use cpal::default_host;
-use cpal::traits::HostTrait;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -38,10 +37,12 @@ pub struct AudioEngine {
     sample_rate: Arc<AtomicU64>,
     #[allow(dead_code)]
     channels: Arc<AtomicU64>,
+    #[allow(dead_code)] // Output живёт столько же сколько Engine
+    output: Arc<dyn AudioOutput>,
 }
 
 impl AudioEngine {
-    pub fn new() -> Result<Self, AudioError> {
+    pub fn new(output: Arc<dyn AudioOutput>) -> Result<Self, AudioError> {
         let (event_tx, event_rx) = mpsc::channel();
 
         let state = Arc::new(AtomicU8::new(State::Stopped.as_u8()));
@@ -60,8 +61,9 @@ impl AudioEngine {
             channels: Arc::clone(&channels),
         };
 
+        let output_clone = Arc::clone(&output);
         thread::spawn(move || {
-            run_engine_loop(cmd_rx, event_tx, ctx);
+            run_engine_loop(cmd_rx, event_tx, ctx, output_clone);
         });
 
         Ok(Self {
@@ -72,6 +74,7 @@ impl AudioEngine {
             track_info,
             sample_rate,
             channels,
+            output,
         })
     }
 
@@ -124,12 +127,6 @@ impl AudioEngine {
     }
 }
 
-impl Default for AudioEngine {
-    fn default() -> Self {
-        Self::new().expect("Failed to create AudioEngine")
-    }
-}
-
 struct EngineContext {
     state: Arc<AtomicU8>,
     position: Arc<AtomicU64>,
@@ -138,7 +135,7 @@ struct EngineContext {
     channels: Arc<AtomicU64>,
 }
 
-/// Convert mono samples to stereo (duplicate each sample to both channels)
+/// Конвертирует моно в стерео (дублирует каждый сэмпл в оба канала)
 fn convert_to_stereo(samples: &[f32]) -> Vec<f32> {
     samples.iter().flat_map(|&s| [s, s]).collect()
 }
@@ -155,7 +152,7 @@ fn handle_load(
     path: &Path,
     state: &mut PlaybackState,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
     event_tx: &Sender<EngineEvent>,
 ) {
     if state.decoder.is_some() {
@@ -193,10 +190,11 @@ fn handle_load(
     }
 }
 
+/// Предварительная буферизация перед запуском воспроизведения
 fn pre_buffer(
     decoder: &mut Option<Box<dyn AudioSource>>,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
     current_position: &mut u64,
 ) {
     let Some(ref mut dec) = decoder else {
@@ -226,7 +224,7 @@ fn pre_buffer(
 fn handle_play(
     state: &mut PlaybackState,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
     event_tx: &Sender<EngineEvent>,
 ) {
     if state.decoder.is_some() {
@@ -245,7 +243,7 @@ fn handle_play(
 fn handle_pause(
     is_playing: &mut bool,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
     event_tx: &Sender<EngineEvent>,
 ) {
     *is_playing = false;
@@ -257,7 +255,7 @@ fn handle_pause(
 fn handle_stop(
     state: &mut PlaybackState,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
     event_tx: &Sender<EngineEvent>,
 ) {
     if let Some(ref mut dec) = state.decoder {
@@ -279,7 +277,7 @@ fn handle_seek(
     duration: Duration,
     current_position: &mut u64,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
 ) {
     if let Some(ref mut dec) = decoder {
         let target = duration.mul_f32(pos);
@@ -292,12 +290,13 @@ fn handle_seek(
     }
 }
 
+/// Обработка воспроизведения: декодирование и запись в output
 fn process_playback(
     decoder: &mut Option<Box<dyn AudioSource>>,
     is_playing: &mut bool,
     current_position: &mut u64,
     ctx: &EngineContext,
-    output: &Output,
+    output: &Arc<dyn AudioOutput>,
     event_tx: &Sender<EngineEvent>,
 ) {
     let Some(ref mut dec) = decoder else {
@@ -346,28 +345,13 @@ fn process_playback(
     }
 }
 
+/// Главный цикл движка: обработка команд и воспроизведение
 fn run_engine_loop(
     command_rx: Receiver<Command>,
     event_tx: Sender<EngineEvent>,
     ctx: EngineContext,
+    output: Arc<dyn AudioOutput>,
 ) {
-    let host = default_host();
-    let device = match host.default_output_device() {
-        Some(d) => d,
-        None => {
-            let _ = event_tx.send(EngineEvent::Error("No audio device".to_string()));
-            return;
-        }
-    };
-
-    let output = match Output::new(&device) {
-        Ok(o) => o,
-        Err(e) => {
-            let _ = event_tx.send(EngineEvent::Error(e.to_string()));
-            return;
-        }
-    };
-
     let mut decoder: Option<Box<dyn AudioSource>> = None;
     let mut duration = Duration::ZERO;
     let mut current_position: u64 = 0;
