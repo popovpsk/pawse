@@ -1,3 +1,8 @@
+## File Operations
+
+The model must not create or modify any files without explicit user instruction.
+
+
 ## Build & Lint
 
 ```bash

@@ -46,26 +46,6 @@ impl StreamParams {
     }
 }
 
-/// 24-bit unsigned sample
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct U24(u32);
-
-impl U24 {
-    pub fn new(val: u32) -> Self {
-        U24(val & 0xFFFFFF)
-    }
-
-    pub fn into_u32(self) -> u32 {
-        self.0
-    }
-}
-
-impl From<U24> for u32 {
-    fn from(val: U24) -> u32 {
-        val.0
-    }
-}
-
 /// 24-bit signed sample
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct I24(i32);
@@ -91,32 +71,20 @@ impl From<I24> for i32 {
 /// Enum для хранения аудио сэмплов разных типов (как AudioBufferRef в Symphonia)
 #[derive(Clone, Debug)]
 pub enum AudioSamples {
-    U8(Vec<u8>),
-    U16(Vec<u16>),
-    U24(Vec<U24>),
-    U32(Vec<u32>),
-    S8(Vec<i8>),
     S16(Vec<i16>),
     S24(Vec<I24>),
     S32(Vec<i32>),
     F32(Vec<f32>),
-    F64(Vec<f64>),
 }
 
 impl AudioSamples {
     /// Возвращает количество сэмплов
     pub fn len(&self) -> usize {
         match self {
-            AudioSamples::U8(data) => data.len(),
-            AudioSamples::U16(data) => data.len(),
-            AudioSamples::U24(data) => data.len(),
-            AudioSamples::U32(data) => data.len(),
-            AudioSamples::S8(data) => data.len(),
             AudioSamples::S16(data) => data.len(),
             AudioSamples::S24(data) => data.len(),
             AudioSamples::S32(data) => data.len(),
             AudioSamples::F32(data) => data.len(),
-            AudioSamples::F64(data) => data.len(),
         }
     }
 
@@ -127,23 +95,6 @@ impl AudioSamples {
     /// Конвертирует любой формат сэмплов в f32
     pub fn to_f32(&self) -> Vec<f32> {
         match self {
-            AudioSamples::U8(data) => data
-                .iter()
-                .map(|&s| (s as f32 / 255.0) * 2.0 - 1.0)
-                .collect(),
-            AudioSamples::U16(data) => data
-                .iter()
-                .map(|&s| (s as f32 / 32768.0) * 2.0 - 1.0)
-                .collect(),
-            AudioSamples::U24(data) => data
-                .iter()
-                .map(|&s| (s.into_u32() as f32 / 8388608.0) * 2.0 - 1.0)
-                .collect(),
-            AudioSamples::U32(data) => data
-                .iter()
-                .map(|&s| (s as f32 / 2147483648.0) * 2.0 - 1.0)
-                .collect(),
-            AudioSamples::S8(data) => data.iter().map(|&s| s as f32 / 128.0).collect(),
             AudioSamples::S16(data) => data.iter().map(|&s| s as f32 / 32768.0).collect(),
             AudioSamples::S24(data) => data
                 .iter()
@@ -151,7 +102,6 @@ impl AudioSamples {
                 .collect(),
             AudioSamples::S32(data) => data.iter().map(|&s| s as f32 / 2147483648.0).collect(),
             AudioSamples::F32(data) => data.clone(),
-            AudioSamples::F64(data) => data.iter().map(|&s| s as f32).collect(),
         }
     }
 }

@@ -9,6 +9,7 @@ audio_common = { path = "../audio_common" }
 anyhow = { workspace = true }
 
 cpal = "0.17.3"
+rb = "0.4"
 
 [lib]
 path = "src/output.rs"

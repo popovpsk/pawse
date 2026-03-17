@@ -498,6 +498,7 @@ dependencies = [
  "anyhow",
  "audio_common",
  "cpal",
+ "rb",
 ]
 
 [[package]]
@@ -4850,6 +4851,12 @@ dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
 ]
+
+[[package]]
+name = "rb"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56cf8381505b60ae18a4097f1d0be093287ca3bf4fbb23d36ac5ad3bba335daa"
 
 [[package]]
 name = "read-fonts"

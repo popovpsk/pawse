@@ -291,11 +291,7 @@ fn process_playback(
     };
 
     const MAX_BUFFER_SAMPLES: usize = 44100 * 2;
-    let buffer_arc = output.buffer();
-    let buffer_level = {
-        let buf = buffer_arc.lock().unwrap();
-        buf.len()
-    };
+    let buffer_level = output.buffer().len();
     if buffer_level >= MAX_BUFFER_SAMPLES * 2 {
         return;
     }

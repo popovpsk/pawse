@@ -1,27 +1,31 @@
+pub mod ring_buffer;
+pub use ring_buffer::AudioRingBuffer;
+
 use audio_common::{AudioBatch, AudioError};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamConfig};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::Arc;
 
-const BUFFER_CAPACITY: usize = 192_000 * 2 * 5;
-
+const STATE_IDLE: u8 = 0;
 const STATE_PLAYING: u8 = 1;
 const STATE_PAUSED: u8 = 2;
 
+const BUFFER_LENGTH: u32 = 128; // ms
+
 #[derive(Clone, Copy, Debug)]
-pub struct OutputState {
-    pub channels: u8,
+pub struct OutputConfig {
     pub sample_rate: u32,
+    pub channels: u8,
+    pub bit_depth: u8,
 }
 
-impl Default for OutputState {
+impl Default for OutputConfig {
     fn default() -> Self {
         Self {
             channels: 2,
             sample_rate: 44100,
+            bit_depth: 32,
         }
     }
 }
@@ -29,241 +33,133 @@ impl Default for OutputState {
 pub trait AudioOutput: Send + Sync {
     fn write(&self, samples: AudioBatch);
     fn clear(&self);
-    fn buffer(&self) -> Arc<Mutex<Vec<f32>>>;
+    fn buffer(&self) -> Arc<AudioRingBuffer>;
     fn pause(&self);
     fn resume(&self);
     fn is_playing(&self) -> bool;
-    fn output_state(&self) -> OutputState;
+}
+
+pub struct SelectedOutputDevice {
+    pub host: Arc<cpal::Host>,
+    pub device: Arc<cpal::Device>,
 }
 
 pub struct Output {
-    buffer: Arc<Mutex<Vec<f32>>>,
+    _host: Arc<cpal::Host>,
+    _device: Arc<cpal::Device>,
+    buffer: Arc<AudioRingBuffer>,
     state: Arc<AtomicU8>,
-    output_state: OutputState,
-    #[allow(dead_code)]
-    command_tx: mpsc::Sender<OutputCommand>,
-    #[allow(dead_code)]
     _stream: Stream,
 }
 
-#[derive(Clone)]
-pub struct OutputHandle {
-    buffer: Arc<Mutex<Vec<f32>>>,
-    state: Arc<AtomicU8>,
-    output_state: OutputState,
-    command_tx: mpsc::Sender<OutputCommand>,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum OutputCommand {
-    Pause,
-    Resume,
-    #[allow(dead_code)]
-    Shutdown,
+fn calc_buffer_size(cfg: &OutputConfig) -> usize {
+    (cfg.bit_depth as usize)
+        * (cfg.channels as usize)
+        * (cfg.sample_rate as usize)
+        * (BUFFER_LENGTH as usize)
+        / 8
 }
 
 impl Output {
-    pub fn default_output() -> Result<Self, AudioError> {
-        let buffer = Arc::new(Mutex::new(Vec::with_capacity(BUFFER_CAPACITY)));
-        let state = Arc::new(AtomicU8::new(STATE_PLAYING));
+    pub fn new(
+        output_config: OutputConfig,
+        device: SelectedOutputDevice,
+    ) -> Result<Self, AudioError> {
+        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&output_config)));
+        let state = Arc::new(AtomicU8::new(STATE_IDLE));
 
-        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let buffer_for_callback = buffer.clone();
 
-        let state_clone = Arc::clone(&state);
+        let cpal_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
+            let samples_read = buffer_for_callback.pop_slice(data);
 
-        thread::spawn(move || loop {
-            if let Ok(cmd) = cmd_rx.recv() {
-                match cmd {
-                    OutputCommand::Pause => {
-                        state_clone.store(STATE_PAUSED, Ordering::SeqCst);
-                    }
-                    OutputCommand::Resume => {
-                        state_clone.store(STATE_PLAYING, Ordering::SeqCst);
-                    }
-                    OutputCommand::Shutdown => {
-                        break;
-                    }
-                }
-            }
-        });
-
-        let buffer_for_callback = Arc::clone(&buffer);
-        let state_for_callback = Arc::clone(&state);
-
-        let callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
-            let playing = state_for_callback.load(Ordering::SeqCst);
-
-            if playing != STATE_PLAYING {
-                for sample in data.iter_mut() {
-                    *sample = 0.0;
-                }
-                return;
-            }
-
-            if let Ok(mut buf) = buffer_for_callback.try_lock() {
-                let samples_needed = data.len();
-
-                if buf.len() >= samples_needed {
-                    data.copy_from_slice(&buf[..samples_needed]);
-                    buf.drain(..samples_needed);
-                } else if !buf.is_empty() {
-                    data[..buf.len()].copy_from_slice(&buf);
-                    for sample in &mut data[buf.len()..] {
-                        *sample = 0.0;
-                    }
-                    buf.clear();
-                } else {
-                    for sample in data.iter_mut() {
-                        *sample = 0.0;
-                    }
-                }
-            } else {
-                for sample in data.iter_mut() {
-                    *sample = 0.0;
-                }
+            //ToDo: notification warning
+            for sample in &mut data[samples_read..] {
+                *sample = 0.0;
             }
         };
 
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))?;
-
-        let supported_config = device
-            .default_output_config()
-            .map_err(|e| AudioError::Output(e.to_string()))?;
-
-        let output_state = OutputState {
-            channels: supported_config.channels() as u8,
-            sample_rate: 44100,
-        };
+        let error_callback = |err| eprintln!("Audio stream error: {}", err);
 
         let stream_config = StreamConfig {
-            channels: supported_config.channels(),
-            sample_rate: 44100,
-            buffer_size: cpal::BufferSize::Default,
+            channels: output_config.channels as u16,
+            sample_rate: output_config.sample_rate,
+            buffer_size: cpal::BufferSize::Fixed(1024),
         };
 
-        let _stream = device
-            .build_output_stream(
-                &stream_config,
-                callback,
-                |err| eprintln!("Audio stream error: {}", err),
-                None,
-            )
-            .map_err(|e| AudioError::Output(e.to_string()))?;
-
-        _stream
-            .play()
+        let output_stream = device
+            .device
+            .build_output_stream(&stream_config, cpal_callback, error_callback, None)
             .map_err(|e| AudioError::Output(e.to_string()))?;
 
         Ok(Self {
-            buffer,
+            _host: device.host.clone(),
+            _device: device.device.clone(),
+            buffer: buffer.clone(),
             state,
-            output_state,
-            command_tx: cmd_tx,
-            _stream,
+            _stream: output_stream,
         })
-    }
-
-    pub fn handle(&self) -> OutputHandle {
-        OutputHandle {
-            buffer: Arc::clone(&self.buffer),
-            state: Arc::clone(&self.state),
-            output_state: self.output_state,
-            command_tx: self.command_tx.clone(),
-        }
-    }
-}
-
-impl OutputHandle {
-    fn do_write(&self, batch: AudioBatch) {
-        if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
-            return;
-        }
-
-        let f32_samples = batch.data.to_f32();
-
-        if let Ok(mut buf) = self.buffer.lock() {
-            if buf.capacity() < buf.len() + f32_samples.len() {
-                buf.reserve(f32_samples.len());
-            }
-            buf.extend_from_slice(&f32_samples);
-        }
-    }
-
-    fn do_clear(&self) {
-        if let Ok(mut buf) = self.buffer.lock() {
-            buf.clear();
-        }
     }
 }
 
 impl AudioOutput for Output {
     fn write(&self, samples: AudioBatch) {
-        OutputHandle {
-            buffer: Arc::clone(&self.buffer),
-            state: Arc::clone(&self.state),
-            output_state: self.output_state,
-            command_tx: self.command_tx.clone(),
+        if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
+            return;
         }
-        .do_write(samples);
+
+        let f32_samples = samples.data.to_f32();
+        self.buffer.push_slice(&f32_samples);
     }
 
     fn clear(&self) {
-        if let Ok(mut buf) = self.buffer.lock() {
-            buf.clear();
-        }
+        self.buffer.clear();
     }
 
-    fn buffer(&self) -> Arc<Mutex<Vec<f32>>> {
-        Arc::clone(&self.buffer)
+    fn buffer(&self) -> Arc<AudioRingBuffer> {
+        self.buffer.clone()
     }
 
     fn pause(&self) {
-        let _ = self.command_tx.send(OutputCommand::Pause);
+        if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
+            return; //ToDo: race condition
+        }
+        self.state.store(STATE_PAUSED, Ordering::SeqCst);
+        self._stream.pause().unwrap_or_default();
     }
 
     fn resume(&self) {
-        let _ = self.command_tx.send(OutputCommand::Resume);
+        if self.state.load(Ordering::SeqCst) == STATE_PLAYING {
+            return; //ToDo: race condition
+        }
+
+        self.state.store(STATE_PLAYING, Ordering::SeqCst);
+        self._stream.play().unwrap_or_default();
     }
 
     fn is_playing(&self) -> bool {
         self.state.load(Ordering::SeqCst) == STATE_PLAYING
-    }
-
-    fn output_state(&self) -> OutputState {
-        self.output_state
     }
 }
 
-impl AudioOutput for OutputHandle {
-    fn write(&self, samples: AudioBatch) {
-        self.do_write(samples);
-    }
+pub fn make_test_device() -> SelectedOutputDevice {
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
+        .unwrap();
 
-    fn clear(&self) {
-        self.do_clear();
+    SelectedOutputDevice {
+        host: Arc::new(host),
+        device: Arc::new(device),
     }
+}
 
-    fn buffer(&self) -> Arc<Mutex<Vec<f32>>> {
-        Arc::clone(&self.buffer)
-    }
-
-    fn pause(&self) {
-        let _ = self.command_tx.send(OutputCommand::Pause);
-    }
-
-    fn resume(&self) {
-        let _ = self.command_tx.send(OutputCommand::Resume);
-    }
-
-    fn is_playing(&self) -> bool {
-        self.state.load(Ordering::SeqCst) == STATE_PLAYING
-    }
-
-    fn output_state(&self) -> OutputState {
-        self.output_state
+pub fn make_test_config() -> OutputConfig {
+    OutputConfig {
+        sample_rate: 44100,
+        channels: 2,
+        bit_depth: 24,
     }
 }
 
@@ -271,6 +167,7 @@ impl AudioOutput for OutputHandle {
 mod tests {
     use super::*;
     use audio_common::{AudioSamples, ChannelCount, Metadata};
+    use std::thread;
 
     fn make_test_batch(samples: Vec<f32>) -> AudioBatch {
         AudioBatch {
@@ -285,28 +182,14 @@ mod tests {
 
     #[test]
     fn test_default_output() {
-        let output = Output::default_output();
+        let output = Output::new(make_test_config(), make_test_device());
         assert!(output.is_ok(), "Should create default output");
     }
 
     #[test]
-    fn test_output_handle_clone() {
-        let output = Output::default_output().unwrap();
-        let handle1 = output.handle();
-        let handle2 = output.handle();
-
-        handle1.write(make_test_batch(vec![0.5, -0.5]));
-        handle2.write(make_test_batch(vec![0.3, -0.3]));
-
-        let buf = output.handle().buffer();
-        let samples = buf.lock().unwrap();
-        assert_eq!(samples.len(), 4);
-    }
-
-    #[test]
     fn test_pause_resume() {
-        let output = Output::default_output().unwrap();
-
+        let output = Output::new(make_test_config(), make_test_device()).unwrap();
+        output.resume();
         assert!(output.is_playing());
 
         output.pause();
@@ -320,31 +203,28 @@ mod tests {
 
     #[test]
     fn test_write_when_paused() {
-        let output = Output::default_output().unwrap();
+        let output = Output::new(make_test_config(), make_test_device()).unwrap();
         output.pause();
         thread::sleep(std::time::Duration::from_millis(10));
 
         output.write(make_test_batch(vec![0.5, -0.5]));
 
-        let buf = output.handle().buffer();
-        let samples = buf.lock().unwrap();
-        assert!(samples.is_empty(), "Should not write when paused");
+        let buf = output.buffer();
+        assert!(buf.is_empty(), "Should not write when paused");
     }
 
     #[test]
     fn test_clear() {
-        let output = Output::default_output().unwrap();
+        let output = Output::new(make_test_config(), make_test_device()).unwrap();
+        output.resume();
         output.write(make_test_batch(vec![0.5, -0.5, 0.3, -0.3]));
 
-        let buf = output.handle().buffer();
-        let samples = buf.lock().unwrap();
-        assert_eq!(samples.len(), 4);
+        let buf = output.buffer();
+        assert_eq!(buf.len(), 4);
 
-        drop(samples);
         output.clear();
 
-        let samples = buf.lock().unwrap();
-        assert!(samples.is_empty());
+        assert!(buf.is_empty());
     }
 
     #[test]
@@ -357,25 +237,5 @@ mod tests {
         assert!((f32_samples[1] - 1.0).abs() < 0.001);
         assert!((f32_samples[2] - (-1.0)).abs() < 0.001);
         assert!((f32_samples[3] - 0.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_convert_u8_to_f32() {
-        let samples = AudioSamples::U8(vec![0, 128, 255]);
-        let f32_samples = samples.to_f32();
-
-        assert_eq!(f32_samples.len(), 3);
-        assert!((f32_samples[0] - (-1.0)).abs() < 0.01);
-        assert!((f32_samples[1] - 0.0).abs() < 0.01);
-        assert!((f32_samples[2] - 1.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_output_state() {
-        let output = Output::default_output().unwrap();
-        let state = output.output_state();
-
-        assert_eq!(state.channels, 2);
-        assert_eq!(state.sample_rate, 44100);
     }
 }

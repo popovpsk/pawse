@@ -1,5 +1,5 @@
 use audio_engine::AudioEngine;
-use audio_output::Output;
+use audio_output::{make_test_config, make_test_device, Output};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -19,7 +19,8 @@ fn main() {
 
     println!("Opening: {:?}", path);
 
-    let output = Output::default_output().expect("Failed to create Output");
+    let output =
+        Output::new(make_test_config(), make_test_device()).expect("Failed to create Output");
     let engine = AudioEngine::new(Arc::new(output)).expect("Failed to create AudioEngine");
 
     if let Err(e) = engine.load(&path) {

@@ -1,5 +1,5 @@
 use audio_engine::AudioEngine;
-use audio_output::Output;
+use audio_output::{make_test_config, make_test_device, Output};
 use gpui::*;
 use gpui_component::{button::*, *};
 use std::path::PathBuf;
@@ -31,7 +31,8 @@ impl AudioApp {
         let is_loaded_for_thread = Arc::clone(&is_loaded);
 
         // Создаём Output один раз при старте
-        let output = Output::default_output().expect("Failed to create Output");
+        let output =
+            Output::new(make_test_config(), make_test_device()).expect("Failed to create Output");
         let output: Arc<dyn audio_output::AudioOutput> = Arc::new(output);
 
         thread::spawn(move || {
@@ -41,7 +42,8 @@ impl AudioApp {
                 match cmd {
                     AudioCommand::Open(path) => {
                         eprintln!("[AudioThread] Open: {:?}", path);
-                        let eng = AudioEngine::new(Arc::clone(&output)).expect("Failed to create AudioEngine");
+                        let eng = AudioEngine::new(Arc::clone(&output))
+                            .expect("Failed to create AudioEngine");
                         match eng.load(&path) {
                             Ok(()) => {
                                 // Wait for Loaded event
@@ -188,7 +190,7 @@ fn main() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
-        
+
         cx.spawn(async move |cx| {
             cx.open_window(WindowOptions::default(), |window, cx| {
                 let view = cx.new(|_| AudioApp::new());

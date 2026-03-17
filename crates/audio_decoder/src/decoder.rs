@@ -1,10 +1,9 @@
 use audio_common::{
     AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, Metadata, StreamParams, I24,
-    U24,
 };
 use std::path::Path;
 use std::time::Duration;
-use symphonia::core::audio::{AudioBufferRef, Signal};
+use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
 use symphonia::core::codecs::CodecParameters;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::FormatOptions;
@@ -173,51 +172,6 @@ fn map_audio_buffer_ref(decoded: AudioBufferRef<'_>) -> AudioSamples {
 
     // Конвертируем planar (каналы отдельно) в interleaved (LRLRLRLR...)
     match decoded {
-        AudioBufferRef::U8(buf) => {
-            let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
-            AudioSamples::U8(interleaved)
-        }
-        AudioBufferRef::U16(buf) => {
-            let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
-            AudioSamples::U16(interleaved)
-        }
-        AudioBufferRef::U24(buf) => {
-            let mut interleaved: Vec<U24> = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(U24::new(buf.chan(ch)[frame].inner()));
-                }
-            }
-            AudioSamples::U24(interleaved)
-        }
-        AudioBufferRef::U32(buf) => {
-            let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
-            AudioSamples::U32(interleaved)
-        }
-        AudioBufferRef::S8(buf) => {
-            let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
-            AudioSamples::S8(interleaved)
-        }
         AudioBufferRef::S16(buf) => {
             let mut interleaved = Vec::with_capacity(total_samples);
             for frame in 0..frames {
@@ -254,14 +208,10 @@ fn map_audio_buffer_ref(decoded: AudioBufferRef<'_>) -> AudioSamples {
             }
             AudioSamples::F32(interleaved)
         }
-        AudioBufferRef::F64(buf) => {
-            let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
-            AudioSamples::F64(interleaved)
+        _ => {
+            let mut sample_buf = SampleBuffer::<f32>::new(total_samples as u64, spec);
+            sample_buf.copy_interleaved_ref(decoded);
+            AudioSamples::F32(sample_buf.samples().to_vec())
         }
     }
 }
@@ -374,17 +324,6 @@ mod tests {
         // Integer форматы доверяем Symphonia
         match audio_batch.data {
             AudioSamples::F32(samples) => {
-                for (i, &sample) in samples.iter().enumerate() {
-                    assert!(
-                        sample >= -1.0 && sample <= 1.0,
-                        "Sample {} out of range [-1.0, 1.0]: {} in {}",
-                        i,
-                        sample,
-                        filename
-                    );
-                }
-            }
-            AudioSamples::F64(samples) => {
                 for (i, &sample) in samples.iter().enumerate() {
                     assert!(
                         sample >= -1.0 && sample <= 1.0,
