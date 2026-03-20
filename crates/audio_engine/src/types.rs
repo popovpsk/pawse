@@ -12,11 +12,11 @@ pub enum PlaybackState {
 
 #[derive(Debug, Clone)]
 pub enum Command {
-    Load(PathBuf),
+    SetLocalTrack(PathBuf),
     Play,
     Pause,
-    Stop,
     Seek(f32),
+    SetVolume(u8),
 }
 
 #[derive(Debug, Clone)]

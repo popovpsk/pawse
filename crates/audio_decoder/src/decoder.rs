@@ -134,9 +134,11 @@ impl AudioSource for Decoder {
         self.decode_next()
     }
 
-    fn seek(&mut self, position: Duration) -> Result<Duration, AudioError> {
+    fn seek(&mut self, position: f32) -> Result<Duration, AudioError> {
+        let duration = self.duration.unwrap().mul_f32(position);
+
         // SeekTo::Time - Symphonia сама выбирает способ поиска
-        let time: symphonia::core::units::Time = position.into();
+        let time: symphonia::core::units::Time = duration.into();
 
         let seeked = self
             .format
@@ -370,7 +372,7 @@ mod tests {
         let mut decoder = Decoder::open(&path).expect(&format!("Failed to open {}", filename));
 
         let result = decoder
-            .seek(Duration::ZERO)
+            .seek(0.0)
             .expect(&format!("Failed to seek in {}", filename));
         assert_eq!(result, Duration::ZERO, "Seek to zero should return zero");
 

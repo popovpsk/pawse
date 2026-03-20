@@ -1,241 +1,120 @@
+pub mod output_stream;
 pub mod ring_buffer;
-pub use ring_buffer::AudioRingBuffer;
 
-use audio_common::{AudioBatch, AudioError};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{OutputCallbackInfo, Stream, StreamConfig};
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Arc;
+use std::{
+    sync::{Arc, RwLock},
+    u8,
+};
 
-const STATE_IDLE: u8 = 0;
-const STATE_PLAYING: u8 = 1;
-const STATE_PAUSED: u8 = 2;
+use anyhow::Context;
+use audio_common::{AudioBatch, AudioError, Metadata};
+use cpal::traits::HostTrait;
+pub use output_stream::{AudioOutput, OutputConfig, OutputStream, SelectedOutputDevice};
 
-const BUFFER_LENGTH: u32 = 128; // ms
-
-#[derive(Clone, Copy, Debug)]
-pub struct OutputConfig {
-    pub sample_rate: u32,
-    pub channels: u8,
-    pub bit_depth: u8,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            channels: 2,
-            sample_rate: 44100,
-            bit_depth: 32,
-        }
-    }
-}
-
-pub trait AudioOutput: Send + Sync {
-    fn write(&self, samples: AudioBatch);
-    fn clear(&self);
-    fn buffer(&self) -> Arc<AudioRingBuffer>;
-    fn pause(&self);
-    fn resume(&self);
-    fn is_playing(&self) -> bool;
-}
-
-pub struct SelectedOutputDevice {
-    pub host: Arc<cpal::Host>,
-    pub device: Arc<cpal::Device>,
-}
+use crate::ring_buffer::AudioRingBuffer;
 
 pub struct Output {
-    _host: Arc<cpal::Host>,
-    _device: Arc<cpal::Device>,
-    buffer: Arc<AudioRingBuffer>,
-    state: Arc<AtomicU8>,
-    _stream: Stream,
+    host: cpal::Host,
+    device: cpal::Device,
+    stream: RwLock<Option<OutputStream>>,
 }
+
+const BUFFER_DURATION_MS: u32 = 128;
 
 fn calc_buffer_size(cfg: &OutputConfig) -> usize {
     (cfg.bit_depth as usize)
         * (cfg.channels as usize)
         * (cfg.sample_rate as usize)
-        * (BUFFER_LENGTH as usize)
+        * (BUFFER_DURATION_MS as usize)
         / 8
 }
 
 impl Output {
-    pub fn new(
-        output_config: OutputConfig,
-        device: SelectedOutputDevice,
-    ) -> Result<Self, AudioError> {
-        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&output_config)));
-        let state = Arc::new(AtomicU8::new(STATE_IDLE));
+    pub fn new() -> Self {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
+            .unwrap();
 
-        let buffer_for_callback = buffer.clone();
-
-        let cpal_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
-            let samples_read = buffer_for_callback.pop_slice(data);
-
-            //ToDo: notification warning
-            for sample in &mut data[samples_read..] {
-                *sample = 0.0;
-            }
-        };
-
-        let error_callback = |err| eprintln!("Audio stream error: {}", err);
-
-        let stream_config = StreamConfig {
-            channels: output_config.channels as u16,
-            sample_rate: output_config.sample_rate,
-            buffer_size: cpal::BufferSize::Fixed(1024),
-        };
-
-        let output_stream = device
-            .device
-            .build_output_stream(&stream_config, cpal_callback, error_callback, None)
-            .map_err(|e| AudioError::Output(e.to_string()))?;
-
-        Ok(Self {
-            _host: device.host.clone(),
-            _device: device.device.clone(),
-            buffer: buffer.clone(),
-            state,
-            _stream: output_stream,
-        })
+        Self {
+            host,
+            device,
+            stream: RwLock::new(None),
+        }
     }
+
+    fn recreate_stream(&self, metadata: Metadata) {
+        let device = SelectedOutputDevice {
+            host: &self.host,
+            device: &self.device,
+        };
+
+        let output_config = OutputConfig {
+            sample_rate: metadata.sample_rate,
+            channels: metadata.channels.to_u8(),
+            bit_depth: metadata.bit_depth,
+        };
+
+        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&output_config)));
+
+        //ToDo: wait and stop current stream here.
+
+        let stream = OutputStream::new(buffer.clone(), output_config, device)
+            .context("recreate_stream")
+            .unwrap();
+        self.stream.write().unwrap().replace(stream);
+    }
+}
+
+fn is_stream_config_equal(stream: &OutputStream, metadata: &Metadata) -> bool {
+    stream.config.bit_depth == metadata.bit_depth
+        && stream.config.sample_rate == metadata.sample_rate
+        && stream.config.channels == metadata.channels.to_u8()
 }
 
 impl AudioOutput for Output {
-    fn write(&self, samples: AudioBatch) {
-        if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
-            return;
+    fn write(&self, batch: &AudioBatch) -> usize {
+        let needs_recreate = {
+            let stream = self.stream.read().unwrap();
+            stream.is_none() || !is_stream_config_equal(stream.as_ref().unwrap(), &batch.metadata)
+        };
+
+        if needs_recreate {
+            self.recreate_stream(batch.metadata.clone());
         }
 
-        let f32_samples = samples.data.to_f32();
-        self.buffer.push_slice(&f32_samples);
+        self.stream.read().unwrap().as_ref().unwrap().write(batch)
     }
 
     fn clear(&self) {
-        self.buffer.clear();
-    }
-
-    fn buffer(&self) -> Arc<AudioRingBuffer> {
-        self.buffer.clone()
+        if let Some(ref s) = *self.stream.read().unwrap() {
+            s.clear();
+        }
     }
 
     fn pause(&self) {
-        if self.state.load(Ordering::SeqCst) != STATE_PLAYING {
-            return; //ToDo: race condition
+        if let Some(ref s) = *self.stream.read().unwrap() {
+            s.pause();
         }
-        self.state.store(STATE_PAUSED, Ordering::SeqCst);
-        self._stream.pause().unwrap_or_default();
     }
 
     fn resume(&self) {
-        if self.state.load(Ordering::SeqCst) == STATE_PLAYING {
-            return; //ToDo: race condition
+        if let Some(ref s) = *self.stream.read().unwrap() {
+            s.resume();
         }
+    }
 
-        self.state.store(STATE_PLAYING, Ordering::SeqCst);
-        self._stream.play().unwrap_or_default();
+    fn set_volume(&self, volume: u8) {
+        if let Some(ref s) = *self.stream.read().unwrap() {
+            s.set_volume(volume);
+        }
     }
 
     fn is_playing(&self) -> bool {
-        self.state.load(Ordering::SeqCst) == STATE_PLAYING
-    }
-}
-
-pub fn make_test_device() -> SelectedOutputDevice {
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
-        .unwrap();
-
-    SelectedOutputDevice {
-        host: Arc::new(host),
-        device: Arc::new(device),
-    }
-}
-
-pub fn make_test_config() -> OutputConfig {
-    OutputConfig {
-        sample_rate: 44100,
-        channels: 2,
-        bit_depth: 24,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use audio_common::{AudioSamples, ChannelCount, Metadata};
-    use std::thread;
-
-    fn make_test_batch(samples: Vec<f32>) -> AudioBatch {
-        AudioBatch {
-            data: AudioSamples::F32(samples),
-            metadata: Metadata {
-                sample_rate: 44100,
-                channels: ChannelCount::Stereo,
-                bit_depth: 32,
-            },
+        if let Some(ref s) = *self.stream.read().unwrap() {
+            return s.is_playing();
         }
-    }
-
-    #[test]
-    fn test_default_output() {
-        let output = Output::new(make_test_config(), make_test_device());
-        assert!(output.is_ok(), "Should create default output");
-    }
-
-    #[test]
-    fn test_pause_resume() {
-        let output = Output::new(make_test_config(), make_test_device()).unwrap();
-        output.resume();
-        assert!(output.is_playing());
-
-        output.pause();
-        thread::sleep(std::time::Duration::from_millis(10));
-        assert!(!output.is_playing());
-
-        output.resume();
-        thread::sleep(std::time::Duration::from_millis(10));
-        assert!(output.is_playing());
-    }
-
-    #[test]
-    fn test_write_when_paused() {
-        let output = Output::new(make_test_config(), make_test_device()).unwrap();
-        output.pause();
-        thread::sleep(std::time::Duration::from_millis(10));
-
-        output.write(make_test_batch(vec![0.5, -0.5]));
-
-        let buf = output.buffer();
-        assert!(buf.is_empty(), "Should not write when paused");
-    }
-
-    #[test]
-    fn test_clear() {
-        let output = Output::new(make_test_config(), make_test_device()).unwrap();
-        output.resume();
-        output.write(make_test_batch(vec![0.5, -0.5, 0.3, -0.3]));
-
-        let buf = output.buffer();
-        assert_eq!(buf.len(), 4);
-
-        output.clear();
-
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn test_convert_s16_to_f32() {
-        let samples = AudioSamples::S16(vec![0, 32767, -32768, 0]);
-        let f32_samples = samples.to_f32();
-
-        assert_eq!(f32_samples.len(), 4);
-        assert!((f32_samples[0] - 0.0).abs() < 0.001);
-        assert!((f32_samples[1] - 1.0).abs() < 0.001);
-        assert!((f32_samples[2] - (-1.0)).abs() < 0.001);
-        assert!((f32_samples[3] - 0.0).abs() < 0.001);
+        false
     }
 }

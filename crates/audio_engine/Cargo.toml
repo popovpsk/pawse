@@ -10,6 +10,7 @@ audio_decoder = { path = "../audio_decoder" }
 audio_output = { path = "../audio_output" }
 ringbuf = "0.4"
 anyhow = { workspace = true }
+tokio = "1.50.0"
 
 [lib]
 path = "src/lib.rs"

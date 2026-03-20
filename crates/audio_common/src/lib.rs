@@ -92,6 +92,15 @@ impl AudioSamples {
         self.len() == 0
     }
 
+    pub fn copy_from_offset(&self, start: usize) -> Self {
+        match self {
+            AudioSamples::S16(data) => AudioSamples::S16(data[start..].to_vec()),
+            AudioSamples::S24(data) => AudioSamples::S24(data[start..].to_vec()),
+            AudioSamples::S32(data) => AudioSamples::S32(data[start..].to_vec()),
+            AudioSamples::F32(data) => AudioSamples::F32(data[start..].to_vec()),
+        }
+    }
+
     /// Конвертирует любой формат сэмплов в f32
     pub fn to_f32(&self) -> Vec<f32> {
         match self {
@@ -151,7 +160,7 @@ pub trait AudioSource: Send {
 
     fn next_buffer(&mut self) -> Result<Option<AudioBatch>, AudioError>;
 
-    fn seek(&mut self, position: Duration) -> Result<Duration, AudioError>;
+    fn seek(&mut self, position: f32) -> Result<Duration, AudioError>;
 
     fn duration(&self) -> Option<Duration>;
 }

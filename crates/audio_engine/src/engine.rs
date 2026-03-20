@@ -290,12 +290,6 @@ fn process_playback(
         return;
     };
 
-    const MAX_BUFFER_SAMPLES: usize = 44100 * 2;
-    let buffer_level = output.buffer().len();
-    if buffer_level >= MAX_BUFFER_SAMPLES * 2 {
-        return;
-    }
-
     match dec.next_buffer() {
         Ok(Some(batch)) => {
             let channels = ctx.channels.load(Ordering::SeqCst) as usize;

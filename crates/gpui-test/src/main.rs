@@ -1,5 +1,5 @@
 use audio_engine::AudioEngine;
-use audio_output::{make_test_config, make_test_device, Output};
+use audio_output::Output;
 use gpui::*;
 use gpui_component::{button::*, *};
 use std::path::PathBuf;
@@ -31,9 +31,7 @@ impl AudioApp {
         let is_loaded_for_thread = Arc::clone(&is_loaded);
 
         // Создаём Output один раз при старте
-        let output =
-            Output::new(make_test_config(), make_test_device()).expect("Failed to create Output");
-        let output: Arc<dyn audio_output::AudioOutput> = Arc::new(output);
+        let output = Arc::new(Output::new());
 
         thread::spawn(move || {
             let mut engine: Option<AudioEngine> = None;
@@ -42,8 +40,8 @@ impl AudioApp {
                 match cmd {
                     AudioCommand::Open(path) => {
                         eprintln!("[AudioThread] Open: {:?}", path);
-                        let eng = AudioEngine::new(Arc::clone(&output))
-                            .expect("Failed to create AudioEngine");
+                        let eng =
+                            AudioEngine::new(output.clone()).expect("Failed to create AudioEngine");
                         match eng.load(&path) {
                             Ok(()) => {
                                 // Wait for Loaded event
@@ -52,12 +50,7 @@ impl AudioApp {
                                     for event in eng.events().try_iter() {
                                         if let audio_engine::EngineEvent::Loaded { .. } = event {
                                             loaded = true;
-                                            if let Some(info) = eng.track_info() {
-                                                eprintln!(
-                                                    "[AudioThread] Opened: duration={:?}",
-                                                    info.duration
-                                                );
-                                            }
+
                                             break;
                                         }
                                     }

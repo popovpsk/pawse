@@ -1,6 +1,4 @@
-use rb::{RbConsumer, RbInspector, RbProducer, SpscRb, RB};
-
-pub const BUFFER_CAPACITY: usize = 192_000 * 2 * 1;
+use rb::{RbConsumer, RbError, RbInspector, RbProducer, SpscRb, RB};
 
 /// Lock-free SPSC ring buffer for audio samples
 pub struct AudioRingBuffer {
@@ -17,6 +15,21 @@ impl AudioRingBuffer {
     /// Returns the number of samples actually pushed (may be less if buffer is full)
     pub fn push_slice(&self, samples: &[f32]) -> usize {
         self.rb.producer().write(samples).unwrap_or(0)
+    }
+
+    pub fn write_slice_blocking(&self, samples: &[f32]) -> usize {
+        let result = self
+            .rb
+            .producer()
+            .write_blocking_timeout(samples, std::time::Duration::from_millis(10));
+        match result {
+            Ok(count) => match count {
+                Some(c) => c as usize,
+                None => 0 as usize,
+            },
+            Err(RbError::TimedOut) => 0 as usize,
+            Err(_) => panic!("Unexpected error while writing to audio ring buffer"),
+        }
     }
 
     /// Pop samples from the buffer (consumer side)
@@ -73,12 +86,6 @@ mod tests {
 
         rb.clear();
         assert!(rb.is_empty());
-    }
-
-    #[test]
-    fn test_ring_buffer_capacity() {
-        let rb = AudioRingBuffer::new(BUFFER_CAPACITY);
-        assert_eq!(rb.capacity(), BUFFER_CAPACITY);
     }
 
     #[test]

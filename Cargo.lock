@@ -489,6 +489,7 @@ dependencies = [
  "audio_decoder",
  "audio_output",
  "ringbuf",
+ "tokio",
 ]
 
 [[package]]
