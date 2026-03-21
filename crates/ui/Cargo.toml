@@ -1,12 +1,11 @@
 [package]
-name = "gpui-test"
+name = "ui"
 version.workspace = true
 edition.workspace = true
 publish = false
-license = "MIT"
 
 [[bin]]
-name = "gpui-test"
+name = "ui"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,388 +1,232 @@
-use audio_output::AudioOutput;
+use std::{path::PathBuf, thread};
 
-use crate::types::{Command, EngineEvent, TrackInfo};
-use audio_common::{AudioError, AudioSource};
+use crate::{Command, EngineEvent};
+use audio_common::{AudioBatch, AudioSource};
 use audio_decoder::Decoder;
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use audio_output::{AudioOutput, Output};
+use flume::TryRecvError;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum State {
-    Stopped,
-    Playing,
+#[derive(PartialEq, Eq)]
+enum AudioEngineState {
+    TrackNotSet,
     Paused,
+    Playing,
 }
-
-impl State {
-    fn as_u8(self) -> u8 {
-        match self {
-            State::Stopped => 0,
-            State::Playing => 1,
-            State::Paused => 2,
-        }
-    }
-}
-
 pub struct AudioEngine {
-    command_sender: mpsc::Sender<Command>,
-    position: Arc<AtomicU64>,
-    event_receiver: mpsc::Receiver<EngineEvent>,
-    track_info: Arc<Mutex<Option<TrackInfo>>>,
-    sample_rate: Arc<AtomicU64>,
+    command_sender: flume::Sender<Command>,
+    event_receiver: flume::Receiver<EngineEvent>,
 }
 
 impl AudioEngine {
-    pub fn new(output: Arc<dyn AudioOutput>) -> Result<Self, AudioError> {
-        let (event_tx, event_rx) = mpsc::channel();
+    pub fn new() -> Self {
+        let out = Output::new();
 
-        let state = Arc::new(AtomicU8::new(State::Stopped.as_u8()));
-        let position = Arc::new(AtomicU64::new(0));
-        let sample_rate = Arc::new(AtomicU64::new(44100));
-        let channels = Arc::new(AtomicU64::new(2));
-        let track_info = Arc::new(Mutex::new(None));
+        let (event_sender, event_receiver) = flume::bounded(64);
+        let (command_sender, command_receiver) = flume::bounded(64);
 
-        let (cmd_tx, cmd_rx) = mpsc::channel();
+        AudioEngineLoop {
+            output: out,
+            decoder: None,
+            state: AudioEngineState::TrackNotSet,
+            command_receiver: command_receiver,
+            event_sender: event_sender,
+        }
+        .run();
 
-        let ctx = EngineContext {
-            state: Arc::clone(&state),
-            position: Arc::clone(&position),
-            track_info: Arc::clone(&track_info),
-            sample_rate: Arc::clone(&sample_rate),
-            channels: Arc::clone(&channels),
-        };
-
-        let output_clone = Arc::clone(&output);
-        thread::spawn(move || {
-            run_engine_loop(cmd_rx, event_tx, ctx, output_clone);
-        });
-
-        Ok(Self {
-            command_sender: cmd_tx,
-            position,
-            event_receiver: event_rx,
-            track_info,
-            sample_rate,
-        })
+        Self {
+            command_sender: command_sender,
+            event_receiver: event_receiver,
+        }
     }
 
-    pub fn load(&self, path: &Path) -> Result<(), AudioError> {
-        self.command_sender
-            .send(Command::Load(path.to_path_buf()))
-            .map_err(|_| AudioError::StreamClosed)
-    }
-
-    pub fn track_info(&self) -> Option<TrackInfo> {
-        self.track_info.lock().ok().and_then(|guard| guard.clone())
-    }
-
-    pub fn play(&self) -> Result<(), AudioError> {
-        self.command_sender
-            .send(Command::Play)
-            .map_err(|_| AudioError::StreamClosed)
-    }
-
-    pub fn pause(&self) -> Result<(), AudioError> {
-        self.command_sender
-            .send(Command::Pause)
-            .map_err(|_| AudioError::StreamClosed)
-    }
-
-    pub fn stop(&self) -> Result<(), AudioError> {
-        self.command_sender
-            .send(Command::Stop)
-            .map_err(|_| AudioError::StreamClosed)
-    }
-
-    pub fn seek(&self, position: f32) -> Result<(), AudioError> {
-        self.command_sender
-            .send(Command::Seek(position))
-            .map_err(|_| AudioError::StreamClosed)
-    }
-
-    pub fn position_samples(&self) -> u64 {
-        self.position.load(Ordering::SeqCst)
-    }
-
-    pub fn position(&self) -> Duration {
-        let samples = self.position.load(Ordering::SeqCst);
-        let rate = self.sample_rate.load(Ordering::SeqCst) as f64;
-        Duration::from_secs_f64(samples as f64 / rate)
-    }
-
-    pub fn events(&self) -> &mpsc::Receiver<EngineEvent> {
+    pub fn events(&self) -> &flume::Receiver<EngineEvent> {
         &self.event_receiver
     }
-}
 
-struct EngineContext {
-    state: Arc<AtomicU8>,
-    position: Arc<AtomicU64>,
-    track_info: Arc<Mutex<Option<TrackInfo>>>,
-    sample_rate: Arc<AtomicU64>,
-    channels: Arc<AtomicU64>,
-}
-
-struct PlaybackState<'a> {
-    decoder: &'a mut Option<Box<dyn AudioSource>>,
-    duration: &'a mut Duration,
-    current_position: &'a mut u64,
-    has_started: &'a mut bool,
-    is_playing: &'a mut bool,
-}
-
-fn handle_load(
-    path: &Path,
-    state: &mut PlaybackState,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-    event_tx: &Sender<EngineEvent>,
-) {
-    if state.decoder.is_some() {
-        *state.decoder = None;
+    pub fn pause(&self) {
+        self.send_command(Command::Pause)
     }
-    *state.has_started = false;
 
-    match Decoder::open(path) {
-        Ok(dec) => {
-            let params = dec.params();
-            *state.duration = dec.duration().unwrap_or(Duration::ZERO);
+    pub fn play(&self) {
+        self.send_command(Command::Play)
+    }
 
-            ctx.sample_rate
-                .store(params.sample_rate as u64, Ordering::SeqCst);
-            ctx.channels
-                .store(params.channels_count() as u64, Ordering::SeqCst);
+    pub fn seek(&self, point: f32) {
+        self.send_command(Command::Seek(point))
+    }
 
-            if let Ok(mut guard) = ctx.track_info.lock() {
-                *guard = Some(TrackInfo {
-                    params,
-                    duration: *state.duration,
+    pub fn set_track(&self, path: PathBuf) {
+        self.send_command(Command::SetLocalTrack(path))
+    }
+
+    fn send_command(&self, command: Command) {
+        self.command_sender
+            .send(command)
+            .expect("Failed to send command to audio-engine thread")
+    }
+}
+
+pub struct AudioEngineLoop {
+    output: Output,
+    decoder: Option<Decoder>,
+    state: AudioEngineState,
+    command_receiver: flume::Receiver<Command>,
+    event_sender: flume::Sender<EngineEvent>,
+}
+
+impl AudioEngineLoop {
+    pub fn run(self) {
+        thread::spawn(move || self.run_loop());
+    }
+
+    fn run_loop(mut self) {
+        let mut current_audio_batch: Option<AudioBatch> = None;
+
+        loop {
+            let command = {
+                if self.state == AudioEngineState::Playing {
+                    let command = self.command_receiver.try_recv();
+                    match command {
+                        Ok(c) => Some(c),
+                        Err(err) => match err {
+                            TryRecvError::Disconnected => {
+                                return;
+                            }
+                            TryRecvError::Empty => None,
+                        },
+                    }
+                } else {
+                    let command = self.command_receiver.recv();
+                    match command {
+                        Ok(c) => Some(c),
+                        Err(_) => return, // Disconnected
+                    }
+                }
+            };
+
+            if let Some(command) = command {
+                self.handle_command(command);
+                continue;
+            }
+
+            let batch_to_write = match current_audio_batch {
+                Some(batch) => batch,
+                None => match self.decode_next_batch() {
+                    Some(batch) => batch,
+                    None => continue,
+                },
+            };
+
+            let written = self.output.write(&batch_to_write);
+            if written == batch_to_write.data.len() {
+                current_audio_batch = None;
+            } else {
+                current_audio_batch = Some(AudioBatch {
+                    data: batch_to_write.data.copy_from_offset(written),
+                    metadata: batch_to_write.metadata.clone(),
                 });
             }
-
-            let _ = event_tx.send(EngineEvent::Loaded {
-                params,
-                duration: *state.duration,
-            });
-
-            *state.decoder = Some(Box::new(dec));
-            *state.current_position = 0;
-            ctx.position.store(0, Ordering::SeqCst);
-            ctx.state.store(State::Stopped.as_u8(), Ordering::SeqCst);
-
-            output.clear();
-            output.resume();
-        }
-        Err(e) => {
-            let _ = event_tx.send(EngineEvent::Error(e.to_string()));
         }
     }
-}
 
-/// Предварительная буферизация перед запуском воспроизведения
-fn pre_buffer(
-    decoder: &mut Option<Box<dyn AudioSource>>,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-    current_position: &mut u64,
-) {
-    let Some(ref mut dec) = decoder else {
-        return;
-    };
-
-    for _ in 0..5 {
-        match dec.next_buffer() {
-            Ok(Some(batch)) => {
-                let channels = ctx.channels.load(Ordering::SeqCst) as usize;
-                let samples_len = batch.data.len();
-                output.write(batch);
-                *current_position += samples_len as u64 / channels as u64;
-            }
-            Ok(None) => break,
-            Err(_) => break,
-        }
-    }
-    ctx.position.store(*current_position, Ordering::SeqCst);
-}
-
-fn handle_play(
-    state: &mut PlaybackState,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-    event_tx: &Sender<EngineEvent>,
-) {
-    if state.decoder.is_some() {
-        if !*state.has_started {
-            pre_buffer(state.decoder, ctx, output, state.current_position);
-            *state.has_started = true;
+    fn decode_next_batch(&mut self) -> Option<AudioBatch> {
+        if self.decoder.is_none() {
+            panic!("Decoder not initialized in decode_next_batch");
         }
 
-        *state.is_playing = true;
-        ctx.state.store(State::Playing.as_u8(), Ordering::SeqCst);
-        output.resume();
-        let _ = event_tx.send(EngineEvent::Playing);
-    }
-}
+        let decoder = self.decoder.as_mut().unwrap();
 
-fn handle_pause(
-    is_playing: &mut bool,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-    event_tx: &Sender<EngineEvent>,
-) {
-    *is_playing = false;
-    ctx.state.store(State::Paused.as_u8(), Ordering::SeqCst);
-    output.pause();
-    let _ = event_tx.send(EngineEvent::Paused);
-}
-
-fn handle_stop(
-    state: &mut PlaybackState,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-    event_tx: &Sender<EngineEvent>,
-) {
-    if let Some(ref mut dec) = state.decoder {
-        let _ = dec.seek(Duration::ZERO);
-    }
-    output.clear();
-    *state.current_position = 0;
-    ctx.position.store(0, Ordering::SeqCst);
-    *state.is_playing = false;
-    *state.has_started = false;
-    ctx.state.store(State::Stopped.as_u8(), Ordering::SeqCst);
-    output.pause();
-    let _ = event_tx.send(EngineEvent::Stopped);
-}
-
-fn handle_seek(
-    pos: f32,
-    decoder: &mut Option<Box<dyn AudioSource>>,
-    duration: Duration,
-    current_position: &mut u64,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-) {
-    if let Some(ref mut dec) = decoder {
-        let target = duration.mul_f32(pos);
-        if dec.seek(target).is_ok() {
-            output.clear();
-            *current_position =
-                (target.as_secs_f64() * ctx.sample_rate.load(Ordering::SeqCst) as f64) as u64;
-            ctx.position.store(*current_position, Ordering::SeqCst);
-        }
-    }
-}
-
-/// Обработка воспроизведения: декодирование и запись в output
-fn process_playback(
-    decoder: &mut Option<Box<dyn AudioSource>>,
-    is_playing: &mut bool,
-    current_position: &mut u64,
-    ctx: &EngineContext,
-    output: &Arc<dyn AudioOutput>,
-    event_tx: &Sender<EngineEvent>,
-) {
-    let Some(ref mut dec) = decoder else {
-        return;
-    };
-
-    match dec.next_buffer() {
-        Ok(Some(batch)) => {
-            let channels = ctx.channels.load(Ordering::SeqCst) as usize;
-            let written = batch.data.len();
-            output.write(batch);
-            if written > 0 {
-                *current_position += written as u64 / channels as u64;
-                ctx.position.store(*current_position, Ordering::SeqCst);
-            }
-        }
-        Ok(None) => {
-            *is_playing = false;
-            ctx.state.store(State::Stopped.as_u8(), Ordering::SeqCst);
-            let _ = event_tx.send(EngineEvent::TrackEnded);
-            output.pause();
-        }
-        Err(e) => {
-            let _ = event_tx.send(EngineEvent::Error(e.to_string()));
-            *is_playing = false;
-        }
-    }
-}
-
-/// Главный цикл движка: обработка команд и воспроизведение
-fn run_engine_loop(
-    command_rx: Receiver<Command>,
-    event_tx: Sender<EngineEvent>,
-    ctx: EngineContext,
-    output: Arc<dyn AudioOutput>,
-) {
-    let mut decoder: Option<Box<dyn AudioSource>> = None;
-    let mut duration = Duration::ZERO;
-    let mut current_position: u64 = 0;
-    let mut is_playing = false;
-    let mut has_started = false;
-    let mut last_position_update = Instant::now();
-
-    macro_rules! make_state {
-        () => {
-            PlaybackState {
-                decoder: &mut decoder,
-                duration: &mut duration,
-                current_position: &mut current_position,
-                has_started: &mut has_started,
-                is_playing: &mut is_playing,
+        let next_buffer = decoder.next_buffer();
+        let next_buffer = match next_buffer {
+            Ok(buffer) => buffer,
+            Err(err) => {
+                self.state = AudioEngineState::TrackNotSet;
+                _ = self.event_sender.send(EngineEvent::Error(err.to_string()));
+                return None;
             }
         };
+
+        let next_buffer = match next_buffer {
+            Some(buffer) => buffer,
+            None => {
+                self.state = AudioEngineState::TrackNotSet;
+                _ = self.event_sender.send(EngineEvent::TrackEnded);
+                return None;
+            }
+        };
+
+        Some(next_buffer)
     }
 
-    loop {
-        while let Ok(cmd) = command_rx.try_recv() {
-            match cmd {
-                Command::Load(path) => {
-                    handle_load(&path, &mut make_state!(), &ctx, &output, &event_tx);
-                }
-                Command::Play => {
-                    handle_play(&mut make_state!(), &ctx, &output, &event_tx);
-                }
-                Command::Pause => handle_pause(&mut is_playing, &ctx, &output, &event_tx),
-                Command::Stop => {
-                    handle_stop(&mut make_state!(), &ctx, &output, &event_tx);
-                }
-                Command::Seek(pos) => handle_seek(
-                    pos,
-                    &mut decoder,
-                    duration,
-                    &mut current_position,
-                    &ctx,
-                    &output,
-                ),
+    fn handle_command(&mut self, command: Command) {
+        match command {
+            Command::Play => self.handle_play(),
+            Command::Pause => self.handle_pause(),
+            Command::Seek(position) => self.handle_seek(position),
+            Command::SetVolume(volume) => self.handle_set_volume(volume),
+            Command::SetLocalTrack(path) => self.handle_set_local_track(path),
+        }
+    }
+
+    fn handle_set_local_track(&mut self, path: PathBuf) {
+        self.decoder = None;
+        let decoder = match Decoder::open(path.as_path()) {
+            Ok(decoder) => decoder,
+            Err(_) => {
+                self.handle_pause();
+                self.state = AudioEngineState::TrackNotSet;
+                self.decoder = None;
+                return; //ToDo notification
+            }
+        };
+
+        self.decoder = Some(decoder);
+        match self.state {
+            AudioEngineState::TrackNotSet => self.state = AudioEngineState::Playing,
+            AudioEngineState::Paused => {}
+            AudioEngineState::Playing => {}
+        }
+    }
+
+    fn handle_seek(&mut self, position: f32) {
+        match self.state {
+            AudioEngineState::Paused | AudioEngineState::Playing => {
+                let decoder = self.decoder.as_mut().unwrap();
+                decoder.seek(position).unwrap();
+            }
+            AudioEngineState::TrackNotSet => {
+                panic!("No track set!");
             }
         }
+    }
 
-        if is_playing {
-            process_playback(
-                &mut decoder,
-                &mut is_playing,
-                &mut current_position,
-                &ctx,
-                &output,
-                &event_tx,
-            );
+    fn handle_set_volume(&mut self, volume: u8) {
+        self.output.set_volume(volume);
+    }
+
+    fn handle_play(&mut self) {
+        match self.state {
+            AudioEngineState::Playing => self.output.resume(),
+            AudioEngineState::TrackNotSet => {
+                panic!("No track set!");
+            }
+            AudioEngineState::Paused => {
+                self.state = AudioEngineState::Playing;
+                self.output.resume()
+            }
         }
+    }
 
-        if last_position_update.elapsed() >= Duration::from_secs(1) {
-            let pos = Duration::from_secs_f64(
-                current_position as f64 / ctx.sample_rate.load(Ordering::SeqCst) as f64,
-            );
-            let _ = event_tx.send(EngineEvent::PositionChanged(pos));
-            last_position_update = Instant::now();
+    fn handle_pause(&mut self) {
+        match self.state {
+            AudioEngineState::Paused => {
+                return;
+            }
+            AudioEngineState::Playing => {
+                self.state = AudioEngineState::Paused;
+                self.output.pause();
+            }
+            AudioEngineState::TrackNotSet => {}
         }
-
-        let sleep_time = if is_playing { 5 } else { 50 };
-        thread::sleep(Duration::from_millis(sleep_time));
     }
 }
