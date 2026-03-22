@@ -100,7 +100,7 @@ impl OutputStream {
             state,
             _stream: output_stream,
             config: output_config,
-            volume: volume,
+            volume,
         })
     }
 }
@@ -108,7 +108,7 @@ impl OutputStream {
 impl AudioOutput for OutputStream {
     fn write(&self, samples: &AudioBatch) -> usize {
         if self.state.load(Ordering::Relaxed) != STATE_PLAYING {
-            return 0 as usize;
+            return 0;
         }
 
         let f32_samples = samples.data.to_f32();
@@ -141,7 +141,7 @@ impl AudioOutput for OutputStream {
     }
 
     fn set_volume(&self, value: f32) {
-        if value > 1.0 || value < 0.0 {
+        if !(0.0..=1.0).contains(&value) {
             panic!("Volume must be between 0.0 and 1.0");
         }
 

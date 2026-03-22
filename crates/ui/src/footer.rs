@@ -10,12 +10,10 @@ pub struct Footer {
 
 impl Footer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let this = Self {
+        Self {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
             volume_slider: cx.new(|cx| Volume::new(window, cx)),
-        };
-
-        this
+        }
     }
 }
 

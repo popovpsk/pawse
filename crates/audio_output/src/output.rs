@@ -76,6 +76,12 @@ impl Output {
     }
 }
 
+impl Default for Output {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn is_stream_config_equal(stream: &OutputStream, metadata: &Metadata) -> bool {
     stream.config.bit_depth == metadata.bit_depth
         && stream.config.sample_rate == metadata.sample_rate

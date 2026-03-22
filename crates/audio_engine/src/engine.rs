@@ -26,14 +26,14 @@ impl AudioEngine {
             output: out,
             decoder: None,
             state: AudioEngineState::TrackNotSet,
-            command_receiver: command_receiver,
-            event_sender: event_sender,
+            command_receiver,
+            event_sender,
         }
         .run();
 
         Self {
-            command_sender: command_sender,
-            event_receiver: event_receiver,
+            command_sender,
+            event_receiver,
         }
     }
 

@@ -21,13 +21,11 @@ impl EngineManager {
 
         audio_engine.set_track(audio_path());
 
-        let result = Self {
+        Self {
             audio_engine,
             _event_sender: event_sender,
             _event_receiver: event_receiver,
-        };
-
-        result
+        }
     }
 
     pub fn start(self, cx: &mut App) -> Self {
@@ -39,7 +37,7 @@ impl EngineManager {
                 Ok(event) => {
                     match event.clone() {
                         EngineEvent::Error(err) => {
-                            io::stderr().write(err.as_bytes()).unwrap();
+                            io::stderr().write_all(err.as_bytes()).unwrap();
                         }
                         _ => {
                             println!("EngineManager recevied event: {:?}", event)

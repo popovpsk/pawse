@@ -23,11 +23,8 @@ impl AudioRingBuffer {
             .producer()
             .write_blocking_timeout(samples, std::time::Duration::from_millis(10));
         match result {
-            Ok(count) => match count {
-                Some(c) => c as usize,
-                None => 0 as usize,
-            },
-            Err(RbError::TimedOut) => 0 as usize,
+            Ok(count) => count.unwrap_or_default(),
+            Err(RbError::TimedOut) => 0,
             Err(_) => panic!("Unexpected error while writing to audio ring buffer"),
         }
     }

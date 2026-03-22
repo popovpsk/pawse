@@ -50,9 +50,6 @@ impl Volume {
         })
         .detach();
 
-        Self {
-            state: state,
-            volume: 0.5,
-        }
+        Self { state, volume: 0.5 }
     }
 }
