@@ -36,9 +36,9 @@ pub trait AudioOutput: Send + Sync {
     fn set_volume(&self, volume: u8);
 }
 
-pub struct SelectedOutputDevice<'a> {
-    pub host: &'a cpal::Host,
-    pub device: &'a cpal::Device,
+pub struct SelectedOutputDevice {
+    pub host: Arc<cpal::Host>,
+    pub device: Arc<cpal::Device>,
 }
 
 pub struct OutputStream {
@@ -164,14 +164,14 @@ impl AudioOutput for OutputStream {
 mod tests {
     use cpal::traits::HostTrait;
 
-    fn make_test_device() -> (cpal::Host, cpal::Device) {
+    fn make_test_device() -> (Arc<cpal::Host>, Arc<cpal::Device>) {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
             .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
             .unwrap();
 
-        return (host, device);
+        return (Arc::new(host), Arc::new(device));
     }
 
     fn make_test_config() -> OutputConfig {
@@ -205,8 +205,8 @@ mod tests {
     fn test_default_output() {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice {
-            host: &h,
-            device: &d,
+            host: h,
+            device: d,
         };
         let output = OutputStream::new(make_test_buffer(), make_test_config(), selected_device);
         assert!(output.is_ok(), "Should create default output");
@@ -216,8 +216,8 @@ mod tests {
     fn test_pause_resume() {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice {
-            host: &h,
-            device: &d,
+            host: h,
+            device: d,
         };
         let output =
             OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
@@ -237,8 +237,8 @@ mod tests {
     fn test_write_when_paused() {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice {
-            host: &h,
-            device: &d,
+            host: h,
+            device: d,
         };
         let output =
             OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
@@ -255,8 +255,8 @@ mod tests {
     fn test_clear() {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice {
-            host: &h,
-            device: &d,
+            host: h,
+            device: d,
         };
         let output =
             OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();

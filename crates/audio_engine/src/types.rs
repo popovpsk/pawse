@@ -19,7 +19,7 @@ pub enum Command {
     SetVolume(u8),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {
     Loaded {
         params: StreamParams,

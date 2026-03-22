@@ -1,5 +1,6 @@
 use gpui::{
-    AppContext, ClickEvent, Context, Entity, IntoElement, ParentElement, Render, Styled, Window,
+    AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
+    Render, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants},
@@ -22,7 +23,7 @@ impl Footer {
 
 impl Render for Footer {
     fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-        h_flex().pb_3().child(self.play_button.clone())
+        h_flex().id("footer").pb_3().child(self.play_button.clone())
     }
 }
 
@@ -36,18 +37,30 @@ pub struct PlayButton {
 
 impl PlayButton {
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        self.state.is_playing = !self.state.is_playing;
         let services = cx.global::<Services>();
-        services.audio_engine.play();
+        if self.state.is_playing {
+            services.engine_manager.pause();
+        } else {
+            services.engine_manager.play();
+        }
+        self.state.is_playing = !self.state.is_playing;
         cx.notify();
     }
 }
 
 impl Render for PlayButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Button::new("play")
+        let label = {
+            if !self.state.is_playing {
+                "▶"
+            } else {
+                "⏸"
+            }
+        };
+
+        Button::new("play_button")
             .primary()
-            .label("▶")
+            .label(label)
             .tooltip("play")
             .w_9()
             .h_9()

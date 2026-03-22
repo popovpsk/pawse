@@ -1,13 +1,14 @@
-use audio_engine::AudioEngine;
+use audio_engine::{AudioEngine, EngineEvent};
+use audio_output::Output;
 use std::path::PathBuf;
-use std::thread;
+use std::sync::Arc;
 
 fn main() {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("..");
     path.push("..");
     path.push("fixtures");
-    path.push("1khz_16_44_1.wav");
+    path.push("sine_440_16_44_stereo.wav");
 
     if !path.exists() {
         eprintln!("File not found: {:?}", path);
@@ -16,8 +17,10 @@ fn main() {
 
     println!("Opening: {:?}", path);
 
-    let engine = AudioEngine::new();
+    let engine = AudioEngine::new(Arc::new(Output::new()));
+    let events = engine.events();
     engine.set_track(path);
     engine.play();
-    thread::sleep(std::time::Duration::from_secs(3));
+    let event = events.recv().unwrap();
+    debug_assert!(event == EngineEvent::TrackEnded);
 }

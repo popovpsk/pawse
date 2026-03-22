@@ -1,53 +1,62 @@
 pub mod output_stream;
 pub mod ring_buffer;
 
-use std::{
-    sync::{Arc, RwLock},
-    u8,
-};
+use std::sync::Arc;
 
-use anyhow::Context;
 use audio_common::{AudioBatch, AudioError, Metadata};
 use cpal::traits::HostTrait;
 pub use output_stream::{AudioOutput, OutputConfig, OutputStream, SelectedOutputDevice};
+use parking_lot::RwLock;
 
 use crate::ring_buffer::AudioRingBuffer;
 
 pub struct Output {
-    host: cpal::Host,
-    device: cpal::Device,
-    stream: RwLock<Option<OutputStream>>,
+    host: Arc<cpal::Host>,
+    device: Arc<cpal::Device>,
+    stream: RwLock<OutputStream>,
 }
 
-const BUFFER_DURATION_MS: u32 = 128;
-
 fn calc_buffer_size(cfg: &OutputConfig) -> usize {
-    (cfg.bit_depth as usize)
-        * (cfg.channels as usize)
-        * (cfg.sample_rate as usize)
-        * (BUFFER_DURATION_MS as usize)
-        / 8
+    (cfg.bit_depth / 8) as usize // at bytes
+        * cfg.channels as usize
+        * (cfg.sample_rate / 8/*1/8=125ms */) as usize
 }
 
 impl Output {
     pub fn new() -> Self {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
-            .unwrap();
+        let host = Arc::new(cpal::default_host());
+        let device = Arc::new(
+            host.default_output_device()
+                .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
+                .unwrap(),
+        );
+
+        let selected_output_device = SelectedOutputDevice {
+            host: host.clone(),
+            device: device.clone(),
+        };
+
+        let output_config = OutputConfig {
+            sample_rate: 44100,
+            channels: 2,
+            bit_depth: 16,
+        };
+        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&output_config)));
 
         Self {
             host,
             device,
-            stream: RwLock::new(None),
+            stream: RwLock::new(
+                OutputStream::new(buffer.clone(), output_config, selected_output_device)
+                    .expect("Failed to create audio output stream"),
+            ),
         }
     }
 
     fn recreate_stream(&self, metadata: Metadata) {
         let device = SelectedOutputDevice {
-            host: &self.host,
-            device: &self.device,
+            host: self.host.clone(),
+            device: self.device.clone(),
         };
 
         let output_config = OutputConfig {
@@ -58,12 +67,12 @@ impl Output {
 
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&output_config)));
 
-        //ToDo: wait and stop current stream here.
+        //ToDo: wait current stream here.
 
         let stream = OutputStream::new(buffer.clone(), output_config, device)
-            .context("recreate_stream")
-            .unwrap();
-        self.stream.write().unwrap().replace(stream);
+            .expect("Failed to create new audio output stream");
+        let mut guarded = self.stream.write();
+        *guarded = stream;
     }
 }
 
@@ -76,45 +85,34 @@ fn is_stream_config_equal(stream: &OutputStream, metadata: &Metadata) -> bool {
 impl AudioOutput for Output {
     fn write(&self, batch: &AudioBatch) -> usize {
         let needs_recreate = {
-            let stream = self.stream.read().unwrap();
-            stream.is_none() || !is_stream_config_equal(stream.as_ref().unwrap(), &batch.metadata)
+            let stream = self.stream.read();
+            !is_stream_config_equal(&stream, &batch.metadata)
         };
 
         if needs_recreate {
             self.recreate_stream(batch.metadata.clone());
         }
 
-        self.stream.read().unwrap().as_ref().unwrap().write(batch)
+        self.stream.read().write(batch)
     }
 
     fn clear(&self) {
-        if let Some(ref s) = *self.stream.read().unwrap() {
-            s.clear();
-        }
+        self.stream.read().clear()
     }
 
     fn pause(&self) {
-        if let Some(ref s) = *self.stream.read().unwrap() {
-            s.pause();
-        }
+        self.stream.read().pause()
     }
 
     fn resume(&self) {
-        if let Some(ref s) = *self.stream.read().unwrap() {
-            s.resume();
-        }
+        self.stream.read().resume()
     }
 
     fn set_volume(&self, volume: u8) {
-        if let Some(ref s) = *self.stream.read().unwrap() {
-            s.set_volume(volume);
-        }
+        self.stream.read().set_volume(volume)
     }
 
     fn is_playing(&self) -> bool {
-        if let Some(ref s) = *self.stream.read().unwrap() {
-            return s.is_playing();
-        }
-        false
+        self.stream.read().is_playing()
     }
 }

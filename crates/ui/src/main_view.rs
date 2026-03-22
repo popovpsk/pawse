@@ -1,4 +1,6 @@
-use gpui::{div, AppContext, Context, Entity, ParentElement, Render, Styled, Window};
+use gpui::{
+    div, AppContext, Context, Entity, InteractiveElement, ParentElement, Render, Styled, Window,
+};
 use gpui_component::StyledExt;
 
 use crate::footer::Footer;
@@ -22,6 +24,7 @@ impl Render for MainView {
         _: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         div()
+            .id("main_view")
             .v_flex()
             .gap_4()
             .size_full()

@@ -10,6 +10,7 @@ anyhow = { workspace = true }
 
 cpal = "0.17.3"
 rb = "0.4"
+parking_lot = "0.12.5"
 
 [lib]
 path = "src/output.rs"

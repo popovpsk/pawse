@@ -1,11 +1,10 @@
-use std::path::PathBuf;
 
 use gpui::*;
 use gpui_component::*;
 
 use crate::{
     main_view::MainView,
-    services::Services,
+    services::{run_engine_events_bus, Services},
 };
 
 pub mod footer;
@@ -170,10 +169,6 @@ pub mod services;
 //     }
 // }
 
-fn audio_path() -> PathBuf {
-    PathBuf::from("/Users/popovaleksa/repo/other/gpui-test/fixtures/02 - Selfless.flac")
-}
-
 fn main() {
     let app = Application::new();
 
@@ -189,21 +184,12 @@ fn main() {
         };
         let services = Services::initialize(cx);
 
-        let audio_engine = services.audio_engine.clone();
+        let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
-
-        audio_engine.set_track(audio_path());
-
         cx.set_global(services);
 
         cx.spawn(async move |cx| {
-            let rx = audio_engine.events();
-            while let Ok(event) = rx.recv_async().await {
-                cx.update(|cx| {
-                    engine_event_bus.update(cx, |_, cx| cx.emit(event));
-                })
-                .ok();
-            }
+            run_engine_events_bus(cx, engine_manager, engine_event_bus).await;
         })
         .detach();
 

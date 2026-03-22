@@ -1,4 +1,4 @@
-use std::{path::PathBuf, thread};
+use std::{path::PathBuf, sync::Arc, thread};
 
 use crate::{Command, EngineEvent};
 use audio_common::{AudioBatch, AudioSource};
@@ -6,7 +6,7 @@ use audio_decoder::Decoder;
 use audio_output::{AudioOutput, Output};
 use flume::TryRecvError;
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum AudioEngineState {
     TrackNotSet,
     Paused,
@@ -18,9 +18,7 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub fn new() -> Self {
-        let out = Output::new();
-
+    pub fn new(out: Arc<Output>) -> Self {
         let (event_sender, event_receiver) = flume::bounded(64);
         let (command_sender, command_receiver) = flume::bounded(64);
 
@@ -39,8 +37,8 @@ impl AudioEngine {
         }
     }
 
-    pub fn events(&self) -> &flume::Receiver<EngineEvent> {
-        &self.event_receiver
+    pub fn events(&self) -> flume::Receiver<EngineEvent> {
+        self.event_receiver.clone()
     }
 
     pub fn pause(&self) {
@@ -59,7 +57,7 @@ impl AudioEngine {
         self.send_command(Command::SetLocalTrack(path))
     }
 
-    fn send_command(&self, command: Command) {
+    pub fn send_command(&self, command: Command) {
         self.command_sender
             .send(command)
             .expect("Failed to send command to audio-engine thread")
@@ -67,7 +65,7 @@ impl AudioEngine {
 }
 
 pub struct AudioEngineLoop {
-    output: Output,
+    output: Arc<Output>,
     decoder: Option<Decoder>,
     state: AudioEngineState,
     command_receiver: flume::Receiver<Command>,
@@ -140,7 +138,7 @@ impl AudioEngineLoop {
         let next_buffer = match next_buffer {
             Ok(buffer) => buffer,
             Err(err) => {
-                self.state = AudioEngineState::TrackNotSet;
+                self.set_state(AudioEngineState::TrackNotSet);
                 _ = self.event_sender.send(EngineEvent::Error(err.to_string()));
                 return None;
             }
@@ -149,7 +147,7 @@ impl AudioEngineLoop {
         let next_buffer = match next_buffer {
             Some(buffer) => buffer,
             None => {
-                self.state = AudioEngineState::TrackNotSet;
+                self.set_state(AudioEngineState::TrackNotSet);
                 _ = self.event_sender.send(EngineEvent::TrackEnded);
                 return None;
             }
@@ -174,7 +172,7 @@ impl AudioEngineLoop {
             Ok(decoder) => decoder,
             Err(_) => {
                 self.handle_pause();
-                self.state = AudioEngineState::TrackNotSet;
+                self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
                 return; //ToDo notification
             }
@@ -182,7 +180,7 @@ impl AudioEngineLoop {
 
         self.decoder = Some(decoder);
         match self.state {
-            AudioEngineState::TrackNotSet => self.state = AudioEngineState::Playing,
+            AudioEngineState::TrackNotSet => self.set_state(AudioEngineState::Paused),
             AudioEngineState::Paused => {}
             AudioEngineState::Playing => {}
         }
@@ -206,12 +204,14 @@ impl AudioEngineLoop {
 
     fn handle_play(&mut self) {
         match self.state {
-            AudioEngineState::Playing => self.output.resume(),
+            AudioEngineState::Playing => {
+                panic!("already playing")
+            }
             AudioEngineState::TrackNotSet => {
                 panic!("No track set!");
             }
             AudioEngineState::Paused => {
-                self.state = AudioEngineState::Playing;
+                self.set_state(AudioEngineState::Playing);
                 self.output.resume()
             }
         }
@@ -220,13 +220,18 @@ impl AudioEngineLoop {
     fn handle_pause(&mut self) {
         match self.state {
             AudioEngineState::Paused => {
-                return;
+                panic!("already pausing")
             }
             AudioEngineState::Playing => {
-                self.state = AudioEngineState::Paused;
+                self.set_state(AudioEngineState::Paused);
                 self.output.pause();
             }
             AudioEngineState::TrackNotSet => {}
         }
+    }
+
+    fn set_state(&mut self, state: AudioEngineState) {
+        println!("audio_engine: new state:{:?}", state);
+        self.state = state
     }
 }
