@@ -124,7 +124,7 @@ impl AudioSource for Decoder {
             .channels
             .map(|c: symphonia::core::audio::Channels| ChannelCount::from_u8(c.count() as u8))
             .unwrap_or(ChannelCount::Stereo);
-
+        
         let bit_depth = self.codec_params.bits_per_sample.unwrap_or(32);
 
         StreamParams::new(sample_rate, channels, bit_depth as u8)

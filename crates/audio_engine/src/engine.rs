@@ -161,7 +161,6 @@ impl AudioEngineLoop {
             Command::Play => self.handle_play(),
             Command::Pause => self.handle_pause(),
             Command::Seek(position) => self.handle_seek(position),
-            Command::SetVolume(volume) => self.handle_set_volume(volume),
             Command::SetLocalTrack(path) => self.handle_set_local_track(path),
         }
     }
@@ -196,10 +195,6 @@ impl AudioEngineLoop {
                 panic!("No track set!");
             }
         }
-    }
-
-    fn handle_set_volume(&mut self, volume: u8) {
-        self.output.set_volume(volume);
     }
 
     fn handle_play(&mut self) {

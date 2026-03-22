@@ -1,5 +1,6 @@
 pub use crate::ring_buffer::AudioRingBuffer;
 
+use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamConfig};
@@ -33,7 +34,7 @@ pub trait AudioOutput: Send + Sync {
     fn pause(&self);
     fn resume(&self);
     fn is_playing(&self) -> bool;
-    fn set_volume(&self, volume: u8);
+    fn set_volume(&self, volume: f32);
 }
 
 pub struct SelectedOutputDevice {
@@ -44,28 +45,16 @@ pub struct SelectedOutputDevice {
 pub struct OutputStream {
     buffer: Arc<AudioRingBuffer>,
     state: Arc<AtomicU8>,
-    volume: Arc<AtomicU8>,
+    volume: Arc<AtomicF32>,
     pub config: OutputConfig,
     _stream: Stream,
 }
 
-fn apply_volume(volume: &AtomicU8, b: &mut [f32]) {
+fn apply_volume(volume: &AtomicF32, b: &mut [f32]) {
     let vol = volume.load(Ordering::Relaxed);
-    if vol >= 98 {
-        return;
-    }
-
-    let linear_vol = (vol as f32) / 100.0;
-    let multiplier = {
-        if vol < 10 {
-            linear_vol
-        } else {
-            linear_vol.powi(3)
-        }
-    };
 
     for sample in b {
-        *sample *= multiplier;
+        *sample *= vol;
     }
 }
 
@@ -79,13 +68,13 @@ impl OutputStream {
 
         let buffer_for_callback = buffer.clone();
 
-        let volume = Arc::new(AtomicU8::new(100));
-        let volume_ref = volume.clone();
+        let volume = Arc::new(AtomicF32::new(1.0));
+        let volume_for_callback = volume.clone();
 
         let cpal_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
             let samples_read = buffer_for_callback.pop_slice(data);
 
-            apply_volume(volume_ref.as_ref(), &mut data[samples_read..]);
+            apply_volume(&volume_for_callback, &mut data[..samples_read]);
 
             //ToDo: notification warning
             for sample in &mut data[samples_read..] {
@@ -111,7 +100,7 @@ impl OutputStream {
             state,
             _stream: output_stream,
             config: output_config,
-            volume: volume.clone(),
+            volume: volume,
         })
     }
 }
@@ -151,13 +140,29 @@ impl AudioOutput for OutputStream {
         self.state.load(Ordering::Relaxed) == STATE_PLAYING
     }
 
-    fn set_volume(&self, value: u8) {
-        if value > 100 {
-            panic!("Volume must be between 0 and 100");
+    fn set_volume(&self, value: f32) {
+        if value > 1.0 || value < 0.0 {
+            panic!("Volume must be between 0.0 and 1.0");
         }
 
-        self.volume.store(value, Ordering::SeqCst);
+        let calculated_value = calculate_volume_scaled(value);
+        self.volume.store(calculated_value, Ordering::SeqCst);
     }
+}
+
+fn calculate_volume_scaled(volume: f32) -> f32 {
+    let volume = volume as f64;
+
+    let result = {
+        if volume >= 0.99 {
+            1.0
+        } else if volume > 0.1 {
+            f64::exp(3.91202300543 * volume) / 50.0
+        } else {
+            volume * 0.295751527165
+        }
+    };
+    result as f32
 }
 
 #[cfg(test)]
@@ -204,10 +209,7 @@ mod tests {
     #[test]
     fn test_default_output() {
         let (h, d) = make_test_device();
-        let selected_device = SelectedOutputDevice {
-            host: h,
-            device: d,
-        };
+        let selected_device = SelectedOutputDevice { host: h, device: d };
         let output = OutputStream::new(make_test_buffer(), make_test_config(), selected_device);
         assert!(output.is_ok(), "Should create default output");
     }
@@ -215,10 +217,7 @@ mod tests {
     #[test]
     fn test_pause_resume() {
         let (h, d) = make_test_device();
-        let selected_device = SelectedOutputDevice {
-            host: h,
-            device: d,
-        };
+        let selected_device = SelectedOutputDevice { host: h, device: d };
         let output =
             OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
         output.resume();
@@ -236,10 +235,7 @@ mod tests {
     #[test]
     fn test_write_when_paused() {
         let (h, d) = make_test_device();
-        let selected_device = SelectedOutputDevice {
-            host: h,
-            device: d,
-        };
+        let selected_device = SelectedOutputDevice { host: h, device: d };
         let output =
             OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
         output.pause();
@@ -254,10 +250,7 @@ mod tests {
     #[test]
     fn test_clear() {
         let (h, d) = make_test_device();
-        let selected_device = SelectedOutputDevice {
-            host: h,
-            device: d,
-        };
+        let selected_device = SelectedOutputDevice { host: h, device: d };
         let output =
             OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
         output.resume();

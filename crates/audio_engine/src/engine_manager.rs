@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::{AudioEngine, Command, EngineEvent};
+use crate::{AudioEngine, EngineEvent};
 use gpui::App;
 
 pub struct EngineManager {
@@ -72,10 +72,6 @@ impl EngineManager {
 
     pub fn set_track(&self, path: PathBuf) {
         self.audio_engine.set_track(path);
-    }
-
-    pub fn set_volume(&self, volume: u8) {
-        self.audio_engine.send_command(Command::SetVolume(volume));
     }
 
     pub fn events(&self) -> &flume::Receiver<EngineEvent> {

@@ -108,7 +108,7 @@ impl AudioOutput for Output {
         self.stream.read().resume()
     }
 
-    fn set_volume(&self, volume: u8) {
+    fn set_volume(&self, volume: f32) {
         self.stream.read().set_volume(volume)
     }
 

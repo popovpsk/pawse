@@ -1,6 +1,4 @@
-use gpui::{
-    div, AppContext, Context, Entity, InteractiveElement, ParentElement, Render, Styled, Window,
-};
+use gpui::{div, AppContext, Context, Entity, ParentElement, Render, Styled, Window};
 use gpui_component::StyledExt;
 
 use crate::footer::Footer;
@@ -24,12 +22,12 @@ impl Render for MainView {
         _: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         div()
-            .id("main_view")
             .v_flex()
             .gap_4()
             .size_full()
-            .items_center()
-            .justify_end()
-            .child(self.footer.clone())
+            .items_baseline()
+            .child(div().h_10().ml_4().mr_4().child("header")) //header
+            .child(div().h_full().ml_4().child("center"))
+            .child(div().w_full().child(self.footer.clone()))
     }
 }
