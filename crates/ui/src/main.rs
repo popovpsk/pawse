@@ -1,15 +1,18 @@
+use std::path::PathBuf;
+
 use gpui::*;
 use gpui_component::*;
 
 use crate::{
     main_view::MainView,
-    services::{run_engine_events_bus, Services},
+    services::{Services, run_engine_events_bus},
 };
 
 pub mod footer;
 pub mod main_view;
 pub mod play_button;
 pub mod services;
+pub mod track_progress_slider;
 pub mod volume;
 
 fn main() {
@@ -30,11 +33,7 @@ fn main() {
         let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
         cx.set_global(services);
-
-        cx.spawn(async move |cx| {
-            run_engine_events_bus(cx, engine_manager, engine_event_bus).await;
-        })
-        .detach();
+        let services = cx.global::<Services>();
 
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {
@@ -42,6 +41,20 @@ fn main() {
                 cx.new(|cx| Root::new(view, window, cx))
             })
             .expect("Failed to open window");
+        })
+        .detach();
+
+        cx.spawn(async move |cx| {
+            run_engine_events_bus(cx, engine_manager, engine_event_bus).await;
+        })
+        .detach();
+
+        let engine_manager = services.engine_manager.clone();
+        cx.spawn(async move |_| {
+            let path = PathBuf::from(
+                "/Users/popovaleksa/repo/other/gpui-test/fixtures/02 - Selfless.flac",
+            );
+            engine_manager.set_track(path);
         })
         .detach();
     });

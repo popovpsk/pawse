@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, thread};
+use std::{path::PathBuf, sync::Arc, thread, time::Duration};
 
 use crate::{Command, EngineEvent};
 use audio_common::{AudioBatch, AudioSource};
@@ -12,6 +12,8 @@ enum AudioEngineState {
     Paused,
     Playing,
 }
+
+const POSITION_UPDATE_INTERVAL_MS: u64 = 200;
 pub struct AudioEngine {
     command_sender: flume::Sender<Command>,
     event_receiver: flume::Receiver<EngineEvent>,
@@ -28,6 +30,7 @@ impl AudioEngine {
             state: AudioEngineState::TrackNotSet,
             command_receiver,
             event_sender,
+            last_position_update: Duration::ZERO,
         }
         .run();
 
@@ -70,6 +73,7 @@ pub struct AudioEngineLoop {
     state: AudioEngineState,
     command_receiver: flume::Receiver<Command>,
     event_sender: flume::Sender<EngineEvent>,
+    last_position_update: Duration,
 }
 
 impl AudioEngineLoop {
@@ -79,6 +83,7 @@ impl AudioEngineLoop {
 
     fn run_loop(mut self) {
         let mut current_audio_batch: Option<AudioBatch> = None;
+        let mut elapsed_samples: u64 = 0;
 
         loop {
             let command = {
@@ -124,6 +129,23 @@ impl AudioEngineLoop {
                     metadata: batch_to_write.metadata.clone(),
                 });
             }
+            elapsed_samples += written as u64;
+
+            // Emit position update every second when playing
+            if self.state == AudioEngineState::Playing {
+                let params = batch_to_write.metadata;
+                let elapsed_secs = elapsed_samples as f32 / params.sample_rate as f32;
+                let elapsed_duration = Duration::from_secs_f32(elapsed_secs);
+
+                if elapsed_duration.saturating_sub(self.last_position_update)
+                    >= Duration::from_millis(POSITION_UPDATE_INTERVAL_MS)
+                {
+                    self.last_position_update = elapsed_duration;
+                    _ = self
+                        .event_sender
+                        .send(EngineEvent::PositionChanged(elapsed_duration));
+                }
+            }
         }
     }
 
@@ -167,6 +189,7 @@ impl AudioEngineLoop {
 
     fn handle_set_local_track(&mut self, path: PathBuf) {
         self.decoder = None;
+        self.last_position_update = Duration::ZERO;
         let decoder = match Decoder::open(path.as_path()) {
             Ok(decoder) => decoder,
             Err(_) => {
@@ -178,6 +201,19 @@ impl AudioEngineLoop {
         };
 
         self.decoder = Some(decoder);
+
+        self.event_sender
+            .send(EngineEvent::Loaded {
+                params: self.decoder.as_ref().unwrap().params(),
+                duration: self
+                    .decoder
+                    .as_ref()
+                    .unwrap()
+                    .duration()
+                    .unwrap_or_default(),
+            })
+            .unwrap();
+
         match self.state {
             AudioEngineState::TrackNotSet => self.set_state(AudioEngineState::Paused),
             AudioEngineState::Paused => {}
@@ -190,6 +226,10 @@ impl AudioEngineLoop {
             AudioEngineState::Paused | AudioEngineState::Playing => {
                 let decoder = self.decoder.as_mut().unwrap();
                 decoder.seek(position).unwrap();
+                self.last_position_update = Duration::from_secs_f32(position);
+                _ = self
+                    .event_sender
+                    .send(EngineEvent::PositionChanged(self.last_position_update));
             }
             AudioEngineState::TrackNotSet => {
                 panic!("No track set!");

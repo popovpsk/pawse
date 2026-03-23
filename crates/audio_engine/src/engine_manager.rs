@@ -11,15 +11,9 @@ pub struct EngineManager {
     _event_receiver: flume::Receiver<EngineEvent>,
 }
 
-fn audio_path() -> PathBuf {
-    PathBuf::from("/Users/popovaleksa/repo/other/gpui-test/fixtures/02 - Selfless.flac")
-}
-
 impl EngineManager {
     pub fn new(audio_engine: Rc<AudioEngine>) -> Self {
         let (event_sender, event_receiver) = flume::bounded(64);
-
-        audio_engine.set_track(audio_path());
 
         Self {
             audio_engine,
@@ -32,24 +26,26 @@ impl EngineManager {
         let rx = self.audio_engine.events();
         let tx = self._event_sender.clone();
 
-        cx.spawn(async move |_| loop {
-            match rx.recv_async().await {
-                Ok(event) => {
-                    match event.clone() {
-                        EngineEvent::Error(err) => {
-                            io::stderr().write_all(err.as_bytes()).unwrap();
-                        }
-                        _ => {
-                            println!("EngineManager recevied event: {:?}", event)
-                        }
-                    };
+        cx.spawn(async move |_| {
+            loop {
+                match rx.recv_async().await {
+                    Ok(event) => {
+                        match event.clone() {
+                            EngineEvent::Error(err) => {
+                                io::stderr().write_all(err.as_bytes()).unwrap();
+                            }
+                            _ => {
+                                println!("EngineManager recevied event: {:?}", event)
+                            }
+                        };
 
-                    tx.send(event).expect("EngineManager:event_loop:tx.send");
+                        tx.send(event).expect("EngineManager:event_loop:tx.send");
+                    }
+                    Err(err) => panic!(
+                        "EngineManager:event_loop:engine_event_rx.recv_async: {}",
+                        err
+                    ),
                 }
-                Err(err) => panic!(
-                    "EngineManager:event_loop:engine_event_rx.recv_async: {}",
-                    err
-                ),
             }
         })
         .detach();
