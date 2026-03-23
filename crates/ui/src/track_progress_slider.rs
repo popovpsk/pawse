@@ -1,6 +1,7 @@
 use audio_engine::EngineEvent;
 use gpui::{
     AppContext, Context, Entity, EventEmitter, ParentElement, Render, Styled, Subscription, Window,
+    div,
 };
 use gpui_component::{
     h_flex,
@@ -44,8 +45,11 @@ impl TrackProgressSlider {
                         cx.notify();
                     }
                     EngineEvent::PositionChanged(position) => {
-                        this.current_position_secs = position.as_secs_f32();
-                        cx.notify();
+                        let new_position = position.as_secs_f32();
+                        if new_position != this.current_position_secs {
+                            this.current_position_secs = new_position;
+                            cx.notify();
+                        }
                     }
                     _ => {}
                 },
@@ -101,8 +105,12 @@ impl Render for TrackProgressSlider {
             .gap_3()
             .items_center()
             .w_full()
-            .child(Self::format_time(self.current_position_secs))
+            .child(
+                div()
+                    .w_20()
+                    .child(Self::format_time(self.current_position_secs)),
+            )
             .child(h_flex().w_full().child(Slider::new(&self.slider_state)))
-            .child(Self::format_time(self.duration_secs))
+            .child(div().w_20().child(Self::format_time(self.duration_secs)))
     }
 }

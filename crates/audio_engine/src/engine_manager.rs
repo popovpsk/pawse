@@ -34,6 +34,7 @@ impl EngineManager {
                             EngineEvent::Error(err) => {
                                 io::stderr().write_all(err.as_bytes()).unwrap();
                             }
+                            EngineEvent::PositionChanged(_) => {}
                             _ => {
                                 println!("EngineManager recevied event: {:?}", event)
                             }

@@ -14,6 +14,7 @@ enum AudioEngineState {
 }
 
 const POSITION_UPDATE_INTERVAL_MS: u64 = 200;
+
 pub struct AudioEngine {
     command_sender: flume::Sender<Command>,
     event_receiver: flume::Receiver<EngineEvent>,
@@ -31,6 +32,7 @@ impl AudioEngine {
             command_receiver,
             event_sender,
             last_position_update: Duration::ZERO,
+            current_position: Duration::ZERO,
         }
         .run();
 
@@ -67,13 +69,14 @@ impl AudioEngine {
     }
 }
 
-pub struct AudioEngineLoop {
+struct AudioEngineLoop {
     output: Arc<Output>,
     decoder: Option<Decoder>,
     state: AudioEngineState,
     command_receiver: flume::Receiver<Command>,
     event_sender: flume::Sender<EngineEvent>,
     last_position_update: Duration,
+    current_position: Duration,
 }
 
 impl AudioEngineLoop {
@@ -83,7 +86,6 @@ impl AudioEngineLoop {
 
     fn run_loop(mut self) {
         let mut current_audio_batch: Option<AudioBatch> = None;
-        let mut elapsed_samples: u64 = 0;
 
         loop {
             let command = {
@@ -129,23 +131,27 @@ impl AudioEngineLoop {
                     metadata: batch_to_write.metadata.clone(),
                 });
             }
-            elapsed_samples += written as u64;
 
-            // Emit position update every second when playing
-            if self.state == AudioEngineState::Playing {
-                let params = batch_to_write.metadata;
-                let elapsed_secs = elapsed_samples as f32 / params.sample_rate as f32;
-                let elapsed_duration = Duration::from_secs_f32(elapsed_secs);
+            self.update_current_position(written, &batch_to_write);
+        }
+    }
 
-                if elapsed_duration.saturating_sub(self.last_position_update)
-                    >= Duration::from_millis(POSITION_UPDATE_INTERVAL_MS)
-                {
-                    self.last_position_update = elapsed_duration;
-                    _ = self
-                        .event_sender
-                        .send(EngineEvent::PositionChanged(elapsed_duration));
-                }
-            }
+    fn update_current_position(&mut self, written: usize, b: &AudioBatch) {
+        let params = &b.metadata;
+        let channels = params.channels.to_u8() as f32;
+        let written_secs = written as f32 / (params.sample_rate as f32 * channels);
+        self.current_position += Duration::from_secs_f32(written_secs);
+
+        if self.state == AudioEngineState::Playing
+            && self
+                .current_position
+                .saturating_sub(self.last_position_update)
+                >= Duration::from_millis(POSITION_UPDATE_INTERVAL_MS)
+        {
+            self.last_position_update = self.current_position;
+            _ = self
+                .event_sender
+                .send(EngineEvent::PositionChanged(self.current_position));
         }
     }
 
@@ -190,6 +196,7 @@ impl AudioEngineLoop {
     fn handle_set_local_track(&mut self, path: PathBuf) {
         self.decoder = None;
         self.last_position_update = Duration::ZERO;
+        self.current_position = Duration::ZERO;
         let decoder = match Decoder::open(path.as_path()) {
             Ok(decoder) => decoder,
             Err(_) => {
@@ -226,10 +233,13 @@ impl AudioEngineLoop {
             AudioEngineState::Paused | AudioEngineState::Playing => {
                 let decoder = self.decoder.as_mut().unwrap();
                 decoder.seek(position).unwrap();
-                self.last_position_update = Duration::from_secs_f32(position);
+                let track_duration = decoder.duration().unwrap_or_default();
+                let new_position = track_duration.mul_f32(position);
+                self.current_position = new_position;
+                self.last_position_update = new_position;
                 _ = self
                     .event_sender
-                    .send(EngineEvent::PositionChanged(self.last_position_update));
+                    .send(EngineEvent::PositionChanged(new_position));
             }
             AudioEngineState::TrackNotSet => {
                 panic!("No track set!");
