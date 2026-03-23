@@ -10,9 +10,13 @@ members = [
     "crates/ui"
 ]
 
+default-members = ["crates/ui"]
+
+
 [workspace.package]
+publish = false
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [workspace.dependencies]
 gpui = "0.2.2"

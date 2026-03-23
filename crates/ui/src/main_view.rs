@@ -1,4 +1,4 @@
-use gpui::{div, AppContext, Context, Entity, ParentElement, Render, Styled, Window};
+use gpui::{AppContext, Context, Entity, ParentElement, Render, Styled, Window, div};
 use gpui_component::StyledExt;
 
 use crate::footer::Footer;
@@ -26,7 +26,7 @@ impl Render for MainView {
             .gap_4()
             .size_full()
             .items_baseline()
-            .child(div().h_10().ml_4().mr_4().child("header")) //header
+            .child(div().h_10().ml_4().mr_4().child("header"))
             .child(div().h_full().ml_4().child("center"))
             .child(div().w_full().child(self.footer.clone()))
     }
