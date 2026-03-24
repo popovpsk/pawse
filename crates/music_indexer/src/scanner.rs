@@ -1,95 +1,171 @@
-use crate::error::{IndexerError, Result};
-use crate::metadata::is_audio_file;
-use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
+use std::path::PathBuf;
+use std::thread;
+use std::time::SystemTime;
 
-/// Scans a directory recursively and returns all audio file paths
-pub fn scan_directory(dir_path: &Path) -> Result<Vec<PathBuf>> {
-    if !dir_path.exists() {
-        return Err(IndexerError::InvalidPath(format!(
-            "Directory does not exist: {}",
-            dir_path.to_string_lossy()
-        )));
+use crossbeam_channel::{Receiver, Sender};
+
+pub struct DirEntry {
+    pub path: PathBuf,
+    pub file_name: String,
+    pub is_dir: bool,
+}
+
+pub struct FileRecord {
+    pub path: PathBuf,
+    pub file_name: String,
+    pub size: u64,
+    pub modified: SystemTime,
+}
+
+pub struct Scanner {
+    root_path: PathBuf,
+    num_threads: usize,
+    batch_size: usize,
+}
+
+impl Scanner {
+    pub fn new(root_path: PathBuf, num_threads: usize, batch_size: usize) -> Self {
+        Self {
+            root_path,
+            num_threads,
+            batch_size,
+        }
     }
 
-    if !dir_path.is_dir() {
-        return Err(IndexerError::InvalidPath(format!(
-            "Path is not a directory: {}",
-            dir_path.to_string_lossy()
-        )));
+    pub fn scan(self) {
+        let (entry_tx, entry_rx) = crossbeam_channel::unbounded::<Vec<DirEntry>>();
+        let (record_tx, record_rx) = crossbeam_channel::unbounded::<Vec<FileRecord>>();
+
+        let scanner_handle = self.spawn_scanner_thread(entry_tx);
+        let metadata_handles = self.spawn_metadata_threads(entry_rx, record_tx);
+        let db_handle = self.spawn_db_thread(record_rx);
+
+        let _ = scanner_handle.join();
+        for handle in metadata_handles {
+            let _ = handle.join();
+        }
+        let _ = db_handle.join();
     }
 
-    let mut audio_files = Vec::new();
+    fn spawn_scanner_thread(
+        &self,
+        entry_tx: Sender<Vec<DirEntry>>,
+    ) -> thread::JoinHandle<()> {
+        let root = self.root_path.clone();
 
-    for entry in WalkDir::new(dir_path)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
+        thread::spawn(move || {
+            scan_directory_recursive(root, &entry_tx);
+            drop(entry_tx);
+        })
+    }
 
-        // Skip hidden files and directories
-        if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name.starts_with('.'))
-            .unwrap_or(false)
-        {
-            continue;
+    fn spawn_metadata_threads(
+        &self,
+        entry_rx: Receiver<Vec<DirEntry>>,
+        record_tx: Sender<Vec<FileRecord>>,
+    ) -> Vec<thread::JoinHandle<()>> {
+        let mut handles = Vec::new();
+
+        for _ in 0..self.num_threads {
+            let entry_rx = entry_rx.clone();
+            let record_tx = record_tx.clone();
+            let batch_size = self.batch_size;
+
+            let handle = thread::spawn(move || {
+                metadata_worker_loop(entry_rx, record_tx, batch_size);
+            });
+
+            handles.push(handle);
         }
 
-        // Check if it's a regular file
-        if !path.is_file() {
-            continue;
-        }
+        handles
+    }
 
-        // Check if it's a supported audio format
-        if is_audio_file(path) {
-            // Convert to absolute path
-            if let Ok(abs_path) = path.canonicalize() {
-                audio_files.push(abs_path);
+    fn spawn_db_thread(
+        &self,
+        record_rx: Receiver<Vec<FileRecord>>,
+    ) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            db_worker_loop(record_rx);
+        })
+    }
+}
+
+fn scan_directory_recursive(root: PathBuf, tx: &Sender<Vec<DirEntry>>) {
+    let entries = match std::fs::read_dir(&root) {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+
+    let mut dir_entries = Vec::new();
+    let mut subdirs = Vec::new();
+
+    for entry in entries.flatten() {
+        let is_dir = entry.path().is_dir();
+        let dir_entry = DirEntry {
+            file_name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry.path(),
+            is_dir,
+        };
+
+        if is_dir {
+            subdirs.push(entry.path());
+        }
+        dir_entries.push(dir_entry);
+    }
+
+    if !dir_entries.is_empty() {
+        let _ = tx.send(dir_entries);
+    }
+
+    for subdir in subdirs {
+        scan_directory_recursive(subdir, tx);
+    }
+}
+
+fn metadata_worker_loop(
+    entry_rx: Receiver<Vec<DirEntry>>,
+    record_tx: Sender<Vec<FileRecord>>,
+    batch_size: usize,
+) {
+    let mut batch = Vec::with_capacity(batch_size);
+
+    while let Ok(entries) = entry_rx.recv() {
+        for entry in entries {
+            if !entry.is_dir
+                && let Ok(meta) = std::fs::metadata(&entry.path)
+            {
+                let record = FileRecord {
+                    path: entry.path,
+                    file_name: entry.file_name,
+                    size: meta.len(),
+                    modified: meta.modified().unwrap(),
+                };
+
+                batch.push(record);
+
+                if batch.len() >= batch_size {
+                    let _ = record_tx.send(
+                        std::mem::replace(&mut batch, Vec::with_capacity(batch_size)),
+                    );
+                }
             }
         }
     }
 
-    Ok(audio_files)
+    if !batch.is_empty() {
+        let _ = record_tx.send(batch);
+    }
 }
 
-/// Scans multiple directories and returns all audio file paths
-pub fn scan_directories(dir_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut all_files = Vec::new();
-
-    for dir_path in dir_paths {
-        match scan_directory(dir_path) {
-            Ok(files) => all_files.extend(files),
-            Err(e) => {
-                // Log error but continue with other directories
-                eprintln!("Warning: Failed to scan {:?}: {}", dir_path, e);
-            }
-        }
+fn db_worker_loop(record_rx: Receiver<Vec<FileRecord>>) {
+    while let Ok(batch) = record_rx.recv() {
+        process_batch(batch);
     }
-
-    // Remove duplicates
-    all_files.sort();
-    all_files.dedup();
-
-    Ok(all_files)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_scan_nonexistent_directory() {
-        let result = scan_directory(Path::new("/nonexistent/path/that/does/not/exist"));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_scan_file_instead_of_directory() {
-        // Use /tmp as a test path that should exist
-        let result = scan_directory(Path::new("/etc/hosts"));
-        assert!(result.is_err());
+fn process_batch(batch: Vec<FileRecord>) {
+    for record in batch {
+        println!("Got record: {:?}", record.path);
     }
 }

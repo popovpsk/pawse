@@ -58,6 +58,7 @@ impl EngineManager {
     }
 
     pub fn pause(&self) {
+        //todo баг сделать нормальную паузу. сейчас остается след если перемотать после паузы.
         self.audio_engine.pause();
     }
 
