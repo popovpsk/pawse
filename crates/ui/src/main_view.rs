@@ -2,14 +2,17 @@ use gpui::{AppContext, Context, Entity, ParentElement, Render, Styled, Window, d
 use gpui_component::StyledExt;
 
 use crate::footer::Footer;
+use crate::library_views::library_view::LibraryView;
 
 pub struct MainView {
+    library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
 }
 
 impl MainView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
+            library_view: cx.new(|cx| LibraryView::new(window, cx)),
             footer: cx.new(|cx| Footer::new(window, cx)),
         }
     }
@@ -25,9 +28,7 @@ impl Render for MainView {
             .v_flex()
             .gap_4()
             .size_full()
-            .items_baseline()
-            .child(div().h_10().ml_4().mr_4().child("header"))
-            .child(div().h_full().ml_4().child("center"))
+            .child(div().h_full().ml_4().child(self.library_view.clone()))
             .child(div().w_full().child(self.footer.clone()))
     }
 }

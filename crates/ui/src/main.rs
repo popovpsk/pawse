@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use gpui::*;
 use gpui_component::*;
 
@@ -9,6 +7,8 @@ use crate::{
 };
 
 pub mod footer;
+pub mod library_service;
+pub mod library_views;
 pub mod main_view;
 pub mod play_button;
 pub mod services;
@@ -33,7 +33,6 @@ fn main() {
         let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
         cx.set_global(services);
-        let services = cx.global::<Services>();
 
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {
@@ -46,15 +45,6 @@ fn main() {
 
         cx.spawn(async move |cx| {
             run_engine_events_bus(cx, engine_manager, engine_event_bus).await;
-        })
-        .detach();
-
-        let engine_manager = services.engine_manager.clone();
-        cx.spawn(async move |_| {
-            let path = PathBuf::from(
-                "/Users/popovaleksa/repo/other/gpui-test/fixtures/02 - Selfless.flac",
-            );
-            engine_manager.set_track(path);
         })
         .detach();
     });
