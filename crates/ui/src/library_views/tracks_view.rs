@@ -36,12 +36,13 @@ impl Render for TracksView {
 
         let header = h_flex().px_4().py_2().child(back_button);
 
+        let tracks = self.tracks.clone();
         let tracks_list = v_flex()
             .gap_1()
             .id("tracks_list")
             .overflow_y_scroll()
-            .children(self.tracks.iter().map(|track| {
-                let path = PathBuf::from(&track.path);
+            .children(tracks.iter().enumerate().map(|(index, track)| {
+                let _path = PathBuf::from(&track.path);
                 let track_id = track.id;
                 let track_num_str = track
                     .track_number
@@ -54,6 +55,7 @@ impl Render for TracksView {
                         format!("{:02}:{:02}", secs / 60, secs % 60)
                     })
                     .unwrap_or_default();
+                let tracks_for_click = tracks.clone();
 
                 h_flex()
                     .px_4()
@@ -65,7 +67,13 @@ impl Render for TracksView {
                     .child(div().w_16().child(duration_str))
                     .id(ElementId::Integer(track_id as u64))
                     .on_click(cx.listener(move |_this, _, _, _cx| {
-                        _cx.global::<Services>().engine_manager.set_track(path.clone());
+                        let services = _cx.global::<Services>();
+                        let mut queue = services.playback_queue.borrow_mut();
+                        queue.set_tracks(tracks_for_click.clone());
+                        if let Some(track) = queue.play_track_at(index) {
+                            services.engine_manager.set_track(PathBuf::from(&track.path));
+                            services.engine_manager.play();
+                        }
                     }))
             }));
 

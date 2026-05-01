@@ -156,17 +156,14 @@ impl AudioEngineLoop {
     }
 
     fn decode_next_batch(&mut self) -> Option<AudioBatch> {
-        if self.decoder.is_none() {
-            panic!("Decoder not initialized in decode_next_batch");
-        }
-
-        let decoder = self.decoder.as_mut().unwrap();
+        let decoder = self.decoder.as_mut()?;
 
         let next_buffer = decoder.next_buffer();
         let next_buffer = match next_buffer {
             Ok(buffer) => buffer,
             Err(err) => {
                 self.set_state(AudioEngineState::TrackNotSet);
+                self.decoder = None;
                 _ = self.event_sender.send(EngineEvent::Error(err.to_string()));
                 return None;
             }
@@ -176,6 +173,7 @@ impl AudioEngineLoop {
             Some(buffer) => buffer,
             None => {
                 self.set_state(AudioEngineState::TrackNotSet);
+                self.decoder = None;
                 _ = self.event_sender.send(EngineEvent::TrackEnded);
                 return None;
             }
@@ -226,6 +224,10 @@ impl AudioEngineLoop {
             AudioEngineState::Paused => {}
             AudioEngineState::Playing => {}
         }
+
+        _ = self
+            .event_sender
+            .send(EngineEvent::PositionChanged(Duration::ZERO));
     }
 
     fn handle_seek(&mut self, position: f32) {
@@ -241,35 +243,29 @@ impl AudioEngineLoop {
                     .event_sender
                     .send(EngineEvent::PositionChanged(new_position));
             }
-            AudioEngineState::TrackNotSet => {
-                panic!("No track set!");
-            }
+            AudioEngineState::TrackNotSet => {}
         }
     }
 
     fn handle_play(&mut self) {
         match self.state {
-            AudioEngineState::Playing => {
-                panic!("already playing")
-            }
-            AudioEngineState::TrackNotSet => {
-                panic!("No track set!");
-            }
+            AudioEngineState::Playing => {}
+            AudioEngineState::TrackNotSet => {}
             AudioEngineState::Paused => {
                 self.set_state(AudioEngineState::Playing);
-                self.output.resume()
+                self.output.resume();
+                _ = self.event_sender.send(EngineEvent::Playing);
             }
         }
     }
 
     fn handle_pause(&mut self) {
         match self.state {
-            AudioEngineState::Paused => {
-                panic!("already pausing")
-            }
+            AudioEngineState::Paused => {}
             AudioEngineState::Playing => {
                 self.set_state(AudioEngineState::Paused);
                 self.output.pause();
+                _ = self.event_sender.send(EngineEvent::Paused);
             }
             AudioEngineState::TrackNotSet => {}
         }

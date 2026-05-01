@@ -155,3 +155,11 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 - **Edition**: Rust 2024
 - **Lint**: `#![forbid(unsafe_code)]` at workspace level
 - **Note**: GPUI requires Xcode Metal Toolchain. If `cargo build` fails with "missing Metal Toolchain", run: `xcodebuild -downloadComponent MetalToolchain`
+
+## Playback Queue
+
+- The queue is a UI-side ordered list of `Track`s, decoupled from the library view.
+- Any component can load tracks into the queue (e.g., clicking a track in an album view replaces the queue with that album's tracks).
+- **Previous track behavior**: If more than 3 seconds have elapsed, seek to the start of the current track. Otherwise, go to the previous track in the queue (or seek to start if already at the first track).
+- **Auto-advance**: When the engine emits `TrackEnded`, the footer automatically loads and plays the next track in the queue.
+- **Future**: playlist editing, persistent queues, shuffle/repeat modes.

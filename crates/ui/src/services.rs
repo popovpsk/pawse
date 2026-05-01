@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
 use audio_output::Output;
@@ -12,6 +12,7 @@ pub struct Services {
     pub engine_event_bus: Entity<EngineEventsBus>,
     pub library: Arc<LibraryService>,
     pub library_event_bus: Entity<LibraryEventsBus>,
+    pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
 }
 
 impl Services {
@@ -42,6 +43,7 @@ impl Services {
             engine_event_bus,
             library,
             library_event_bus,
+            playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
         }
     }
 }
