@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use audio_engine::EngineEvent;
-use gpui::{AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div};
+use gpui::{AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div, px};
 use gpui_component::{h_flex, v_flex};
 
 use crate::{next_button::NextButton, play_button::PlayButton, prev_button::PrevButton, track_progress_slider::TrackProgressSlider, volume::Volume};
@@ -43,7 +43,7 @@ impl Footer {
                         services.engine_manager.set_track(path);
                         services.engine_manager.play();
                     } else {
-                        this.track_title = "current track".to_string();
+                        this.track_title.clear();
                         drop(queue);
                         cx.notify();
                     }
@@ -58,7 +58,7 @@ impl Footer {
             next_button: cx.new(|cx| NextButton::new(window, cx)),
             volume_slider: cx.new(|cx| Volume::new(window, cx)),
             track_progress_slider: cx.new(|cx| TrackProgressSlider::new(window, cx)),
-            track_title: "current track".to_string(),
+            track_title: String::new(),
             _subscription: subscription,
         }
     }
@@ -67,20 +67,25 @@ impl Footer {
 impl Render for Footer {
     fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
         h_flex()
-            .pb_3()
             .gap_4()
-            .h_10()
             .w_full()
-            .child(div().ml_4().w_48().child(self.track_title.clone()))
+            .h_full()
+            .items_center()
+            .px_4()
+            .child(
+                div()
+                    .w(px(160.))
+                    .truncate()
+                    .child(self.track_title.clone()),
+            )
             .child(
                 v_flex()
+                    .flex_1()
                     .w_full()
                     .gap_1()
-                    .mb_10()
+                    .items_center()
                     .child(
                         h_flex()
-                            .w_full()
-                            .justify_center()
                             .gap_2()
                             .child(self.prev_button.clone())
                             .child(self.play_button.clone())
@@ -88,11 +93,12 @@ impl Render for Footer {
                     )
                     .child(
                         div()
-                            .pr_5()
-                            .pl_5()
+                            .max_w(px(400.))
+                            .w_full()
+                            .px_4()
                             .child(self.track_progress_slider.clone()),
                     ),
             )
-            .child(div().mr_4().w_56().child(self.volume_slider.clone()))
+            .child(div().w(px(140.)).child(self.volume_slider.clone()))
     }
 }

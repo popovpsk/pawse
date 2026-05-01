@@ -1,5 +1,7 @@
-use gpui::{ClickEvent, Context, ElementId, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window, div};
-use gpui_component::{button::Button, h_flex, v_flex};
+use std::rc::Rc;
+
+use gpui::{ClickEvent, Context, ElementId, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size, Size, Pixels};
+use gpui_component::{button::Button, h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
 
 use crate::library_service::LibraryEvent;
 use crate::services::Services;
@@ -9,9 +11,13 @@ pub struct AlbumSelectedEvent {
     pub album_id: i64,
 }
 
+const ALBUM_ROW_HEIGHT: f32 = 36.;
+
 pub struct AlbumsView {
     albums: Vec<music_library::AlbumSummary>,
     is_scanning: bool,
+    item_sizes: Rc<Vec<Size<Pixels>>>,
+    scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
 }
 
@@ -22,6 +28,7 @@ impl AlbumsView {
         let library = services.library.clone();
 
         let albums = library.albums();
+        let item_sizes = Self::make_item_sizes(&albums);
         let is_scanning = false;
 
         let subscription = cx.subscribe(
@@ -34,6 +41,7 @@ impl AlbumsView {
                 LibraryEvent::ScanComplete => {
                     this.is_scanning = false;
                     this.albums = cx.global::<Services>().library.albums();
+                    this.item_sizes = Self::make_item_sizes(&this.albums);
                     cx.notify();
                 }
                 _ => {}
@@ -43,8 +51,14 @@ impl AlbumsView {
         Self {
             albums,
             is_scanning,
+            item_sizes,
+            scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
         }
+    }
+
+    fn make_item_sizes(albums: &[music_library::AlbumSummary]) -> Rc<Vec<Size<Pixels>>> {
+        Rc::new(vec![size(px(300.), px(ALBUM_ROW_HEIGHT)); albums.len()])
     }
 
     fn on_select_folder(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -64,7 +78,6 @@ impl AlbumsView {
             }
         });
     }
-
 }
 
 impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
@@ -93,27 +106,53 @@ impl Render for AlbumsView {
                 .child(div().px_4().child("Scanning..."));
         }
 
-        let albums_list = v_flex()
-            .gap_1()
-            .id("albums_list")
-            .overflow_y_scroll()
-            .children(self.albums.iter().map(|album| {
-                let album_id = album.id;
-                let year_str = album
-                    .year
-                    .map(|y| format!(" ({})", y))
-                    .unwrap_or_default();
-                div()
-                    .px_4()
-                    .py_2()
-                    .cursor(gpui::CursorStyle::PointingHand)
-                    .child(format!("{}{} - {}", album.artist_name, year_str, album.title))
-                    .id(ElementId::Integer(album_id as u64))
-                    .on_click(cx.listener(move |_this, _, _, _cx| {
-                        _cx.emit(AlbumSelectedEvent { album_id });
-                    }))
-            }));
+        if self.albums.is_empty() {
+            return v_flex()
+                .size_full()
+                .child(header)
+                .child(div().px_4().child("No albums found. Add a music folder to get started."));
+        }
 
-        v_flex().size_full().child(header).child(albums_list)
+        let item_sizes = self.item_sizes.clone();
+        v_flex()
+            .size_full()
+            .child(header)
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "albums_list",
+                    item_sizes,
+                    |view, visible_range, _window, cx| {
+                        visible_range
+                            .map(|ix| {
+                                let album = &view.albums[ix];
+                                let album_id = album.id;
+                                let year_str = album
+                                    .year
+                                    .map(|y| format!(" ({})", y))
+                                    .unwrap_or_default();
+
+                                div()
+                                    .h(px(ALBUM_ROW_HEIGHT))
+                                    .px_4()
+                                    .flex()
+                                    .items_center()
+                                    .cursor(gpui::CursorStyle::PointingHand)
+                                    .hover(|style| style.bg(cx.theme().secondary))
+                                    .child(format!(
+                                        "{}{} - {}",
+                                        album.artist_name, year_str, album.title
+                                    ))
+                                    .id(ElementId::Integer(album_id as u64))
+                                    .on_click(cx.listener(move |_this, _, _, _cx| {
+                                        _cx.emit(AlbumSelectedEvent { album_id });
+                                    }))
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&self.scroll_handle)
+                .flex_1(),
+            )
     }
 }

@@ -7,7 +7,7 @@ use crate::services::Services;
 
 enum LibraryViewState {
     Albums,
-    Tracks(i64),
+    Tracks,
 }
 
 pub struct LibraryView {
@@ -25,8 +25,7 @@ impl LibraryView {
         let album_subscription = cx.subscribe(
             &albums_view,
             |this, _, event: &AlbumSelectedEvent, cx| {
-                this.state = LibraryViewState::Tracks(event.album_id);
-                cx.notify();
+                this.show_tracks(event.album_id, cx);
             },
         );
 
@@ -46,32 +45,37 @@ impl LibraryView {
             _album_subscription: album_subscription,
         }
     }
+
+    fn show_tracks(&mut self, album_id: i64, cx: &mut Context<Self>) {
+        self.state = LibraryViewState::Tracks;
+        let tracks_view = cx.new(|cx| TracksView::new(album_id, cx));
+        let back_subscription = cx.subscribe(
+            &tracks_view,
+            |this, _, _: &BackEvent, cx| {
+                this.state = LibraryViewState::Albums;
+                this.tracks_view = None;
+                this.tracks_subscription = None;
+                cx.notify();
+            },
+        );
+        self.tracks_view = Some(tracks_view);
+        self.tracks_subscription = Some(back_subscription);
+        cx.notify();
+    }
 }
 
 impl Render for LibraryView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         match self.state {
             LibraryViewState::Albums => v_flex()
                 .size_full()
                 .child(self.albums_view.clone()),
-            LibraryViewState::Tracks(album_id) => {
-                if self.tracks_view.is_none() {
-                    let tracks_view = cx.new(|cx| TracksView::new(album_id, window, cx));
-                    let back_subscription = cx.subscribe(
-                        &tracks_view,
-                        |this, _, _: &BackEvent, cx| {
-                            this.state = LibraryViewState::Albums;
-                            this.tracks_view = None;
-                            this.tracks_subscription = None;
-                            cx.notify();
-                        },
-                    );
-                    self.tracks_view = Some(tracks_view);
-                    self.tracks_subscription = Some(back_subscription);
+            LibraryViewState::Tracks => {
+                if let Some(ref tracks_view) = self.tracks_view {
+                    v_flex().size_full().child(tracks_view.clone())
+                } else {
+                    v_flex().size_full()
                 }
-                v_flex()
-                    .size_full()
-                    .child(self.tracks_view.clone().unwrap())
             }
         }
     }

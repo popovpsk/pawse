@@ -1,17 +1,10 @@
 use audio_engine::EngineEvent;
-use gpui::{
-    AppContext, Context, Entity, EventEmitter, ParentElement, Render, Styled, Subscription, Window,
-    div,
-};
-use gpui_component::{
-    h_flex,
-    slider::{Slider, SliderEvent, SliderState},
-};
+use gpui::{Context, ParentElement, Render, Styled, Subscription, Window, div, px, relative};
+use gpui_component::{ActiveTheme, h_flex};
 
 use crate::services::Services;
 
 pub struct TrackProgressSlider {
-    slider_state: Entity<SliderState>,
     duration_secs: f32,
     current_position_secs: f32,
     _subscription: Subscription,
@@ -21,62 +14,25 @@ impl TrackProgressSlider {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
-        let slider_state = cx.new(|_| {
-            SliderState::new()
-                .min(0.0)
-                .max(100.0)
-                .default_value(0.0)
-                .step(0.1)
-        });
-
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { duration, .. } => {
-                        this.duration_secs = duration.as_secs_f32();
-                        this.slider_state.update(cx, |state, _cx| {
-                            *state = SliderState::new()
-                                .min(0.0)
-                                .max(this.duration_secs)
-                                .step(0.1)
-                                .default_value(0.0);
-                        });
+        let subscription = cx.subscribe(
+            &engine_event_bus,
+            |this, _, event: &EngineEvent, cx| match event {
+                EngineEvent::Loaded { duration, .. } => {
+                    this.duration_secs = duration.as_secs_f32();
+                    cx.notify();
+                }
+                EngineEvent::PositionChanged(position) => {
+                    let new_position = position.as_secs_f32();
+                    if new_position != this.current_position_secs {
+                        this.current_position_secs = new_position;
                         cx.notify();
                     }
-                    EngineEvent::PositionChanged(position) => {
-                        let new_position = position.as_secs_f32();
-                        if new_position != this.current_position_secs {
-                            this.current_position_secs = new_position;
-                            cx.notify();
-                        }
-                    }
-                    _ => {}
-                },
-            );
-
-        cx.subscribe(
-            &slider_state,
-            |this, _, event: &SliderEvent, cx| match event {
-                SliderEvent::Change(value) => {
-                    let position = value.start();
-                    this.current_position_secs = position;
-
-                    let services = cx.global::<Services>();
-                    let normalized_position = if this.duration_secs > 0.0 {
-                        position / this.duration_secs
-                    } else {
-                        0.0
-                    };
-
-                    services.engine_manager.seek(normalized_position);
                 }
+                _ => {}
             },
-        )
-        .detach();
+        );
 
         Self {
-            slider_state,
             duration_secs: 0.0,
             current_position_secs: 0.0,
             _subscription: subscription,
@@ -90,16 +46,13 @@ impl TrackProgressSlider {
     }
 }
 
-impl EventEmitter<SliderEvent> for TrackProgressSlider {}
-
 impl Render for TrackProgressSlider {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        let slider_value = self.slider_state.read(cx).value().start();
-        if (slider_value - self.current_position_secs).abs() > 0.01 {
-            self.slider_state.update(cx, |state, cx| {
-                state.set_value(self.current_position_secs, window, cx);
-            });
-        }
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let pct = if self.duration_secs > 0.0 {
+            self.current_position_secs / self.duration_secs
+        } else {
+            0.0
+        };
 
         h_flex()
             .gap_3()
@@ -110,7 +63,20 @@ impl Render for TrackProgressSlider {
                     .w_20()
                     .child(Self::format_time(self.current_position_secs)),
             )
-            .child(h_flex().w_full().child(Slider::new(&self.slider_state)))
+            .child(
+                div()
+                    .flex_1()
+                    .h(px(4.))
+                    .rounded_full()
+                    .bg(cx.theme().muted)
+                    .child(
+                        div()
+                            .h_full()
+                            .w(relative(pct))
+                            .rounded_full()
+                            .bg(cx.theme().foreground),
+                    ),
+            )
             .child(div().w_20().child(Self::format_time(self.duration_secs)))
     }
 }
