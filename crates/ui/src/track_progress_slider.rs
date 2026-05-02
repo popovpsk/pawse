@@ -10,6 +10,7 @@ use crate::services::Services;
 pub struct TrackProgressSlider {
     duration_secs: f32,
     current_position_secs: f32,
+    has_track: bool,
     slider: Entity<Slider>,
     _subscription: Subscription,
     _slider_subscription: Subscription,
@@ -40,58 +41,67 @@ impl TrackProgressSlider {
                 .min(0.0)
                 .max(1.0)
                 .step(0.001)
+                .live_update(false)
+                .disabled(true)
         });
 
         let slider_subscription =
             cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| match event {
                 SliderEvent::Change(value) => {
-                    if this.duration_secs > 0.0 {
-                        let services = cx.global::<Services>();
-                        services.engine_manager.seek(*value);
-                        this.current_position_secs = *value * this.duration_secs;
-                    }
+                    this.current_position_secs = *value * this.duration_secs;
+                    let services = cx.global::<Services>();
+                    services.engine_manager.seek(*value);
                     cx.notify();
                 }
             });
 
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { duration, .. } => {
-                        this.duration_secs = duration.as_secs_f32();
-                        let value = if this.duration_secs > 0.0 {
-                            this.current_position_secs / this.duration_secs
-                        } else {
-                            0.0
-                        };
-                        this.slider.update(cx, |slider, cx| {
-                            slider.set_value_silent(value, cx);
-                        });
-                        cx.notify();
+        let subscription = cx.subscribe(
+            &engine_event_bus,
+            |this, _, event: &EngineEvent, cx| match event {
+                EngineEvent::Loaded { duration, .. } => {
+                    this.duration_secs = duration.as_secs_f32();
+                    this.current_position_secs = 0.0;
+                    this.has_track = true;
+                    this.slider.update(cx, |slider, cx| {
+                        slider.set_value_silent(0.0, cx);
+                        slider.set_disabled(false, cx);
+                    });
+                    cx.notify();
+                }
+                EngineEvent::PositionChanged(position) => {
+                    if !this.has_track || this.slider.read(cx).is_interacting() {
+                        return;
                     }
-                    EngineEvent::PositionChanged(position) => {
-                        let new_position = position.as_secs_f32();
-                        if (new_position - this.current_position_secs).abs() > 0.5 {
-                            this.current_position_secs = new_position;
-                            let value = if this.duration_secs > 0.0 {
-                                new_position / this.duration_secs
-                            } else {
-                                0.0
-                            };
-                            this.slider.update(cx, |slider, cx| {
-                                slider.set_value_silent(value, cx);
-                            });
-                            cx.notify();
-                        }
-                    }
-                    _ => {}
-                },
-            );
+                    let new_position = position.as_secs_f32();
+                    this.current_position_secs = new_position;
+                    let value = if this.duration_secs > 0.0 {
+                        new_position / this.duration_secs
+                    } else {
+                        0.0
+                    };
+                    this.slider.update(cx, |slider, cx| {
+                        slider.set_value_silent(value, cx);
+                    });
+                    cx.notify();
+                }
+                EngineEvent::TrackEnded | EngineEvent::Error(_) => {
+                    this.has_track = false;
+                    this.current_position_secs = 0.0;
+                    this.duration_secs = 0.0;
+                    this.slider.update(cx, |slider, cx| {
+                        slider.set_value_silent(0.0, cx);
+                        slider.set_disabled(true, cx);
+                    });
+                    cx.notify();
+                }
+                _ => {}
+            },
+        );
 
         Self {
             duration_secs: 0.0,
             current_position_secs: 0.0,
+            has_track: false,
             slider,
             _subscription: subscription,
             _slider_subscription: slider_subscription,

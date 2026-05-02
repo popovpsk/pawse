@@ -1,0 +1,12 @@
+[package]
+name = "ui_components"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+gpui.workspace = true
+gpui-component.workspace = true
+
+[lints]
+workspace = true
