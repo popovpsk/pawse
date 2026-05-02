@@ -54,6 +54,8 @@ impl Output {
     }
 
     fn recreate_stream(&self, metadata: Metadata) {
+        let was_playing = self.stream.read().is_playing();
+
         let device = SelectedOutputDevice {
             host: self.host.clone(),
             device: self.device.clone(),
@@ -67,12 +69,16 @@ impl Output {
 
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&output_config)));
 
-        //ToDo: wait current stream here.
-
         let stream = OutputStream::new(buffer.clone(), output_config, device)
             .expect("Failed to create new audio output stream");
+
+        if was_playing {
+            stream.resume();
+        }
+
         let mut guarded = self.stream.write();
-        *guarded = stream;
+        let _old = std::mem::replace(&mut *guarded, stream);
+        drop(_old);
     }
 }
 
