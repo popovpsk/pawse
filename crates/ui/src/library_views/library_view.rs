@@ -25,7 +25,7 @@ impl LibraryView {
         let album_subscription = cx.subscribe(
             &albums_view,
             |this, _, event: &AlbumSelectedEvent, cx| {
-                this.show_tracks(event.album_id, cx);
+                this.show_tracks(event.album.clone(), cx);
             },
         );
 
@@ -46,9 +46,9 @@ impl LibraryView {
         }
     }
 
-    fn show_tracks(&mut self, album_id: i64, cx: &mut Context<Self>) {
+    fn show_tracks(&mut self, album: music_library::AlbumSummary, cx: &mut Context<Self>) {
         self.state = LibraryViewState::Tracks;
-        let tracks_view = cx.new(|cx| TracksView::new(album_id, cx));
+        let tracks_view = cx.new(|cx| TracksView::new(&album, cx));
         let back_subscription = cx.subscribe(
             &tracks_view,
             |this, _, _: &BackEvent, cx| {

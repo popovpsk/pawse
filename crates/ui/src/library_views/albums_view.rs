@@ -10,7 +10,7 @@ use crate::services::Services;
 
 #[derive(Clone, Debug)]
 pub struct AlbumSelectedEvent {
-    pub album_id: i64,
+    pub album: music_library::AlbumSummary,
 }
 
 const ALBUM_ROW_HEIGHT: f32 = 48.;
@@ -128,7 +128,7 @@ impl Render for AlbumsView {
                         visible_range
                             .map(|ix| {
                                 let album = &view.albums[ix];
-                                let album_id = album.id;
+                                let album = album.clone();
                                 let year_str = album
                                     .year
                                     .map(|y| format!(" ({})", y))
@@ -185,9 +185,9 @@ impl Render for AlbumsView {
                                                 album.artist_name, year_str, album.title
                                             ))
                                     )
-                                    .id(ElementId::Integer(album_id as u64))
+                                    .id(ElementId::Integer(album.id as u64))
                                     .on_click(cx.listener(move |_this, _, _, _cx| {
-                                        _cx.emit(AlbumSelectedEvent { album_id });
+                                        _cx.emit(AlbumSelectedEvent { album: album.clone() });
                                     }))
                             })
                             .collect::<Vec<_>>()
