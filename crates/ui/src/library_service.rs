@@ -75,6 +75,10 @@ impl LibraryService {
         self.repo.has_tracks().unwrap_or(false)
     }
 
+    pub fn track_artists(&self, track_id: i64) -> Vec<String> {
+        self.repo.track_artists(track_id).unwrap_or_default()
+    }
+
     pub fn clear_and_rescan(&self, path: PathBuf) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();

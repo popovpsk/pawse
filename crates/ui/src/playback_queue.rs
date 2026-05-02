@@ -45,6 +45,7 @@ impl PlaybackQueue {
             self.current_index = Some(next);
             self.tracks.get(next)
         } else {
+            self.current_index = None;
             None
         }
     }

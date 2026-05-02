@@ -4,7 +4,10 @@ use audio_engine::EngineEvent;
 use gpui::{AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div, px};
 use gpui_component::{h_flex, v_flex};
 
-use crate::{next_button::NextButton, play_button::PlayButton, prev_button::PrevButton, track_progress_slider::TrackProgressSlider, volume::Volume};
+use crate::{
+    next_button::NextButton, now_playing::NowPlaying, play_button::PlayButton,
+    prev_button::PrevButton, track_progress_slider::TrackProgressSlider, volume::Volume,
+};
 use crate::services::Services;
 
 pub struct Footer {
@@ -13,7 +16,7 @@ pub struct Footer {
     next_button: Entity<NextButton>,
     volume_slider: Entity<Volume>,
     track_progress_slider: Entity<TrackProgressSlider>,
-    track_title: String,
+    now_playing: Entity<NowPlaying>,
     _subscription: Subscription,
 }
 
@@ -23,18 +26,8 @@ impl Footer {
 
         let subscription = cx.subscribe(
             &engine_event_bus,
-            |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => {
-                    let services = cx.global::<Services>();
-                    let queue = services.playback_queue.borrow();
-                    this.track_title = queue
-                        .current_track()
-                        .map(|t| t.title.clone())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    drop(queue);
-                    cx.notify();
-                }
-                EngineEvent::TrackEnded => {
+            |_this, _, event: &EngineEvent, cx| {
+                if let EngineEvent::TrackEnded = event {
                     let services = cx.global::<Services>();
                     let mut queue = services.playback_queue.borrow_mut();
                     if let Some(track) = queue.next_track() {
@@ -43,12 +36,10 @@ impl Footer {
                         services.engine_manager.set_track(path);
                         services.engine_manager.play();
                     } else {
-                        this.track_title.clear();
                         drop(queue);
                         cx.notify();
                     }
                 }
-                _ => {}
             },
         );
 
@@ -58,7 +49,7 @@ impl Footer {
             next_button: cx.new(|cx| NextButton::new(window, cx)),
             volume_slider: cx.new(|cx| Volume::new(window, cx)),
             track_progress_slider: cx.new(|cx| TrackProgressSlider::new(window, cx)),
-            track_title: String::new(),
+            now_playing: cx.new(|cx| NowPlaying::new(window, cx)),
             _subscription: subscription,
         }
     }
@@ -72,12 +63,7 @@ impl Render for Footer {
             .h_full()
             .items_center()
             .px_4()
-            .child(
-                div()
-                    .w(px(160.))
-                    .truncate()
-                    .child(self.track_title.clone()),
-            )
+            .child(self.now_playing.clone())
             .child(
                 v_flex()
                     .flex_1()
