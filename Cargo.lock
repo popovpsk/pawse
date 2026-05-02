@@ -6870,6 +6870,15 @@ dependencies = [
  "music_indexer",
  "music_library",
  "rfd",
+ "ui_components",
+]
+
+[[package]]
+name = "ui_components"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui-component",
 ]
 
 [[package]]

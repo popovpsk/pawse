@@ -234,7 +234,10 @@ impl AudioEngineLoop {
         match self.state {
             AudioEngineState::Paused | AudioEngineState::Playing => {
                 let decoder = self.decoder.as_mut().unwrap();
-                decoder.seek(position).unwrap();
+                if let Err(e) = decoder.seek(position) {
+                    eprintln!("Seek error: {}", e);
+                    return;
+                }
                 let track_duration = decoder.duration().unwrap_or_default();
                 let new_position = track_duration.mul_f32(position);
                 self.current_position = new_position;

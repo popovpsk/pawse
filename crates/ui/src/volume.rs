@@ -1,17 +1,15 @@
 use audio_output::AudioOutput;
 use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render, Styled,
-    Window, px,
+    Window, div, px,
 };
-use gpui_component::{
-    h_flex,
-    slider::{Slider, SliderEvent, SliderState},
-};
+use gpui_component::h_flex;
+use ui_components::slider::{Slider, SliderEvent};
 
 use crate::services::Services;
 
 pub struct Volume {
-    state: Entity<SliderState>,
+    slider: Entity<Slider>,
     volume: f32,
 }
 
@@ -21,7 +19,7 @@ impl Render for Volume {
             .id("volume_control")
             .gap_2()
             .child("🔊")
-            .child(Slider::new(&self.state).w(px(100.)))
+            .child(div().w(px(100.)).child(self.slider.clone()))
             .w_full()
             .h_6()
     }
@@ -29,27 +27,19 @@ impl Render for Volume {
 
 impl Volume {
     pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        let state = cx.new(|_| {
-            SliderState::new()
-                .default_value(1.0)
-                .min(0.0)
-                .max(1.0)
-                .step(0.01)
-        });
+        let slider =
+            cx.new(|cx| Slider::new(cx).default_value(1.0).min(0.0).max(1.0).step(0.01));
 
-        cx.subscribe(&state, |this, _, event: &SliderEvent, cx| match event {
+        cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| match event {
             SliderEvent::Change(value) => {
-                let volume_value = value.start();
-                this.volume = volume_value;
-
+                this.volume = *value;
                 let services = cx.global::<Services>();
-                services.output.set_volume(volume_value);
-
+                services.output.set_volume(*value);
                 cx.notify();
             }
         })
         .detach();
 
-        Self { state, volume: 1.0 }
+        Self { slider, volume: 1.0 }
     }
 }

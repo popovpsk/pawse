@@ -7,7 +7,8 @@ members = [
     "crates/audio_engine",
     "crates/music_library",
     "crates/music_indexer",
-    "crates/ui"
+    "crates/ui",
+    "crates/ui_components"
 ]
 
 default-members = ["crates/ui"]

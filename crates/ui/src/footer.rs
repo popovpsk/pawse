@@ -92,10 +92,9 @@ impl Render for Footer {
                             .child(self.next_button.clone()),
                     )
                     .child(
-                        div()
-                            .max_w(px(400.))
+                        h_flex()
                             .w_full()
-                            .px_4()
+                            .px_8()
                             .child(self.track_progress_slider.clone()),
                     ),
             )
