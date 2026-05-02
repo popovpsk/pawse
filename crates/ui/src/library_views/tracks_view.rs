@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::{ClickEvent, Context, ElementId, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px, size, Size, Pixels};
+use gpui::{ClickEvent, Context, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px, size, Size, Pixels};
 use gpui_component::{button::Button, h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
 
 use crate::services::Services;
@@ -21,7 +21,7 @@ impl TracksView {
     pub fn new(album_id: i64, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
         let tracks = services.library.tracks_for_album(album_id);
-        let item_sizes = Rc::new(vec![size(px(300.), px(TRACK_ROW_HEIGHT)); tracks.len()]);
+        let item_sizes = Rc::new(vec![size(px(300.), px(TRACK_ROW_HEIGHT + 1.)); tracks.len()]);
         Self {
             tracks,
             item_sizes,
@@ -78,9 +78,17 @@ impl Render for TracksView {
                                     .unwrap_or_default();
 
                                 h_flex()
+                                    .w_full()
                                     .h(px(TRACK_ROW_HEIGHT))
                                     .px_4()
                                     .gap_2()
+                                    .border_b(px(1.))
+                                    .border_color(Hsla {
+                                        h: 0.,
+                                        s: 0.,
+                                        l: 1.,
+                                        a: 0.1,
+                                    })
                                     .cursor(gpui::CursorStyle::PointingHand)
                                     .hover(|style| style.bg(cx.theme().secondary))
                                     .child(div().w_8().child(track_num_str))

@@ -130,7 +130,15 @@ fn insert_scanned_track(
     }
 
     let album_id = if let Some(ref album_title) = track.album_title {
-        let album_id = repo.upsert_album(album_title, track.year, None)?;
+        let cover_art_path = track
+            .cover_art
+            .as_ref()
+            .and_then(|data| repo.save_cover_art(data).ok());
+        let album_id = repo.upsert_album(
+            album_title,
+            track.year,
+            cover_art_path.as_deref(),
+        )?;
         if !artist_ids.is_empty() {
             repo.set_album_artists(album_id, &artist_ids)?;
         }

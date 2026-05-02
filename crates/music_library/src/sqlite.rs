@@ -386,6 +386,10 @@ impl LibraryRepository for SqliteLibrary {
         tx.commit()?;
         Ok(())
     }
+
+    fn save_cover_art(&self, data: &[u8]) -> Result<String> {
+        save_cover_art(&self.cache_dir(), data)
+    }
 }
 
 fn compute_sort_name(name: &str) -> String {

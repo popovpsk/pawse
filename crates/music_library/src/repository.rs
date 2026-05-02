@@ -18,4 +18,5 @@ pub trait LibraryRepository: Send + Sync {
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;
     fn delete_orphaned_albums_and_artists(&self) -> Result<()>;
+    fn save_cover_art(&self, data: &[u8]) -> Result<String>;
 }
