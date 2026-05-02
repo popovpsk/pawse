@@ -12,7 +12,7 @@ pub struct TrackProgressSlider {
     current_position_secs: f32,
     has_track: bool,
     slider: Entity<Slider>,
-    _subscription: Subscription,
+    _engine_subscription: Subscription,
     _slider_subscription: Subscription,
 }
 
@@ -108,7 +108,7 @@ impl TrackProgressSlider {
             current_position_secs: 0.0,
             has_track: false,
             slider,
-            _subscription: subscription,
+            _engine_subscription: subscription,
             _slider_subscription: slider_subscription,
         }
     }

@@ -147,7 +147,6 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 - **No search UI**: `LibraryRepository::search()` exists but no search input in the UI.
 - **Track title fallback**: If `lofty` finds no title tag, the filename stem is used.
 - **Multiple artists**: `music_indexer` reads `TrackArtists` tag from `lofty`; falls back to single `Artist` tag.
-- **Missing fixtures**: `audio_decoder` tests reference `sine_440_16_44_stereo.wav` and `1khz_16_44_1.wav` which do not exist in `fixtures/`. These tests fail.
 
 ## Build Environment
 

@@ -5,6 +5,8 @@ use gpui::{
 };
 use gpui_component::ActiveTheme;
 
+/// Empty entity used as GPUI drag payload.
+/// GPUI requires a draggable entity type; this invisible Render impl satisfies that.
 #[derive(Clone)]
 struct DragSlider(EntityId);
 
@@ -19,7 +21,10 @@ pub enum SliderEvent {
     Change(f32),
 }
 
-/// A custom horizontal slider component.
+/// Custom horizontal slider with two modes:
+///
+/// - `live_update = true` (default): emits `Change` on every position change (volume slider)
+/// - `live_update = false`: moves visually during drag, emits `Change` only on release (track seek)
 pub struct Slider {
     value: f32,
     min: f32,
@@ -107,10 +112,12 @@ impl Slider {
         self.interacting
     }
 
-    fn update_value_by_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+    /// Update value from mouse position. Returns true if value changed.
+    /// Caller decides whether to emit `SliderEvent::Change` based on `live_update`.
+    fn set_value_from_position(&mut self, position: Point<Pixels>) -> bool {
         let width = self.track_bounds.size.width;
         if width <= px(0.) {
-            return;
+            return false;
         }
 
         let offset_x = position.x - self.track_bounds.left();
@@ -121,27 +128,23 @@ impl Slider {
 
         if new_value != self.value {
             self.value = new_value;
-            cx.emit(SliderEvent::Change(self.value));
-            cx.notify();
+            true
+        } else {
+            false
         }
     }
 
-    fn update_value_visual_by_position(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let width = self.track_bounds.size.width;
-        if width <= px(0.) {
+    /// End the current interaction. Emits `Change` in `live_update = false` mode.
+    /// Guarded by `interacting` flag — safe to call from multiple handlers (deduplication).
+    fn end_interaction(&mut self, cx: &mut Context<Self>) {
+        if !self.interacting {
             return;
         }
-
-        let offset_x = position.x - self.track_bounds.left();
-        let percentage = (offset_x / width).clamp(0.0, 1.0);
-        let raw_value = self.min + percentage * (self.max - self.min);
-        let stepped = (raw_value / self.step).round() * self.step;
-        let new_value = stepped.clamp(self.min, self.max);
-
-        if new_value != self.value {
-            self.value = new_value;
-            cx.notify();
+        self.interacting = false;
+        if !self.live_update {
+            cx.emit(SliderEvent::Change(self.value));
         }
+        cx.notify();
     }
 }
 
@@ -174,10 +177,11 @@ impl Render for Slider {
                         return;
                     }
                     this.interacting = true;
+                    if this.set_value_from_position(event.position) {
+                        cx.notify();
+                    }
                     if this.live_update {
-                        this.update_value_by_position(event.position, cx);
-                    } else {
-                        this.update_value_visual_by_position(event.position, cx);
+                        cx.emit(SliderEvent::Change(this.value));
                     }
                 }),
             )
@@ -190,55 +194,21 @@ impl Render for Slider {
                     if e.drag(cx).0 != entity_id {
                         return;
                     }
+                    if this.set_value_from_position(e.event.position) {
+                        cx.notify();
+                    }
                     if this.live_update {
-                        this.update_value_by_position(e.event.position, cx);
-                    } else {
-                        this.update_value_visual_by_position(e.event.position, cx);
+                        cx.emit(SliderEvent::Change(this.value));
                     }
                 },
             ))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
-                    if this.disabled {
-                        return;
-                    }
-                    if this.interacting {
-                        this.interacting = false;
-                        if !this.live_update {
-                            cx.emit(SliderEvent::Change(this.value));
-                        }
-                        cx.notify();
-                    }
-                }),
-            )
-            .on_mouse_up_out(
-                MouseButton::Left,
-                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
-                    if this.disabled {
-                        return;
-                    }
-                    if this.interacting {
-                        this.interacting = false;
-                        if !this.live_update {
-                            cx.emit(SliderEvent::Change(this.value));
-                        }
-                        cx.notify();
-                    }
-                }),
-            )
+            // on_drop: fires when drag ends and payload is dropped onto this element.
+            // Together with the global capture-phase mouse-up (in canvas below),
+            // covers all drag-release scenarios. The `interacting` flag deduplicates.
             .on_drop::<DragSlider>({
                 let entity = cx.entity();
                 move |_, _, cx| {
-                    entity.update(cx, |this, cx| {
-                        if this.interacting {
-                            this.interacting = false;
-                            if !this.live_update {
-                                cx.emit(SliderEvent::Change(this.value));
-                            }
-                            cx.notify();
-                        }
-                    });
+                    entity.update(cx, |this, cx| this.end_interaction(cx));
                 }
             })
             .on_hover({
@@ -278,6 +248,11 @@ impl Render for Slider {
                             .opacity(if show_thumb { 1.0 } else { 0.0 }),
                     ),
             )
+            // Invisible canvas overlay that serves two purposes:
+            // 1. Captures the element's rendered bounds (track_bounds) for position-to-value mapping
+            // 2. Registers a global capture-phase MouseUp handler every frame (GPUI clears per-frame
+            //    listeners). This guarantees we always detect mouse-up, even when a drag is released
+            //    outside the element — the same technique Zed's scrollbar uses.
             .child({
                 let entity = cx.entity();
                 let entity_for_paint = entity.clone();
@@ -296,16 +271,7 @@ impl Render for Slider {
                                 if event.button != MouseButton::Left {
                                     return;
                                 }
-                                entity_for_paint.update(cx, |this, cx| {
-                                    if !this.interacting {
-                                        return;
-                                    }
-                                    this.interacting = false;
-                                    if !this.live_update {
-                                        cx.emit(SliderEvent::Change(this.value));
-                                    }
-                                    cx.notify();
-                                });
+                                entity_for_paint.update(cx, |this, cx| this.end_interaction(cx));
                             }
                         });
                     },

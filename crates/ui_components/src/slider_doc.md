@@ -15,70 +15,56 @@ Two modes controlled by `live_update`:
 | On release | Just end interaction | Emit final value as single event |
 | Use case | Volume slider | Track progress (seek on release) |
 
+### Key methods
+
+- `set_value_from_position(position) -> bool` — converts mouse position to stepped value, updates internal state, returns whether value changed. Caller decides whether to emit `Change` based on `live_update`.
+- `end_interaction(cx)` — sets `interacting = false`, emits `Change` if `!live_update`, notifies. Guarded by `interacting` flag, safe to call from multiple handlers.
+
 ## GPUI Event Flow (Critical)
 
-GPUI's drag system **captures the mouse** once `on_drag` activates. This has major implications:
+GPUI's drag system **captures the mouse** once `on_drag` activates. This means `on_mouse_up` does NOT fire on the element after a drag starts — the event goes to the drop target instead. For this reason, we do NOT use `on_mouse_up` or `on_mouse_up_out`. Instead, two mechanisms cover all release scenarios:
 
-### 1. `on_mouse_up` / `on_mouse_up_out` are unreliable after drag starts
+### 1. `on_drop` — drag released over the element
 
-When a drag gesture activates (even a tiny movement after mouse-down), GPUI stops delivering `on_mouse_up` to the element. The mouse-up event goes to the drop target instead. This means:
+`on_drop::<DragSlider>` fires when a drag gesture ends and the payload is dropped onto the element. It doesn't receive mouse position, so we trust the value already set during drag-move and emit `Change(this.value)` via `end_interaction`.
 
-- Simple click → `on_mouse_up` fires (sometimes, if no drag detected)
-- Drag → `on_mouse_up` does **NOT** fire
+### 2. Global `window.on_mouse_event` capture-phase — bulletproof mouse-up
 
-**Never rely solely on `on_mouse_up` to finalize a slider interaction.**
-
-### 2. `on_drop` fires when drag ends (but position may be wrong)
-
-`on_drop::<DragSlider>` fires reliably when a drag gesture ends, regardless of where the mouse is. However, it doesn't receive the mouse position — so we can't recalculate the value from coordinates. Instead, we trust the value already set during drag-move and just emit `Change(this.value)`.
-
-### 3. Global `window.on_mouse_event` for bulletproof mouse-up
-
-We register a **capture-phase** `MouseUpEvent` handler via `window.on_mouse_event()` inside the canvas paint callback. This is the technique Zed's scrollbar uses. It fires for ANY mouse-up in the window, even outside the slider element. This guarantees we always end the interaction.
-
-The handler is re-registered every frame (GPUI clears per-frame listeners), so it's always active while the slider is rendered.
+Registered inside the canvas paint callback (re-registered every frame, since GPUI clears per-frame listeners). Fires for ANY left mouse-up in the window, even outside the slider. This is the technique Zed's scrollbar uses.
 
 ```rust
 window.on_mouse_event({
     move |event: &MouseUpEvent, phase: DispatchPhase, _window, cx| {
         if phase != DispatchPhase::Capture { return; }
         if event.button != MouseButton::Left { return; }
-        entity.update(cx, |this, cx| {
-            if !this.interacting { return; }
-            this.interacting = false;
-            if !this.live_update {
-                cx.emit(SliderEvent::Change(this.value));
-            }
-            cx.notify();
-        });
+        entity.update(cx, |this, cx| this.end_interaction(cx));
     }
 });
 ```
 
-### 4. Deduplication via `interacting` flag
+### Deduplication via `interacting` flag
 
-There are 3 handlers that can finalize an interaction:
-1. `on_mouse_up` (click without drag)
-2. `on_mouse_up_out` (rare, element lost focus)
-3. `on_drop` (drag released over target)
-4. `window.on_mouse_event` capture-phase (drag released anywhere)
+There are 2 handlers that can finalize an interaction:
+1. `on_drop` (drag released over target)
+2. `window.on_mouse_event` capture-phase (any mouse-up anywhere)
 
-All check `if !this.interacting { return; }` and set `this.interacting = false`. Whichever fires first wins; the others skip.
+Both call `end_interaction`, which checks `if !self.interacting { return; }` and sets it to false. Whichever fires first wins; the other skips.
 
 ## Event Sequence for Common Interactions
 
 ### Simple click (no drag)
 
-1. `on_mouse_down` → `interacting = true`, visual update
-2. `on_mouse_up` → `interacting = false`, emit `Change`
-3. `window.on_mouse_event` capture → `interacting` already false, skip
+1. `on_mouse_down` → `interacting = true`, value update, emit `Change`
+2. `window.on_mouse_event` capture → `end_interaction`, `interacting` already false, skip
+
+(With `live_update = false`, step 1 emits no event; the capture handler emits `Change` on release.)
 
 ### Click-and-drag within slider
 
 1. `on_mouse_down` → `interacting = true`, visual update
 2. `on_drag` activates
 3. `on_drag_move` (multiple) → visual updates
-4. `on_drop` → `interacting = false`, emit `Change`
+4. `on_drop` → `end_interaction`, emit `Change`
 5. `window.on_mouse_event` capture → `interacting` already false, skip
 
 ### Click-and-drag, release outside slider
@@ -86,7 +72,7 @@ All check `if !this.interacting { return; }` and set `this.interacting = false`.
 1. `on_mouse_down` → `interacting = true`, visual update
 2. `on_drag` activates
 3. `on_drag_move` (multiple) → visual updates
-4. `window.on_mouse_event` capture → `interacting = false`, emit `Change`
+4. `window.on_mouse_event` capture → `end_interaction`, emit `Change`
 5. `on_drop` → `interacting` already false, skip
 
 ## Thumb Visibility
@@ -104,9 +90,13 @@ let show_thumb = !self.disabled && (self.hovered || self.interacting);
 When `disabled = true`:
 - Whole slider renders at `opacity(0.4)`
 - `on_mouse_down` handler returns immediately
-- `on_mouse_up` / `on_drop` handlers return immediately
 - Thumb is hidden (included in `show_thumb` check)
-- Thumb visibility, drag, and global mouse-up are all blocked
+
+## Canvas Overlay
+
+An invisible `canvas` element covers the entire slider. It serves two purposes:
+1. Captures rendered bounds (`track_bounds`) for position-to-value mapping
+2. Registers the global capture-phase `MouseUpEvent` handler during paint (see above)
 
 ## Track Progress Slider Specifics
 
@@ -133,9 +123,3 @@ The `is_interacting()` guard prevents the engine from overwriting the user's dra
 ### Disabled state
 
 Slider starts `disabled = true`. Becomes enabled on `EngineEvent::Loaded`, disabled on `EngineEvent::TrackEnded` or `EngineEvent::Error`.
-
-### Why not `update_value_by_position` on release
-
-In previous versions, `on_mouse_up` called `update_value_by_position` to recalculate the value from the mouse position. This was wrong because `update_value_by_position` has a `if new_value != self.value` guard — but the value was already set by `update_value_visual_by_position` during drag. The condition would fail and no `Change` event would be emitted, making seeks appear to not work on simple clicks.
-
-The fix: on release, directly emit `Change(this.value)` without recalculating. The value is already correct from the visual update.
