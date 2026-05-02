@@ -1,7 +1,7 @@
 use gpui::{
-    AppContext, Bounds, Context, DragMoveEvent, Empty, EntityId, EventEmitter, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Point, Render,
-    StatefulInteractiveElement, Styled, Window, canvas, div, px, relative,
+    AppContext, Bounds, Context, DispatchPhase, DragMoveEvent, Empty, EntityId, EventEmitter,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement,
+    Pixels, Point, Render, StatefulInteractiveElement, Styled, Window, canvas, div, px, relative,
 };
 use gpui_component::ActiveTheme;
 
@@ -143,10 +143,6 @@ impl Slider {
             cx.notify();
         }
     }
-
-    fn end_interaction(&mut self) {
-        self.interacting = false;
-    }
 }
 
 impl EventEmitter<SliderEvent> for Slider {}
@@ -203,34 +199,48 @@ impl Render for Slider {
             ))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, event: &MouseUpEvent, _window, cx| {
+                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
                     if this.disabled {
                         return;
                     }
-                    if this.live_update {
-                        this.end_interaction();
-                    } else if this.interacting {
-                        this.end_interaction();
-                        this.update_value_by_position(event.position, cx);
+                    if this.interacting {
+                        this.interacting = false;
+                        if !this.live_update {
+                            cx.emit(SliderEvent::Change(this.value));
+                        }
+                        cx.notify();
                     }
-                    cx.notify();
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, event: &MouseUpEvent, _window, cx| {
+                cx.listener(|this, _event: &MouseUpEvent, _window, cx| {
                     if this.disabled {
                         return;
                     }
-                    if this.live_update {
-                        this.end_interaction();
-                    } else if this.interacting {
-                        this.end_interaction();
-                        this.update_value_by_position(event.position, cx);
+                    if this.interacting {
+                        this.interacting = false;
+                        if !this.live_update {
+                            cx.emit(SliderEvent::Change(this.value));
+                        }
+                        cx.notify();
                     }
-                    cx.notify();
                 }),
             )
+            .on_drop::<DragSlider>({
+                let entity = cx.entity();
+                move |_, _, cx| {
+                    entity.update(cx, |this, cx| {
+                        if this.interacting {
+                            this.interacting = false;
+                            if !this.live_update {
+                                cx.emit(SliderEvent::Change(this.value));
+                            }
+                            cx.notify();
+                        }
+                    });
+                }
+            })
             .on_hover({
                 let entity = cx.entity();
                 move |&hovered, _, cx| {
@@ -270,13 +280,35 @@ impl Render for Slider {
             )
             .child({
                 let entity = cx.entity();
+                let entity_for_paint = entity.clone();
                 canvas(
                     move |bounds, _, cx| {
                         entity.update(cx, |this, _| {
                             this.track_bounds = bounds;
                         });
                     },
-                    |_, _, _, _| {},
+                    move |_bounds, _prepaint_result, window, _cx| {
+                        window.on_mouse_event({
+                            move |event: &MouseUpEvent, phase: DispatchPhase, _window, cx| {
+                                if phase != DispatchPhase::Capture {
+                                    return;
+                                }
+                                if event.button != MouseButton::Left {
+                                    return;
+                                }
+                                entity_for_paint.update(cx, |this, cx| {
+                                    if !this.interacting {
+                                        return;
+                                    }
+                                    this.interacting = false;
+                                    if !this.live_update {
+                                        cx.emit(SliderEvent::Change(this.value));
+                                    }
+                                    cx.notify();
+                                });
+                            }
+                        });
+                    },
                 )
                 .absolute()
                 .size_full()

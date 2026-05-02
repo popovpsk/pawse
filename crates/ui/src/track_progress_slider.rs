@@ -73,6 +73,11 @@ impl TrackProgressSlider {
                         return;
                     }
                     let new_position = position.as_secs_f32();
+                    let slider_position =
+                        this.slider.read(cx).value() * this.duration_secs;
+                    if (new_position - slider_position).abs() >= 0.5 {
+                        return;
+                    }
                     this.current_position_secs = new_position;
                     let value = if this.duration_secs > 0.0 {
                         new_position / this.duration_secs
