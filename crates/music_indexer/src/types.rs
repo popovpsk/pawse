@@ -5,6 +5,7 @@ pub struct ScannedTrack {
     pub path: PathBuf,
     pub title: Option<String>,
     pub artist_names: Vec<String>,
+    pub album_artist_names: Vec<String>,
     pub album_title: Option<String>,
     pub track_number: Option<u32>,
     pub disc_number: Option<u32>,

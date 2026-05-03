@@ -80,6 +80,7 @@ mod tests {
             title: Some("Airbag".into()),
             album_title: Some("OK Computer".into()),
             artist_names: vec!["Radiohead".into()],
+            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(1997),
@@ -125,6 +126,7 @@ mod tests {
             title: Some("My Song".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -150,6 +152,7 @@ mod tests {
             title: Some("Song".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -175,6 +178,7 @@ mod tests {
             title: None,
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -185,4 +189,56 @@ mod tests {
         let tracks = lib.tracks_for_album(album_id).unwrap();
         assert_eq!(tracks[0].title, "Unknown Title");
     }
+
+    #[test]
+    fn test_multidisc_tracks_ordered_by_disc() {
+        let (lib, _path) = create_test_db();
+        let album_artist_id = lib.upsert_artist("Album Artist").unwrap();
+        let track1_artist_id = lib.upsert_artist("Artist One").unwrap();
+        let track2_artist_id = lib.upsert_artist("Artist Two").unwrap();
+        let album_id = lib.upsert_album("Multi-Disc Album", Some(2020), None).unwrap();
+
+        let track1 = NewTrack {
+            path: "/music/disc1/track01.flac".into(),
+            title: Some("Track One".into()),
+            album_title: Some("Multi-Disc Album".into()),
+            artist_names: vec!["Artist One".into()],
+            album_artist_names: vec!["Album Artist".into()],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            cover_art: None,
+        };
+        let track2 = NewTrack {
+            path: "/music/disc2/track01.flac".into(),
+            title: Some("Track Two".into()),
+            album_title: Some("Multi-Disc Album".into()),
+            artist_names: vec!["Artist Two".into()],
+            album_artist_names: vec!["Album Artist".into()],
+            track_number: Some(1),
+            disc_number: Some(2),
+            year: Some(2020),
+            duration_ms: Some(200_000),
+            cover_art: None,
+        };
+
+        lib.upsert_track(&track1, Some(album_id), &[(track1_artist_id, 0)]).unwrap();
+        lib.upsert_track(&track2, Some(album_id), &[(track2_artist_id, 0)]).unwrap();
+        lib.set_album_artists(album_id, &[(album_artist_id, 0)]).unwrap();
+
+        let tracks = lib.tracks_for_album(album_id).unwrap();
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].disc_number, 1);
+        assert_eq!(tracks[0].title, "Track One");
+        assert_eq!(tracks[1].disc_number, 2);
+        assert_eq!(tracks[1].title, "Track Two");
+
+        // Album artist should be "Album Artist" from the first track's album_artist_names,
+        // and should NOT have been overwritten by the second track's artist.
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].artist_name, "Album Artist");
+    }
+
 }

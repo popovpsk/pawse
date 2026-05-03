@@ -13,7 +13,7 @@ The model must not create or modify any files without explicit user instruction.
 cargo build && cargo clippy
 ```
 
-Не должно быть warning'ов. Если появляются — убрать.
+No warnings allowed. If any appear — remove them.
 
 ## Test
 
@@ -21,20 +21,20 @@ cargo build && cargo clippy
 cargo test
 ```
 
-Все тесты должны проходить.
+All tests must pass.
 
 
-### Тестирование
+### Testing
 
-- Тестируй без GUI сначала (консольный main)
-- Логируй в callback для отладки
-- Проверяй что буфер заполнён до запроса callback
+- Test without GUI first (console main)
+- Log in callback for debugging
+- Check that buffer is filled before requesting callback
 
 ## Conventions
 
 - Crates: lowercase with underscores
-- `publish = false` для внутренних крейтов
-- Версии и edition из workspace
+- `publish = false` for internal crates
+- Versions and edition from workspace
 
 ### Architecture
 
@@ -77,8 +77,12 @@ cargo test
 - **`RwLock` for optional streams**: `RwLock<Option<OutputStream>>`
 - **Blocking with timeout**: `write_blocking_timeout()` for ring buffer writes
 
-### Взимаодействие с пользователем.
+### Migrations
 
-Если пользователь задает вопрос ты должен отвечать только на вопрос без лишней инициативы.
-Если пользователь явно не просил переписывать код ничего не трогай.
-Если пользователь задает вопрос и явно не просил показать ему переписанную версию просто отвечай на вопрос.
+There are no users. When changing data handling, migrations are not needed.
+
+### User Interaction
+
+If the user asks a question, you should answer only the question without unnecessary initiative.
+If the user has not explicitly asked to rewrite code, do not touch anything.
+If the user asks a question and has not explicitly asked to see a rewritten version, just answer the question.
