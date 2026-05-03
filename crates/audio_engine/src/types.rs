@@ -16,6 +16,7 @@ pub enum Command {
     Play,
     Pause,
     Seek(f32),
+    Shutdown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

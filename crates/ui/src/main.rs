@@ -38,6 +38,19 @@ fn main() {
         let engine_event_bus = services.engine_event_bus.clone();
         cx.set_global(services);
 
+        cx.on_window_closed(|cx| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+
+        cx.on_app_quit(|cx| {
+            cx.global::<Services>().shutdown();
+            async {}
+        })
+        .detach();
+
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {
                 let view = cx.new(|cx| MainView::new(window, cx));

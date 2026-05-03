@@ -48,6 +48,12 @@ impl Services {
     }
 }
 
+impl Services {
+    pub fn shutdown(&self) {
+        self.engine_manager.shutdown();
+    }
+}
+
 impl Global for Services {}
 
 pub struct EngineEventsBus;

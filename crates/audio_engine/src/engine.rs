@@ -67,6 +67,10 @@ impl AudioEngine {
             .send(command)
             .expect("Failed to send command to audio-engine thread")
     }
+
+    pub fn shutdown(&self) {
+        self.send_command(Command::Shutdown)
+    }
 }
 
 struct AudioEngineLoop {
@@ -86,8 +90,12 @@ impl AudioEngineLoop {
 
     fn run_loop(mut self) {
         let mut current_audio_batch: Option<AudioBatch> = None;
+        let mut should_shutdown = false;
 
         loop {
+            if should_shutdown {
+                return;
+            }
             let command = {
                 if self.state == AudioEngineState::Playing {
                     let command = self.command_receiver.try_recv();
@@ -110,6 +118,11 @@ impl AudioEngineLoop {
             };
 
             if let Some(command) = command {
+                if matches!(command, Command::Shutdown) {
+                    self.handle_command(command);
+                    should_shutdown = true;
+                    continue;
+                }
                 self.handle_command(command);
                 continue;
             }
@@ -188,7 +201,13 @@ impl AudioEngineLoop {
             Command::Pause => self.handle_pause(),
             Command::Seek(position) => self.handle_seek(position),
             Command::SetLocalTrack(path) => self.handle_set_local_track(path),
+            Command::Shutdown => self.handle_shutdown(),
         }
+    }
+
+    fn handle_shutdown(&mut self) {
+        self.output.pause();
+        self.set_state(AudioEngineState::TrackNotSet);
     }
 
     fn handle_set_local_track(&mut self, path: PathBuf) {

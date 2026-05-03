@@ -27,25 +27,19 @@ impl EngineManager {
         let tx = self._event_sender.clone();
 
         cx.spawn(async move |_| {
-            loop {
-                match rx.recv_async().await {
-                    Ok(event) => {
-                        match event.clone() {
-                            EngineEvent::Error(err) => {
-                                io::stderr().write_all(err.as_bytes()).unwrap();
-                            }
-                            EngineEvent::PositionChanged(_) => {}
-                            _ => {
-                                println!("EngineManager recevied event: {:?}", event)
-                            }
-                        };
-
-                        tx.send(event).expect("EngineManager:event_loop:tx.send");
+            while let Ok(event) = rx.recv_async().await {
+                match event.clone() {
+                    EngineEvent::Error(err) => {
+                        io::stderr().write_all(err.as_bytes()).unwrap();
                     }
-                    Err(err) => panic!(
-                        "EngineManager:event_loop:engine_event_rx.recv_async: {}",
-                        err
-                    ),
+                    EngineEvent::PositionChanged(_) => {}
+                    _ => {
+                        println!("EngineManager recevied event: {:?}", event)
+                    }
+                };
+
+                if tx.send(event).is_err() {
+                    break;
                 }
             }
         })
@@ -72,5 +66,9 @@ impl EngineManager {
 
     pub fn events(&self) -> &flume::Receiver<EngineEvent> {
         &self._event_receiver
+    }
+
+    pub fn shutdown(&self) {
+        self.audio_engine.shutdown();
     }
 }
