@@ -1,8 +1,12 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::{AppContext, ClickEvent, Context, ElementId, Entity, Hsla, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, Window, div, px, size, Size, Pixels};
-use gpui_component::{button::Button, h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
+use gpui::{
+    AppContext, ClickEvent, Context, ElementId, Entity, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, Window, div, px, size,
+    svg,
+};
+use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::library_views::album_info::AlbumInfo;
 use crate::services::Services;
@@ -77,9 +81,22 @@ impl gpui::EventEmitter<BackEvent> for TracksView {}
 
 impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let back_button = Button::new("back")
-            .label("Back")
-            .on_click(cx.listener(TracksView::on_back));
+        let back_button = div()
+            .id("back_button")
+            .cursor_pointer()
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .hover(|style| style.bg(cx.theme().muted))
+            .on_click(cx.listener(TracksView::on_back))
+            .child(
+                svg()
+                    .path("icons/back.svg")
+                    .size(px(22.))
+                    .text_color(cx.theme().foreground),
+            );
 
         let header = h_flex().px_4().py_2().child(back_button);
 
@@ -92,23 +109,55 @@ impl Render for TracksView {
         }
 
         let item_sizes = self.item_sizes.clone();
-        v_flex()
-            .size_full()
-            .child(header)
-            .child(
-                v_virtual_list(
-                    cx.entity().clone(),
-                    "tracks_list",
-                    item_sizes,
-                    |view, visible_range, _window, cx| {
-                        visible_range
-                            .map(|ix| match view.items[ix] {
-                                TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
-                                TrackItem::DiscHeader(disc) => h_flex()
+        v_flex().size_full().child(header).child(
+            v_virtual_list(
+                cx.entity().clone(),
+                "tracks_list",
+                item_sizes,
+                |view, visible_range, _window, cx| {
+                    visible_range
+                        .map(|ix| match view.items[ix] {
+                            TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
+                            TrackItem::DiscHeader(disc) => h_flex()
+                                .w_full()
+                                .h(px(DISC_HEADER_HEIGHT))
+                                .px_4()
+                                .items_center()
+                                .border_b(px(1.))
+                                .border_color(Hsla {
+                                    h: 0.,
+                                    s: 0.,
+                                    l: 1.,
+                                    a: 0.1,
+                                })
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(format!("Disc {}", disc)),
+                                )
+                                .into_any_element(),
+                            TrackItem::Track(track_ix) => {
+                                let track = &view.tracks[track_ix];
+                                let track_id = track.id;
+                                let track_num_str = track
+                                    .track_number
+                                    .map(|n| format!("{}.", n))
+                                    .unwrap_or_default();
+                                let duration_str = track
+                                    .duration_ms
+                                    .map(|ms| {
+                                        let secs = (ms / 1000) as u32;
+                                        format!("{:02}:{:02}", secs / 60, secs % 60)
+                                    })
+                                    .unwrap_or_default();
+
+                                h_flex()
                                     .w_full()
-                                    .h(px(DISC_HEADER_HEIGHT))
+                                    .h(px(TRACK_ROW_HEIGHT))
                                     .px_4()
-                                    .items_center()
+                                    .gap_2()
                                     .border_b(px(1.))
                                     .border_color(Hsla {
                                         h: 0.,
@@ -116,64 +165,31 @@ impl Render for TracksView {
                                         l: 1.,
                                         a: 0.1,
                                     })
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(format!("Disc {}", disc)),
-                                    )
-                                    .into_any_element(),
-                                TrackItem::Track(track_ix) => {
-                                    let track = &view.tracks[track_ix];
-                                    let track_id = track.id;
-                                    let track_num_str = track
-                                        .track_number
-                                        .map(|n| format!("{}.", n))
-                                        .unwrap_or_default();
-                                    let duration_str = track
-                                        .duration_ms
-                                        .map(|ms| {
-                                            let secs = (ms / 1000) as u32;
-                                            format!("{:02}:{:02}", secs / 60, secs % 60)
-                                        })
-                                        .unwrap_or_default();
-
-                                    h_flex()
-                                        .w_full()
-                                        .h(px(TRACK_ROW_HEIGHT))
-                                        .px_4()
-                                        .gap_2()
-                                        .border_b(px(1.))
-                                        .border_color(Hsla {
-                                            h: 0.,
-                                            s: 0.,
-                                            l: 1.,
-                                            a: 0.1,
-                                        })
-                                        .cursor(gpui::CursorStyle::PointingHand)
-                                        .hover(|style| style.bg(cx.theme().secondary))
-                                        .child(div().w_8().child(track_num_str))
-                                        .child(div().flex_1().child(track.title.clone()))
-                                        .child(div().w_16().child(duration_str))
-                                        .id(ElementId::Integer(track_id as u64))
-                                        .on_click(cx.listener(move |this, _, _, _cx| {
-                                            let services = _cx.global::<Services>();
-                                            let mut queue = services.playback_queue.borrow_mut();
-                                            queue.set_tracks(this.tracks.clone());
-                                            if let Some(track) = queue.play_track_at(track_ix) {
-                                                services.engine_manager.set_track(PathBuf::from(&track.path));
-                                                services.engine_manager.play();
-                                            }
-                                        }))
-                                        .into_any_element()
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                    },
-                )
-                .track_scroll(&self.scroll_handle)
-                .flex_1(),
+                                    .cursor(gpui::CursorStyle::PointingHand)
+                                    .hover(|style| style.bg(cx.theme().secondary))
+                                    .child(div().w_8().child(track_num_str))
+                                    .child(div().flex_1().child(track.title.clone()))
+                                    .child(div().w_16().child(duration_str))
+                                    .id(ElementId::Integer(track_id as u64))
+                                    .on_click(cx.listener(move |this, _, _, _cx| {
+                                        let services = _cx.global::<Services>();
+                                        let mut queue = services.playback_queue.borrow_mut();
+                                        queue.set_tracks(this.tracks.clone());
+                                        if let Some(track) = queue.play_track_at(track_ix) {
+                                            services
+                                                .engine_manager
+                                                .set_track(PathBuf::from(&track.path));
+                                            services.engine_manager.play();
+                                        }
+                                    }))
+                                    .into_any_element()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                },
             )
+            .track_scroll(&self.scroll_handle)
+            .flex_1(),
+        )
     }
 }

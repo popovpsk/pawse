@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
-use gpui::{ClickEvent, Context, IntoElement, Render, Styled, Window};
-use gpui_component::button::Button;
+use gpui::{
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, div, px, svg,
+};
+use gpui_component::ActiveTheme;
 
 use crate::services::Services;
 
@@ -26,11 +29,21 @@ impl NextButton {
 
 impl Render for NextButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Button::new("next_button")
-            .label("⏭")
-            .w_9()
-            .h_9()
+        div()
+            .id("next_button")
+            .cursor_pointer()
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
             .rounded_full()
+            .hover(|style| style.bg(cx.theme().muted))
             .on_click(cx.listener(NextButton::on_click))
+            .child(
+                svg()
+                    .path("icons/next.svg")
+                    .size(px(22.))
+                    .text_color(cx.theme().foreground),
+            )
     }
 }

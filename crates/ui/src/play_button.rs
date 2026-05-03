@@ -1,6 +1,9 @@
 use audio_engine::EngineEvent;
-use gpui::{ClickEvent, Context, IntoElement, Render, Styled, Subscription, Window};
-use gpui_component::button::{Button, ButtonVariants};
+use gpui::{
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
+};
+use gpui_component::ActiveTheme;
 
 use crate::services::Services;
 
@@ -55,14 +58,36 @@ impl PlayButton {
 
 impl Render for PlayButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let label = if !self.state.is_playing { "▶" } else { "⏸" };
+        let icon_path: &str = if !self.state.is_playing {
+            "icons/play.svg"
+        } else {
+            "icons/pause.svg"
+        };
 
-        Button::new("play_button")
-            .primary()
-            .label(label)
-            .w_9()
-            .h_9()
+        div()
+            .id("play_button")
+            .cursor_pointer()
+            .size(px(40.))
+            .relative()
             .rounded_full()
+            .bg(cx.theme().primary)
+            .hover(|style| style.bg(cx.theme().primary_hover))
             .on_click(cx.listener(PlayButton::on_click))
+            .child(
+                div()
+                    .absolute()
+                    .top(px(-4.))
+                    .left(px(-7.))
+                    .size(px(54.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        svg()
+                            .path(icon_path)
+                            .size(px(56.))
+                            .text_color(cx.theme().primary_foreground),
+                    ),
+            )
     }
 }

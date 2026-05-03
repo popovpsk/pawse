@@ -6,6 +6,7 @@ use crate::{
     services::{Services, run_engine_events_bus},
 };
 
+pub mod assets;
 pub mod footer;
 pub mod library_service;
 pub mod library_views;
@@ -21,7 +22,7 @@ pub mod track_progress_slider;
 pub mod volume;
 
 fn main() {
-    let app = Application::new();
+    let app = Application::new().with_assets(assets::Assets);
 
     app.run(move |cx| {
         gpui_component::init(cx);

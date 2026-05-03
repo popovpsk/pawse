@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
 use audio_engine::EngineEvent;
-use gpui::{ClickEvent, Context, IntoElement, Render, Styled, Subscription, Window};
-use gpui_component::button::Button;
+use gpui::{
+    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px, size, svg, Transformation,
+};
+use gpui_component::ActiveTheme;
 
 use crate::services::Services;
 
@@ -15,19 +18,18 @@ impl PrevButton {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, _cx| match event {
-                    EngineEvent::PositionChanged(position) => {
-                        this.current_position_secs = position.as_secs_f32();
-                    }
-                    EngineEvent::Loaded { .. } => {
-                        this.current_position_secs = 0.0;
-                    }
-                    _ => {}
-                },
-            );
+        let subscription = cx.subscribe(
+            &engine_event_bus,
+            |this, _, event: &EngineEvent, _cx| match event {
+                EngineEvent::PositionChanged(position) => {
+                    this.current_position_secs = position.as_secs_f32();
+                }
+                EngineEvent::Loaded { .. } => {
+                    this.current_position_secs = 0.0;
+                }
+                _ => {}
+            },
+        );
 
         Self {
             current_position_secs: 0.0,
@@ -55,11 +57,22 @@ impl PrevButton {
 
 impl Render for PrevButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Button::new("prev_button")
-            .label("⏮")
-            .w_9()
-            .h_9()
+        div()
+            .id("prev_button")
+            .cursor_pointer()
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
             .rounded_full()
+            .hover(|style| style.bg(cx.theme().muted))
             .on_click(cx.listener(PrevButton::on_click))
+            .child(
+                svg()
+                    .path("icons/next.svg")
+                    .size(px(22.))
+                    .with_transformation(Transformation::scale(size(-1.0, 1.0)))
+                    .text_color(cx.theme().foreground),
+            )
     }
 }

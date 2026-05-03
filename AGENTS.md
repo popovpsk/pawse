@@ -2,6 +2,8 @@
 
 For detailed project architecture, crate responsibilities, audio pipeline, UI patterns, database schema, and known limitations, see `.docs/project.md`.
 
+For icon usage, embedding, and SVG conventions, see `.docs/icons.md`.
+
 ## File Operations
 
 The model must not create or modify any files without explicit user instruction.

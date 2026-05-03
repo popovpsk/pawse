@@ -25,6 +25,7 @@ edition = "2024"
 gpui = "0.2.2"
 gpui-component = "0.5.1"
 anyhow = "1.0"
+rust-embed = "8"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

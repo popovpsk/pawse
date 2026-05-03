@@ -7004,6 +7004,7 @@ dependencies = [
  "music_indexer",
  "music_library",
  "rfd",
+ "rust-embed",
  "ui_components",
 ]
 
