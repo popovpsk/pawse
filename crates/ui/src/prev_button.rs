@@ -15,18 +15,19 @@ impl PrevButton {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
-        let subscription = cx.subscribe(
-            &engine_event_bus,
-            |this, _, event: &EngineEvent, _cx| match event {
-                EngineEvent::PositionChanged(position) => {
-                    this.current_position_secs = position.as_secs_f32();
-                }
-                EngineEvent::Loaded { .. } => {
-                    this.current_position_secs = 0.0;
-                }
-                _ => {}
-            },
-        );
+        let subscription =
+            cx.subscribe(
+                &engine_event_bus,
+                |this, _, event: &EngineEvent, _cx| match event {
+                    EngineEvent::PositionChanged(position) => {
+                        this.current_position_secs = position.as_secs_f32();
+                    }
+                    EngineEvent::Loaded { .. } => {
+                        this.current_position_secs = 0.0;
+                    }
+                    _ => {}
+                },
+            );
 
         Self {
             current_position_secs: 0.0,
@@ -43,7 +44,9 @@ impl PrevButton {
                 services.engine_manager.play();
             }
             crate::playback_queue::PreviousAction::PreviousTrack(track) => {
-                services.engine_manager.set_track(PathBuf::from(&track.path));
+                services
+                    .engine_manager
+                    .set_track(PathBuf::from(&track.path));
                 services.engine_manager.play();
             }
         }
@@ -54,7 +57,6 @@ impl Render for PrevButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         Button::new("prev_button")
             .label("⏮")
-            .tooltip("previous")
             .w_9()
             .h_9()
             .rounded_full()

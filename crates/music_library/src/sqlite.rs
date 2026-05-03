@@ -310,6 +310,16 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn album_title(&self, album_id: i64) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT title FROM albums WHERE id = ?1")?;
+        let title = stmt
+            .query_row([album_id], |row| row.get::<_, Option<String>>(0))
+            .optional()?
+            .flatten();
+        Ok(title)
+    }
+
     fn search(&self, query: &str) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{}%", query);

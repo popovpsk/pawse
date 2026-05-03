@@ -14,6 +14,7 @@ pub trait LibraryRepository: Send + Sync {
     fn albums(&self) -> Result<Vec<AlbumSummary>>;
     fn tracks_for_album(&self, album_id: i64) -> Result<Vec<Track>>;
     fn track_artists(&self, track_id: i64) -> Result<Vec<String>>;
+    fn album_title(&self, album_id: i64) -> Result<Option<String>>;
     fn search(&self, query: &str) -> Result<Vec<Track>>;
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;

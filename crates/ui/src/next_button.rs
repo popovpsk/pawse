@@ -16,7 +16,9 @@ impl NextButton {
         let services = cx.global::<Services>();
         let mut queue = services.playback_queue.borrow_mut();
         if let Some(track) = queue.next_track() {
-            services.engine_manager.set_track(PathBuf::from(&track.path));
+            services
+                .engine_manager
+                .set_track(PathBuf::from(&track.path));
             services.engine_manager.play();
         }
     }
@@ -26,7 +28,6 @@ impl Render for NextButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         Button::new("next_button")
             .label("⏭")
-            .tooltip("next")
             .w_9()
             .h_9()
             .rounded_full()

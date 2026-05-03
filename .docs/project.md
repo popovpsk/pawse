@@ -12,6 +12,8 @@ A local audio player built with Rust and [GPUI](https://github.com/zed-industrie
 | `audio_engine` | `crates/audio_engine/` | Playback engine thread + state machine. Commands via `flume` channels. Emits `EngineEvent` |
 | `music_library` | `crates/music_library/` | SQLite repository. Artists, albums, tracks with many-to-many relationships |
 | `music_indexer` | `crates/music_indexer/` | Directory scanner (`jwalk`) + metadata reader (`lofty`). Emits `ScanEvent` |
+| `media_integration` | `crates/media_integration/` | Platform-agnostic system media integration trait (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) |
+| `macos_integration` | `crates/macos_integration/` | macOS-specific implementation: status bar item, Now Playing widget, remote commands (media keys) via `objc2` |
 | `ui` | `crates/ui/` | GPUI application. Views, service globals, event buses |
 
 ## Audio Pipeline
@@ -62,6 +64,14 @@ cx.spawn(async move |cx| {
 ```
 
 Components subscribe with `cx.subscribe(&bus, |this, _, event, cx| { ... })`. The returned `Subscription` must be kept alive (stored in the struct).
+
+### System Media Bridge (`MediaBridge`)
+
+`MediaBridge` is a GPUI entity (instantiated in `MainView`) that listens to `EngineEvent`s via the `EngineEventsBus` and forwards them to the platform's system media UI:
+
+- On **macOS**: creates `MacOsIntegration`, which updates the Now Playing widget, status bar menu, and registers for remote media-key commands
+- Commands from the OS (play / pause / next / previous) flow through a `flume` channel into an async task that drives the `EngineManager`
+- The `MediaCommandProxy` (an Objective-C object) bridges AppKit callbacks to the Rust channel via a `OnceLock<Sender<MediaCommand>>`
 
 ### Entity Lifecycle
 
@@ -124,12 +134,14 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 | Output stream | `RwLock<Option<OutputStream>>` | Dynamic recreation |
 | Audio buffer | `Arc<AudioRingBuffer>` | Shared between engine thread and callback |
 | Library DB | `Mutex<Connection>` | Single-threaded access to SQLite |
+| Media commands | `OnceLock<Sender<MediaCommand>>` | AppKit callbacks → player command channel (macOS only) |
 
 ## Error Handling Strategy
 
 - **`thiserror`** in library crates (`audio_common`, `music_library`)
 - **`anyhow`** in application-level code (`ui`, `music_indexer`)
 - **Graceful degradation**: Non-fatal decode errors are logged and skipped; scan errors skip the file
+- **Graceful shutdown**: `Command::Shutdown` pauses output and clears engine state before app exit
 - **Panic on critical failures**: `unwrap()` on stream creation, ring buffer errors
 
 ## File Locations
@@ -152,7 +164,7 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 
 - **Platform**: macOS (Metal renderer required for GPUI)
 - **Edition**: Rust 2024
-- **Lint**: `#![forbid(unsafe_code)]` at workspace level
+- **Lint**: `#![forbid(unsafe_code)]` at workspace level; `macos_integration` overrides it to `allow` because it uses `objc2` for AppKit interop
 - **Note**: GPUI requires Xcode Metal Toolchain. If `cargo build` fails with "missing Metal Toolchain", run: `xcodebuild -downloadComponent MetalToolchain`
 
 ## Playback Queue

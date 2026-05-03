@@ -10,6 +10,7 @@ pub mod footer;
 pub mod library_service;
 pub mod library_views;
 pub mod main_view;
+pub mod media_bridge;
 pub mod next_button;
 pub mod now_playing;
 pub mod play_button;

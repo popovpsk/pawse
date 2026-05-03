@@ -3,10 +3,12 @@ use gpui_component::StyledExt;
 
 use crate::footer::Footer;
 use crate::library_views::library_view::LibraryView;
+use crate::media_bridge::MediaBridge;
 
 pub struct MainView {
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
+    _media_bridge: Entity<MediaBridge>,
 }
 
 impl MainView {
@@ -14,6 +16,7 @@ impl MainView {
         Self {
             library_view: cx.new(|cx| LibraryView::new(window, cx)),
             footer: cx.new(|cx| Footer::new(window, cx)),
+            _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
         }
     }
 }
@@ -33,6 +36,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .ml_4()
+                    .mr_4()
                     .child(self.library_view.clone()),
             )
             .child(

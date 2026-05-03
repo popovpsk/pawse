@@ -4,8 +4,8 @@ use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamConfig};
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 const STATE_IDLE: u8 = 0;
 const STATE_PLAYING: u8 = 1;
@@ -52,6 +52,10 @@ pub struct OutputStream {
 
 fn apply_volume(volume: &AtomicF32, b: &mut [f32]) {
     let vol = volume.load(Ordering::Relaxed);
+
+    if vol >= 0.98 {
+        return;
+    }
 
     for sample in b {
         *sample *= vol;

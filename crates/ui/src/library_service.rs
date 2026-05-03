@@ -79,6 +79,10 @@ impl LibraryService {
         self.repo.track_artists(track_id).unwrap_or_default()
     }
 
+    pub fn album_title(&self, album_id: i64) -> Option<String> {
+        self.repo.album_title(album_id).ok().flatten()
+    }
+
     pub fn clear_and_rescan(&self, path: PathBuf) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
