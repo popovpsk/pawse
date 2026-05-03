@@ -73,6 +73,8 @@ Components subscribe with `cx.subscribe(&bus, |this, _, event, cx| { ... })`. Th
 - Commands from the OS (play / pause / next / previous) flow through a `flume` channel into an async task that drives the `EngineManager`
 - The `MediaCommandProxy` (an Objective-C object) bridges AppKit callbacks to the Rust channel via a `OnceLock<Sender<MediaCommand>>`
 
+> See `.docs/macos-media-integration.md` for a detailed explanation of the design decisions (why `OnceLock`, `flume`, `RcBlock`, `RefCell` caching, and the trait split were chosen).
+
 ### Entity Lifecycle
 
 - State lives in `Entity<T>` (e.g., `Entity<SliderState>`)
@@ -149,7 +151,7 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 - **Entry point**: `crates/ui/src/main.rs`
 - **Audio fixtures**: `fixtures/` (WAV, FLAC test files)
 - **Database**: `dirs::data_dir()/gpui-test/library.db`
-- **Cover cache**: `dirs::cache_dir()/gpui-test/covers/`
+- **Cover cache**: `dirs::data_dir()/gpui-test/covers/`
 
 ## Known Limitations & Behaviors
 
