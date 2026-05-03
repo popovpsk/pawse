@@ -70,6 +70,10 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         }
     }
 
+    if cover_art.is_none() {
+        cover_art = find_external_cover_art(path);
+    }
+
     Ok(ScannedTrack {
         path: path.to_path_buf(),
         title,
@@ -81,4 +85,60 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         duration_ms: Some(duration_ms),
         cover_art,
     })
+}
+
+fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
+    let dir = path.parent()?;
+    let prefixes = ["front", "cover", "folder", "album", "art"];
+    let exts = ["jpg", "jpeg", "png"];
+    let negative = [
+        "back", "rear", "inside", "booklet", "disc", "cd", "inlay", "tray", "label", "matrix",
+        "scan", "photo", "poster",
+    ];
+
+    let mut candidates = Vec::new();
+    let mut fallback = Vec::new();
+
+    for entry in std::fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        let lossy = entry.file_name().to_string_lossy().to_lowercase();
+        let (stem, ext) = lossy.rsplit_once('.').unwrap_or((&lossy, ""));
+        if !exts.contains(&ext) {
+            continue;
+        }
+
+        let is_negative = negative.iter().any(|&n| stem.contains(n));
+
+        let mut priority = None;
+        for (idx, &prefix) in prefixes.iter().enumerate() {
+            if stem.starts_with(prefix) {
+                priority = Some(idx as i32);
+                break;
+            }
+        }
+
+        if let Some(mut priority) = priority {
+            if is_negative {
+                priority += 100;
+            }
+            if stem.contains("front") || stem.contains("obverse") {
+                priority -= 1;
+            }
+            candidates.push((priority, entry.path()));
+        } else if !is_negative {
+            let size = std::fs::metadata(entry.path()).map(|m| m.len()).unwrap_or(0);
+            fallback.push((size, entry.path()));
+        }
+    }
+
+    if !candidates.is_empty() {
+        candidates.sort_by_key(|(p, _)| *p);
+        return candidates.into_iter().next().and_then(|(_, p)| std::fs::read(p).ok());
+    }
+
+    fallback.sort_by_key(|(size, _)| std::cmp::Reverse(*size));
+    fallback
+        .into_iter()
+        .next()
+        .and_then(|(_, p)| std::fs::read(p).ok())
 }
