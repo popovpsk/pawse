@@ -1,7 +1,8 @@
 use gpui::{
     AppContext, Bounds, Context, DispatchPhase, DragMoveEvent, Empty, EntityId, EventEmitter,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, Render, StatefulInteractiveElement, Styled, Window, canvas, div, px, relative,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Point, Render, StatefulInteractiveElement, Styled, Window, canvas, div,
+    px, relative,
 };
 use gpui_component::ActiveTheme;
 
@@ -35,6 +36,8 @@ pub struct Slider {
     interacting: bool,
     disabled: bool,
     hovered: bool,
+    hover_value: Option<f32>,
+    tooltip_formatter: Option<Box<dyn Fn(f32) -> String>>,
 }
 
 impl Slider {
@@ -49,6 +52,8 @@ impl Slider {
             interacting: false,
             disabled: false,
             hovered: false,
+            hover_value: None,
+            tooltip_formatter: None,
         }
     }
 
@@ -112,26 +117,48 @@ impl Slider {
         self.interacting
     }
 
-    /// Update value from mouse position. Returns true if value changed.
-    /// Caller decides whether to emit `SliderEvent::Change` based on `live_update`.
-    fn set_value_from_position(&mut self, position: Point<Pixels>) -> bool {
+    pub fn tooltip_formatter(mut self, f: Box<dyn Fn(f32) -> String>) -> Self {
+        self.tooltip_formatter = Some(f);
+        self
+    }
+
+    pub fn set_tooltip_formatter(
+        &mut self,
+        f: Option<Box<dyn Fn(f32) -> String>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.tooltip_formatter = f;
+        cx.notify();
+    }
+
+    pub fn hover_value(&self) -> Option<f32> {
+        self.hover_value
+    }
+
+    /// Compute slider value at a given mouse position without mutating state.
+    fn compute_value_at_position(&self, position: Point<Pixels>) -> Option<f32> {
         let width = self.track_bounds.size.width;
         if width <= px(0.) {
-            return false;
+            return None;
         }
 
         let offset_x = position.x - self.track_bounds.left();
         let percentage = (offset_x / width).clamp(0.0, 1.0);
         let raw_value = self.min + percentage * (self.max - self.min);
         let stepped = (raw_value / self.step).round() * self.step;
-        let new_value = stepped.clamp(self.min, self.max);
+        Some(stepped.clamp(self.min, self.max))
+    }
 
-        if new_value != self.value {
+    /// Update value from mouse position. Returns true if value changed.
+    /// Caller decides whether to emit `SliderEvent::Change` based on `live_update`.
+    fn set_value_from_position(&mut self, position: Point<Pixels>) -> bool {
+        if let Some(new_value) = self.compute_value_at_position(position)
+            && new_value != self.value
+        {
             self.value = new_value;
-            true
-        } else {
-            false
+            return true;
         }
+        false
     }
 
     /// End the current interaction. Emits `Change` in `live_update = false` mode.
@@ -162,7 +189,20 @@ impl Render for Slider {
         let show_thumb = !self.disabled && (self.hovered || self.interacting);
         let disabled_opacity = if self.disabled { 0.4 } else { 1.0 };
 
-        div()
+        let tooltip_info = if self.disabled {
+            None
+        } else if let Some(hv) = self.hover_value {
+            Some(hv)
+        } else if self.interacting {
+            Some(self.value)
+        } else {
+            None
+        };
+        let tooltip_text = tooltip_info.and_then(|v| {
+            self.tooltip_formatter.as_ref().map(|f| f(v))
+        });
+
+        let mut element = div()
             .id(("slider-track", entity_id))
             .relative()
             .w_full()
@@ -180,11 +220,21 @@ impl Render for Slider {
                     if this.set_value_from_position(event.position) {
                         cx.notify();
                     }
+                    this.hover_value = this.compute_value_at_position(event.position);
                     if this.live_update {
                         cx.emit(SliderEvent::Change(this.value));
                     }
                 }),
             )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if this.disabled {
+                    this.hover_value = None;
+                    cx.notify();
+                    return;
+                }
+                this.hover_value = this.compute_value_at_position(event.position);
+                cx.notify();
+            }))
             .on_drag(
                 DragSlider(entity_id),
                 move |drag, _, _, cx| cx.new(|_| drag.clone()),
@@ -197,6 +247,7 @@ impl Render for Slider {
                     if this.set_value_from_position(e.event.position) {
                         cx.notify();
                     }
+                    this.hover_value = Some(this.value);
                     if this.live_update {
                         cx.emit(SliderEvent::Change(this.value));
                     }
@@ -216,6 +267,9 @@ impl Render for Slider {
                 move |&hovered, _, cx| {
                     entity.update(cx, |this, cx| {
                         this.hovered = hovered;
+                        if !hovered {
+                            this.hover_value = None;
+                        }
                         cx.notify();
                     });
                 }
@@ -278,6 +332,32 @@ impl Render for Slider {
                 )
                 .absolute()
                 .size_full()
-            })
+            });
+
+        if let Some(text) = tooltip_text {
+            let hover_pct = if self.max > self.min {
+                (tooltip_info.unwrap() - self.min) / (self.max - self.min)
+            } else {
+                0.0
+            };
+            element = element.child(
+                div()
+                    .absolute()
+                    .left(relative(hover_pct))
+                    .ml(-px(20.))
+                    .top(px(-24.))
+                    .w(px(40.))
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .rounded(px(4.))
+                    .bg(cx.theme().foreground)
+                    .text_color(cx.theme().background)
+                    .text_size(px(11.))
+                    .child(text),
+            );
+        }
+
+        element
     }
 }

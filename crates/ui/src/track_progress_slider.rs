@@ -62,9 +62,16 @@ impl TrackProgressSlider {
                     this.duration_secs = duration.as_secs_f32();
                     this.current_position_secs = 0.0;
                     this.has_track = true;
+                    let duration_secs = this.duration_secs;
                     this.slider.update(cx, |slider, cx| {
                         slider.set_value_silent(0.0, cx);
                         slider.set_disabled(false, cx);
+                        slider.set_tooltip_formatter(
+                            Some(Box::new(move |value| {
+                                Self::format_time(value * duration_secs)
+                            })),
+                            cx,
+                        );
                     });
                     cx.notify();
                 }
@@ -96,6 +103,7 @@ impl TrackProgressSlider {
                     this.slider.update(cx, |slider, cx| {
                         slider.set_value_silent(0.0, cx);
                         slider.set_disabled(true, cx);
+                        slider.set_tooltip_formatter(None, cx);
                     });
                     cx.notify();
                 }
