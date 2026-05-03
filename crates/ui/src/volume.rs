@@ -18,7 +18,7 @@ impl Render for Volume {
         h_flex()
             .id("volume_control")
             .gap_2()
-            .child("🔊")
+            .justify_end()
             .child(div().w(px(100.)).child(self.slider.clone()))
             .w_full()
             .h_6()
@@ -27,8 +27,13 @@ impl Render for Volume {
 
 impl Volume {
     pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        let slider =
-            cx.new(|cx| Slider::new(cx).default_value(1.0).min(0.0).max(1.0).step(0.01));
+        let slider = cx.new(|cx| {
+            Slider::new(cx)
+                .default_value(1.0)
+                .min(0.0)
+                .max(1.0)
+                .step(0.01)
+        });
 
         cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| match event {
             SliderEvent::Change(value) => {
@@ -40,6 +45,9 @@ impl Volume {
         })
         .detach();
 
-        Self { slider, volume: 1.0 }
+        Self {
+            slider,
+            volume: 1.0,
+        }
     }
 }

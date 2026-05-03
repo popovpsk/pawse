@@ -21,14 +21,22 @@ impl Render for TrackProgressSlider {
         h_flex()
             .gap_3()
             .items_center()
+            .justify_center()
             .w_full()
             .child(
                 div()
-                    .w_20()
+                    .w(px(40.))
+                    .text_sm()
+                    .text_right()
                     .child(Self::format_time(self.current_position_secs)),
             )
             .child(div().w(px(250.)).child(self.slider.clone()))
-            .child(div().w_20().child(Self::format_time(self.duration_secs)))
+            .child(
+                div()
+                    .w(px(40.))
+                    .text_sm()
+                    .child(Self::format_time(self.duration_secs)),
+            )
     }
 }
 

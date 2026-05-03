@@ -84,6 +84,6 @@ impl Render for Footer {
                             .child(self.track_progress_slider.clone()),
                     ),
             )
-            .child(div().w(px(140.)).child(self.volume_slider.clone()))
+            .child(div().w(px(200.)).flex().justify_end().child(self.volume_slider.clone()))
     }
 }
