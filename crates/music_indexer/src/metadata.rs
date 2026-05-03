@@ -20,6 +20,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
 
     let mut title = None;
     let mut artist_names = Vec::new();
+    let mut album_artist_names = Vec::new();
     let mut album_title = None;
     let mut track_number = None;
     let mut disc_number = None;
@@ -30,7 +31,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         title = tag.title().map(|s| s.to_string());
         album_title = tag.album().map(|s| s.to_string());
 
-        // Artists: prefer all artists, fall back to main artist
+        // Track artists: prefer all artists, fall back to main artist
         let artists: Vec<String> = tag
             .get_strings(&ItemKey::TrackArtists)
             .map(|s| s.to_string())
@@ -39,6 +40,15 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
             artist_names = artists;
         } else if let Some(artist) = tag.artist() {
             artist_names.push(artist.to_string());
+        }
+
+        // Album artists: prefer AlbumArtist tag, fall back to track artists
+        let album_artists: Vec<String> = tag
+            .get_strings(&ItemKey::AlbumArtist)
+            .map(|s| s.to_string())
+            .collect();
+        if !album_artists.is_empty() {
+            album_artist_names = album_artists;
         }
 
         // Track number
@@ -78,6 +88,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         path: path.to_path_buf(),
         title,
         artist_names,
+        album_artist_names,
         album_title,
         track_number,
         disc_number,
@@ -89,6 +100,23 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
 
 fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
     let dir = path.parent()?;
+
+    // First try the track's own directory (e.g. CD1/, CD2/)
+    if let Some(data) = find_cover_art_in_dir(dir) {
+        return Some(data);
+    }
+
+    // Fall back to the parent directory (album root), common for multi-disc albums
+    if let Some(parent) = dir.parent()
+        && let Some(data) = find_cover_art_in_dir(parent)
+    {
+        return Some(data);
+    }
+
+    None
+}
+
+fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
     let prefixes = ["front", "cover", "folder", "album", "art"];
     let exts = ["jpg", "jpeg", "png"];
     let negative = [

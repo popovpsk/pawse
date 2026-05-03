@@ -147,8 +147,23 @@ fn insert_scanned_track(
             track.year,
             cover_art_path.as_deref(),
         )?;
-        if !artist_ids.is_empty() {
-            repo.set_album_artists(album_id, &artist_ids)?;
+
+        // Only set album artists once per album, preferring ALBUMARTIST tag.
+        // If ALBUMARTIST is absent, fall back to the first track's artists.
+        if !repo.album_has_artists(album_id)? {
+            let album_artist_names = if !track.album_artist_names.is_empty() {
+                &track.album_artist_names
+            } else {
+                &track.artist_names
+            };
+            let mut album_artist_ids = Vec::new();
+            for (pos, name) in album_artist_names.iter().enumerate() {
+                let id = repo.upsert_artist(name)?;
+                album_artist_ids.push((id, pos as i32));
+            }
+            if !album_artist_ids.is_empty() {
+                repo.set_album_artists(album_id, &album_artist_ids)?;
+            }
         }
         Some(album_id)
     } else {
@@ -160,6 +175,7 @@ fn insert_scanned_track(
         title: track.title.clone(),
         album_title: track.album_title.clone(),
         artist_names: track.artist_names.clone(),
+        album_artist_names: track.album_artist_names.clone(),
         track_number: track.track_number,
         disc_number: track.disc_number,
         year: track.year,

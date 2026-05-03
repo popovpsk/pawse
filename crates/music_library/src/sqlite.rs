@@ -400,6 +400,16 @@ impl LibraryRepository for SqliteLibrary {
     fn save_cover_art(&self, data: &[u8]) -> Result<String> {
         save_cover_art(&self.cache_dir(), data)
     }
+
+    fn album_has_artists(&self, album_id: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM album_artists WHERE album_id = ?1",
+            [album_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
 }
 
 fn compute_sort_name(name: &str) -> String {
