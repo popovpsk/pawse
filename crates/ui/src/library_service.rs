@@ -22,47 +22,6 @@ impl LibraryService {
         Self { repo, event_tx }
     }
 
-    pub fn scan_directory(&self, path: PathBuf) {
-        let repo = self.repo.clone();
-        let event_tx = self.event_tx.clone();
-
-        std::thread::spawn(move || {
-            let _ = event_tx.send(LibraryEvent::ScanStarted);
-
-            let (scan_tx, scan_rx) = flume::unbounded();
-
-            let scan_path = path.clone();
-            std::thread::spawn(move || {
-                DirectoryScanner::scan(scan_path, scan_tx);
-            });
-
-            let mut scanned = 0usize;
-            while let Ok(event) = scan_rx.recv() {
-                match event {
-                    ScanEvent::Track(track) => {
-                        if let Err(e) = insert_scanned_track(&*repo, &track) {
-                            eprintln!("Failed to insert track: {}", e);
-                        }
-                        scanned += 1;
-                        if scanned.is_multiple_of(10) {
-                            let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
-                        }
-                    }
-                    ScanEvent::Progress { scanned: p } => {
-                        let _ = event_tx.send(LibraryEvent::ScanProgress { scanned: p });
-                    }
-                    ScanEvent::Complete => {
-                        let _ = event_tx.send(LibraryEvent::ScanComplete);
-                        break;
-                    }
-                    ScanEvent::Error { path, error } => {
-                        eprintln!("Scan error for {}: {}", path.display(), error);
-                    }
-                }
-            }
-        });
-    }
-
     pub fn albums(&self) -> Vec<music_library::AlbumSummary> {
         self.repo.albums().unwrap_or_default()
     }

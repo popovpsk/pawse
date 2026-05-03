@@ -63,15 +63,6 @@ impl AlbumsView {
         Rc::new(vec![size(px(300.), px(ALBUM_ROW_HEIGHT + 1.)); albums.len()])
     }
 
-    fn on_select_folder(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let library = cx.global::<Services>().library.clone();
-        std::thread::spawn(move || {
-            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                library.scan_directory(path);
-            }
-        });
-    }
-
     fn on_rescan(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         let library = cx.global::<Services>().library.clone();
         std::thread::spawn(move || {
@@ -86,10 +77,6 @@ impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let select_button = Button::new("select_folder")
-            .label("Select Music Folder")
-            .on_click(cx.listener(AlbumsView::on_select_folder));
-
         let rescan_button = Button::new("rescan")
             .label("Rescan")
             .on_click(cx.listener(AlbumsView::on_rescan));
@@ -98,7 +85,6 @@ impl Render for AlbumsView {
             .gap_2()
             .px_4()
             .py_2()
-            .child(select_button)
             .child(rescan_button);
 
         if self.is_scanning && self.albums.is_empty() {
