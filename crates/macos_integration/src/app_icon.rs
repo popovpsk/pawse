@@ -21,7 +21,7 @@ pub fn set_application_icon() {
     };
 
     unsafe {
-        let bytes = include_bytes!("../../../assets/icons/play.svg");
+        let bytes = include_bytes!("../../../assets/pawse.svg");
         let data = NSData::dataWithBytes_length(bytes.as_ptr().cast::<c_void>(), bytes.len());
         let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
             eprintln!("macos_integration: failed to decode pawse.png for app icon");

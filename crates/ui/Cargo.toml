@@ -28,7 +28,7 @@ macos_integration = { path = "../macos_integration" }
 [package.metadata.bundle]
 name = "Pawse"
 identifier = "dev.pawse.app"
-icon = ["../../assets/icons/play.svg"]
+icon = ["../../assets/pawse.svg"]
 version = "0.1.0"
 copyright = ""
 category = "Music"
