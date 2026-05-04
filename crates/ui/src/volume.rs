@@ -17,8 +17,10 @@ pub struct Volume {
 
 impl Render for Volume {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let icon_path: &str = if self.is_muted || self.volume <= 0.0 {
+        let icon_path: &str = if self.is_muted || self.volume <= 0. {
             "icons/volume_mute.svg"
+        } else if self.volume < 0.5 {
+            "icons/volume_low.svg"
         } else {
             "icons/volume_unmute.svg"
         };
