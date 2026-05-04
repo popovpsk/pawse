@@ -10,6 +10,7 @@ use objc2_app_kit::NSImage;
 use objc2_app_kit::NSStatusItem;
 use objc2_foundation::{MainThreadMarker, NSString};
 
+pub mod app_icon;
 mod now_playing;
 mod remote_command;
 mod status_bar;

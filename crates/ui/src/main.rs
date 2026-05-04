@@ -25,6 +25,9 @@ fn main() {
     let app = Application::new().with_assets(assets::Assets);
 
     app.run(move |cx| {
+        #[cfg(target_os = "macos")]
+        macos_integration::app_icon::set_application_icon();
+
         gpui_component::init(cx);
 
         let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
