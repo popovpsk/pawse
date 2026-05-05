@@ -102,14 +102,11 @@ pub fn set_playback_state(state: MediaPlaybackState) {
     }
 }
 
-/// Load artwork from a file path and create both the `MPMediaItemArtwork`
-/// (for Now Playing) and an `NSImage` suitable for the status bar.
+/// Load artwork from a file path and create `MPMediaItemArtwork`
+/// for the Now Playing widget.
 pub fn load_artwork(
     path: &std::path::Path,
-) -> Option<(
-    Retained<objc2_media_player::MPMediaItemArtwork>,
-    Retained<objc2_app_kit::NSImage>,
-)> {
+) -> Option<Retained<objc2_media_player::MPMediaItemArtwork>> {
     use block2::RcBlock;
     use core::ptr::NonNull;
     use objc2_app_kit::NSImage;
@@ -119,13 +116,8 @@ pub fn load_artwork(
     let path_str = path.to_str()?;
     let image = NSImage::initWithContentsOfFile(NSImage::alloc(), &NSString::from_str(path_str))?;
 
-    let image_for_block = image.clone();
-
-    // SAFETY: `image_for_block` is moved into the block which is retained by
-    // `MPMediaItemArtwork`. The block (and thus the image) lives as long as
-    // the artwork object.
     let block = RcBlock::new(move |_size: CGSize| -> NonNull<NSImage> {
-        NonNull::from(&*image_for_block)
+        NonNull::from(&*image)
     });
 
     let artwork = unsafe {
@@ -136,5 +128,5 @@ pub fn load_artwork(
         )
     };
 
-    Some((artwork, image))
+    Some(artwork)
 }
