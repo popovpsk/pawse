@@ -67,27 +67,19 @@ impl Render for PlayButton {
         div()
             .id("play_button")
             .cursor_pointer()
-            .size(px(40.))
-            .relative()
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
             .rounded_full()
             .bg(cx.theme().primary)
             .hover(|style| style.bg(cx.theme().primary_hover))
             .on_click(cx.listener(PlayButton::on_click))
             .child(
-                div()
-                    .absolute()
-                    .top(px(-4.))
-                    .left(px(-7.))
-                    .size(px(54.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        svg()
-                            .path(icon_path)
-                            .size(px(56.))
-                            .text_color(cx.theme().primary_foreground),
-                    ),
+                svg()
+                    .path(icon_path)
+                    .size(px(30.))
+                    .text_color(cx.theme().primary_foreground),
             )
     }
 }
