@@ -1,6 +1,6 @@
 ## Documentation
 
-For detailed project architecture, crate responsibilities, audio pipeline, UI patterns, database schema, and known limitations, see `.docs/project.md`.
+Always start by reading `.docs/project.md` to understand the project architecture, crate responsibilities, audio pipeline, UI patterns, database schema, and known limitations.
 
 For icon usage, embedding, and SVG conventions, see `.docs/icons.md`.
 
