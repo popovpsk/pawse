@@ -1,11 +1,11 @@
 [package]
-name = "ui"
+name = "pawse"
 version.workspace = true
 edition.workspace = true
 publish = false
 
 [[bin]]
-name = "ui"
+name = "pawse"
 path = "src/main.rs"
 
 [dependencies]

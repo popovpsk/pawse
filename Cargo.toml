@@ -9,12 +9,12 @@ members = [
     "crates/music_indexer",
     "crates/media_integration",
     "crates/macos_integration",
-    "crates/ui",
+    "crates/pawse",
     "crates/ui_components",
     "crates/cue_parser"
 ]
 
-default-members = ["crates/ui"]
+default-members = ["crates/pawse"]
 
 
 [workspace.package]

@@ -12,6 +12,8 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::metadata::read_metadata;
+    use super::scanner::DirectoryScanner;
+    use super::types::ScanEvent;
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -56,63 +58,170 @@ mod tests {
         std::fs::copy(&src, target).expect("failed to copy fixture WAV");
     }
 
-    #[test]
-    fn test_read_metadata_flac() {
-        let path = fixture_path("02 - Selfless.flac");
-        if !path.exists() {
-            eprintln!("Fixture not found, skipping test");
-            return;
-        }
-        let track = read_metadata(&path).expect("should read flac metadata");
-        assert!(
-            track.duration_ms.is_some(),
-            "duration should be present"
-        );
+    fn copy_fixture(name: &str, target: &Path) {
+        let src = fixture_path(name);
+        std::fs::copy(&src, target).expect("failed to copy fixture");
     }
 
-    #[test]
-    fn test_read_metadata_wav() {
-        let path = fixture_path("sine_440_16_44_mono.wav");
-        if !path.exists() {
-            eprintln!("Fixture not found, skipping test");
-            return;
-        }
-        let track = read_metadata(&path).expect("should read wav metadata");
-        assert!(track.duration_ms.is_some());
+    fn read_tagged_fixture(name: &str) -> super::ScannedTrack {
+        let tmp = TempDir::new();
+        let target = tmp.path().join(name);
+        copy_fixture(name, &target);
+        read_metadata(&target).expect("should read fixture metadata")
     }
 
+    fn collect_scan_events(dir: &Path) -> Vec<ScanEvent> {
+        let (tx, rx) = flume::unbounded();
+        let dir = dir.to_path_buf();
+        std::thread::spawn(move || {
+            DirectoryScanner::scan(&dir, tx);
+        });
+        rx.into_iter().collect()
+    }
+
+    // ── read_metadata: basic tag parsing ──────────────────────────────
+
     #[test]
-    fn test_read_metadata_multidisc_cd1() {
-        let path = fixture_path(
-            "Various Artists - Cyberpunk 2077 - Original Score (2020) [CD FLAC]/CD1/1.01. Marcin Przybylowicz - V.flac",
+    fn test_read_metadata_tagged_flac_basic() {
+        let track = read_tagged_fixture("tagged_basic.flac");
+        assert_eq!(track.title.as_deref(), Some("Test Track"));
+        assert_eq!(track.artist_names, vec!["Test Artist".to_string()]);
+        assert_eq!(track.album_title.as_deref(), Some("Test Album"));
+        assert_eq!(
+            track.album_artist_names,
+            vec!["Test Album Artist".to_string()]
         );
-        if !path.exists() {
-            eprintln!("Multi-disc fixture not found, skipping test");
-            return;
-        }
-        let track = read_metadata(&path).expect("should read flac metadata");
+        assert_eq!(track.track_number, Some(3));
         assert_eq!(track.disc_number, Some(1));
-        assert!(!track.album_artist_names.is_empty(), "album artist should be present");
-        assert_eq!(track.album_title.as_deref(), Some("Cyberpunk 2077 - Original Score"));
-        assert_eq!(track.title.as_deref(), Some("V"));
-        assert!(track.cover_art.is_some(), "cover art should be found in parent dir for multi-disc albums");
+        assert_eq!(track.year, Some(2024));
+        assert_eq!(track.duration_ms, Some(500));
+        assert!(track.cover_art.is_none(), "no cover in temp dir");
+        assert_eq!(track.start_offset_ms, None);
     }
 
     #[test]
-    fn test_read_metadata_multidisc_cd2() {
-        let path = fixture_path(
-            "Various Artists - Cyberpunk 2077 - Original Score (2020) [CD FLAC]/CD2/2.01. P.T. Adamczyk - The Voice In My Head.flac",
-        );
-        if !path.exists() {
-            eprintln!("Multi-disc fixture not found, skipping test");
-            return;
-        }
-        let track = read_metadata(&path).expect("should read flac metadata");
+    fn test_read_metadata_tagged_track_disc_slash() {
+        let track = read_tagged_fixture("tagged_track_disc_slash.flac");
+        assert_eq!(track.track_number, Some(5));
         assert_eq!(track.disc_number, Some(2));
-        assert!(!track.album_artist_names.is_empty(), "album artist should be present");
-        assert_eq!(track.album_title.as_deref(), Some("Cyberpunk 2077 - Original Score"));
-        assert!(track.cover_art.is_some(), "cover art should be found in parent dir for multi-disc albums");
     }
+
+    #[test]
+    fn test_read_metadata_year_unparseable() {
+        let track = read_tagged_fixture("tagged_track_disc_slash.flac");
+        assert_eq!(track.year, None, "YEAR=2023-06-15 should fail to parse as i32");
+    }
+
+    #[test]
+    fn test_read_metadata_tagged_flac_with_embedded_cover() {
+        let track = read_tagged_fixture("tagged_with_cover.flac");
+        assert_eq!(track.title.as_deref(), Some("Cover Track"));
+        assert_eq!(track.year, Some(2022));
+        assert_eq!(track.track_number, Some(1));
+        assert_eq!(track.disc_number, Some(1));
+        assert!(
+            track.cover_art.is_some(),
+            "embedded cover art should be present"
+        );
+    }
+
+    #[test]
+    fn test_read_metadata_embedded_cover_priority_over_external() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        let audio_path = dir.join("with_cover.flac");
+        copy_fixture("tagged_with_cover.flac", &audio_path);
+
+        std::fs::write(dir.join("front.jpg"), b"external_cover").unwrap();
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_ne!(
+            track.cover_art.as_deref(),
+            Some(b"external_cover" as &[u8]),
+            "embedded cover art should take priority over external"
+        );
+        assert!(track.cover_art.is_some());
+    }
+
+    #[test]
+    fn test_read_metadata_tagged_mp3() {
+        let track = read_tagged_fixture("tagged_mp3.mp3");
+        assert_eq!(track.title.as_deref(), Some("MP3 Track"));
+        assert_eq!(track.artist_names, vec!["MP3 Artist".to_string()]);
+        assert_eq!(track.album_title.as_deref(), Some("MP3 Album"));
+        assert_eq!(track.track_number, Some(7));
+        assert!(track.duration_ms.unwrap() > 0);
+    }
+
+    #[test]
+    fn test_read_metadata_tagged_ogg() {
+        let track = read_tagged_fixture("tagged_ogg.ogg");
+        assert_eq!(track.title.as_deref(), Some("OGG Track"));
+        assert_eq!(track.artist_names, vec!["OGG Artist".to_string()]);
+        assert_eq!(track.album_title.as_deref(), Some("OGG Album"));
+        assert_eq!(track.track_number, Some(9));
+        assert!(track.duration_ms.unwrap() > 0);
+    }
+
+    #[test]
+    fn test_read_metadata_tagless_flac() {
+        let track = read_tagged_fixture("tagless.flac");
+        assert_eq!(track.title, None);
+        assert!(track.artist_names.is_empty());
+        assert!(track.album_artist_names.is_empty());
+        assert_eq!(track.album_title, None);
+        assert_eq!(track.track_number, None);
+        assert_eq!(track.disc_number, None);
+        assert_eq!(track.year, None);
+        assert_eq!(track.duration_ms, Some(500));
+        assert_eq!(track.start_offset_ms, None);
+    }
+
+    #[test]
+    fn test_read_metadata_tagless_wav() {
+        let tmp = TempDir::new();
+        let audio_path = tmp.path().join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read wav metadata");
+        assert_eq!(track.title, None);
+        assert!(track.artist_names.is_empty());
+        assert!(track.album_artist_names.is_empty());
+        assert_eq!(track.album_title, None);
+        assert_eq!(track.track_number, None);
+        assert_eq!(track.disc_number, None);
+        assert_eq!(track.year, None);
+        assert!(track.duration_ms.is_some());
+        assert_eq!(track.start_offset_ms, None);
+    }
+
+    // ── read_metadata: error cases ────────────────────────────────────
+
+    #[test]
+    fn test_read_metadata_nonexistent_file() {
+        let result = read_metadata("/tmp/does_not_exist_12345.xyz");
+        assert!(result.is_err(), "non-existent file should return Err");
+    }
+
+    #[test]
+    fn test_read_metadata_corrupt_file() {
+        let tmp = TempDir::new();
+        let path = tmp.path().join("corrupt.wav");
+        std::fs::write(&path, b"not valid audio data at all").unwrap();
+
+        let result = read_metadata(&path);
+        assert!(result.is_err(), "corrupt file should return Err");
+    }
+
+    #[test]
+    fn test_read_metadata_duration() {
+        let track = read_tagged_fixture("tagged_basic.flac");
+        let duration = track.duration_ms.unwrap();
+        assert!((400..=600).contains(&duration), "expected ~500ms, got {duration}ms");
+    }
+
+    // ── Cover art discovery ───────────────────────────────────────────
 
     #[test]
     fn test_cover_art_from_artwork_subdir() {
@@ -237,6 +346,569 @@ mod tests {
         assert_eq!(
             track.cover_art, None,
             "images in unknown subdirectories should be ignored"
+        );
+    }
+
+    #[test]
+    fn test_cover_art_no_cover_anywhere() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        let audio_path = dir.join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_eq!(track.cover_art, None, "no cover art should be found in empty dir");
+    }
+
+    #[test]
+    fn test_cover_art_in_own_directory() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        std::fs::write(dir.join("cover.jpg"), b"own_cover").unwrap();
+
+        let audio_path = dir.join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_eq!(track.cover_art.as_deref(), Some(b"own_cover" as &[u8]));
+    }
+
+    #[test]
+    fn test_cover_art_negative_keywords_filtered() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        std::fs::write(dir.join("back.jpg"), b"back_cover").unwrap();
+        std::fs::write(dir.join("rear_photo.jpg"), b"rear_cover").unwrap();
+        std::fs::write(dir.join("inside.jpg"), b"inside_art").unwrap();
+        std::fs::write(dir.join("booklet.jpg"), b"booklet_scan").unwrap();
+        std::fs::write(dir.join("front.jpg"), b"real_front").unwrap();
+
+        let audio_path = dir.join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_eq!(
+            track.cover_art.as_deref(),
+            Some(b"real_front" as &[u8]),
+            "front cover should be selected despite negative-keyword files present"
+        );
+    }
+
+    #[test]
+    fn test_cover_art_only_negative_keywords_present() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        std::fs::write(dir.join("back_cover.jpg"), b"back_content").unwrap();
+        std::fs::write(dir.join("cd_label.jpg"), b"cd_label_content").unwrap();
+        std::fs::write(dir.join("poster_art.jpg"), b"poster_content").unwrap();
+
+        let audio_path = dir.join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_eq!(
+            track.cover_art, None,
+            "files with only negative keywords should not be selected (negative keyword only demotes prefix-matched files; non-prefix negative files fall through)"
+        );
+    }
+
+    #[test]
+    fn test_cover_art_fallback_by_size() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        std::fs::write(dir.join("image_a.jpg"), b"small").unwrap();
+        std::fs::write(dir.join("image_b.jpg"), b"larger_content").unwrap();
+        std::fs::write(dir.join("image_c.jpg"), b"ti").unwrap();
+
+        let audio_path = dir.join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_eq!(
+            track.cover_art.as_deref(),
+            Some(b"larger_content" as &[u8]),
+            "when no prefix-matched files, the largest file should be selected as cover art"
+        );
+    }
+
+    #[test]
+    fn test_cover_art_prefix_cover_highest_priority() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        std::fs::write(dir.join("folder.jpg"), b"folder").unwrap();
+        std::fs::write(dir.join("cover.jpg"), b"cover_wins").unwrap();
+        std::fs::write(dir.join("front.jpg"), b"front").unwrap();
+
+        let audio_path = dir.join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let track = read_metadata(&audio_path).expect("should read metadata");
+        assert_eq!(
+            track.cover_art.as_deref(),
+            Some(b"cover_wins" as &[u8]),
+            "prefix 'cover' should have highest priority (index 0)"
+        );
+    }
+
+    // ── DirectoryScanner::scan ────────────────────────────────────────
+
+    #[test]
+    fn test_scanner_empty_directory() {
+        let tmp = TempDir::new();
+        let events = collect_scan_events(tmp.path());
+
+        assert_eq!(events.len(), 1, "empty dir should only emit Complete");
+        assert!(matches!(events[0], ScanEvent::Complete));
+    }
+
+    #[test]
+    fn test_scanner_single_audio_file() {
+        let tmp = TempDir::new();
+        let audio_path = tmp.path().join("test.wav");
+        copy_fixture_wav(&audio_path);
+
+        let events = collect_scan_events(tmp.path());
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 1, "should find exactly one track");
+        assert!(tracks[0].path.ends_with("test.wav"));
+        assert!(
+            events.iter().any(|e| matches!(e, ScanEvent::Complete)),
+            "should emit Complete"
+        );
+    }
+
+    #[test]
+    fn test_scanner_skips_non_audio_files() {
+        let tmp = TempDir::new();
+        copy_fixture_wav(&tmp.path().join("audio.wav"));
+        std::fs::write(tmp.path().join("readme.txt"), b"not audio").unwrap();
+        std::fs::write(tmp.path().join("image.jpg"), b"not audio").unwrap();
+        std::fs::write(tmp.path().join("notes.pdf"), b"not audio").unwrap();
+
+        let events = collect_scan_events(tmp.path());
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 1, "only audio files should be processed");
+    }
+
+    #[test]
+    fn test_scanner_multiple_audio_files_progress() {
+        let tmp = TempDir::new();
+        for i in 0..12 {
+            let name = format!("track_{i:02}.wav");
+            copy_fixture_wav(&tmp.path().join(&name));
+        }
+
+        let events = collect_scan_events(tmp.path());
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(_) => Some(()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 12, "all 12 tracks should be found");
+
+        let progress: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Progress { scanned } => Some(*scanned),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(progress, vec![10], "Progress should be emitted at 10");
+
+        assert!(
+            events.iter().any(|e| matches!(e, ScanEvent::Complete)),
+            "should emit Complete"
+        );
+    }
+
+    #[test]
+    fn test_scanner_error_on_corrupt_file() {
+        let tmp = TempDir::new();
+        copy_fixture_wav(&tmp.path().join("good.wav"));
+        std::fs::write(tmp.path().join("bad.wav"), b"corrupt audio data").unwrap();
+
+        let events = collect_scan_events(tmp.path());
+
+        let errors: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Error { path, error: _ } => Some(path.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 1, "should emit exactly one error");
+        assert!(errors[0].ends_with("bad.wav"));
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.path.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 1, "good file should still be processed after error");
+        assert!(tracks[0].ends_with("good.wav"));
+
+        assert!(
+            events.iter().any(|e| matches!(e, ScanEvent::Complete)),
+            "should emit Complete after errors"
+        );
+    }
+
+    #[test]
+    fn test_scanner_nested_directories() {
+        let tmp = TempDir::new();
+        let sub1 = tmp.path().join("artist1");
+        let sub2 = tmp.path().join("artist2");
+        std::fs::create_dir(&sub1).unwrap();
+        std::fs::create_dir(&sub2).unwrap();
+
+        copy_fixture_wav(&sub1.join("track_a.wav"));
+        copy_fixture_wav(&sub2.join("track_b.wav"));
+        copy_fixture_wav(&tmp.path().join("root_track.wav"));
+
+        let events = collect_scan_events(tmp.path());
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(&t.path),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 3, "all files in nested dirs should be found");
+    }
+
+    #[test]
+    fn test_scanner_receiver_dropped_stops_scan() {
+        let tmp = TempDir::new();
+        for i in 0..50 {
+            copy_fixture_wav(&tmp.path().join(format!("track_{i:02}.wav")));
+        }
+
+        let (tx, rx) = flume::bounded(1);
+        let dir = tmp.path().to_path_buf();
+        std::thread::spawn(move || {
+            DirectoryScanner::scan(&dir, tx);
+        });
+
+        let mut count = 0;
+        for _event in rx.into_iter().take(5) {
+            count += 1;
+        }
+
+        assert!(count < 50, "dropping receiver should stop scan early");
+    }
+
+    #[test]
+    fn test_scanner_wav_and_flac_and_mp3_mixed() {
+        let tmp = TempDir::new();
+        copy_fixture_wav(&tmp.path().join("a.wav"));
+        copy_fixture("tagless.flac", &tmp.path().join("b.flac"));
+        copy_fixture("tagged_mp3.mp3", &tmp.path().join("c.mp3"));
+
+        let events = collect_scan_events(tmp.path());
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(_) => Some(()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 3, "all supported formats should be processed");
+    }
+
+    // ── CUE file processing ───────────────────────────────────────────
+
+    #[test]
+    fn test_scanner_cue_with_valid_audio() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        let audio_path = dir.join("audio.wav");
+        copy_fixture_wav(&audio_path);
+
+        let cue_content = "\
+PERFORMER \"Album Performer\"
+TITLE \"Album Title\"
+REM DATE 2023
+FILE \"audio.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"First Track\"
+    PERFORMER \"Track Performer\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"Second Track\"
+    INDEX 01 00:00:15
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 2, "CUE should produce 2 tracks");
+        assert!(events.iter().any(|e| matches!(e, ScanEvent::Complete)));
+
+        let t0 = &tracks[0];
+        assert_eq!(t0.title.as_deref(), Some("First Track"));
+        assert_eq!(t0.artist_names, vec!["Track Performer".to_string()]);
+        assert_eq!(t0.album_artist_names, vec!["Album Performer".to_string()]);
+        assert_eq!(t0.album_title.as_deref(), Some("Album Title"));
+        assert_eq!(t0.track_number, Some(1));
+        assert_eq!(t0.disc_number, Some(1));
+        assert_eq!(t0.year, Some(2023));
+        assert_eq!(t0.start_offset_ms, Some(0));
+        assert!(t0.duration_ms.unwrap() > 0);
+
+        let t1 = &tracks[1];
+        assert_eq!(t1.title.as_deref(), Some("Second Track"));
+        assert_eq!(t1.artist_names, vec!["Album Performer".to_string()]);
+        assert_eq!(t1.track_number, Some(2));
+        assert_eq!(t1.start_offset_ms, Some(200));
+    }
+
+    #[test]
+    fn test_scanner_cue_skips_referenced_audio() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        let audio_path = dir.join("audio.wav");
+        copy_fixture_wav(&audio_path);
+
+        let cue_content = "\
+FILE \"audio.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"Sole Track\"
+    INDEX 01 00:00:00
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tracks.len(),
+            1,
+            "referenced audio should be skipped, only CUE track should appear"
+        );
+        assert!(tracks[0].path.ends_with("audio.wav"));
+        assert_eq!(
+            tracks[0].title.as_deref(),
+            Some("Sole Track"),
+            "track should come from CUE, not directory scan"
+        );
+    }
+
+    #[test]
+    fn test_scanner_cue_missing_audio_file() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        let cue_content = "\
+FILE \"nonexistent.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"Ghost Track\"
+    INDEX 01 00:00:00
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let errors: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Error { path, error: _ } => Some(path.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 1, "should emit error for missing audio file");
+        assert!(errors[0].ends_with("album.cue"));
+    }
+
+    #[test]
+    fn test_scanner_cue_malformed() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        std::fs::write(dir.join("broken.cue"), "not a valid cue sheet").unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let errors: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Error { path, error: _ } => Some(path.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(errors.len(), 1, "malformed CUE should produce error");
+    }
+
+    #[test]
+    fn test_scanner_cue_multiple_cue_files() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        let audio1 = dir.join("audio1.wav");
+        let audio2 = dir.join("audio2.wav");
+        copy_fixture_wav(&audio1);
+        copy_fixture_wav(&audio2);
+
+        std::fs::write(
+            dir.join("a.cue"),
+            "FILE \"audio1.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"A\"\n    INDEX 01 00:00:00\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("b.cue"),
+            "FILE \"audio2.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"B\"\n    INDEX 01 00:00:00\n",
+        )
+        .unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.title.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 2, "both CUE files should produce tracks");
+    }
+
+    #[test]
+    fn test_scanner_cue_with_subdirectory_audio() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        let sub = dir.join("subdir");
+        std::fs::create_dir(&sub).unwrap();
+
+        let audio_path = sub.join("audio.wav");
+        copy_fixture_wav(&audio_path);
+
+        let cue_content = "\
+FILE \"subdir/audio.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"Subdir Track\"
+    INDEX 01 00:00:00
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tracks.len(),
+            1,
+            "referenced audio in subdirectory should be skipped, only CUE track should appear"
+        );
+        assert_eq!(tracks[0].title.as_deref(), Some("Subdir Track"));
+    }
+
+    #[test]
+    fn test_scanner_cue_last_track_duration() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        copy_fixture_wav(&dir.join("audio.wav"));
+
+        let cue_content = "\
+FILE \"audio.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"First\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"Second\"
+    INDEX 01 00:00:10
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 2);
+
+        let last = &tracks[1];
+        assert!(last.duration_ms.unwrap() > 0, "last track duration should be computed from file duration minus offset");
+    }
+
+    #[test]
+    fn test_scanner_cue_with_embedded_cover() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        copy_fixture("tagged_with_cover.flac", &dir.join("audio.flac"));
+
+        let cue_content = "\
+FILE \"audio.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"Cover Track\"
+    INDEX 01 00:00:00
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 1, "CUE track should be parsed");
+        assert!(
+            tracks[0].cover_art.is_some(),
+            "CUE track should inherit embedded cover art from audio file"
         );
     }
 }

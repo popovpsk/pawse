@@ -3,7 +3,6 @@ use gpui_component::v_flex;
 
 use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView};
 use crate::library_views::tracks_view::{BackEvent, TracksView};
-use crate::services::Services;
 
 enum LibraryViewState {
     Albums,
@@ -28,14 +27,6 @@ impl LibraryView {
                 this.show_tracks(event.album.clone(), cx);
             },
         );
-
-        let services = cx.global::<Services>();
-        if services.library.has_tracks() {
-            // Trigger background rescan on startup if we already have tracks
-            // We don't block UI; just start it in background
-            // Note: user needs to pick folder for rescan, so we skip auto-rescan
-            // unless they configured a default folder. For now, manual only after first scan.
-        }
 
         Self {
             state: LibraryViewState::Albums,

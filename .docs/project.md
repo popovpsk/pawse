@@ -14,7 +14,7 @@ A local audio player built with Rust and [GPUI](https://github.com/zed-industrie
 | `music_indexer` | `crates/music_indexer/` | Directory scanner (`jwalk`) + metadata reader (`lofty`). Emits `ScanEvent` |
 | `media_integration` | `crates/media_integration/` | Platform-agnostic system media integration trait (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) |
 | `macos_integration` | `crates/macos_integration/` | macOS-specific implementation: status bar item, Now Playing widget, remote commands (media keys) via `objc2` |
-| `ui` | `crates/ui/` | GPUI application. Views, service globals, event buses |
+| `pawse` | `crates/pawse/` | GPUI application. Views, service globals, event buses |
 
 ## Audio Pipeline
 
@@ -148,7 +148,7 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 
 ## File Locations
 
-- **Entry point**: `crates/ui/src/main.rs`
+- **Entry point**: `crates/pawse/src/main.rs`
 - **Audio fixtures**: `fixtures/` (WAV, FLAC test files)
 - **Database**: `dirs::data_dir()/pawse/library.db`
 - **Cover cache**: `dirs::data_dir()/pawse/covers/`

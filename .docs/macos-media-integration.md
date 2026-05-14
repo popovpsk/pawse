@@ -195,4 +195,4 @@ Commands from the OS flow as follows:
 | `crates/macos_integration/src/now_playing.rs` | `MPNowPlayingInfoCenter` updates, artwork loading |
 | `crates/macos_integration/src/remote_command.rs` | `MPRemoteCommandCenter` registration |
 | `crates/macos_integration/src/status_bar.rs` | `NSStatusItem`, `NSMenu`, default icon |
-| `crates/ui/src/media_bridge.rs` | GPUI entity: event forwarding, command loop, OS command dispatch |
+| `crates/pawse/src/media_bridge.rs` | GPUI entity: event forwarding, command loop, OS command dispatch |

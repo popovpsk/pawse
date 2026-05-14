@@ -6,8 +6,10 @@ use std::time::Duration;
 use flume::Sender;
 use jwalk::WalkDir;
 use lofty::file::AudioFile;
+use lofty::picture::PictureType;
+use lofty::prelude::TaggedFileExt;
 
-use crate::metadata::read_metadata;
+use crate::metadata::{find_external_cover_art, read_metadata};
 use crate::types::ScanEvent;
 use crate::types::ScannedTrack;
 
@@ -31,7 +33,9 @@ impl DirectoryScanner {
             match process_cue_file(cue_path) {
                 Ok(tracks) => {
                     for track in tracks {
-                        skip_set.insert(track.path.clone());
+                        let canonical = std::fs::canonicalize(&track.path)
+                            .unwrap_or_else(|_| track.path.clone());
+                        skip_set.insert(canonical);
                         if tx.send(ScanEvent::Track(track)).is_err() {
                             return;
                         }
@@ -74,7 +78,9 @@ impl DirectoryScanner {
 
             let track_path = entry.path();
 
-            if skip_set.contains(&track_path) {
+            let canonical = std::fs::canonicalize(&track_path)
+                .unwrap_or_else(|_| track_path.clone());
+            if skip_set.contains(&canonical) {
                 continue;
             }
 
@@ -150,7 +156,20 @@ fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
         );
     }
 
-    let file_duration_ms = get_file_duration_ms(&audio_path)?;
+    let tagged_file = lofty::read_from_path(&audio_path)?;
+    let file_duration_ms = tagged_file.properties().duration().as_millis() as u64;
+
+    let cover_art = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .and_then(|tag| {
+            tag.pictures()
+                .iter()
+                .find(|p| p.pic_type() == PictureType::CoverFront)
+                .or_else(|| tag.pictures().first())
+                .map(|pic| pic.data().to_vec())
+        })
+        .or_else(|| find_external_cover_art(&audio_path));
 
     let mut tracks = Vec::new();
     let track_count = sheet.tracks.len();
@@ -190,10 +209,6 @@ fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
         let disc_number = Some(1u32);
         let year = sheet.date.as_ref().and_then(|d| d.parse::<i32>().ok());
 
-        let cover_art = read_metadata(&audio_path)
-            .ok()
-            .and_then(|t| t.cover_art);
-
         tracks.push(ScannedTrack {
             path: audio_path.clone(),
             title,
@@ -204,16 +219,10 @@ fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             disc_number,
             year,
             duration_ms: Some(duration_ms),
-            cover_art,
+            cover_art: cover_art.clone(),
             start_offset_ms: Some(start_offset_ms),
         });
     }
 
     Ok(tracks)
-}
-
-fn get_file_duration_ms(path: &Path) -> anyhow::Result<u64> {
-    let tagged_file = lofty::read_from_path(path)?;
-    let duration = tagged_file.properties().duration();
-    Ok(duration.as_millis() as u64)
 }

@@ -454,3 +454,72 @@ fn save_cover_art(cache_dir: &Path, data: &[u8]) -> Result<String> {
     }
     Ok(path.to_string_lossy().into_owned())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_sort_name_the() {
+        assert_eq!(compute_sort_name("The Beatles"), "beatles, the");
+    }
+
+    #[test]
+    fn test_compute_sort_name_a() {
+        assert_eq!(
+            compute_sort_name("A Tribe Called Quest"),
+            "tribe called quest, a"
+        );
+    }
+
+    #[test]
+    fn test_compute_sort_name_no_article() {
+        assert_eq!(compute_sort_name("Radiohead"), "Radiohead");
+    }
+
+    #[test]
+    fn test_compute_sort_name_whitespace() {
+        assert_eq!(compute_sort_name("  The Who  "), "who, the");
+    }
+
+    #[test]
+    fn test_compute_sort_name_lowercase_article() {
+        assert_eq!(compute_sort_name("the national"), "national, the");
+    }
+
+    #[test]
+    fn test_compute_sort_name_empty() {
+        assert_eq!(compute_sort_name(""), "");
+    }
+
+    #[test]
+    fn test_fallback_title_from_path_basic() {
+        assert_eq!(
+            fallback_title_from_path("/music/song.flac"),
+            "song"
+        );
+    }
+
+    #[test]
+    fn test_fallback_title_from_path_no_ext() {
+        assert_eq!(fallback_title_from_path("/music/song"), "song");
+    }
+
+    #[test]
+    fn test_fallback_title_from_path_root() {
+        assert_eq!(fallback_title_from_path("song.flac"), "song");
+    }
+
+    #[test]
+    fn test_fallback_title_from_path_multiple_ext() {
+        assert_eq!(
+            fallback_title_from_path("/music/song.tar.gz"),
+            "song.tar"
+        );
+    }
+
+    #[test]
+    fn test_fallback_title_from_path_empty() {
+        assert_eq!(fallback_title_from_path(""), "");
+    }
+}

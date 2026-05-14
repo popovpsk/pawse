@@ -100,7 +100,7 @@ An invisible `canvas` element covers the entire slider. It serves two purposes:
 
 ## Track Progress Slider Specifics
 
-**File**: `crates/ui/src/track_progress_slider.rs`
+**File**: `crates/pawse/src/track_progress_slider.rs`
 
 Uses `live_update = false` mode with additional engine integration:
 

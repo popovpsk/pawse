@@ -99,7 +99,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
     })
 }
 
-fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
+pub fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
     let dir = path.parent()?;
 
     // 1. Track's own directory (e.g. CD1/, CD2/)
@@ -229,4 +229,63 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
         };
         left_bound && right_bound
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_word;
+
+    #[test]
+    fn test_contains_word_at_start() {
+        assert!(contains_word("cd_cover", "cd"));
+    }
+
+    #[test]
+    fn test_contains_word_at_end() {
+        assert!(contains_word("back_cover_cd", "cd"));
+    }
+
+    #[test]
+    fn test_contains_word_in_middle() {
+        assert!(contains_word("back_cd_cover", "cd"));
+    }
+
+    #[test]
+    fn test_contains_word_entire_string() {
+        assert!(contains_word("cd", "cd"));
+    }
+
+    #[test]
+    fn test_contains_word_not_found() {
+        assert!(!contains_word("front_cover", "cd"));
+    }
+
+    #[test]
+    fn test_contains_word_substring_without_boundary() {
+        assert!(!contains_word("WIGCD188J_front", "cd"));
+        assert!(!contains_word("abcd", "bc"));
+        assert!(!contains_word("abcdef", "cde"));
+    }
+
+    #[test]
+    fn test_contains_word_multiple_occurrences_one_has_boundary() {
+        assert!(contains_word("cd_WIGCD188J", "cd"));
+    }
+
+    #[test]
+    fn test_contains_word_empty_haystack() {
+        assert!(!contains_word("", "test"));
+    }
+
+    #[test]
+    fn test_contains_word_empty_needle() {
+        assert!(!contains_word("test", ""));
+    }
+
+    #[test]
+    fn test_contains_word_single_char_word_boundary() {
+        assert!(contains_word("a_b", "a"));
+        assert!(contains_word("a_b", "b"));
+        assert!(!contains_word("ab_c", "b"));
+    }
 }

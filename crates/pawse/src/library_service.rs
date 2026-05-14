@@ -58,20 +58,15 @@ impl LibraryService {
                 DirectoryScanner::scan(scan_path, scan_tx);
             });
 
-            let mut scanned = 0usize;
             while let Ok(event) = scan_rx.recv() {
                 match event {
                     ScanEvent::Track(track) => {
                         if let Err(e) = insert_scanned_track(&*repo, &track) {
                             eprintln!("Failed to insert track: {}", e);
                         }
-                        scanned += 1;
-                        if scanned.is_multiple_of(10) {
-                            let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
-                        }
                     }
-                    ScanEvent::Progress { scanned: p } => {
-                        let _ = event_tx.send(LibraryEvent::ScanProgress { scanned: p });
+                    ScanEvent::Progress { scanned } => {
+                        let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
                     }
                     ScanEvent::Complete => {
                         let _ = event_tx.send(LibraryEvent::ScanComplete);

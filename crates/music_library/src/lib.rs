@@ -247,4 +247,231 @@ mod tests {
         assert_eq!(albums[0].artist_name, "Album Artist");
     }
 
+    #[test]
+    fn test_track_artists() {
+        let (lib, _path) = create_test_db();
+        let artist1 = lib.upsert_artist("Artist One").unwrap();
+        let artist2 = lib.upsert_artist("Artist Two").unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
+
+        let track = NewTrack {
+            path: "/music/track.flac".into(),
+            title: Some("Track".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist One".into(), "Artist Two".into()],
+            album_artist_names: Vec::new(),
+            track_number: None,
+            disc_number: None,
+            year: None,
+            duration_ms: None,
+            cover_art: None,
+            start_offset_ms: None,
+        };
+        let track_id = lib
+            .upsert_track(&track, Some(album_id), &[(artist1, 0), (artist2, 1)])
+            .unwrap();
+        let artists = lib.track_artists(track_id).unwrap();
+        assert_eq!(artists, vec!["Artist One", "Artist Two"]);
+    }
+
+    #[test]
+    fn test_album_title_found() {
+        let (lib, _path) = create_test_db();
+        let album_id = lib.upsert_album("Test Album", Some(2000), None).unwrap();
+        assert_eq!(lib.album_title(album_id).unwrap(), Some("Test Album".into()));
+    }
+
+    #[test]
+    fn test_album_title_not_found() {
+        let (lib, _path) = create_test_db();
+        assert!(lib.album_title(999).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_album_has_artists_false() {
+        let (lib, _path) = create_test_db();
+        let album_id = lib.upsert_album("Solo Album", None, None).unwrap();
+        assert!(!lib.album_has_artists(album_id).unwrap());
+    }
+
+    #[test]
+    fn test_delete_orphaned_albums_and_artists() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Orphan Artist").unwrap();
+        let album_id = lib.upsert_album("Orphan Album", None, None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+
+        // Album has no tracks — it's an orphan
+        lib.delete_orphaned_albums_and_artists().unwrap();
+
+        // Album should be deleted
+        assert!(lib.album_title(album_id).unwrap().is_none());
+        // Album_artists cascade-deleted
+        assert!(!lib.album_has_artists(album_id).unwrap());
+    }
+
+    #[test]
+    fn test_save_cover_art() {
+        let (lib, _path) = create_test_db();
+        let data = b"fake-jpeg-bytes";
+        let path = lib.save_cover_art(data).unwrap();
+        assert!(path.ends_with(".jpg"));
+        assert!(std::path::Path::new(&path).exists());
+        let saved = std::fs::read(&path).unwrap();
+        assert_eq!(saved, data);
+    }
+
+    #[test]
+    fn test_search_no_results() {
+        let (lib, _path) = create_test_db();
+        let results = lib.search("nonexistent").unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_clear_then_reinsert() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+        let track = NewTrack {
+            path: "/music/song.flac".into(),
+            title: Some("Song".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: None,
+            disc_number: None,
+            year: None,
+            duration_ms: None,
+            cover_art: None,
+            start_offset_ms: None,
+        };
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
+        assert!(lib.has_tracks().unwrap());
+
+        lib.clear().unwrap();
+        assert!(!lib.has_tracks().unwrap());
+
+        // Re-populate
+        let artist_id2 = lib.upsert_artist("Artist").unwrap();
+        let album_id2 = lib.upsert_album("Album", None, None).unwrap();
+        lib.set_album_artists(album_id2, &[(artist_id2, 0)]).unwrap();
+        lib.upsert_track(&track, Some(album_id2), &[(artist_id2, 0)])
+            .unwrap();
+        assert!(lib.has_tracks().unwrap());
+        let tracks = lib.tracks_for_album(album_id2).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "Song");
+    }
+
+    #[test]
+    fn test_empty_album_artist_in_summary() {
+        let (lib, _path) = create_test_db();
+        let album_id = lib.upsert_album("Compilation", Some(2020), None).unwrap();
+        let artist_id = lib.upsert_artist("Various").unwrap();
+        // Add a track with track artists but no album artists
+        let track = NewTrack {
+            path: "/music/track01.flac".into(),
+            title: Some("Track".into()),
+            album_title: Some("Compilation".into()),
+            artist_names: vec!["Various".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: None,
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            cover_art: None,
+            start_offset_ms: None,
+        };
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
+
+        let albums = lib.albums().unwrap();
+        let album = albums.iter().find(|a| a.id == album_id).unwrap();
+        assert_eq!(album.artist_name, "");
+    }
+
+    #[test]
+    fn test_track_without_album() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let track = NewTrack {
+            path: "/music/song.flac".into(),
+            title: Some("Song".into()),
+            album_title: None,
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: None,
+            disc_number: None,
+            year: None,
+            duration_ms: None,
+            cover_art: None,
+            start_offset_ms: None,
+        };
+        let track_id = lib.upsert_track(&track, None, &[(artist_id, 0)]).unwrap();
+
+        assert!(lib.has_tracks().unwrap());
+        let artists = lib.track_artists(track_id).unwrap();
+        assert_eq!(artists, vec!["Artist"]);
+    }
+
+    #[test]
+    fn test_same_path_different_offset() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+
+        let track1 = NewTrack {
+            path: "/music/track.flac".into(),
+            title: Some("Track One".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: None,
+            year: None,
+            duration_ms: Some(300_000),
+            cover_art: None,
+            start_offset_ms: Some(0),
+        };
+        let track2 = NewTrack {
+            path: "/music/track.flac".into(),
+            title: Some("Track Two".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(2),
+            disc_number: None,
+            year: None,
+            duration_ms: Some(300_000),
+            cover_art: None,
+            start_offset_ms: Some(300_000),
+        };
+
+        let id1 = lib
+            .upsert_track(&track1, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
+        let id2 = lib
+            .upsert_track(&track2, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
+
+        assert_ne!(
+            id1, id2,
+            "same path with different offsets should create distinct tracks"
+        );
+
+        let tracks = lib.tracks_for_album(album_id).unwrap();
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].title, "Track One");
+        assert_eq!(tracks[1].title, "Track Two");
+    }
+
+    #[test]
+    fn test_has_tracks_empty_on_fresh_db() {
+        let (lib, _path) = create_test_db();
+        assert!(!lib.has_tracks().unwrap());
+    }
 }

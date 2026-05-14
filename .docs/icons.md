@@ -4,7 +4,7 @@ All UI icons are embedded into the binary at compile time via `rust-embed`. No e
 
 ## How It Works
 
-The `Assets` struct in `crates/ui/src/assets.rs` uses `#[derive(RustEmbed)]` to compile everything under `assets/icons/` into the binary:
+The `Assets` struct in `crates/pawse/src/assets.rs` uses `#[derive(RustEmbed)]` to compile everything under `assets/icons/` into the binary:
 
 ```rust
 #[derive(RustEmbed)]
