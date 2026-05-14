@@ -28,5 +28,10 @@ gpui-component = "0.5.1"
 anyhow = "1.0"
 rust-embed = "8"
 
+[profile.release]
+debug = "limited"
+lto = "thin"
+codegen-units = 1
+
 [workspace.lints.rust]
 unsafe_code = "forbid"

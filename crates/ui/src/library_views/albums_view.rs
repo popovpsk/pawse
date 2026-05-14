@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use std::path::PathBuf;
 
-use gpui::{ClickEvent, Context, ElementId, EventEmitter, Hsla, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, size, Size, Pixels};
-use gpui_component::{button::Button, h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
+use gpui::{Context, ElementId, EventEmitter, Hsla, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, size, Size, Pixels};
+use gpui_component::{h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
 
 use crate::library_service::LibraryEvent;
 use crate::services::Services;
@@ -63,29 +63,16 @@ impl AlbumsView {
         Rc::new(vec![size(px(300.), px(ALBUM_ROW_HEIGHT + 1.)); albums.len()])
     }
 
-    fn on_rescan(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let library = cx.global::<Services>().library.clone();
-        std::thread::spawn(move || {
-            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                library.clear_and_rescan(path);
-            }
-        });
-    }
 }
 
 impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let rescan_button = Button::new("rescan")
-            .label("Rescan")
-            .on_click(cx.listener(AlbumsView::on_rescan));
-
         let header = h_flex()
             .gap_2()
             .px_4()
-            .py_2()
-            .child(rescan_button);
+            .py_2();
 
         if self.is_scanning && self.albums.is_empty() {
             return v_flex()

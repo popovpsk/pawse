@@ -6,6 +6,7 @@ use crate::{
     services::{Services, run_engine_events_bus},
 };
 
+pub mod app_menu;
 pub mod assets;
 pub mod footer;
 pub mod library_service;
@@ -55,6 +56,22 @@ fn main() {
             async {}
         })
         .detach();
+
+        cx.on_action(|_: &crate::app_menu::Rescan, cx| {
+            let library = cx.global::<Services>().library.clone();
+            std::thread::spawn(move || {
+                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                    library.clear_and_rescan(path);
+                }
+            });
+        });
+
+        cx.on_action(|_: &crate::app_menu::Quit, cx| {
+            cx.quit();
+        });
+
+        cx.activate(true);
+        cx.set_menus(crate::app_menu::app_menus());
 
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {
