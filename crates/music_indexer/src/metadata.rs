@@ -150,7 +150,7 @@ fn find_cover_in_subdirs(dir: &Path) -> Option<Vec<u8>> {
 }
 
 fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
-    let prefixes = ["front", "cover", "folder", "album", "art"];
+    let prefixes = ["cover", "folder", "front", "album", "art"];
     let exts = ["jpg", "jpeg", "png"];
     let negative = [
         "back", "rear", "inside", "booklet", "disc", "cd", "inlay", "tray", "label", "matrix",
@@ -196,8 +196,6 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
             }
             if is_red_ops_front {
                 priority -= 50;
-            } else if stem.contains("front") || stem.contains("obverse") {
-                priority -= 1;
             }
             candidates.push((priority, entry.path()));
         } else if is_red_ops_front {

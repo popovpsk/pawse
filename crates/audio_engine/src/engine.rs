@@ -35,6 +35,7 @@ impl AudioEngine {
             current_position: Duration::ZERO,
             track_start: Duration::ZERO,
             track_end: None,
+            needs_flush: false,
         }
         .run();
 
@@ -102,6 +103,7 @@ struct AudioEngineLoop {
     current_position: Duration,
     track_start: Duration,
     track_end: Option<Duration>,
+    needs_flush: bool,
 }
 
 impl AudioEngineLoop {
@@ -146,6 +148,12 @@ impl AudioEngineLoop {
                 }
                 self.handle_command(command);
                 continue;
+            }
+
+            if self.needs_flush {
+                self.output.clear();
+                current_audio_batch = None;
+                self.needs_flush = false;
             }
 
             if let Some(track_end) = self.track_end
@@ -257,6 +265,8 @@ impl AudioEngineLoop {
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
     ) {
+        self.output.clear();
+        self.needs_flush = true;
         self.decoder = None;
         self.last_position_update = Duration::ZERO;
         self.current_position = Duration::ZERO;
@@ -325,6 +335,9 @@ impl AudioEngineLoop {
     fn handle_seek(&mut self, position: f32) {
         match self.state {
             AudioEngineState::Paused | AudioEngineState::Playing => {
+                self.output.clear();
+                self.needs_flush = true;
+
                 let decoder = self.decoder.as_mut().unwrap();
                 let file_duration = decoder.duration().unwrap_or_default();
                 if file_duration == Duration::ZERO {
