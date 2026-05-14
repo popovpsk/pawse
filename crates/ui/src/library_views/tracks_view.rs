@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
@@ -175,11 +174,8 @@ impl Render for TracksView {
                                         let services = _cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
                                         queue.set_tracks(this.tracks.clone());
-                                        if let Some(track) = queue.play_track_at(track_ix) {
-                                            services
-                                                .engine_manager
-                                                .set_track(PathBuf::from(&track.path));
-                                            services.engine_manager.play();
+                                        if let Some(track) = queue.play_track_at(track_ix).cloned() {
+                                            services.play_track(&track);
                                         }
                                     }))
                                     .into_any_element()

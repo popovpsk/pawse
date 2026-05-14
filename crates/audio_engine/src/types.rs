@@ -12,7 +12,11 @@ pub enum PlaybackState {
 
 #[derive(Debug, Clone)]
 pub enum Command {
-    SetLocalTrack(PathBuf),
+    SetLocalTrack {
+        path: PathBuf,
+        start_offset: Option<Duration>,
+        track_duration: Option<Duration>,
+    },
     Play,
     Pause,
     Seek(f32),

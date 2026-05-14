@@ -95,7 +95,7 @@ track_artists (track_id, artist_id, role, credited_as, position)  -- supports fe
 
 ### Cover Art Storage
 
-Extracted by `lofty` during scan, saved to `dirs::cache_dir()/gpui-test/covers/{hash}.jpg`. Only the path is stored in the database.
+Extracted by `lofty` during scan, saved to `dirs::cache_dir()/pawse/covers/{hash}.jpg`. Only the path is stored in the database.
 
 ### Album Sorting
 
@@ -150,8 +150,8 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 
 - **Entry point**: `crates/ui/src/main.rs`
 - **Audio fixtures**: `fixtures/` (WAV, FLAC test files)
-- **Database**: `dirs::data_dir()/gpui-test/library.db`
-- **Cover cache**: `dirs::data_dir()/gpui-test/covers/`
+- **Database**: `dirs::data_dir()/pawse/library.db`
+- **Cover cache**: `dirs::data_dir()/pawse/covers/`
 
 ## Known Limitations & Behaviors
 

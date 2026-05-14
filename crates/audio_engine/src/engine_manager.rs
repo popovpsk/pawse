@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use crate::{AudioEngine, EngineEvent};
 use gpui::App;
@@ -52,7 +53,6 @@ impl EngineManager {
     }
 
     pub fn pause(&self) {
-        //todo баг сделать нормальную паузу. сейчас остается след если перемотать после паузы.
         self.audio_engine.pause();
     }
 
@@ -62,6 +62,16 @@ impl EngineManager {
 
     pub fn set_track(&self, path: PathBuf) {
         self.audio_engine.set_track(path);
+    }
+
+    pub fn set_track_with_offset(
+        &self,
+        path: PathBuf,
+        start_offset: Option<Duration>,
+        track_duration: Option<Duration>,
+    ) {
+        self.audio_engine
+            .set_track_with_offset(path, start_offset, track_duration);
     }
 
     pub fn events(&self) -> &flume::Receiver<EngineEvent> {

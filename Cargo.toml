@@ -10,7 +10,8 @@ members = [
     "crates/media_integration",
     "crates/macos_integration",
     "crates/ui",
-    "crates/ui_components"
+    "crates/ui_components",
+    "crates/cue_parser"
 ]
 
 default-members = ["crates/ui"]

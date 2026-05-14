@@ -95,24 +95,57 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         year,
         duration_ms: Some(duration_ms),
         cover_art,
+        start_offset_ms: None,
     })
 }
 
 fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
     let dir = path.parent()?;
 
-    // First try the track's own directory (e.g. CD1/, CD2/)
+    // 1. Track's own directory (e.g. CD1/, CD2/)
     if let Some(data) = find_cover_art_in_dir(dir) {
         return Some(data);
     }
 
-    // Fall back to the parent directory (album root), common for multi-disc albums
-    if let Some(parent) = dir.parent()
-        && let Some(data) = find_cover_art_in_dir(parent)
-    {
+    // 2. Named artwork subdirectories under track's directory
+    if let Some(data) = find_cover_in_subdirs(dir) {
         return Some(data);
     }
 
+    // 3. Parent directory (album root) — common for multi-disc albums
+    if let Some(parent) = dir.parent() {
+        if let Some(data) = find_cover_art_in_dir(parent) {
+            return Some(data);
+        }
+
+        // 4. Named artwork subdirectories under parent directory
+        if let Some(data) = find_cover_in_subdirs(parent) {
+            return Some(data);
+        }
+    }
+
+    None
+}
+
+const ARTWORK_DIR_NAMES: &[&str] = &[
+    "artwork", "art", "covers", "scans",
+    "images", "img", "pics", "folder", "booklet",
+];
+
+fn find_cover_in_subdirs(dir: &Path) -> Option<Vec<u8>> {
+    for entry in std::fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        if !entry.file_type().ok()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if !ARTWORK_DIR_NAMES.contains(&name.as_str()) {
+            continue;
+        }
+        if let Some(data) = find_cover_art_in_dir(&entry.path()) {
+            return Some(data);
+        }
+    }
     None
 }
 
@@ -135,7 +168,19 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
             continue;
         }
 
-        let is_negative = negative.iter().any(|&n| stem.contains(n));
+        // RED/OPS tracker naming convention (e.g. 2007-WIGCD188J-HSE10043_01.jpg):
+        // files ending with _1, _01, _001 etc. are numbered sequentially;
+        // _1 / _01 / _001 is always the front cover and takes the highest priority.
+        let is_red_ops_front = stem
+            .rsplit_once('_')
+            .and_then(|(_, suffix)| suffix.parse::<u32>().ok())
+            == Some(1);
+
+        // Negative keyword matching uses word boundaries (non-alphanumeric or string
+        // start/end), NOT simple substring. This avoids false positives like "cd" matching
+        // inside catalog numbers (e.g. WIGCD188J), while still matching standalone tokens
+        // like "cd.jpg", "CD.png", "back_cover.jpg".
+        let is_negative = negative.iter().any(|&n| contains_word(stem, n));
 
         let mut priority = None;
         for (idx, &prefix) in prefixes.iter().enumerate() {
@@ -149,10 +194,14 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
             if is_negative {
                 priority += 100;
             }
-            if stem.contains("front") || stem.contains("obverse") {
+            if is_red_ops_front {
+                priority -= 50;
+            } else if stem.contains("front") || stem.contains("obverse") {
                 priority -= 1;
             }
             candidates.push((priority, entry.path()));
+        } else if is_red_ops_front {
+            candidates.push((-50, entry.path()));
         } else if !is_negative {
             let size = std::fs::metadata(entry.path()).map(|m| m.len()).unwrap_or(0);
             fallback.push((size, entry.path()));
@@ -169,4 +218,17 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
         .into_iter()
         .next()
         .and_then(|(_, p)| std::fs::read(p).ok())
+}
+
+fn contains_word(haystack: &str, needle: &str) -> bool {
+    haystack.match_indices(needle).any(|(start, _)| {
+        let end = start + needle.len();
+        let left_bound = start == 0 || {
+            !haystack.as_bytes()[start - 1].is_ascii_alphanumeric()
+        };
+        let right_bound = end == haystack.len() || {
+            !haystack.as_bytes()[end].is_ascii_alphanumeric()
+        };
+        left_bound && right_bound
+    })
 }

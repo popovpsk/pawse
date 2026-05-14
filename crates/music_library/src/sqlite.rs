@@ -17,7 +17,7 @@ impl SqliteLibrary {
     pub fn open() -> Result<Self> {
         let db_dir = dirs::data_dir()
             .ok_or_else(|| LibraryError::InvalidData("no data dir".into()))?
-            .join("gpui-test");
+            .join("pawse");
         std::fs::create_dir_all(&db_dir)?;
 
         let db_path = db_dir.join("library.db");
@@ -159,6 +159,7 @@ impl LibraryRepository for SqliteLibrary {
         let track_number = track.track_number.map(|n| n as i32);
         let disc_number = track.disc_number.unwrap_or(1) as i32;
         let duration_ms = track.duration_ms.map(|n| n as i64);
+        let start_offset_ms = track.start_offset_ms.unwrap_or(0) as i32;
         let cover_path = track
             .cover_art
             .as_ref()
@@ -166,8 +167,8 @@ impl LibraryRepository for SqliteLibrary {
 
         let existing_id: Option<i64> = tx
             .query_row(
-                "SELECT id FROM tracks WHERE path = ?1",
-                [&track.path],
+                "SELECT id FROM tracks WHERE path = ?1 AND start_offset_ms = ?2",
+                rusqlite::params![track.path, start_offset_ms],
                 |row| row.get(0),
             )
             .optional()?;
@@ -181,8 +182,9 @@ impl LibraryRepository for SqliteLibrary {
                     disc_number = ?4,
                     duration_ms = ?5,
                     year = ?6,
-                    cover_art_path = ?7
-                WHERE id = ?8"#,
+                    cover_art_path = ?7,
+                    start_offset_ms = ?8
+                WHERE id = ?9"#,
                 rusqlite::params![
                     title,
                     album_id,
@@ -191,6 +193,7 @@ impl LibraryRepository for SqliteLibrary {
                     duration_ms,
                     track.year,
                     cover_path,
+                    start_offset_ms,
                     id,
                 ],
             )?;
@@ -198,8 +201,8 @@ impl LibraryRepository for SqliteLibrary {
         } else {
             tx.execute(
                 r#"INSERT INTO tracks
-                    (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_path)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+                    (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_path, start_offset_ms)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
                 rusqlite::params![
                     track.path,
                     title,
@@ -209,6 +212,7 @@ impl LibraryRepository for SqliteLibrary {
                     duration_ms,
                     track.year,
                     cover_path,
+                    start_offset_ms,
                 ],
             )?;
             tx.last_insert_rowid()
@@ -271,7 +275,8 @@ impl LibraryRepository for SqliteLibrary {
                 disc_number,
                 duration_ms,
                 year,
-                cover_art_path
+                cover_art_path,
+                start_offset_ms
             FROM tracks
             WHERE album_id = ?1
             ORDER BY disc_number, track_number, title
@@ -288,6 +293,7 @@ impl LibraryRepository for SqliteLibrary {
                 duration_ms: row.get(6)?,
                 year: row.get(7)?,
                 cover_art_path: row.get(8)?,
+                start_offset_ms: row.get(9)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -334,7 +340,8 @@ impl LibraryRepository for SqliteLibrary {
                 t.disc_number,
                 t.duration_ms,
                 t.year,
-                t.cover_art_path
+                t.cover_art_path,
+                t.start_offset_ms
             FROM tracks t
             LEFT JOIN albums al ON al.id = t.album_id
             WHERE t.title LIKE ?1
@@ -353,6 +360,7 @@ impl LibraryRepository for SqliteLibrary {
                 duration_ms: row.get(6)?,
                 year: row.get(7)?,
                 cover_art_path: row.get(8)?,
+                start_offset_ms: row.get(9)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use audio_engine::EngineEvent;
 use gpui::{App, AsyncApp, Context, Entity, Subscription, Window};
@@ -163,8 +164,17 @@ async fn run_command_loop(
                 MediaCommand::Next => {
                     let next = queue.borrow_mut().next_track().cloned();
                     if let Some(track) = next {
-                        let path = track.path.clone();
-                        engine_manager.set_track(path.into());
+                        let start_offset = if track.start_offset_ms > 0 {
+                            Some(Duration::from_millis(track.start_offset_ms as u64))
+                        } else {
+                            None
+                        };
+                        let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
+                        engine_manager.set_track_with_offset(
+                            std::path::PathBuf::from(&track.path),
+                            start_offset,
+                            track_duration,
+                        );
                         engine_manager.play();
                     }
                 }
@@ -174,12 +184,24 @@ async fn run_command_loop(
                     let action = q.previous(position_secs);
                     match action {
                         PreviousAction::SeekToStart => {
+                            drop(q);
                             engine_manager.seek(0.0);
                             engine_manager.play();
                         }
                         PreviousAction::PreviousTrack(track) => {
-                            let path = track.path.clone();
-                            engine_manager.set_track(path.into());
+                            let start_offset = if track.start_offset_ms > 0 {
+                                Some(Duration::from_millis(track.start_offset_ms as u64))
+                            } else {
+                                None
+                            };
+                            let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
+                            let path = std::path::PathBuf::from(&track.path);
+                            drop(q);
+                            engine_manager.set_track_with_offset(
+                                path,
+                                start_offset,
+                                track_duration,
+                            );
                             engine_manager.play();
                         }
                     }

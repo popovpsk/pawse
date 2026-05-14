@@ -33,6 +33,8 @@ impl AudioEngine {
             event_sender,
             last_position_update: Duration::ZERO,
             current_position: Duration::ZERO,
+            track_start: Duration::ZERO,
+            track_end: None,
         }
         .run();
 
@@ -59,7 +61,24 @@ impl AudioEngine {
     }
 
     pub fn set_track(&self, path: PathBuf) {
-        self.send_command(Command::SetLocalTrack(path))
+        self.send_command(Command::SetLocalTrack {
+            path,
+            start_offset: None,
+            track_duration: None,
+        })
+    }
+
+    pub fn set_track_with_offset(
+        &self,
+        path: PathBuf,
+        start_offset: Option<Duration>,
+        track_duration: Option<Duration>,
+    ) {
+        self.send_command(Command::SetLocalTrack {
+            path,
+            start_offset,
+            track_duration,
+        })
     }
 
     pub fn send_command(&self, command: Command) {
@@ -81,6 +100,8 @@ struct AudioEngineLoop {
     event_sender: flume::Sender<EngineEvent>,
     last_position_update: Duration,
     current_position: Duration,
+    track_start: Duration,
+    track_end: Option<Duration>,
 }
 
 impl AudioEngineLoop {
@@ -112,7 +133,7 @@ impl AudioEngineLoop {
                     let command = self.command_receiver.recv();
                     match command {
                         Ok(c) => Some(c),
-                        Err(_) => return, // Disconnected
+                        Err(_) => return,
                     }
                 }
             };
@@ -124,6 +145,15 @@ impl AudioEngineLoop {
                     continue;
                 }
                 self.handle_command(command);
+                continue;
+            }
+
+            if let Some(track_end) = self.track_end
+                && self.current_position >= track_end
+            {
+                self.set_state(AudioEngineState::TrackNotSet);
+                self.decoder = None;
+                _ = self.event_sender.send(EngineEvent::TrackEnded);
                 continue;
             }
 
@@ -155,16 +185,23 @@ impl AudioEngineLoop {
         let written_secs = written as f32 / (params.sample_rate as f32 * channels);
         self.current_position += Duration::from_secs_f32(written_secs);
 
-        if self.state == AudioEngineState::Playing
-            && self
-                .current_position
+        if let Some(track_end) = self.track_end
+                && self.current_position >= track_end
+            {
+                return;
+            }
+
+        if self.state == AudioEngineState::Playing {
+            let relative = self.current_position.saturating_sub(self.track_start);
+            if relative
                 .saturating_sub(self.last_position_update)
                 >= Duration::from_millis(POSITION_UPDATE_INTERVAL_MS)
-        {
-            self.last_position_update = self.current_position;
-            _ = self
-                .event_sender
-                .send(EngineEvent::PositionChanged(self.current_position));
+            {
+                self.last_position_update = relative;
+                _ = self
+                    .event_sender
+                    .send(EngineEvent::PositionChanged(relative));
+            }
         }
     }
 
@@ -200,7 +237,11 @@ impl AudioEngineLoop {
             Command::Play => self.handle_play(),
             Command::Pause => self.handle_pause(),
             Command::Seek(position) => self.handle_seek(position),
-            Command::SetLocalTrack(path) => self.handle_set_local_track(path),
+            Command::SetLocalTrack {
+                path,
+                start_offset,
+                track_duration,
+            } => self.handle_set_local_track(path, start_offset, track_duration),
             Command::Shutdown => self.handle_shutdown(),
         }
     }
@@ -210,31 +251,63 @@ impl AudioEngineLoop {
         self.set_state(AudioEngineState::TrackNotSet);
     }
 
-    fn handle_set_local_track(&mut self, path: PathBuf) {
+    fn handle_set_local_track(
+        &mut self,
+        path: PathBuf,
+        start_offset: Option<Duration>,
+        track_duration: Option<Duration>,
+    ) {
         self.decoder = None;
         self.last_position_update = Duration::ZERO;
         self.current_position = Duration::ZERO;
+        self.track_start = Duration::ZERO;
+        self.track_end = None;
+
         let decoder = match Decoder::open(path.as_path()) {
             Ok(decoder) => decoder,
             Err(_) => {
                 self.handle_pause();
                 self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
-                return; //ToDo notification
+                return;
             }
         };
 
+        let file_duration = decoder.duration().unwrap_or_default();
+        let duration_for_ui = track_duration.unwrap_or(file_duration);
+
+        let track_start = start_offset.unwrap_or(Duration::ZERO);
+        let track_end = track_duration
+            .map(|d| track_start + d)
+            .unwrap_or(file_duration);
+
         self.decoder = Some(decoder);
+        self.track_start = track_start;
+        self.track_end = if track_end < file_duration {
+            Some(track_end)
+        } else {
+            None
+        };
+
+        if track_start > Duration::ZERO {
+            let file_dur = file_duration;
+            let seek_point = if file_dur > Duration::ZERO {
+                (track_start.as_secs_f64() / file_dur.as_secs_f64()) as f32
+            } else {
+                0.0
+            };
+            if let Some(decoder) = self.decoder.as_mut()
+                && let Err(e) = decoder.seek(seek_point.clamp(0.0, 1.0))
+            {
+                eprintln!("Seek to offset error: {}", e);
+            }
+            self.current_position = track_start;
+        }
 
         self.event_sender
             .send(EngineEvent::Loaded {
                 params: self.decoder.as_ref().unwrap().params(),
-                duration: self
-                    .decoder
-                    .as_ref()
-                    .unwrap()
-                    .duration()
-                    .unwrap_or_default(),
+                duration: duration_for_ui,
             })
             .unwrap();
 
@@ -253,17 +326,29 @@ impl AudioEngineLoop {
         match self.state {
             AudioEngineState::Paused | AudioEngineState::Playing => {
                 let decoder = self.decoder.as_mut().unwrap();
-                if let Err(e) = decoder.seek(position) {
+                let file_duration = decoder.duration().unwrap_or_default();
+                if file_duration == Duration::ZERO {
+                    return;
+                }
+
+                let effective_duration = self
+                    .track_end
+                    .unwrap_or(file_duration)
+                    .saturating_sub(self.track_start);
+                let new_position = self.track_start + effective_duration.mul_f32(position);
+
+                let file_dur = file_duration;
+                let seek_point = new_position.as_secs_f64() / file_dur.as_secs_f64();
+                if let Err(e) = decoder.seek(seek_point as f32) {
                     eprintln!("Seek error: {}", e);
                     return;
                 }
-                let track_duration = decoder.duration().unwrap_or_default();
-                let new_position = track_duration.mul_f32(position);
                 self.current_position = new_position;
-                self.last_position_update = new_position;
+                let relative = new_position.saturating_sub(self.track_start);
+                self.last_position_update = relative;
                 _ = self
                     .event_sender
-                    .send(EngineEvent::PositionChanged(new_position));
+                    .send(EngineEvent::PositionChanged(relative));
             }
             AudioEngineState::TrackNotSet => {}
         }

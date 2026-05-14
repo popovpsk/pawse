@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use audio_engine::EngineEvent;
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
@@ -46,10 +44,7 @@ impl PrevButton {
                 services.engine_manager.play();
             }
             crate::playback_queue::PreviousAction::PreviousTrack(track) => {
-                services
-                    .engine_manager
-                    .set_track(PathBuf::from(&track.path));
-                services.engine_manager.play();
+                services.play_track(track);
             }
         }
     }

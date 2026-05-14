@@ -12,6 +12,7 @@ pub struct ScannedTrack {
     pub year: Option<i32>,
     pub duration_ms: Option<u64>,
     pub cover_art: Option<Vec<u8>>,
+    pub start_offset_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

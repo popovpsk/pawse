@@ -18,7 +18,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-        let temp_dir = std::env::temp_dir().join("gpui-test-music-library");
+        let temp_dir = std::env::temp_dir().join("pawse-music-library");
         std::fs::create_dir_all(&temp_dir).unwrap();
         let db_path = temp_dir.join(format!(
             "test-{}-{}.db",
@@ -86,6 +86,7 @@ mod tests {
             year: Some(1997),
             duration_ms: Some(285_000),
             cover_art: None,
+            start_offset_ms: None,
         };
         let _track_id = lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
 
@@ -132,6 +133,7 @@ mod tests {
             year: None,
             duration_ms: None,
             cover_art: None,
+            start_offset_ms: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
 
@@ -158,6 +160,7 @@ mod tests {
             year: None,
             duration_ms: None,
             cover_art: None,
+            start_offset_ms: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
 
@@ -184,6 +187,7 @@ mod tests {
             year: None,
             duration_ms: None,
             cover_art: None,
+            start_offset_ms: None,
         };
         let _track_id = lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
         let tracks = lib.tracks_for_album(album_id).unwrap();
@@ -209,6 +213,7 @@ mod tests {
             year: Some(2020),
             duration_ms: Some(180_000),
             cover_art: None,
+            start_offset_ms: None,
         };
         let track2 = NewTrack {
             path: "/music/disc2/track01.flac".into(),
@@ -221,6 +226,7 @@ mod tests {
             year: Some(2020),
             duration_ms: Some(200_000),
             cover_art: None,
+            start_offset_ms: None,
         };
 
         lib.upsert_track(&track1, Some(album_id), &[(track1_artist_id, 0)]).unwrap();

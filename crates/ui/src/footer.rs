@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use audio_engine::EngineEvent;
 use gpui::{AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div, px};
 use gpui_component::{h_flex, v_flex};
@@ -30,11 +28,9 @@ impl Footer {
                 if let EngineEvent::TrackEnded = event {
                     let services = cx.global::<Services>();
                     let mut queue = services.playback_queue.borrow_mut();
-                    if let Some(track) = queue.next_track() {
-                        let path = PathBuf::from(&track.path);
+                    if let Some(track) = queue.next_track().cloned() {
                         drop(queue);
-                        services.engine_manager.set_track(path);
-                        services.engine_manager.play();
+                        services.play_track(&track);
                     } else {
                         drop(queue);
                         cx.notify();

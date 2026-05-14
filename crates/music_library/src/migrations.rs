@@ -30,15 +30,18 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
 
         CREATE TABLE tracks (
             id INTEGER PRIMARY KEY,
-            path TEXT NOT NULL UNIQUE,
+            path TEXT NOT NULL,
             title TEXT,
             album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
             track_number INTEGER,
             disc_number INTEGER NOT NULL DEFAULT 1,
             duration_ms INTEGER,
             year INTEGER,
-            cover_art_path TEXT
+            cover_art_path TEXT,
+            start_offset_ms INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE UNIQUE INDEX idx_tracks_path_offset ON tracks(path, start_offset_ms);
 
         CREATE INDEX idx_tracks_album_id ON tracks(album_id);
         CREATE INDEX idx_tracks_track_number ON tracks(track_number);

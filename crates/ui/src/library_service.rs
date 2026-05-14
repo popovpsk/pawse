@@ -140,6 +140,7 @@ fn insert_scanned_track(
         year: track.year,
         duration_ms: track.duration_ms,
         cover_art: track.cover_art.clone(),
+        start_offset_ms: track.start_offset_ms,
     };
     repo.upsert_track(&new_track, album_id, &artist_ids)?;
 

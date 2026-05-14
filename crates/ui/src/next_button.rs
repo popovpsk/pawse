@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px, svg,
@@ -18,11 +16,8 @@ impl NextButton {
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
         let mut queue = services.playback_queue.borrow_mut();
-        if let Some(track) = queue.next_track() {
-            services
-                .engine_manager
-                .set_track(PathBuf::from(&track.path));
-            services.engine_manager.play();
+        if let Some(track) = queue.next_track().cloned() {
+            services.play_track(&track);
         }
     }
 }

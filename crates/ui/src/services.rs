@@ -1,8 +1,9 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc, time::Duration};
 
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
 use audio_output::Output;
 use gpui::{App, AppContext, AsyncApp, Entity, EventEmitter, Global};
+use music_library::Track;
 
 use crate::library_service::{LibraryEvent, LibraryService};
 
@@ -45,6 +46,19 @@ impl Services {
             library_event_bus,
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
         }
+    }
+
+    pub fn play_track(&self, track: &Track) {
+        let path = std::path::PathBuf::from(&track.path);
+        let start_offset = if track.start_offset_ms > 0 {
+            Some(Duration::from_millis(track.start_offset_ms as u64))
+        } else {
+            None
+        };
+        let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
+        self.engine_manager
+            .set_track_with_offset(path, start_offset, track_duration);
+        self.engine_manager.play();
     }
 }
 
