@@ -67,6 +67,7 @@ impl Services {
 
 impl Services {
     pub fn shutdown(&self) {
+        self.output.shutdown();
         self.engine_manager.shutdown();
     }
 }

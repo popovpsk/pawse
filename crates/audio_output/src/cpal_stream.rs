@@ -40,19 +40,19 @@ pub struct SelectedOutputDevice {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PlaybackState {
+pub enum PlaybackState {
     Idle,
     Playing,
     Paused,
 }
 
-struct OutputStreamInner {
+struct CpalOutputStreamInner {
     state: PlaybackState,
     stream: Stream,
 }
 
-pub struct OutputStream {
-    inner: RwLock<OutputStreamInner>,
+pub struct CpalOutputStream {
+    inner: RwLock<CpalOutputStreamInner>,
     buffer: Arc<AudioRingBuffer>,
     volume: Arc<AtomicF32>,
     pub config: OutputConfig,
@@ -70,7 +70,7 @@ fn apply_volume(volume: &AtomicF32, b: &mut [f32]) {
     }
 }
 
-impl OutputStream {
+impl CpalOutputStream {
     pub fn new(
         buffer: Arc<AudioRingBuffer>,
         output_config: OutputConfig,
@@ -106,7 +106,7 @@ impl OutputStream {
             .map_err(|e| AudioError::Output(e.to_string()))?;
 
         Ok(Self {
-            inner: RwLock::new(OutputStreamInner {
+            inner: RwLock::new(CpalOutputStreamInner {
                 state: PlaybackState::Idle,
                 stream: output_stream,
             }),
@@ -117,7 +117,7 @@ impl OutputStream {
     }
 }
 
-impl AudioOutput for OutputStream {
+impl AudioOutput for CpalOutputStream {
     fn write(&self, samples: &AudioBatch) -> usize {
         if self.inner.read().state != PlaybackState::Playing {
             return 0;
@@ -223,7 +223,7 @@ mod tests {
     fn test_default_output() {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice { host: h, device: d };
-        let output = OutputStream::new(make_test_buffer(), make_test_config(), selected_device);
+        let output = CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device);
         assert!(output.is_ok(), "Should create default output");
     }
 
@@ -232,7 +232,7 @@ mod tests {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice { host: h, device: d };
         let output =
-            OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
+            CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
         output.resume();
         assert!(output.is_playing());
 
@@ -250,7 +250,7 @@ mod tests {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice { host: h, device: d };
         let output =
-            OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
+            CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
         output.pause();
         thread::sleep(std::time::Duration::from_millis(10));
 
@@ -265,7 +265,7 @@ mod tests {
         let (h, d) = make_test_device();
         let selected_device = SelectedOutputDevice { host: h, device: d };
         let output =
-            OutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
+            CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
         output.resume();
         output.write(&make_test_batch(vec![0.5, -0.5, 0.3, -0.3]));
 

@@ -519,6 +519,7 @@ dependencies = [
  "anyhow",
  "atomic_float",
  "audio_common",
+ "coreaudio-rs",
  "cpal",
  "parking_lot",
  "rb",

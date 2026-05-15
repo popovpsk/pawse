@@ -17,7 +17,12 @@ pub struct Volume {
 
 impl Render for Volume {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let icon_path: &str = if self.is_muted || self.volume <= 0. {
+        let services = cx.global::<Services>();
+        let is_exclusive = services.output.is_exclusive();
+
+        let icon_path: &str = if is_exclusive {
+            "icons/volume_unmute.svg"
+        } else if self.is_muted || self.volume <= 0. {
             "icons/volume_mute.svg"
         } else if self.volume < 0.5 {
             "icons/volume_low.svg"
@@ -25,7 +30,7 @@ impl Render for Volume {
             "icons/volume_unmute.svg"
         };
 
-        h_flex()
+        let mut container = h_flex()
             .id("volume_control")
             .gap_2()
             .justify_end()
@@ -41,10 +46,17 @@ impl Render for Volume {
                             .size(px(22.))
                             .text_color(cx.theme().foreground),
                     ),
-            )
-            .child(div().w(px(100.)).child(self.slider.clone()))
-            .w_full()
-            .h_6()
+            );
+
+        if !is_exclusive {
+            container = container.child(div().w(px(100.)).child(self.slider.clone()));
+        } else {
+            container = container.child(
+                div().text_color(cx.theme().foreground).text_size(px(12.)).child("Direct DAC"),
+            );
+        }
+
+        container.w_full().h_6()
     }
 }
 
@@ -79,6 +91,9 @@ impl Volume {
 
     fn on_icon_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
+        if services.output.is_exclusive() {
+            return;
+        }
 
         if self.is_muted {
             self.is_muted = false;
