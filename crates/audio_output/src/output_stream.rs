@@ -4,12 +4,9 @@ use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamConfig};
+use parking_lot::RwLock;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
-
-const STATE_IDLE: u8 = 0;
-const STATE_PLAYING: u8 = 1;
-const STATE_PAUSED: u8 = 2;
+use std::sync::atomic::Ordering;
 
 #[derive(Clone, Copy, Debug)]
 pub struct OutputConfig {
@@ -42,12 +39,23 @@ pub struct SelectedOutputDevice {
     pub device: Arc<cpal::Device>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaybackState {
+    Idle,
+    Playing,
+    Paused,
+}
+
+struct OutputStreamInner {
+    state: PlaybackState,
+    stream: Stream,
+}
+
 pub struct OutputStream {
+    inner: RwLock<OutputStreamInner>,
     buffer: Arc<AudioRingBuffer>,
-    state: Arc<AtomicU8>,
     volume: Arc<AtomicF32>,
     pub config: OutputConfig,
-    _stream: Stream,
 }
 
 fn apply_volume(volume: &AtomicF32, b: &mut [f32]) {
@@ -68,8 +76,6 @@ impl OutputStream {
         output_config: OutputConfig,
         device: SelectedOutputDevice,
     ) -> Result<Self, AudioError> {
-        let state = Arc::new(AtomicU8::new(STATE_IDLE));
-
         let buffer_for_callback = buffer.clone();
 
         let volume = Arc::new(AtomicF32::new(1.0));
@@ -100,9 +106,11 @@ impl OutputStream {
             .map_err(|e| AudioError::Output(e.to_string()))?;
 
         Ok(Self {
+            inner: RwLock::new(OutputStreamInner {
+                state: PlaybackState::Idle,
+                stream: output_stream,
+            }),
             buffer: buffer.clone(),
-            state,
-            _stream: output_stream,
             config: output_config,
             volume,
         })
@@ -111,7 +119,7 @@ impl OutputStream {
 
 impl AudioOutput for OutputStream {
     fn write(&self, samples: &AudioBatch) -> usize {
-        if self.state.load(Ordering::Relaxed) != STATE_PLAYING {
+        if self.inner.read().state != PlaybackState::Playing {
             return 0;
         }
 
@@ -124,24 +132,25 @@ impl AudioOutput for OutputStream {
     }
 
     fn pause(&self) {
-        if self.state.load(Ordering::Relaxed) != STATE_PLAYING {
-            return; //ToDo: race condition
+        let mut inner = self.inner.write();
+        if inner.state != PlaybackState::Playing {
+            return;
         }
-        self.state.store(STATE_PAUSED, Ordering::Relaxed);
-        self._stream.pause().unwrap_or_default();
+        inner.stream.pause().unwrap();
+        inner.state = PlaybackState::Paused;
     }
 
     fn resume(&self) {
-        if self.state.load(Ordering::Relaxed) == STATE_PLAYING {
-            return; //ToDo: race condition
+        let mut inner = self.inner.write();
+        if inner.state == PlaybackState::Playing {
+            return;
         }
-
-        self.state.store(STATE_PLAYING, Ordering::SeqCst);
-        self._stream.play().unwrap_or_default();
+        inner.stream.play().unwrap();
+        inner.state = PlaybackState::Playing;
     }
 
     fn is_playing(&self) -> bool {
-        self.state.load(Ordering::Relaxed) == STATE_PLAYING
+        self.inner.read().state == PlaybackState::Playing
     }
 
     fn set_volume(&self, value: f32) {
