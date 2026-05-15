@@ -54,7 +54,10 @@ impl MediaBridge {
                     let services = cx.global::<Services>();
                     let queue = services.playback_queue.borrow();
                     if let Some(track) = queue.current_track() {
-                        let mut info = build_now_playing_info(track, dur_secs);
+                        let artwork_path = track
+                            .cover_art_id
+                            .and_then(|id| services.library.get_cover_art_path_for_media(id));
+                        let mut info = build_now_playing_info(track, artwork_path, dur_secs);
                         info.artist = services.library.track_artists(track.id).join(", ");
                         info.album = track.album_id
                             .and_then(|id| services.library.album_title(id))
@@ -223,13 +226,14 @@ async fn run_command_loop(
 
 fn build_now_playing_info(
     track: &music_library::Track,
+    artwork_path: Option<std::path::PathBuf>,
     duration_secs: f64,
 ) -> NowPlayingInfo {
     NowPlayingInfo {
         title: track.title.clone(),
         artist: String::new(),
         album: String::new(),
-        artwork_path: track.cover_art_path.as_ref().map(|p| p.into()),
+        artwork_path,
         duration_secs,
         elapsed_secs: Some(0.0),
     }

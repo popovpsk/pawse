@@ -3,9 +3,10 @@ pub mod migrations;
 pub mod models;
 pub mod repository;
 pub mod sqlite;
+pub mod thumbnail;
 
 pub use error::{LibraryError, Result};
-pub use models::{Album, AlbumSummary, Artist, NewTrack, Track};
+pub use models::{Album, AlbumSummary, Artist, CoverArt, NewTrack, Track};
 pub use repository::LibraryRepository;
 pub use sqlite::SqliteLibrary;
 
@@ -32,7 +33,6 @@ mod tests {
     #[test]
     fn test_migrations_create_schema() {
         let (lib, _path) = create_test_db();
-        // Migrations should succeed and DB should be empty
         assert!(!lib.has_tracks().unwrap());
     }
 
@@ -85,7 +85,7 @@ mod tests {
             disc_number: Some(1),
             year: Some(1997),
             duration_ms: Some(285_000),
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         let _track_id = lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
@@ -110,7 +110,6 @@ mod tests {
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 2);
-        // Led Zeppelin should come before The Beatles (sort_name: "Beatles, The" vs "Led Zeppelin")
         assert_eq!(albums[0].title, "IV");
         assert_eq!(albums[1].title, "Abbey Road");
     }
@@ -132,7 +131,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: None,
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
@@ -159,7 +158,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: None,
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
@@ -186,7 +185,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: None,
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         let _track_id = lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
@@ -212,7 +211,7 @@ mod tests {
             disc_number: Some(1),
             year: Some(2020),
             duration_ms: Some(180_000),
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         let track2 = NewTrack {
@@ -225,7 +224,7 @@ mod tests {
             disc_number: Some(2),
             year: Some(2020),
             duration_ms: Some(200_000),
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
 
@@ -240,8 +239,6 @@ mod tests {
         assert_eq!(tracks[1].disc_number, 2);
         assert_eq!(tracks[1].title, "Track Two");
 
-        // Album artist should be "Album Artist" from the first track's album_artist_names,
-        // and should NOT have been overwritten by the second track's artist.
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].artist_name, "Album Artist");
@@ -264,7 +261,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: None,
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         let track_id = lib
@@ -301,24 +298,31 @@ mod tests {
         let album_id = lib.upsert_album("Orphan Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
-        // Album has no tracks — it's an orphan
         lib.delete_orphaned_albums_and_artists().unwrap();
 
-        // Album should be deleted
         assert!(lib.album_title(album_id).unwrap().is_none());
-        // Album_artists cascade-deleted
         assert!(!lib.album_has_artists(album_id).unwrap());
     }
 
     #[test]
-    fn test_save_cover_art() {
+    fn test_save_and_retrieve_cover_art() {
         let (lib, _path) = create_test_db();
-        let data = b"fake-jpeg-bytes";
-        let path = lib.save_cover_art(data).unwrap();
-        assert!(path.ends_with(".jpg"));
-        assert!(std::path::Path::new(&path).exists());
-        let saved = std::fs::read(&path).unwrap();
-        assert_eq!(saved, data);
+        let img = image::RgbImage::from_pixel(4, 4, image::Rgb([255, 0, 0]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, image::ImageFormat::Jpeg)
+            .unwrap();
+        let data = buf.into_inner();
+
+        let id = lib.save_cover_art(&data).unwrap();
+        assert!(id > 0);
+
+        let id2 = lib.save_cover_art(&data).unwrap();
+        assert_eq!(id, id2);
+
+        let cover = lib.get_cover_art(id).unwrap().unwrap();
+        assert!(!cover.small.is_empty());
+        assert!(!cover.large.is_empty());
     }
 
     #[test]
@@ -344,7 +348,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: None,
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
@@ -354,7 +358,6 @@ mod tests {
         lib.clear().unwrap();
         assert!(!lib.has_tracks().unwrap());
 
-        // Re-populate
         let artist_id2 = lib.upsert_artist("Artist").unwrap();
         let album_id2 = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id2, &[(artist_id2, 0)]).unwrap();
@@ -371,7 +374,6 @@ mod tests {
         let (lib, _path) = create_test_db();
         let album_id = lib.upsert_album("Compilation", Some(2020), None).unwrap();
         let artist_id = lib.upsert_artist("Various").unwrap();
-        // Add a track with track artists but no album artists
         let track = NewTrack {
             path: "/music/track01.flac".into(),
             title: Some("Track".into()),
@@ -382,7 +384,7 @@ mod tests {
             disc_number: None,
             year: Some(2020),
             duration_ms: Some(180_000),
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
@@ -407,7 +409,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: None,
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: None,
         };
         let track_id = lib.upsert_track(&track, None, &[(artist_id, 0)]).unwrap();
@@ -434,7 +436,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: Some(300_000),
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: Some(0),
         };
         let track2 = NewTrack {
@@ -447,7 +449,7 @@ mod tests {
             disc_number: None,
             year: None,
             duration_ms: Some(300_000),
-            cover_art: None,
+            cover_art_id: None,
             start_offset_ms: Some(300_000),
         };
 
@@ -473,5 +475,209 @@ mod tests {
     fn test_has_tracks_empty_on_fresh_db() {
         let (lib, _path) = create_test_db();
         assert!(!lib.has_tracks().unwrap());
+    }
+
+    fn make_test_jpeg(bytes: &[u8]) -> Vec<u8> {
+        let color = if bytes.is_empty() {
+            image::Rgb([0, 0, 0])
+        } else {
+            image::Rgb([bytes[0], bytes.get(1).copied().unwrap_or(0), bytes.get(2).copied().unwrap_or(0)])
+        };
+        let img = image::RgbImage::from_pixel(4, 4, color);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut buf, image::ImageFormat::Jpeg)
+            .unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn test_cover_art_different_images_different_ids() {
+        let (lib, _path) = create_test_db();
+        let data1 = make_test_jpeg(&[255, 0, 0]);
+        let data2 = make_test_jpeg(&[0, 255, 0]);
+
+        let id1 = lib.save_cover_art(&data1).unwrap();
+        let id2 = lib.save_cover_art(&data2).unwrap();
+        assert_ne!(id1, id2, "different images must have different IDs");
+    }
+
+    #[test]
+    fn test_cover_art_get_nonexistent() {
+        let (lib, _path) = create_test_db();
+        assert!(lib.get_cover_art(999).unwrap().is_none());
+        assert!(lib.get_cover_art_small(999).unwrap().is_none());
+        assert!(lib.get_cover_art_large(999).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_cover_art_thumbnail_sizes() {
+        let (lib, _path) = create_test_db();
+        let data = make_test_jpeg(&[255, 0, 0]);
+        let id = lib.save_cover_art(&data).unwrap();
+        let cover = lib.get_cover_art(id).unwrap().unwrap();
+
+        let small_img = image::load_from_memory(&cover.small).unwrap();
+        let large_img = image::load_from_memory(&cover.large).unwrap();
+        assert!(small_img.width() <= 128);
+        assert!(small_img.height() <= 128);
+        assert!(large_img.width() <= 320);
+        assert!(large_img.height() <= 320);
+    }
+
+    #[test]
+    fn test_cover_art_id_propagates_to_album_and_track() {
+        let (lib, _path) = create_test_db();
+        let data = make_test_jpeg(&[255, 0, 0]);
+        let cover_id = lib.save_cover_art(&data).unwrap();
+
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), Some(cover_id)).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+
+        let track = NewTrack {
+            path: "/music/song.flac".into(),
+            title: Some("Song".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(200_000),
+            cover_art_id: Some(cover_id),
+            start_offset_ms: None,
+        };
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
+
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums[0].cover_art_id, Some(cover_id));
+
+        let tracks = lib.tracks_for_album(album_id).unwrap();
+        assert_eq!(tracks[0].cover_art_id, Some(cover_id));
+
+        let retrieved = lib.get_cover_art(cover_id).unwrap().unwrap();
+        assert_eq!(retrieved.id, cover_id);
+        assert!(!retrieved.small.is_empty());
+        assert!(!retrieved.large.is_empty());
+    }
+
+    #[test]
+    fn test_cover_art_deduplication_across_albums() {
+        let (lib, _path) = create_test_db();
+        let data = make_test_jpeg(&[255, 0, 0]);
+
+        let cover_id = lib.save_cover_art(&data).unwrap();
+        let cover_id2 = lib.save_cover_art(&data).unwrap();
+        assert_eq!(cover_id, cover_id2, "same bytes must return same ID");
+
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let album1 = lib.upsert_album("Album 1", None, Some(cover_id)).unwrap();
+        let album2 = lib.upsert_album("Album 2", None, Some(cover_id)).unwrap();
+
+        let track1 = NewTrack {
+            path: "/music/track1.flac".into(),
+            title: Some("Track 1".into()),
+            album_title: Some("Album 1".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: None,
+            cover_art_id: Some(cover_id),
+            start_offset_ms: None,
+        };
+        let track2 = NewTrack {
+            path: "/music/track2.flac".into(),
+            title: Some("Track 2".into()),
+            album_title: Some("Album 2".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: None,
+            cover_art_id: Some(cover_id),
+            start_offset_ms: None,
+        };
+
+        lib.upsert_track(&track1, Some(album1), &[(artist_id, 0)]).unwrap();
+        lib.upsert_track(&track2, Some(album2), &[(artist_id, 0)]).unwrap();
+
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.len(), 2);
+        for album in &albums {
+            assert_eq!(album.cover_art_id, Some(cover_id));
+        }
+    }
+
+    #[test]
+    fn test_cover_art_clear_removes_cover_art() {
+        let (lib, _path) = create_test_db();
+        let data = make_test_jpeg(&[255, 0, 0]);
+        let cover_id = lib.save_cover_art(&data).unwrap();
+
+        assert!(lib.get_cover_art(cover_id).unwrap().is_some());
+
+        lib.clear().unwrap();
+
+        assert!(lib.get_cover_art(cover_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_cover_art_full_scanner_flow() {
+        let (lib, _path) = create_test_db();
+        let cover_data = make_test_jpeg(&[100, 150, 200]);
+
+        // Step 1: Scanner extracted raw cover bytes
+        let cover_art_id = lib.save_cover_art(&cover_data).unwrap();
+
+        // Step 2: Upsert artist
+        let artist_id = lib.upsert_artist("Test Artist").unwrap();
+
+        // Step 3: Upsert album with cover_art_id
+        let album_id = lib.upsert_album("Test Album", Some(2024), Some(cover_art_id)).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+
+        // Step 4: Build NewTrack with cover_art_id (no raw bytes)
+        let new_track = NewTrack {
+            path: "/music/test.flac".into(),
+            title: Some("Test Track".into()),
+            album_title: Some("Test Album".into()),
+            artist_names: vec!["Test Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2024),
+            duration_ms: Some(180_000),
+            cover_art_id: Some(cover_art_id),
+            start_offset_ms: None,
+        };
+        lib.upsert_track(&new_track, Some(album_id), &[(artist_id, 0)]).unwrap();
+
+        // Step 5: Verify album summary has cover_art_id
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].title, "Test Album");
+        assert_eq!(albums[0].cover_art_id, Some(cover_art_id));
+        assert_eq!(albums[0].artist_name, "Test Artist");
+
+        // Step 6: Verify track has cover_art_id
+        let tracks = lib.tracks_for_album(album_id).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].cover_art_id, Some(cover_art_id));
+
+        // Step 7: Verify thumbnails exist and are non-empty
+        let cover = lib.get_cover_art(cover_art_id).unwrap().unwrap();
+        assert!(!cover.small.is_empty());
+        assert!(!cover.large.is_empty());
+        assert_eq!(cover.id, cover_art_id);
+
+        // Step 8: Verify small and large can be retrieved independently
+        let small = lib.get_cover_art_small(cover_art_id).unwrap().unwrap();
+        let large = lib.get_cover_art_large(cover_art_id).unwrap().unwrap();
+        assert_eq!(small, cover.small);
+        assert_eq!(large, cover.large);
     }
 }

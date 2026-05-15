@@ -1,7 +1,5 @@
 use std::rc::Rc;
 
-use std::path::PathBuf;
-
 use gpui::{Context, ElementId, EventEmitter, Hsla, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, size, Size, Pixels};
 use gpui_component::{h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
 
@@ -42,7 +40,15 @@ impl AlbumsView {
                 }
                 LibraryEvent::ScanComplete => {
                     this.is_scanning = false;
-                    this.albums = cx.global::<Services>().library.albums();
+                    let services = cx.global::<Services>();
+                    services.cover_art_cache.borrow_mut().clear();
+                    this.albums = services.library.albums();
+                    {
+                        let mut cache = services.cover_art_cache.borrow_mut();
+                        for album in &this.albums {
+                            cache.get_small(album.cover_art_id, &services.library);
+                        }
+                    }
                     this.item_sizes = Self::make_item_sizes(&this.albums);
                     cx.notify();
                 }
@@ -125,28 +131,32 @@ impl Render for AlbumsView {
                                     .hover(|style| style.bg(cx.theme().secondary))
                                     .child({
                                         let fallback_bg = cx.theme().secondary;
-                                        let cover: gpui::AnyElement = if let Some(ref path) = album.cover_art_path {
-                                            img(PathBuf::from(path))
-                                                .w(px(32.))
-                                                .h(px(32.))
-                                                .rounded(px(4.))
-                                                .object_fit(gpui::ObjectFit::Cover)
-                                                .with_fallback(move || {
-                                                    div()
-                                                        .w(px(32.))
-                                                        .h(px(32.))
-                                                        .rounded(px(4.))
-                                                        .bg(fallback_bg)
-                                                        .into_any_element()
-                                                })
-                                                .into_any_element()
-                                        } else {
-                                            div()
-                                                .w(px(32.))
-                                                .h(px(32.))
-                                                .rounded(px(4.))
-                                                .bg(cx.theme().secondary)
-                                                .into_any_element()
+                                        let cover: gpui::AnyElement = {
+                                            let services = cx.global::<Services>();
+                                            let cover_img = services.cover_art_cache.borrow_mut().get_small(album.cover_art_id, &services.library);
+                                            if let Some(cover_img) = cover_img {
+                                                img(cover_img)
+                                                    .w(px(32.))
+                                                    .h(px(32.))
+                                                    .rounded(px(4.))
+                                                    .object_fit(gpui::ObjectFit::Cover)
+                                                    .with_fallback(move || {
+                                                        div()
+                                                            .w(px(32.))
+                                                            .h(px(32.))
+                                                            .rounded(px(4.))
+                                                            .bg(fallback_bg)
+                                                            .into_any_element()
+                                                    })
+                                                    .into_any_element()
+                                            } else {
+                                                div()
+                                                    .w(px(32.))
+                                                    .h(px(32.))
+                                                    .rounded(px(4.))
+                                                    .bg(fallback_bg)
+                                                    .into_any_element()
+                                            }
                                         };
                                         cover
                                     })

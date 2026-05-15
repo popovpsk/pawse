@@ -11,11 +11,20 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE UNIQUE INDEX idx_artists_name ON artists(name);
         CREATE INDEX idx_artists_sort_name ON artists(sort_name);
 
+        CREATE TABLE cover_art (
+            id INTEGER PRIMARY KEY,
+            hash TEXT NOT NULL,
+            small BLOB NOT NULL,
+            large BLOB NOT NULL
+        );
+
+        CREATE UNIQUE INDEX idx_cover_art_hash ON cover_art(hash);
+
         CREATE TABLE albums (
             id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
             year INTEGER,
-            cover_art_path TEXT
+            cover_art_id INTEGER REFERENCES cover_art(id) ON DELETE SET NULL
         );
 
         CREATE INDEX idx_albums_title ON albums(title);
@@ -37,7 +46,7 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             disc_number INTEGER NOT NULL DEFAULT 1,
             duration_ms INTEGER,
             year INTEGER,
-            cover_art_path TEXT,
+            cover_art_id INTEGER REFERENCES cover_art(id) ON DELETE SET NULL,
             start_offset_ms INTEGER NOT NULL DEFAULT 0
         );
 

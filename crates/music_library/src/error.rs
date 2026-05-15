@@ -9,8 +9,8 @@ pub enum LibraryError {
     #[error("invalid data: {0}")]
     InvalidData(String),
 
-    #[error("cover art save error: {0}")]
-    CoverArt(String),
+    #[error("image error: {0}")]
+    Image(#[from] image::ImageError),
 }
 
 pub type Result<T> = std::result::Result<T, LibraryError>;

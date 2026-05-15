@@ -42,6 +42,31 @@ impl LibraryService {
         self.repo.album_title(album_id).ok().flatten()
     }
 
+    pub fn get_cover_art_small(&self, id: i64) -> Option<Vec<u8>> {
+        self.repo.get_cover_art_small(id).ok().flatten()
+    }
+
+    pub fn get_cover_art_large(&self, id: i64) -> Option<Vec<u8>> {
+        self.repo.get_cover_art_large(id).ok().flatten()
+    }
+
+    pub fn get_cover_art_path_for_media(&self, id: i64) -> Option<std::path::PathBuf> {
+        let bytes = self.repo.get_cover_art_large(id).ok()??;
+        let temp_dir = std::env::temp_dir().join("pawse-artwork");
+        std::fs::create_dir_all(&temp_dir).ok()?;
+        let path = temp_dir.join(format!("{}.jpg", id));
+        if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p != path && p.extension().and_then(|e| e.to_str()) == Some("jpg") {
+                    let _ = std::fs::remove_file(&p);
+                }
+            }
+        }
+        std::fs::write(&path, &bytes).ok()?;
+        Some(path)
+    }
+
     pub fn clear_and_rescan(&self, path: PathBuf) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
@@ -91,19 +116,15 @@ fn insert_scanned_track(
         artist_ids.push((id, pos as i32));
     }
 
-    let album_id = if let Some(ref album_title) = track.album_title {
-        let cover_art_path = track
-            .cover_art
-            .as_ref()
-            .and_then(|data| repo.save_cover_art(data).ok());
-        let album_id = repo.upsert_album(
-            album_title,
-            track.year,
-            cover_art_path.as_deref(),
-        )?;
+    let cover_art_id = track
+        .cover_art
+        .as_ref()
+        .and_then(|data| repo.save_cover_art(data).ok());
 
-        // Only set album artists once per album, preferring ALBUMARTIST tag.
-        // If ALBUMARTIST is absent, fall back to the first track's artists.
+    let album_id = if let Some(ref album_title) = track.album_title {
+        let album_id =
+            repo.upsert_album(album_title, track.year, cover_art_id)?;
+
         if !repo.album_has_artists(album_id)? {
             let album_artist_names = if !track.album_artist_names.is_empty() {
                 &track.album_artist_names
@@ -134,7 +155,7 @@ fn insert_scanned_track(
         disc_number: track.disc_number,
         year: track.year,
         duration_ms: track.duration_ms,
-        cover_art: track.cover_art.clone(),
+        cover_art_id,
         start_offset_ms: track.start_offset_ms,
     };
     repo.upsert_track(&new_track, album_id, &artist_ids)?;

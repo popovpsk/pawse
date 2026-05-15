@@ -5,6 +5,7 @@ use audio_output::Output;
 use gpui::{App, AppContext, AsyncApp, Entity, EventEmitter, Global};
 use music_library::Track;
 
+use crate::cover_art_cache::CoverArtCache;
 use crate::library_service::{LibraryEvent, LibraryService};
 
 pub struct Services {
@@ -14,6 +15,7 @@ pub struct Services {
     pub library: Arc<LibraryService>,
     pub library_event_bus: Entity<LibraryEventsBus>,
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
+    pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
 }
 
 impl Services {
@@ -45,6 +47,7 @@ impl Services {
             library,
             library_event_bus,
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
+            cover_art_cache: Rc::new(RefCell::new(CoverArtCache::new())),
         }
     }
 

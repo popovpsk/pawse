@@ -1,3 +1,10 @@
+#[derive(Debug, Clone)]
+pub struct CoverArt {
+    pub id: i64,
+    pub small: Vec<u8>,
+    pub large: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Artist {
     pub id: i64,
@@ -10,7 +17,7 @@ pub struct Album {
     pub id: i64,
     pub title: String,
     pub year: Option<i32>,
-    pub cover_art_path: Option<String>,
+    pub cover_art_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +30,7 @@ pub struct Track {
     pub disc_number: i32,
     pub duration_ms: Option<i64>,
     pub year: Option<i32>,
-    pub cover_art_path: Option<String>,
+    pub cover_art_id: Option<i64>,
     pub start_offset_ms: i32,
 }
 
@@ -32,7 +39,7 @@ pub struct AlbumSummary {
     pub id: i64,
     pub title: String,
     pub year: Option<i32>,
-    pub cover_art_path: Option<String>,
+    pub cover_art_id: Option<i64>,
     pub artist_name: String,
 }
 
@@ -47,7 +54,7 @@ pub struct NewTrack {
     pub disc_number: Option<u32>,
     pub year: Option<i32>,
     pub duration_ms: Option<u64>,
-    pub cover_art: Option<Vec<u8>>,
+    pub cover_art_id: Option<i64>,
     pub start_offset_ms: Option<u64>,
 }
 

@@ -8,6 +8,7 @@ use crate::{
 
 pub mod app_menu;
 pub mod assets;
+pub mod cover_art_cache;
 pub mod footer;
 pub mod library_service;
 pub mod library_views;

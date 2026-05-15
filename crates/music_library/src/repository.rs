@@ -1,4 +1,4 @@
-use crate::models::{AlbumSummary, NewTrack, Track};
+use crate::models::{AlbumSummary, CoverArt, NewTrack, Track};
 use crate::error::Result;
 
 pub trait LibraryRepository: Send + Sync {
@@ -7,10 +7,15 @@ pub trait LibraryRepository: Send + Sync {
         &self,
         title: &str,
         year: Option<i32>,
-        cover_art_path: Option<&str>,
+        cover_art_id: Option<i64>,
     ) -> Result<i64>;
     fn set_album_artists(&self, album_id: i64, artist_ids: &[(i64, i32)]) -> Result<()>;
-    fn upsert_track(&self, track: &NewTrack, album_id: Option<i64>, artist_ids: &[(i64, i32)]) -> Result<i64>;
+    fn upsert_track(
+        &self,
+        track: &NewTrack,
+        album_id: Option<i64>,
+        artist_ids: &[(i64, i32)],
+    ) -> Result<i64>;
     fn albums(&self) -> Result<Vec<AlbumSummary>>;
     fn tracks_for_album(&self, album_id: i64) -> Result<Vec<Track>>;
     fn track_artists(&self, track_id: i64) -> Result<Vec<String>>;
@@ -19,6 +24,9 @@ pub trait LibraryRepository: Send + Sync {
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;
     fn delete_orphaned_albums_and_artists(&self) -> Result<()>;
-    fn save_cover_art(&self, data: &[u8]) -> Result<String>;
+    fn save_cover_art(&self, data: &[u8]) -> Result<i64>;
+    fn get_cover_art(&self, id: i64) -> Result<Option<CoverArt>>;
+    fn get_cover_art_small(&self, id: i64) -> Result<Option<Vec<u8>>>;
+    fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn album_has_artists(&self, album_id: i64) -> Result<bool>;
 }

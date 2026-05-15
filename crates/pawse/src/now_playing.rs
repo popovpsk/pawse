@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use audio_engine::EngineEvent;
 use gpui::{
     Context, IntoElement, ParentElement, Render, Styled, StyledImage, Subscription, Window, div,
@@ -12,7 +10,7 @@ use crate::services::Services;
 pub struct NowPlaying {
     track_title: String,
     artist_names: String,
-    cover_art_path: Option<String>,
+    cover_art_id: Option<i64>,
     _subscription: Subscription,
 }
 
@@ -29,10 +27,10 @@ impl NowPlaying {
                     if let Some(track) = queue.current_track() {
                         let track_id = track.id;
                         let title = track.title.clone();
-                        let cover = track.cover_art_path.clone();
+                        let cover = track.cover_art_id;
                         drop(queue);
                         this.track_title = title;
-                        this.cover_art_path = cover;
+                        this.cover_art_id = cover;
                         this.artist_names = services.library.track_artists(track_id).join(", ");
                     } else {
                         drop(queue);
@@ -58,7 +56,7 @@ impl NowPlaying {
         Self {
             track_title: String::new(),
             artist_names: String::new(),
-            cover_art_path: None,
+            cover_art_id: None,
             _subscription: subscription,
         }
     }
@@ -66,7 +64,7 @@ impl NowPlaying {
     fn clear(&mut self) {
         self.track_title.clear();
         self.artist_names.clear();
-        self.cover_art_path = None;
+        self.cover_art_id = None;
     }
 }
 
@@ -76,38 +74,38 @@ impl Render for NowPlaying {
             .gap_3()
             .items_center()
             .w(px(200.))
-            .child(
-                div()
-                    .w(px(48.))
-                    .h(px(48.))
-                    .rounded(px(4.))
-                    .child(if let Some(ref path) = self.cover_art_path {
-                        img(PathBuf::from(path))
-                            .w(px(48.))
-                            .h(px(48.))
-                            .rounded(px(4.))
-                            .object_fit(gpui::ObjectFit::Cover)
-                            .with_fallback({
-                                let bg = cx.theme().secondary;
-                                move || {
-                                    div()
-                                        .w(px(48.))
-                                        .h(px(48.))
-                                        .rounded(px(4.))
-                                        .bg(bg)
-                                        .into_any_element()
-                                }
-                            })
-                            .into_any_element()
-                    } else {
-                        div()
-                            .w(px(48.))
-                            .h(px(48.))
-                            .rounded(px(4.))
-                            .bg(cx.theme().secondary)
-                            .into_any_element()
-                    }),
-            )
+            .child({
+                let cover_img = {
+                    let services = cx.global::<Services>();
+                    services.cover_art_cache.borrow_mut().get_small(self.cover_art_id, &services.library)
+                };
+                if let Some(cover_img) = cover_img {
+                    img(cover_img)
+                        .w(px(48.))
+                        .h(px(48.))
+                        .rounded(px(4.))
+                        .object_fit(gpui::ObjectFit::Cover)
+                        .with_fallback({
+                            let bg = cx.theme().secondary;
+                            move || {
+                                div()
+                                    .w(px(48.))
+                                    .h(px(48.))
+                                    .rounded(px(4.))
+                                    .bg(bg)
+                                    .into_any_element()
+                            }
+                        })
+                        .into_any_element()
+                } else {
+                    div()
+                        .w(px(48.))
+                        .h(px(48.))
+                        .rounded(px(4.))
+                        .bg(cx.theme().secondary)
+                        .into_any_element()
+                }
+            })
             .child(
                 div()
                     .flex_1()

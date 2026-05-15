@@ -1,16 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
-use crate::models::{AlbumSummary, NewTrack, Track};
+use crate::models::{AlbumSummary, CoverArt, NewTrack, Track};
 use crate::repository::LibraryRepository;
 
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
-    db_dir: PathBuf,
 }
 
 impl SqliteLibrary {
@@ -21,10 +20,27 @@ impl SqliteLibrary {
         std::fs::create_dir_all(&db_dir)?;
 
         let db_path = db_dir.join("library.db");
+        if db_path.exists() {
+            let check = Connection::open(&db_path);
+            if let Ok(check_conn) = check {
+                let has_cover_art: bool = check_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cover_art'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
+                drop(check_conn);
+                if !has_cover_art {
+                    let _ = std::fs::remove_file(&db_path);
+                }
+            }
+        }
+
         let conn = Connection::open(&db_path)?;
         let lib = Self {
             conn: Mutex::new(conn),
-            db_dir,
         };
         lib.run_migrations()?;
         Ok(lib)
@@ -32,19 +48,14 @@ impl SqliteLibrary {
 
     pub fn open_at(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let db_dir = path.parent().unwrap_or(path).to_path_buf();
-        std::fs::create_dir_all(&db_dir)?;
+        let db_dir = path.parent().unwrap_or(path);
+        std::fs::create_dir_all(db_dir)?;
         let conn = Connection::open(path)?;
         let lib = Self {
             conn: Mutex::new(conn),
-            db_dir,
         };
         lib.run_migrations()?;
         Ok(lib)
-    }
-
-    pub fn cache_dir(&self) -> PathBuf {
-        self.db_dir.join("covers")
     }
 
     fn run_migrations(&self) -> Result<()> {
@@ -96,7 +107,7 @@ impl LibraryRepository for SqliteLibrary {
         &self,
         title: &str,
         year: Option<i32>,
-        cover_art_path: Option<&str>,
+        cover_art_id: Option<i64>,
     ) -> Result<i64> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
@@ -108,18 +119,18 @@ impl LibraryRepository for SqliteLibrary {
             )
             .optional()?
         {
-            if cover_art_path.is_some() {
+            if cover_art_id.is_some() {
                 tx.execute(
-                    "UPDATE albums SET cover_art_path = ?1 WHERE id = ?2",
-                    rusqlite::params![cover_art_path, id],
+                    "UPDATE albums SET cover_art_id = ?1 WHERE id = ?2",
+                    rusqlite::params![cover_art_id, id],
                 )?;
             }
             tx.commit()?;
             return Ok(id);
         }
         tx.execute(
-            "INSERT INTO albums (title, year, cover_art_path) VALUES (?1, ?2, ?3)",
-            rusqlite::params![title, year, cover_art_path],
+            "INSERT INTO albums (title, year, cover_art_id) VALUES (?1, ?2, ?3)",
+            rusqlite::params![title, year, cover_art_id],
         )?;
         let id = tx.last_insert_rowid();
         tx.commit()?;
@@ -160,10 +171,6 @@ impl LibraryRepository for SqliteLibrary {
         let disc_number = track.disc_number.unwrap_or(1) as i32;
         let duration_ms = track.duration_ms.map(|n| n as i64);
         let start_offset_ms = track.start_offset_ms.unwrap_or(0) as i32;
-        let cover_path = track
-            .cover_art
-            .as_ref()
-            .and_then(|data| save_cover_art(&self.cache_dir(), data).ok());
 
         let existing_id: Option<i64> = tx
             .query_row(
@@ -182,7 +189,7 @@ impl LibraryRepository for SqliteLibrary {
                     disc_number = ?4,
                     duration_ms = ?5,
                     year = ?6,
-                    cover_art_path = ?7,
+                    cover_art_id = ?7,
                     start_offset_ms = ?8
                 WHERE id = ?9"#,
                 rusqlite::params![
@@ -192,7 +199,7 @@ impl LibraryRepository for SqliteLibrary {
                     disc_number,
                     duration_ms,
                     track.year,
-                    cover_path,
+                    track.cover_art_id,
                     start_offset_ms,
                     id,
                 ],
@@ -201,7 +208,7 @@ impl LibraryRepository for SqliteLibrary {
         } else {
             tx.execute(
                 r#"INSERT INTO tracks
-                    (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_path, start_offset_ms)
+                    (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
                 rusqlite::params![
                     track.path,
@@ -211,7 +218,7 @@ impl LibraryRepository for SqliteLibrary {
                     disc_number,
                     duration_ms,
                     track.year,
-                    cover_path,
+                    track.cover_art_id,
                     start_offset_ms,
                 ],
             )?;
@@ -241,7 +248,7 @@ impl LibraryRepository for SqliteLibrary {
                 a.id,
                 a.title,
                 a.year,
-                a.cover_art_path,
+                a.cover_art_id,
                 art.name
             FROM albums a
             LEFT JOIN album_artists aa ON aa.album_id = a.id AND aa.position = 0
@@ -254,7 +261,7 @@ impl LibraryRepository for SqliteLibrary {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 year: row.get(2)?,
-                cover_art_path: row.get(3)?,
+                cover_art_id: row.get(3)?,
                 artist_name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
             })
         })?;
@@ -275,7 +282,7 @@ impl LibraryRepository for SqliteLibrary {
                 disc_number,
                 duration_ms,
                 year,
-                cover_art_path,
+                cover_art_id,
                 start_offset_ms
             FROM tracks
             WHERE album_id = ?1
@@ -292,7 +299,7 @@ impl LibraryRepository for SqliteLibrary {
                 disc_number: row.get(5)?,
                 duration_ms: row.get(6)?,
                 year: row.get(7)?,
-                cover_art_path: row.get(8)?,
+                cover_art_id: row.get(8)?,
                 start_offset_ms: row.get(9)?,
             })
         })?;
@@ -340,7 +347,7 @@ impl LibraryRepository for SqliteLibrary {
                 t.disc_number,
                 t.duration_ms,
                 t.year,
-                t.cover_art_path,
+                t.cover_art_id,
                 t.start_offset_ms
             FROM tracks t
             LEFT JOIN albums al ON al.id = t.album_id
@@ -359,7 +366,7 @@ impl LibraryRepository for SqliteLibrary {
                 disc_number: row.get(5)?,
                 duration_ms: row.get(6)?,
                 year: row.get(7)?,
-                cover_art_path: row.get(8)?,
+                cover_art_id: row.get(8)?,
                 start_offset_ms: row.get(9)?,
             })
         })?;
@@ -375,6 +382,7 @@ impl LibraryRepository for SqliteLibrary {
         tx.execute("DELETE FROM tracks", [])?;
         tx.execute("DELETE FROM albums", [])?;
         tx.execute("DELETE FROM artists", [])?;
+        tx.execute("DELETE FROM cover_art", [])?;
         tx.commit()?;
         Ok(())
     }
@@ -401,12 +409,85 @@ impl LibraryRepository for SqliteLibrary {
              AND id NOT IN (SELECT DISTINCT artist_id FROM track_artists)",
             [],
         )?;
+        tx.execute(
+            "DELETE FROM cover_art WHERE id NOT IN (SELECT DISTINCT cover_art_id FROM albums WHERE cover_art_id IS NOT NULL)
+             AND id NOT IN (SELECT DISTINCT cover_art_id FROM tracks WHERE cover_art_id IS NOT NULL)",
+            [],
+        )?;
         tx.commit()?;
         Ok(())
     }
 
-    fn save_cover_art(&self, data: &[u8]) -> Result<String> {
-        save_cover_art(&self.cache_dir(), data)
+    fn save_cover_art(&self, data: &[u8]) -> Result<i64> {
+        let hash = compute_sha256(data);
+
+        {
+            let conn = self.conn.lock().unwrap();
+            if let Some(id) = conn
+                .query_row(
+                    "SELECT id FROM cover_art WHERE hash = ?1",
+                    [&hash],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+            {
+                return Ok(id);
+            }
+        }
+
+        let thumbnails = crate::thumbnail::generate_thumbnails(data)?;
+
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO cover_art (hash, small, large) VALUES (?1, ?2, ?3)",
+            rusqlite::params![hash, thumbnails.small, thumbnails.large],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(id)
+    }
+
+    fn get_cover_art(&self, id: i64) -> Result<Option<CoverArt>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn
+            .query_row(
+                "SELECT id, small, large FROM cover_art WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok(CoverArt {
+                        id: row.get(0)?,
+                        small: row.get(1)?,
+                        large: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(result)
+    }
+
+    fn get_cover_art_small(&self, id: i64) -> Result<Option<Vec<u8>>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn
+            .query_row(
+                "SELECT small FROM cover_art WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(result)
+    }
+
+    fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn
+            .query_row(
+                "SELECT large FROM cover_art WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(result)
     }
 
     fn album_has_artists(&self, album_id: i64) -> Result<bool> {
@@ -440,19 +521,10 @@ fn fallback_title_from_path(path: &str) -> String {
         .to_string()
 }
 
-fn save_cover_art(cache_dir: &Path, data: &[u8]) -> Result<String> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    std::fs::create_dir_all(cache_dir)?;
-    let mut hasher = DefaultHasher::new();
-    data.hash(&mut hasher);
-    let file_name = format!("{:x}.jpg", hasher.finish());
-    let path = cache_dir.join(&file_name);
-    if !path.exists() {
-        std::fs::write(&path, data)?;
-    }
-    Ok(path.to_string_lossy().into_owned())
+fn compute_sha256(data: &[u8]) -> String {
+    use sha2::Digest;
+    let hash = sha2::Sha256::digest(data);
+    format!("{:x}", hash)
 }
 
 #[cfg(test)]
@@ -494,10 +566,7 @@ mod tests {
 
     #[test]
     fn test_fallback_title_from_path_basic() {
-        assert_eq!(
-            fallback_title_from_path("/music/song.flac"),
-            "song"
-        );
+        assert_eq!(fallback_title_from_path("/music/song.flac"), "song");
     }
 
     #[test]

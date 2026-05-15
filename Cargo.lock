@@ -3794,9 +3794,10 @@ dependencies = [
 name = "music_library"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "dirs 6.0.0",
+ "image",
  "rusqlite",
+ "sha2",
  "thiserror 1.0.69",
 ]
 
