@@ -3,6 +3,7 @@ use std::sync::Arc;
 use audio_common::AudioError;
 use cpal::traits::{DeviceTrait, HostTrait};
 
+#[derive(Clone, Debug)]
 pub struct OutputDeviceInfo {
     pub name: String,
     pub is_default: bool,
@@ -57,6 +58,25 @@ impl DeviceManager {
 
     pub fn selected_device(&self) -> &Arc<cpal::Device> {
         &self.selected_device
+    }
+
+    pub fn selected_device_name(&self) -> &str {
+        &self.selected_device_name
+    }
+
+    pub fn selected_device_index(&self) -> usize {
+        self.host
+            .output_devices()
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .find_map(|(i, d)| {
+                d.description()
+                    .ok()
+                    .filter(|desc| desc.name() == self.selected_device_name)
+                    .map(|_| i)
+            })
+            .unwrap_or(0)
     }
 
     pub fn select_device(&mut self, index: usize) -> Result<Arc<cpal::Device>, AudioError> {

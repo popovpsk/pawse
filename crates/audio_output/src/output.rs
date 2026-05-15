@@ -11,7 +11,7 @@ use std::sync::Arc;
 use audio_common::{AudioBatch, AudioError, Metadata};
 pub use cpal_stream::{AudioOutput, CpalOutputStream, OutputConfig, PlaybackState, SelectedOutputDevice};
 use device::DeviceManager;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 use crate::ring_buffer::AudioRingBuffer;
 
@@ -27,6 +27,8 @@ pub struct Output {
     host: Arc<cpal::Host>,
     device_manager: RwLock<DeviceManager>,
     current: RwLock<OutputMode>,
+    recreate_error: Mutex<Option<String>>,
+    exclusive_original_rate: Mutex<Option<f64>>,
 }
 
 fn calc_buffer_size(cfg: &OutputConfig) -> usize {
@@ -57,6 +59,8 @@ impl Output {
             host,
             device_manager: RwLock::new(device_manager),
             current: RwLock::new(OutputMode::Shared(stream)),
+            recreate_error: Mutex::new(None),
+            exclusive_original_rate: Mutex::new(None),
         }
     }
 
@@ -89,13 +93,19 @@ impl Output {
             let device = self.device_manager.read().selected_device().clone();
             let selected = SelectedOutputDevice { host: self.host.clone(), device };
             let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&new_config)));
-            let stream = CpalOutputStream::new(buffer, new_config, selected)
-                .expect("Failed to create new audio output stream");
-            if was_playing {
-                stream.resume();
+            match CpalOutputStream::new(buffer, new_config, selected) {
+                Ok(stream) => {
+                    if was_playing {
+                        stream.resume();
+                    }
+                    let mut current = self.current.write();
+                    *current = OutputMode::Shared(stream);
+                }
+                Err(e) => {
+                    *self.recreate_error.lock() =
+                        Some(format!("Failed to recreate shared stream: {}", e));
+                }
             }
-            let mut current = self.current.write();
-            *current = OutputMode::Shared(stream);
         } else {
             #[cfg(target_os = "macos")]
             {
@@ -103,16 +113,36 @@ impl Output {
                     Ok(id) => id,
                     Err(_) => return,
                 };
-                if exclusive::set_device_sample_rate(device_id, new_config.sample_rate as f64).is_err() {
-                    return;
-                }
-                let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&new_config)));
-                if let Ok(excl) = exclusive::ExclusiveOutput::new(buffer, new_config, device_id) {
-                    if was_playing {
-                        excl.resume();
+
+                {
+                    let current = self.current.read();
+                    if let OutputMode::Exclusive(old) = &*current {
+                        old.suppress_drop_cleanup();
                     }
-                    let mut current = self.current.write();
-                    *current = OutputMode::Exclusive(excl);
+                }
+
+                let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&new_config)));
+                match exclusive::ExclusiveOutput::new(buffer, new_config, device_id) {
+                    Ok(mut excl) => {
+                        if let Some(true_rate) = *self.exclusive_original_rate.lock() {
+                            excl.original_sample_rate = true_rate;
+                        }
+                        if was_playing {
+                            excl.resume();
+                        }
+                        let mut current = self.current.write();
+                        *current = OutputMode::Exclusive(excl);
+                    }
+                    Err(e) => {
+                        {
+                            let current = self.current.read();
+                            if let OutputMode::Exclusive(old) = &*current {
+                                old.allow_drop_cleanup();
+                            }
+                        }
+                        *self.recreate_error.lock() =
+                            Some(format!("Failed to recreate exclusive stream: {}", e));
+                    }
                 }
             }
             #[cfg(not(target_os = "macos"))]
@@ -133,6 +163,8 @@ impl Output {
                 let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
                 match exclusive::ExclusiveOutput::new(buffer, config, audio_device_id) {
                     Ok(exclusive_output) => {
+                        *self.exclusive_original_rate.lock() =
+                            Some(exclusive_output.original_sample_rate);
                         {
                             let mut current = self.current.write();
                             *current = OutputMode::Exclusive(exclusive_output);
@@ -153,6 +185,7 @@ impl Output {
                 ))
             }
         } else {
+            *self.exclusive_original_rate.lock() = None;
             let device = self.device_manager.read().selected_device().clone();
             let selected = SelectedOutputDevice { host: self.host.clone(), device };
             let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
@@ -173,9 +206,21 @@ impl Output {
         matches!(*self.current.read(), OutputMode::Exclusive(_))
     }
 
+    pub fn selected_device_name(&self) -> String {
+        self.device_manager.read().selected_device_name().to_string()
+    }
+
+    pub fn selected_device_index(&self) -> usize {
+        self.device_manager.read().selected_device_index()
+    }
+
     pub fn devices(&self) -> Vec<device::OutputDeviceInfo> {
         self.device_manager.read().output_devices()
             .unwrap_or_default()
+    }
+
+    pub fn take_recreate_error(&self) -> Option<String> {
+        self.recreate_error.lock().take()
     }
 
     pub fn select_device(&self, index: usize) -> Result<(), AudioError> {

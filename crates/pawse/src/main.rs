@@ -8,6 +8,7 @@ use crate::{
 
 pub mod app_menu;
 pub mod assets;
+pub mod audio_settings;
 pub mod cover_art_cache;
 pub mod footer;
 pub mod library_service;
@@ -36,7 +37,7 @@ fn main() {
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(300.0), px(200.0))),
+            window_min_size: Some(size(px(800.0), px(400.0))),
             ..Default::default()
         };
         let services = Services::initialize(cx);

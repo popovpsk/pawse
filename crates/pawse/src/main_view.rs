@@ -1,5 +1,5 @@
 use gpui::{AppContext, Context, Entity, ParentElement, Render, Styled, Window, div, px};
-use gpui_component::StyledExt;
+use gpui_component::{Root, StyledExt};
 
 use crate::footer::Footer;
 use crate::library_views::library_view::LibraryView;
@@ -24,8 +24,8 @@ impl MainView {
 impl Render for MainView {
     fn render(
         &mut self,
-        _: &mut gpui::Window,
-        _: &mut gpui::Context<Self>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         div()
             .v_flex()
@@ -46,5 +46,6 @@ impl Render for MainView {
                     .h(px(80.))
                     .child(self.footer.clone()),
             )
+            .children(Root::render_notification_layer(window, cx))
     }
 }

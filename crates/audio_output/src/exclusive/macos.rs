@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 
 use audio_common::{AudioBatch, AudioError};
@@ -16,11 +16,14 @@ use crate::ring_buffer::AudioRingBuffer;
 const STATE_IDLE: u8 = 0;
 const STATE_PLAYING: u8 = 1;
 
-fn acquire_hog_mode(device_id: u32) -> Result<(), AudioError> {
+fn acquire_hog_mode(device_id: u32) -> Result<bool, AudioError> {
     let pid = macos_helpers::get_hogging_pid(device_id)
         .map_err(|e| AudioError::DeviceNotFound(format!("Failed to check hog mode: {:?}", e)))?;
 
     if pid != -1 {
+        if pid == std::process::id() as i32 {
+            return Ok(false);
+        }
         return Err(AudioError::DeviceNotFound(
             "Device is in use by another application".to_string(),
         ));
@@ -38,7 +41,7 @@ fn acquire_hog_mode(device_id: u32) -> Result<(), AudioError> {
         ));
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn release_hog_mode(device_id: u32) {
@@ -62,10 +65,12 @@ pub struct ExclusiveOutput {
     audio_unit: Mutex<AudioUnit>,
     buffer: Arc<AudioRingBuffer>,
     pub config: OutputConfig,
+    #[allow(dead_code)]
     audio_device_id: u32,
-    original_sample_rate: f64,
+    pub(crate) original_sample_rate: f64,
     state: Mutex<PlaybackState>,
     playing_atomic: AtomicU8,
+    suppress_drop_cleanup: AtomicBool,
 }
 
 impl ExclusiveOutput {
@@ -76,13 +81,13 @@ impl ExclusiveOutput {
     ) -> Result<Self, AudioError> {
         let original_sample_rate = get_device_sample_rate(audio_device_id)?;
 
-        acquire_hog_mode(audio_device_id)?;
+        let did_acquire = acquire_hog_mode(audio_device_id)?;
 
         let target_rate = config.sample_rate as f64;
-        if (target_rate - original_sample_rate).abs() > 0.01
-            && let Err(e) = set_device_sample_rate(audio_device_id, target_rate)
-        {
-            release_hog_mode(audio_device_id);
+        if let Err(e) = set_device_sample_rate(audio_device_id, target_rate) {
+            if did_acquire {
+                release_hog_mode(audio_device_id);
+            }
             return Err(e);
         }
 
@@ -90,7 +95,9 @@ impl ExclusiveOutput {
         let audio_unit = match create_audio_unit(audio_device_id, &config, buffer.clone(), channels) {
             Ok(au) => au,
             Err(e) => {
-                release_hog_mode(audio_device_id);
+                if did_acquire {
+                    release_hog_mode(audio_device_id);
+                }
                 if (target_rate - original_sample_rate).abs() > 0.01 {
                     let _ = set_device_sample_rate(audio_device_id, original_sample_rate);
                 }
@@ -106,6 +113,7 @@ impl ExclusiveOutput {
             original_sample_rate,
             state: Mutex::new(PlaybackState::Idle),
             playing_atomic: AtomicU8::new(STATE_IDLE),
+            suppress_drop_cleanup: AtomicBool::new(false),
         })
     }
 }
@@ -119,23 +127,11 @@ fn create_audio_unit(
     let mut audio_unit = macos_helpers::audio_unit_from_device_id(device_id, false)
         .map_err(|e| AudioError::Output(format!("Failed to create HAL AudioUnit: {:?}", e)))?;
 
-    let sample_format = match config.bit_depth {
-        16 => SampleFormat::I16,
-        24 => SampleFormat::I24,
-        _ => SampleFormat::F32,
-    };
-
-    let flags = if config.bit_depth == 32 {
-        LinearPcmFlags::IS_FLOAT | LinearPcmFlags::IS_PACKED
-    } else {
-        LinearPcmFlags::IS_SIGNED_INTEGER | LinearPcmFlags::IS_PACKED
-    };
-
     let stream_format = StreamFormat {
         sample_rate: config.sample_rate as f64,
         channels: config.channels as u32,
-        sample_format,
-        flags,
+        sample_format: SampleFormat::F32,
+        flags: LinearPcmFlags::IS_FLOAT | LinearPcmFlags::IS_PACKED,
     };
 
     audio_unit
@@ -219,11 +215,25 @@ impl AudioOutput for ExclusiveOutput {
     fn set_volume(&self, _volume: f32) {}
 }
 
+impl ExclusiveOutput {
+    pub fn suppress_drop_cleanup(&self) {
+        self.suppress_drop_cleanup.store(true, Ordering::Relaxed);
+    }
+
+    pub fn allow_drop_cleanup(&self) {
+        self.suppress_drop_cleanup.store(false, Ordering::Relaxed);
+    }
+}
+
 impl Drop for ExclusiveOutput {
     fn drop(&mut self) {
         {
             let mut audio_unit = self.audio_unit.lock().unwrap();
             let _ = audio_unit.stop();
+        }
+
+        if self.suppress_drop_cleanup.load(Ordering::Relaxed) {
+            return;
         }
 
         release_hog_mode(self.audio_device_id);
