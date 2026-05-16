@@ -241,6 +241,9 @@ impl Render for Slider {
             )
             .on_drag_move(cx.listener(
                 move |this, e: &DragMoveEvent<DragSlider>, _window, cx| {
+                    if this.disabled {
+                        return;
+                    }
                     if e.drag(cx).0 != entity_id {
                         return;
                     }

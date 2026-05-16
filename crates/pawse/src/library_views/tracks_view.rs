@@ -1,17 +1,13 @@
 use std::rc::Rc;
 
 use gpui::{
-    AppContext, ClickEvent, Context, ElementId, Entity, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, Window, div, px, size,
-    svg,
+    AppContext, Context, ElementId, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Render, Size, StatefulInteractiveElement, Styled, Window, div, px, size,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::library_views::album_info::AlbumInfo;
 use crate::services::Services;
-
-#[derive(Clone, Debug)]
-pub struct BackEvent;
 
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
@@ -70,45 +66,19 @@ impl TracksView {
             album_info,
         }
     }
-
-    fn on_back(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(BackEvent);
-    }
 }
-
-impl gpui::EventEmitter<BackEvent> for TracksView {}
 
 impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let back_button = div()
-            .id("back_button")
-            .cursor_pointer()
-            .size(px(36.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .hover(|style| style.bg(cx.theme().muted))
-            .on_click(cx.listener(TracksView::on_back))
-            .child(
-                svg()
-                    .path("icons/back.svg")
-                    .size(px(22.))
-                    .text_color(cx.theme().foreground),
-            );
-
-        let header = h_flex().px_4().py_2().child(back_button);
-
         if self.tracks.is_empty() {
             return v_flex()
                 .size_full()
-                .child(header)
                 .child(self.album_info.clone())
                 .child(div().px_4().child("No tracks found for this album."));
         }
 
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(header).child(
+        v_flex().size_full().child(
             v_virtual_list(
                 cx.entity().clone(),
                 "tracks_list",

@@ -143,9 +143,6 @@ impl Render for AudioSettings {
         self.is_exclusive = is_exclusive;
 
         h_flex()
-            .absolute()
-            .top_2()
-            .right_2()
             .gap_3()
             .items_center()
             .px_3()
