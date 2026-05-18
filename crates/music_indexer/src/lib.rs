@@ -43,8 +43,7 @@ mod tests {
     }
 
     fn fixture_path(name: &str) -> PathBuf {
-        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        PathBuf::from(manifest)
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
