@@ -1,15 +1,16 @@
 use audio_output::{BitPerfectIssue, BitPerfectStatus, OutputEvent};
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Context, Corner, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
-use gpui::prelude::FluentBuilder;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, Sizable, WindowExt, h_flex, v_flex,
+    ActiveTheme, Icon, IconName, WindowExt,
     button::{Button, ButtonVariants},
+    h_flex,
     notification::Notification,
     popover::Popover,
-    switch::Switch,
+    v_flex,
 };
 
 use crate::services::Services;
@@ -151,39 +152,48 @@ impl Render for AudioSettings {
             })
             .child({
                 let view = cx.entity().clone();
-                Switch::new("exclusive-mode")
-                    .checked(self.is_exclusive)
-                    .with_size(gpui_component::Size::Small)
-                    .label("Exclusive")
-                    .on_click(
-                        move |checked: &bool, window: &mut Window, app_cx: &mut App| {
-                            view.update(app_cx, |this, cx| {
-                                let services = cx.global::<Services>();
-                                if *checked {
-                                    match services.output.set_exclusive(true) {
-                                        Ok(()) => {
-                                            this.is_exclusive = true;
-                                        }
-                                        Err(e) => {
-                                            window.push_notification(
-                                                Notification::error(format!(
-                                                    "Failed to enable exclusive mode: {}",
-                                                    e
-                                                ))
-                                                .title("Exclusive Mode")
-                                                .id::<DeviceErrorNotif>(),
-                                                cx,
-                                            );
-                                        }
+                let icon_path = if self.is_exclusive {
+                    "icons/hog-on.svg"
+                } else {
+                    "icons/hog-off.svg"
+                };
+                let tooltip = if self.is_exclusive {
+                    "Exclusive mode — click to disable"
+                } else {
+                    "Shared mode — click to enable exclusive"
+                };
+                Button::new("exclusive-toggle")
+                    .ghost()
+                    .compact()
+                    .icon(Icon::default().path(icon_path))
+                    .tooltip(tooltip)
+                    .on_click(move |_, window: &mut Window, app_cx: &mut App| {
+                        view.update(app_cx, |this, cx| {
+                            let services = cx.global::<Services>();
+                            if this.is_exclusive {
+                                let _ = services.output.set_exclusive(false);
+                                this.is_exclusive = false;
+                            } else {
+                                match services.output.set_exclusive(true) {
+                                    Ok(()) => {
+                                        this.is_exclusive = true;
                                     }
-                                } else {
-                                    let _ = services.output.set_exclusive(false);
-                                    this.is_exclusive = false;
+                                    Err(e) => {
+                                        window.push_notification(
+                                            Notification::error(format!(
+                                                "Failed to enable exclusive mode: {}",
+                                                e
+                                            ))
+                                            .title("Exclusive Mode")
+                                            .id::<DeviceErrorNotif>(),
+                                            cx,
+                                        );
+                                    }
                                 }
-                                cx.notify();
-                            });
-                        },
-                    )
+                            }
+                            cx.notify();
+                        });
+                    })
             })
             .child({
                 let view = cx.entity().clone();
@@ -193,7 +203,7 @@ impl Render for AudioSettings {
                         Button::new("audio-device-trigger")
                             .ghost()
                             .compact()
-                            .icon(Icon::default().path("icons/volume_unmute.svg")),
+                            .icon(Icon::default().path("icons/devices.svg").text_color(cx.theme().foreground)),
                     )
                     .content(move |_state, _window, pop_cx| {
                         let services = pop_cx.global::<Services>();
@@ -220,9 +230,7 @@ impl Render for AudioSettings {
                                     .hover(move |style| style.bg(muted_color))
                                     .gap_2()
                                     .child(if is_selected {
-                                        Icon::default()
-                                            .path("icons/check.svg")
-                                            .into_any_element()
+                                        Icon::default().path("icons/check.svg").into_any_element()
                                     } else {
                                         div().size(px(16.)).into_any_element()
                                     })
@@ -231,10 +239,8 @@ impl Render for AudioSettings {
                                         view_row.update(app_cx, |this, cx| {
                                             let services = cx.global::<Services>();
                                             if let Err(e) = services.output.select_device(i) {
-                                                this.pending_notification = Some(format!(
-                                                    "Failed to switch device: {}",
-                                                    e
-                                                ));
+                                                this.pending_notification =
+                                                    Some(format!("Failed to switch device: {}", e));
                                             }
                                             cx.notify();
                                         });
@@ -242,11 +248,7 @@ impl Render for AudioSettings {
                                     .into_any_element(),
                             );
                         }
-                        v_flex()
-                            .gap_1()
-                            .p_1()
-                            .min_w(px(220.))
-                            .children(children)
+                        v_flex().gap_1().p_1().min_w(px(220.)).children(children)
                     })
             })
     }
