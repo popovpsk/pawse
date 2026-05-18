@@ -1,133 +1,63 @@
-use audio_output::OutputEvent;
+use audio_output::{BitPerfectIssue, BitPerfectStatus, OutputEvent};
 use gpui::{
-    App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window, px,
+    AnyElement, App, Context, Corner, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
+use gpui::prelude::FluentBuilder;
 use gpui_component::{
-    h_flex, ActiveTheme, IndexPath, Sizable, WindowExt,
+    ActiveTheme, Icon, IconName, Sizable, WindowExt, h_flex, v_flex,
+    button::{Button, ButtonVariants},
     notification::Notification,
-    select::{Select, SelectEvent, SelectItem, SelectState},
+    popover::Popover,
     switch::Switch,
 };
 
 use crate::services::Services;
 
-#[derive(Debug, Clone)]
-struct AudioDeviceItem {
-    name: SharedString,
-    is_default: bool,
-}
-
-impl SelectItem for AudioDeviceItem {
-    type Value = SharedString;
-
-    fn title(&self) -> SharedString {
-        if self.is_default {
-            format!("{} (default)", self.name).into()
-        } else {
-            self.name.clone()
-        }
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.name
-    }
-}
-
-fn build_device_items(devices: &[audio_output::device::OutputDeviceInfo]) -> Vec<AudioDeviceItem> {
-    devices
-        .iter()
-        .map(|d| AudioDeviceItem {
-            name: d.name.clone().into(),
-            is_default: d.is_default,
-        })
-        .collect()
-}
-
-/// Snapshot of the device list we last pushed into the dropdown. Used to skip
-/// updates when nothing changed (avoids flicker on every render tick).
-#[derive(Default)]
-struct DeviceListSnapshot {
-    fingerprint: Vec<(String, bool)>,
-    selected_index: Option<usize>,
-}
-
-impl DeviceListSnapshot {
-    fn from(
-        devices: &[audio_output::device::OutputDeviceInfo],
-        selected_index: Option<usize>,
-    ) -> Self {
-        Self {
-            fingerprint: devices.iter().map(|d| (d.name.clone(), d.is_default)).collect(),
-            selected_index,
-        }
-    }
-
-    fn matches(
-        &self,
-        devices: &[audio_output::device::OutputDeviceInfo],
-        selected_index: Option<usize>,
-    ) -> bool {
-        if self.selected_index != selected_index || self.fingerprint.len() != devices.len() {
-            return false;
-        }
-        self.fingerprint
-            .iter()
-            .zip(devices.iter())
-            .all(|((n, d), info)| n == &info.name && *d == info.is_default)
-    }
-}
-
 pub struct AudioSettings {
-    device_select: Entity<SelectState<Vec<AudioDeviceItem>>>,
     is_exclusive: bool,
     pending_notification: Option<String>,
-    last_device_snapshot: DeviceListSnapshot,
-    _subscription: Subscription,
 }
 
 struct DeviceErrorNotif;
 struct StreamRecoveredNotif;
 struct StreamFailureNotif;
 
+fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
+    if status.is_bit_perfect() {
+        return "Bit-perfect playback".to_string();
+    }
+    let mut lines = vec!["Not bit-perfect:".to_string()];
+    for issue in &status.issues {
+        let line = match issue {
+            BitPerfectIssue::NotExclusive => "• Output is shared (not exclusive)".to_string(),
+            BitPerfectIssue::SystemVolumeNotUnity { current } => {
+                format!("• System volume not at unity: {:.2}", current)
+            }
+            BitPerfectIssue::SystemMuted => "• System muted".to_string(),
+            BitPerfectIssue::AppVolumeNotUnity { current } => {
+                format!("• App volume not at unity: {:.2}", current)
+            }
+            BitPerfectIssue::SampleRateMismatch { source, device } => format!(
+                "• Sample rate mismatch: source {} Hz → device {} Hz",
+                source, device
+            ),
+            BitPerfectIssue::BitDepthExceedsContainer { source } => {
+                format!("• Bit depth {} exceeds f32 container (24)", source)
+            }
+            BitPerfectIssue::NoSource => "• No source loaded".to_string(),
+        };
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
 impl AudioSettings {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
-        let devices = services.output.devices();
-        let items = build_device_items(&devices);
-        let selected_index = services.output.selected_device_index();
-        let is_exclusive = services.output.is_exclusive();
-
-        let selected_path = selected_index.map(|i| IndexPath::default().row(i));
-
-        let device_select = cx.new(|cx| SelectState::new(items, selected_path, window, cx));
-
-        let subscription = cx.subscribe(
-            &device_select,
-            |this: &mut AudioSettings,
-             _entity,
-             event: &SelectEvent<Vec<AudioDeviceItem>>,
-             cx: &mut Context<AudioSettings>| {
-                if let SelectEvent::Confirm(Some(device_name)) = event {
-                    let services = cx.global::<Services>();
-                    let devices = services.output.devices();
-                    if let Some(index) = devices.iter().position(|d| d.name == *device_name)
-                        && let Err(e) = services.output.select_device(index)
-                    {
-                        this.pending_notification =
-                            Some(format!("Failed to switch device: {}", e));
-                    }
-                }
-                cx.notify();
-            },
-        );
-
         Self {
-            device_select,
-            is_exclusive,
+            is_exclusive: services.output.is_exclusive(),
             pending_notification: None,
-            last_device_snapshot: DeviceListSnapshot::from(&devices, selected_index),
-            _subscription: subscription,
         }
     }
 }
@@ -143,16 +73,12 @@ impl Render for AudioSettings {
             );
         }
 
-        // Drain background events from Output: device disconnect, recovery, etc.
-        // Notification IDs are stable per kind so a repeated event replaces the
-        // existing toast instead of stacking.
-        let (events, is_exclusive, devices, selected_index) = {
+        let (events, is_exclusive, bit_perfect) = {
             let services = cx.global::<Services>();
             (
                 services.output.drain_events(),
                 services.output.is_exclusive(),
-                services.output.devices(),
-                services.output.selected_device_index(),
+                services.output.bit_perfect_status(),
             )
         };
         for evt in events {
@@ -176,66 +102,129 @@ impl Render for AudioSettings {
             }
         }
 
-        // Refresh dropdown only when the live enumeration actually differs from
-        // what's currently displayed — this lets hot-plugged devices appear
-        // automatically without triggering an update on every render.
-        if !self.last_device_snapshot.matches(&devices, selected_index) {
-            let items = build_device_items(&devices);
-            let selected_path = selected_index.map(|i| IndexPath::default().row(i));
-            self.device_select.update(cx, |state, cx| {
-                state.set_items(items, window, cx);
-                state.set_selected_index(selected_path, window, cx);
-            });
-            self.last_device_snapshot = DeviceListSnapshot::from(&devices, selected_index);
-        }
-
         self.is_exclusive = is_exclusive;
 
         h_flex()
-            .gap_3()
+            .gap_2()
             .items_center()
-            .px_3()
-            .py_1()
-            .rounded(px(6.))
-            .bg(cx.theme().secondary)
-            .child(
-                Select::new(&self.device_select)
-                    .placeholder("Audio Device")
-                    .small(),
-            )
+            .when(self.is_exclusive, |el| {
+                let is_perfect = bit_perfect.is_bit_perfect();
+                let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
+                let icon_color = if is_perfect {
+                    cx.theme().success
+                } else {
+                    cx.theme().warning
+                };
+                let icon_name = if is_perfect {
+                    IconName::Check
+                } else {
+                    IconName::TriangleAlert
+                };
+                el.child(
+                    Button::new("bit-perfect-indicator")
+                        .ghost()
+                        .compact()
+                        .icon(Icon::new(icon_name).text_color(icon_color))
+                        .tooltip(tooltip_text),
+                )
+            })
             .child({
                 let view = cx.entity().clone();
                 Switch::new("exclusive-mode")
                     .checked(self.is_exclusive)
                     .with_size(gpui_component::Size::Small)
                     .label("Exclusive")
-                    .on_click(move |checked: &bool, window: &mut Window, app_cx: &mut App| {
-                        view.update(app_cx, |this, cx| {
-                            let services = cx.global::<Services>();
-                            if *checked {
-                                match services.output.set_exclusive(true) {
-                                    Ok(()) => {
-                                        this.is_exclusive = true;
+                    .on_click(
+                        move |checked: &bool, window: &mut Window, app_cx: &mut App| {
+                            view.update(app_cx, |this, cx| {
+                                let services = cx.global::<Services>();
+                                if *checked {
+                                    match services.output.set_exclusive(true) {
+                                        Ok(()) => {
+                                            this.is_exclusive = true;
+                                        }
+                                        Err(e) => {
+                                            window.push_notification(
+                                                Notification::error(format!(
+                                                    "Failed to enable exclusive mode: {}",
+                                                    e
+                                                ))
+                                                .title("Exclusive Mode")
+                                                .id::<DeviceErrorNotif>(),
+                                                cx,
+                                            );
+                                        }
                                     }
-                                    Err(e) => {
-                                        window.push_notification(
-                                            Notification::error(format!(
-                                                "Failed to enable exclusive mode: {}",
-                                                e
-                                            ))
-                                            .title("Exclusive Mode")
-                                            .id::<DeviceErrorNotif>(),
-                                            cx,
-                                        );
-                                    }
+                                } else {
+                                    let _ = services.output.set_exclusive(false);
+                                    this.is_exclusive = false;
                                 }
-                            } else {
-                                // Leaving exclusive mode is infallible by contract.
-                                let _ = services.output.set_exclusive(false);
-                                this.is_exclusive = false;
-                            }
-                            cx.notify();
-                        });
+                                cx.notify();
+                            });
+                        },
+                    )
+            })
+            .child({
+                let view = cx.entity().clone();
+                Popover::new("audio-device-popover")
+                    .anchor(Corner::TopRight)
+                    .trigger(
+                        Button::new("audio-device-trigger")
+                            .ghost()
+                            .compact()
+                            .icon(Icon::default().path("icons/volume_unmute.svg")),
+                    )
+                    .content(move |_state, _window, pop_cx| {
+                        let services = pop_cx.global::<Services>();
+                        let devices = services.output.devices();
+                        let selected = services.output.selected_device_index();
+                        let muted_color = pop_cx.theme().muted;
+                        let mut children: Vec<AnyElement> = Vec::new();
+                        for (i, d) in devices.into_iter().enumerate() {
+                            let view_row = view.clone();
+                            let is_selected = selected == Some(i);
+                            let device_label = format!(
+                                "{}{}",
+                                d.name,
+                                if d.is_default { " (default)" } else { "" }
+                            );
+                            children.push(
+                                h_flex()
+                                    .id(("device-row", i))
+                                    .cursor_pointer()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded(px(4.))
+                                    .hover(move |style| style.bg(muted_color))
+                                    .gap_2()
+                                    .child(if is_selected {
+                                        Icon::default()
+                                            .path("icons/check.svg")
+                                            .into_any_element()
+                                    } else {
+                                        div().size(px(16.)).into_any_element()
+                                    })
+                                    .child(div().child(device_label))
+                                    .on_click(move |_, _, app_cx| {
+                                        view_row.update(app_cx, |this, cx| {
+                                            let services = cx.global::<Services>();
+                                            if let Err(e) = services.output.select_device(i) {
+                                                this.pending_notification = Some(format!(
+                                                    "Failed to switch device: {}",
+                                                    e
+                                                ));
+                                            }
+                                            cx.notify();
+                                        });
+                                    })
+                                    .into_any_element(),
+                            );
+                        }
+                        v_flex()
+                            .gap_1()
+                            .p_1()
+                            .min_w(px(220.))
+                            .children(children)
                     })
             })
     }

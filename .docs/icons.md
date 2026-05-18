@@ -82,10 +82,12 @@ svg()
 
 | Path | Usage |
 |------|-------|
+| `icons/back.svg` | Back to album list button |
+| `icons/check.svg` | Bit-perfect OK indicator or selected device in popover |
+| `icons/next.svg` | Next track button (flipped horizontally for previous track) |
+| `icons/triangle-alert.svg` | Bit-perfect warning indicator |
 | `icons/volume_mute.svg` | Volume control — shown when muted or volume is 0 |
 | `icons/volume_unmute.svg` | Volume control — shown when volume > 0 |
-| `icons/back.svg` | Back to album list button |
-| `icons/next.svg` | Next track button (flipped horizontally for previous track) |
 
 ## Do Not Use `img()` for Icons
 

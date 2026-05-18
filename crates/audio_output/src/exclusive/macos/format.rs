@@ -217,10 +217,10 @@ pub(super) fn apply_format(
 pub(super) fn set_and_wait_sample_rate(device_id: u32, rate: f64) -> Result<(), AudioError> {
     set_nominal_sample_rate(device_id, rate)?;
     for _ in 0..50 {
-        if let Ok(asbd) = read_device_format(device_id) {
-            if (asbd.mSampleRate - rate).abs() < 0.5 {
-                return Ok(());
-            }
+        if let Ok(asbd) = read_device_format(device_id)
+            && (asbd.mSampleRate - rate).abs() < 0.5
+        {
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(10));
     }
