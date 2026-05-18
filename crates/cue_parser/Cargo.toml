@@ -12,3 +12,5 @@ rstest = "0.21"
 
 [lib]
 path = "src/lib.rs"
+[lints]
+workspace = true

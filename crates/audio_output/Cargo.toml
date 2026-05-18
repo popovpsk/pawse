@@ -14,7 +14,11 @@ parking_lot = "0.12.5"
 atomic_float = "1.1.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-coreaudio-rs = { version = "0.14", features = ["core_audio", "audio_toolbox"] }
+objc2-core-audio = "=0.3.2"
+objc2-core-audio-types = "=0.3.2"
+
+[lints.rust]
+unsafe_code = "allow"
 
 [lib]
 path = "src/output.rs"

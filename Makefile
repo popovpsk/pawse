@@ -144,3 +144,87 @@ $(FIXTURES_DIR)/tagged_ogg.ogg: | $(FIXTURES_DIR)
 
 clean:
 	rm -f $(FIXTURES)
+
+# ============================================================
+# Test orchestration
+# ============================================================
+#
+# Inner loop:   make test           (seconds)
+# Pre-push:     make test-san       (5-15 min, runs sanitizers + miri + careful)
+# Pre-release:  make test-full      (test-san + leaks(1) on every test binary)
+#
+# Required tooling (one-time setup):
+#   rustup toolchain install nightly
+#   rustup +nightly component add rust-src miri
+#   cargo install cargo-careful
+#
+# Notes:
+#   - Miri does not support FFI, so only crates listed in MIRI_CRATES are run.
+#     Add crates to MIRI_CRATES as you confirm they have no FFI in their tests.
+#   - ASAN and TSAN are mutually exclusive (separate builds, separate processes).
+#   - Sanitizer builds rebuild std (-Zbuild-std), so each is slow on first run.
+#   - Nightly-based targets (careful/asan/tsan/miri) exclude the GUI crates
+#     (pawse, ui_components, audio_engine) because gpui pulls in pathfinder_simd,
+#     which fails to compile on current nightly. The audio/library crates listed
+#     in SAN_CRATES are where unsafe and concurrency live, so that's what we
+#     actually want to sanitize.
+
+TARGET ?= $(shell rustc -vV | sed -n 's/host: //p')
+
+SAN_CRATES = \
+	-p audio_common \
+	-p audio_decoder \
+	-p audio_output \
+	-p cue_parser \
+	-p media_integration \
+	-p music_indexer \
+	-p music_library \
+	-p macos_integration
+
+MIRI_CRATES = -p audio_common
+
+.PHONY: test test-careful test-asan test-tsan test-miri test-leaks test-san test-full help-test
+
+test:
+	cargo test --workspace
+
+test-careful:
+	cargo +nightly careful test $(SAN_CRATES)
+
+test-asan:
+	RUSTFLAGS="-Zsanitizer=address" \
+	RUSTDOCFLAGS="-Zsanitizer=address" \
+	cargo +nightly test $(SAN_CRATES) --target $(TARGET) -Zbuild-std
+
+test-tsan:
+	RUSTFLAGS="-Zsanitizer=thread" \
+	RUSTDOCFLAGS="-Zsanitizer=thread" \
+	cargo +nightly test $(SAN_CRATES) --target $(TARGET) -Zbuild-std
+
+test-miri:
+	cargo +nightly miri test $(MIRI_CRATES)
+
+# Runs every workspace test binary under leaks(1). Requires `jq`.
+test-leaks:
+	@command -v jq >/dev/null 2>&1 || { echo "jq is required for test-leaks"; exit 1; }
+	@cargo test --workspace --no-run --message-format=json 2>/dev/null | \
+		jq -r 'select(.executable != null and .profile.test == true) | .executable' | \
+		while read bin; do \
+			echo "===> leaks: $$bin"; \
+			MallocStackLogging=1 leaks --atExit -- "$$bin" || true; \
+		done
+
+test-san: test-careful test-asan test-tsan test-miri
+
+test-full: test-san test-leaks
+
+help-test:
+	@echo "Test targets:"
+	@echo "  make test          - fast cargo test (inner loop)"
+	@echo "  make test-careful  - cargo-careful, extra UB checks in std"
+	@echo "  make test-asan     - AddressSanitizer (use-after-free, double-free, OOB)"
+	@echo "  make test-tsan     - ThreadSanitizer (data races)"
+	@echo "  make test-miri     - Miri (pure-Rust crates only — no FFI)"
+	@echo "  make test-leaks    - macOS leaks(1) on each test binary"
+	@echo "  make test-san      - careful + asan + tsan + miri (pre-push)"
+	@echo "  make test-full     - test-san + test-leaks (pre-release)"

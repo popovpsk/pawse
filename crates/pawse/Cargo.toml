@@ -32,3 +32,6 @@ icon = ["../../assets/pawse.svg"]
 version = "0.1.0"
 copyright = ""
 category = "Music"
+
+[lints]
+workspace = true

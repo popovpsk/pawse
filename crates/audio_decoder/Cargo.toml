@@ -16,3 +16,6 @@ rstest = "0.21"
 
 [lib]
 path = "src/decoder.rs"
+
+[lints]
+workspace = true

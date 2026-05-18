@@ -1,32 +1,21 @@
-use audio_common::AudioError;
-use crate::cpal_stream::{AudioOutput, OutputConfig};
-use crate::ring_buffer::AudioRingBuffer;
+use audio_common::AudioBatch;
+use crate::exclusive::{Backend, DeviceSnapshot, ExclusiveEvent};
 
-use std::sync::Arc;
+pub(super) struct UnsupportedBackend;
 
-pub struct ExclusiveOutput;
-
-impl ExclusiveOutput {
-    pub fn new(
-        _buffer: Arc<AudioRingBuffer>,
-        _config: OutputConfig,
-        _audio_device_id: u32,
-    ) -> Result<Self, AudioError> {
-        Err(AudioError::UnsupportedFormat(
-            "Exclusive mode is not supported on this platform".to_string(),
-        ))
-    }
-}
-
-impl AudioOutput for ExclusiveOutput {
-    fn write(&self, _samples: &audio_common::AudioBatch) -> usize {
-        0
-    }
+impl Backend for UnsupportedBackend {
+    fn write(&self, _: &AudioBatch) -> usize { 0 }
     fn clear(&self) {}
     fn pause(&self) {}
     fn resume(&self) {}
-    fn is_playing(&self) -> bool {
-        false
+    fn is_playing(&self) -> bool { false }
+    fn set_volume(&self, _: f32) {}
+    fn is_alive(&self) -> bool { false }
+    fn take_event(&self) -> Option<ExclusiveEvent> { None }
+    fn original_rate(&self) -> f64 { 0.0 }
+    fn suppress_cleanup(&self) {}
+    fn allow_cleanup(&self) {}
+    fn device_snapshot(&self) -> DeviceSnapshot {
+        DeviceSnapshot { hw_volume: 1.0, hw_muted: false, device_sample_rate: 0, app_volume: 1.0 }
     }
-    fn set_volume(&self, _volume: f32) {}
 }

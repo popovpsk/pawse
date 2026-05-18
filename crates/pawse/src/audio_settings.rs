@@ -1,3 +1,4 @@
+use audio_output::OutputEvent;
 use gpui::{
     App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window, px,
@@ -43,15 +44,51 @@ fn build_device_items(devices: &[audio_output::device::OutputDeviceInfo]) -> Vec
         .collect()
 }
 
+/// Snapshot of the device list we last pushed into the dropdown. Used to skip
+/// updates when nothing changed (avoids flicker on every render tick).
+#[derive(Default)]
+struct DeviceListSnapshot {
+    fingerprint: Vec<(String, bool)>,
+    selected_index: Option<usize>,
+}
+
+impl DeviceListSnapshot {
+    fn from(
+        devices: &[audio_output::device::OutputDeviceInfo],
+        selected_index: Option<usize>,
+    ) -> Self {
+        Self {
+            fingerprint: devices.iter().map(|d| (d.name.clone(), d.is_default)).collect(),
+            selected_index,
+        }
+    }
+
+    fn matches(
+        &self,
+        devices: &[audio_output::device::OutputDeviceInfo],
+        selected_index: Option<usize>,
+    ) -> bool {
+        if self.selected_index != selected_index || self.fingerprint.len() != devices.len() {
+            return false;
+        }
+        self.fingerprint
+            .iter()
+            .zip(devices.iter())
+            .all(|((n, d), info)| n == &info.name && *d == info.is_default)
+    }
+}
+
 pub struct AudioSettings {
     device_select: Entity<SelectState<Vec<AudioDeviceItem>>>,
     is_exclusive: bool,
     pending_notification: Option<String>,
-    needs_device_refresh: bool,
+    last_device_snapshot: DeviceListSnapshot,
     _subscription: Subscription,
 }
 
 struct DeviceErrorNotif;
+struct StreamRecoveredNotif;
+struct StreamFailureNotif;
 
 impl AudioSettings {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -61,11 +98,7 @@ impl AudioSettings {
         let selected_index = services.output.selected_device_index();
         let is_exclusive = services.output.is_exclusive();
 
-        let selected_path = if !items.is_empty() {
-            Some(IndexPath::default().row(selected_index))
-        } else {
-            None
-        };
+        let selected_path = selected_index.map(|i| IndexPath::default().row(i));
 
         let device_select = cx.new(|cx| SelectState::new(items, selected_path, window, cx));
 
@@ -84,7 +117,6 @@ impl AudioSettings {
                         this.pending_notification =
                             Some(format!("Failed to switch device: {}", e));
                     }
-                    this.needs_device_refresh = true;
                 }
                 cx.notify();
             },
@@ -94,7 +126,7 @@ impl AudioSettings {
             device_select,
             is_exclusive,
             pending_notification: None,
-            needs_device_refresh: false,
+            last_device_snapshot: DeviceListSnapshot::from(&devices, selected_index),
             _subscription: subscription,
         }
     }
@@ -111,33 +143,50 @@ impl Render for AudioSettings {
             );
         }
 
-        let (recreate_error, is_exclusive) = {
+        // Drain background events from Output: device disconnect, recovery, etc.
+        // Notification IDs are stable per kind so a repeated event replaces the
+        // existing toast instead of stacking.
+        let (events, is_exclusive, devices, selected_index) = {
             let services = cx.global::<Services>();
-            (services.output.take_recreate_error(), services.output.is_exclusive())
+            (
+                services.output.drain_events(),
+                services.output.is_exclusive(),
+                services.output.devices(),
+                services.output.selected_device_index(),
+            )
         };
-        if let Some(err) = recreate_error {
-            window.push_notification(
-                Notification::error(err).title("Stream Error"),
-                cx,
-            );
+        for evt in events {
+            match evt {
+                OutputEvent::Recovered { message } => {
+                    window.push_notification(
+                        Notification::warning(message)
+                            .title("Audio Device")
+                            .id::<StreamRecoveredNotif>(),
+                        cx,
+                    );
+                }
+                OutputEvent::Failure { message } => {
+                    window.push_notification(
+                        Notification::error(message)
+                            .title("Audio Device")
+                            .id::<StreamFailureNotif>(),
+                        cx,
+                    );
+                }
+            }
         }
 
-        if self.needs_device_refresh {
-            self.needs_device_refresh = false;
-            let (devices, selected_index) = {
-                let services = cx.global::<Services>();
-                (services.output.devices(), services.output.selected_device_index())
-            };
+        // Refresh dropdown only when the live enumeration actually differs from
+        // what's currently displayed — this lets hot-plugged devices appear
+        // automatically without triggering an update on every render.
+        if !self.last_device_snapshot.matches(&devices, selected_index) {
             let items = build_device_items(&devices);
-            let selected_path = if !items.is_empty() {
-                Some(IndexPath::default().row(selected_index))
-            } else {
-                None
-            };
+            let selected_path = selected_index.map(|i| IndexPath::default().row(i));
             self.device_select.update(cx, |state, cx| {
                 state.set_items(items, window, cx);
                 state.set_selected_index(selected_path, window, cx);
             });
+            self.last_device_snapshot = DeviceListSnapshot::from(&devices, selected_index);
         }
 
         self.is_exclusive = is_exclusive;
@@ -174,23 +223,17 @@ impl Render for AudioSettings {
                                                 "Failed to enable exclusive mode: {}",
                                                 e
                                             ))
-                                            .title("Exclusive Mode"),
+                                            .title("Exclusive Mode")
+                                            .id::<DeviceErrorNotif>(),
                                             cx,
                                         );
                                     }
                                 }
-                            } else if let Err(e) = services.output.set_exclusive(false) {
-                                window.push_notification(
-                                    Notification::error(format!(
-                                        "Failed to disable exclusive mode: {}",
-                                        e
-                                    )),
-                                    cx,
-                                );
                             } else {
+                                // Leaving exclusive mode is infallible by contract.
+                                let _ = services.output.set_exclusive(false);
                                 this.is_exclusive = false;
                             }
-                            this.needs_device_refresh = true;
                             cx.notify();
                         });
                     })

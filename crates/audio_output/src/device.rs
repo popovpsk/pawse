@@ -6,124 +6,243 @@ use cpal::traits::{DeviceTrait, HostTrait};
 #[derive(Clone, Debug)]
 pub struct OutputDeviceInfo {
     pub name: String,
+    pub uid: String,
     pub is_default: bool,
 }
 
+/// Tracks which audio device the user wants to use.
+///
+/// Identity is a UID string (CoreAudio device UID on macOS, cpal's `Device::id().1`
+/// elsewhere) — *not* a cached `cpal::Device` handle, because those go stale when
+/// the underlying hardware disconnects or is re-enumerated.
+///
+/// A `selected_uid` of `None` means "follow the system default device" — handy as
+/// a recovery state when a previously-selected device disappears.
+///
+/// Every `resolve_*` call re-queries cpal's host. If the selected UID can't be
+/// found (device unplugged, UID format changed, etc.) the resolver falls back to
+/// the system default device and surfaces what happened to the caller via the
+/// returned device's UID.
 pub struct DeviceManager {
     host: Arc<cpal::Host>,
-    selected_device: Arc<cpal::Device>,
-    selected_device_name: String,
+    selected_uid: Option<String>,
+    cached_name: String,
 }
 
 impl DeviceManager {
     pub fn from_host(host: &Arc<cpal::Host>) -> Result<Self, AudioError> {
-        let default_device = host
+        let default = host
             .default_output_device()
             .ok_or_else(|| AudioError::DeviceNotFound("No default output device".to_string()))?;
-        let name = default_device
-            .description()
-            .map(|d| d.name().to_string())
-            .unwrap_or_else(|_| "Unknown".to_string());
+        let name = device_display_name(&default);
 
         Ok(Self {
             host: host.clone(),
-            selected_device: Arc::new(default_device),
-            selected_device_name: name,
+            selected_uid: None, // follow system default initially
+            cached_name: name,
         })
     }
 
+    /// Live enumeration. Always re-queries the host so newly attached devices
+    /// appear immediately without a manual refresh step.
     pub fn output_devices(&self) -> Result<Vec<OutputDeviceInfo>, AudioError> {
-        let default_device_name = self
+        let default_uid = self
             .host
             .default_output_device()
-            .map(|d| d.description().map(|desc| desc.name().to_string()).unwrap_or_default());
+            .and_then(|d| device_uid(&d).ok());
 
         let devices: Vec<OutputDeviceInfo> = self
             .host
             .output_devices()
             .map_err(|e| AudioError::Output(e.to_string()))?
             .map(|d| {
-                let name = d.description()
-                    .map(|desc| desc.name().to_string())
-                    .unwrap_or_else(|_| "Unknown".to_string());
-                let is_default = default_device_name
-                    .as_ref()
-                    .is_some_and(|dn| dn == &name);
-                OutputDeviceInfo { name, is_default }
+                let name = device_display_name(&d);
+                let uid = device_uid(&d).unwrap_or_default();
+                let is_default = default_uid.as_deref() == Some(uid.as_str());
+                OutputDeviceInfo { name, uid, is_default }
             })
             .collect();
 
         Ok(devices)
     }
 
-    pub fn selected_device(&self) -> &Arc<cpal::Device> {
-        &self.selected_device
-    }
-
+    /// The most recently confirmed display name for the selected device.
+    /// May be stale if the device just disconnected; in that case `resolve_device`
+    /// will refresh it on the next call.
     pub fn selected_device_name(&self) -> &str {
-        &self.selected_device_name
+        &self.cached_name
     }
 
-    pub fn selected_device_index(&self) -> usize {
-        self.host
-            .output_devices()
-            .into_iter()
-            .flatten()
-            .enumerate()
-            .find_map(|(i, d)| {
-                d.description()
-                    .ok()
-                    .filter(|desc| desc.name() == self.selected_device_name)
-                    .map(|_| i)
-            })
-            .unwrap_or(0)
+    /// `Some(uid)` for a user-selected device; `None` means "follow system default".
+    pub fn selected_uid(&self) -> Option<&str> {
+        self.selected_uid.as_deref()
     }
 
-    pub fn select_device(&mut self, index: usize) -> Result<Arc<cpal::Device>, AudioError> {
-        let devices: Vec<cpal::Device> = self
+    /// Resolves the current selection to a live `cpal::Device` handle.
+    ///
+    /// If `selected_uid` is `None`, returns the system default device.
+    /// If `selected_uid` is `Some(uid)` but no device with that UID exists right
+    /// now, the selection is cleared (so the app stops pointing at a ghost) and
+    /// the system default is returned instead. The caller can detect the
+    /// fallback by comparing the returned device's UID against the prior
+    /// `selected_uid`.
+    pub fn resolve_device(&mut self) -> Result<Arc<cpal::Device>, AudioError> {
+        if let Some(uid) = self.selected_uid.clone()
+            && let Some(device) = self.find_by_uid(&uid)?
+        {
+            self.cached_name = device_display_name(&device);
+            return Ok(Arc::new(device));
+        }
+
+        // Fallback: clear stale selection and use system default.
+        if self.selected_uid.is_some() {
+            self.selected_uid = None;
+        }
+        let default = self
+            .host
+            .default_output_device()
+            .ok_or_else(|| AudioError::DeviceNotFound("No default output device".to_string()))?;
+        self.cached_name = device_display_name(&default);
+        Ok(Arc::new(default))
+    }
+
+    /// Returns the UID string to use for exclusive-mode lookups. For "follow
+    /// system default" selections, queries the host for the current default
+    /// device's UID, so that exclusive mode tracks the system default if the
+    /// user hasn't pinned a device.
+    pub fn resolve_uid(&mut self) -> Result<String, AudioError> {
+        let device = self.resolve_device()?;
+        device_uid(&device)
+    }
+
+    /// Returns the index of the selected device within the current enumeration
+    /// order. Returns `None` if the selection is "follow default" or the
+    /// selected UID is no longer present in the enumeration (e.g. unplugged).
+    pub fn selected_device_index(&self) -> Option<usize> {
+        let uid = self.selected_uid.as_deref()?;
+        let devices = self.output_devices().ok()?;
+        devices.iter().position(|d| d.uid == uid)
+    }
+
+    /// Selects a device by its index in the current enumeration. The captured
+    /// UID is what gets stored — index-based selection is only used for the UI
+    /// dropdown's "user clicked row N" event.
+    pub fn select_device(&mut self, index: usize) -> Result<(), AudioError> {
+        let devices = self.output_devices()?;
+        let chosen = devices.into_iter().nth(index).ok_or_else(|| {
+            AudioError::DeviceNotFound(format!("Device index {} out of range", index))
+        })?;
+        self.cached_name = chosen.name;
+        self.selected_uid = if chosen.uid.is_empty() {
+            None
+        } else {
+            Some(chosen.uid)
+        };
+        Ok(())
+    }
+
+    /// Clears the explicit selection so the manager follows the system default.
+    pub fn select_default(&mut self) {
+        self.selected_uid = None;
+        if let Some(d) = self.host.default_output_device() {
+            self.cached_name = device_display_name(&d);
+        }
+    }
+
+    fn find_by_uid(&self, uid: &str) -> Result<Option<cpal::Device>, AudioError> {
+        let devices = self
             .host
             .output_devices()
-            .map_err(|e| AudioError::Output(e.to_string()))?
-            .collect();
-
-        let device = devices
-            .into_iter()
-            .nth(index)
-            .ok_or_else(|| AudioError::DeviceNotFound(format!("Device index {} out of range", index)))?;
-
-        let name = device
-            .description()
-            .map(|d| d.name().to_string())
-            .unwrap_or_else(|_| "Unknown".to_string());
-
-        self.selected_device = Arc::new(device);
-        self.selected_device_name = name;
-
-        Ok(self.selected_device.clone())
+            .map_err(|e| AudioError::Output(e.to_string()))?;
+        for d in devices {
+            if let Ok(this_uid) = device_uid(&d)
+                && this_uid == uid
+            {
+                return Ok(Some(d));
+            }
+        }
+        Ok(None)
     }
 }
 
-#[cfg(target_os = "macos")]
-impl DeviceManager {
-    pub fn audio_device_id(&self) -> Result<u32, AudioError> {
-        use coreaudio::audio_unit::macos_helpers;
+fn device_display_name(d: &cpal::Device) -> String {
+    d.description()
+        .map(|desc| desc.name().to_string())
+        .unwrap_or_else(|_| "Unknown".to_string())
+}
 
-        let coreaudio_ids = macos_helpers::get_audio_device_ids_for_scope(
-            coreaudio::audio_unit::Scope::Output,
-        )
-        .map_err(|e| AudioError::DeviceNotFound(format!("Failed to enumerate CoreAudio devices: {:?}", e)))?;
+fn device_uid(d: &cpal::Device) -> Result<String, AudioError> {
+    d.id()
+        .map(|id| id.1)
+        .map_err(|e| AudioError::DeviceNotFound(format!("Could not read device UID: {}", e)))
+}
 
-        for id in &coreaudio_ids {
-            let ca_name = macos_helpers::get_device_name(*id)
-                .map_err(|e| AudioError::DeviceNotFound(format!("Failed to get device name: {:?}", e)))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            if ca_name == self.selected_device_name {
-                return Ok(*id);
-            }
-        }
+    fn make_manager() -> DeviceManager {
+        let host = Arc::new(cpal::default_host());
+        DeviceManager::from_host(&host).expect("dev host must have a default device")
+    }
 
-        Err(AudioError::DeviceNotFound(
-            "No CoreAudio device matches selected device name".to_string(),
-        ))
+    #[test]
+    fn fresh_manager_follows_default() {
+        let m = make_manager();
+        assert!(
+            m.selected_uid().is_none(),
+            "new manager should follow system default (no explicit UID pinned)"
+        );
+        assert!(!m.selected_device_name().is_empty(), "default device should have a name");
+    }
+
+    #[test]
+    fn resolve_device_returns_a_device_when_following_default() {
+        let mut m = make_manager();
+        let _device = m.resolve_device().expect("default device should resolve");
+        // Display name should now match the default device's name (cached during resolve).
+        assert!(!m.selected_device_name().is_empty());
+    }
+
+    #[test]
+    fn resolve_uid_returns_non_empty_string_for_default() {
+        let mut m = make_manager();
+        let uid = m.resolve_uid().expect("default device should expose a UID");
+        assert!(!uid.is_empty(), "system default device UID must be non-empty");
+    }
+
+    #[test]
+    fn selected_device_index_is_none_when_following_default() {
+        let m = make_manager();
+        assert_eq!(m.selected_device_index(), None);
+    }
+
+    #[test]
+    fn select_default_clears_pinned_uid() {
+        let mut m = make_manager();
+        // Pretend something was pinned, then clear.
+        m.selected_uid = Some("fake-uid-doesnt-matter".to_string());
+        m.select_default();
+        assert!(m.selected_uid().is_none());
+    }
+
+    #[test]
+    fn resolve_falls_back_to_default_when_pinned_uid_is_unknown() {
+        let mut m = make_manager();
+        m.selected_uid = Some("definitely-not-a-real-device-uid-xyz123".to_string());
+        let _device = m.resolve_device().expect("fallback to default must succeed");
+        assert!(
+            m.selected_uid().is_none(),
+            "stale selection should be cleared after fallback"
+        );
+    }
+
+    #[test]
+    fn output_devices_returns_at_least_one_on_dev_machine() {
+        let m = make_manager();
+        let devices = m.output_devices().expect("enumeration must succeed");
+        assert!(!devices.is_empty(), "dev machine should expose at least one output device");
+        let default_count = devices.iter().filter(|d| d.is_default).count();
+        assert!(default_count <= 1, "at most one device should be marked default");
     }
 }

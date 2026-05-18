@@ -20,3 +20,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "audio_engine_test"
 path = "src/test/main.rs"
+
+[lints]
+workspace = true

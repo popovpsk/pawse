@@ -7,3 +7,5 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 thiserror = "1.0"
+[lints]
+workspace = true

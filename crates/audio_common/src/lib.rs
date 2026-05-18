@@ -153,6 +153,9 @@ pub enum AudioError {
 
     #[error("Invalid state: {0}")]
     InvalidState(String),
+
+    #[error("Device busy: {0}")]
+    DeviceBusy(String),
 }
 
 pub trait AudioSource: Send {
