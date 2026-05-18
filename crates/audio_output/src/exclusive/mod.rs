@@ -43,6 +43,7 @@ pub(crate) trait Backend: Send + Sync {
     fn resume(&self);
     fn is_playing(&self) -> bool;
     fn set_volume(&self, volume: f32);
+    fn set_hw_volume(&self, volume: f32);
     fn is_alive(&self) -> bool;
     fn take_event(&self) -> Option<ExclusiveEvent>;
     fn original_rate(&self) -> f64;
@@ -112,6 +113,12 @@ impl ExclusiveOutput {
     /// Reverts `suppress_cleanup` (used in error paths).
     pub fn allow_cleanup(&self) {
         self.backend.allow_cleanup();
+    }
+
+    /// Sets the hardware output volume scalar via CoreAudio property write.
+    /// Only has effect when the device exposes a volume control.
+    pub fn set_hw_volume(&self, volume: f32) {
+        self.backend.set_hw_volume(volume);
     }
 
     /// Snapshot of device + app state for bit-perfect computation. Lock-free.

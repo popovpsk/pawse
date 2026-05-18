@@ -81,6 +81,10 @@ impl Render for AudioSettings {
                 services.output.bit_perfect_status(),
             )
         };
+        let has_hw_volume_issue = bit_perfect
+            .issues
+            .iter()
+            .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }));
         for evt in events {
             match evt {
                 OutputEvent::Recovered { message } => {
@@ -126,6 +130,23 @@ impl Render for AudioSettings {
                         .compact()
                         .icon(Icon::new(icon_name).text_color(icon_color))
                         .tooltip(tooltip_text),
+                )
+            })
+            .when(self.is_exclusive && has_hw_volume_issue, |el| {
+                let view = cx.entity().clone();
+                el.child(
+                    Button::new("fix-hw-volume")
+                        .ghost()
+                        .compact()
+                        .label("Fix volume")
+                        .tooltip("Set device volume to 100% for bit-perfect playback")
+                        .on_click(move |_, _, app_cx| {
+                            view.update(app_cx, |_, cx| {
+                                let services = cx.global::<Services>();
+                                services.output.set_hw_volume(1.0);
+                                cx.notify();
+                            });
+                        }),
                 )
             })
             .child({
@@ -182,7 +203,8 @@ impl Render for AudioSettings {
                         let mut children: Vec<AnyElement> = Vec::new();
                         for (i, d) in devices.into_iter().enumerate() {
                             let view_row = view.clone();
-                            let is_selected = selected == Some(i);
+                            let is_selected =
+                                selected == Some(i) || (selected.is_none() && d.is_default);
                             let device_label = format!(
                                 "{}{}",
                                 d.name,

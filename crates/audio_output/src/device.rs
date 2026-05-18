@@ -141,6 +141,16 @@ impl DeviceManager {
         Ok(())
     }
 
+    /// Pins `uid` as the selected device without going through the index-based
+    /// UI path. Used when entering exclusive mode to ensure the shared-mode
+    /// fallback on exit lands on the same physical device.
+    pub fn set_selected_uid(&mut self, uid: String) {
+        if let Ok(Some(d)) = self.find_by_uid(&uid) {
+            self.cached_name = device_display_name(&d);
+        }
+        self.selected_uid = Some(uid);
+    }
+
     /// Clears the explicit selection so the manager follows the system default.
     pub fn select_default(&mut self) {
         self.selected_uid = None;

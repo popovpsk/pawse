@@ -10,6 +10,7 @@ impl Backend for UnsupportedBackend {
     fn resume(&self) {}
     fn is_playing(&self) -> bool { false }
     fn set_volume(&self, _: f32) {}
+    fn set_hw_volume(&self, _: f32) {}
     fn is_alive(&self) -> bool { false }
     fn take_event(&self) -> Option<ExclusiveEvent> { None }
     fn original_rate(&self) -> f64 { 0.0 }

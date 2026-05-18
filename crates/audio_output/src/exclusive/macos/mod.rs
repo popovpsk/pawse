@@ -19,7 +19,7 @@ use crate::ring_buffer::AudioRingBuffer;
 
 use super::{Backend, DeviceSnapshot, ExclusiveEvent};
 use format::{apply_format, read_device_format, set_and_wait_sample_rate};
-use hog::{acquire_hog_mode, get_device_id_by_uid, release_hog_mode};
+use hog::{acquire_hog_mode, get_device_id_by_uid, get_hogging_pid, release_hog_mode};
 use ioproc::{
     create_ioproc, destroy_ioproc, start_ioproc, stop_ioproc, IoprocCtx, STATE_IDLE,
     STATE_PLAYING,
@@ -73,6 +73,8 @@ pub(super) struct MacosShared {
     pub(super) hw_muted: AtomicBool,
     /// Device sample rate as integer Hz. Updated by the format-change listener.
     pub(super) device_sample_rate: AtomicU32,
+    /// Channel count from the output config; used for per-channel volume writes.
+    pub(super) channels: u8,
     inner: Mutex<MacosInner>,
     iopc_ctx: Arc<IoprocCtx>,
 }
@@ -125,10 +127,16 @@ fn tear_down_inner(inner: &mut MacosInner, shared: &MacosShared) {
             && (asbd.mSampleRate - inner.original_rate).abs() > 0.5 {
                 let _ = set_and_wait_sample_rate(inner.device_id, inner.original_rate);
             }
-        if inner.hog_acquired {
+        // Check the actual hogging PID rather than relying on hog_acquired.
+        // After recreate_exclusive the new instance has hog_acquired=false because
+        // acquire_hog_mode saw our PID already held hog (the old instance skipped
+        // release via suppress_cleanup). The flag is wrong in that path, so we
+        // verify ownership directly.
+        let self_pid = std::process::id() as i32;
+        if get_hogging_pid(inner.device_id).ok() == Some(self_pid) {
             release_hog_mode(inner.device_id);
-            inner.hog_acquired = false;
         }
+        inner.hog_acquired = false;
     }
 
     inner.device_id = 0;
@@ -225,6 +233,7 @@ impl MacosBackend {
             hw_volume: AtomicF32::new(1.0),
             hw_muted: AtomicBool::new(false),
             device_sample_rate: AtomicU32::new(init_device_rate),
+            channels: config.channels,
             inner: Mutex::new(inner),
             iopc_ctx,
         });
@@ -317,6 +326,14 @@ impl Backend for MacosBackend {
 
     fn set_volume(&self, volume: f32) {
         self.shared.iopc_ctx.volume.store(volume, Ordering::Relaxed);
+    }
+
+    fn set_hw_volume(&self, volume: f32) {
+        let device_id = match self.shared.inner.lock() {
+            Ok(g) => g.device_id,
+            Err(_) => return,
+        };
+        listeners::set_hw_volume(device_id, self.shared.channels, volume);
     }
 
     fn is_alive(&self) -> bool {

@@ -277,7 +277,16 @@ impl Output {
         let config = self.current_config();
 
         if exclusive {
-            let device_uid = self.device_manager.write().resolve_uid()?;
+            let device_uid = {
+                let mut dm = self.device_manager.write();
+                let uid = dm.resolve_uid()?;
+                // Pin the UID so leave_exclusive restores the shared stream on
+                // this exact device. Without pinning, macOS may have changed
+                // the system default while hog mode was active, so
+                // install_shared_fallback would open on the wrong device.
+                dm.set_selected_uid(uid.clone());
+                uid
+            };
             let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
 
             // Drop the existing shared stream BEFORE acquiring hog mode on
@@ -343,6 +352,14 @@ impl Output {
             self.push_event(OutputEvent::Failure {
                 message: "No working audio device available.".to_string(),
             });
+        }
+    }
+
+    /// Sets the hardware output volume to `volume` (0.0–1.0) via a CoreAudio
+    /// property write. Only valid in exclusive mode; silently ignored otherwise.
+    pub fn set_hw_volume(&self, volume: f32) {
+        if let Some(OutputMode::Exclusive(e)) = self.current.read().as_ref() {
+            e.set_hw_volume(volume);
         }
     }
 
