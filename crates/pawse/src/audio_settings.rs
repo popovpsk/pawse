@@ -110,7 +110,6 @@ impl Render for AudioSettings {
         self.is_exclusive = is_exclusive;
 
         h_flex()
-            .gap_2()
             .items_center()
             .when(self.is_exclusive, |el| {
                 let is_perfect = bit_perfect.is_bit_perfect();
@@ -165,6 +164,9 @@ impl Render for AudioSettings {
                 Button::new("exclusive-toggle")
                     .ghost()
                     .compact()
+                    .rounded_full()
+                    .w(px(36.))
+                    .h(px(36.))
                     .icon(Icon::default().path(icon_path))
                     .tooltip(tooltip)
                     .on_click(move |_, window: &mut Window, app_cx: &mut App| {
@@ -203,7 +205,11 @@ impl Render for AudioSettings {
                         Button::new("audio-device-trigger")
                             .ghost()
                             .compact()
-                            .icon(Icon::default().path("icons/devices.svg").text_color(cx.theme().foreground)),
+                            .rounded_full()
+                            .w(px(36.))
+                            .h(px(36.))
+                            .icon(Icon::default().path("icons/devices.svg").text_color(cx.theme().foreground))
+                            .tooltip("Select audio device"),
                     )
                     .content(move |_state, _window, pop_cx| {
                         let services = pop_cx.global::<Services>();

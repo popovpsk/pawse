@@ -1,12 +1,15 @@
 use audio_engine::EngineEvent;
-use gpui::{AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window, div, px};
+use gpui::{
+    AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
+    div, px,
+};
 use gpui_component::{h_flex, v_flex};
 
+use crate::services::Services;
 use crate::{
     next_button::NextButton, now_playing::NowPlaying, play_button::PlayButton,
     prev_button::PrevButton, track_progress_slider::TrackProgressSlider, volume::Volume,
 };
-use crate::services::Services;
 
 pub struct Footer {
     play_button: Entity<PlayButton>,
@@ -22,22 +25,19 @@ impl Footer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
-        let subscription = cx.subscribe(
-            &engine_event_bus,
-            |_this, _, event: &EngineEvent, cx| {
-                if let EngineEvent::TrackEnded = event {
-                    let services = cx.global::<Services>();
-                    let mut queue = services.playback_queue.borrow_mut();
-                    if let Some(track) = queue.next_track().cloned() {
-                        drop(queue);
-                        services.play_track(&track);
-                    } else {
-                        drop(queue);
-                        cx.notify();
-                    }
+        let subscription = cx.subscribe(&engine_event_bus, |_this, _, event: &EngineEvent, cx| {
+            if let EngineEvent::TrackEnded = event {
+                let services = cx.global::<Services>();
+                let mut queue = services.playback_queue.borrow_mut();
+                if let Some(track) = queue.next_track().cloned() {
+                    drop(queue);
+                    services.play_track(&track);
+                } else {
+                    drop(queue);
+                    cx.notify();
                 }
-            },
-        );
+            }
+        });
 
         Self {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
@@ -76,10 +76,16 @@ impl Render for Footer {
                     .child(
                         h_flex()
                             .w_full()
-                            .px_8()
+                            .px_4()
                             .child(self.track_progress_slider.clone()),
                     ),
             )
-            .child(div().w(px(200.)).flex().justify_end().child(self.volume_slider.clone()))
+            .child(
+                div()
+                    .w(px(200.))
+                    .flex()
+                    .justify_end()
+                    .child(self.volume_slider.clone()),
+            )
     }
 }

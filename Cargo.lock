@@ -4562,6 +4562,7 @@ dependencies = [
  "anyhow",
  "audio_engine",
  "audio_output",
+ "dirs 5.0.1",
  "flume 0.12.0",
  "gpui",
  "gpui-component",
@@ -4571,6 +4572,8 @@ dependencies = [
  "music_library",
  "rfd",
  "rust-embed",
+ "serde",
+ "serde_json",
  "ui_components",
 ]
 

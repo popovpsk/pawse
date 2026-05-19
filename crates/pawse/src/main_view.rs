@@ -1,9 +1,14 @@
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
 };
-use gpui::prelude::FluentBuilder;
-use gpui_component::{ActiveTheme, Root, StyledExt};
+use gpui_component::{
+    ActiveTheme, Icon, Root, StyledExt,
+    button::{Button, ButtonVariants},
+    scroll::ScrollableElement,
+    setting::SettingPage,
+};
 
 use crate::audio_settings::AudioSettings;
 use crate::footer::Footer;
@@ -15,6 +20,8 @@ pub struct MainView {
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
     is_tracks_view: bool,
+    show_settings: bool,
+    settings_pages: Vec<SettingPage>,
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
 }
@@ -35,6 +42,8 @@ impl MainView {
             library_view,
             footer: cx.new(|cx| Footer::new(window, cx)),
             is_tracks_view: false,
+            show_settings: false,
+            settings_pages: crate::settings_view::build_settings_pages(),
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
         }
@@ -48,6 +57,9 @@ impl Render for MainView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let library_view = self.library_view.clone();
+        let show_settings = self.show_settings;
+        let has_back = show_settings || self.is_tracks_view;
+
         let back_button = div()
             .id("back_button")
             .cursor_pointer()
@@ -57,8 +69,13 @@ impl Render for MainView {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(cx.theme().muted))
-            .on_click(cx.listener(move |_this, _, _, cx| {
-                library_view.update(cx, |view, cx| view.go_back(cx));
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this.show_settings {
+                    this.show_settings = false;
+                    cx.notify();
+                } else {
+                    library_view.update(cx, |view, cx| view.go_back(cx));
+                }
             }))
             .child(
                 svg()
@@ -80,8 +97,9 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .when(self.is_tracks_view, |d| d.child(back_button))
+                    .when(has_back, |d| d.child(back_button))
                     .child(div().flex_1())
+                    .when(!show_settings, |d| d.child(settings_gear_button(cx)))
                     .child(self.audio_settings.clone()),
             )
             .child(
@@ -90,7 +108,24 @@ impl Render for MainView {
                     .overflow_hidden()
                     .ml_4()
                     .mr_4()
-                    .child(self.library_view.clone()),
+                    .child(if show_settings {
+                        // Match gpui-component's StoryContainer wrap chain
+                        // exactly: outer `size_full` + Scrollable, then inner
+                        // `size_full`, then Settings. The Scrollable wrap is
+                        // what gives `h_resizable` panels a definite-width
+                        // parent so flex_basis on the sidebar panel resolves.
+                        div()
+                            .size_full()
+                            .overflow_y_scrollbar()
+                            .child(
+                                div().size_full().child(crate::settings_view::settings_widget(
+                                    self.settings_pages.clone(),
+                                )),
+                            )
+                            .into_any_element()
+                    } else {
+                        self.library_view.clone().into_any_element()
+                    }),
             )
             .child(
                 div()
@@ -100,5 +135,21 @@ impl Render for MainView {
                     .child(self.footer.clone()),
             )
             .children(Root::render_notification_layer(window, cx))
+            .children(Root::render_dialog_layer(window, cx))
     }
+}
+
+fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
+    Button::new("settings_button")
+        .ghost()
+        .compact()
+        .rounded_full()
+        .w(px(36.))
+        .h(px(36.))
+        .icon(Icon::default().path("icons/settings.svg"))
+        .tooltip("Settings")
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.show_settings = true;
+            cx.notify();
+        }))
 }

@@ -21,6 +21,8 @@ pub mod play_button;
 pub mod playback_queue;
 pub mod prev_button;
 pub mod services;
+pub mod settings_store;
+pub mod settings_view;
 pub mod track_progress_slider;
 pub mod volume;
 
@@ -32,6 +34,10 @@ fn main() {
         macos_integration::app_icon::set_application_icon();
 
         gpui_component::init(cx);
+
+        let settings_store = crate::settings_store::SettingsStore::load();
+        crate::settings_store::apply_startup_theme(&settings_store, cx);
+        cx.set_global(settings_store);
 
         let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
 
@@ -45,6 +51,16 @@ fn main() {
         let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
         cx.set_global(services);
+
+        {
+            let store = cx.global::<crate::settings_store::SettingsStore>();
+            if let Some(folder) = store.music_folder().cloned() {
+                let library = cx.global::<Services>().library.clone();
+                if !library.has_tracks() {
+                    library.clear_and_rescan(folder);
+                }
+            }
+        }
 
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
@@ -60,12 +76,7 @@ fn main() {
         .detach();
 
         cx.on_action(|_: &crate::app_menu::Rescan, cx| {
-            let library = cx.global::<Services>().library.clone();
-            std::thread::spawn(move || {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    library.clear_and_rescan(path);
-                }
-            });
+            crate::settings_view::pick_folder_and_rescan(cx);
         });
 
         cx.on_action(|_: &crate::app_menu::Quit, cx| {

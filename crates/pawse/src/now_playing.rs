@@ -1,10 +1,10 @@
 use audio_engine::EngineEvent;
+use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, IntoElement, ParentElement, Render, Styled, StyledImage, Subscription, Window, div,
     img, px,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
-use gpui::prelude::FluentBuilder;
 
 use crate::services::Services;
 
@@ -32,42 +32,43 @@ impl NowPlaying {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
-        let subscription = cx.subscribe(
-            &engine_event_bus,
-            |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { params, .. } => {
-                    let services = cx.global::<Services>();
-                    let queue = services.playback_queue.borrow();
-                    if let Some(track) = queue.current_track() {
-                        let track_id = track.id;
-                        let title = track.title.clone();
-                        let cover = track.cover_art_id;
-                        drop(queue);
-                        this.track_title = title;
-                        this.cover_art_id = cover;
-                        this.artist_names = services.library.track_artists(track_id).join(", ");
-                        this.sample_rate = Some(params.sample_rate);
-                        this.bit_depth = Some(params.bit_depth);
-                    } else {
-                        drop(queue);
-                        this.clear();
-                    }
-                    cx.notify();
-                }
-                EngineEvent::TrackEnded => {
-                    let services = cx.global::<Services>();
-                    let queue = services.playback_queue.borrow();
-                    if queue.current_track().is_none() {
-                        drop(queue);
-                        this.clear();
+        let subscription =
+            cx.subscribe(
+                &engine_event_bus,
+                |this, _, event: &EngineEvent, cx| match event {
+                    EngineEvent::Loaded { params, .. } => {
+                        let services = cx.global::<Services>();
+                        let queue = services.playback_queue.borrow();
+                        if let Some(track) = queue.current_track() {
+                            let track_id = track.id;
+                            let title = track.title.clone();
+                            let cover = track.cover_art_id;
+                            drop(queue);
+                            this.track_title = title;
+                            this.cover_art_id = cover;
+                            this.artist_names = services.library.track_artists(track_id).join(", ");
+                            this.sample_rate = Some(params.sample_rate);
+                            this.bit_depth = Some(params.bit_depth);
+                        } else {
+                            drop(queue);
+                            this.clear();
+                        }
                         cx.notify();
-                    } else {
-                        drop(queue);
                     }
-                }
-                _ => {}
-            },
-        );
+                    EngineEvent::TrackEnded => {
+                        let services = cx.global::<Services>();
+                        let queue = services.playback_queue.borrow();
+                        if queue.current_track().is_none() {
+                            drop(queue);
+                            this.clear();
+                            cx.notify();
+                        } else {
+                            drop(queue);
+                        }
+                    }
+                    _ => {}
+                },
+            );
 
         Self {
             track_title: String::new(),
@@ -99,7 +100,10 @@ impl Render for NowPlaying {
             .child({
                 let cover_img = {
                     let services = cx.global::<Services>();
-                    services.cover_art_cache.borrow_mut().get_small(self.cover_art_id, &services.library)
+                    services
+                        .cover_art_cache
+                        .borrow_mut()
+                        .get_small(self.cover_art_id, &services.library)
                 };
                 if let Some(cover_img) = cover_img {
                     img(cover_img)
@@ -134,7 +138,7 @@ impl Render for NowPlaying {
                     .items_start()
                     .child(
                         div()
-                            .max_w(px(360.))
+                            .max_w(px(280.))
                             .truncate()
                             .text_sm()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
