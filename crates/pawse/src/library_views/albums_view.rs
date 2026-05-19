@@ -5,7 +5,7 @@ use gpui::{
     Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
     px, size,
 };
-use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{ActiveTheme, VirtualListScrollHandle, v_flex, v_virtual_list};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -135,12 +135,9 @@ impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = h_flex().gap_2().px_4().py_2();
-
         if self.is_scanning && self.albums_all.is_empty() {
             return v_flex()
                 .size_full()
-                .child(header)
                 .child(div().px_4().child("Scanning..."));
         }
 
@@ -150,14 +147,11 @@ impl Render for AlbumsView {
             } else {
                 "No albums match your search."
             };
-            return v_flex()
-                .size_full()
-                .child(header)
-                .child(div().px_4().child(message));
+            return v_flex().size_full().child(div().px_4().child(message));
         }
 
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(header).child(
+        v_flex().size_full().child(
             v_virtual_list(
                 cx.entity().clone(),
                 "albums_list",

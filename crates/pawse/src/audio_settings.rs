@@ -110,6 +110,7 @@ impl Render for AudioSettings {
         self.is_exclusive = is_exclusive;
 
         h_flex()
+            .gap_2()
             .items_center()
             .when(self.is_exclusive, |el| {
                 let is_perfect = bit_perfect.is_bit_perfect();
@@ -211,12 +212,7 @@ impl Render for AudioSettings {
                             .rounded_full()
                             .w(px(40.))
                             .h(px(40.))
-                            .icon(
-                                Icon::default()
-                                    .path("icons/devices.svg")
-                                    .text_color(cx.theme().foreground)
-                                    .size(px(20.)),
-                            )
+                            .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
                             .tooltip("Select audio device"),
                     )
                     .content(move |_state, _window, pop_cx| {

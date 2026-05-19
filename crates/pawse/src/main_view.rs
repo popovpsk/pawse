@@ -142,7 +142,7 @@ impl Render for MainView {
                 div()
                     .w_full()
                     .flex_shrink_0()
-                    .h(px(48.))
+                    .h(px(44.))
                     .flex()
                     .items_center()
                     .pl_2()
