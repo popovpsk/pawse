@@ -224,6 +224,8 @@ impl Render for AlbumsView {
                                     .child(
                                         div()
                                             .flex_1()
+                                            .overflow_hidden()
+                                            .truncate()
                                             .child(format!(
                                                 "{}{} - {}",
                                                 album.artist_name, year_str, album.title

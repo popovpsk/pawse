@@ -285,6 +285,8 @@ impl Render for TracksView {
                                     .child(
                                         div()
                                             .flex_1()
+                                            .overflow_hidden()
+                                            .truncate()
                                             .when(is_current, |d| {
                                                 d.font_weight(FontWeight::SEMIBOLD)
                                             })
