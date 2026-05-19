@@ -128,7 +128,14 @@ impl Render for AudioSettings {
                     Button::new("bit-perfect-indicator")
                         .ghost()
                         .compact()
-                        .icon(Icon::new(icon_name).text_color(icon_color))
+                        .rounded_full()
+                        .w(px(40.))
+                        .h(px(40.))
+                        .icon(
+                            Icon::new(icon_name)
+                                .text_color(icon_color)
+                                .size(px(20.)),
+                        )
                         .tooltip(tooltip_text),
                 )
             })
@@ -165,9 +172,9 @@ impl Render for AudioSettings {
                     .ghost()
                     .compact()
                     .rounded_full()
-                    .w(px(36.))
-                    .h(px(36.))
-                    .icon(Icon::default().path(icon_path))
+                    .w(px(40.))
+                    .h(px(40.))
+                    .icon(Icon::default().path(icon_path).size(px(20.)))
                     .tooltip(tooltip)
                     .on_click(move |_, window: &mut Window, app_cx: &mut App| {
                         view.update(app_cx, |this, cx| {
@@ -206,9 +213,14 @@ impl Render for AudioSettings {
                             .ghost()
                             .compact()
                             .rounded_full()
-                            .w(px(36.))
-                            .h(px(36.))
-                            .icon(Icon::default().path("icons/devices.svg").text_color(cx.theme().foreground))
+                            .w(px(40.))
+                            .h(px(40.))
+                            .icon(
+                                Icon::default()
+                                    .path("icons/devices.svg")
+                                    .text_color(cx.theme().foreground)
+                                    .size(px(20.)),
+                            )
                             .tooltip("Select audio device"),
                     )
                     .content(move |_state, _window, pop_cx| {

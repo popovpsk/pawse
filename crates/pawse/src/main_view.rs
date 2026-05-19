@@ -142,7 +142,7 @@ impl Render for MainView {
                 div()
                     .w_full()
                     .flex_shrink_0()
-                    .h(px(40.))
+                    .h(px(48.))
                     .flex()
                     .items_center()
                     .pl_2()
@@ -150,9 +150,11 @@ impl Render for MainView {
                     .child(left_group)
                     .when(!show_settings, |d| {
                         d.child(
-                            div().w(px(280.)).child(
+                            div().w(px(260.)).child(
                                 Input::new(&self.search_input)
-                                    .with_size(Size::Small)
+                                    .with_size(Size::Medium)
+                                    .focus_bordered(false)
+                                    .rounded_full()
                                     .cleanable(true),
                             ),
                         )
@@ -201,9 +203,9 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         .ghost()
         .compact()
         .rounded_full()
-        .w(px(36.))
-        .h(px(36.))
-        .icon(Icon::default().path("icons/settings.svg"))
+        .w(px(40.))
+        .h(px(40.))
+        .icon(Icon::default().path("icons/settings.svg").size(px(20.)))
         .tooltip("Settings")
         .on_click(cx.listener(|this, _, window, cx| {
             this.clear_search(window, cx);
