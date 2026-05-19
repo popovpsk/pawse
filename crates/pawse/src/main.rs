@@ -62,10 +62,11 @@ fn main() {
 
         {
             let store = cx.global::<crate::settings_store::SettingsStore>();
-            if let Some(folder) = store.music_folder().cloned() {
+            let folders = store.music_folders().to_vec();
+            if !folders.is_empty() {
                 let library = cx.global::<Services>().library.clone();
                 if !library.has_tracks() {
-                    library.clear_and_rescan(folder);
+                    library.clear_and_rescan(folders);
                 }
             }
         }
@@ -84,7 +85,7 @@ fn main() {
         .detach();
 
         cx.on_action(|_: &crate::app_menu::Rescan, cx| {
-            crate::settings_view::pick_folder_and_rescan(cx);
+            crate::settings_view::pick_and_add_folder(cx);
         });
 
         cx.on_action(|_: &crate::app_menu::Quit, cx| {

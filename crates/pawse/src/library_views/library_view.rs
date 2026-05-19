@@ -4,12 +4,13 @@ use gpui::{
 };
 use gpui_component::v_flex;
 
-use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView};
+use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, OpenSettingsRequested};
 use crate::library_views::tracks_view::TracksView;
 
 #[derive(Clone, Debug)]
 pub enum LibraryViewEvent {
     StateChanged,
+    OpenSettingsRequested,
 }
 
 enum LibraryViewState {
@@ -22,6 +23,7 @@ pub struct LibraryView {
     albums_view: Entity<AlbumsView>,
     tracks_view: Option<Entity<TracksView>>,
     _album_subscription: Subscription,
+    _settings_subscription: Subscription,
 }
 
 impl LibraryView {
@@ -33,11 +35,17 @@ impl LibraryView {
                 this.show_tracks(event.album.clone(), cx);
             });
 
+        let settings_subscription =
+            cx.subscribe(&albums_view, |_, _, _: &OpenSettingsRequested, cx| {
+                cx.emit(LibraryViewEvent::OpenSettingsRequested);
+            });
+
         Self {
             state: LibraryViewState::Albums,
             albums_view,
             tracks_view: None,
             _album_subscription: album_subscription,
+            _settings_subscription: settings_subscription,
         }
     }
 

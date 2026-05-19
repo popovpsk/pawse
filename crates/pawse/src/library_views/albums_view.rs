@@ -5,7 +5,9 @@ use gpui::{
     Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
     px, size,
 };
-use gpui_component::{ActiveTheme, VirtualListScrollHandle, v_flex, v_virtual_list};
+use gpui_component::{
+    ActiveTheme, VirtualListScrollHandle, button::Button, v_flex, v_virtual_list,
+};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -13,11 +15,15 @@ use nucleo_matcher::{
 
 use crate::library_service::LibraryEvent;
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 
 #[derive(Clone, Debug)]
 pub struct AlbumSelectedEvent {
     pub album: music_library::AlbumSummary,
 }
+
+#[derive(Clone, Debug)]
+pub struct OpenSettingsRequested;
 
 const ALBUM_ROW_HEIGHT: f32 = 48.;
 
@@ -31,6 +37,7 @@ pub struct AlbumsView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl AlbumsView {
@@ -72,6 +79,13 @@ impl AlbumsView {
                 },
             );
 
+        let settings_observer = cx.observe_global::<SettingsStore>(|_, cx| {
+            // Re-render when the music-folder list changes so the empty-state
+            // UI flips between "no folders configured" and the regular albums
+            // list as the user adds/removes folders in Settings.
+            cx.notify();
+        });
+
         Self {
             albums_all,
             search_entries,
@@ -82,6 +96,7 @@ impl AlbumsView {
             item_sizes,
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
+            _settings_observer: settings_observer,
         }
     }
 
@@ -132,6 +147,7 @@ impl AlbumsView {
 }
 
 impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
+impl EventEmitter<OpenSettingsRequested> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -142,12 +158,37 @@ impl Render for AlbumsView {
         }
 
         if self.albums.is_empty() {
+            let no_folders = cx.global::<SettingsStore>().music_folders().is_empty();
+            if self.albums_all.is_empty() && no_folders {
+                return v_flex()
+                    .size_full()
+                    .gap_3()
+                    .px_4()
+                    .pt_4()
+                    .child(
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("No music folders configured."),
+                    )
+                    .child(
+                        div().child(
+                            Button::new("open-settings")
+                                .label("Open Settings")
+                                .on_click(cx.listener(|_, _, _, cx| {
+                                    cx.emit(OpenSettingsRequested);
+                                })),
+                        ),
+                    );
+            }
             let message = if self.albums_all.is_empty() {
-                "No albums found. Add a music folder to get started."
+                "No albums found."
             } else {
                 "No albums match your search."
             };
-            return v_flex().size_full().child(div().px_4().child(message));
+            return v_flex()
+                .size_full()
+                .gap_3()
+                .child(div().px_4().child(message));
         }
 
         let item_sizes = self.item_sizes.clone();

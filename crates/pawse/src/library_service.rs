@@ -71,7 +71,7 @@ impl LibraryService {
         Some(path)
     }
 
-    pub fn clear_and_rescan(&self, path: PathBuf) {
+    pub fn clear_and_rescan(&self, paths: Vec<PathBuf>) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
 
@@ -81,28 +81,45 @@ impl LibraryService {
                 eprintln!("Failed to clear library: {}", e);
             }
 
+            if paths.is_empty() {
+                let _ = event_tx.send(LibraryEvent::ScanComplete);
+                return;
+            }
+
             let (scan_tx, scan_rx) = flume::unbounded();
-            let scan_path = path.clone();
+            let scan_paths = paths.clone();
             std::thread::spawn(move || {
-                DirectoryScanner::scan(scan_path, scan_tx);
+                for path in scan_paths {
+                    DirectoryScanner::scan(path, scan_tx.clone());
+                }
+                // Dropping `scan_tx` closes the channel; main thread loop exits.
+                drop(scan_tx);
             });
 
-            while let Ok(event) = scan_rx.recv() {
-                match event {
-                    ScanEvent::Track(track) => {
+            let mut total_scanned: usize = 0;
+            loop {
+                match scan_rx.recv() {
+                    Ok(ScanEvent::Track(track)) => {
                         if let Err(e) = insert_scanned_track(&*repo, &track) {
                             eprintln!("Failed to insert track: {}", e);
                         }
                     }
-                    ScanEvent::Progress { scanned } => {
-                        let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
+                    Ok(ScanEvent::Progress { scanned }) => {
+                        total_scanned = total_scanned.saturating_add(scanned);
+                        let _ = event_tx.send(LibraryEvent::ScanProgress {
+                            scanned: total_scanned,
+                        });
                     }
-                    ScanEvent::Complete => {
+                    Ok(ScanEvent::Complete) => {
+                        // Per-folder Complete is collapsed into a single
+                        // ScanComplete emitted after the last folder finishes.
+                    }
+                    Ok(ScanEvent::Error { path, error }) => {
+                        eprintln!("Scan error for {}: {}", path.display(), error);
+                    }
+                    Err(_) => {
                         let _ = event_tx.send(LibraryEvent::ScanComplete);
                         break;
-                    }
-                    ScanEvent::Error { path, error } => {
-                        eprintln!("Scan error for {}: {}", path.display(), error);
                     }
                 }
             }

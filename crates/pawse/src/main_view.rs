@@ -37,11 +37,17 @@ impl MainView {
 
         let library_subscription = cx.subscribe(&library_view, {
             let library_view = library_view.clone();
-            move |this: &mut MainView, _, _: &LibraryViewEvent, cx| {
-                this.is_tracks_view = library_view.read(cx).is_tracks_view();
-                let query = this.search_input.read(cx).value().to_string();
-                library_view.update(cx, |v, cx| v.apply_search(&query, cx));
-                cx.notify();
+            move |this: &mut MainView, _, event: &LibraryViewEvent, cx| match event {
+                LibraryViewEvent::StateChanged => {
+                    this.is_tracks_view = library_view.read(cx).is_tracks_view();
+                    let query = this.search_input.read(cx).value().to_string();
+                    library_view.update(cx, |v, cx| v.apply_search(&query, cx));
+                    cx.notify();
+                }
+                LibraryViewEvent::OpenSettingsRequested => {
+                    this.show_settings = true;
+                    cx.notify();
+                }
             }
         });
 

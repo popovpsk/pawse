@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui::{App, Global};
 use gpui_component::{
@@ -62,7 +62,7 @@ pub struct UserSettings {
     #[serde(default)]
     pub theme: ThemeChoice,
     #[serde(default)]
-    pub music_folder: Option<PathBuf>,
+    pub music_folders: Vec<PathBuf>,
 }
 
 pub struct SettingsStore {
@@ -115,12 +115,24 @@ impl SettingsStore {
         self.save()
     }
 
-    pub fn music_folder(&self) -> Option<&PathBuf> {
-        self.settings.music_folder.as_ref()
+    pub fn music_folders(&self) -> &[PathBuf] {
+        &self.settings.music_folders
     }
 
-    pub fn set_music_folder(&mut self, path: PathBuf) -> anyhow::Result<()> {
-        self.settings.music_folder = Some(path);
+    pub fn add_music_folder(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        if self.settings.music_folders.iter().any(|p| p == &path) {
+            return Ok(());
+        }
+        self.settings.music_folders.push(path);
+        self.save()
+    }
+
+    pub fn remove_music_folder(&mut self, path: &Path) -> anyhow::Result<()> {
+        let before = self.settings.music_folders.len();
+        self.settings.music_folders.retain(|p| p.as_path() != path);
+        if self.settings.music_folders.len() == before {
+            return Ok(());
+        }
         self.save()
     }
 }
@@ -197,7 +209,7 @@ mod tests {
 
         let store = SettingsStore::load_from(path.clone());
         assert_eq!(store.theme(), ThemeChoice::System);
-        assert!(store.music_folder().is_none());
+        assert!(store.music_folders().is_empty());
 
         cleanup(&path);
     }
@@ -209,7 +221,7 @@ mod tests {
 
         let store = SettingsStore::load_from(path.clone());
         assert_eq!(store.theme(), ThemeChoice::System);
-        assert!(store.music_folder().is_none());
+        assert!(store.music_folders().is_empty());
 
         cleanup(&path);
     }
@@ -217,18 +229,55 @@ mod tests {
     #[test]
     fn save_then_load_roundtrip() {
         let path = tmp_settings_path();
-        let folder = PathBuf::from("/Users/test/Music");
+        let folder_a = PathBuf::from("/Users/test/Music");
+        let folder_b = PathBuf::from("/Users/test/More Music");
         let dark = ThemeChoice::Named("Default Dark".into());
 
         {
             let mut store = SettingsStore::load_from(path.clone());
             store.set_theme(dark.clone()).unwrap();
-            store.set_music_folder(folder.clone()).unwrap();
+            store.add_music_folder(folder_a.clone()).unwrap();
+            store.add_music_folder(folder_b.clone()).unwrap();
         }
 
         let reloaded = SettingsStore::load_from(path.clone());
         assert_eq!(reloaded.theme(), dark);
-        assert_eq!(reloaded.music_folder(), Some(&folder));
+        assert_eq!(reloaded.music_folders(), &[folder_a, folder_b]);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn add_music_folder_is_idempotent() {
+        let path = tmp_settings_path();
+        let folder = PathBuf::from("/Users/test/Music");
+
+        let mut store = SettingsStore::load_from(path.clone());
+        store.add_music_folder(folder.clone()).unwrap();
+        store.add_music_folder(folder.clone()).unwrap();
+
+        assert_eq!(store.music_folders(), &[folder]);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn remove_music_folder_removes_matching_path() {
+        let path = tmp_settings_path();
+        let a = PathBuf::from("/a");
+        let b = PathBuf::from("/b");
+        let c = PathBuf::from("/c");
+
+        let mut store = SettingsStore::load_from(path.clone());
+        store.add_music_folder(a.clone()).unwrap();
+        store.add_music_folder(b.clone()).unwrap();
+        store.add_music_folder(c.clone()).unwrap();
+
+        store.remove_music_folder(&b).unwrap();
+        assert_eq!(store.music_folders(), &[a, c]);
+
+        // Removing a non-existent path is a no-op.
+        store.remove_music_folder(Path::new("/missing")).unwrap();
 
         cleanup(&path);
     }
