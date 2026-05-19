@@ -7,7 +7,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
-    theme::{Theme, ThemeMode},
+    theme::ThemeRegistry,
     v_flex,
 };
 
@@ -20,9 +20,11 @@ use crate::settings_store::{SettingsStore, ThemeChoice, notify_save_error};
 /// these closures each frame is wasted work). `SettingPage` is `Clone`, so the
 /// cache is cloned cheaply into a fresh `Settings::new(...).pages(...)` shell
 /// on each render.
-pub fn build_settings_pages() -> Vec<SettingPage> {
+///
+/// Pass `cx` so the theme dropdown can enumerate all registered themes at build time.
+pub fn build_settings_pages(cx: &App) -> Vec<SettingPage> {
     vec![
-        SettingPage::new("Appearance").group(appearance_group()),
+        SettingPage::new("Appearance").group(appearance_group(cx)),
         SettingPage::new("Library").group(library_group()),
     ]
 }
@@ -59,12 +61,13 @@ pub fn pick_folder_and_rescan(cx: &mut App) {
     .detach();
 }
 
-fn appearance_group() -> SettingGroup {
-    let theme_options: Vec<(SharedString, SharedString)> = vec![
-        ("system".into(), "System".into()),
-        ("light".into(), "Light".into()),
-        ("dark".into(), "Dark".into()),
-    ];
+fn appearance_group(cx: &App) -> SettingGroup {
+    let mut theme_options: Vec<(SharedString, SharedString)> =
+        vec![("system".into(), "System".into())];
+    for cfg in ThemeRegistry::global(cx).sorted_themes() {
+        let name: SharedString = cfg.name.clone();
+        theme_options.push((name.clone(), name));
+    }
 
     SettingGroup::new().item(
         SettingItem::new(
@@ -74,14 +77,17 @@ fn appearance_group() -> SettingGroup {
                 |cx: &App| cx.global::<SettingsStore>().theme().as_key().into(),
                 |val: SharedString, cx: &mut App| {
                     let choice = ThemeChoice::from_key(val.as_ref());
-                    let save_result = cx.global_mut::<SettingsStore>().set_theme(choice);
+                    let save_result = cx.global_mut::<SettingsStore>().set_theme(choice.clone());
                     if let Err(e) = save_result {
                         notify_save_error(cx, e);
                     }
                     match choice {
-                        ThemeChoice::System => Theme::sync_system_appearance(None, cx),
-                        ThemeChoice::Light => Theme::change(ThemeMode::Light, None, cx),
-                        ThemeChoice::Dark => Theme::change(ThemeMode::Dark, None, cx),
+                        ThemeChoice::System => {
+                            gpui_component::theme::Theme::sync_system_appearance(None, cx)
+                        }
+                        ThemeChoice::Named(ref name) => {
+                            crate::settings_store::apply_named_theme(name, cx)
+                        }
                     }
                 },
             ),

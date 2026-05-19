@@ -4,34 +4,56 @@ use gpui::{App, Global};
 use gpui_component::{
     WindowExt,
     notification::Notification,
-    theme::{Theme, ThemeMode},
+    theme::{Theme, ThemeRegistry},
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum ThemeChoice {
     #[default]
     System,
-    Light,
-    Dark,
+    Named(String),
 }
 
 impl ThemeChoice {
-    pub fn as_key(self) -> &'static str {
+    pub fn as_key(&self) -> String {
         match self {
-            ThemeChoice::System => "system",
-            ThemeChoice::Light => "light",
-            ThemeChoice::Dark => "dark",
+            ThemeChoice::System => "system".to_string(),
+            ThemeChoice::Named(name) => name.clone(),
         }
     }
 
     pub fn from_key(s: &str) -> Self {
-        match s {
-            "light" => ThemeChoice::Light,
-            "dark" => ThemeChoice::Dark,
-            _ => ThemeChoice::System,
+        if s == "system" {
+            Self::System
+        } else {
+            Self::Named(s.to_string())
         }
+    }
+}
+
+impl From<ThemeChoice> for String {
+    fn from(c: ThemeChoice) -> Self {
+        c.as_key()
+    }
+}
+
+impl From<String> for ThemeChoice {
+    fn from(s: String) -> Self {
+        ThemeChoice::from_key(&s)
+    }
+}
+
+impl Serialize for ThemeChoice {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.as_key())
+    }
+}
+
+impl<'de> Deserialize<'de> for ThemeChoice {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(ThemeChoice::from_key(&s))
     }
 }
 
@@ -85,7 +107,7 @@ impl SettingsStore {
     }
 
     pub fn theme(&self) -> ThemeChoice {
-        self.settings.theme
+        self.settings.theme.clone()
     }
 
     pub fn set_theme(&mut self, theme: ThemeChoice) -> anyhow::Result<()> {
@@ -105,10 +127,25 @@ impl SettingsStore {
 
 pub fn apply_startup_theme(store: &SettingsStore, cx: &mut App) {
     match store.theme() {
-        ThemeChoice::System => {}
-        ThemeChoice::Light => Theme::change(ThemeMode::Light, None, cx),
-        ThemeChoice::Dark => Theme::change(ThemeMode::Dark, None, cx),
+        ThemeChoice::System => Theme::sync_system_appearance(None, cx),
+        ThemeChoice::Named(name) => apply_named_theme(&name, cx),
     }
+}
+
+/// Apply a theme by name from `ThemeRegistry`. No-op if the name is not yet registered
+/// (e.g. bundled themes haven't finished loading). Called again in `on_loaded`.
+pub fn apply_named_theme(name: &str, cx: &mut App) {
+    let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
+        return;
+    };
+    let mode = config.mode;
+    let theme = cx.global_mut::<Theme>();
+    if mode.is_dark() {
+        theme.dark_theme = config;
+    } else {
+        theme.light_theme = config;
+    }
+    Theme::change(mode, None, cx);
 }
 
 /// Push a user-visible notification (and log) when saving settings fails.
@@ -181,15 +218,16 @@ mod tests {
     fn save_then_load_roundtrip() {
         let path = tmp_settings_path();
         let folder = PathBuf::from("/Users/test/Music");
+        let dark = ThemeChoice::Named("Default Dark".into());
 
         {
             let mut store = SettingsStore::load_from(path.clone());
-            store.set_theme(ThemeChoice::Dark).unwrap();
+            store.set_theme(dark.clone()).unwrap();
             store.set_music_folder(folder.clone()).unwrap();
         }
 
         let reloaded = SettingsStore::load_from(path.clone());
-        assert_eq!(reloaded.theme(), ThemeChoice::Dark);
+        assert_eq!(reloaded.theme(), dark);
         assert_eq!(reloaded.music_folder(), Some(&folder));
 
         cleanup(&path);
@@ -200,7 +238,7 @@ mod tests {
         let path = tmp_settings_path();
         let store = {
             let mut s = SettingsStore::load_from(path.clone());
-            s.set_theme(ThemeChoice::Light).unwrap();
+            s.set_theme(ThemeChoice::Named("Solarized Light".into())).unwrap();
             s
         };
 
@@ -211,7 +249,7 @@ mod tests {
         // And the JSON should be readable / well-formed.
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("\"theme\""));
-        assert!(raw.contains("\"light\""));
+        assert!(raw.contains("Solarized Light"));
 
         drop(store);
         cleanup(&path);
@@ -236,7 +274,7 @@ mod tests {
         let path = parent_as_file.join("settings.json");
 
         let mut store = SettingsStore::load_from(path);
-        let err = store.set_theme(ThemeChoice::Dark);
+        let err = store.set_theme(ThemeChoice::Named("Default Dark".into()));
         assert!(err.is_err(), "expected save to fail when parent is a file");
 
         let _ = fs::remove_dir_all(&dir);
@@ -244,8 +282,13 @@ mod tests {
 
     #[test]
     fn theme_choice_serde_roundtrip() {
-        for choice in [ThemeChoice::System, ThemeChoice::Light, ThemeChoice::Dark] {
+        for (choice, expected) in [
+            (ThemeChoice::System, "\"system\""),
+            (ThemeChoice::Named("Solarized Dark".into()), "\"Solarized Dark\""),
+            (ThemeChoice::Named("Default Light".into()), "\"Default Light\""),
+        ] {
             let s = serde_json::to_string(&choice).unwrap();
+            assert_eq!(s, expected);
             let back: ThemeChoice = serde_json::from_str(&s).unwrap();
             assert_eq!(choice, back);
         }

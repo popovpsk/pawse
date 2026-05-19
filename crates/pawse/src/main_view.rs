@@ -9,6 +9,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     setting::SettingPage,
+    theme::ThemeRegistry,
 };
 
 use crate::audio_settings::AudioSettings;
@@ -27,6 +28,7 @@ pub struct MainView {
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
     _search_subscription: Subscription,
+    _theme_registry_subscription: gpui::Subscription,
 }
 
 impl MainView {
@@ -60,17 +62,24 @@ impl MainView {
             }
         });
 
+        let theme_registry_subscription =
+            cx.observe_global::<ThemeRegistry>(|this, cx| {
+                this.settings_pages = crate::settings_view::build_settings_pages(&*cx);
+                cx.notify();
+            });
+
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
             library_view,
             footer: cx.new(|cx| Footer::new(window, cx)),
             is_tracks_view: false,
             show_settings: false,
-            settings_pages: crate::settings_view::build_settings_pages(),
+            settings_pages: crate::settings_view::build_settings_pages(&*cx),
             search_input,
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
             _search_subscription: search_subscription,
+            _theme_registry_subscription: theme_registry_subscription,
         }
     }
 

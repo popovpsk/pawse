@@ -23,6 +23,7 @@ pub mod prev_button;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
+pub mod themes;
 pub mod track_progress_slider;
 pub mod volume;
 
@@ -38,6 +39,13 @@ fn main() {
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);
         cx.set_global(settings_store);
+
+        crate::themes::register_bundled_themes(cx, |cx| {
+            let choice = cx.global::<crate::settings_store::SettingsStore>().theme();
+            if let crate::settings_store::ThemeChoice::Named(name) = choice {
+                crate::settings_store::apply_named_theme(&name, cx);
+            }
+        });
 
         let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
 
