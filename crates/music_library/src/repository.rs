@@ -1,4 +1,4 @@
-use crate::models::{AlbumSummary, CoverArt, NewTrack, Track};
+use crate::models::{AlbumSearchEntry, AlbumSummary, CoverArt, NewTrack, Track};
 use crate::error::Result;
 
 pub trait LibraryRepository: Send + Sync {
@@ -17,6 +17,7 @@ pub trait LibraryRepository: Send + Sync {
         artist_ids: &[(i64, i32)],
     ) -> Result<i64>;
     fn albums(&self) -> Result<Vec<AlbumSummary>>;
+    fn album_search_entries(&self) -> Result<Vec<AlbumSearchEntry>>;
     fn tracks_for_album(&self, album_id: i64) -> Result<Vec<Track>>;
     fn track_artists(&self, track_id: i64) -> Result<Vec<String>>;
     fn album_title(&self, album_id: i64) -> Result<Option<String>>;

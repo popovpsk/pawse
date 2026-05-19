@@ -4,8 +4,9 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
 };
 use gpui_component::{
-    ActiveTheme, Icon, Root, StyledExt,
+    ActiveTheme, Icon, Root, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
+    input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
     setting::SettingPage,
 };
@@ -22,20 +23,42 @@ pub struct MainView {
     is_tracks_view: bool,
     show_settings: bool,
     settings_pages: Vec<SettingPage>,
+    search_input: Entity<InputState>,
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
+    _search_subscription: Subscription,
 }
 
 impl MainView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library_view = cx.new(|cx| LibraryView::new(window, cx));
+
         let library_subscription = cx.subscribe(
             &library_view,
-            |this, _, _: &LibraryViewEvent, cx| {
-                this.is_tracks_view = this.library_view.read(cx).is_tracks_view();
-                cx.notify();
+            {
+                let library_view = library_view.clone();
+                move |this: &mut MainView, _, _: &LibraryViewEvent, cx| {
+                    this.is_tracks_view = library_view.read(cx).is_tracks_view();
+                    let query = this.search_input.read(cx).value().to_string();
+                    library_view.update(cx, |v, cx| v.apply_search(&query, cx));
+                    cx.notify();
+                }
             },
         );
+
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search artists, albums, tracks")
+        });
+
+        let search_subscription = cx.subscribe(&search_input, {
+            let library_view = library_view.clone();
+            move |this: &mut MainView, _, ev: &InputEvent, cx| {
+                if let InputEvent::Change = ev {
+                    let query = this.search_input.read(cx).value().to_string();
+                    library_view.update(cx, |v, cx| v.apply_search(&query, cx));
+                }
+            }
+        });
 
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
@@ -44,9 +67,18 @@ impl MainView {
             is_tracks_view: false,
             show_settings: false,
             settings_pages: crate::settings_view::build_settings_pages(),
+            search_input,
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
+            _search_subscription: search_subscription,
         }
+    }
+
+    fn clear_search(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_input
+            .update(cx, |s, cx| s.set_value("", window, cx));
+        let library_view = self.library_view.clone();
+        library_view.update(cx, |v, cx| v.apply_search("", cx));
     }
 }
 
@@ -69,7 +101,8 @@ impl Render for MainView {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(cx.theme().muted))
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.clear_search(window, cx);
                 if this.show_settings {
                     this.show_settings = false;
                     cx.notify();
@@ -84,6 +117,23 @@ impl Render for MainView {
                     .text_color(cx.theme().foreground),
             );
 
+        let left_group = div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .h_full()
+            .when(has_back, |d| d.child(back_button));
+
+        let right_group = div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_end()
+            .gap_2()
+            .h_full()
+            .when(!show_settings, |d| d.child(settings_gear_button(cx)))
+            .child(self.audio_settings.clone());
+
         div()
             .v_flex()
             .size_full()
@@ -97,10 +147,17 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .when(has_back, |d| d.child(back_button))
-                    .child(div().flex_1())
-                    .when(!show_settings, |d| d.child(settings_gear_button(cx)))
-                    .child(self.audio_settings.clone()),
+                    .child(left_group)
+                    .when(!show_settings, |d| {
+                        d.child(
+                            div().w(px(280.)).child(
+                                Input::new(&self.search_input)
+                                    .with_size(Size::Small)
+                                    .cleanable(true),
+                            ),
+                        )
+                    })
+                    .child(right_group),
             )
             .child(
                 div()
@@ -148,7 +205,8 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         .h(px(36.))
         .icon(Icon::default().path("icons/settings.svg"))
         .tooltip("Settings")
-        .on_click(cx.listener(|this, _, _, cx| {
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.clear_search(window, cx);
             this.show_settings = true;
             cx.notify();
         }))

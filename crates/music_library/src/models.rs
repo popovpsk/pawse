@@ -43,6 +43,12 @@ pub struct AlbumSummary {
     pub artist_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlbumSearchEntry {
+    pub album_id: i64,
+    pub haystack: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NewTrack {
     pub path: String,

@@ -34,6 +34,10 @@ impl LibraryService {
         self.repo.has_tracks().unwrap_or(false)
     }
 
+    pub fn album_search_entries(&self) -> Vec<music_library::AlbumSearchEntry> {
+        self.repo.album_search_entries().unwrap_or_default()
+    }
+
     pub fn track_artists(&self, track_id: i64) -> Vec<String> {
         self.repo.track_artists(track_id).unwrap_or_default()
     }

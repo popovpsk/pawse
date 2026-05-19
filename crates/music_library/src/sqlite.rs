@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
-use crate::models::{AlbumSummary, CoverArt, NewTrack, Track};
+use crate::models::{AlbumSearchEntry, AlbumSummary, CoverArt, NewTrack, Track};
 use crate::repository::LibraryRepository;
 
 pub struct SqliteLibrary {
@@ -263,6 +263,40 @@ impl LibraryRepository for SqliteLibrary {
                 year: row.get(2)?,
                 cover_art_id: row.get(3)?,
                 artist_name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn album_search_entries(&self) -> Result<Vec<AlbumSearchEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT
+                a.id,
+                a.title || ' ' ||
+                COALESCE(artists_concat.names, '') || ' ' ||
+                COALESCE(tracks_concat.titles, '')
+            FROM albums a
+            LEFT JOIN (
+                SELECT aa.album_id AS album_id, GROUP_CONCAT(art.name, ' ') AS names
+                FROM album_artists aa
+                JOIN artists art ON art.id = aa.artist_id
+                GROUP BY aa.album_id
+            ) artists_concat ON artists_concat.album_id = a.id
+            LEFT JOIN (
+                SELECT album_id, GROUP_CONCAT(title, ' ') AS titles
+                FROM tracks
+                WHERE album_id IS NOT NULL AND title IS NOT NULL
+                GROUP BY album_id
+            ) tracks_concat ON tracks_concat.album_id = a.id
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(AlbumSearchEntry {
+                album_id: row.get(0)?,
+                haystack: row.get(1)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()

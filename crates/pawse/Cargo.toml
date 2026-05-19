@@ -24,6 +24,7 @@ dirs = "5"
 ui_components = { path = "../ui_components" }
 media_integration = { path = "../media_integration" }
 rust-embed.workspace = true
+nucleo-matcher = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos_integration = { path = "../macos_integration" }

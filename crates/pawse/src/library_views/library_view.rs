@@ -44,6 +44,20 @@ impl LibraryView {
         matches!(self.state, LibraryViewState::Tracks)
     }
 
+    pub fn apply_search(&mut self, query: &str, cx: &mut Context<Self>) {
+        match self.state {
+            LibraryViewState::Albums => {
+                self.albums_view
+                    .update(cx, |v, cx| v.set_filter(query, cx));
+            }
+            LibraryViewState::Tracks => {
+                if let Some(tv) = &self.tracks_view {
+                    tv.update(cx, |v, cx| v.set_filter(query, cx));
+                }
+            }
+        }
+    }
+
     pub fn go_back(&mut self, cx: &mut Context<Self>) {
         self.state = LibraryViewState::Albums;
         self.tracks_view = None;

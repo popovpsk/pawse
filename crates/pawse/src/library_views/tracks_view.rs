@@ -8,6 +8,10 @@ use gpui::{
     div, px, size, svg,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{CaseMatching, Normalization, Pattern},
+};
 
 use crate::library_views::album_info::AlbumInfo;
 use crate::services::Services;
@@ -24,7 +28,10 @@ enum TrackItem {
 }
 
 pub struct TracksView {
+    tracks_all: Vec<music_library::Track>,
     tracks: Vec<music_library::Track>,
+    filter: String,
+    matcher: Matcher,
     items: Vec<TrackItem>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
@@ -37,30 +44,9 @@ pub struct TracksView {
 impl TracksView {
     pub fn new(album: &music_library::AlbumSummary, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
-        let tracks = services.library.tracks_for_album(album.id);
-        let max_disc = tracks.iter().map(|t| t.disc_number).max().unwrap_or(1);
-        let multi_disc = max_disc > 1;
-
-        let mut items = vec![TrackItem::AlbumInfo];
-        let mut item_sizes_vec = vec![size(px(300.), px(ALBUM_INFO_HEIGHT + 1.))];
-
-        if multi_disc {
-            let mut current_disc = 0i32;
-            for (ix, track) in tracks.iter().enumerate() {
-                if track.disc_number != current_disc {
-                    current_disc = track.disc_number;
-                    items.push(TrackItem::DiscHeader(current_disc));
-                    item_sizes_vec.push(size(px(300.), px(DISC_HEADER_HEIGHT + 1.)));
-                }
-                items.push(TrackItem::Track(ix));
-                item_sizes_vec.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
-            }
-        } else {
-            for ix in 0..tracks.len() {
-                items.push(TrackItem::Track(ix));
-                item_sizes_vec.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
-            }
-        }
+        let tracks_all = services.library.tracks_for_album(album.id);
+        let tracks = tracks_all.clone();
+        let (items, item_sizes_vec) = Self::build_items(&tracks);
 
         let item_sizes = Rc::new(item_sizes_vec);
         let engine_event_bus = services.engine_event_bus.clone();
@@ -116,7 +102,10 @@ impl TracksView {
         );
 
         Self {
+            tracks_all,
             tracks,
+            filter: String::new(),
+            matcher: Matcher::new(Config::DEFAULT),
             items,
             item_sizes,
             scroll_handle: VirtualListScrollHandle::new(),
@@ -126,15 +115,86 @@ impl TracksView {
             _subscription: subscription,
         }
     }
+
+    fn build_items(tracks: &[music_library::Track]) -> (Vec<TrackItem>, Vec<Size<Pixels>>) {
+        let max_disc = tracks.iter().map(|t| t.disc_number).max().unwrap_or(1);
+        let multi_disc = max_disc > 1;
+
+        let mut items = vec![TrackItem::AlbumInfo];
+        let mut item_sizes_vec = vec![size(px(300.), px(ALBUM_INFO_HEIGHT + 1.))];
+
+        if multi_disc {
+            let mut current_disc = 0i32;
+            for (ix, track) in tracks.iter().enumerate() {
+                if track.disc_number != current_disc {
+                    current_disc = track.disc_number;
+                    items.push(TrackItem::DiscHeader(current_disc));
+                    item_sizes_vec.push(size(px(300.), px(DISC_HEADER_HEIGHT + 1.)));
+                }
+                items.push(TrackItem::Track(ix));
+                item_sizes_vec.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
+            }
+        } else {
+            for ix in 0..tracks.len() {
+                items.push(TrackItem::Track(ix));
+                item_sizes_vec.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
+            }
+        }
+
+        (items, item_sizes_vec)
+    }
+
+    pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
+        let trimmed = query.trim().to_string();
+        if trimmed == self.filter {
+            return;
+        }
+        self.filter = trimmed;
+        self.recompute_visible();
+        cx.notify();
+    }
+
+    fn recompute_visible(&mut self) {
+        if self.filter.is_empty() {
+            self.tracks = self.tracks_all.clone();
+        } else {
+            let pattern = Pattern::parse(
+                &self.filter,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+            );
+            let mut buf: Vec<char> = Vec::new();
+            let mut scored: Vec<(music_library::Track, u32)> = self
+                .tracks_all
+                .iter()
+                .filter_map(|track| {
+                    let haystack = Utf32Str::new(&track.title, &mut buf);
+                    pattern
+                        .score(haystack, &mut self.matcher)
+                        .map(|s| (track.clone(), s))
+                })
+                .collect();
+            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
+            self.tracks = scored.into_iter().map(|(t, _)| t).collect();
+        }
+        let (items, item_sizes_vec) = Self::build_items(&self.tracks);
+        self.items = items;
+        self.item_sizes = Rc::new(item_sizes_vec);
+    }
 }
 
 impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.tracks.is_empty() {
+            let message = if self.tracks_all.is_empty() {
+                "No tracks found for this album."
+            } else {
+                "No tracks match your search."
+            };
             return v_flex()
                 .size_full()
                 .child(self.album_info.clone())
-                .child(div().px_4().child("No tracks found for this album."));
+                .child(div().px_4().child(message));
         }
 
         let item_sizes = self.item_sizes.clone();
