@@ -1,12 +1,12 @@
 use audio_common::{
-    AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, Metadata, StreamParams, I24,
+    AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, I24, Metadata, StreamParams,
 };
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
 use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
 use symphonia::core::codecs::CodecParameters;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;

@@ -7,11 +7,11 @@ pub(super) mod sample_rate;
 pub(super) mod sleep;
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use audio_common::{AudioBatch, AudioError};
 use atomic_float::AtomicF32;
+use audio_common::{AudioBatch, AudioError};
 use objc2_core_audio::AudioDeviceIOProcID;
 
 use crate::cpal_stream::{OutputConfig, PlaybackState};
@@ -21,8 +21,7 @@ use super::{Backend, DeviceSnapshot, ExclusiveEvent};
 use format::{apply_format, read_device_format, set_and_wait_sample_rate};
 use hog::{acquire_hog_mode, get_device_id_by_uid, get_hogging_pid, release_hog_mode};
 use ioproc::{
-    create_ioproc, destroy_ioproc, start_ioproc, stop_ioproc, IoprocCtx, STATE_IDLE,
-    STATE_PLAYING,
+    IoprocCtx, STATE_IDLE, STATE_PLAYING, create_ioproc, destroy_ioproc, start_ioproc, stop_ioproc,
 };
 use listeners::{
     register_format_listener, register_is_alive_listener, register_mute_listener,
@@ -124,9 +123,10 @@ fn tear_down_inner(inner: &mut MacosInner, shared: &MacosShared) {
 
     if !inner.suppress_cleanup {
         if let Ok(asbd) = read_device_format(inner.device_id)
-            && (asbd.mSampleRate - inner.original_rate).abs() > 0.5 {
-                let _ = set_and_wait_sample_rate(inner.device_id, inner.original_rate);
-            }
+            && (asbd.mSampleRate - inner.original_rate).abs() > 0.5
+        {
+            let _ = set_and_wait_sample_rate(inner.device_id, inner.original_rate);
+        }
         // Check the actual hogging PID rather than relying on hog_acquired.
         // After recreate_exclusive the new instance has hog_acquired=false because
         // acquire_hog_mode saw our PID already held hog (the old instance skipped
@@ -271,7 +271,10 @@ impl Backend for MacosBackend {
             return 0;
         }
         let f32_samples = batch.data.to_f32();
-        self.shared.iopc_ctx.buffer.write_slice_blocking(&f32_samples)
+        self.shared
+            .iopc_ctx
+            .buffer
+            .write_slice_blocking(&f32_samples)
     }
 
     fn clear(&self) {
@@ -287,7 +290,10 @@ impl Backend for MacosBackend {
             inner.sleep.allow();
             inner.playback_state = PlaybackState::Paused;
         }
-        self.shared.iopc_ctx.playing.store(STATE_IDLE, Ordering::SeqCst);
+        self.shared
+            .iopc_ctx
+            .playing
+            .store(STATE_IDLE, Ordering::SeqCst);
     }
 
     fn resume(&self) {
@@ -312,7 +318,10 @@ impl Backend for MacosBackend {
             }
         };
         if started {
-            self.shared.iopc_ctx.playing.store(STATE_PLAYING, Ordering::SeqCst);
+            self.shared
+                .iopc_ctx
+                .playing
+                .store(STATE_PLAYING, Ordering::SeqCst);
         }
     }
 
@@ -345,7 +354,11 @@ impl Backend for MacosBackend {
     }
 
     fn original_rate(&self) -> f64 {
-        self.shared.inner.lock().map(|g| g.original_rate).unwrap_or(0.0)
+        self.shared
+            .inner
+            .lock()
+            .map(|g| g.original_rate)
+            .unwrap_or(0.0)
     }
 
     fn suppress_cleanup(&self) {

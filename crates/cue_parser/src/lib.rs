@@ -1,3 +1,3 @@
 pub mod parser;
 
-pub use parser::{parse, CueFileType, CueIndex, CueParseError, CueSheet, CueTrack};
+pub use parser::{CueFileType, CueIndex, CueParseError, CueSheet, CueTrack, parse};

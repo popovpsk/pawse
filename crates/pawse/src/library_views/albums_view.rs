@@ -1,7 +1,11 @@
 use std::rc::Rc;
 
-use gpui::{Context, ElementId, EventEmitter, Hsla, InteractiveElement, IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, size, Size, Pixels};
-use gpui_component::{h_flex, v_flex, v_virtual_list, ActiveTheme, VirtualListScrollHandle};
+use gpui::{
+    Context, ElementId, EventEmitter, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
+    px, size,
+};
+use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -41,31 +45,32 @@ impl AlbumsView {
         let item_sizes = Self::make_item_sizes(&albums);
         let is_scanning = false;
 
-        let subscription = cx.subscribe(
-            &library_event_bus,
-            |this, _, event: &LibraryEvent, cx| match event {
-                LibraryEvent::ScanStarted => {
-                    this.is_scanning = true;
-                    cx.notify();
-                }
-                LibraryEvent::ScanComplete => {
-                    this.is_scanning = false;
-                    let services = cx.global::<Services>();
-                    services.cover_art_cache.borrow_mut().clear();
-                    this.albums_all = services.library.albums();
-                    this.search_entries = services.library.album_search_entries();
-                    {
-                        let mut cache = services.cover_art_cache.borrow_mut();
-                        for album in &this.albums_all {
-                            cache.get_small(album.cover_art_id, &services.library);
-                        }
+        let subscription =
+            cx.subscribe(
+                &library_event_bus,
+                |this, _, event: &LibraryEvent, cx| match event {
+                    LibraryEvent::ScanStarted => {
+                        this.is_scanning = true;
+                        cx.notify();
                     }
-                    this.recompute_visible();
-                    cx.notify();
-                }
-                _ => {}
-            },
-        );
+                    LibraryEvent::ScanComplete => {
+                        this.is_scanning = false;
+                        let services = cx.global::<Services>();
+                        services.cover_art_cache.borrow_mut().clear();
+                        this.albums_all = services.library.albums();
+                        this.search_entries = services.library.album_search_entries();
+                        {
+                            let mut cache = services.cover_art_cache.borrow_mut();
+                            for album in &this.albums_all {
+                                cache.get_small(album.cover_art_id, &services.library);
+                            }
+                        }
+                        this.recompute_visible();
+                        cx.notify();
+                    }
+                    _ => {}
+                },
+            );
 
         Self {
             albums_all,
@@ -81,7 +86,10 @@ impl AlbumsView {
     }
 
     fn make_item_sizes(albums: &[music_library::AlbumSummary]) -> Rc<Vec<Size<Pixels>>> {
-        Rc::new(vec![size(px(300.), px(ALBUM_ROW_HEIGHT + 1.)); albums.len()])
+        Rc::new(vec![
+            size(px(300.), px(ALBUM_ROW_HEIGHT + 1.));
+            albums.len()
+        ])
     }
 
     pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
@@ -98,11 +106,7 @@ impl AlbumsView {
         if self.filter.is_empty() {
             self.albums = self.albums_all.clone();
         } else {
-            let pattern = Pattern::parse(
-                &self.filter,
-                CaseMatching::Ignore,
-                Normalization::Smart,
-            );
+            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let mut buf: Vec<char> = Vec::new();
             let mut scored: Vec<(i64, u32)> = self
                 .search_entries
@@ -131,10 +135,7 @@ impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = h_flex()
-            .gap_2()
-            .px_4()
-            .py_2();
+        let header = h_flex().gap_2().px_4().py_2();
 
         if self.is_scanning && self.albums_all.is_empty() {
             return v_flex()
@@ -156,91 +157,80 @@ impl Render for AlbumsView {
         }
 
         let item_sizes = self.item_sizes.clone();
-        v_flex()
-            .size_full()
-            .child(header)
-            .child(
-                v_virtual_list(
-                    cx.entity().clone(),
-                    "albums_list",
-                    item_sizes,
-                    |view, visible_range, _window, cx| {
-                        visible_range
-                            .map(|ix| {
-                                let album = &view.albums[ix];
-                                let album = album.clone();
-                                let year_str = album
-                                    .year
-                                    .map(|y| format!(" ({})", y))
-                                    .unwrap_or_default();
+        v_flex().size_full().child(header).child(
+            v_virtual_list(
+                cx.entity().clone(),
+                "albums_list",
+                item_sizes,
+                |view, visible_range, _window, cx| {
+                    visible_range
+                        .map(|ix| {
+                            let album = &view.albums[ix];
+                            let album = album.clone();
+                            let year_str =
+                                album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
 
-                                div()
-                                    .w_full()
-                                    .h(px(ALBUM_ROW_HEIGHT))
-                                    .px_4()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .border_b(px(1.))
-                                    .border_color(Hsla {
-                                        h: 0.,
-                                        s: 0.,
-                                        l: 1.,
-                                        a: 0.1,
-                                    })
-                                    .cursor(gpui::CursorStyle::PointingHand)
-                                    .hover(|style| style.bg(cx.theme().secondary))
-                                    .child({
-                                        let fallback_bg = cx.theme().secondary;
-                                        let cover: gpui::AnyElement = {
-                                            let services = cx.global::<Services>();
-                                            let cover_img = services.cover_art_cache.borrow_mut().get_small(album.cover_art_id, &services.library);
-                                            if let Some(cover_img) = cover_img {
-                                                img(cover_img)
-                                                    .w(px(32.))
-                                                    .h(px(32.))
-                                                    .rounded(px(4.))
-                                                    .object_fit(gpui::ObjectFit::Cover)
-                                                    .with_fallback(move || {
-                                                        div()
-                                                            .w(px(32.))
-                                                            .h(px(32.))
-                                                            .rounded(px(4.))
-                                                            .bg(fallback_bg)
-                                                            .into_any_element()
-                                                    })
-                                                    .into_any_element()
-                                            } else {
-                                                div()
-                                                    .w(px(32.))
-                                                    .h(px(32.))
-                                                    .rounded(px(4.))
-                                                    .bg(fallback_bg)
-                                                    .into_any_element()
-                                            }
-                                        };
-                                        cover
-                                    })
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .overflow_hidden()
-                                            .truncate()
-                                            .child(format!(
-                                                "{}{} - {}",
-                                                album.artist_name, year_str, album.title
-                                            ))
-                                    )
-                                    .id(ElementId::Integer(album.id as u64))
-                                    .on_click(cx.listener(move |_this, _, _, _cx| {
-                                        _cx.emit(AlbumSelectedEvent { album: album.clone() });
-                                    }))
-                            })
-                            .collect::<Vec<_>>()
-                    },
-                )
-                .track_scroll(&self.scroll_handle)
-                .flex_1(),
+                            div()
+                                .w_full()
+                                .h(px(ALBUM_ROW_HEIGHT))
+                                .px_4()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .border_b(px(1.))
+                                .border_color(cx.theme().border)
+                                .cursor(gpui::CursorStyle::PointingHand)
+                                .hover(|style| style.bg(cx.theme().secondary))
+                                .child({
+                                    let fallback_bg = cx.theme().secondary;
+                                    let cover: gpui::AnyElement = {
+                                        let services = cx.global::<Services>();
+                                        let cover_img = services
+                                            .cover_art_cache
+                                            .borrow_mut()
+                                            .get_small(album.cover_art_id, &services.library);
+                                        if let Some(cover_img) = cover_img {
+                                            img(cover_img)
+                                                .w(px(32.))
+                                                .h(px(32.))
+                                                .rounded(px(4.))
+                                                .object_fit(gpui::ObjectFit::Cover)
+                                                .with_fallback(move || {
+                                                    div()
+                                                        .w(px(32.))
+                                                        .h(px(32.))
+                                                        .rounded(px(4.))
+                                                        .bg(fallback_bg)
+                                                        .into_any_element()
+                                                })
+                                                .into_any_element()
+                                        } else {
+                                            div()
+                                                .w(px(32.))
+                                                .h(px(32.))
+                                                .rounded(px(4.))
+                                                .bg(fallback_bg)
+                                                .into_any_element()
+                                        }
+                                    };
+                                    cover
+                                })
+                                .child(div().flex_1().overflow_hidden().truncate().child(format!(
+                                    "{}{} - {}",
+                                    album.artist_name, year_str, album.title
+                                )))
+                                .id(ElementId::Integer(album.id as u64))
+                                .on_click(cx.listener(move |_this, _, _, _cx| {
+                                    _cx.emit(AlbumSelectedEvent {
+                                        album: album.clone(),
+                                    });
+                                }))
+                        })
+                        .collect::<Vec<_>>()
+                },
             )
+            .track_scroll(&self.scroll_handle)
+            .flex_1(),
+        )
     }
 }

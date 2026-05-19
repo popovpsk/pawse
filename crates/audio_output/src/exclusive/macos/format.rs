@@ -5,18 +5,17 @@ use std::time::Duration;
 
 use audio_common::AudioError;
 use objc2_core_audio::{
-    kAudioObjectPropertyElementMain, AudioObjectGetPropertyData,
-    AudioObjectSetPropertyData, AudioObjectPropertyAddress,
+    AudioObjectGetPropertyData, AudioObjectPropertyAddress, AudioObjectSetPropertyData,
+    kAudioObjectPropertyElementMain,
 };
 use objc2_core_audio_types::{
-    kAudioFormatFlagsNativeFloatPacked, kAudioFormatLinearPCM,
+    AudioStreamBasicDescription, kAudioFormatFlagsNativeFloatPacked, kAudioFormatLinearPCM,
     kLinearPCMFormatFlagIsPacked, kLinearPCMFormatFlagIsSignedInteger,
-    AudioStreamBasicDescription,
 };
 
-use crate::cpal_stream::OutputConfig;
 use super::hog::K_SCOPE_OUTPUT;
 use super::sample_rate::get_best_samplerate;
+use crate::cpal_stream::OutputConfig;
 
 // kAudioDevicePropertyStreamFormat = 'sfmt'
 const K_STREAM_FORMAT: u32 = 0x73666d74;
@@ -32,7 +31,9 @@ pub(super) fn get_stream_format_addr() -> AudioObjectPropertyAddress {
     }
 }
 
-pub(super) fn read_device_format(device_id: u32) -> Result<AudioStreamBasicDescription, AudioError> {
+pub(super) fn read_device_format(
+    device_id: u32,
+) -> Result<AudioStreamBasicDescription, AudioError> {
     let addr = get_stream_format_addr();
     let mut asbd = AudioStreamBasicDescription {
         mSampleRate: 0.0,
@@ -152,7 +153,11 @@ pub(super) fn apply_format(
     let channels = config.channels as u32;
 
     // Pick best sample rate
-    let target_rate = if config.sample_rate > 192_000 { 192_000 } else { config.sample_rate };
+    let target_rate = if config.sample_rate > 192_000 {
+        192_000
+    } else {
+        config.sample_rate
+    };
     let best_rate = if available_rates.is_empty() {
         target_rate
     } else {

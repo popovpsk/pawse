@@ -62,7 +62,9 @@ impl SqliteLibrary {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let user_version: i32 =
-            tx.query_row("SELECT user_version FROM pragma_user_version", [], |row| row.get(0))?;
+            tx.query_row("SELECT user_version FROM pragma_user_version", [], |row| {
+                row.get(0)
+            })?;
 
         for (version, sql) in MIGRATIONS.iter() {
             if user_version < *version {
@@ -77,11 +79,9 @@ impl SqliteLibrary {
     fn get_or_insert_artist(&self, tx: &rusqlite::Transaction, name: &str) -> Result<i64> {
         let sort_name = compute_sort_name(name);
         if let Some(id) = tx
-            .query_row(
-                "SELECT id FROM artists WHERE name = ?1",
-                [name],
-                |row| row.get::<_, i64>(0),
-            )
+            .query_row("SELECT id FROM artists WHERE name = ?1", [name], |row| {
+                row.get::<_, i64>(0)
+            })
             .optional()?
         {
             return Ok(id);
@@ -140,10 +140,7 @@ impl LibraryRepository for SqliteLibrary {
     fn set_album_artists(&self, album_id: i64, artist_ids: &[(i64, i32)]) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM album_artists WHERE album_id = ?1",
-            [album_id],
-        )?;
+        tx.execute("DELETE FROM album_artists WHERE album_id = ?1", [album_id])?;
         for (artist_id, position) in artist_ids {
             tx.execute(
                 "INSERT INTO album_artists (album_id, artist_id, position) VALUES (?1, ?2, ?3)",
@@ -225,10 +222,7 @@ impl LibraryRepository for SqliteLibrary {
             tx.last_insert_rowid()
         };
 
-        tx.execute(
-            "DELETE FROM track_artists WHERE track_id = ?1",
-            [track_id],
-        )?;
+        tx.execute("DELETE FROM track_artists WHERE track_id = ?1", [track_id])?;
         for (artist_id, position) in artist_ids {
             tx.execute(
                 "INSERT INTO track_artists (track_id, artist_id, role, position) VALUES (?1, ?2, 'main', ?3)",
@@ -423,11 +417,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn has_tracks(&self) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM tracks",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))?;
         Ok(count > 0)
     }
 
@@ -458,11 +448,9 @@ impl LibraryRepository for SqliteLibrary {
         {
             let conn = self.conn.lock().unwrap();
             if let Some(id) = conn
-                .query_row(
-                    "SELECT id FROM cover_art WHERE hash = ?1",
-                    [&hash],
-                    |row| row.get::<_, i64>(0),
-                )
+                .query_row("SELECT id FROM cover_art WHERE hash = ?1", [&hash], |row| {
+                    row.get::<_, i64>(0)
+                })
                 .optional()?
             {
                 return Ok(id);
@@ -503,11 +491,9 @@ impl LibraryRepository for SqliteLibrary {
     fn get_cover_art_small(&self, id: i64) -> Result<Option<Vec<u8>>> {
         let conn = self.conn.lock().unwrap();
         let result = conn
-            .query_row(
-                "SELECT small FROM cover_art WHERE id = ?1",
-                [id],
-                |row| row.get(0),
-            )
+            .query_row("SELECT small FROM cover_art WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
             .optional()?;
         Ok(result)
     }
@@ -515,11 +501,9 @@ impl LibraryRepository for SqliteLibrary {
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>> {
         let conn = self.conn.lock().unwrap();
         let result = conn
-            .query_row(
-                "SELECT large FROM cover_art WHERE id = ?1",
-                [id],
-                |row| row.get(0),
-            )
+            .query_row("SELECT large FROM cover_art WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
             .optional()?;
         Ok(result)
     }
@@ -615,10 +599,7 @@ mod tests {
 
     #[test]
     fn test_fallback_title_from_path_multiple_ext() {
-        assert_eq!(
-            fallback_title_from_path("/music/song.tar.gz"),
-            "song.tar"
-        );
+        assert_eq!(fallback_title_from_path("/music/song.tar.gz"), "song.tar");
     }
 
     #[test]

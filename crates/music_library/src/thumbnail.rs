@@ -11,12 +11,10 @@ pub struct Thumbnails {
 pub fn generate_thumbnails(data: &[u8]) -> crate::error::Result<Thumbnails> {
     let img = image::load_from_memory(data)?;
 
-    let small_img = image::DynamicImage::ImageRgba8(image::imageops::thumbnail(
-        &img, SMALL_SIZE, SMALL_SIZE,
-    ));
-    let large_img = image::DynamicImage::ImageRgba8(image::imageops::thumbnail(
-        &img, LARGE_SIZE, LARGE_SIZE,
-    ));
+    let small_img =
+        image::DynamicImage::ImageRgba8(image::imageops::thumbnail(&img, SMALL_SIZE, SMALL_SIZE));
+    let large_img =
+        image::DynamicImage::ImageRgba8(image::imageops::thumbnail(&img, LARGE_SIZE, LARGE_SIZE));
 
     let small = encode_jpeg(&small_img)?;
     let large = encode_jpeg(&large_img)?;

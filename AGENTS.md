@@ -12,7 +12,7 @@ The model must not create or modify any files without explicit user instruction.
 ## Build & Lint
 
 ```bash
-cargo build && cargo clippy
+cargo fmt && cargo build && cargo clippy
 ```
 
 No warnings allowed. If any appear — remove them.
@@ -65,6 +65,7 @@ All tests must pass.
 - **Global access**: `cx.global::<Services>()` for shared state
 - **Async spawning**: `cx.spawn(async move |cx| { ... })` for background tasks
 - **Event forwarding**: Spawn task to forward engine events to UI event bus
+- **Theme colors**: Always use `cx.theme()` properties (e.g., `cx.theme().border`, `cx.theme().primary`, `cx.theme().muted`) instead of hardcoded `Hsla` literals
 
 ### Testing
 

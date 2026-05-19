@@ -1,7 +1,6 @@
-pub const MIGRATIONS: &[(i32, &str)] = &[
-    (
-        1,
-        r#"
+pub const MIGRATIONS: &[(i32, &str)] = &[(
+    1,
+    r#"
         CREATE TABLE artists (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -66,5 +65,4 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
 
         CREATE INDEX idx_track_artists_artist_id ON track_artists(artist_id);
         "#,
-    ),
-];
+)];

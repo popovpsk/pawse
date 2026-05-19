@@ -131,11 +131,7 @@ impl Render for AudioSettings {
                         .rounded_full()
                         .w(px(40.))
                         .h(px(40.))
-                        .icon(
-                            Icon::new(icon_name)
-                                .text_color(icon_color)
-                                .size(px(20.)),
-                        )
+                        .icon(Icon::new(icon_name).text_color(icon_color).size(px(20.)))
                         .tooltip(tooltip_text),
                 )
             })

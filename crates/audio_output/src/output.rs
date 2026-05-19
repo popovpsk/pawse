@@ -5,12 +5,12 @@ pub mod exclusive;
 pub mod ring_buffer;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
-use audio_common::{AudioBatch, AudioError, AudioSamples, Metadata};
 use atomic_float::AtomicF32;
-use cpal::traits::HostTrait;
+use audio_common::{AudioBatch, AudioError, AudioSamples, Metadata};
 pub use bit_perfect::{BitPerfectIssue, BitPerfectStatus, UNITY_VOLUME_TOLERANCE};
+use cpal::traits::HostTrait;
 pub use cpal_stream::{
     AudioOutput, CpalOutputStream, OutputConfig, PlaybackState, SelectedOutputDevice,
 };
@@ -73,7 +73,10 @@ impl Output {
             .expect("Failed to resolve initial output device");
 
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&DEFAULT_CONFIG)));
-        let selected = SelectedOutputDevice { host: host.clone(), device };
+        let selected = SelectedOutputDevice {
+            host: host.clone(),
+            device,
+        };
         let stream = CpalOutputStream::new(buffer, DEFAULT_CONFIG, selected)
             .expect("Failed to create audio output stream");
 
@@ -200,7 +203,10 @@ impl Output {
                 return;
             }
         };
-        let selected = SelectedOutputDevice { host: self.host.clone(), device };
+        let selected = SelectedOutputDevice {
+            host: self.host.clone(),
+            device,
+        };
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&new_config)));
         match CpalOutputStream::new(buffer, new_config, selected) {
             Ok(stream) => {
@@ -237,7 +243,10 @@ impl Output {
             Ok(d) => d,
             Err(_) => return self.try_install_shared_on_default(config, resume_after),
         };
-        let selected = SelectedOutputDevice { host: self.host.clone(), device };
+        let selected = SelectedOutputDevice {
+            host: self.host.clone(),
+            device,
+        };
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(config)));
         match CpalOutputStream::new(buffer, *config, selected) {
             Ok(stream) => {
@@ -258,7 +267,10 @@ impl Output {
         let Some(device) = self.host.default_output_device() else {
             return false;
         };
-        let selected = SelectedOutputDevice { host: self.host.clone(), device: Arc::new(device) };
+        let selected = SelectedOutputDevice {
+            host: self.host.clone(),
+            device: Arc::new(device),
+        };
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(config)));
         match CpalOutputStream::new(buffer, *config, selected) {
             Ok(stream) => {
@@ -368,7 +380,10 @@ impl Output {
     }
 
     pub fn selected_device_name(&self) -> String {
-        self.device_manager.read().selected_device_name().to_string()
+        self.device_manager
+            .read()
+            .selected_device_name()
+            .to_string()
     }
 
     /// Index of the selected device in the current enumeration, or `None` if
@@ -378,7 +393,10 @@ impl Output {
     }
 
     pub fn devices(&self) -> Vec<device::OutputDeviceInfo> {
-        self.device_manager.read().output_devices().unwrap_or_default()
+        self.device_manager
+            .read()
+            .output_devices()
+            .unwrap_or_default()
     }
 
     pub fn select_device(&self, index: usize) -> Result<(), AudioError> {
@@ -413,7 +431,10 @@ impl Output {
             }
         } else {
             let device = self.device_manager.write().resolve_device()?;
-            let selected = SelectedOutputDevice { host: self.host.clone(), device };
+            let selected = SelectedOutputDevice {
+                host: self.host.clone(),
+                device,
+            };
             let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
             let stream = CpalOutputStream::new(buffer, config, selected)?;
             if was_playing {
@@ -492,7 +513,9 @@ impl Output {
     /// Returns the current bit-perfect status. No syscalls — reads only atomics.
     pub fn bit_perfect_status(&self) -> BitPerfectStatus {
         if !self.source_present.load(Ordering::Relaxed) {
-            return BitPerfectStatus { issues: vec![BitPerfectIssue::NoSource] };
+            return BitPerfectStatus {
+                issues: vec![BitPerfectIssue::NoSource],
+            };
         }
 
         let source_rate = self.source_sample_rate.load(Ordering::Relaxed);
@@ -506,13 +529,17 @@ impl Output {
             Some(OutputMode::Exclusive(excl)) => {
                 let snap = excl.device_snapshot();
                 if snap.hw_volume < 1.0 - UNITY_VOLUME_TOLERANCE {
-                    issues.push(BitPerfectIssue::SystemVolumeNotUnity { current: snap.hw_volume });
+                    issues.push(BitPerfectIssue::SystemVolumeNotUnity {
+                        current: snap.hw_volume,
+                    });
                 }
                 if snap.hw_muted {
                     issues.push(BitPerfectIssue::SystemMuted);
                 }
                 if snap.app_volume < 1.0 - UNITY_VOLUME_TOLERANCE {
-                    issues.push(BitPerfectIssue::AppVolumeNotUnity { current: snap.app_volume });
+                    issues.push(BitPerfectIssue::AppVolumeNotUnity {
+                        current: snap.app_volume,
+                    });
                 }
                 if snap.device_sample_rate != 0 && snap.device_sample_rate != source_rate {
                     issues.push(BitPerfectIssue::SampleRateMismatch {
@@ -524,7 +551,9 @@ impl Output {
         }
 
         if source_bits > 24 {
-            issues.push(BitPerfectIssue::BitDepthExceedsContainer { source: source_bits });
+            issues.push(BitPerfectIssue::BitDepthExceedsContainer {
+                source: source_bits,
+            });
         }
 
         BitPerfectStatus { issues }
@@ -538,7 +567,8 @@ impl AudioOutput for Output {
         // an integer source into F32 along the way, we lose precision: f32 has
         // only 24 mantissa bits, so anything > 24 *would* have exceeded that
         // container. Keep the claim so the indicator reflects the source.
-        self.source_sample_rate.store(batch.metadata.sample_rate, Ordering::Relaxed);
+        self.source_sample_rate
+            .store(batch.metadata.sample_rate, Ordering::Relaxed);
         let effective_bit_depth = match &batch.data {
             // F32 sources are inherently float — they "fit" their container.
             // Use a sentinel value (24) so the >24 check doesn't fire for
@@ -548,7 +578,8 @@ impl AudioOutput for Output {
             // Report the source's bit depth so the indicator flags it.
             _ => batch.metadata.bit_depth,
         };
-        self.source_bit_depth.store(effective_bit_depth, Ordering::Relaxed);
+        self.source_bit_depth
+            .store(effective_bit_depth, Ordering::Relaxed);
         self.source_present.store(true, Ordering::Relaxed);
 
         let needs_recreate = {
@@ -644,7 +675,10 @@ mod tests {
     #[test]
     fn new_lands_in_shared_mode_with_a_named_device() {
         let out = Output::new();
-        assert!(!out.is_exclusive(), "fresh Output must start in shared mode");
+        assert!(
+            !out.is_exclusive(),
+            "fresh Output must start in shared mode"
+        );
         assert!(
             !out.selected_device_name().is_empty(),
             "selected device must have a non-empty name"
@@ -654,7 +688,10 @@ mod tests {
     #[test]
     fn new_drains_no_events_and_has_no_source_status() {
         let out = Output::new();
-        assert!(out.drain_events().is_empty(), "no events queued before any I/O");
+        assert!(
+            out.drain_events().is_empty(),
+            "no events queued before any I/O"
+        );
         let s = out.bit_perfect_status();
         assert!(
             s.issues.contains(&BitPerfectIssue::NoSource),
@@ -669,7 +706,10 @@ mod tests {
         // Already in shared — turning exclusive off must succeed without producing
         // a hard error and must remain in shared mode.
         let res = out.set_exclusive(false);
-        assert!(res.is_ok(), "set_exclusive(false) is contractually infallible");
+        assert!(
+            res.is_ok(),
+            "set_exclusive(false) is contractually infallible"
+        );
         assert!(!out.is_exclusive());
     }
 
@@ -682,7 +722,10 @@ mod tests {
         let _ = out.set_exclusive(true);
         let res = out.set_exclusive(false);
         assert!(res.is_ok());
-        assert!(!out.is_exclusive(), "after exclusive-off we must be in shared mode");
+        assert!(
+            !out.is_exclusive(),
+            "after exclusive-off we must be in shared mode"
+        );
     }
 
     #[test]
@@ -712,7 +755,10 @@ mod tests {
         // index without knowing the host enumeration, so just test the None case.
         assert_eq!(out.selected_device_index(), None);
         let devs = out.devices();
-        assert!(!devs.is_empty(), "dev host should expose at least one device");
+        assert!(
+            !devs.is_empty(),
+            "dev host should expose at least one device"
+        );
     }
 
     #[test]

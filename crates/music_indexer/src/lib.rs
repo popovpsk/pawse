@@ -109,7 +109,10 @@ mod tests {
     #[test]
     fn test_read_metadata_year_unparseable() {
         let track = read_tagged_fixture("tagged_track_disc_slash.flac");
-        assert_eq!(track.year, None, "YEAR=2023-06-15 should fail to parse as i32");
+        assert_eq!(
+            track.year, None,
+            "YEAR=2023-06-15 should fail to parse as i32"
+        );
     }
 
     #[test]
@@ -218,7 +221,10 @@ mod tests {
     fn test_read_metadata_duration() {
         let track = read_tagged_fixture("tagged_basic.flac");
         let duration = track.duration_ms.unwrap();
-        assert!((400..=600).contains(&duration), "expected ~500ms, got {duration}ms");
+        assert!(
+            (400..=600).contains(&duration),
+            "expected ~500ms, got {duration}ms"
+        );
     }
 
     // ── Cover art discovery ───────────────────────────────────────────
@@ -358,7 +364,10 @@ mod tests {
         copy_fixture_wav(&audio_path);
 
         let track = read_metadata(&audio_path).expect("should read metadata");
-        assert_eq!(track.cover_art, None, "no cover art should be found in empty dir");
+        assert_eq!(
+            track.cover_art, None,
+            "no cover art should be found in empty dir"
+        );
     }
 
     #[test]
@@ -569,7 +578,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(tracks.len(), 1, "good file should still be processed after error");
+        assert_eq!(
+            tracks.len(),
+            1,
+            "good file should still be processed after error"
+        );
         assert!(tracks[0].ends_with("good.wav"));
 
         assert!(
@@ -878,7 +891,10 @@ FILE \"audio.wav\" WAVE
         assert_eq!(tracks.len(), 2);
 
         let last = &tracks[1];
-        assert!(last.duration_ms.unwrap() > 0, "last track duration should be computed from file duration minus offset");
+        assert!(
+            last.duration_ms.unwrap() > 0,
+            "last track duration should be computed from file duration minus offset"
+        );
     }
 
     #[test]

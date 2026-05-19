@@ -194,15 +194,14 @@ impl AudioEngineLoop {
         self.current_position += Duration::from_secs_f32(written_secs);
 
         if let Some(track_end) = self.track_end
-                && self.current_position >= track_end
-            {
-                return;
-            }
+            && self.current_position >= track_end
+        {
+            return;
+        }
 
         if self.state == AudioEngineState::Playing {
             let relative = self.current_position.saturating_sub(self.track_start);
-            if relative
-                .saturating_sub(self.last_position_update)
+            if relative.saturating_sub(self.last_position_update)
                 >= Duration::from_millis(POSITION_UPDATE_INTERVAL_MS)
             {
                 self.last_position_update = relative;

@@ -126,8 +126,7 @@ fn insert_scanned_track(
         .and_then(|data| repo.save_cover_art(data).ok());
 
     let album_id = if let Some(ref album_title) = track.album_title {
-        let album_id =
-            repo.upsert_album(album_title, track.year, cover_art_id)?;
+        let album_id = repo.upsert_album(album_title, track.year, cover_art_id)?;
 
         if !repo.album_has_artists(album_id)? {
             let album_artist_names = if !track.album_artist_names.is_empty() {

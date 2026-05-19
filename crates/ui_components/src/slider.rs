@@ -198,9 +198,7 @@ impl Render for Slider {
         } else {
             None
         };
-        let tooltip_text = tooltip_info.and_then(|v| {
-            self.tooltip_formatter.as_ref().map(|f| f(v))
-        });
+        let tooltip_text = tooltip_info.and_then(|v| self.tooltip_formatter.as_ref().map(|f| f(v)));
 
         let mut element = div()
             .id(("slider-track", entity_id))
@@ -235,12 +233,11 @@ impl Render for Slider {
                 this.hover_value = this.compute_value_at_position(event.position);
                 cx.notify();
             }))
-            .on_drag(
-                DragSlider(entity_id),
-                move |drag, _, _, cx| cx.new(|_| drag.clone()),
-            )
-            .on_drag_move(cx.listener(
-                move |this, e: &DragMoveEvent<DragSlider>, _window, cx| {
+            .on_drag(DragSlider(entity_id), move |drag, _, _, cx| {
+                cx.new(|_| drag.clone())
+            })
+            .on_drag_move(
+                cx.listener(move |this, e: &DragMoveEvent<DragSlider>, _window, cx| {
                     if this.disabled {
                         return;
                     }
@@ -254,8 +251,8 @@ impl Render for Slider {
                     if this.live_update {
                         cx.emit(SliderEvent::Change(this.value));
                     }
-                },
-            ))
+                }),
+            )
             // on_drop: fires when drag ends and payload is dropped onto this element.
             // Together with the global capture-phase mouse-up (in canvas below),
             // covers all drag-release scenarios. The `interacting` flag deduplicates.

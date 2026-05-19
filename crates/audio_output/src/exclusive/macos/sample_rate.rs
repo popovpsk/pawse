@@ -3,9 +3,9 @@ use std::ptr::{self, NonNull};
 
 use audio_common::AudioError;
 use objc2_core_audio::{
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectPropertyAddress,
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
-    AudioObjectPropertyAddress,
+    kAudioObjectPropertyScopeGlobal,
 };
 use objc2_core_audio_types::AudioValueRange;
 
@@ -37,7 +37,13 @@ pub(super) fn get_available_samplerates(device_id: u32) -> Result<Vec<i32>, Audi
         }
 
         let count = data_size as usize / mem::size_of::<AudioValueRange>();
-        let mut ranges = vec![AudioValueRange { mMinimum: 0.0, mMaximum: 0.0 }; count];
+        let mut ranges = vec![
+            AudioValueRange {
+                mMinimum: 0.0,
+                mMaximum: 0.0
+            };
+            count
+        ];
 
         let status = AudioObjectGetPropertyData(
             device_id,

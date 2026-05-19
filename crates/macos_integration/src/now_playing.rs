@@ -1,13 +1,12 @@
 use media_integration::{MediaPlaybackState, NowPlayingInfo};
+use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::AnyThread;
 use objc2_foundation::{NSMutableDictionary, NSNumber, NSString};
 use objc2_media_player::{
-    MPNowPlayingInfoCenter, MPNowPlayingInfoPropertyElapsedPlaybackTime,
+    MPMediaItemPropertyAlbumTitle, MPMediaItemPropertyArtist, MPMediaItemPropertyPlaybackDuration,
+    MPMediaItemPropertyTitle, MPNowPlayingInfoCenter, MPNowPlayingInfoPropertyElapsedPlaybackTime,
     MPNowPlayingInfoPropertyPlaybackRate, MPNowPlayingPlaybackState,
-    MPMediaItemPropertyAlbumTitle, MPMediaItemPropertyArtist,
-    MPMediaItemPropertyPlaybackDuration, MPMediaItemPropertyTitle,
 };
 
 pub fn update_now_playing_info(info: &NowPlayingInfo, playback_rate: f64) {
@@ -116,9 +115,7 @@ pub fn load_artwork(
     let path_str = path.to_str()?;
     let image = NSImage::initWithContentsOfFile(NSImage::alloc(), &NSString::from_str(path_str))?;
 
-    let block = RcBlock::new(move |_size: CGSize| -> NonNull<NSImage> {
-        NonNull::from(&*image)
-    });
+    let block = RcBlock::new(move |_size: CGSize| -> NonNull<NSImage> { NonNull::from(&*image) });
 
     let artwork = unsafe {
         MPMediaItemArtwork::initWithBoundsSize_requestHandler(

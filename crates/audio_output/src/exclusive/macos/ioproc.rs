@@ -4,11 +4,11 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use audio_common::AudioError;
 use atomic_float::AtomicF32;
+use audio_common::AudioError;
 use objc2_core_audio::{
-    AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID,
-    AudioDeviceStart, AudioDeviceStop, AudioObjectID,
+    AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart,
+    AudioDeviceStop, AudioObjectID,
 };
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 

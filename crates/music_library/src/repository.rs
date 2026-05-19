@@ -1,5 +1,5 @@
-use crate::models::{AlbumSearchEntry, AlbumSummary, CoverArt, NewTrack, Track};
 use crate::error::Result;
+use crate::models::{AlbumSearchEntry, AlbumSummary, CoverArt, NewTrack, Track};
 
 pub trait LibraryRepository: Send + Sync {
     fn upsert_artist(&self, name: &str) -> Result<i64>;

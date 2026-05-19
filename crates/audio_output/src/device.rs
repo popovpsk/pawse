@@ -59,7 +59,11 @@ impl DeviceManager {
                 let name = device_display_name(&d);
                 let uid = device_uid(&d).unwrap_or_default();
                 let is_default = default_uid.as_deref() == Some(uid.as_str());
-                OutputDeviceInfo { name, uid, is_default }
+                OutputDeviceInfo {
+                    name,
+                    uid,
+                    is_default,
+                }
             })
             .collect();
 
@@ -203,7 +207,10 @@ mod tests {
             m.selected_uid().is_none(),
             "new manager should follow system default (no explicit UID pinned)"
         );
-        assert!(!m.selected_device_name().is_empty(), "default device should have a name");
+        assert!(
+            !m.selected_device_name().is_empty(),
+            "default device should have a name"
+        );
     }
 
     #[test]
@@ -218,7 +225,10 @@ mod tests {
     fn resolve_uid_returns_non_empty_string_for_default() {
         let mut m = make_manager();
         let uid = m.resolve_uid().expect("default device should expose a UID");
-        assert!(!uid.is_empty(), "system default device UID must be non-empty");
+        assert!(
+            !uid.is_empty(),
+            "system default device UID must be non-empty"
+        );
     }
 
     #[test]
@@ -240,7 +250,9 @@ mod tests {
     fn resolve_falls_back_to_default_when_pinned_uid_is_unknown() {
         let mut m = make_manager();
         m.selected_uid = Some("definitely-not-a-real-device-uid-xyz123".to_string());
-        let _device = m.resolve_device().expect("fallback to default must succeed");
+        let _device = m
+            .resolve_device()
+            .expect("fallback to default must succeed");
         assert!(
             m.selected_uid().is_none(),
             "stale selection should be cleared after fallback"
@@ -251,8 +263,14 @@ mod tests {
     fn output_devices_returns_at_least_one_on_dev_machine() {
         let m = make_manager();
         let devices = m.output_devices().expect("enumeration must succeed");
-        assert!(!devices.is_empty(), "dev machine should expose at least one output device");
+        assert!(
+            !devices.is_empty(),
+            "dev machine should expose at least one output device"
+        );
         let default_count = devices.iter().filter(|d| d.is_default).count();
-        assert!(default_count <= 1, "at most one device should be marked default");
+        assert!(
+            default_count <= 1,
+            "at most one device should be marked default"
+        );
     }
 }

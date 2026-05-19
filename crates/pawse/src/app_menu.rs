@@ -1,12 +1,6 @@
 use gpui::{Menu, MenuItem, actions};
 
-actions!(
-    pawse,
-    [
-        Rescan,
-        Quit,
-    ]
-);
+actions!(pawse, [Rescan, Quit,]);
 
 pub fn app_menus() -> Vec<Menu> {
     vec![

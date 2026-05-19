@@ -119,8 +119,7 @@ fn library_group() -> SettingGroup {
                             .rounded(px(6.))
                             .bg(cx.theme().muted)
                             .child(
-                                Icon::new(IconName::Folder)
-                                    .text_color(cx.theme().muted_foreground),
+                                Icon::new(IconName::Folder).text_color(cx.theme().muted_foreground),
                             )
                             .child(
                                 div()
@@ -141,16 +140,13 @@ fn library_group() -> SettingGroup {
                             )
                             .when_some(folder, |row, path| {
                                 let path_for_finder = path.clone();
-                                row.child(
-                                    Button::new("rescan")
-                                        .ghost()
-                                        .label("Rescan")
-                                        .on_click(move |_, _, cx| {
-                                            cx.global::<Services>()
-                                                .library
-                                                .clear_and_rescan(path.clone());
-                                        }),
-                                )
+                                row.child(Button::new("rescan").ghost().label("Rescan").on_click(
+                                    move |_, _, cx| {
+                                        cx.global::<Services>()
+                                            .library
+                                            .clear_and_rescan(path.clone());
+                                    },
+                                ))
                                 .child(
                                     Button::new("show-in-finder")
                                         .ghost()

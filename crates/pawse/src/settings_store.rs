@@ -238,7 +238,8 @@ mod tests {
         let path = tmp_settings_path();
         let store = {
             let mut s = SettingsStore::load_from(path.clone());
-            s.set_theme(ThemeChoice::Named("Solarized Light".into())).unwrap();
+            s.set_theme(ThemeChoice::Named("Solarized Light".into()))
+                .unwrap();
             s
         };
 
@@ -284,8 +285,14 @@ mod tests {
     fn theme_choice_serde_roundtrip() {
         for (choice, expected) in [
             (ThemeChoice::System, "\"system\""),
-            (ThemeChoice::Named("Solarized Dark".into()), "\"Solarized Dark\""),
-            (ThemeChoice::Named("Default Light".into()), "\"Default Light\""),
+            (
+                ThemeChoice::Named("Solarized Dark".into()),
+                "\"Solarized Dark\"",
+            ),
+            (
+                ThemeChoice::Named("Default Light".into()),
+                "\"Default Light\"",
+            ),
         ] {
             let s = serde_json::to_string(&choice).unwrap();
             assert_eq!(s, expected);

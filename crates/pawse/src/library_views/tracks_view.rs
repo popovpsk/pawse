@@ -3,7 +3,7 @@ use std::rc::Rc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, ElementId, Entity, FontWeight, Hsla, InteractiveElement, IntoElement,
+    AppContext, Context, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, Subscription, Window,
     div, px, size, svg,
 };
@@ -57,49 +57,50 @@ impl TracksView {
             .map(|t| t.id);
         let album_info = cx.new(|_cx| AlbumInfo::new(album));
 
-        let subscription = cx.subscribe(
-            &engine_event_bus,
-            |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => {
-                    let id = cx
-                        .global::<Services>()
-                        .playback_queue
-                        .borrow()
-                        .current_track()
-                        .map(|t| t.id);
-                    if this.current_track_id != id || !this.is_playing {
-                        this.current_track_id = id;
+        let subscription =
+            cx.subscribe(
+                &engine_event_bus,
+                |this, _, event: &EngineEvent, cx| match event {
+                    EngineEvent::Loaded { .. } => {
+                        let id = cx
+                            .global::<Services>()
+                            .playback_queue
+                            .borrow()
+                            .current_track()
+                            .map(|t| t.id);
+                        if this.current_track_id != id || !this.is_playing {
+                            this.current_track_id = id;
+                            this.is_playing = true;
+                            cx.notify();
+                        }
+                    }
+                    EngineEvent::Playing if !this.is_playing => {
                         this.is_playing = true;
                         cx.notify();
                     }
-                }
-                EngineEvent::Playing if !this.is_playing => {
-                    this.is_playing = true;
-                    cx.notify();
-                }
-                EngineEvent::Paused if this.is_playing => {
-                    this.is_playing = false;
-                    cx.notify();
-                }
-                EngineEvent::TrackEnded => {
-                    if this.is_playing {
+                    EngineEvent::Paused if this.is_playing => {
                         this.is_playing = false;
                         cx.notify();
                     }
-                    let queue_empty = cx
-                        .global::<Services>()
-                        .playback_queue
-                        .borrow()
-                        .current_track()
-                        .is_none();
-                    if queue_empty && this.current_track_id.is_some() {
-                        this.current_track_id = None;
-                        cx.notify();
+                    EngineEvent::TrackEnded => {
+                        if this.is_playing {
+                            this.is_playing = false;
+                            cx.notify();
+                        }
+                        let queue_empty = cx
+                            .global::<Services>()
+                            .playback_queue
+                            .borrow()
+                            .current_track()
+                            .is_none();
+                        if queue_empty && this.current_track_id.is_some() {
+                            this.current_track_id = None;
+                            cx.notify();
+                        }
                     }
-                }
-                _ => {}
-            },
-        );
+                    _ => {}
+                },
+            );
 
         Self {
             tracks_all,
@@ -158,11 +159,7 @@ impl TracksView {
         if self.filter.is_empty() {
             self.tracks = self.tracks_all.clone();
         } else {
-            let pattern = Pattern::parse(
-                &self.filter,
-                CaseMatching::Ignore,
-                Normalization::Smart,
-            );
+            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let mut buf: Vec<char> = Vec::new();
             let mut scored: Vec<(music_library::Track, u32)> = self
                 .tracks_all
@@ -213,12 +210,7 @@ impl Render for TracksView {
                                 .px_4()
                                 .items_center()
                                 .border_b(px(1.))
-                                .border_color(Hsla {
-                                    h: 0.,
-                                    s: 0.,
-                                    l: 1.,
-                                    a: 0.1,
-                                })
+                                .border_color(cx.theme().border)
                                 .child(
                                     div()
                                         .text_sm()
@@ -249,14 +241,9 @@ impl Render for TracksView {
                                     .h(px(TRACK_ROW_HEIGHT))
                                     .px_4()
                                     .gap_2()
-                                    .border_b(px(1.))
-                                    .border_color(Hsla {
-                                        h: 0.,
-                                        s: 0.,
-                                        l: 1.,
-                                        a: 0.1,
-                                    })
                                     .cursor(gpui::CursorStyle::PointingHand)
+                                    .border_b(px(1.))
+                                    .border_color(cx.theme().border)
                                     .when(is_current, |style| style.bg(cx.theme().secondary))
                                     .hover(|style| style.bg(cx.theme().secondary))
                                     .child(if is_current {
@@ -277,10 +264,7 @@ impl Render for TracksView {
                                             )
                                             .into_any_element()
                                     } else {
-                                        div()
-                                            .w_8()
-                                            .child(track_num_str)
-                                            .into_any_element()
+                                        div().w_8().child(track_num_str).into_any_element()
                                     })
                                     .child(
                                         div()
@@ -298,7 +282,8 @@ impl Render for TracksView {
                                         let services = _cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
                                         queue.set_tracks(this.tracks.clone());
-                                        if let Some(track) = queue.play_track_at(track_ix).cloned() {
+                                        if let Some(track) = queue.play_track_at(track_ix).cloned()
+                                        {
                                             services.play_track(&track);
                                         }
                                     }))

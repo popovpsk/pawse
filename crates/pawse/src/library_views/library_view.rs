@@ -1,4 +1,7 @@
-use gpui::{AppContext, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled, Subscription, Window, div};
+use gpui::{
+    AppContext, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
+    Subscription, Window, div,
+};
 use gpui_component::v_flex;
 
 use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView};
@@ -25,12 +28,10 @@ impl LibraryView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let albums_view = cx.new(|cx| AlbumsView::new(window, cx));
 
-        let album_subscription = cx.subscribe(
-            &albums_view,
-            |this, _, event: &AlbumSelectedEvent, cx| {
+        let album_subscription =
+            cx.subscribe(&albums_view, |this, _, event: &AlbumSelectedEvent, cx| {
                 this.show_tracks(event.album.clone(), cx);
-            },
-        );
+            });
 
         Self {
             state: LibraryViewState::Albums,
@@ -47,8 +48,7 @@ impl LibraryView {
     pub fn apply_search(&mut self, query: &str, cx: &mut Context<Self>) {
         match self.state {
             LibraryViewState::Albums => {
-                self.albums_view
-                    .update(cx, |v, cx| v.set_filter(query, cx));
+                self.albums_view.update(cx, |v, cx| v.set_filter(query, cx));
             }
             LibraryViewState::Tracks => {
                 if let Some(tv) = &self.tracks_view {
@@ -78,20 +78,15 @@ impl EventEmitter<LibraryViewEvent> for LibraryView {}
 
 impl Render for LibraryView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .relative()
-            .size_full()
-            .child(match self.state {
-                LibraryViewState::Albums => v_flex()
-                    .size_full()
-                    .child(self.albums_view.clone()),
-                LibraryViewState::Tracks => {
-                    if let Some(ref tracks_view) = self.tracks_view {
-                        v_flex().size_full().child(tracks_view.clone())
-                    } else {
-                        v_flex().size_full()
-                    }
+        div().relative().size_full().child(match self.state {
+            LibraryViewState::Albums => v_flex().size_full().child(self.albums_view.clone()),
+            LibraryViewState::Tracks => {
+                if let Some(ref tracks_view) = self.tracks_view {
+                    v_flex().size_full().child(tracks_view.clone())
+                } else {
+                    v_flex().size_full()
                 }
-            })
+            }
+        })
     }
 }

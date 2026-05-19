@@ -1,20 +1,19 @@
 use std::mem;
 use std::os::raw::c_void;
 use std::ptr::{self, NonNull};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use objc2_core_audio::{
-    kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyMute,
-    kAudioDevicePropertyVolumeScalar, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeOutput,
     AudioObjectAddPropertyListener, AudioObjectGetPropertyData, AudioObjectHasProperty,
     AudioObjectID, AudioObjectPropertyAddress, AudioObjectRemovePropertyListener,
-    AudioObjectSetPropertyData,
+    AudioObjectSetPropertyData, kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyMute,
+    kAudioDevicePropertyVolumeScalar, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeOutput,
 };
 
-use super::format::{get_stream_format_addr, read_device_format};
 use super::MacosShared;
+use super::format::{get_stream_format_addr, read_device_format};
 use crate::exclusive::ExclusiveEvent;
 
 // ----- Format-change listener ------------------------------------------------
@@ -203,17 +202,19 @@ fn vol_addr(element: u32) -> AudioObjectPropertyAddress {
 fn read_hw_volume(device_id: u32, channels: u8) -> f32 {
     let main_addr = vol_addr(kAudioObjectPropertyElementMain);
     if unsafe { AudioObjectHasProperty(device_id, NonNull::from(&main_addr)) }
-        && let Some(v) = read_f32_property(device_id, &main_addr) {
-            return v;
-        }
+        && let Some(v) = read_f32_property(device_id, &main_addr)
+    {
+        return v;
+    }
     let mut min_vol = 1.0f32;
     for ch in 1..=channels {
         let addr = vol_addr(ch as u32);
         if unsafe { AudioObjectHasProperty(device_id, NonNull::from(&addr)) }
             && let Some(v) = read_f32_property(device_id, &addr)
-                && v < min_vol {
-                    min_vol = v;
-                }
+            && v < min_vol
+        {
+            min_vol = v;
+        }
     }
     min_vol
 }
@@ -307,7 +308,10 @@ pub(super) fn register_volume_listener(
             )
         };
         if status != 0 {
-            eprintln!("coreaudio: AudioObjectAddPropertyListener (volume): {:#x}", status);
+            eprintln!(
+                "coreaudio: AudioObjectAddPropertyListener (volume): {:#x}",
+                status
+            );
             let e = unsafe { Box::from_raw(entry) };
             unsafe { drop(Arc::from_raw(e.shared_raw as *const MacosShared)) };
         } else {
@@ -366,16 +370,18 @@ fn mute_addr(element: u32) -> AudioObjectPropertyAddress {
 fn read_hw_muted(device_id: u32, channels: u8) -> bool {
     let main_addr = mute_addr(kAudioObjectPropertyElementMain);
     if unsafe { AudioObjectHasProperty(device_id, NonNull::from(&main_addr)) }
-        && let Some(v) = read_u32_property(device_id, &main_addr) {
-            return v != 0;
-        }
+        && let Some(v) = read_u32_property(device_id, &main_addr)
+    {
+        return v != 0;
+    }
     for ch in 1..=channels {
         let addr = mute_addr(ch as u32);
         if unsafe { AudioObjectHasProperty(device_id, NonNull::from(&addr)) }
             && let Some(v) = read_u32_property(device_id, &addr)
-                && v != 0 {
-                    return true;
-                }
+            && v != 0
+        {
+            return true;
+        }
     }
     false
 }
@@ -431,7 +437,10 @@ pub(super) fn register_mute_listener(
             )
         };
         if status != 0 {
-            eprintln!("coreaudio: AudioObjectAddPropertyListener (mute): {:#x}", status);
+            eprintln!(
+                "coreaudio: AudioObjectAddPropertyListener (mute): {:#x}",
+                status
+            );
             let e = unsafe { Box::from_raw(entry) };
             unsafe { drop(Arc::from_raw(e.shared_raw as *const MacosShared)) };
         } else {

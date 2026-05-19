@@ -211,22 +211,26 @@ impl CueParser {
                 }
                 "INDEX" if cmd_parts.len() >= 3 => {
                     let index_num: u32 =
-                        cmd_parts[1].parse().map_err(|_| CueParseError::SyntaxError {
-                            line: sub_line.number,
-                            message: "invalid INDEX number".into(),
-                        })?;
-                    let position = parse_mmssff(&cmd_parts[2]).ok_or_else(|| {
-                        CueParseError::SyntaxError {
+                        cmd_parts[1]
+                            .parse()
+                            .map_err(|_| CueParseError::SyntaxError {
+                                line: sub_line.number,
+                                message: "invalid INDEX number".into(),
+                            })?;
+                    let position =
+                        parse_mmssff(&cmd_parts[2]).ok_or_else(|| CueParseError::SyntaxError {
                             line: sub_line.number,
                             message: format!("invalid INDEX time: {}", cmd_parts[2]),
-                        }
-                    })?;
+                        })?;
                     track.indices.push(CueIndex {
                         number: index_num,
                         position,
                     });
                 }
-                "PREGAP" if cmd_parts.len() >= 2 && let Some(dur) = parse_mmssff(&cmd_parts[1]) => {
+                "PREGAP"
+                    if cmd_parts.len() >= 2
+                        && let Some(dur) = parse_mmssff(&cmd_parts[1]) =>
+                {
                     track.pregap = Some(dur);
                 }
                 "TRACK" | "FILE" => break,
@@ -269,11 +273,7 @@ fn parse_file_directive(line: &str) -> Result<(String, String), CueParseError> {
         (name, rest)
     };
 
-    let file_type = rest
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let file_type = rest.split_whitespace().next().unwrap_or("").to_string();
     if file_type.is_empty() {
         return Err(CueParseError::SyntaxError {
             line: 0,

@@ -12,7 +12,7 @@ mod now_playing;
 mod remote_command;
 
 use now_playing::{load_artwork, update_now_playing_info, update_position_info};
-use remote_command::{register_remote_commands, RegisteredCommands};
+use remote_command::{RegisteredCommands, register_remote_commands};
 
 pub struct MacOsIntegration {
     _commands: RegisteredCommands,
@@ -68,8 +68,9 @@ impl SystemMediaIntegration for MacOsIntegration {
         if let Some(ref artwork) = *cached {
             unsafe {
                 let center = objc2_media_player::MPNowPlayingInfoCenter::defaultCenter();
-                let dict: Retained<objc2_foundation::NSMutableDictionary<objc2_foundation::NSString>> =
-                    objc2_foundation::NSMutableDictionary::dictionary();
+                let dict: Retained<
+                    objc2_foundation::NSMutableDictionary<objc2_foundation::NSString>,
+                > = objc2_foundation::NSMutableDictionary::dictionary();
                 if let Some(prev) = center.nowPlayingInfo() {
                     dict.addEntriesFromDictionary(&prev);
                 }

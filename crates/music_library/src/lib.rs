@@ -52,7 +52,10 @@ mod tests {
         let (lib, _path) = create_test_db();
         let album_id = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
         let album_id2 = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
-        assert_eq!(album_id, album_id2, "upsert should return same id for same album");
+        assert_eq!(
+            album_id, album_id2,
+            "upsert should return same id for same album"
+        );
     }
 
     #[test]
@@ -61,7 +64,8 @@ mod tests {
         let artist1 = lib.upsert_artist("The Beatles").unwrap();
         let artist2 = lib.upsert_artist("Billy Preston").unwrap();
         let album_id = lib.upsert_album("Let It Be", Some(1970), None).unwrap();
-        lib.set_album_artists(album_id, &[(artist1, 0), (artist2, 1)]).unwrap();
+        lib.set_album_artists(album_id, &[(artist1, 0), (artist2, 1)])
+            .unwrap();
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
@@ -88,7 +92,9 @@ mod tests {
             cover_art_id: None,
             start_offset_ms: None,
         };
-        let _track_id = lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
+        let _track_id = lib
+            .upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
 
         let tracks = lib.tracks_for_album(album_id).unwrap();
         assert_eq!(tracks.len(), 1);
@@ -134,7 +140,8 @@ mod tests {
             cover_art_id: None,
             start_offset_ms: None,
         };
-        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
 
         let results = lib.search("Song").unwrap();
         assert_eq!(results.len(), 1);
@@ -161,7 +168,8 @@ mod tests {
             cover_art_id: None,
             start_offset_ms: None,
         };
-        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
 
         assert!(lib.has_tracks().unwrap());
         lib.clear().unwrap();
@@ -188,7 +196,9 @@ mod tests {
             cover_art_id: None,
             start_offset_ms: None,
         };
-        let _track_id = lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
+        let _track_id = lib
+            .upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
         let tracks = lib.tracks_for_album(album_id).unwrap();
         assert_eq!(tracks[0].title, "Unknown Title");
     }
@@ -199,7 +209,9 @@ mod tests {
         let album_artist_id = lib.upsert_artist("Album Artist").unwrap();
         let track1_artist_id = lib.upsert_artist("Artist One").unwrap();
         let track2_artist_id = lib.upsert_artist("Artist Two").unwrap();
-        let album_id = lib.upsert_album("Multi-Disc Album", Some(2020), None).unwrap();
+        let album_id = lib
+            .upsert_album("Multi-Disc Album", Some(2020), None)
+            .unwrap();
 
         let track1 = NewTrack {
             path: "/music/disc1/track01.flac".into(),
@@ -228,9 +240,12 @@ mod tests {
             start_offset_ms: None,
         };
 
-        lib.upsert_track(&track1, Some(album_id), &[(track1_artist_id, 0)]).unwrap();
-        lib.upsert_track(&track2, Some(album_id), &[(track2_artist_id, 0)]).unwrap();
-        lib.set_album_artists(album_id, &[(album_artist_id, 0)]).unwrap();
+        lib.upsert_track(&track1, Some(album_id), &[(track1_artist_id, 0)])
+            .unwrap();
+        lib.upsert_track(&track2, Some(album_id), &[(track2_artist_id, 0)])
+            .unwrap();
+        lib.set_album_artists(album_id, &[(album_artist_id, 0)])
+            .unwrap();
 
         let tracks = lib.tracks_for_album(album_id).unwrap();
         assert_eq!(tracks.len(), 2);
@@ -275,7 +290,10 @@ mod tests {
     fn test_album_title_found() {
         let (lib, _path) = create_test_db();
         let album_id = lib.upsert_album("Test Album", Some(2000), None).unwrap();
-        assert_eq!(lib.album_title(album_id).unwrap(), Some("Test Album".into()));
+        assert_eq!(
+            lib.album_title(album_id).unwrap(),
+            Some("Test Album".into())
+        );
     }
 
     #[test]
@@ -360,7 +378,8 @@ mod tests {
 
         let artist_id2 = lib.upsert_artist("Artist").unwrap();
         let album_id2 = lib.upsert_album("Album", None, None).unwrap();
-        lib.set_album_artists(album_id2, &[(artist_id2, 0)]).unwrap();
+        lib.set_album_artists(album_id2, &[(artist_id2, 0)])
+            .unwrap();
         lib.upsert_track(&track, Some(album_id2), &[(artist_id2, 0)])
             .unwrap();
         assert!(lib.has_tracks().unwrap());
@@ -481,7 +500,11 @@ mod tests {
         let color = if bytes.is_empty() {
             image::Rgb([0, 0, 0])
         } else {
-            image::Rgb([bytes[0], bytes.get(1).copied().unwrap_or(0), bytes.get(2).copied().unwrap_or(0)])
+            image::Rgb([
+                bytes[0],
+                bytes.get(1).copied().unwrap_or(0),
+                bytes.get(2).copied().unwrap_or(0),
+            ])
         };
         let img = image::RgbImage::from_pixel(4, 4, color);
         let mut buf = std::io::Cursor::new(Vec::new());
@@ -532,7 +555,9 @@ mod tests {
         let cover_id = lib.save_cover_art(&data).unwrap();
 
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib.upsert_album("Album", Some(2020), Some(cover_id)).unwrap();
+        let album_id = lib
+            .upsert_album("Album", Some(2020), Some(cover_id))
+            .unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let track = NewTrack {
@@ -548,7 +573,8 @@ mod tests {
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
         };
-        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)]).unwrap();
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums[0].cover_art_id, Some(cover_id));
@@ -602,8 +628,10 @@ mod tests {
             start_offset_ms: None,
         };
 
-        lib.upsert_track(&track1, Some(album1), &[(artist_id, 0)]).unwrap();
-        lib.upsert_track(&track2, Some(album2), &[(artist_id, 0)]).unwrap();
+        lib.upsert_track(&track1, Some(album1), &[(artist_id, 0)])
+            .unwrap();
+        lib.upsert_track(&track2, Some(album2), &[(artist_id, 0)])
+            .unwrap();
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 2);
@@ -637,7 +665,9 @@ mod tests {
         let artist_id = lib.upsert_artist("Test Artist").unwrap();
 
         // Step 3: Upsert album with cover_art_id
-        let album_id = lib.upsert_album("Test Album", Some(2024), Some(cover_art_id)).unwrap();
+        let album_id = lib
+            .upsert_album("Test Album", Some(2024), Some(cover_art_id))
+            .unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         // Step 4: Build NewTrack with cover_art_id (no raw bytes)
@@ -654,7 +684,8 @@ mod tests {
             cover_art_id: Some(cover_art_id),
             start_offset_ms: None,
         };
-        lib.upsert_track(&new_track, Some(album_id), &[(artist_id, 0)]).unwrap();
+        lib.upsert_track(&new_track, Some(album_id), &[(artist_id, 0)])
+            .unwrap();
 
         // Step 5: Verify album summary has cover_art_id
         let albums = lib.albums().unwrap();

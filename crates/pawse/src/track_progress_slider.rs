@@ -63,56 +63,57 @@ impl TrackProgressSlider {
                 }
             });
 
-        let subscription = cx.subscribe(
-            &engine_event_bus,
-            |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { duration, .. } => {
-                    this.duration_secs = duration.as_secs_f32();
-                    this.current_position_secs = 0.0;
-                    this.has_track = true;
-                    let duration_secs = this.duration_secs;
-                    this.slider.update(cx, |slider, cx| {
-                        slider.set_value_silent(0.0, cx);
-                        slider.set_disabled(false, cx);
-                        slider.set_tooltip_formatter(
-                            Some(Box::new(move |value| {
-                                Self::format_time(value * duration_secs)
-                            })),
-                            cx,
-                        );
-                    });
-                    cx.notify();
-                }
-                EngineEvent::PositionChanged(position) => {
-                    if !this.has_track || this.slider.read(cx).is_interacting() {
-                        return;
+        let subscription =
+            cx.subscribe(
+                &engine_event_bus,
+                |this, _, event: &EngineEvent, cx| match event {
+                    EngineEvent::Loaded { duration, .. } => {
+                        this.duration_secs = duration.as_secs_f32();
+                        this.current_position_secs = 0.0;
+                        this.has_track = true;
+                        let duration_secs = this.duration_secs;
+                        this.slider.update(cx, |slider, cx| {
+                            slider.set_value_silent(0.0, cx);
+                            slider.set_disabled(false, cx);
+                            slider.set_tooltip_formatter(
+                                Some(Box::new(move |value| {
+                                    Self::format_time(value * duration_secs)
+                                })),
+                                cx,
+                            );
+                        });
+                        cx.notify();
                     }
-                    let new_position = position.as_secs_f32();
-                    this.current_position_secs = new_position;
-                    let value = if this.duration_secs > 0.0 {
-                        new_position / this.duration_secs
-                    } else {
-                        0.0
-                    };
-                    this.slider.update(cx, |slider, cx| {
-                        slider.set_value_silent(value, cx);
-                    });
-                    cx.notify();
-                }
-                EngineEvent::TrackEnded | EngineEvent::Error(_) => {
-                    this.has_track = false;
-                    this.current_position_secs = 0.0;
-                    this.duration_secs = 0.0;
-                    this.slider.update(cx, |slider, cx| {
-                        slider.set_value_silent(0.0, cx);
-                        slider.set_disabled(true, cx);
-                        slider.set_tooltip_formatter(None, cx);
-                    });
-                    cx.notify();
-                }
-                _ => {}
-            },
-        );
+                    EngineEvent::PositionChanged(position) => {
+                        if !this.has_track || this.slider.read(cx).is_interacting() {
+                            return;
+                        }
+                        let new_position = position.as_secs_f32();
+                        this.current_position_secs = new_position;
+                        let value = if this.duration_secs > 0.0 {
+                            new_position / this.duration_secs
+                        } else {
+                            0.0
+                        };
+                        this.slider.update(cx, |slider, cx| {
+                            slider.set_value_silent(value, cx);
+                        });
+                        cx.notify();
+                    }
+                    EngineEvent::TrackEnded | EngineEvent::Error(_) => {
+                        this.has_track = false;
+                        this.current_position_secs = 0.0;
+                        this.duration_secs = 0.0;
+                        this.slider.update(cx, |slider, cx| {
+                            slider.set_value_silent(0.0, cx);
+                            slider.set_disabled(true, cx);
+                            slider.set_tooltip_formatter(None, cx);
+                        });
+                        cx.notify();
+                    }
+                    _ => {}
+                },
+            );
 
         Self {
             duration_secs: 0.0,

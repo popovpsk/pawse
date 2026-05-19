@@ -73,7 +73,10 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         }
 
         // Cover art
-        if let Some(pic) = tag.pictures().iter().find(|p| p.pic_type() == PictureType::CoverFront)
+        if let Some(pic) = tag
+            .pictures()
+            .iter()
+            .find(|p| p.pic_type() == PictureType::CoverFront)
             .or_else(|| tag.pictures().first())
         {
             cover_art = Some(pic.data().to_vec());
@@ -128,8 +131,7 @@ pub fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
 }
 
 const ARTWORK_DIR_NAMES: &[&str] = &[
-    "artwork", "art", "covers", "scans",
-    "images", "img", "pics", "folder", "booklet",
+    "artwork", "art", "covers", "scans", "images", "img", "pics", "folder", "booklet",
 ];
 
 fn find_cover_in_subdirs(dir: &Path) -> Option<Vec<u8>> {
@@ -201,14 +203,19 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
         } else if is_red_ops_front {
             candidates.push((-50, entry.path()));
         } else if !is_negative {
-            let size = std::fs::metadata(entry.path()).map(|m| m.len()).unwrap_or(0);
+            let size = std::fs::metadata(entry.path())
+                .map(|m| m.len())
+                .unwrap_or(0);
             fallback.push((size, entry.path()));
         }
     }
 
     if !candidates.is_empty() {
         candidates.sort_by_key(|(p, _)| *p);
-        return candidates.into_iter().next().and_then(|(_, p)| std::fs::read(p).ok());
+        return candidates
+            .into_iter()
+            .next()
+            .and_then(|(_, p)| std::fs::read(p).ok());
     }
 
     fallback.sort_by_key(|(size, _)| std::cmp::Reverse(*size));
@@ -221,12 +228,9 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
 fn contains_word(haystack: &str, needle: &str) -> bool {
     haystack.match_indices(needle).any(|(start, _)| {
         let end = start + needle.len();
-        let left_bound = start == 0 || {
-            !haystack.as_bytes()[start - 1].is_ascii_alphanumeric()
-        };
-        let right_bound = end == haystack.len() || {
-            !haystack.as_bytes()[end].is_ascii_alphanumeric()
-        };
+        let left_bound = start == 0 || { !haystack.as_bytes()[start - 1].is_ascii_alphanumeric() };
+        let right_bound =
+            end == haystack.len() || { !haystack.as_bytes()[end].is_ascii_alphanumeric() };
         left_bound && right_bound
     })
 }

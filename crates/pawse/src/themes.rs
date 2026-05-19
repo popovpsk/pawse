@@ -17,9 +17,15 @@ const BUNDLED_THEMES: &[(&str, &str)] = &[
     ("hybrid.json", include_str!("../themes/hybrid.json")),
     ("jellybeans.json", include_str!("../themes/jellybeans.json")),
     ("kibble.json", include_str!("../themes/kibble.json")),
-    ("macos-classic.json", include_str!("../themes/macos-classic.json")),
+    (
+        "macos-classic.json",
+        include_str!("../themes/macos-classic.json"),
+    ),
     ("matrix.json", include_str!("../themes/matrix.json")),
-    ("mellifluous.json", include_str!("../themes/mellifluous.json")),
+    (
+        "mellifluous.json",
+        include_str!("../themes/mellifluous.json"),
+    ),
     ("molokai.json", include_str!("../themes/molokai.json")),
     ("solarized.json", include_str!("../themes/solarized.json")),
     ("spaceduck.json", include_str!("../themes/spaceduck.json")),

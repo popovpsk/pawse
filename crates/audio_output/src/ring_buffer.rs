@@ -1,4 +1,4 @@
-use rb::{RbConsumer, RbError, RbInspector, RbProducer, SpscRb, RB};
+use rb::{RB, RbConsumer, RbError, RbInspector, RbProducer, SpscRb};
 
 /// Lock-free SPSC ring buffer for audio samples
 pub struct AudioRingBuffer {

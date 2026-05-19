@@ -6,7 +6,7 @@ use audio_engine::EngineEvent;
 use gpui::{App, AsyncApp, Context, Entity, Subscription, Window};
 use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
-use crate::playback_queue::{PreviousAction, PlaybackQueue};
+use crate::playback_queue::{PlaybackQueue, PreviousAction};
 use crate::services::{EngineEventsBus, Services};
 
 pub struct MediaBridge {
@@ -45,8 +45,9 @@ impl MediaBridge {
         .expect("macOS integration should initialize");
         let integration_clone = integration.clone();
 
-        cx.subscribe(engine_event_bus, move |_, _, event: &EngineEvent, cx| {
-            match event {
+        cx.subscribe(
+            engine_event_bus,
+            move |_, _, event: &EngineEvent, cx| match event {
                 EngineEvent::Loaded { duration, .. } => {
                     let dur_secs = duration.as_secs_f64();
                     current_position.replace(0.0);
@@ -59,7 +60,8 @@ impl MediaBridge {
                             .and_then(|id| services.library.get_cover_art_path_for_media(id));
                         let mut info = build_now_playing_info(track, artwork_path, dur_secs);
                         info.artist = services.library.track_artists(track.id).join(", ");
-                        info.album = track.album_id
+                        info.album = track
+                            .album_id
                             .and_then(|id| services.library.album_title(id))
                             .unwrap_or_default();
                         integration_clone.update_now_playing(info);
@@ -70,18 +72,14 @@ impl MediaBridge {
                 EngineEvent::Playing => {
                     last_state.replace(MediaPlaybackState::Playing);
                     integration_clone.set_playback_state(MediaPlaybackState::Playing);
-                    integration_clone.update_position(
-                        *current_position.borrow(),
-                        MediaPlaybackState::Playing,
-                    );
+                    integration_clone
+                        .update_position(*current_position.borrow(), MediaPlaybackState::Playing);
                 }
                 EngineEvent::Paused => {
                     last_state.replace(MediaPlaybackState::Paused);
                     integration_clone.set_playback_state(MediaPlaybackState::Paused);
-                    integration_clone.update_position(
-                        *current_position.borrow(),
-                        MediaPlaybackState::Paused,
-                    );
+                    integration_clone
+                        .update_position(*current_position.borrow(), MediaPlaybackState::Paused);
                 }
                 EngineEvent::TrackEnded => {
                     let services = cx.global::<Services>();
@@ -102,8 +100,8 @@ impl MediaBridge {
                     integration_clone.update_position(secs, state);
                 }
                 _ => {}
-            }
-        })
+            },
+        )
     }
 }
 
@@ -150,71 +148,65 @@ async fn run_command_loop(
     last_state: Rc<RefCell<MediaPlaybackState>>,
 ) {
     while let Ok(command) = rx.recv_async().await {
-        let result = cx.update(|_cx| {
-            match command {
-                MediaCommand::Play => {
+        let result = cx.update(|_cx| match command {
+            MediaCommand::Play => {
+                engine_manager.play();
+            }
+            MediaCommand::Pause => {
+                engine_manager.pause();
+            }
+            MediaCommand::TogglePlayPause => match *last_state.borrow() {
+                MediaPlaybackState::Playing => engine_manager.pause(),
+                _ => engine_manager.play(),
+            },
+            MediaCommand::Next => {
+                let next = queue.borrow_mut().next_track().cloned();
+                if let Some(track) = next {
+                    let start_offset = if track.start_offset_ms > 0 {
+                        Some(Duration::from_millis(track.start_offset_ms as u64))
+                    } else {
+                        None
+                    };
+                    let track_duration =
+                        track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
+                    engine_manager.set_track_with_offset(
+                        std::path::PathBuf::from(&track.path),
+                        start_offset,
+                        track_duration,
+                    );
                     engine_manager.play();
                 }
-                MediaCommand::Pause => {
-                    engine_manager.pause();
-                }
-                MediaCommand::TogglePlayPause => {
-                    match *last_state.borrow() {
-                        MediaPlaybackState::Playing => engine_manager.pause(),
-                        _ => engine_manager.play(),
+            }
+            MediaCommand::Previous => {
+                let position_secs = *current_position.borrow() as f32;
+                let mut q = queue.borrow_mut();
+                let action = q.previous(position_secs);
+                match action {
+                    PreviousAction::SeekToStart => {
+                        drop(q);
+                        engine_manager.seek(0.0);
+                        engine_manager.play();
                     }
-                }
-                MediaCommand::Next => {
-                    let next = queue.borrow_mut().next_track().cloned();
-                    if let Some(track) = next {
+                    PreviousAction::PreviousTrack(track) => {
                         let start_offset = if track.start_offset_ms > 0 {
                             Some(Duration::from_millis(track.start_offset_ms as u64))
                         } else {
                             None
                         };
-                        let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-                        engine_manager.set_track_with_offset(
-                            std::path::PathBuf::from(&track.path),
-                            start_offset,
-                            track_duration,
-                        );
+                        let track_duration =
+                            track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
+                        let path = std::path::PathBuf::from(&track.path);
+                        drop(q);
+                        engine_manager.set_track_with_offset(path, start_offset, track_duration);
                         engine_manager.play();
                     }
                 }
-                MediaCommand::Previous => {
-                    let position_secs = *current_position.borrow() as f32;
-                    let mut q = queue.borrow_mut();
-                    let action = q.previous(position_secs);
-                    match action {
-                        PreviousAction::SeekToStart => {
-                            drop(q);
-                            engine_manager.seek(0.0);
-                            engine_manager.play();
-                        }
-                        PreviousAction::PreviousTrack(track) => {
-                            let start_offset = if track.start_offset_ms > 0 {
-                                Some(Duration::from_millis(track.start_offset_ms as u64))
-                            } else {
-                                None
-                            };
-                            let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-                            let path = std::path::PathBuf::from(&track.path);
-                            drop(q);
-                            engine_manager.set_track_with_offset(
-                                path,
-                                start_offset,
-                                track_duration,
-                            );
-                            engine_manager.play();
-                        }
-                    }
-                }
-                MediaCommand::Seek(position_secs) => {
-                    let duration = *current_duration.borrow();
-                    if duration > 0.0 {
-                        let fraction = (position_secs / duration) as f32;
-                        engine_manager.seek(fraction.clamp(0.0, 1.0));
-                    }
+            }
+            MediaCommand::Seek(position_secs) => {
+                let duration = *current_duration.borrow();
+                if duration > 0.0 {
+                    let fraction = (position_secs / duration) as f32;
+                    engine_manager.seek(fraction.clamp(0.0, 1.0));
                 }
             }
         });

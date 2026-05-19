@@ -1,7 +1,7 @@
 use gpui::{
     Context, IntoElement, ParentElement, Render, Styled, StyledImage, Window, div, img, px,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme};
+use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use crate::services::Services;
 
@@ -31,7 +31,10 @@ impl Render for AlbumInfo {
             .child({
                 let fallback_bg = cx.theme().secondary;
                 let services = cx.global::<Services>();
-                let cover_img = services.cover_art_cache.borrow_mut().get_large(self.cover_art_id, &services.library);
+                let cover_img = services
+                    .cover_art_cache
+                    .borrow_mut()
+                    .get_large(self.cover_art_id, &services.library);
                 if let Some(cover_img) = cover_img {
                     img(cover_img)
                         .w(px(150.))

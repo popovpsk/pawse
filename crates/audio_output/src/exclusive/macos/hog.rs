@@ -3,14 +3,14 @@ use std::ptr::{self, NonNull};
 
 use audio_common::AudioError;
 use objc2_core_audio::{
-    kAudioDevicePropertyDeviceUID, kAudioDevicePropertyHogMode,
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectPropertyAddress,
+    AudioObjectSetPropertyData, kAudioDevicePropertyDeviceUID, kAudioDevicePropertyHogMode,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioHardwarePropertyTranslateUIDToDevice, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectPropertyAddress, AudioObjectSetPropertyData,
+    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
 };
 
-use super::cf::{cfstring_from_str, cfstring_to_string, CFRelease, CFStringRef};
+use super::cf::{CFRelease, CFStringRef, cfstring_from_str, cfstring_to_string};
 
 // kAudioDevicePropertyScopeOutput = 'outp'
 pub(super) const K_SCOPE_OUTPUT: u32 = 0x6f757470;

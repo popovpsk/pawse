@@ -40,7 +40,9 @@ impl DirectoryScanner {
                             return;
                         }
                         let count = scanned.fetch_add(1, Ordering::Relaxed) + 1;
-                        if count.is_multiple_of(10) && tx.send(ScanEvent::Progress { scanned: count }).is_err() {
+                        if count.is_multiple_of(10)
+                            && tx.send(ScanEvent::Progress { scanned: count }).is_err()
+                        {
                             return;
                         }
                     }
@@ -78,8 +80,8 @@ impl DirectoryScanner {
 
             let track_path = entry.path();
 
-            let canonical = std::fs::canonicalize(&track_path)
-                .unwrap_or_else(|_| track_path.clone());
+            let canonical =
+                std::fs::canonicalize(&track_path).unwrap_or_else(|_| track_path.clone());
             if skip_set.contains(&canonical) {
                 continue;
             }
@@ -114,7 +116,8 @@ impl DirectoryScanner {
             }
 
             let count = scanned.fetch_add(1, Ordering::Relaxed) + 1;
-            if count.is_multiple_of(10) && tx.send(ScanEvent::Progress { scanned: count }).is_err() {
+            if count.is_multiple_of(10) && tx.send(ScanEvent::Progress { scanned: count }).is_err()
+            {
                 break;
             }
         }
@@ -150,10 +153,7 @@ fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
 
     let audio_path = cue_dir.join(&sheet.file.name);
     if !audio_path.exists() {
-        anyhow::bail!(
-            "referenced audio file not found: {}",
-            audio_path.display()
-        );
+        anyhow::bail!("referenced audio file not found: {}", audio_path.display());
     }
 
     let tagged_file = lofty::read_from_path(&audio_path)?;

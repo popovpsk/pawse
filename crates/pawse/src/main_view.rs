@@ -35,22 +35,18 @@ impl MainView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library_view = cx.new(|cx| LibraryView::new(window, cx));
 
-        let library_subscription = cx.subscribe(
-            &library_view,
-            {
-                let library_view = library_view.clone();
-                move |this: &mut MainView, _, _: &LibraryViewEvent, cx| {
-                    this.is_tracks_view = library_view.read(cx).is_tracks_view();
-                    let query = this.search_input.read(cx).value().to_string();
-                    library_view.update(cx, |v, cx| v.apply_search(&query, cx));
-                    cx.notify();
-                }
-            },
-        );
-
-        let search_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search artists, albums, tracks")
+        let library_subscription = cx.subscribe(&library_view, {
+            let library_view = library_view.clone();
+            move |this: &mut MainView, _, _: &LibraryViewEvent, cx| {
+                this.is_tracks_view = library_view.read(cx).is_tracks_view();
+                let query = this.search_input.read(cx).value().to_string();
+                library_view.update(cx, |v, cx| v.apply_search(&query, cx));
+                cx.notify();
+            }
         });
+
+        let search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search artists, albums, tracks"));
 
         let search_subscription = cx.subscribe(&search_input, {
             let library_view = library_view.clone();
@@ -62,11 +58,10 @@ impl MainView {
             }
         });
 
-        let theme_registry_subscription =
-            cx.observe_global::<ThemeRegistry>(|this, cx| {
-                this.settings_pages = crate::settings_view::build_settings_pages(&*cx);
-                cx.notify();
-            });
+        let theme_registry_subscription = cx.observe_global::<ThemeRegistry>(|this, cx| {
+            this.settings_pages = crate::settings_view::build_settings_pages(&*cx);
+            cx.notify();
+        });
 
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
@@ -92,11 +87,7 @@ impl MainView {
 }
 
 impl Render for MainView {
-    fn render(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let library_view = self.library_view.clone();
         let show_settings = self.show_settings;
         let has_back = show_settings || self.is_tracks_view;
@@ -186,9 +177,11 @@ impl Render for MainView {
                             .size_full()
                             .overflow_y_scrollbar()
                             .child(
-                                div().size_full().child(crate::settings_view::settings_widget(
-                                    self.settings_pages.clone(),
-                                )),
+                                div()
+                                    .size_full()
+                                    .child(crate::settings_view::settings_widget(
+                                        self.settings_pages.clone(),
+                                    )),
                             )
                             .into_any_element()
                     } else {

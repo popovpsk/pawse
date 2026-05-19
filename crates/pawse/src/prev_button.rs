@@ -1,7 +1,7 @@
 use audio_engine::EngineEvent;
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px, size, svg, Transformation,
+    StatefulInteractiveElement, Styled, Subscription, Transformation, Window, div, px, size, svg,
 };
 use gpui_component::ActiveTheme;
 
@@ -16,18 +16,19 @@ impl PrevButton {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
-        let subscription = cx.subscribe(
-            &engine_event_bus,
-            |this, _, event: &EngineEvent, _cx| match event {
-                EngineEvent::PositionChanged(position) => {
-                    this.current_position_secs = position.as_secs_f32();
-                }
-                EngineEvent::Loaded { .. } => {
-                    this.current_position_secs = 0.0;
-                }
-                _ => {}
-            },
-        );
+        let subscription =
+            cx.subscribe(
+                &engine_event_bus,
+                |this, _, event: &EngineEvent, _cx| match event {
+                    EngineEvent::PositionChanged(position) => {
+                        this.current_position_secs = position.as_secs_f32();
+                    }
+                    EngineEvent::Loaded { .. } => {
+                        this.current_position_secs = 0.0;
+                    }
+                    _ => {}
+                },
+            );
 
         Self {
             current_position_secs: 0.0,

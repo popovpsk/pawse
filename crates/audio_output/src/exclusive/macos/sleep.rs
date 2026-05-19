@@ -3,7 +3,7 @@
 
 use std::ptr::null;
 
-use super::cf::{cfstring_from_str, CFRelease, CFStringRef};
+use super::cf::{CFRelease, CFStringRef, cfstring_from_str};
 
 type IOPMAssertionID = u32;
 type IOReturn = i32;
@@ -34,12 +34,17 @@ pub(super) struct SleepPreventer {
 
 impl SleepPreventer {
     pub(super) fn new() -> Self {
-        Self { assertion_id: 0, active: false }
+        Self {
+            assertion_id: 0,
+            active: false,
+        }
     }
 
     pub(super) fn prevent(&mut self) {
         if self.active {
-            eprintln!("coreaudio: SleepPreventer::prevent called while already active — assertion leak?");
+            eprintln!(
+                "coreaudio: SleepPreventer::prevent called while already active — assertion leak?"
+            );
             return;
         }
         let assertion_type = cfstring_from_str("PreventUserIdleSystemSleep");
@@ -75,7 +80,10 @@ impl SleepPreventer {
             self.assertion_id = assertion_id;
             self.active = true;
         } else {
-            eprintln!("coreaudio: IOPMAssertionCreateWithDescription failed: {:#x}", ret);
+            eprintln!(
+                "coreaudio: IOPMAssertionCreateWithDescription failed: {:#x}",
+                ret
+            );
         }
     }
 

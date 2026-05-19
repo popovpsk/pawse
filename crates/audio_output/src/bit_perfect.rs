@@ -28,13 +28,17 @@ mod tests {
 
     #[test]
     fn any_issue_breaks_bit_perfect() {
-        let s = BitPerfectStatus { issues: vec![BitPerfectIssue::NotExclusive] };
+        let s = BitPerfectStatus {
+            issues: vec![BitPerfectIssue::NotExclusive],
+        };
         assert!(!s.is_bit_perfect());
     }
 
     #[test]
     fn no_source_status_is_not_bit_perfect() {
-        let s = BitPerfectStatus { issues: vec![BitPerfectIssue::NoSource] };
+        let s = BitPerfectStatus {
+            issues: vec![BitPerfectIssue::NoSource],
+        };
         assert!(!s.is_bit_perfect());
     }
 }
