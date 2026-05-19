@@ -1,8 +1,11 @@
 use std::rc::Rc;
 
+use audio_engine::EngineEvent;
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, ElementId, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Render, Size, StatefulInteractiveElement, Styled, Window, div, px, size,
+    AppContext, Context, ElementId, Entity, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, size, svg,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
@@ -26,6 +29,9 @@ pub struct TracksView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     album_info: Entity<AlbumInfo>,
+    current_track_id: Option<i64>,
+    is_playing: bool,
+    _subscription: Subscription,
 }
 
 impl TracksView {
@@ -57,13 +63,67 @@ impl TracksView {
         }
 
         let item_sizes = Rc::new(item_sizes_vec);
+        let engine_event_bus = services.engine_event_bus.clone();
+        let current_track_id = services
+            .playback_queue
+            .borrow()
+            .current_track()
+            .map(|t| t.id);
         let album_info = cx.new(|_cx| AlbumInfo::new(album));
+
+        let subscription = cx.subscribe(
+            &engine_event_bus,
+            |this, _, event: &EngineEvent, cx| match event {
+                EngineEvent::Loaded { .. } => {
+                    let id = cx
+                        .global::<Services>()
+                        .playback_queue
+                        .borrow()
+                        .current_track()
+                        .map(|t| t.id);
+                    if this.current_track_id != id || !this.is_playing {
+                        this.current_track_id = id;
+                        this.is_playing = true;
+                        cx.notify();
+                    }
+                }
+                EngineEvent::Playing if !this.is_playing => {
+                    this.is_playing = true;
+                    cx.notify();
+                }
+                EngineEvent::Paused if this.is_playing => {
+                    this.is_playing = false;
+                    cx.notify();
+                }
+                EngineEvent::TrackEnded => {
+                    if this.is_playing {
+                        this.is_playing = false;
+                        cx.notify();
+                    }
+                    let queue_empty = cx
+                        .global::<Services>()
+                        .playback_queue
+                        .borrow()
+                        .current_track()
+                        .is_none();
+                    if queue_empty && this.current_track_id.is_some() {
+                        this.current_track_id = None;
+                        cx.notify();
+                    }
+                }
+                _ => {}
+            },
+        );
+
         Self {
             tracks,
             items,
             item_sizes,
             scroll_handle: VirtualListScrollHandle::new(),
             album_info,
+            current_track_id,
+            is_playing: current_track_id.is_some(),
+            _subscription: subscription,
         }
     }
 }
@@ -122,6 +182,8 @@ impl Render for TracksView {
                                     })
                                     .unwrap_or_default();
 
+                                let is_current = Some(track.id) == view.current_track_id;
+
                                 h_flex()
                                     .w_full()
                                     .h(px(TRACK_ROW_HEIGHT))
@@ -135,9 +197,39 @@ impl Render for TracksView {
                                         a: 0.1,
                                     })
                                     .cursor(gpui::CursorStyle::PointingHand)
+                                    .when(is_current, |style| style.bg(cx.theme().secondary))
                                     .hover(|style| style.bg(cx.theme().secondary))
-                                    .child(div().w_8().child(track_num_str))
-                                    .child(div().flex_1().child(track.title.clone()))
+                                    .child(if is_current {
+                                        let icon = if view.is_playing {
+                                            "icons/s1-play.svg"
+                                        } else {
+                                            "icons/s1-pause.svg"
+                                        };
+                                        div()
+                                            .w_8()
+                                            .flex()
+                                            .items_center()
+                                            .child(
+                                                svg()
+                                                    .path(icon)
+                                                    .size(px(12.))
+                                                    .text_color(cx.theme().foreground),
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        div()
+                                            .w_8()
+                                            .child(track_num_str)
+                                            .into_any_element()
+                                    })
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .when(is_current, |d| {
+                                                d.font_weight(FontWeight::SEMIBOLD)
+                                            })
+                                            .child(track.title.clone()),
+                                    )
                                     .child(div().w_16().child(duration_str))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, _cx| {
