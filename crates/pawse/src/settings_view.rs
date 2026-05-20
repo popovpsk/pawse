@@ -200,8 +200,7 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
                                 // through the backdrop, which closes the popup and
                                 // occludes the event — this on_click won't fire in that
                                 // case. So here open is always false when this fires.
-                                let focus_handle =
-                                    picker_t.read(cx).focus_handle.clone();
+                                let focus_handle = picker_t.read(cx).focus_handle.clone();
                                 picker_t.update(cx, |state, cx| {
                                     let saved = cx.global::<SettingsStore>().theme();
                                     let current_ix = state.current_index(cx);
@@ -232,20 +231,18 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
                         let picker_b = picker.clone();
                         overlay.push(
                             deferred(
-                                anchored()
-                                    .position(point(px(0.), px(0.)))
-                                    .child(
-                                        div()
-                                            .w(viewport.width)
-                                            .h(viewport.height)
-                                            .occlude()
-                                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                                picker_b.update(cx, |state, cx| {
-                                                    close_with_revert(state, cx);
-                                                    cx.notify();
-                                                });
-                                            }),
-                                    ),
+                                anchored().position(point(px(0.), px(0.))).child(
+                                    div()
+                                        .w(viewport.width)
+                                        .h(viewport.height)
+                                        .occlude()
+                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                            picker_b.update(cx, |state, cx| {
+                                                close_with_revert(state, cx);
+                                                cx.notify();
+                                            });
+                                        }),
+                                ),
                             )
                             .with_priority(0)
                             .into_any_element(),
@@ -284,8 +281,7 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
                                                     return;
                                                 }
                                                 state.highlight_index = Some(i);
-                                                let choice =
-                                                    ThemeChoice::from_key(key_m.as_ref());
+                                                let choice = ThemeChoice::from_key(key_m.as_ref());
                                                 apply_theme(&choice, cx);
                                                 cx.notify();
                                             });
@@ -327,12 +323,9 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
                                         match key {
                                             "up" => {
                                                 let new_ix =
-                                                    state.highlight_index.map_or(
-                                                        len - 1,
-                                                        |i| {
-                                                            if i == 0 { len - 1 } else { i - 1 }
-                                                        },
-                                                    );
+                                                    state.highlight_index.map_or(len - 1, |i| {
+                                                        if i == 0 { len - 1 } else { i - 1 }
+                                                    });
                                                 state.highlight_index = Some(new_ix);
                                                 state.scroll_handle.scroll_to_item(new_ix);
                                                 let choice = ThemeChoice::from_key(
@@ -342,10 +335,9 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
                                                 cx.notify();
                                             }
                                             "down" => {
-                                                let new_ix =
-                                                    state.highlight_index.map_or(0, |i| {
-                                                        (i + 1) % len
-                                                    });
+                                                let new_ix = state
+                                                    .highlight_index
+                                                    .map_or(0, |i| (i + 1) % len);
                                                 state.highlight_index = Some(new_ix);
                                                 state.scroll_handle.scroll_to_item(new_ix);
                                                 let choice = ThemeChoice::from_key(

@@ -175,6 +175,7 @@ async fn run_command_loop(
                         track_duration,
                     );
                     engine_manager.play();
+                    crate::services::save_playback(_cx);
                 }
             }
             MediaCommand::Previous => {
@@ -199,6 +200,7 @@ async fn run_command_loop(
                         drop(q);
                         engine_manager.set_track_with_offset(path, start_offset, track_duration);
                         engine_manager.play();
+                        crate::services::save_playback(_cx);
                     }
                 }
             }

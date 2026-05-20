@@ -175,6 +175,7 @@ impl Output {
                     excl.resume();
                 }
                 *self.current.write() = Some(OutputMode::Exclusive(excl));
+                self.apply_current_volume();
             }
             Err(e) => {
                 // The old output was dropped with suppress_cleanup set, so hog
@@ -214,6 +215,7 @@ impl Output {
                     stream.resume();
                 }
                 *self.current.write() = Some(OutputMode::Shared(stream));
+                self.apply_current_volume();
             }
             Err(e) => {
                 // Selected device may have disappeared; try system default.
@@ -254,6 +256,7 @@ impl Output {
                     stream.resume();
                 }
                 *self.current.write() = Some(OutputMode::Shared(stream));
+                self.apply_current_volume();
                 true
             }
             Err(_) => {
@@ -278,6 +281,7 @@ impl Output {
                     stream.resume();
                 }
                 *self.current.write() = Some(OutputMode::Shared(stream));
+                self.apply_current_volume();
                 true
             }
             Err(_) => false,
@@ -313,6 +317,7 @@ impl Output {
                         excl.resume();
                     }
                     *self.current.write() = Some(OutputMode::Exclusive(excl));
+                    self.apply_current_volume();
                     Ok(())
                 }
                 Err(e) => {
@@ -364,6 +369,19 @@ impl Output {
             self.push_event(OutputEvent::Failure {
                 message: "No working audio device available.".to_string(),
             });
+        }
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.app_volume.load(Ordering::Relaxed)
+    }
+
+    fn apply_current_volume(&self) {
+        let v = self.app_volume.load(Ordering::Relaxed);
+        match self.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => s.set_volume(v),
+            Some(OutputMode::Exclusive(e)) => e.set_volume(v),
+            None => {}
         }
     }
 
@@ -422,6 +440,7 @@ impl Output {
                         excl.resume();
                     }
                     *self.current.write() = Some(OutputMode::Exclusive(excl));
+                    self.apply_current_volume();
                     Ok(())
                 }
                 Err(e) => {
@@ -441,6 +460,7 @@ impl Output {
                 stream.resume();
             }
             *self.current.write() = Some(OutputMode::Shared(stream));
+            self.apply_current_volume();
             Ok(())
         }
     }
@@ -654,11 +674,7 @@ impl AudioOutput for Output {
 
     fn set_volume(&self, volume: f32) {
         self.app_volume.store(volume, Ordering::Relaxed);
-        match self.current.read().as_ref() {
-            Some(OutputMode::Shared(s)) => s.set_volume(volume),
-            Some(OutputMode::Exclusive(e)) => e.set_volume(volume),
-            None => {}
-        }
+        self.apply_current_volume();
     }
 }
 

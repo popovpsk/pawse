@@ -37,16 +37,26 @@ impl PrevButton {
     }
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<Services>();
-        let mut queue = services.playback_queue.borrow_mut();
-        match queue.previous(self.current_position_secs) {
-            crate::playback_queue::PreviousAction::SeekToStart => {
-                services.engine_manager.seek(0.0);
-                services.engine_manager.play();
+        let track_changed = {
+            let services = cx.global::<Services>();
+            let mut queue = services.playback_queue.borrow_mut();
+            match queue.previous(self.current_position_secs) {
+                crate::playback_queue::PreviousAction::SeekToStart => {
+                    drop(queue);
+                    services.engine_manager.seek(0.0);
+                    services.engine_manager.play();
+                    false
+                }
+                crate::playback_queue::PreviousAction::PreviousTrack(track) => {
+                    let track = track.clone();
+                    drop(queue);
+                    services.play_track(&track);
+                    true
+                }
             }
-            crate::playback_queue::PreviousAction::PreviousTrack(track) => {
-                services.play_track(track);
-            }
+        };
+        if track_changed {
+            crate::services::save_playback(cx);
         }
     }
 }

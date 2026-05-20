@@ -6,6 +6,7 @@ use gpui_component::{
     notification::Notification,
     theme::{Theme, ThemeRegistry},
 };
+use music_library::Track;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -57,12 +58,41 @@ impl<'de> Deserialize<'de> for ThemeChoice {
     }
 }
 
+fn default_volume() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PlaybackState {
+    #[serde(default)]
+    pub queue: Vec<Track>,
+    #[serde(default)]
+    pub current_index: Option<usize>,
+    #[serde(default)]
+    pub position_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     #[serde(default)]
     pub theme: ThemeChoice,
     #[serde(default)]
     pub music_folders: Vec<PathBuf>,
+    #[serde(default = "default_volume")]
+    pub volume: f32,
+    #[serde(default)]
+    pub playback: PlaybackState,
+}
+
+impl Default for UserSettings {
+    fn default() -> Self {
+        Self {
+            theme: ThemeChoice::default(),
+            music_folders: Vec::new(),
+            volume: 1.0,
+            playback: PlaybackState::default(),
+        }
+    }
 }
 
 pub struct SettingsStore {
@@ -133,6 +163,24 @@ impl SettingsStore {
         if self.settings.music_folders.len() == before {
             return Ok(());
         }
+        self.save()
+    }
+
+    pub fn playback(&self) -> &PlaybackState {
+        &self.settings.playback
+    }
+
+    pub fn set_playback(&mut self, state: PlaybackState) -> anyhow::Result<()> {
+        self.settings.playback = state;
+        self.save()
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.settings.volume
+    }
+
+    pub fn set_volume(&mut self, volume: f32) -> anyhow::Result<()> {
+        self.settings.volume = volume;
         self.save()
     }
 }
@@ -334,6 +382,49 @@ mod tests {
         assert!(err.is_err(), "expected save to fail when parent is a file");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn playback_state_roundtrip() {
+        let track = music_library::Track {
+            id: 1,
+            path: "/music/song.flac".to_string(),
+            title: "Song".to_string(),
+            album_id: Some(2),
+            track_number: Some(3),
+            disc_number: 1,
+            duration_ms: Some(240_000),
+            year: Some(2020),
+            cover_art_id: None,
+            start_offset_ms: 0,
+        };
+        let settings = UserSettings {
+            theme: ThemeChoice::System,
+            music_folders: vec![],
+            volume: 0.42,
+            playback: PlaybackState {
+                queue: vec![track.clone()],
+                current_index: Some(0),
+                position_ms: 12_345,
+            },
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: UserSettings = serde_json::from_str(&json).unwrap();
+        assert!((back.volume - 0.42).abs() < f32::EPSILON);
+        assert_eq!(back.playback.queue.len(), 1);
+        assert_eq!(back.playback.queue[0], track);
+        assert_eq!(back.playback.current_index, Some(0));
+        assert_eq!(back.playback.position_ms, 12_345);
+    }
+
+    #[test]
+    fn old_settings_without_playback_field_gets_defaults() {
+        let json = r#"{"theme":"system","music_folders":[]}"#;
+        let settings: UserSettings = serde_json::from_str(json).unwrap();
+        assert!((settings.volume - 1.0).abs() < f32::EPSILON);
+        assert!(settings.playback.queue.is_empty());
+        assert_eq!(settings.playback.current_index, None);
+        assert_eq!(settings.playback.position_ms, 0);
     }
 
     #[test]

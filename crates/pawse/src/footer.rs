@@ -32,6 +32,7 @@ impl Footer {
                 if let Some(track) = queue.next_track().cloned() {
                     drop(queue);
                     services.play_track(&track);
+                    crate::services::save_playback(cx);
                 } else {
                     drop(queue);
                     cx.notify();

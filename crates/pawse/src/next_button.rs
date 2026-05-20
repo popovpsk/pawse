@@ -17,7 +17,9 @@ impl NextButton {
         let services = cx.global::<Services>();
         let mut queue = services.playback_queue.borrow_mut();
         if let Some(track) = queue.next_track().cloned() {
+            drop(queue);
             services.play_track(&track);
+            crate::services::save_playback(cx);
         }
     }
 }

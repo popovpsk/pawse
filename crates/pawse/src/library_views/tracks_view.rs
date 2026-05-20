@@ -282,9 +282,11 @@ impl Render for TracksView {
                                         let services = _cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
                                         queue.set_tracks(this.tracks.clone());
-                                        if let Some(track) = queue.play_track_at(track_ix).cloned()
-                                        {
+                                        let track = queue.play_track_at(track_ix).cloned();
+                                        drop(queue);
+                                        if let Some(track) = track {
                                             services.play_track(&track);
+                                            crate::services::save_playback(_cx);
                                         }
                                     }))
                                     .into_any_element()

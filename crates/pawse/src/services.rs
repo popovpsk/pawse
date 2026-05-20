@@ -1,4 +1,12 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
 use audio_output::Output;
@@ -16,6 +24,7 @@ pub struct Services {
     pub library_event_bus: Entity<LibraryEventsBus>,
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
+    pub current_position_ms: Arc<AtomicU64>,
 }
 
 impl Services {
@@ -48,6 +57,7 @@ impl Services {
             library_event_bus,
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
             cover_art_cache: Rc::new(RefCell::new(CoverArtCache::new())),
+            current_position_ms: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -69,6 +79,25 @@ impl Services {
     pub fn shutdown(&self) {
         self.output.shutdown();
         self.engine_manager.shutdown();
+    }
+
+    pub fn snapshot_playback(&self) -> crate::settings_store::PlaybackState {
+        let queue = self.playback_queue.borrow();
+        crate::settings_store::PlaybackState {
+            queue: queue.tracks_vec(),
+            current_index: queue.current_index(),
+            position_ms: self.current_position_ms.load(Ordering::Relaxed),
+        }
+    }
+}
+
+pub fn save_playback(cx: &mut App) {
+    let state = cx.global::<Services>().snapshot_playback();
+    if let Err(e) = cx
+        .global_mut::<crate::settings_store::SettingsStore>()
+        .set_playback(state)
+    {
+        crate::settings_store::notify_save_error(cx, e);
     }
 }
 
@@ -92,9 +121,13 @@ pub async fn run_engine_events_bus(
     cx: &mut AsyncApp,
     engine_manager: Rc<EngineManager>,
     engine_event_bus: Entity<EngineEventsBus>,
+    current_position_ms: Arc<AtomicU64>,
 ) {
     let rx = engine_manager.events();
     while let Ok(event) = rx.recv_async().await {
+        if let EngineEvent::PositionChanged(dur) = &event {
+            current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
+        }
         cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)))
             .expect("run_engine_events_bus:cx.update")
     }

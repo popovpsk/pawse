@@ -20,7 +20,7 @@ pub struct Album {
     pub cover_art_id: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Track {
     pub id: i64,
     pub path: String,

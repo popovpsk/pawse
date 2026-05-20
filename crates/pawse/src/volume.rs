@@ -59,9 +59,10 @@ impl Render for Volume {
 
 impl Volume {
     pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+        let initial = cx.global::<crate::settings_store::SettingsStore>().volume();
         let slider = cx.new(|cx| {
             Slider::new(cx)
-                .default_value(1.0)
+                .default_value(initial)
                 .min(0.0)
                 .max(1.0)
                 .step(0.01)
@@ -69,10 +70,16 @@ impl Volume {
 
         cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| match event {
             SliderEvent::Change(value) => {
-                this.volume = *value;
-                this.is_muted = *value <= 0.0;
-                let services = cx.global::<Services>();
-                services.output.set_volume(*value);
+                let volume = *value;
+                this.volume = volume;
+                this.is_muted = volume <= 0.0;
+                cx.global::<Services>().output.set_volume(volume);
+                if let Err(e) = cx
+                    .global_mut::<crate::settings_store::SettingsStore>()
+                    .set_volume(volume)
+                {
+                    crate::settings_store::notify_save_error(cx, e);
+                }
                 cx.notify();
             }
         })
@@ -80,34 +87,37 @@ impl Volume {
 
         Self {
             slider,
-            volume: 1.0,
-            is_muted: false,
-            volume_before_mute: 1.0,
+            volume: initial,
+            is_muted: initial <= 0.0,
+            volume_before_mute: if initial > 0.0 { initial } else { 1.0 },
         }
     }
 
     fn on_icon_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<Services>();
-        if services.output.is_exclusive() {
+        if cx.global::<Services>().output.is_exclusive() {
             return;
         }
 
-        if self.is_muted {
+        let new_volume = if self.is_muted {
             self.is_muted = false;
-            let restored = self.volume_before_mute;
-            self.volume = restored;
-            services.output.set_volume(restored);
-            self.slider
-                .update(cx, |slider, cx| slider.set_value_silent(restored, cx));
+            self.volume = self.volume_before_mute;
+            self.volume_before_mute
         } else {
             self.is_muted = true;
             self.volume_before_mute = self.volume;
             self.volume = 0.0;
-            services.output.set_volume(0.0);
-            self.slider
-                .update(cx, |slider, cx| slider.set_value_silent(0.0, cx));
-        }
+            0.0
+        };
 
+        cx.global::<Services>().output.set_volume(new_volume);
+        self.slider
+            .update(cx, |slider, cx| slider.set_value_silent(new_volume, cx));
+        if let Err(e) = cx
+            .global_mut::<crate::settings_store::SettingsStore>()
+            .set_volume(new_volume)
+        {
+            crate::settings_store::notify_save_error(cx, e);
+        }
         cx.notify();
     }
 }

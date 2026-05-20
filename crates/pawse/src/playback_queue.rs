@@ -82,4 +82,8 @@ impl PlaybackQueue {
     pub fn current_index(&self) -> Option<usize> {
         self.current_index
     }
+
+    pub fn tracks_vec(&self) -> Vec<Track> {
+        self.tracks.clone()
+    }
 }

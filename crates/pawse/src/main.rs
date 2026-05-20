@@ -1,3 +1,4 @@
+use audio_output::AudioOutput;
 use gpui::*;
 use gpui_component::*;
 
@@ -26,6 +27,44 @@ pub mod settings_view;
 pub mod themes;
 pub mod track_progress_slider;
 pub mod volume;
+
+fn restore_engine_state(cx: &mut App) {
+    let stored_position_ms = cx
+        .global::<crate::settings_store::SettingsStore>()
+        .playback()
+        .position_ms;
+    let services = cx.global::<Services>();
+    let queue = services.playback_queue.borrow();
+    let Some(track) = queue.current_track().cloned() else {
+        return;
+    };
+    drop(queue);
+
+    let path = std::path::PathBuf::from(&track.path);
+    let start_offset = if track.start_offset_ms > 0 {
+        Some(std::time::Duration::from_millis(
+            track.start_offset_ms as u64,
+        ))
+    } else {
+        None
+    };
+    let duration = track
+        .duration_ms
+        .map(|ms| std::time::Duration::from_millis(ms as u64));
+    services
+        .engine_manager
+        .set_track_with_offset(path, start_offset, duration);
+    if stored_position_ms > 0
+        && let Some(dur_ms) = track.duration_ms
+        && dur_ms > 0
+    {
+        let ratio = (stored_position_ms as f32 / dur_ms as f32).clamp(0.0, 1.0);
+        services
+            .current_position_ms
+            .store(stored_position_ms, std::sync::atomic::Ordering::Relaxed);
+        services.engine_manager.seek(ratio);
+    }
+}
 
 fn main() {
     let app = Application::new().with_assets(assets::Assets);
@@ -58,7 +97,24 @@ fn main() {
 
         let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
+        let current_position_ms = services.current_position_ms.clone();
         cx.set_global(services);
+
+        {
+            let (stored, initial_volume) = {
+                let store = cx.global::<crate::settings_store::SettingsStore>();
+                (store.playback().clone(), store.volume())
+            };
+            let services = cx.global::<Services>();
+            services.output.set_volume(initial_volume);
+            if !stored.queue.is_empty() {
+                let mut queue = services.playback_queue.borrow_mut();
+                queue.set_tracks(stored.queue);
+                if let Some(idx) = stored.current_index {
+                    queue.play_track_at(idx);
+                }
+            }
+        }
 
         {
             let store = cx.global::<crate::settings_store::SettingsStore>();
@@ -79,6 +135,10 @@ fn main() {
         .detach();
 
         cx.on_app_quit(|cx| {
+            let state = cx.global::<Services>().snapshot_playback();
+            let _ = cx
+                .global_mut::<crate::settings_store::SettingsStore>()
+                .set_playback(state);
             cx.global::<Services>().shutdown();
             async {}
         })
@@ -98,14 +158,16 @@ fn main() {
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {
                 let view = cx.new(|cx| MainView::new(window, cx));
-                cx.new(|cx| Root::new(view, window, cx))
+                let root = cx.new(|cx| Root::new(view, window, cx));
+                restore_engine_state(cx);
+                root
             })
             .expect("Failed to open window");
         })
         .detach();
 
         cx.spawn(async move |cx| {
-            run_engine_events_bus(cx, engine_manager, engine_event_bus).await;
+            run_engine_events_bus(cx, engine_manager, engine_event_bus, current_position_ms).await;
         })
         .detach();
     });
