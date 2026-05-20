@@ -16,6 +16,7 @@ use crate::audio_settings::AudioSettings;
 use crate::footer::Footer;
 use crate::library_views::library_view::{LibraryView, LibraryViewEvent};
 use crate::media_bridge::MediaBridge;
+use crate::settings_view::ThemePickerState;
 
 pub struct MainView {
     audio_settings: Entity<AudioSettings>,
@@ -25,10 +26,12 @@ pub struct MainView {
     show_settings: bool,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
+    _theme_picker: Entity<ThemePickerState>,
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
     _search_subscription: Subscription,
     _theme_registry_subscription: gpui::Subscription,
+    _theme_picker_subscription: gpui::Subscription,
 }
 
 impl MainView {
@@ -64,10 +67,26 @@ impl MainView {
             }
         });
 
-        let theme_registry_subscription = cx.observe_global::<ThemeRegistry>(|this, cx| {
-            this.settings_pages = crate::settings_view::build_settings_pages(&*cx);
+        let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
+
+        let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
+            let theme_picker = theme_picker.clone();
+            move |this, cx| {
+                theme_picker.update(cx, |state, cx| {
+                    state.options = ThemePickerState::build_options(&*cx);
+                    cx.notify();
+                });
+                this.settings_pages =
+                    crate::settings_view::build_settings_pages(&*cx, theme_picker.clone());
+                cx.notify();
+            }
+        });
+
+        let theme_picker_subscription = cx.observe(&theme_picker, |_, _, cx| {
             cx.notify();
         });
+
+        let settings_pages = crate::settings_view::build_settings_pages(&*cx, theme_picker.clone());
 
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
@@ -75,12 +94,14 @@ impl MainView {
             footer: cx.new(|cx| Footer::new(window, cx)),
             is_tracks_view: false,
             show_settings: false,
-            settings_pages: crate::settings_view::build_settings_pages(&*cx),
+            settings_pages,
             search_input,
+            _theme_picker: theme_picker,
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
             _search_subscription: search_subscription,
             _theme_registry_subscription: theme_registry_subscription,
+            _theme_picker_subscription: theme_picker_subscription,
         }
     }
 

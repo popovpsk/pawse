@@ -1,29 +1,106 @@
 use std::path::PathBuf;
 
-use gpui::{App, Axis, ParentElement, SharedString, Styled, div, px};
+use gpui::{
+    AnyElement, App, Axis, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    anchored, deferred, div, point, prelude::FluentBuilder, px,
+};
 use gpui_component::{
-    ActiveTheme as _, Icon, IconName,
+    ActiveTheme as _, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
+    scroll::ScrollableElement,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     theme::ThemeRegistry,
     v_flex,
 };
 
 use crate::services::Services;
-use crate::settings_store::{SettingsStore, ThemeChoice, notify_save_error};
+use crate::settings_store::{SettingsStore, ThemeChoice, apply_theme, notify_save_error};
+
+/// State for the custom theme picker dropdown.
+pub struct ThemePickerState {
+    pub open: bool,
+    /// (key, display_label) pairs; "system" → "System", theme_name → theme_name.
+    pub options: Vec<(SharedString, SharedString)>,
+    /// Theme that was active when the popup opened — restored on Escape / outside-click.
+    pub snapshot: Option<ThemeChoice>,
+    /// Index of the item currently highlighted by mouse or keyboard.
+    pub highlight_index: Option<usize>,
+    pub focus_handle: FocusHandle,
+    pub scroll_handle: ScrollHandle,
+}
+
+impl ThemePickerState {
+    pub fn new(cx: &mut App) -> Self {
+        Self {
+            open: false,
+            options: Self::build_options(cx),
+            snapshot: None,
+            highlight_index: None,
+            focus_handle: cx.focus_handle(),
+            scroll_handle: ScrollHandle::new(),
+        }
+    }
+
+    pub fn build_options(cx: &App) -> Vec<(SharedString, SharedString)> {
+        let mut opts: Vec<(SharedString, SharedString)> = vec![("system".into(), "System".into())];
+        for cfg in ThemeRegistry::global(cx).sorted_themes() {
+            let name: SharedString = cfg.name.clone();
+            opts.push((name.clone(), name));
+        }
+        opts
+    }
+
+    fn current_index(&self, cx: &App) -> Option<usize> {
+        let key = cx.global::<SettingsStore>().theme().as_key();
+        self.options.iter().position(|(k, _)| k.as_ref() == key)
+    }
+
+    fn current_label(&self, cx: &App) -> SharedString {
+        let key = cx.global::<SettingsStore>().theme().as_key();
+        self.options
+            .iter()
+            .find(|(k, _)| k.as_ref() == key)
+            .map(|(_, label)| label.clone())
+            .unwrap_or_else(|| "Unknown".into())
+    }
+}
+
+/// Revert to the snapshot theme and close the popup. Does NOT call cx.notify();
+/// the caller must do so inside a Context<ThemePickerState> update closure.
+fn close_with_revert(state: &mut ThemePickerState, cx: &mut App) {
+    if !state.open {
+        return;
+    }
+    if let Some(snapshot) = state.snapshot.take() {
+        apply_theme(&snapshot, cx);
+    }
+    state.open = false;
+    state.highlight_index = None;
+}
+
+/// Save the selected theme and close the popup. Does NOT call cx.notify();
+/// the caller must do so inside a Context<ThemePickerState> update closure.
+fn confirm_save(key: &SharedString, state: &mut ThemePickerState, cx: &mut App) {
+    let choice = ThemeChoice::from_key(key.as_ref());
+    let save_result = cx.global_mut::<SettingsStore>().set_theme(choice.clone());
+    if let Err(e) = save_result {
+        notify_save_error(cx, e);
+    }
+    apply_theme(&choice, cx);
+    state.open = false;
+    state.snapshot = None;
+    state.highlight_index = None;
+}
 
 /// Build the list of `SettingPage`s for the Settings widget.
 ///
-/// Built once and cached on `MainView` (render runs at ~120fps; rebuilding
-/// these closures each frame is wasted work). `SettingPage` is `Clone`, so the
-/// cache is cloned cheaply into a fresh `Settings::new(...).pages(...)` shell
-/// on each render.
-///
-/// Pass `cx` so the theme dropdown can enumerate all registered themes at build time.
-pub fn build_settings_pages(cx: &App) -> Vec<SettingPage> {
+/// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
+/// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
+pub fn build_settings_pages(cx: &App, picker: Entity<ThemePickerState>) -> Vec<SettingPage> {
     vec![
-        SettingPage::new("Appearance").group(appearance_group(cx)),
+        SettingPage::new("Appearance").group(appearance_group(cx, picker)),
         SettingPage::new("Library").group(library_group()),
     ]
 }
@@ -73,36 +150,253 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
     cx.global::<Services>().library.clear_and_rescan(folders);
 }
 
-fn appearance_group(cx: &App) -> SettingGroup {
-    let mut theme_options: Vec<(SharedString, SharedString)> =
-        vec![("system".into(), "System".into())];
-    for cfg in ThemeRegistry::global(cx).sorted_themes() {
-        let name: SharedString = cfg.name.clone();
-        theme_options.push((name.clone(), name));
-    }
-
+fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup {
     SettingGroup::new().item(
         SettingItem::new(
             "Theme",
-            SettingField::dropdown(
-                theme_options,
-                |cx: &App| cx.global::<SettingsStore>().theme().as_key().into(),
-                |val: SharedString, cx: &mut App| {
-                    let choice = ThemeChoice::from_key(val.as_ref());
-                    let save_result = cx.global_mut::<SettingsStore>().set_theme(choice.clone());
-                    if let Err(e) = save_result {
-                        notify_save_error(cx, e);
+            SettingField::render({
+                let picker = picker.clone();
+                move |_opts, window, cx: &mut App| {
+                    let state = picker.read(cx);
+                    let open = state.open;
+                    let highlight_index = state.highlight_index;
+                    let options = state.options.clone();
+                    let current_label = state.current_label(cx);
+                    let focus_handle = state.focus_handle.clone();
+                    let scroll_handle = state.scroll_handle.clone();
+                    let _ = state;
+
+                    // Trigger button that opens/closes the popup
+                    let trigger = {
+                        let picker_t = picker.clone();
+                        div()
+                            .id("theme-picker-trigger")
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .px_3()
+                            .py_1p5()
+                            .rounded(px(6.))
+                            .bg(cx.theme().background)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .cursor_pointer()
+                            .hover(|s| s.bg(cx.theme().muted))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().foreground)
+                                    .child(current_label),
+                            )
+                            .child(
+                                Icon::new(IconName::ChevronDown)
+                                    .xsmall()
+                                    .text_color(cx.theme().muted_foreground),
+                            )
+                            .on_click(move |_, window, cx| {
+                                // When popup is open, a backdrop (priority 0) sits above
+                                // the trigger. Clicking the trigger while open routes
+                                // through the backdrop, which closes the popup and
+                                // occludes the event — this on_click won't fire in that
+                                // case. So here open is always false when this fires.
+                                let focus_handle =
+                                    picker_t.read(cx).focus_handle.clone();
+                                picker_t.update(cx, |state, cx| {
+                                    let saved = cx.global::<SettingsStore>().theme();
+                                    let current_ix = state.current_index(cx);
+                                    state.open = true;
+                                    state.snapshot = Some(saved);
+                                    state.highlight_index = current_ix;
+                                    if let Some(ix) = current_ix {
+                                        state.scroll_handle.scroll_to_item(ix);
+                                    }
+                                    cx.notify();
+                                });
+                                focus_handle.focus(window);
+                            })
+                    };
+
+                    // Overlay elements: backdrop (priority 0) + popup (priority 1).
+                    // Rendered only while the popup is open.
+                    let mut overlay: Vec<AnyElement> = Vec::new();
+
+                    if open {
+                        let viewport = window.viewport_size();
+
+                        // Full-window backdrop at priority 0. Sits above normal content
+                        // (including the trigger) but below the popup. Clicking anywhere
+                        // — including on the trigger — routes through here and closes the
+                        // popup; occlude() prevents the event from reaching the trigger,
+                        // so on_click on the trigger does NOT re-open the popup.
+                        let picker_b = picker.clone();
+                        overlay.push(
+                            deferred(
+                                anchored()
+                                    .position(point(px(0.), px(0.)))
+                                    .child(
+                                        div()
+                                            .w(viewport.width)
+                                            .h(viewport.height)
+                                            .occlude()
+                                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                                picker_b.update(cx, |state, cx| {
+                                                    close_with_revert(state, cx);
+                                                    cx.notify();
+                                                });
+                                            }),
+                                    ),
+                            )
+                            .with_priority(0)
+                            .into_any_element(),
+                        );
+
+                        // Popup panel at priority 1 (above backdrop).
+                        let items = options
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (key, label))| {
+                                let is_highlighted = highlight_index == Some(i);
+                                let key_c = key.clone();
+                                let label_c = label.clone();
+
+                                div()
+                                    .id(("theme-item", i))
+                                    .px_2()
+                                    .py_1p5()
+                                    .rounded(px(4.))
+                                    .text_sm()
+                                    .cursor_pointer()
+                                    .when(is_highlighted, |d| {
+                                        d.bg(cx.theme().accent)
+                                            .text_color(cx.theme().accent_foreground)
+                                    })
+                                    .when(!is_highlighted, |d| {
+                                        d.hover(|s| s.bg(cx.theme().secondary))
+                                    })
+                                    .child(label_c)
+                                    .on_mouse_move({
+                                        let picker_m = picker.clone();
+                                        let key_m = key_c.clone();
+                                        move |_, _, cx| {
+                                            picker_m.update(cx, |state, cx| {
+                                                if state.highlight_index == Some(i) {
+                                                    return;
+                                                }
+                                                state.highlight_index = Some(i);
+                                                let choice =
+                                                    ThemeChoice::from_key(key_m.as_ref());
+                                                apply_theme(&choice, cx);
+                                                cx.notify();
+                                            });
+                                        }
+                                    })
+                                    .on_click({
+                                        let picker_c = picker.clone();
+                                        let key_click = key_c.clone();
+                                        move |_, _, cx| {
+                                            picker_c.update(cx, |state, cx| {
+                                                confirm_save(&key_click, state, cx);
+                                                cx.notify();
+                                            });
+                                        }
+                                    })
+                            })
+                            .collect::<Vec<_>>();
+
+                        let popup_content = v_flex()
+                            .id("theme-picker-popup")
+                            .bg(cx.theme().popover)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .rounded(px(6.))
+                            .shadow_md()
+                            .w(px(220.))
+                            .occlude()
+                            .relative()
+                            .track_focus(&focus_handle)
+                            .on_key_down({
+                                let picker_k = picker.clone();
+                                move |ev: &KeyDownEvent, _, cx| {
+                                    let key = ev.keystroke.key.as_str();
+                                    picker_k.update(cx, |state, cx| {
+                                        let len = state.options.len();
+                                        if len == 0 {
+                                            return;
+                                        }
+                                        match key {
+                                            "up" => {
+                                                let new_ix =
+                                                    state.highlight_index.map_or(
+                                                        len - 1,
+                                                        |i| {
+                                                            if i == 0 { len - 1 } else { i - 1 }
+                                                        },
+                                                    );
+                                                state.highlight_index = Some(new_ix);
+                                                state.scroll_handle.scroll_to_item(new_ix);
+                                                let choice = ThemeChoice::from_key(
+                                                    state.options[new_ix].0.as_ref(),
+                                                );
+                                                apply_theme(&choice, cx);
+                                                cx.notify();
+                                            }
+                                            "down" => {
+                                                let new_ix =
+                                                    state.highlight_index.map_or(0, |i| {
+                                                        (i + 1) % len
+                                                    });
+                                                state.highlight_index = Some(new_ix);
+                                                state.scroll_handle.scroll_to_item(new_ix);
+                                                let choice = ThemeChoice::from_key(
+                                                    state.options[new_ix].0.as_ref(),
+                                                );
+                                                apply_theme(&choice, cx);
+                                                cx.notify();
+                                            }
+                                            "escape" => {
+                                                close_with_revert(state, cx);
+                                                cx.notify();
+                                            }
+                                            "enter" => {
+                                                if let Some(ix) = state.highlight_index {
+                                                    let k = state.options[ix].0.clone();
+                                                    confirm_save(&k, state, cx);
+                                                } else {
+                                                    close_with_revert(state, cx);
+                                                }
+                                                cx.notify();
+                                            }
+                                            _ => {}
+                                        }
+                                    });
+                                }
+                            })
+                            .child(
+                                div()
+                                    .id("theme-picker-list")
+                                    .max_h(px(360.))
+                                    .overflow_y_scroll()
+                                    .track_scroll(&scroll_handle)
+                                    .p_1()
+                                    .children(items),
+                            )
+                            .vertical_scrollbar(&scroll_handle);
+
+                        overlay.push(
+                            deferred(
+                                anchored()
+                                    .snap_to_window_with_margin(px(8.))
+                                    .child(div().mt_1().occlude().child(popup_content)),
+                            )
+                            .with_priority(1)
+                            .into_any_element(),
+                        );
                     }
-                    match choice {
-                        ThemeChoice::System => {
-                            gpui_component::theme::Theme::sync_system_appearance(None, cx)
-                        }
-                        ThemeChoice::Named(ref name) => {
-                            crate::settings_store::apply_named_theme(name, cx)
-                        }
-                    }
-                },
-            ),
+
+                    div().relative().child(trigger).children(overlay)
+                }
+            }),
         )
         .description("Color scheme for the application"),
     )

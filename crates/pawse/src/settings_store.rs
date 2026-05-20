@@ -137,11 +137,17 @@ impl SettingsStore {
     }
 }
 
-pub fn apply_startup_theme(store: &SettingsStore, cx: &mut App) {
-    match store.theme() {
+/// Apply a theme choice to the UI without saving to disk. Used for live preview.
+pub fn apply_theme(choice: &ThemeChoice, cx: &mut App) {
+    match choice {
         ThemeChoice::System => Theme::sync_system_appearance(None, cx),
-        ThemeChoice::Named(name) => apply_named_theme(&name, cx),
+        ThemeChoice::Named(name) => apply_named_theme(name, cx),
     }
+}
+
+pub fn apply_startup_theme(store: &SettingsStore, cx: &mut App) {
+    let t = store.theme();
+    apply_theme(&t, cx);
 }
 
 /// Apply a theme by name from `ThemeRegistry`. No-op if the name is not yet registered
