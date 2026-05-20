@@ -17,6 +17,11 @@ use crate::footer::Footer;
 use crate::library_views::library_view::{LibraryView, LibraryViewEvent};
 use crate::media_bridge::MediaBridge;
 use crate::settings_view::ThemePickerState;
+use ui_components::fade::{FadeEdge, fade_overlay};
+
+const HEADER_HEIGHT: f32 = 44.0;
+const FOOTER_HEIGHT: f32 = 80.0;
+const FADE_HEIGHT: f32 = 16.0;
 
 pub struct MainView {
     audio_settings: Entity<AudioSettings>,
@@ -38,21 +43,21 @@ impl MainView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library_view = cx.new(|cx| LibraryView::new(window, cx));
 
-        let library_subscription = cx.subscribe(&library_view, {
-            let library_view = library_view.clone();
-            move |this: &mut MainView, _, event: &LibraryViewEvent, cx| match event {
+        let library_subscription = cx.subscribe_in(
+            &library_view,
+            window,
+            move |this: &mut MainView, _, event: &LibraryViewEvent, window, cx| match event {
                 LibraryViewEvent::StateChanged => {
-                    this.is_tracks_view = library_view.read(cx).is_tracks_view();
-                    let query = this.search_input.read(cx).value().to_string();
-                    library_view.update(cx, |v, cx| v.apply_search(&query, cx));
+                    this.is_tracks_view = this.library_view.read(cx).is_tracks_view();
+                    this.clear_search(window, cx);
                     cx.notify();
                 }
                 LibraryViewEvent::OpenSettingsRequested => {
                     this.show_settings = true;
                     cx.notify();
                 }
-            }
-        });
+            },
+        );
 
         let search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search artists, albums, tracks"));
@@ -164,12 +169,13 @@ impl Render for MainView {
         div()
             .v_flex()
             .size_full()
+            .relative()
             .overflow_hidden()
             .child(
                 div()
                     .w_full()
                     .flex_shrink_0()
-                    .h(px(44.))
+                    .h(px(HEADER_HEIGHT))
                     .flex()
                     .items_center()
                     .pl_2()
@@ -219,9 +225,13 @@ impl Render for MainView {
                 div()
                     .w_full()
                     .flex_shrink_0()
-                    .h(px(80.))
+                    .h(px(FOOTER_HEIGHT))
                     .child(self.footer.clone()),
             )
+            .when(!show_settings, |d| {
+                d.child(fade_overlay(FadeEdge::Top, cx.theme().background, FADE_HEIGHT, HEADER_HEIGHT))
+                    .child(fade_overlay(FadeEdge::Bottom, cx.theme().background, FADE_HEIGHT, FOOTER_HEIGHT))
+            })
             .children(Root::render_notification_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))
     }

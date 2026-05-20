@@ -58,6 +58,10 @@ impl<'de> Deserialize<'de> for ThemeChoice {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_volume() -> f32 {
     1.0
 }
@@ -82,6 +86,8 @@ pub struct UserSettings {
     pub volume: f32,
     #[serde(default)]
     pub playback: PlaybackState,
+    #[serde(default = "default_true")]
+    pub show_hog_button: bool,
 }
 
 impl Default for UserSettings {
@@ -91,6 +97,7 @@ impl Default for UserSettings {
             music_folders: Vec::new(),
             volume: 1.0,
             playback: PlaybackState::default(),
+            show_hog_button: true,
         }
     }
 }
@@ -181,6 +188,15 @@ impl SettingsStore {
 
     pub fn set_volume(&mut self, volume: f32) -> anyhow::Result<()> {
         self.settings.volume = volume;
+        self.save()
+    }
+
+    pub fn show_hog_button(&self) -> bool {
+        self.settings.show_hog_button
+    }
+
+    pub fn set_show_hog_button(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_hog_button = show;
         self.save()
     }
 }
@@ -407,6 +423,7 @@ mod tests {
                 current_index: Some(0),
                 position_ms: 12_345,
             },
+            show_hog_button: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();

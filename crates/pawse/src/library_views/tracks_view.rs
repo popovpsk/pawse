@@ -19,6 +19,7 @@ use crate::services::Services;
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
 const ALBUM_INFO_HEIGHT: f32 = 170.;
+const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Copy)]
 enum TrackItem {
@@ -160,6 +161,7 @@ impl TracksView {
             self.tracks = self.tracks_all.clone();
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
+            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
             let mut buf: Vec<char> = Vec::new();
             let mut scored: Vec<(music_library::Track, u32)> = self
                 .tracks_all
@@ -168,6 +170,7 @@ impl TracksView {
                     let haystack = Utf32Str::new(&track.title, &mut buf);
                     pattern
                         .score(haystack, &mut self.matcher)
+                        .filter(|s| *s >= threshold)
                         .map(|s| (track.clone(), s))
                 })
                 .collect();

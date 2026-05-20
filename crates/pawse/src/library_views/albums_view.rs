@@ -26,6 +26,7 @@ pub struct AlbumSelectedEvent {
 pub struct OpenSettingsRequested;
 
 const ALBUM_ROW_HEIGHT: f32 = 48.;
+const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 pub struct AlbumsView {
     albums_all: Vec<music_library::AlbumSummary>,
@@ -122,6 +123,7 @@ impl AlbumsView {
             self.albums = self.albums_all.clone();
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
+            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
             let mut buf: Vec<char> = Vec::new();
             let mut scored: Vec<(i64, u32)> = self
                 .search_entries
@@ -130,6 +132,7 @@ impl AlbumsView {
                     let haystack = Utf32Str::new(&entry.haystack, &mut buf);
                     pattern
                         .score(haystack, &mut self.matcher)
+                        .filter(|s| *s >= threshold)
                         .map(|s| (entry.album_id, s))
                 })
                 .collect();

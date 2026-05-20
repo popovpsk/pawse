@@ -271,6 +271,7 @@ impl LibraryRepository for SqliteLibrary {
                 a.id,
                 a.title || ' ' ||
                 COALESCE(artists_concat.names, '') || ' ' ||
+                COALESCE(track_artists_concat.names, '') || ' ' ||
                 COALESCE(tracks_concat.titles, '')
             FROM albums a
             LEFT JOIN (
@@ -279,6 +280,14 @@ impl LibraryRepository for SqliteLibrary {
                 JOIN artists art ON art.id = aa.artist_id
                 GROUP BY aa.album_id
             ) artists_concat ON artists_concat.album_id = a.id
+            LEFT JOIN (
+                SELECT t.album_id AS album_id, GROUP_CONCAT(DISTINCT art.name) AS names
+                FROM tracks t
+                JOIN track_artists ta ON ta.track_id = t.id
+                JOIN artists art ON art.id = ta.artist_id
+                WHERE t.album_id IS NOT NULL
+                GROUP BY t.album_id
+            ) track_artists_concat ON track_artists_concat.album_id = a.id
             LEFT JOIN (
                 SELECT album_id, GROUP_CONCAT(title, ' ') AS titles
                 FROM tracks

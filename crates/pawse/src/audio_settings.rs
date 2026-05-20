@@ -14,10 +14,12 @@ use gpui_component::{
 };
 
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 
 pub struct AudioSettings {
     is_exclusive: bool,
     pending_notification: Option<String>,
+    _settings_store_subscription: gpui::Subscription,
 }
 
 struct DeviceErrorNotif;
@@ -56,9 +58,13 @@ fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
 impl AudioSettings {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
+        let is_exclusive = services.output.is_exclusive();
+        let settings_store_subscription =
+            cx.observe_global::<SettingsStore>(|_, cx| cx.notify());
         Self {
-            is_exclusive: services.output.is_exclusive(),
+            is_exclusive,
             pending_notification: None,
+            _settings_store_subscription: settings_store_subscription,
         }
     }
 }
@@ -86,6 +92,7 @@ impl Render for AudioSettings {
             .issues
             .iter()
             .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }));
+        let show_hog = cx.global::<SettingsStore>().show_hog_button();
         for evt in events {
             match evt {
                 OutputEvent::Recovered { message } => {
@@ -153,53 +160,55 @@ impl Render for AudioSettings {
                         }),
                 )
             })
-            .child({
-                let view = cx.entity().clone();
-                let icon_path = if self.is_exclusive {
-                    "icons/hog-on.svg"
-                } else {
-                    "icons/hog-off.svg"
-                };
-                let tooltip = if self.is_exclusive {
-                    "Exclusive mode — click to disable"
-                } else {
-                    "Shared mode — click to enable exclusive"
-                };
-                Button::new("exclusive-toggle")
-                    .ghost()
-                    .compact()
-                    .rounded_full()
-                    .w(px(40.))
-                    .h(px(40.))
-                    .icon(Icon::default().path(icon_path).size(px(20.)))
-                    .tooltip(tooltip)
-                    .on_click(move |_, window: &mut Window, app_cx: &mut App| {
-                        view.update(app_cx, |this, cx| {
-                            let services = cx.global::<Services>();
-                            if this.is_exclusive {
-                                let _ = services.output.set_exclusive(false);
-                                this.is_exclusive = false;
-                            } else {
-                                match services.output.set_exclusive(true) {
-                                    Ok(()) => {
-                                        this.is_exclusive = true;
-                                    }
-                                    Err(e) => {
-                                        window.push_notification(
-                                            Notification::error(format!(
-                                                "Failed to enable exclusive mode: {}",
-                                                e
-                                            ))
-                                            .title("Exclusive Mode")
-                                            .id::<DeviceErrorNotif>(),
-                                            cx,
-                                        );
+            .when(show_hog, |el| {
+                el.child({
+                    let view = cx.entity().clone();
+                    let icon_path = if self.is_exclusive {
+                        "icons/hog-on.svg"
+                    } else {
+                        "icons/hog-off.svg"
+                    };
+                    let tooltip = if self.is_exclusive {
+                        "Exclusive mode — click to disable"
+                    } else {
+                        "Shared mode — click to enable exclusive"
+                    };
+                    Button::new("exclusive-toggle")
+                        .ghost()
+                        .compact()
+                        .rounded_full()
+                        .w(px(40.))
+                        .h(px(40.))
+                        .icon(Icon::default().path(icon_path).size(px(20.)))
+                        .tooltip(tooltip)
+                        .on_click(move |_, window: &mut Window, app_cx: &mut App| {
+                            view.update(app_cx, |this, cx| {
+                                let services = cx.global::<Services>();
+                                if this.is_exclusive {
+                                    let _ = services.output.set_exclusive(false);
+                                    this.is_exclusive = false;
+                                } else {
+                                    match services.output.set_exclusive(true) {
+                                        Ok(()) => {
+                                            this.is_exclusive = true;
+                                        }
+                                        Err(e) => {
+                                            window.push_notification(
+                                                Notification::error(format!(
+                                                    "Failed to enable exclusive mode: {}",
+                                                    e
+                                                ))
+                                                .title("Exclusive Mode")
+                                                .id::<DeviceErrorNotif>(),
+                                                cx,
+                                            );
+                                        }
                                     }
                                 }
-                            }
-                            cx.notify();
-                        });
-                    })
+                                cx.notify();
+                            });
+                        })
+                })
             })
             .child({
                 let view = cx.entity().clone();
