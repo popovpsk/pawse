@@ -158,6 +158,11 @@ impl EventEmitter<OpenSettingsRequested> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let border = theme.border;
+        let secondary = theme.secondary;
+        let muted_fg = theme.muted_foreground;
+
         if self.is_scanning && self.albums_all.is_empty() {
             return v_flex()
                 .size_full()
@@ -174,7 +179,7 @@ impl Render for AlbumsView {
                     .pt_4()
                     .child(
                         div()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_color(muted_fg)
                             .child("No music folders configured."),
                     )
                     .child(
@@ -204,7 +209,7 @@ impl Render for AlbumsView {
                 cx.entity().clone(),
                 "albums_list",
                 item_sizes,
-                |view, visible_range, _window, cx| {
+                move |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| {
                             if ix == 0 {
@@ -223,12 +228,12 @@ impl Render for AlbumsView {
                                 .items_center()
                                 .gap_2()
                                 .border_b(px(1.))
-                                .border_color(cx.theme().border)
+                                .border_color(border)
                                 .cursor(gpui::CursorStyle::PointingHand)
-                                .hover(|style| style.bg(cx.theme().secondary))
+                                .hover(|style| style.bg(secondary))
                                 .child({
-                                    let fallback_bg = cx.theme().secondary;
-                                    let fallback_fg = cx.theme().muted_foreground;
+                                    let fallback_bg = secondary;
+                                    let fallback_fg = muted_fg;
                                     let cover: gpui::AnyElement = {
                                         let services = cx.global::<Services>();
                                         let cover_img = services

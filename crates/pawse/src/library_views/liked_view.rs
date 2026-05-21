@@ -221,18 +221,23 @@ fn build_artist_map(
 
 impl Render for LikedView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let border = theme.border;
+        let secondary = theme.secondary;
+        let muted = theme.muted;
+        let muted_fg = theme.muted_foreground;
+
         if self.tracks.is_empty() {
             let message = if self.tracks_all.is_empty() {
                 "No liked tracks yet. Hover a track and tap the heart to like it."
             } else {
                 "No liked tracks match your search."
             };
-            return v_flex().size_full().gap_3().pt_2().child(
-                div()
-                    .px_4()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(message),
-            );
+            return v_flex()
+                .size_full()
+                .gap_3()
+                .pt_2()
+                .child(div().px_4().text_color(muted_fg).child(message));
         }
 
         let item_sizes = self.item_sizes.clone();
@@ -241,7 +246,7 @@ impl Render for LikedView {
                 cx.entity().clone(),
                 "liked_list",
                 item_sizes,
-                |view, visible_range, _window, cx| {
+                move |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| match view.items[ix] {
                             LikedItem::TopPadding => {
@@ -272,8 +277,8 @@ impl Render for LikedView {
                                     .cover_art_cache
                                     .borrow_mut()
                                     .get_small(cover_art_id, &services.library);
-                                let fallback_bg = cx.theme().muted;
-                                let fallback_fg = cx.theme().muted_foreground;
+                                let fallback_bg = muted;
+                                let fallback_fg = muted_fg;
                                 let cover_el: gpui::AnyElement = if let Some(cover_img) = cover_img
                                 {
                                     img(cover_img)
@@ -304,9 +309,9 @@ impl Render for LikedView {
                                     .items_center()
                                     .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
-                                    .border_color(cx.theme().border)
-                                    .when(is_current, |s| s.bg(cx.theme().secondary))
-                                    .hover(|s| s.bg(cx.theme().secondary))
+                                    .border_color(border)
+                                    .when(is_current, |s| s.bg(secondary))
+                                    .hover(|s| s.bg(secondary))
                                     .child(cover_el)
                                     .child(
                                         div()
@@ -325,7 +330,7 @@ impl Render for LikedView {
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
+                                            .text_color(muted_fg)
                                             .child(artist),
                                     )
                                     .child(like_button(track_id, liked, cx))
@@ -333,7 +338,7 @@ impl Render for LikedView {
                                         div()
                                             .w_16()
                                             .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
+                                            .text_color(muted_fg)
                                             .child(duration_str),
                                     )
                                     .id(ElementId::Integer(track_id as u64))

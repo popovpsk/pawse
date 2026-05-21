@@ -166,6 +166,13 @@ impl QueueView {
 
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let foreground = theme.foreground;
+        let muted = theme.muted;
+        let muted_fg = theme.muted_foreground;
+        let border = theme.border;
+        let secondary = theme.secondary;
+
         let header = h_flex()
             .w_full()
             .h(px(HEADER_HEIGHT))
@@ -176,7 +183,7 @@ impl Render for QueueView {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().foreground)
+                    .text_color(foreground)
                     .child("Queue"),
             );
 
@@ -186,7 +193,7 @@ impl Render for QueueView {
                     .px_4()
                     .pt_2()
                     .text_sm()
-                    .text_color(cx.theme().muted_foreground)
+                    .text_color(muted_fg)
                     .child("Queue is empty."),
             );
         }
@@ -197,7 +204,7 @@ impl Render for QueueView {
                 cx.entity().clone(),
                 "queue_list",
                 item_sizes,
-                |view, visible_range, _window, cx| {
+                move |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| match view.items[ix] {
                             QueueItem::TopPadding => {
@@ -228,8 +235,8 @@ impl Render for QueueView {
                                     .cover_art_cache
                                     .borrow_mut()
                                     .get_small(cover_art_id, &services.library);
-                                let fallback_bg = cx.theme().muted;
-                                let fallback_fg = cx.theme().muted_foreground;
+                                let fallback_bg = muted;
+                                let fallback_fg = muted_fg;
                                 let cover_el: gpui::AnyElement = if let Some(cover_img) = cover_img
                                 {
                                     img(cover_img)
@@ -263,9 +270,9 @@ impl Render for QueueView {
                                     .items_center()
                                     .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
-                                    .border_color(cx.theme().border)
-                                    .when(is_current, |s| s.bg(cx.theme().secondary))
-                                    .hover(|s| s.bg(cx.theme().secondary))
+                                    .border_color(border)
+                                    .when(is_current, |s| s.bg(secondary))
+                                    .hover(|s| s.bg(secondary))
                                     .child(left_cell)
                                     .child(
                                         div()
@@ -285,16 +292,11 @@ impl Render for QueueView {
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
+                                            .text_color(muted_fg)
                                             .child(artist),
                                     )
                                     .child(like_button(track_id, liked, cx))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(duration_str),
-                                    )
+                                    .child(div().text_sm().text_color(muted_fg).child(duration_str))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |_this, _, _, cx| {
                                         let services = cx.global::<Services>();

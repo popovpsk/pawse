@@ -29,7 +29,7 @@ pub fn like_button(track_id: i64, liked: bool, cx: &App) -> impl IntoElement {
     };
 
     div()
-        .id(ElementId::Name(format!("like-{}", track_id).into()))
+        .id(ElementId::NamedInteger("like".into(), track_id as u64))
         .size(px(LIKE_BUTTON_SIZE))
         .flex()
         .items_center()

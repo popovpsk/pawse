@@ -122,6 +122,11 @@ impl EventEmitter<ArtistSelectedEvent> for ArtistsView {}
 
 impl Render for ArtistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let border = theme.border;
+        let secondary = theme.secondary;
+        let muted_fg = theme.muted_foreground;
+
         if self.is_scanning && self.artists_all.is_empty() {
             return v_flex()
                 .size_full()
@@ -146,7 +151,7 @@ impl Render for ArtistsView {
                 cx.entity().clone(),
                 "artists_list",
                 item_sizes,
-                |view, visible_range, _window, cx| {
+                move |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| {
                             if ix == 0 {
@@ -166,9 +171,9 @@ impl Render for ArtistsView {
                                 .items_center()
                                 .gap_2()
                                 .border_b(px(1.))
-                                .border_color(cx.theme().border)
+                                .border_color(border)
                                 .cursor(gpui::CursorStyle::PointingHand)
-                                .hover(|style| style.bg(cx.theme().secondary))
+                                .hover(|style| style.bg(secondary))
                                 .child(
                                     div()
                                         .flex_1()
@@ -176,12 +181,7 @@ impl Render for ArtistsView {
                                         .truncate()
                                         .child(artist.name.clone()),
                                 )
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(count_label),
-                                )
+                                .child(div().text_sm().text_color(muted_fg).child(count_label))
                                 .id(ElementId::Integer(artist.id as u64))
                                 .on_click(cx.listener(move |_this, _, _, cx| {
                                     cx.emit(ArtistSelectedEvent {

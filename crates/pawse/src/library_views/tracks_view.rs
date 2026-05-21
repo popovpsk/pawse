@@ -217,6 +217,12 @@ impl TracksView {
 
 impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let border = theme.border;
+        let secondary = theme.secondary;
+        let muted_fg = theme.muted_foreground;
+        let foreground = theme.foreground;
+
         if self.tracks.is_empty() {
             let message = if self.tracks_all.is_empty() {
                 "No tracks found for this album."
@@ -235,7 +241,7 @@ impl Render for TracksView {
                 cx.entity().clone(),
                 "tracks_list",
                 item_sizes,
-                |view, visible_range, _window, cx| {
+                move |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| match view.items[ix] {
                             TrackItem::TopPadding => {
@@ -248,12 +254,12 @@ impl Render for TracksView {
                                 .px_4()
                                 .items_center()
                                 .border_b(px(1.))
-                                .border_color(cx.theme().border)
+                                .border_color(border)
                                 .child(
                                     div()
                                         .text_sm()
                                         .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(muted_fg)
                                         .child(format!("Disc {}", disc)),
                                 )
                                 .into_any_element(),
@@ -284,9 +290,9 @@ impl Render for TracksView {
                                     .items_center()
                                     .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
-                                    .border_color(cx.theme().border)
-                                    .when(is_current, |style| style.bg(cx.theme().secondary))
-                                    .hover(|style| style.bg(cx.theme().secondary))
+                                    .border_color(border)
+                                    .when(is_current, |style| style.bg(secondary))
+                                    .hover(|style| style.bg(secondary))
                                     .child(if is_current {
                                         let icon = if view.is_playing {
                                             "icons/play.svg"
@@ -301,7 +307,7 @@ impl Render for TracksView {
                                                 svg()
                                                     .path(icon)
                                                     .size(px(12.))
-                                                    .text_color(cx.theme().foreground),
+                                                    .text_color(foreground),
                                             )
                                             .into_any_element()
                                     } else {
