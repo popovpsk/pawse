@@ -16,6 +16,7 @@ use nucleo_matcher::{
 use crate::library_views::album_info::AlbumInfo;
 use crate::services::Services;
 
+const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
 const ALBUM_INFO_HEIGHT: f32 = 170.;
@@ -23,6 +24,7 @@ const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Copy)]
 enum TrackItem {
+    TopPadding,
     AlbumInfo,
     DiscHeader(i32),
     Track(usize),
@@ -122,8 +124,11 @@ impl TracksView {
         let max_disc = tracks.iter().map(|t| t.disc_number).max().unwrap_or(1);
         let multi_disc = max_disc > 1;
 
-        let mut items = vec![TrackItem::AlbumInfo];
-        let mut item_sizes_vec = vec![size(px(300.), px(ALBUM_INFO_HEIGHT + 1.))];
+        let mut items = vec![TrackItem::TopPadding, TrackItem::AlbumInfo];
+        let mut item_sizes_vec = vec![
+            size(px(300.), px(TOP_PADDING)),
+            size(px(300.), px(ALBUM_INFO_HEIGHT + 1.)),
+        ];
 
         if multi_disc {
             let mut current_disc = 0i32;
@@ -206,6 +211,9 @@ impl Render for TracksView {
                 |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| match view.items[ix] {
+                            TrackItem::TopPadding => {
+                                div().w_full().h(px(TOP_PADDING)).into_any_element()
+                            }
                             TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
                             TrackItem::DiscHeader(disc) => h_flex()
                                 .w_full()

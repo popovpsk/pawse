@@ -25,6 +25,7 @@ pub struct AlbumSelectedEvent {
 #[derive(Clone, Debug)]
 pub struct OpenSettingsRequested;
 
+const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
@@ -102,10 +103,12 @@ impl AlbumsView {
     }
 
     fn make_item_sizes(albums: &[music_library::AlbumSummary]) -> Rc<Vec<Size<Pixels>>> {
-        Rc::new(vec![
+        let mut sizes = vec![size(px(300.), px(TOP_PADDING))];
+        sizes.extend(vec![
             size(px(300.), px(ALBUM_ROW_HEIGHT + 1.));
             albums.len()
-        ])
+        ]);
+        Rc::new(sizes)
     }
 
     pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
@@ -203,7 +206,10 @@ impl Render for AlbumsView {
                 |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| {
-                            let album = &view.albums[ix];
+                            if ix == 0 {
+                                return div().w_full().h(px(TOP_PADDING)).into_any_element();
+                            }
+                            let album = &view.albums[ix - 1];
                             let album = album.clone();
                             let year_str =
                                 album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
@@ -263,6 +269,7 @@ impl Render for AlbumsView {
                                         album: album.clone(),
                                     });
                                 }))
+                                .into_any_element()
                         })
                         .collect::<Vec<_>>()
                 },
