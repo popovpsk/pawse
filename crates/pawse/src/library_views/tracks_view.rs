@@ -13,7 +13,9 @@ use nucleo_matcher::{
     pattern::{CaseMatching, Normalization, Pattern},
 };
 
+use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
+use crate::like_button::{LIKE_ROW_GROUP, like_button};
 use crate::services::Services;
 
 const TOP_PADDING: f32 = 12.;
@@ -42,6 +44,7 @@ pub struct TracksView {
     current_track_id: Option<i64>,
     is_playing: bool,
     _subscription: Subscription,
+    _library_subscription: Subscription,
 }
 
 impl TracksView {
@@ -53,6 +56,7 @@ impl TracksView {
 
         let item_sizes = Rc::new(item_sizes_vec);
         let engine_event_bus = services.engine_event_bus.clone();
+        let library_event_bus = services.library_event_bus.clone();
         let current_track_id = services
             .playback_queue
             .borrow()
@@ -105,6 +109,28 @@ impl TracksView {
                 },
             );
 
+        let library_subscription =
+            cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
+                if let LibraryEvent::TrackLikedChanged { track_id, liked } = event {
+                    let mut changed = false;
+                    for t in this.tracks_all.iter_mut() {
+                        if t.id == *track_id && t.liked != *liked {
+                            t.liked = *liked;
+                            changed = true;
+                        }
+                    }
+                    for t in this.tracks.iter_mut() {
+                        if t.id == *track_id && t.liked != *liked {
+                            t.liked = *liked;
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        cx.notify();
+                    }
+                }
+            });
+
         Self {
             tracks_all,
             tracks,
@@ -117,6 +143,7 @@ impl TracksView {
             current_track_id,
             is_playing: current_track_id.is_some(),
             _subscription: subscription,
+            _library_subscription: library_subscription,
         }
     }
 
@@ -246,12 +273,15 @@ impl Render for TracksView {
                                     .unwrap_or_default();
 
                                 let is_current = Some(track.id) == view.current_track_id;
+                                let liked = track.liked;
 
                                 h_flex()
+                                    .group(LIKE_ROW_GROUP)
                                     .w_full()
                                     .h(px(TRACK_ROW_HEIGHT))
                                     .px_4()
                                     .gap_2()
+                                    .items_center()
                                     .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
                                     .border_color(cx.theme().border)
@@ -287,6 +317,7 @@ impl Render for TracksView {
                                             })
                                             .child(track.title.clone()),
                                     )
+                                    .child(like_button(track_id, liked, cx))
                                     .child(div().w_16().child(duration_str))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, _cx| {

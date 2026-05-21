@@ -134,9 +134,7 @@ impl Render for NowPlaying {
                         .with_fallback({
                             let bg = cx.theme().secondary;
                             let fg = cx.theme().muted_foreground;
-                            move || {
-                                cover_placeholder(48., 4., bg, fg).into_any_element()
-                            }
+                            move || cover_placeholder(48., 4., bg, fg).into_any_element()
                         })
                         .into_any_element()
                 } else {

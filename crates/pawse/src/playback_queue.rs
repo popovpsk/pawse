@@ -230,6 +230,7 @@ mod tests {
             year: None,
             cover_art_id: None,
             start_offset_ms: 0,
+            liked: false,
         }
     }
 

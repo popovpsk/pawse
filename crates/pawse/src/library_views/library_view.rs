@@ -5,6 +5,9 @@ use gpui::{
 use gpui_component::v_flex;
 
 use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, OpenSettingsRequested};
+use crate::library_views::artist_tracks_view::ArtistTracksView;
+use crate::library_views::artists_view::{ArtistSelectedEvent, ArtistsView};
+use crate::library_views::liked_view::LikedView;
 use crate::library_views::tracks_view::TracksView;
 
 #[derive(Clone, Debug)]
@@ -13,26 +16,45 @@ pub enum LibraryViewEvent {
     OpenSettingsRequested,
 }
 
-enum LibraryViewState {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LibraryRootTab {
     Albums,
-    Tracks,
+    Artists,
+    Liked,
+}
+
+enum LibraryViewState {
+    Root(LibraryRootTab),
+    AlbumTracks,
+    ArtistTracks,
 }
 
 pub struct LibraryView {
     state: LibraryViewState,
     albums_view: Entity<AlbumsView>,
+    artists_view: Entity<ArtistsView>,
+    liked_view: Entity<LikedView>,
     tracks_view: Option<Entity<TracksView>>,
+    artist_tracks_view: Option<Entity<ArtistTracksView>>,
     _album_subscription: Subscription,
+    _artist_subscription: Subscription,
     _settings_subscription: Subscription,
 }
 
 impl LibraryView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let albums_view = cx.new(|cx| AlbumsView::new(window, cx));
+        let artists_view = cx.new(|cx| ArtistsView::new(window, cx));
+        let liked_view = cx.new(|cx| LikedView::new(window, cx));
 
         let album_subscription =
             cx.subscribe(&albums_view, |this, _, event: &AlbumSelectedEvent, cx| {
-                this.show_tracks(event.album.clone(), cx);
+                this.show_album_tracks(event.album.clone(), cx);
+            });
+
+        let artist_subscription =
+            cx.subscribe(&artists_view, |this, _, event: &ArtistSelectedEvent, cx| {
+                this.show_artist_tracks(event.artist.clone(), cx);
             });
 
         let settings_subscription =
@@ -41,42 +63,96 @@ impl LibraryView {
             });
 
         Self {
-            state: LibraryViewState::Albums,
+            state: LibraryViewState::Root(LibraryRootTab::Albums),
             albums_view,
+            artists_view,
+            liked_view,
             tracks_view: None,
+            artist_tracks_view: None,
             _album_subscription: album_subscription,
+            _artist_subscription: artist_subscription,
             _settings_subscription: settings_subscription,
         }
     }
 
-    pub fn is_tracks_view(&self) -> bool {
-        matches!(self.state, LibraryViewState::Tracks)
+    pub fn is_drilled_in(&self) -> bool {
+        matches!(
+            self.state,
+            LibraryViewState::AlbumTracks | LibraryViewState::ArtistTracks
+        )
+    }
+
+    pub fn current_tab(&self) -> Option<LibraryRootTab> {
+        match self.state {
+            LibraryViewState::Root(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    pub fn select_tab(&mut self, tab: LibraryRootTab, cx: &mut Context<Self>) {
+        let same_root = matches!(self.state, LibraryViewState::Root(t) if t == tab);
+        if same_root {
+            return;
+        }
+        self.state = LibraryViewState::Root(tab);
+        self.tracks_view = None;
+        self.artist_tracks_view = None;
+        cx.emit(LibraryViewEvent::StateChanged);
+        cx.notify();
     }
 
     pub fn apply_search(&mut self, query: &str, cx: &mut Context<Self>) {
         match self.state {
-            LibraryViewState::Albums => {
+            LibraryViewState::Root(LibraryRootTab::Albums) => {
                 self.albums_view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::Tracks => {
+            LibraryViewState::Root(LibraryRootTab::Artists) => {
+                self.artists_view
+                    .update(cx, |v, cx| v.set_filter(query, cx));
+            }
+            LibraryViewState::Root(LibraryRootTab::Liked) => {
+                self.liked_view.update(cx, |v, cx| v.set_filter(query, cx));
+            }
+            LibraryViewState::AlbumTracks => {
                 if let Some(tv) = &self.tracks_view {
                     tv.update(cx, |v, cx| v.set_filter(query, cx));
+                }
+            }
+            LibraryViewState::ArtistTracks => {
+                if let Some(av) = &self.artist_tracks_view {
+                    av.update(cx, |v, cx| v.set_filter(query, cx));
                 }
             }
         }
     }
 
     pub fn go_back(&mut self, cx: &mut Context<Self>) {
-        self.state = LibraryViewState::Albums;
+        let tab = match self.state {
+            LibraryViewState::AlbumTracks => LibraryRootTab::Albums,
+            LibraryViewState::ArtistTracks => LibraryRootTab::Artists,
+            LibraryViewState::Root(t) => t,
+        };
+        self.state = LibraryViewState::Root(tab);
         self.tracks_view = None;
+        self.artist_tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
 
-    fn show_tracks(&mut self, album: music_library::AlbumSummary, cx: &mut Context<Self>) {
-        self.state = LibraryViewState::Tracks;
+    fn show_album_tracks(&mut self, album: music_library::AlbumSummary, cx: &mut Context<Self>) {
+        self.state = LibraryViewState::AlbumTracks;
         let tracks_view = cx.new(|cx| TracksView::new(&album, cx));
         self.tracks_view = Some(tracks_view);
+        self.artist_tracks_view = None;
+        cx.emit(LibraryViewEvent::StateChanged);
+        cx.notify();
+    }
+
+    fn show_artist_tracks(&mut self, artist: music_library::ArtistSummary, cx: &mut Context<Self>) {
+        self.state = LibraryViewState::ArtistTracks;
+        let artist_tracks_view = cx.new(|cx| ArtistTracksView::new(&artist, cx));
+        self.artist_tracks_view = Some(artist_tracks_view);
+        self.tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -87,10 +163,25 @@ impl EventEmitter<LibraryViewEvent> for LibraryView {}
 impl Render for LibraryView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div().relative().size_full().child(match self.state {
-            LibraryViewState::Albums => v_flex().size_full().child(self.albums_view.clone()),
-            LibraryViewState::Tracks => {
+            LibraryViewState::Root(LibraryRootTab::Albums) => {
+                v_flex().size_full().child(self.albums_view.clone())
+            }
+            LibraryViewState::Root(LibraryRootTab::Artists) => {
+                v_flex().size_full().child(self.artists_view.clone())
+            }
+            LibraryViewState::Root(LibraryRootTab::Liked) => {
+                v_flex().size_full().child(self.liked_view.clone())
+            }
+            LibraryViewState::AlbumTracks => {
                 if let Some(ref tracks_view) = self.tracks_view {
                     v_flex().size_full().child(tracks_view.clone())
+                } else {
+                    v_flex().size_full()
+                }
+            }
+            LibraryViewState::ArtistTracks => {
+                if let Some(ref artist_tracks_view) = self.artist_tracks_view {
+                    v_flex().size_full().child(artist_tracks_view.clone())
                 } else {
                     v_flex().size_full()
                 }

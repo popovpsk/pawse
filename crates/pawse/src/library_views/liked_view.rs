@@ -9,6 +9,10 @@ use gpui::{
     div, img, px, size,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{CaseMatching, Normalization, Pattern},
+};
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
@@ -16,198 +20,238 @@ use crate::like_button::{LIKE_ROW_GROUP, like_button};
 use crate::services::Services;
 
 const TOP_PADDING: f32 = 12.;
-const TRACK_ROW_HEIGHT: f32 = 36.;
-const HEADER_HEIGHT: f32 = 40.;
-const COVER_SIZE: f32 = 28.;
+const TRACK_ROW_HEIGHT: f32 = 44.;
+const COVER_SIZE: f32 = 32.;
+const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Copy)]
-enum QueueItem {
+enum LikedItem {
     TopPadding,
     Track(usize),
 }
 
-pub struct QueueView {
+pub struct LikedView {
+    tracks_all: Vec<music_library::Track>,
     tracks: Vec<music_library::Track>,
     artist_by_track: HashMap<i64, String>,
-    items: Vec<QueueItem>,
-    current_index: Option<usize>,
-    is_playing: bool,
+    items: Vec<LikedItem>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
+    filter: String,
+    matcher: Matcher,
+    current_track_id: Option<i64>,
+    is_playing: bool,
     scroll_handle: VirtualListScrollHandle,
-    _subscription: Subscription,
     _library_subscription: Subscription,
+    _engine_subscription: Subscription,
 }
 
-impl QueueView {
+impl LikedView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
-        let engine_event_bus = services.engine_event_bus.clone();
+        let library = services.library.clone();
         let library_event_bus = services.library_event_bus.clone();
+        let engine_event_bus = services.engine_event_bus.clone();
 
-        let queue = services.playback_queue.borrow();
-        let tracks = queue.tracks_vec();
-        let current_index = queue.current_index();
-        let is_playing = current_index.is_some();
-        drop(queue);
-
-        // Pre-warm cover art cache so render never hits the DB.
-        {
-            let mut cache = services.cover_art_cache.borrow_mut();
-            for track in &tracks {
-                cache.get_small(track.cover_art_id, &services.library);
-            }
-        }
-
-        let artist_by_track = build_artist_map(&services.library, &tracks);
+        let tracks_all = library.liked_tracks();
+        let artist_by_track = build_artist_map(&library, &tracks_all);
+        Self::prewarm_covers(services, &tracks_all);
+        let tracks = tracks_all.clone();
         let (items, item_sizes) = Self::build_items(&tracks);
 
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { .. } => {
-                        let services = cx.global::<Services>();
-                        let queue = services.playback_queue.borrow();
-                        let new_tracks = queue.tracks_vec();
-                        let new_index = queue.current_index();
-                        drop(queue);
-                        // Pre-warm cover art for the new queue.
-                        {
-                            let mut cache = services.cover_art_cache.borrow_mut();
-                            for track in &new_tracks {
-                                cache.get_small(track.cover_art_id, &services.library);
-                            }
-                        }
-                        this.artist_by_track = build_artist_map(&services.library, &new_tracks);
-                        let (new_items, new_sizes) = Self::build_items(&new_tracks);
-                        this.items = new_items;
-                        this.item_sizes = Rc::new(new_sizes);
-                        this.tracks = new_tracks;
-                        this.current_index = new_index;
-                        this.is_playing = true;
-                        cx.notify();
-                    }
-                    EngineEvent::Playing if !this.is_playing => {
-                        this.is_playing = true;
-                        cx.notify();
-                    }
-                    EngineEvent::Paused if this.is_playing => {
-                        this.is_playing = false;
-                        cx.notify();
-                    }
-                    EngineEvent::TrackEnded if this.is_playing => {
-                        this.is_playing = false;
-                        cx.notify();
-                    }
-                    _ => {}
-                },
-            );
+        let current_track_id = services
+            .playback_queue
+            .borrow()
+            .current_track()
+            .map(|t| t.id);
 
-        let library_subscription =
-            cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::TrackLikedChanged { track_id, liked } = event {
-                    let mut changed = false;
-                    for t in this.tracks.iter_mut() {
-                        if t.id == *track_id && t.liked != *liked {
-                            t.liked = *liked;
-                            changed = true;
+        let library_subscription = cx.subscribe(
+            &library_event_bus,
+            |this, _, event: &LibraryEvent, cx| match event {
+                LibraryEvent::ScanComplete => {
+                    let services = cx.global::<Services>();
+                    this.tracks_all = services.library.liked_tracks();
+                    this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
+                    Self::prewarm_covers(services, &this.tracks_all);
+                    this.recompute_visible();
+                    cx.notify();
+                }
+                LibraryEvent::TrackLikedChanged { track_id, liked } => {
+                    if *liked {
+                        if !this.tracks_all.iter().any(|t| t.id == *track_id) {
+                            let services = cx.global::<Services>();
+                            this.tracks_all = services.library.liked_tracks();
+                            this.artist_by_track =
+                                build_artist_map(&services.library, &this.tracks_all);
+                            Self::prewarm_covers(services, &this.tracks_all);
+                            this.recompute_visible();
+                            cx.notify();
+                        }
+                    } else {
+                        let before = this.tracks_all.len();
+                        this.tracks_all.retain(|t| t.id != *track_id);
+                        if this.tracks_all.len() != before {
+                            this.recompute_visible();
+                            cx.notify();
                         }
                     }
-                    if changed {
+                }
+                _ => {}
+            },
+        );
+
+        let engine_subscription = cx.subscribe(
+            &engine_event_bus,
+            |this, _, event: &EngineEvent, cx| match event {
+                EngineEvent::Loaded { .. } => {
+                    let id = cx
+                        .global::<Services>()
+                        .playback_queue
+                        .borrow()
+                        .current_track()
+                        .map(|t| t.id);
+                    if this.current_track_id != id || !this.is_playing {
+                        this.current_track_id = id;
+                        this.is_playing = true;
                         cx.notify();
                     }
                 }
-            });
+                EngineEvent::Playing if !this.is_playing => {
+                    this.is_playing = true;
+                    cx.notify();
+                }
+                EngineEvent::Paused if this.is_playing => {
+                    this.is_playing = false;
+                    cx.notify();
+                }
+                EngineEvent::TrackEnded if this.is_playing => {
+                    this.is_playing = false;
+                    cx.notify();
+                }
+                _ => {}
+            },
+        );
 
         Self {
+            tracks_all,
             tracks,
             artist_by_track,
             items,
-            current_index,
-            is_playing,
             item_sizes: Rc::new(item_sizes),
+            filter: String::new(),
+            matcher: Matcher::new(Config::DEFAULT),
+            current_track_id,
+            is_playing: current_track_id.is_some(),
             scroll_handle: VirtualListScrollHandle::new(),
-            _subscription: subscription,
             _library_subscription: library_subscription,
+            _engine_subscription: engine_subscription,
         }
     }
 
-    pub fn refresh_tracks(&mut self, cx: &mut Context<Self>) {
-        let services = cx.global::<Services>();
-        let queue = services.playback_queue.borrow();
-        let new_tracks = queue.tracks_vec();
-        let new_index = queue.current_index();
-        drop(queue);
-        {
-            let mut cache = services.cover_art_cache.borrow_mut();
-            for track in &new_tracks {
-                cache.get_small(track.cover_art_id, &services.library);
-            }
-        }
-        self.artist_by_track = build_artist_map(&services.library, &new_tracks);
-        let (new_items, new_sizes) = Self::build_items(&new_tracks);
-        self.items = new_items;
-        self.item_sizes = Rc::new(new_sizes);
-        self.tracks = new_tracks;
-        self.current_index = new_index;
-        cx.notify();
-    }
-
-    fn build_items(tracks: &[music_library::Track]) -> (Vec<QueueItem>, Vec<Size<Pixels>>) {
-        let mut items = vec![QueueItem::TopPadding];
+    fn build_items(tracks: &[music_library::Track]) -> (Vec<LikedItem>, Vec<Size<Pixels>>) {
+        let mut items = vec![LikedItem::TopPadding];
         let mut sizes = vec![size(px(300.), px(TOP_PADDING))];
         for ix in 0..tracks.len() {
-            items.push(QueueItem::Track(ix));
+            items.push(LikedItem::Track(ix));
             sizes.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
         }
         (items, sizes)
     }
+
+    fn prewarm_covers(services: &Services, tracks: &[music_library::Track]) {
+        let mut cache = services.cover_art_cache.borrow_mut();
+        for track in tracks {
+            cache.get_small(track.cover_art_id, &services.library);
+        }
+    }
+
+    pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
+        let trimmed = query.trim().to_string();
+        if trimmed == self.filter {
+            return;
+        }
+        self.filter = trimmed;
+        self.recompute_visible();
+        cx.notify();
+    }
+
+    fn recompute_visible(&mut self) {
+        if self.filter.is_empty() {
+            self.tracks = self.tracks_all.clone();
+        } else {
+            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
+            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
+            let mut buf: Vec<char> = Vec::new();
+            let mut scored: Vec<(music_library::Track, u32)> = self
+                .tracks_all
+                .iter()
+                .filter_map(|track| {
+                    let artist = self
+                        .artist_by_track
+                        .get(&track.id)
+                        .map(String::as_str)
+                        .unwrap_or("");
+                    let haystack_str = format!("{} {}", track.title, artist);
+                    let haystack = Utf32Str::new(&haystack_str, &mut buf);
+                    pattern
+                        .score(haystack, &mut self.matcher)
+                        .filter(|s| *s >= threshold)
+                        .map(|s| (track.clone(), s))
+                })
+                .collect();
+            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
+            self.tracks = scored.into_iter().map(|(t, _)| t).collect();
+        }
+        let (items, sizes) = Self::build_items(&self.tracks);
+        self.items = items;
+        self.item_sizes = Rc::new(sizes);
+    }
 }
 
-impl Render for QueueView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = h_flex()
-            .w_full()
-            .h(px(HEADER_HEIGHT))
-            .flex_shrink_0()
-            .px_4()
-            .items_center()
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().foreground)
-                    .child("Queue"),
-            );
+fn build_artist_map(
+    library: &crate::library_service::LibraryService,
+    tracks: &[music_library::Track],
+) -> HashMap<i64, String> {
+    let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+    library
+        .track_artists_map(&ids)
+        .into_iter()
+        .map(|(id, names)| (id, names.join(", ")))
+        .collect()
+}
 
+impl Render for LikedView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.tracks.is_empty() {
-            return v_flex().size_full().child(header).child(
+            let message = if self.tracks_all.is_empty() {
+                "No liked tracks yet. Hover a track and tap the heart to like it."
+            } else {
+                "No liked tracks match your search."
+            };
+            return v_flex().size_full().gap_3().pt_2().child(
                 div()
                     .px_4()
-                    .pt_2()
-                    .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Queue is empty."),
+                    .child(message),
             );
         }
 
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(header).child(
+        v_flex().size_full().child(
             v_virtual_list(
                 cx.entity().clone(),
-                "queue_list",
+                "liked_list",
                 item_sizes,
                 |view, visible_range, _window, cx| {
                     visible_range
                         .map(|ix| match view.items[ix] {
-                            QueueItem::TopPadding => {
+                            LikedItem::TopPadding => {
                                 div().w_full().h(px(TOP_PADDING)).into_any_element()
                             }
-                            QueueItem::Track(track_ix) => {
+                            LikedItem::Track(track_ix) => {
                                 let track = &view.tracks[track_ix];
                                 let track_id = track.id;
                                 let cover_art_id = track.cover_art_id;
-                                let liked = track.liked;
+                                let title = track.title.clone();
                                 let artist = view
                                     .artist_by_track
                                     .get(&track_id)
@@ -220,9 +264,9 @@ impl Render for QueueView {
                                         format!("{:02}:{:02}", secs / 60, secs % 60)
                                     })
                                     .unwrap_or_default();
-                                let is_current = Some(track_ix) == view.current_index;
+                                let liked = track.liked;
+                                let is_current = Some(track_id) == view.current_track_id;
 
-                                // Arc::clone from cache — O(1), no DB access.
                                 let services = cx.global::<Services>();
                                 let cover_img = services
                                     .cover_art_cache
@@ -251,14 +295,11 @@ impl Render for QueueView {
                                         .into_any_element()
                                 };
 
-                                let left_cell: gpui::AnyElement = cover_el;
-
                                 h_flex()
                                     .group(LIKE_ROW_GROUP)
                                     .w_full()
                                     .h(px(TRACK_ROW_HEIGHT))
-                                    .pl_4()
-                                    .pr_2()
+                                    .px_4()
                                     .gap_2()
                                     .items_center()
                                     .cursor(gpui::CursorStyle::PointingHand)
@@ -266,22 +307,21 @@ impl Render for QueueView {
                                     .border_color(cx.theme().border)
                                     .when(is_current, |s| s.bg(cx.theme().secondary))
                                     .hover(|s| s.bg(cx.theme().secondary))
-                                    .child(left_cell)
+                                    .child(cover_el)
                                     .child(
                                         div()
                                             .flex_1()
-                                            .min_w(px(80.))
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()
                                             .when(is_current, |d| {
                                                 d.font_weight(FontWeight::SEMIBOLD)
                                             })
-                                            .child(track.title.clone()),
+                                            .child(title),
                                     )
                                     .child(
                                         div()
-                                            .max_w(px(110.))
+                                            .w(px(140.))
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()
@@ -291,14 +331,16 @@ impl Render for QueueView {
                                     .child(like_button(track_id, liked, cx))
                                     .child(
                                         div()
+                                            .w_16()
                                             .text_sm()
                                             .text_color(cx.theme().muted_foreground)
                                             .child(duration_str),
                                     )
                                     .id(ElementId::Integer(track_id as u64))
-                                    .on_click(cx.listener(move |_this, _, _, cx| {
+                                    .on_click(cx.listener(move |this, _, _, cx| {
                                         let services = cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
+                                        queue.set_tracks(this.tracks.clone());
                                         let track = queue.play_track_at(track_ix).cloned();
                                         drop(queue);
                                         if let Some(track) = track {
@@ -316,16 +358,4 @@ impl Render for QueueView {
             .flex_1(),
         )
     }
-}
-
-fn build_artist_map(
-    library: &crate::library_service::LibraryService,
-    tracks: &[music_library::Track],
-) -> HashMap<i64, String> {
-    let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-    library
-        .track_artists_map(&ids)
-        .into_iter()
-        .map(|(id, names)| (id, names.join(", ")))
-        .collect()
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -5,8 +6,27 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
-use crate::models::{AlbumSearchEntry, AlbumSummary, CoverArt, NewTrack, Track};
+use crate::models::{AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, Track};
 use crate::repository::LibraryRepository;
+
+const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
+    duration_ms, year, cover_art_id, start_offset_ms, liked";
+
+fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
+    Ok(Track {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        title: row.get(2)?,
+        album_id: row.get(3)?,
+        track_number: row.get(4)?,
+        disc_number: row.get(5)?,
+        duration_ms: row.get(6)?,
+        year: row.get(7)?,
+        cover_art_id: row.get(8)?,
+        start_offset_ms: row.get(9)?,
+        liked: row.get::<_, i64>(10)? != 0,
+    })
+}
 
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
@@ -31,8 +51,16 @@ impl SqliteLibrary {
                     )
                     .map(|c| c > 0)
                     .unwrap_or(false);
+                let has_liked: bool = check_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name='liked'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
                 drop(check_conn);
-                if !has_cover_art {
+                if !has_cover_art || !has_liked {
                     let _ = std::fs::remove_file(&db_path);
                 }
             }
@@ -308,38 +336,12 @@ impl LibraryRepository for SqliteLibrary {
 
     fn tracks_for_album(&self, album_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            r#"
-            SELECT
-                id,
-                path,
-                title,
-                album_id,
-                track_number,
-                disc_number,
-                duration_ms,
-                year,
-                cover_art_id,
-                start_offset_ms
-            FROM tracks
-            WHERE album_id = ?1
-            ORDER BY disc_number, track_number, title
-            "#,
-        )?;
-        let rows = stmt.query_map([album_id], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                title: row.get(2)?,
-                album_id: row.get(3)?,
-                track_number: row.get(4)?,
-                disc_number: row.get(5)?,
-                duration_ms: row.get(6)?,
-                year: row.get(7)?,
-                cover_art_id: row.get(8)?,
-                start_offset_ms: row.get(9)?,
-            })
-        })?;
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS} FROM tracks WHERE album_id = ?1 \
+             ORDER BY disc_number, track_number, title",
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([album_id], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
@@ -373,40 +375,19 @@ impl LibraryRepository for SqliteLibrary {
     fn search(&self, query: &str) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{}%", query);
-        let mut stmt = conn.prepare(
-            r#"
-            SELECT
-                t.id,
-                t.path,
-                t.title,
-                t.album_id,
-                t.track_number,
-                t.disc_number,
-                t.duration_ms,
-                t.year,
-                t.cover_art_id,
-                t.start_offset_ms
-            FROM tracks t
-            LEFT JOIN albums al ON al.id = t.album_id
-            WHERE t.title LIKE ?1
-               OR al.title LIKE ?1
-            ORDER BY t.title
-            "#,
-        )?;
-        let rows = stmt.query_map([&pattern], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                title: row.get(2)?,
-                album_id: row.get(3)?,
-                track_number: row.get(4)?,
-                disc_number: row.get(5)?,
-                duration_ms: row.get(6)?,
-                year: row.get(7)?,
-                cover_art_id: row.get(8)?,
-                start_offset_ms: row.get(9)?,
-            })
-        })?;
+        let sql = format!(
+            "SELECT {} FROM tracks t \
+             LEFT JOIN albums al ON al.id = t.album_id \
+             WHERE t.title LIKE ?1 OR al.title LIKE ?1 \
+             ORDER BY t.title",
+            TRACK_COLUMNS
+                .split(", ")
+                .map(|c| format!("t.{c}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([&pattern], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
@@ -525,6 +506,110 @@ impl LibraryRepository for SqliteLibrary {
             |row| row.get(0),
         )?;
         Ok(count > 0)
+    }
+
+    fn artists(&self) -> Result<Vec<ArtistSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT a.id, a.name, a.sort_name, COUNT(DISTINCT ta.track_id) AS track_count
+            FROM artists a
+            JOIN track_artists ta ON ta.artist_id = a.id
+            GROUP BY a.id
+            HAVING track_count > 0
+            ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ArtistSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                sort_name: row.get(2)?,
+                track_count: row.get(3)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT DISTINCT {} FROM tracks t \
+             JOIN track_artists ta ON ta.track_id = t.id \
+             LEFT JOIN albums al ON al.id = t.album_id \
+             WHERE ta.artist_id = ?1 \
+             ORDER BY COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
+            TRACK_COLUMNS
+                .split(", ")
+                .map(|c| format!("t.{c}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([artist_id], map_track_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn liked_tracks(&self) -> Result<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM tracks t \
+             LEFT JOIN albums al ON al.id = t.album_id \
+             LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0 \
+             LEFT JOIN artists art ON art.id = aa.artist_id \
+             WHERE t.liked = 1 \
+             ORDER BY art.sort_name COLLATE NOCASE, COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
+            TRACK_COLUMNS
+                .split(", ")
+                .map(|c| format!("t.{c}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], map_track_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn set_liked(&self, track_id: i64, liked: bool) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET liked = ?1 WHERE id = ?2",
+            rusqlite::params![liked as i64, track_id],
+        )?;
+        Ok(())
+    }
+
+    fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>> {
+        if track_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let placeholders = std::iter::repeat_n("?", track_ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT ta.track_id, a.name FROM track_artists ta \
+             JOIN artists a ON a.id = ta.artist_id \
+             WHERE ta.track_id IN ({placeholders}) \
+             ORDER BY ta.track_id, ta.position",
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = track_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (id, name) = row.map_err(LibraryError::Database)?;
+            map.entry(id).or_default().push(name);
+        }
+        Ok(map)
     }
 }
 

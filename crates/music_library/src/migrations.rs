@@ -46,8 +46,11 @@ pub const MIGRATIONS: &[(i32, &str)] = &[(
             duration_ms INTEGER,
             year INTEGER,
             cover_art_id INTEGER REFERENCES cover_art(id) ON DELETE SET NULL,
-            start_offset_ms INTEGER NOT NULL DEFAULT 0
+            start_offset_ms INTEGER NOT NULL DEFAULT 0,
+            liked INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE INDEX idx_tracks_liked ON tracks(liked);
 
         CREATE UNIQUE INDEX idx_tracks_path_offset ON tracks(path, start_offset_ms);
 

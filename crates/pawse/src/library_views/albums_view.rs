@@ -8,11 +8,11 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, VirtualListScrollHandle, button::Button, v_flex, v_virtual_list,
 };
-use ui_components::cover_placeholder::cover_placeholder;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
 };
+use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
 use crate::services::Services;

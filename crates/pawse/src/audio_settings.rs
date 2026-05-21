@@ -249,9 +249,7 @@ impl Render for AudioSettings {
                                     .gap_1()
                                     .when(is_selected, |el| {
                                         el.child(
-                                            Icon::default()
-                                                .path("icons/check.svg")
-                                                .size(px(14.)),
+                                            Icon::default().path("icons/check.svg").size(px(14.)),
                                         )
                                     })
                                     .child(div().text_sm().child(device_label))

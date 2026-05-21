@@ -472,6 +472,7 @@ mod tests {
             year: Some(2020),
             cover_art_id: None,
             start_offset_ms: 0,
+            liked: false,
         };
         let settings = UserSettings {
             theme: ThemeChoice::System,

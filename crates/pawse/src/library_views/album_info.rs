@@ -46,14 +46,11 @@ impl Render for AlbumInfo {
                         .with_fallback({
                             let bg = fallback_bg;
                             let fg = fallback_fg;
-                            move || {
-                                cover_placeholder(150., 6., bg, fg).into_any_element()
-                            }
+                            move || cover_placeholder(150., 6., bg, fg).into_any_element()
                         })
                         .into_any_element()
                 } else {
-                    cover_placeholder(150., 6., fallback_bg, fallback_fg)
-                        .into_any_element()
+                    cover_placeholder(150., 6., fallback_bg, fallback_fg).into_any_element()
                 }
             })
             .child(

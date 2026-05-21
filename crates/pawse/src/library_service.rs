@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -9,6 +10,7 @@ pub enum LibraryEvent {
     ScanStarted,
     ScanProgress { scanned: usize },
     ScanComplete,
+    TrackLikedChanged { track_id: i64, liked: bool },
 }
 
 pub struct LibraryService {
@@ -40,6 +42,32 @@ impl LibraryService {
 
     pub fn track_artists(&self, track_id: i64) -> Vec<String> {
         self.repo.track_artists(track_id).unwrap_or_default()
+    }
+
+    pub fn track_artists_map(&self, track_ids: &[i64]) -> HashMap<i64, Vec<String>> {
+        self.repo.track_artists_map(track_ids).unwrap_or_default()
+    }
+
+    pub fn artists(&self) -> Vec<music_library::ArtistSummary> {
+        self.repo.artists().unwrap_or_default()
+    }
+
+    pub fn tracks_by_artist(&self, artist_id: i64) -> Vec<music_library::Track> {
+        self.repo.tracks_by_artist(artist_id).unwrap_or_default()
+    }
+
+    pub fn liked_tracks(&self) -> Vec<music_library::Track> {
+        self.repo.liked_tracks().unwrap_or_default()
+    }
+
+    pub fn set_liked(&self, track_id: i64, liked: bool) {
+        if let Err(e) = self.repo.set_liked(track_id, liked) {
+            eprintln!("Failed to set liked for track {}: {}", track_id, e);
+            return;
+        }
+        let _ = self
+            .event_tx
+            .send(LibraryEvent::TrackLikedChanged { track_id, liked });
     }
 
     pub fn album_title(&self, album_id: i64) -> Option<String> {

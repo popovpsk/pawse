@@ -14,6 +14,7 @@ pub mod cover_art_cache;
 pub mod footer;
 pub mod library_service;
 pub mod library_views;
+pub mod like_button;
 pub mod main_view;
 pub mod media_bridge;
 pub mod next_button;

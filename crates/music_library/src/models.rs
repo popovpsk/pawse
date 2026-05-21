@@ -32,6 +32,8 @@ pub struct Track {
     pub year: Option<i32>,
     pub cover_art_id: Option<i64>,
     pub start_offset_ms: i32,
+    #[serde(default)]
+    pub liked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +49,14 @@ pub struct AlbumSummary {
 pub struct AlbumSearchEntry {
     pub album_id: i64,
     pub haystack: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtistSummary {
+    pub id: i64,
+    pub name: String,
+    pub sort_name: String,
+    pub track_count: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

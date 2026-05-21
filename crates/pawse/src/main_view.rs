@@ -15,7 +15,7 @@ use gpui_component::{
 
 use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
-use crate::library_views::library_view::{LibraryView, LibraryViewEvent};
+use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::media_bridge::MediaBridge;
 use crate::queue_view::QueueView;
 use crate::settings_view::ThemePickerState;
@@ -24,7 +24,7 @@ use ui_components::fade::{FadeEdge, fade_overlay};
 const HEADER_HEIGHT: f32 = 44.0;
 const FOOTER_HEIGHT: f32 = 80.0;
 const FADE_HEIGHT: f32 = 16.0;
-const QUEUE_WIDTH_DEFAULT: f32 = 280.0;
+const QUEUE_WIDTH_DEFAULT: f32 = 360.0;
 const QUEUE_WIDTH_MIN: f32 = 200.0;
 const QUEUE_WIDTH_MAX: f32 = 560.0;
 
@@ -42,7 +42,8 @@ pub struct MainView {
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
     queue_view: Entity<QueueView>,
-    is_tracks_view: bool,
+    is_drilled_in: bool,
+    current_tab: LibraryRootTab,
     show_settings: bool,
     show_queue: bool,
     queue_width: f32,
@@ -68,7 +69,11 @@ impl MainView {
             window,
             move |this: &mut MainView, _, event: &LibraryViewEvent, window, cx| match event {
                 LibraryViewEvent::StateChanged => {
-                    this.is_tracks_view = this.library_view.read(cx).is_tracks_view();
+                    let view = this.library_view.read(cx);
+                    this.is_drilled_in = view.is_drilled_in();
+                    if let Some(tab) = view.current_tab() {
+                        this.current_tab = tab;
+                    }
                     this.clear_search(window, cx);
                     cx.notify();
                 }
@@ -136,7 +141,8 @@ impl MainView {
             library_view,
             footer,
             queue_view,
-            is_tracks_view: false,
+            is_drilled_in: false,
+            current_tab: LibraryRootTab::Albums,
             show_settings: false,
             show_queue: false,
             queue_width: QUEUE_WIDTH_DEFAULT,
@@ -167,7 +173,8 @@ impl Render for MainView {
         let entity_id = cx.entity_id();
         let library_view = self.library_view.clone();
         let show_settings = self.show_settings;
-        let has_back = show_settings || self.is_tracks_view;
+        let has_back = show_settings || self.is_drilled_in;
+        let current_tab = self.current_tab;
 
         let back_button = div()
             .id("back_button")
@@ -199,7 +206,34 @@ impl Render for MainView {
             .flex()
             .items_center()
             .h_full()
-            .when(has_back, |d| d.child(back_button));
+            .gap_1()
+            .when(has_back, |d| d.child(back_button))
+            .when(!has_back, |d| {
+                d.child(tab_icon_button(
+                    "tab_albums",
+                    "icons/s1-albums.svg",
+                    "Albums",
+                    current_tab == LibraryRootTab::Albums,
+                    LibraryRootTab::Albums,
+                    cx,
+                ))
+                .child(tab_icon_button(
+                    "tab_artists",
+                    "icons/s1-artists.svg",
+                    "Artists",
+                    current_tab == LibraryRootTab::Artists,
+                    LibraryRootTab::Artists,
+                    cx,
+                ))
+                .child(tab_icon_button(
+                    "tab_liked",
+                    "icons/s1-heart-fill.svg",
+                    "Liked",
+                    current_tab == LibraryRootTab::Liked,
+                    LibraryRootTab::Liked,
+                    cx,
+                ))
+            });
 
         let right_group = div()
             .flex_1()
@@ -385,4 +419,40 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
             this.show_settings = true;
             cx.notify();
         }))
+}
+
+fn tab_icon_button(
+    id: &'static str,
+    icon_path: &'static str,
+    _tooltip: &'static str,
+    active: bool,
+    tab: LibraryRootTab,
+    cx: &mut Context<MainView>,
+) -> impl IntoElement {
+    let theme = cx.theme();
+    let active_bg = theme.secondary;
+    let hover_bg = theme.muted;
+    let fg = if active {
+        theme.primary
+    } else {
+        theme.foreground
+    };
+
+    div()
+        .id(id)
+        .cursor_pointer()
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .when(active, |d| d.bg(active_bg))
+        .hover(|s| s.bg(hover_bg))
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.clear_search(window, cx);
+            this.library_view
+                .update(cx, |view, cx| view.select_tab(tab, cx));
+            cx.notify();
+        }))
+        .child(svg().path(icon_path).size(px(20.)).text_color(fg))
 }

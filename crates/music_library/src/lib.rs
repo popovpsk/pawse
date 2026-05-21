@@ -6,7 +6,9 @@ pub mod sqlite;
 pub mod thumbnail;
 
 pub use error::{LibraryError, Result};
-pub use models::{Album, AlbumSearchEntry, AlbumSummary, Artist, CoverArt, NewTrack, Track};
+pub use models::{
+    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Track,
+};
 pub use repository::LibraryRepository;
 pub use sqlite::SqliteLibrary;
 
@@ -710,5 +712,158 @@ mod tests {
         let large = lib.get_cover_art_large(cover_art_id).unwrap().unwrap();
         assert_eq!(small, cover.small);
         assert_eq!(large, cover.large);
+    }
+
+    fn seed_track(lib: &SqliteLibrary, title: &str, album: &str, artist: &str) -> i64 {
+        let artist_id = lib.upsert_artist(artist).unwrap();
+        let album_id = lib.upsert_album(album, Some(2020), None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+        let track = NewTrack {
+            path: format!("/music/{}.flac", title),
+            title: Some(title.into()),
+            album_title: Some(album.into()),
+            artist_names: vec![artist.into()],
+            album_artist_names: vec![artist.into()],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            cover_art_id: None,
+            start_offset_ms: None,
+        };
+        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+            .unwrap()
+    }
+
+    #[test]
+    fn test_track_defaults_to_not_liked() {
+        let (lib, _path) = create_test_db();
+        let _ = seed_track(&lib, "Song", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+        let tracks = lib.tracks_for_album(album_id).unwrap();
+        assert!(!tracks[0].liked);
+    }
+
+    #[test]
+    fn test_set_liked_toggles_flag() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+
+        lib.set_liked(track_id, true).unwrap();
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(liked[0].liked);
+        assert_eq!(liked[0].title, "Song");
+
+        lib.set_liked(track_id, false).unwrap();
+        assert!(lib.liked_tracks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_artists_enumerates_with_track_counts() {
+        let (lib, _path) = create_test_db();
+        seed_track(&lib, "Song A", "Album X", "Artist Alpha");
+        seed_track(&lib, "Song B", "Album X", "Artist Alpha");
+        seed_track(&lib, "Song C", "Album Y", "Artist Beta");
+
+        let artists = lib.artists().unwrap();
+        let alpha = artists.iter().find(|a| a.name == "Artist Alpha").unwrap();
+        let beta = artists.iter().find(|a| a.name == "Artist Beta").unwrap();
+        assert_eq!(alpha.track_count, 2);
+        assert_eq!(beta.track_count, 1);
+        // Artists with zero tracks should not appear.
+        lib.upsert_artist("Lonely Artist").unwrap();
+        let artists2 = lib.artists().unwrap();
+        assert!(artists2.iter().all(|a| a.name != "Lonely Artist"));
+    }
+
+    #[test]
+    fn test_tracks_by_artist_returns_all_albums_for_artist() {
+        let (lib, _path) = create_test_db();
+        let radiohead = lib.upsert_artist("Radiohead").unwrap();
+        let other = lib.upsert_artist("Other").unwrap();
+        let ok_computer = lib.upsert_album("OK Computer", Some(1997), None).unwrap();
+        let kid_a = lib.upsert_album("Kid A", Some(2000), None).unwrap();
+        let other_album = lib.upsert_album("Other Album", Some(2001), None).unwrap();
+        lib.set_album_artists(ok_computer, &[(radiohead, 0)])
+            .unwrap();
+        lib.set_album_artists(kid_a, &[(radiohead, 0)]).unwrap();
+        lib.set_album_artists(other_album, &[(other, 0)]).unwrap();
+
+        let mk_track = |path: &str, title: &str, album_id: i64| NewTrack {
+            path: path.into(),
+            title: Some(title.into()),
+            album_title: None,
+            artist_names: vec![],
+            album_artist_names: vec![],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2000),
+            duration_ms: Some(180_000),
+            cover_art_id: None,
+            start_offset_ms: None,
+        };
+        lib.upsert_track(
+            &mk_track("/p/airbag.flac", "Airbag", ok_computer),
+            Some(ok_computer),
+            &[(radiohead, 0)],
+        )
+        .unwrap();
+        lib.upsert_track(
+            &mk_track("/p/everything.flac", "Everything In Its Right Place", kid_a),
+            Some(kid_a),
+            &[(radiohead, 0)],
+        )
+        .unwrap();
+        lib.upsert_track(
+            &mk_track("/p/other.flac", "Other Song", other_album),
+            Some(other_album),
+            &[(other, 0)],
+        )
+        .unwrap();
+
+        let tracks = lib.tracks_by_artist(radiohead).unwrap();
+        assert_eq!(tracks.len(), 2);
+        // Ordered by album year ASC: OK Computer (1997) first, Kid A (2000) second.
+        assert_eq!(tracks[0].title, "Airbag");
+        assert_eq!(tracks[1].title, "Everything In Its Right Place");
+        // Other artist's track is not returned.
+        assert!(tracks.iter().all(|t| t.title != "Other Song"));
+    }
+
+    #[test]
+    fn test_track_artists_map_returns_names_in_position_order() {
+        let (lib, _path) = create_test_db();
+        let a1 = lib.upsert_artist("Lead").unwrap();
+        let a2 = lib.upsert_artist("Feat").unwrap();
+        let album = lib.upsert_album("Album", None, None).unwrap();
+        let track = NewTrack {
+            path: "/music/t.flac".into(),
+            title: Some("Track".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Lead".into(), "Feat".into()],
+            album_artist_names: Vec::new(),
+            track_number: None,
+            disc_number: None,
+            year: None,
+            duration_ms: None,
+            cover_art_id: None,
+            start_offset_ms: None,
+        };
+        let id = lib
+            .upsert_track(&track, Some(album), &[(a1, 0), (a2, 1)])
+            .unwrap();
+        let map = lib.track_artists_map(&[id]).unwrap();
+        assert_eq!(
+            map.get(&id).unwrap(),
+            &vec!["Lead".to_string(), "Feat".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_track_artists_map_empty_input() {
+        let (lib, _path) = create_test_db();
+        let map = lib.track_artists_map(&[]).unwrap();
+        assert!(map.is_empty());
     }
 }
