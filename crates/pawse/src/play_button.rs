@@ -3,7 +3,7 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
 };
-use gpui_component::ActiveTheme;
+use gpui_component::{ActiveTheme, tooltip::Tooltip};
 
 use crate::services::Services;
 
@@ -64,6 +64,12 @@ impl Render for PlayButton {
             "icons/pause.svg"
         };
 
+        let tooltip_text = if !self.state.is_playing {
+            "Play"
+        } else {
+            "Pause"
+        };
+
         div()
             .id("play_button")
             .cursor_pointer()
@@ -74,6 +80,7 @@ impl Render for PlayButton {
             .rounded_full()
             .bg(cx.theme().primary)
             .hover(|style| style.bg(cx.theme().primary_hover))
+            .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
             .on_click(cx.listener(PlayButton::on_click))
             .child(
                 svg()

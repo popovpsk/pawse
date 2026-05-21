@@ -2,7 +2,7 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
-use gpui_component::ActiveTheme;
+use gpui_component::{ActiveTheme, tooltip::Tooltip};
 
 use crate::playback_queue::RepeatMode;
 use crate::services::Services;
@@ -34,6 +34,8 @@ impl Render for RepeatButton {
             RepeatMode::All => ("icons/repeat.svg", cx.theme().primary),
             RepeatMode::One => ("icons/repeat-one.svg", cx.theme().primary),
         };
+        let tooltip_text = "Repeat mode";
+
         div()
             .id("repeat_button")
             .cursor_pointer()
@@ -43,6 +45,7 @@ impl Render for RepeatButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(cx.theme().muted))
+            .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
             .on_click(cx.listener(RepeatButton::on_click))
             .child(svg().path(icon).size(px(18.)).text_color(color))
     }

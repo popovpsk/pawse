@@ -4,7 +4,7 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder,
     px, svg,
 };
-use gpui_component::{ActiveTheme, h_flex, v_flex};
+use gpui_component::{ActiveTheme, h_flex, tooltip::Tooltip, v_flex};
 
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -56,14 +56,13 @@ impl Footer {
         });
 
         let show_repeat_shuffle = cx.global::<SettingsStore>().show_repeat_shuffle();
-        let settings_subscription =
-            cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
-                let new_val = cx.global::<SettingsStore>().show_repeat_shuffle();
-                if new_val != this.show_repeat_shuffle {
-                    this.show_repeat_shuffle = new_val;
-                    cx.notify();
-                }
-            });
+        let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
+            let new_val = cx.global::<SettingsStore>().show_repeat_shuffle();
+            if new_val != this.show_repeat_shuffle {
+                this.show_repeat_shuffle = new_val;
+                cx.notify();
+            }
+        });
 
         Self {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
@@ -134,6 +133,7 @@ impl Render for Footer {
                             .cursor_pointer()
                             .rounded(px(4.))
                             .hover(|s| s.bg(cx.theme().muted))
+                            .tooltip(|window, cx| Tooltip::new("Queue").build(window, cx))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_queue = !this.show_queue;
                                 cx.emit(ToggleQueueEvent {

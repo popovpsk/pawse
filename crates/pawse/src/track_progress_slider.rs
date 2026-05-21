@@ -125,14 +125,13 @@ impl TrackProgressSlider {
             );
 
         let show_labels = cx.global::<SettingsStore>().show_time_labels();
-        let settings_subscription =
-            cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
-                let new_val = cx.global::<SettingsStore>().show_time_labels();
-                if new_val != this.show_labels {
-                    this.show_labels = new_val;
-                    cx.notify();
-                }
-            });
+        let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
+            let new_val = cx.global::<SettingsStore>().show_time_labels();
+            if new_val != this.show_labels {
+                this.show_labels = new_val;
+                cx.notify();
+            }
+        });
 
         Self {
             duration_secs: 0.0,

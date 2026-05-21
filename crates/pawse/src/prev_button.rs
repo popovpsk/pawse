@@ -3,7 +3,7 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Transformation, Window, div, px, size, svg,
 };
-use gpui_component::ActiveTheme;
+use gpui_component::{ActiveTheme, tooltip::Tooltip};
 
 use crate::services::Services;
 
@@ -72,6 +72,7 @@ impl Render for PrevButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(cx.theme().muted))
+            .tooltip(|window, cx| Tooltip::new("Previous").build(window, cx))
             .on_click(cx.listener(PrevButton::on_click))
             .child(
                 svg()

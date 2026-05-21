@@ -2,7 +2,7 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
-use gpui_component::ActiveTheme;
+use gpui_component::{ActiveTheme, tooltip::Tooltip};
 
 use crate::services::Services;
 
@@ -35,6 +35,7 @@ impl Render for NextButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(cx.theme().muted))
+            .tooltip(|window, cx| Tooltip::new("Next").build(window, cx))
             .on_click(cx.listener(NextButton::on_click))
             .child(
                 svg()

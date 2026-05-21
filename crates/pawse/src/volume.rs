@@ -3,7 +3,7 @@ use gpui::{
     AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     Render, StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
-use gpui_component::{ActiveTheme, h_flex};
+use gpui_component::{ActiveTheme, h_flex, tooltip::Tooltip};
 use ui_components::slider::{Slider, SliderEvent};
 
 use crate::services::Services;
@@ -35,18 +35,21 @@ impl Render for Volume {
             .gap_2()
             .justify_end()
             .items_center()
-            .child(
+            .child({
+                let tooltip_text = self.tooltip_text(is_exclusive);
+
                 div()
                     .id("volume_icon")
                     .cursor_pointer()
+                    .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
                     .on_click(cx.listener(Self::on_icon_click))
                     .child(
                         svg()
                             .path(icon_path)
                             .size(px(22.))
                             .text_color(cx.theme().foreground),
-                    ),
-            );
+                    )
+            });
 
         let is_exclusive = services.output.is_exclusive();
         self.slider
@@ -90,6 +93,16 @@ impl Volume {
             volume: initial,
             is_muted: initial <= 0.0,
             volume_before_mute: if initial > 0.0 { initial } else { 1.0 },
+        }
+    }
+
+    fn tooltip_text(&self, is_exclusive: bool) -> &'static str {
+        if is_exclusive {
+            "Volume"
+        } else if self.is_muted || self.volume <= 0. {
+            "Unmute"
+        } else {
+            "Mute"
         }
     }
 
