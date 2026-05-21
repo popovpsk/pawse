@@ -5,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, ElementId, FontWeight, InteractiveElement, IntoElement, ObjectFit, ParentElement,
     Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
-    div, img, px, size, svg,
+    div, img, px, size,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
@@ -188,57 +188,39 @@ impl Render for QueueView {
                                     .unwrap_or_default();
                                 let is_current = Some(track_ix) == view.current_index;
 
-                                let left_cell: gpui::AnyElement = if is_current {
-                                    let icon = if view.is_playing {
-                                        "icons/s1-play.svg"
-                                    } else {
-                                        "icons/s1-pause.svg"
-                                    };
+                                // Arc::clone from cache — O(1), no DB access.
+                                let services = cx.global::<Services>();
+                                let cover_img = services
+                                    .cover_art_cache
+                                    .borrow_mut()
+                                    .get_small(cover_art_id, &services.library);
+                                let fallback_bg = cx.theme().muted;
+                                let cover_el: gpui::AnyElement = if let Some(cover_img) = cover_img
+                                {
+                                    img(cover_img)
+                                        .w(px(COVER_SIZE))
+                                        .h(px(COVER_SIZE))
+                                        .rounded(px(3.))
+                                        .object_fit(ObjectFit::Cover)
+                                        .with_fallback(move || {
+                                            div()
+                                                .w(px(COVER_SIZE))
+                                                .h(px(COVER_SIZE))
+                                                .rounded(px(3.))
+                                                .bg(fallback_bg)
+                                                .into_any_element()
+                                        })
+                                        .into_any_element()
+                                } else {
                                     div()
                                         .w(px(COVER_SIZE))
                                         .h(px(COVER_SIZE))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(
-                                            svg()
-                                                .path(icon)
-                                                .size(px(12.))
-                                                .text_color(cx.theme().foreground),
-                                        )
+                                        .rounded(px(3.))
+                                        .bg(fallback_bg)
                                         .into_any_element()
-                                } else {
-                                    // Arc::clone from cache — O(1), no DB access.
-                                    let services = cx.global::<Services>();
-                                    let cover_img = services
-                                        .cover_art_cache
-                                        .borrow_mut()
-                                        .get_small(cover_art_id, &services.library);
-                                    let fallback_bg = cx.theme().muted;
-                                    if let Some(cover_img) = cover_img {
-                                        img(cover_img)
-                                            .w(px(COVER_SIZE))
-                                            .h(px(COVER_SIZE))
-                                            .rounded(px(3.))
-                                            .object_fit(ObjectFit::Cover)
-                                            .with_fallback(move || {
-                                                div()
-                                                    .w(px(COVER_SIZE))
-                                                    .h(px(COVER_SIZE))
-                                                    .rounded(px(3.))
-                                                    .bg(fallback_bg)
-                                                    .into_any_element()
-                                            })
-                                            .into_any_element()
-                                    } else {
-                                        div()
-                                            .w(px(COVER_SIZE))
-                                            .h(px(COVER_SIZE))
-                                            .rounded(px(3.))
-                                            .bg(fallback_bg)
-                                            .into_any_element()
-                                    }
                                 };
+
+                                let left_cell: gpui::AnyElement = cover_el;
 
                                 h_flex()
                                     .w_full()

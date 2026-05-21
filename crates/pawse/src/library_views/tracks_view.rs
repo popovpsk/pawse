@@ -259,9 +259,9 @@ impl Render for TracksView {
                                     .hover(|style| style.bg(cx.theme().secondary))
                                     .child(if is_current {
                                         let icon = if view.is_playing {
-                                            "icons/s1-play.svg"
+                                            "icons/play.svg"
                                         } else {
-                                            "icons/s1-pause.svg"
+                                            "icons/pause.svg"
                                         };
                                         div()
                                             .w_8()
