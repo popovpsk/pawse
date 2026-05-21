@@ -242,17 +242,19 @@ impl Render for AudioSettings {
                                 h_flex()
                                     .id(("device-row", i))
                                     .cursor_pointer()
-                                    .px_2()
+                                    .px_1()
                                     .py_1()
                                     .rounded(px(4.))
                                     .hover(move |style| style.bg(muted_color))
-                                    .gap_2()
-                                    .child(if is_selected {
-                                        Icon::default().path("icons/check.svg").into_any_element()
-                                    } else {
-                                        div().size(px(16.)).into_any_element()
+                                    .gap_1()
+                                    .when(is_selected, |el| {
+                                        el.child(
+                                            Icon::default()
+                                                .path("icons/check.svg")
+                                                .size(px(14.)),
+                                        )
                                     })
-                                    .child(div().child(device_label))
+                                    .child(div().text_sm().child(device_label))
                                     .on_click(move |_, _, app_cx| {
                                         view_row.update(app_cx, |this, cx| {
                                             let services = cx.global::<Services>();
@@ -266,7 +268,7 @@ impl Render for AudioSettings {
                                     .into_any_element(),
                             );
                         }
-                        v_flex().gap_1().p_1().min_w(px(220.)).children(children)
+                        v_flex().gap_1().min_w(px(220.)).children(children)
                     })
             })
     }
