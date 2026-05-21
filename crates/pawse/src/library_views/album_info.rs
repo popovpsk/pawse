@@ -2,6 +2,7 @@ use gpui::{
     Context, IntoElement, ParentElement, Render, Styled, StyledImage, Window, div, img, px,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
+use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::services::Services;
 
@@ -30,6 +31,7 @@ impl Render for AlbumInfo {
             .items_start()
             .child({
                 let fallback_bg = cx.theme().secondary;
+                let fallback_fg = cx.theme().muted_foreground;
                 let services = cx.global::<Services>();
                 let cover_img = services
                     .cover_art_cache
@@ -41,21 +43,16 @@ impl Render for AlbumInfo {
                         .h(px(150.))
                         .rounded(px(6.))
                         .object_fit(gpui::ObjectFit::Cover)
-                        .with_fallback(move || {
-                            div()
-                                .w(px(150.))
-                                .h(px(150.))
-                                .rounded(px(6.))
-                                .bg(fallback_bg)
-                                .into_any_element()
+                        .with_fallback({
+                            let bg = fallback_bg;
+                            let fg = fallback_fg;
+                            move || {
+                                cover_placeholder(150., 6., bg, fg).into_any_element()
+                            }
                         })
                         .into_any_element()
                 } else {
-                    div()
-                        .w(px(150.))
-                        .h(px(150.))
-                        .rounded(px(6.))
-                        .bg(fallback_bg)
+                    cover_placeholder(150., 6., fallback_bg, fallback_fg)
                         .into_any_element()
                 }
             })

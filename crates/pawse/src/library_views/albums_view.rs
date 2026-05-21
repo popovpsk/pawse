@@ -8,6 +8,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, VirtualListScrollHandle, button::Button, v_flex, v_virtual_list,
 };
+use ui_components::cover_placeholder::cover_placeholder;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -227,6 +228,7 @@ impl Render for AlbumsView {
                                 .hover(|style| style.bg(cx.theme().secondary))
                                 .child({
                                     let fallback_bg = cx.theme().secondary;
+                                    let fallback_fg = cx.theme().muted_foreground;
                                     let cover: gpui::AnyElement = {
                                         let services = cx.global::<Services>();
                                         let cover_img = services
@@ -239,21 +241,17 @@ impl Render for AlbumsView {
                                                 .h(px(32.))
                                                 .rounded(px(4.))
                                                 .object_fit(gpui::ObjectFit::Cover)
-                                                .with_fallback(move || {
-                                                    div()
-                                                        .w(px(32.))
-                                                        .h(px(32.))
-                                                        .rounded(px(4.))
-                                                        .bg(fallback_bg)
-                                                        .into_any_element()
+                                                .with_fallback({
+                                                    let bg = fallback_bg;
+                                                    let fg = fallback_fg;
+                                                    move || {
+                                                        cover_placeholder(32., 4., bg, fg)
+                                                            .into_any_element()
+                                                    }
                                                 })
                                                 .into_any_element()
                                         } else {
-                                            div()
-                                                .w(px(32.))
-                                                .h(px(32.))
-                                                .rounded(px(4.))
-                                                .bg(fallback_bg)
+                                            cover_placeholder(32., 4., fallback_bg, fallback_fg)
                                                 .into_any_element()
                                         }
                                     };

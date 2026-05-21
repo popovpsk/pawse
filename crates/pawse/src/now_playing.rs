@@ -5,6 +5,7 @@ use gpui::{
     img, px, rems,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
+use ui_components::cover_placeholder::cover_placeholder;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
 use crate::services::Services;
@@ -132,22 +133,14 @@ impl Render for NowPlaying {
                         .object_fit(gpui::ObjectFit::Cover)
                         .with_fallback({
                             let bg = cx.theme().secondary;
+                            let fg = cx.theme().muted_foreground;
                             move || {
-                                div()
-                                    .w(px(48.))
-                                    .h(px(48.))
-                                    .rounded(px(4.))
-                                    .bg(bg)
-                                    .into_any_element()
+                                cover_placeholder(48., 4., bg, fg).into_any_element()
                             }
                         })
                         .into_any_element()
                 } else {
-                    div()
-                        .w(px(48.))
-                        .h(px(48.))
-                        .rounded(px(4.))
-                        .bg(cx.theme().secondary)
+                    cover_placeholder(48., 4., cx.theme().secondary, cx.theme().muted_foreground)
                         .into_any_element()
                 }
             })

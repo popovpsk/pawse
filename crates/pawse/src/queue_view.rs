@@ -8,6 +8,7 @@ use gpui::{
     div, img, px, size,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::services::Services;
 
@@ -195,6 +196,7 @@ impl Render for QueueView {
                                     .borrow_mut()
                                     .get_small(cover_art_id, &services.library);
                                 let fallback_bg = cx.theme().muted;
+                                let fallback_fg = cx.theme().muted_foreground;
                                 let cover_el: gpui::AnyElement = if let Some(cover_img) = cover_img
                                 {
                                     img(cover_img)
@@ -202,21 +204,17 @@ impl Render for QueueView {
                                         .h(px(COVER_SIZE))
                                         .rounded(px(3.))
                                         .object_fit(ObjectFit::Cover)
-                                        .with_fallback(move || {
-                                            div()
-                                                .w(px(COVER_SIZE))
-                                                .h(px(COVER_SIZE))
-                                                .rounded(px(3.))
-                                                .bg(fallback_bg)
-                                                .into_any_element()
+                                        .with_fallback({
+                                            let bg = fallback_bg;
+                                            let fg = fallback_fg;
+                                            move || {
+                                                cover_placeholder(COVER_SIZE, 3., bg, fg)
+                                                    .into_any_element()
+                                            }
                                         })
                                         .into_any_element()
                                 } else {
-                                    div()
-                                        .w(px(COVER_SIZE))
-                                        .h(px(COVER_SIZE))
-                                        .rounded(px(3.))
-                                        .bg(fallback_bg)
+                                    cover_placeholder(COVER_SIZE, 3., fallback_bg, fallback_fg)
                                         .into_any_element()
                                 };
 
