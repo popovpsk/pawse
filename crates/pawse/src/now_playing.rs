@@ -5,6 +5,7 @@ use gpui::{
     img, px,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
+use ui_components::fade::{FadeEdge, fade_overlay};
 
 use crate::services::Services;
 
@@ -90,8 +91,10 @@ impl NowPlaying {
 }
 
 impl Render for NowPlaying {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let specs = format_specs(self.sample_rate, self.bit_depth);
+        let viewport_w = f32::from(window.viewport_size().width);
+        let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 
         h_flex()
             .gap_3()
@@ -138,11 +141,22 @@ impl Render for NowPlaying {
                     .items_start()
                     .child(
                         div()
-                            .max_w(px(280.))
-                            .truncate()
-                            .text_sm()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(self.track_title.clone()),
+                            .relative()
+                            .max_w(px(title_max_w))
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .whitespace_nowrap()
+                                    .text_sm()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(self.track_title.clone()),
+                            )
+                            .child(fade_overlay(
+                                FadeEdge::Right,
+                                cx.theme().background,
+                                20.0,
+                                0.0,
+                            )),
                     )
                     .child(
                         div()
