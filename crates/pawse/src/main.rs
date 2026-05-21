@@ -21,6 +21,8 @@ pub mod next_button;
 pub mod now_playing;
 pub mod play_button;
 pub mod playback_queue;
+pub mod playlist_buttons;
+pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;
 pub mod repeat_button;
@@ -119,6 +121,7 @@ fn main() {
                     stored.current_index,
                     stored.shuffle,
                     stored.repeat.into(),
+                    stored.source.into(),
                 );
             }
         }

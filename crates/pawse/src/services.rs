@@ -25,6 +25,7 @@ pub struct Services {
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
     pub current_position_ms: Arc<AtomicU64>,
+    pub playlist_popup_bus: Entity<crate::playlist_popup::PlaylistPopupBus>,
 }
 
 impl Services {
@@ -42,12 +43,21 @@ impl Services {
         cx.spawn(async move |cx| {
             while let Ok(event) = library_event_rx.recv_async().await {
                 cx.update(|cx| {
+                    // If a playlist that's currently backing the playback
+                    // queue has its track list changed, sync the queue first
+                    // so subscribers (queue_view, etc.) see fresh state when
+                    // they receive the emitted event below.
+                    if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
+                        sync_queue_with_playlist(*playlist_id, cx);
+                    }
                     library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
                 })
                 .expect("run_library_events_bus:cx.update");
             }
         })
         .detach();
+
+        let playlist_popup_bus = cx.new(|_| crate::playlist_popup::PlaylistPopupBus);
 
         Services {
             output,
@@ -58,6 +68,7 @@ impl Services {
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
             cover_art_cache: Rc::new(RefCell::new(CoverArtCache::new())),
             current_position_ms: Arc::new(AtomicU64::new(0)),
+            playlist_popup_bus,
         }
     }
 
@@ -90,8 +101,28 @@ impl Services {
             position_ms: self.current_position_ms.load(Ordering::Relaxed),
             shuffle: queue.shuffle(),
             repeat: queue.repeat().into(),
+            source: queue.source().into(),
         }
     }
+}
+
+/// If the active playback queue is backed by the given playlist, replace its
+/// track list with a fresh copy from the library, preserving the currently-
+/// playing track by id. No-op otherwise.
+fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
+    let services = cx.global::<Services>();
+    let matches = matches!(
+        services.playback_queue.borrow().source(),
+        crate::playback_queue::QueueSource::Playlist(id) if id == playlist_id,
+    );
+    if !matches {
+        return;
+    }
+    let new_tracks = services.library.tracks_for_playlist(playlist_id);
+    services
+        .playback_queue
+        .borrow_mut()
+        .refresh_keeping_current(new_tracks);
 }
 
 pub fn save_playback(cx: &mut App) {

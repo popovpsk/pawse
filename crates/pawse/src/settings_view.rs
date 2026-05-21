@@ -101,7 +101,7 @@ fn confirm_save(key: &SharedString, state: &mut ThemePickerState, cx: &mut App) 
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
 pub fn build_settings_pages(cx: &App, picker: Entity<ThemePickerState>) -> Vec<SettingPage> {
     vec![
-        SettingPage::new("Appearance").group(appearance_group(cx, picker)),
+        SettingPage::new("Interface").group(interface_group(cx, picker)),
         SettingPage::new("Library").group(library_group()),
     ]
 }
@@ -151,7 +151,7 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
     cx.global::<Services>().library.clear_and_rescan(folders);
 }
 
-fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup {
+fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup {
     SettingGroup::new()
         .item(
             SettingItem::new(
@@ -460,6 +460,51 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
             )
             .description(
                 "Show or hide the current position and duration labels next to the progress bar",
+            ),
+        )
+        .item(
+            SettingItem::new(
+                "Liked tracks",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().liked_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("liked-enabled-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_liked_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(
+                "Show the heart icon and the Liked tab. Disable to hide all liked-songs UI.",
+            ),
+        )
+        .item(
+            SettingItem::new(
+                "Playlists",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().playlists_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("playlists-enabled-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_playlists_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(
+                "Show the Playlists tab and the add-to-playlist button on every track row.",
             ),
         )
 }

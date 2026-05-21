@@ -1,6 +1,7 @@
-pub const MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    r#"
+pub const MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        r#"
         CREATE TABLE artists (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -68,4 +69,26 @@ pub const MIGRATIONS: &[(i32, &str)] = &[(
 
         CREATE INDEX idx_track_artists_artist_id ON track_artists(artist_id);
         "#,
-)];
+    ),
+    (
+        2,
+        r#"
+        CREATE TABLE playlists (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_playlists_created_at ON playlists(created_at);
+
+        CREATE TABLE playlist_tracks (
+            playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            PRIMARY KEY (playlist_id, position)
+        );
+
+        CREATE INDEX idx_playlist_tracks_track_id ON playlist_tracks(track_id);
+        "#,
+    ),
+];

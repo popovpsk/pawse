@@ -13,7 +13,10 @@ use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
 use crate::like_button::{LIKE_ROW_GROUP, like_button};
+use crate::playback_queue::QueueSource;
+use crate::playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 
 const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 36.;
@@ -105,17 +108,25 @@ impl QueueView {
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::TrackLikedChanged { track_id, liked } = event {
-                    let mut changed = false;
-                    for t in this.tracks.iter_mut() {
-                        if t.id == *track_id && t.liked != *liked {
-                            t.liked = *liked;
-                            changed = true;
+                match event {
+                    LibraryEvent::TrackLikedChanged { track_id, liked } => {
+                        let mut changed = false;
+                        for t in this.tracks.iter_mut() {
+                            if t.id == *track_id && t.liked != *liked {
+                                t.liked = *liked;
+                                changed = true;
+                            }
+                        }
+                        if changed {
+                            cx.notify();
                         }
                     }
-                    if changed {
-                        cx.notify();
+                    LibraryEvent::PlaylistTracksChanged { .. } => {
+                        // Services has already synced the queue if it was
+                        // backed by this playlist; refresh our snapshot.
+                        this.refresh_tracks(cx);
                     }
+                    _ => {}
                 }
             });
 
@@ -172,6 +183,12 @@ impl Render for QueueView {
         let muted_fg = theme.muted_foreground;
         let border = theme.border;
         let secondary = theme.secondary;
+        let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
+        let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+        let playlist_source = match cx.global::<Services>().playback_queue.borrow().source() {
+            QueueSource::Playlist(id) => Some(id),
+            _ => None,
+        };
 
         let header = h_flex()
             .w_full()
@@ -295,7 +312,15 @@ impl Render for QueueView {
                                             .text_color(muted_fg)
                                             .child(artist),
                                     )
-                                    .child(like_button(track_id, liked, cx))
+                                    .when(playlists_enabled, |row| {
+                                        row.child(add_to_playlist_button(track_id, cx))
+                                    })
+                                    .when(liked_enabled, |row| {
+                                        row.child(like_button(track_id, liked, cx))
+                                    })
+                                    .when_some(playlist_source, |row, pid| {
+                                        row.child(remove_from_playlist_button(track_id, pid, cx))
+                                    })
                                     .child(div().text_sm().text_color(muted_fg).child(duration_str))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |_this, _, _, cx| {

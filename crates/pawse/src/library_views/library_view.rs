@@ -8,7 +8,10 @@ use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, OpenSett
 use crate::library_views::artist_tracks_view::ArtistTracksView;
 use crate::library_views::artists_view::{ArtistSelectedEvent, ArtistsView};
 use crate::library_views::liked_view::LikedView;
+use crate::library_views::playlist_tracks_view::PlaylistTracksView;
+use crate::library_views::playlists_view::{PlaylistSelectedEvent, PlaylistsView};
 use crate::library_views::tracks_view::TracksView;
+use crate::settings_store::SettingsStore;
 
 #[derive(Clone, Debug)]
 pub enum LibraryViewEvent {
@@ -21,12 +24,14 @@ pub enum LibraryRootTab {
     Albums,
     Artists,
     Liked,
+    Playlists,
 }
 
 enum LibraryViewState {
     Root(LibraryRootTab),
     AlbumTracks,
     ArtistTracks,
+    PlaylistTracks,
 }
 
 pub struct LibraryView {
@@ -34,11 +39,15 @@ pub struct LibraryView {
     albums_view: Entity<AlbumsView>,
     artists_view: Entity<ArtistsView>,
     liked_view: Entity<LikedView>,
+    playlists_view: Entity<PlaylistsView>,
     tracks_view: Option<Entity<TracksView>>,
     artist_tracks_view: Option<Entity<ArtistTracksView>>,
+    playlist_tracks_view: Option<Entity<PlaylistTracksView>>,
     _album_subscription: Subscription,
     _artist_subscription: Subscription,
+    _playlist_subscription: Subscription,
     _settings_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl LibraryView {
@@ -46,39 +55,78 @@ impl LibraryView {
         let albums_view = cx.new(|cx| AlbumsView::new(window, cx));
         let artists_view = cx.new(|cx| ArtistsView::new(window, cx));
         let liked_view = cx.new(|cx| LikedView::new(window, cx));
+        let playlists_view = cx.new(|cx| PlaylistsView::new(window, cx));
 
-        let album_subscription =
-            cx.subscribe(&albums_view, |this, _, event: &AlbumSelectedEvent, cx| {
-                this.show_album_tracks(event.album.clone(), cx);
-            });
+        let album_subscription = cx.subscribe_in(
+            &albums_view,
+            window,
+            |this, _, event: &AlbumSelectedEvent, window, cx| {
+                this.show_album_tracks(event.album.clone(), window, cx);
+            },
+        );
 
         let artist_subscription =
             cx.subscribe(&artists_view, |this, _, event: &ArtistSelectedEvent, cx| {
                 this.show_artist_tracks(event.artist.clone(), cx);
             });
 
+        let playlist_subscription = cx.subscribe_in(
+            &playlists_view,
+            window,
+            |this, _, event: &PlaylistSelectedEvent, window, cx| {
+                this.show_playlist_tracks(event.playlist.clone(), window, cx);
+            },
+        );
+
         let settings_subscription =
             cx.subscribe(&albums_view, |_, _, _: &OpenSettingsRequested, cx| {
                 cx.emit(LibraryViewEvent::OpenSettingsRequested);
             });
+
+        // Pop back to a still-visible tab if the user disables the one we're on.
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            let store = cx.global::<SettingsStore>();
+            let liked = store.liked_enabled();
+            let playlists = store.playlists_enabled();
+            let needs_pop = match this.state {
+                LibraryViewState::Root(LibraryRootTab::Liked) if !liked => true,
+                LibraryViewState::Root(LibraryRootTab::Playlists) if !playlists => true,
+                LibraryViewState::PlaylistTracks if !playlists => true,
+                _ => false,
+            };
+            if needs_pop {
+                this.state = LibraryViewState::Root(LibraryRootTab::Albums);
+                this.tracks_view = None;
+                this.artist_tracks_view = None;
+                this.playlist_tracks_view = None;
+                cx.emit(LibraryViewEvent::StateChanged);
+                cx.notify();
+            }
+        });
 
         Self {
             state: LibraryViewState::Root(LibraryRootTab::Albums),
             albums_view,
             artists_view,
             liked_view,
+            playlists_view,
             tracks_view: None,
             artist_tracks_view: None,
+            playlist_tracks_view: None,
             _album_subscription: album_subscription,
             _artist_subscription: artist_subscription,
+            _playlist_subscription: playlist_subscription,
             _settings_subscription: settings_subscription,
+            _settings_observer: settings_observer,
         }
     }
 
     pub fn is_drilled_in(&self) -> bool {
         matches!(
             self.state,
-            LibraryViewState::AlbumTracks | LibraryViewState::ArtistTracks
+            LibraryViewState::AlbumTracks
+                | LibraryViewState::ArtistTracks
+                | LibraryViewState::PlaylistTracks
         )
     }
 
@@ -97,6 +145,7 @@ impl LibraryView {
         self.state = LibraryViewState::Root(tab);
         self.tracks_view = None;
         self.artist_tracks_view = None;
+        self.playlist_tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -113,6 +162,10 @@ impl LibraryView {
             LibraryViewState::Root(LibraryRootTab::Liked) => {
                 self.liked_view.update(cx, |v, cx| v.set_filter(query, cx));
             }
+            LibraryViewState::Root(LibraryRootTab::Playlists) => {
+                self.playlists_view
+                    .update(cx, |v, cx| v.set_filter(query, cx));
+            }
             LibraryViewState::AlbumTracks => {
                 if let Some(tv) = &self.tracks_view {
                     tv.update(cx, |v, cx| v.set_filter(query, cx));
@@ -123,6 +176,11 @@ impl LibraryView {
                     av.update(cx, |v, cx| v.set_filter(query, cx));
                 }
             }
+            LibraryViewState::PlaylistTracks => {
+                if let Some(pv) = &self.playlist_tracks_view {
+                    pv.update(cx, |v, cx| v.set_filter(query, cx));
+                }
+            }
         }
     }
 
@@ -130,20 +188,28 @@ impl LibraryView {
         let tab = match self.state {
             LibraryViewState::AlbumTracks => LibraryRootTab::Albums,
             LibraryViewState::ArtistTracks => LibraryRootTab::Artists,
+            LibraryViewState::PlaylistTracks => LibraryRootTab::Playlists,
             LibraryViewState::Root(t) => t,
         };
         self.state = LibraryViewState::Root(tab);
         self.tracks_view = None;
         self.artist_tracks_view = None;
+        self.playlist_tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
 
-    fn show_album_tracks(&mut self, album: music_library::AlbumSummary, cx: &mut Context<Self>) {
+    fn show_album_tracks(
+        &mut self,
+        album: music_library::AlbumSummary,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.state = LibraryViewState::AlbumTracks;
         let tracks_view = cx.new(|cx| TracksView::new(&album, cx));
         self.tracks_view = Some(tracks_view);
         self.artist_tracks_view = None;
+        self.playlist_tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -153,6 +219,22 @@ impl LibraryView {
         let artist_tracks_view = cx.new(|cx| ArtistTracksView::new(&artist, cx));
         self.artist_tracks_view = Some(artist_tracks_view);
         self.tracks_view = None;
+        self.playlist_tracks_view = None;
+        cx.emit(LibraryViewEvent::StateChanged);
+        cx.notify();
+    }
+
+    fn show_playlist_tracks(
+        &mut self,
+        playlist: music_library::PlaylistSummary,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.state = LibraryViewState::PlaylistTracks;
+        let view = cx.new(|cx| PlaylistTracksView::new(&playlist, window, cx));
+        self.playlist_tracks_view = Some(view);
+        self.tracks_view = None;
+        self.artist_tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -172,6 +254,9 @@ impl Render for LibraryView {
             LibraryViewState::Root(LibraryRootTab::Liked) => {
                 v_flex().size_full().child(self.liked_view.clone())
             }
+            LibraryViewState::Root(LibraryRootTab::Playlists) => {
+                v_flex().size_full().child(self.playlists_view.clone())
+            }
             LibraryViewState::AlbumTracks => {
                 if let Some(ref tracks_view) = self.tracks_view {
                     v_flex().size_full().child(tracks_view.clone())
@@ -182,6 +267,13 @@ impl Render for LibraryView {
             LibraryViewState::ArtistTracks => {
                 if let Some(ref artist_tracks_view) = self.artist_tracks_view {
                     v_flex().size_full().child(artist_tracks_view.clone())
+                } else {
+                    v_flex().size_full()
+                }
+            }
+            LibraryViewState::PlaylistTracks => {
+                if let Some(ref playlist_tracks_view) = self.playlist_tracks_view {
+                    v_flex().size_full().child(playlist_tracks_view.clone())
                 } else {
                     v_flex().size_full()
                 }

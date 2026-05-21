@@ -17,7 +17,9 @@ use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::media_bridge::MediaBridge;
+use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
+use crate::settings_store::SettingsStore;
 use crate::settings_view::ThemePickerState;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
@@ -42,6 +44,7 @@ pub struct MainView {
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
     queue_view: Entity<QueueView>,
+    playlist_popup: Entity<PlaylistPopup>,
     is_drilled_in: bool,
     current_tab: LibraryRootTab,
     show_settings: bool,
@@ -58,6 +61,7 @@ pub struct MainView {
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
     _theme_picker_subscription: gpui::Subscription,
+    _settings_observer: gpui::Subscription,
 }
 
 impl MainView {
@@ -136,11 +140,20 @@ impl MainView {
             }
         });
 
+        let playlist_popup = cx.new(|cx| PlaylistPopup::new(window, cx));
+
+        let settings_observer = cx.observe_global::<SettingsStore>(|_, cx| {
+            // Re-render so the tab strip flips visibility when feature flags
+            // are toggled in settings.
+            cx.notify();
+        });
+
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
             library_view,
             footer,
             queue_view,
+            playlist_popup,
             is_drilled_in: false,
             current_tab: LibraryRootTab::Albums,
             show_settings: false,
@@ -157,6 +170,7 @@ impl MainView {
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
             _theme_picker_subscription: theme_picker_subscription,
+            _settings_observer: settings_observer,
         }
     }
 
@@ -201,6 +215,9 @@ impl Render for MainView {
                     .text_color(cx.theme().foreground),
             );
 
+        let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
+        let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+
         let left_group = div()
             .flex_1()
             .flex()
@@ -225,14 +242,26 @@ impl Render for MainView {
                     LibraryRootTab::Artists,
                     cx,
                 ))
-                .child(tab_icon_button(
-                    "tab_liked",
-                    "icons/s1-heart-fill.svg",
-                    "Liked",
-                    current_tab == LibraryRootTab::Liked,
-                    LibraryRootTab::Liked,
-                    cx,
-                ))
+                .when(liked_enabled, |d| {
+                    d.child(tab_icon_button(
+                        "tab_liked",
+                        "icons/s1-heart-fill.svg",
+                        "Liked",
+                        current_tab == LibraryRootTab::Liked,
+                        LibraryRootTab::Liked,
+                        cx,
+                    ))
+                })
+                .when(playlists_enabled, |d| {
+                    d.child(tab_icon_button(
+                        "tab_playlists",
+                        "icons/s1-playlists.svg",
+                        "Playlists",
+                        current_tab == LibraryRootTab::Playlists,
+                        LibraryRootTab::Playlists,
+                        cx,
+                    ))
+                })
             });
 
         let right_group = div()
@@ -402,6 +431,7 @@ impl Render for MainView {
             })
             .children(Root::render_notification_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))
+            .child(self.playlist_popup.clone())
     }
 }
 

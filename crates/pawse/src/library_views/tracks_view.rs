@@ -16,7 +16,9 @@ use nucleo_matcher::{
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
 use crate::like_button::{LIKE_ROW_GROUP, like_button};
+use crate::playlist_buttons::add_to_playlist_button;
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 
 const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 36.;
@@ -222,6 +224,8 @@ impl Render for TracksView {
         let secondary = theme.secondary;
         let muted_fg = theme.muted_foreground;
         let foreground = theme.foreground;
+        let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
+        let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
 
         if self.tracks.is_empty() {
             let message = if self.tracks_all.is_empty() {
@@ -323,7 +327,12 @@ impl Render for TracksView {
                                             })
                                             .child(track.title.clone()),
                                     )
-                                    .child(like_button(track_id, liked, cx))
+                                    .when(playlists_enabled, |row| {
+                                        row.child(add_to_playlist_button(track_id, cx))
+                                    })
+                                    .when(liked_enabled, |row| {
+                                        row.child(like_button(track_id, liked, cx))
+                                    })
                                     .child(div().w_16().child(duration_str))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, _cx| {

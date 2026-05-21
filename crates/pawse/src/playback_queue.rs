@@ -9,6 +9,15 @@ pub enum RepeatMode {
     One,
 }
 
+/// Where the current queue came from. Used by the UI to decide whether
+/// per-track "remove from playlist" controls should be visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QueueSource {
+    #[default]
+    Unknown,
+    Playlist(i64),
+}
+
 impl RepeatMode {
     pub fn cycle(self) -> Self {
         match self {
@@ -25,6 +34,7 @@ pub struct PlaybackQueue {
     current_index: Option<usize>,
     shuffle: bool,
     repeat: RepeatMode,
+    source: QueueSource,
 }
 
 impl Default for PlaybackQueue {
@@ -46,16 +56,75 @@ impl PlaybackQueue {
             current_index: None,
             shuffle: false,
             repeat: RepeatMode::Off,
+            source: QueueSource::Unknown,
         }
     }
 
     pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+        self.set_tracks_with_source(tracks, QueueSource::Unknown);
+    }
+
+    pub fn set_tracks_with_source(&mut self, tracks: Vec<Track>, source: QueueSource) {
         self.tracks = tracks;
         self.original_order = None;
         self.current_index = None;
+        self.source = source;
         if self.shuffle {
             self.apply_shuffle();
         }
+    }
+
+    pub fn source(&self) -> QueueSource {
+        self.source
+    }
+
+    pub fn set_source(&mut self, source: QueueSource) {
+        self.source = source;
+    }
+
+    /// Replace the queue's track list with a fresh snapshot, preserving the
+    /// currently-playing track by id. Used when the playlist backing the
+    /// queue has new tracks added/reordered. Drops any prior shuffle order.
+    pub fn refresh_keeping_current(&mut self, new_tracks: Vec<Track>) {
+        let current_id = self.current_track().map(|t| t.id);
+        self.tracks = new_tracks;
+        self.original_order = None;
+        self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
+    }
+
+    /// Remove a track from the current queue by id. Returns true if the
+    /// currently-playing track was removed (caller should stop / advance).
+    pub fn remove_track_by_id(&mut self, track_id: i64) -> bool {
+        let mut removed_current = false;
+        if let Some(original) = self.original_order.as_mut() {
+            original.retain(|t| t.id != track_id);
+        }
+        let mut new_index = self.current_index;
+        let mut i = 0;
+        self.tracks.retain(|t| {
+            let keep = t.id != track_id;
+            if !keep {
+                if Some(i) == self.current_index {
+                    removed_current = true;
+                } else if let Some(ix) = new_index
+                    && ix > i
+                {
+                    new_index = Some(ix - 1);
+                }
+            }
+            i += 1;
+            keep
+        });
+        if removed_current {
+            if self.tracks.is_empty() {
+                self.current_index = None;
+            } else if let Some(ix) = self.current_index {
+                self.current_index = Some(ix.min(self.tracks.len() - 1));
+            }
+        } else {
+            self.current_index = new_index;
+        }
+        removed_current
     }
 
     pub fn play_track_at(&mut self, index: usize) -> Option<&Track> {
@@ -168,12 +237,14 @@ impl PlaybackQueue {
         current_index: Option<usize>,
         shuffle: bool,
         repeat: RepeatMode,
+        source: QueueSource,
     ) {
         self.tracks = tracks;
         self.original_order = original_order;
         self.current_index = current_index;
         self.shuffle = shuffle;
         self.repeat = repeat;
+        self.source = source;
     }
 
     fn apply_shuffle(&mut self) {

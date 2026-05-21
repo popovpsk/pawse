@@ -7,7 +7,8 @@ pub mod thumbnail;
 
 pub use error::{LibraryError, Result};
 pub use models::{
-    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Track,
+    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Playlist,
+    PlaylistSummary, Track,
 };
 pub use repository::LibraryRepository;
 pub use sqlite::SqliteLibrary;

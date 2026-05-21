@@ -6,7 +6,9 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
-use crate::models::{AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, Track};
+use crate::models::{
+    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary, Track,
+};
 use crate::repository::LibraryRepository;
 
 const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
@@ -59,8 +61,16 @@ impl SqliteLibrary {
                     )
                     .map(|c| c > 0)
                     .unwrap_or(false);
+                let has_playlists: bool = check_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='playlists'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
                 drop(check_conn);
-                if !has_cover_art || !has_liked {
+                if !has_cover_art || !has_liked || !has_playlists {
                     let _ = std::fs::remove_file(&db_path);
                 }
             }
@@ -395,6 +405,9 @@ impl LibraryRepository for SqliteLibrary {
     fn clear(&self) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
+        // playlist_tracks references tracks by FK; clear before tracks. We
+        // keep playlist definitions: a user's playlists survive a rescan.
+        tx.execute("DELETE FROM playlist_tracks", [])?;
         tx.execute("DELETE FROM track_artists", [])?;
         tx.execute("DELETE FROM album_artists", [])?;
         tx.execute("DELETE FROM tracks", [])?;
@@ -580,6 +593,129 @@ impl LibraryRepository for SqliteLibrary {
             rusqlite::params![liked as i64, track_id],
         )?;
         Ok(())
+    }
+
+    fn create_playlist(&self, name: &str) -> Result<i64> {
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO playlists (name, created_at) VALUES (?1, ?2)",
+            rusqlite::params![name, created_at],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    fn delete_playlist(&self, playlist_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM playlists WHERE id = ?1", [playlist_id])?;
+        Ok(())
+    }
+
+    fn playlists(&self) -> Result<Vec<PlaylistSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT
+                p.id,
+                p.name,
+                p.created_at,
+                COUNT(pt.track_id) AS track_count
+            FROM playlists p
+            LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+            GROUP BY p.id
+            ORDER BY p.created_at ASC, p.id ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(PlaylistSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                created_at: row.get(2)?,
+                track_count: row.get(3)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let next_position: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+                [playlist_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        tx.execute(
+            "INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+            rusqlite::params![playlist_id, next_position, track_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        // Remove the lowest-position occurrence of the track (Spotify-ish: if
+        // the same track is in the playlist multiple times, removes one copy).
+        let position: Option<i64> = tx
+            .query_row(
+                "SELECT MIN(position) FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2",
+                rusqlite::params![playlist_id, track_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(position) = position else {
+            tx.commit()?;
+            return Ok(());
+        };
+        tx.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND position = ?2",
+            rusqlite::params![playlist_id, position],
+        )?;
+        // Compact positions so they stay dense.
+        tx.execute(
+            "UPDATE playlist_tracks SET position = position - 1 \
+             WHERE playlist_id = ?1 AND position > ?2",
+            rusqlite::params![playlist_id, position],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM playlist_tracks pt \
+             JOIN tracks t ON t.id = pt.track_id \
+             WHERE pt.playlist_id = ?1 \
+             ORDER BY pt.position",
+            TRACK_COLUMNS
+                .split(", ")
+                .map(|c| format!("t.{c}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([playlist_id], map_track_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1")?;
+        let rows = stmt.query_map([track_id], |row| row.get::<_, i64>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
     }
 
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>> {

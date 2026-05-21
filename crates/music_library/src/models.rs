@@ -82,3 +82,18 @@ pub struct TrackArtist {
     pub credited_as: Option<String>,
     pub position: i32,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Playlist {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistSummary {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
+    pub track_count: i64,
+}

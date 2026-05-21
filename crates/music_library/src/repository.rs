@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::error::Result;
-use crate::models::{AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, Track};
+use crate::models::{
+    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary, Track,
+};
 
 pub trait LibraryRepository: Send + Sync {
     fn upsert_artist(&self, name: &str) -> Result<i64>;
@@ -37,4 +39,12 @@ pub trait LibraryRepository: Send + Sync {
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()>;
+
+    fn create_playlist(&self, name: &str) -> Result<i64>;
+    fn delete_playlist(&self, playlist_id: i64) -> Result<()>;
+    fn playlists(&self) -> Result<Vec<PlaylistSummary>>;
+    fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()>;
+    fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()>;
+    fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>>;
+    fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>>;
 }

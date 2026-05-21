@@ -95,6 +95,32 @@ impl From<RepeatModePersist> for crate::playback_queue::RepeatMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum QueueSourcePersist {
+    #[default]
+    Unknown,
+    Playlist(i64),
+}
+
+impl From<crate::playback_queue::QueueSource> for QueueSourcePersist {
+    fn from(s: crate::playback_queue::QueueSource) -> Self {
+        match s {
+            crate::playback_queue::QueueSource::Unknown => Self::Unknown,
+            crate::playback_queue::QueueSource::Playlist(id) => Self::Playlist(id),
+        }
+    }
+}
+
+impl From<QueueSourcePersist> for crate::playback_queue::QueueSource {
+    fn from(s: QueueSourcePersist) -> Self {
+        match s {
+            QueueSourcePersist::Unknown => Self::Unknown,
+            QueueSourcePersist::Playlist(id) => Self::Playlist(id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PlaybackState {
     #[serde(default)]
@@ -109,6 +135,8 @@ pub struct PlaybackState {
     pub shuffle: bool,
     #[serde(default)]
     pub repeat: RepeatModePersist,
+    #[serde(default)]
+    pub source: QueueSourcePersist,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +155,10 @@ pub struct UserSettings {
     pub show_repeat_shuffle: bool,
     #[serde(default = "default_true")]
     pub show_time_labels: bool,
+    #[serde(default = "default_true")]
+    pub liked_enabled: bool,
+    #[serde(default = "default_true")]
+    pub playlists_enabled: bool,
 }
 
 impl Default for UserSettings {
@@ -139,6 +171,8 @@ impl Default for UserSettings {
             show_hog_button: true,
             show_repeat_shuffle: true,
             show_time_labels: true,
+            liked_enabled: true,
+            playlists_enabled: true,
         }
     }
 }
@@ -256,6 +290,24 @@ impl SettingsStore {
 
     pub fn set_show_time_labels(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_time_labels = show;
+        self.save()
+    }
+
+    pub fn liked_enabled(&self) -> bool {
+        self.settings.liked_enabled
+    }
+
+    pub fn set_liked_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.liked_enabled = enabled;
+        self.save()
+    }
+
+    pub fn playlists_enabled(&self) -> bool {
+        self.settings.playlists_enabled
+    }
+
+    pub fn set_playlists_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.playlists_enabled = enabled;
         self.save()
     }
 }
@@ -485,10 +537,13 @@ mod tests {
                 position_ms: 12_345,
                 shuffle: true,
                 repeat: RepeatModePersist::All,
+                source: QueueSourcePersist::Playlist(7),
             },
             show_hog_button: true,
             show_repeat_shuffle: true,
             show_time_labels: true,
+            liked_enabled: true,
+            playlists_enabled: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
@@ -499,6 +554,7 @@ mod tests {
         assert_eq!(back.playback.position_ms, 12_345);
         assert!(back.playback.shuffle);
         assert_eq!(back.playback.repeat, RepeatModePersist::All);
+        assert_eq!(back.playback.source, QueueSourcePersist::Playlist(7));
     }
 
     #[test]

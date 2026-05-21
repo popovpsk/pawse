@@ -11,6 +11,8 @@ pub enum LibraryEvent {
     ScanProgress { scanned: usize },
     ScanComplete,
     TrackLikedChanged { track_id: i64, liked: bool },
+    PlaylistsChanged,
+    PlaylistTracksChanged { playlist_id: i64 },
 }
 
 pub struct LibraryService {
@@ -68,6 +70,71 @@ impl LibraryService {
         let _ = self
             .event_tx
             .send(LibraryEvent::TrackLikedChanged { track_id, liked });
+    }
+
+    pub fn playlists(&self) -> Vec<music_library::PlaylistSummary> {
+        self.repo.playlists().unwrap_or_default()
+    }
+
+    pub fn tracks_for_playlist(&self, playlist_id: i64) -> Vec<music_library::Track> {
+        self.repo
+            .tracks_for_playlist(playlist_id)
+            .unwrap_or_default()
+    }
+
+    pub fn playlists_containing_track(&self, track_id: i64) -> Vec<i64> {
+        self.repo
+            .playlists_containing_track(track_id)
+            .unwrap_or_default()
+    }
+
+    pub fn create_playlist(&self, name: &str) -> Option<i64> {
+        match self.repo.create_playlist(name) {
+            Ok(id) => {
+                let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
+                Some(id)
+            }
+            Err(e) => {
+                eprintln!("Failed to create playlist: {}", e);
+                None
+            }
+        }
+    }
+
+    pub fn delete_playlist(&self, playlist_id: i64) {
+        if let Err(e) = self.repo.delete_playlist(playlist_id) {
+            eprintln!("Failed to delete playlist {}: {}", playlist_id, e);
+            return;
+        }
+        let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
+    }
+
+    pub fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) {
+        if let Err(e) = self.repo.add_track_to_playlist(playlist_id, track_id) {
+            eprintln!(
+                "Failed to add track {} to playlist {}: {}",
+                track_id, playlist_id, e
+            );
+            return;
+        }
+        let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
+        let _ = self
+            .event_tx
+            .send(LibraryEvent::PlaylistTracksChanged { playlist_id });
+    }
+
+    pub fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) {
+        if let Err(e) = self.repo.remove_track_from_playlist(playlist_id, track_id) {
+            eprintln!(
+                "Failed to remove track {} from playlist {}: {}",
+                track_id, playlist_id, e
+            );
+            return;
+        }
+        let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
+        let _ = self
+            .event_tx
+            .send(LibraryEvent::PlaylistTracksChanged { playlist_id });
     }
 
     pub fn album_title(&self, album_id: i64) -> Option<String> {

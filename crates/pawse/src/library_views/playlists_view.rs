@@ -1,0 +1,327 @@
+use gpui::prelude::FluentBuilder;
+use gpui::{
+    AppContext, Context, ElementId, Entity, EventEmitter, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, svg,
+};
+use gpui_component::{
+    ActiveTheme, Sizable,
+    button::{Button, ButtonVariants},
+    h_flex,
+    input::{Input, InputEvent, InputState},
+    v_flex,
+};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{CaseMatching, Normalization, Pattern},
+};
+
+use crate::library_service::LibraryEvent;
+use crate::like_button::LIKE_ROW_GROUP;
+use crate::services::Services;
+
+const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
+
+#[derive(Clone, Debug)]
+pub struct PlaylistSelectedEvent {
+    pub playlist: music_library::PlaylistSummary,
+}
+
+pub struct PlaylistsView {
+    playlists_all: Vec<music_library::PlaylistSummary>,
+    playlists: Vec<music_library::PlaylistSummary>,
+    filter: String,
+    matcher: Matcher,
+    creating: bool,
+    create_input: Entity<InputState>,
+    pending_delete_id: Option<i64>,
+    _library_subscription: Subscription,
+    _create_subscription: Subscription,
+}
+
+impl PlaylistsView {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let library_event_bus = cx.global::<Services>().library_event_bus.clone();
+
+        let create_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("New playlist name")
+                .clean_on_escape()
+        });
+
+        let create_subscription = cx.subscribe(&create_input, |this, _, event: &InputEvent, cx| {
+            if let InputEvent::PressEnter { .. } = event {
+                this.commit_create(cx);
+            }
+        });
+
+        let playlists_all = cx.global::<Services>().library.playlists();
+        let playlists = playlists_all.clone();
+
+        let library_subscription =
+            cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
+                if matches!(
+                    event,
+                    LibraryEvent::PlaylistsChanged | LibraryEvent::ScanComplete
+                ) {
+                    let services = cx.global::<Services>();
+                    this.playlists_all = services.library.playlists();
+                    this.recompute_visible();
+                    cx.notify();
+                }
+            });
+
+        Self {
+            playlists_all,
+            playlists,
+            filter: String::new(),
+            matcher: Matcher::new(Config::DEFAULT),
+            creating: false,
+            create_input,
+            pending_delete_id: None,
+            _library_subscription: library_subscription,
+            _create_subscription: create_subscription,
+        }
+    }
+
+    pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
+        let trimmed = query.trim().to_string();
+        if trimmed == self.filter {
+            return;
+        }
+        self.filter = trimmed;
+        self.recompute_visible();
+        cx.notify();
+    }
+
+    fn recompute_visible(&mut self) {
+        if self.filter.is_empty() {
+            self.playlists = self.playlists_all.clone();
+            return;
+        }
+        let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
+        let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
+        let mut buf: Vec<char> = Vec::new();
+        let mut scored: Vec<(music_library::PlaylistSummary, u32)> = self
+            .playlists_all
+            .iter()
+            .filter_map(|p| {
+                let hay = Utf32Str::new(&p.name, &mut buf);
+                pattern
+                    .score(hay, &mut self.matcher)
+                    .filter(|s| *s >= threshold)
+                    .map(|s| (p.clone(), s))
+            })
+            .collect();
+        scored.sort_by_key(|(_, s)| std::cmp::Reverse(*s));
+        self.playlists = scored.into_iter().map(|(p, _)| p).collect();
+    }
+
+    fn commit_create(&mut self, cx: &mut Context<Self>) {
+        let name = self.create_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        cx.global::<Services>().library.create_playlist(&name);
+        self.creating = false;
+        cx.notify();
+    }
+}
+
+impl EventEmitter<PlaylistSelectedEvent> for PlaylistsView {}
+
+impl Render for PlaylistsView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let border = theme.border;
+        let secondary = theme.secondary;
+        let muted_fg = theme.muted_foreground;
+        let danger_fg = theme.foreground;
+
+        let create_section = if self.creating {
+            v_flex().px_4().py_3().child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .w(px(240.))
+                            .child(Input::new(&self.create_input).small().cleanable(false)),
+                    )
+                    .child(
+                        Button::new("playlists-confirm-create")
+                            .primary()
+                            .compact()
+                            .label("Create")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.commit_create(cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("playlists-cancel-create")
+                            .ghost()
+                            .compact()
+                            .label("Cancel")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.creating = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+        } else {
+            v_flex().px_4().pt_3().pb_2().child(
+                h_flex().child(
+                    Button::new("playlists-new")
+                        .outline()
+                        .compact()
+                        .label("+ New playlist")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.creating = true;
+                            this.create_input.update(cx, |s, cx| {
+                                s.set_value("", window, cx);
+                                s.focus(window, cx);
+                            });
+                            cx.notify();
+                        })),
+                ),
+            )
+        };
+
+        let mut list = v_flex().w_full();
+
+        if self.playlists.is_empty() {
+            let message = if self.playlists_all.is_empty() {
+                "No playlists yet."
+            } else {
+                "No playlists match your search."
+            };
+            list = list.child(
+                div()
+                    .px_4()
+                    .py_2()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(message),
+            );
+        } else {
+            for p in self.playlists.iter() {
+                let playlist = p.clone();
+                let playlist_id = playlist.id;
+                let count_str = if playlist.track_count == 1 {
+                    "1 track".to_string()
+                } else {
+                    format!("{} tracks", playlist.track_count)
+                };
+                let pending_delete = self.pending_delete_id == Some(playlist_id);
+
+                let trash_button = div()
+                    .id(ElementId::NamedInteger(
+                        "pl-trash".into(),
+                        playlist_id as u64,
+                    ))
+                    .size(px(28.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .cursor_pointer()
+                    .when(!pending_delete, |d| {
+                        d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
+                    })
+                    .hover(|s| s.bg(theme.muted))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pending_delete_id = Some(playlist_id);
+                        cx.notify();
+                    }))
+                    .child(
+                        svg()
+                            .path("icons/s1-trash.svg")
+                            .size(px(15.))
+                            .text_color(danger_fg),
+                    );
+
+                let row = h_flex()
+                    .group(LIKE_ROW_GROUP)
+                    .w_full()
+                    .h(px(48.))
+                    .px_4()
+                    .gap_3()
+                    .items_center()
+                    .border_b(px(1.))
+                    .border_color(border)
+                    .cursor(gpui::CursorStyle::PointingHand)
+                    .hover(|s| s.bg(secondary))
+                    .child(
+                        svg()
+                            .path("icons/s1-playlists.svg")
+                            .size(px(20.))
+                            .text_color(theme.foreground),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .truncate()
+                            .child(playlist.name.clone()),
+                    )
+                    .child(div().text_sm().text_color(muted_fg).child(count_str))
+                    .when(pending_delete, |row| {
+                        let pid = playlist_id;
+                        // Wrap the confirm/cancel buttons in a div that stops
+                        // mouse-down propagation, so the click doesn't bubble
+                        // up to the row and trigger drill-in.
+                        row.child(
+                            h_flex()
+                                .gap_2()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .child(
+                                    Button::new(ElementId::NamedInteger(
+                                        "pl-del-confirm".into(),
+                                        pid as u64,
+                                    ))
+                                    .danger()
+                                    .compact()
+                                    .label("Delete")
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            cx.global::<Services>().library.delete_playlist(pid);
+                                            this.pending_delete_id = None;
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    Button::new(ElementId::NamedInteger(
+                                        "pl-del-cancel".into(),
+                                        pid as u64,
+                                    ))
+                                    .ghost()
+                                    .compact()
+                                    .label("Cancel")
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
+                                            this.pending_delete_id = None;
+                                            cx.notify();
+                                        },
+                                    )),
+                                ),
+                        )
+                    })
+                    .when(!pending_delete, |row| row.child(trash_button))
+                    .id(ElementId::Integer(playlist_id as u64))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.pending_delete_id.is_some() {
+                            return;
+                        }
+                        cx.emit(PlaylistSelectedEvent {
+                            playlist: playlist.clone(),
+                        });
+                    }));
+
+                list = list.child(row);
+            }
+        }
+
+        v_flex().size_full().child(create_section).child(list)
+    }
+}
