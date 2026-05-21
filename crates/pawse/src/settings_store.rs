@@ -123,6 +123,10 @@ pub struct UserSettings {
     pub playback: PlaybackState,
     #[serde(default = "default_true")]
     pub show_hog_button: bool,
+    #[serde(default = "default_true")]
+    pub show_repeat_shuffle: bool,
+    #[serde(default = "default_true")]
+    pub show_time_labels: bool,
 }
 
 impl Default for UserSettings {
@@ -133,6 +137,8 @@ impl Default for UserSettings {
             volume: 1.0,
             playback: PlaybackState::default(),
             show_hog_button: true,
+            show_repeat_shuffle: true,
+            show_time_labels: true,
         }
     }
 }
@@ -232,6 +238,24 @@ impl SettingsStore {
 
     pub fn set_show_hog_button(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_hog_button = show;
+        self.save()
+    }
+
+    pub fn show_repeat_shuffle(&self) -> bool {
+        self.settings.show_repeat_shuffle
+    }
+
+    pub fn set_show_repeat_shuffle(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_repeat_shuffle = show;
+        self.save()
+    }
+
+    pub fn show_time_labels(&self) -> bool {
+        self.settings.show_time_labels
+    }
+
+    pub fn set_show_time_labels(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_time_labels = show;
         self.save()
     }
 }
@@ -462,6 +486,8 @@ mod tests {
                 repeat: RepeatModePersist::All,
             },
             show_hog_button: true,
+            show_repeat_shuffle: true,
+            show_time_labels: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();

@@ -418,6 +418,50 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
             )
             .description("Show or hide the exclusive mode (hog) toggle in the header"),
         )
+        .item(
+            SettingItem::new(
+                "Repeat & Shuffle",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_repeat_shuffle();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("repeat-shuffle-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_repeat_shuffle(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description("Show or hide the repeat and shuffle buttons in the player controls"),
+        )
+        .item(
+            SettingItem::new(
+                "Time labels",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_time_labels();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("time-labels-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_time_labels(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(
+                "Show or hide the current position and duration labels next to the progress bar",
+            ),
+        )
 }
 
 fn library_group() -> SettingGroup {

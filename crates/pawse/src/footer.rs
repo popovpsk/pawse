@@ -1,11 +1,13 @@
 use audio_engine::EngineEvent;
 use gpui::{
     AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
+    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder,
+    px, svg,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 use crate::{
     next_button::NextButton, now_playing::NowPlaying, play_button::PlayButton,
     prev_button::PrevButton, repeat_button::RepeatButton, shuffle_button::ShuffleButton,
@@ -27,7 +29,9 @@ pub struct Footer {
     track_progress_slider: Entity<TrackProgressSlider>,
     now_playing: Entity<NowPlaying>,
     show_queue: bool,
+    show_repeat_shuffle: bool,
     _subscription: Subscription,
+    _settings_subscription: Subscription,
 }
 
 impl EventEmitter<ToggleQueueEvent> for Footer {}
@@ -51,6 +55,16 @@ impl Footer {
             }
         });
 
+        let show_repeat_shuffle = cx.global::<SettingsStore>().show_repeat_shuffle();
+        let settings_subscription =
+            cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
+                let new_val = cx.global::<SettingsStore>().show_repeat_shuffle();
+                if new_val != this.show_repeat_shuffle {
+                    this.show_repeat_shuffle = new_val;
+                    cx.notify();
+                }
+            });
+
         Self {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
             prev_button: cx.new(|cx| PrevButton::new(window, cx)),
@@ -61,13 +75,16 @@ impl Footer {
             track_progress_slider: cx.new(|cx| TrackProgressSlider::new(window, cx)),
             now_playing: cx.new(|cx| NowPlaying::new(window, cx)),
             show_queue: false,
+            show_repeat_shuffle,
             _subscription: subscription,
+            _settings_subscription: settings_subscription,
         }
     }
 }
 
 impl Render for Footer {
     fn render(&mut self, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let show_repeat_shuffle = self.show_repeat_shuffle;
         h_flex()
             .gap_4()
             .w_full()
@@ -85,11 +102,13 @@ impl Render for Footer {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(self.shuffle_button.clone())
+                            .when(show_repeat_shuffle, |b| {
+                                b.child(self.shuffle_button.clone())
+                            })
                             .child(self.prev_button.clone())
                             .child(self.play_button.clone())
                             .child(self.next_button.clone())
-                            .child(self.repeat_button.clone()),
+                            .when(show_repeat_shuffle, |b| b.child(self.repeat_button.clone())),
                     )
                     .child(
                         h_flex()
