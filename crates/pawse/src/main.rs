@@ -21,6 +21,7 @@ pub mod now_playing;
 pub mod play_button;
 pub mod playback_queue;
 pub mod prev_button;
+pub mod queue_view;
 pub mod repeat_button;
 pub mod services;
 pub mod settings_store;

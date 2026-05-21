@@ -13,12 +13,7 @@ pub enum FadeEdge {
 /// or overflowing under the edge. `size_px` is the band's perpendicular
 /// dimension (height for Top/Bottom, width for Left/Right); `offset_px`
 /// shifts it inward from the corresponding edge.
-pub fn fade_overlay(
-    edge: FadeEdge,
-    color: Hsla,
-    size_px: f32,
-    offset_px: f32,
-) -> impl IntoElement {
+pub fn fade_overlay(edge: FadeEdge, color: Hsla, size_px: f32, offset_px: f32) -> impl IntoElement {
     let angle = match edge {
         FadeEdge::Top => 180.0,
         FadeEdge::Bottom => 0.0,

@@ -1,7 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
+    AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, InteractiveElement,
+    IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Render,
+    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
 };
 use gpui_component::{
     ActiveTheme, Icon, Root, Sizable, Size, StyledExt,
@@ -13,28 +14,47 @@ use gpui_component::{
 };
 
 use crate::audio_settings::AudioSettings;
-use crate::footer::Footer;
+use crate::footer::{Footer, ToggleQueueEvent};
 use crate::library_views::library_view::{LibraryView, LibraryViewEvent};
 use crate::media_bridge::MediaBridge;
+use crate::queue_view::QueueView;
 use crate::settings_view::ThemePickerState;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
 const HEADER_HEIGHT: f32 = 44.0;
 const FOOTER_HEIGHT: f32 = 80.0;
 const FADE_HEIGHT: f32 = 16.0;
+const QUEUE_WIDTH_DEFAULT: f32 = 280.0;
+const QUEUE_WIDTH_MIN: f32 = 200.0;
+const QUEUE_WIDTH_MAX: f32 = 560.0;
+
+#[derive(Clone)]
+struct DragQueueResize(EntityId);
+
+impl Render for DragQueueResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
 
 pub struct MainView {
     audio_settings: Entity<AudioSettings>,
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
+    queue_view: Entity<QueueView>,
     is_tracks_view: bool,
     show_settings: bool,
+    show_queue: bool,
+    queue_width: f32,
+    queue_resize_origin: Option<(Pixels, f32)>,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _theme_picker: Entity<ThemePickerState>,
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
     _search_subscription: Subscription,
+    _footer_subscription: Subscription,
+    _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
     _theme_picker_subscription: gpui::Subscription,
 }
@@ -93,18 +113,42 @@ impl MainView {
 
         let settings_pages = crate::settings_view::build_settings_pages(&*cx, theme_picker.clone());
 
+        let footer = cx.new(|cx| Footer::new(window, cx));
+        let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
+            this.show_queue = event.show;
+            cx.notify();
+        });
+
+        let queue_view = cx.new(|cx| QueueView::new(window, cx));
+
+        // ShuffleButton::on_click calls cx.notify() after reordering the queue.
+        // Observe that entity so QueueView stays in sync with the shuffled order.
+        let shuffle_button = footer.read(cx).shuffle_button.clone();
+        let shuffle_subscription = cx.observe(&shuffle_button, {
+            let queue_view = queue_view.clone();
+            move |_, _, cx| {
+                queue_view.update(cx, |qv, cx| qv.refresh_tracks(cx));
+            }
+        });
+
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
             library_view,
-            footer: cx.new(|cx| Footer::new(window, cx)),
+            footer,
+            queue_view,
             is_tracks_view: false,
             show_settings: false,
+            show_queue: false,
+            queue_width: QUEUE_WIDTH_DEFAULT,
+            queue_resize_origin: None,
             settings_pages,
             search_input,
             _theme_picker: theme_picker,
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
             _search_subscription: search_subscription,
+            _footer_subscription: footer_subscription,
+            _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
             _theme_picker_subscription: theme_picker_subscription,
         }
@@ -120,6 +164,7 @@ impl MainView {
 
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity_id = cx.entity_id();
         let library_view = self.library_view.clone();
         let show_settings = self.show_settings;
         let has_back = show_settings || self.is_tracks_view;
@@ -167,10 +212,27 @@ impl Render for MainView {
             .child(self.audio_settings.clone());
 
         div()
+            .id("main_view")
             .v_flex()
             .size_full()
             .relative()
             .overflow_hidden()
+            .on_drag_move(
+                cx.listener(move |this, e: &DragMoveEvent<DragQueueResize>, _, cx| {
+                    if e.drag(cx).0 != entity_id {
+                        return;
+                    }
+                    let Some((start_x, start_width)) = this.queue_resize_origin else {
+                        return;
+                    };
+                    let delta = (start_x - e.event.position.x) / px(1.);
+                    let new_width = (start_width + delta).clamp(QUEUE_WIDTH_MIN, QUEUE_WIDTH_MAX);
+                    if (this.queue_width - new_width).abs() > 0.5 {
+                        this.queue_width = new_width;
+                        cx.notify();
+                    }
+                }),
+            )
             .child(
                 div()
                     .w_full()
@@ -198,27 +260,68 @@ impl Render for MainView {
                 div()
                     .flex_1()
                     .overflow_hidden()
-                    .ml_4()
-                    .mr_4()
-                    .child(if show_settings {
-                        // Match gpui-component's StoryContainer wrap chain
-                        // exactly: outer `size_full` + Scrollable, then inner
-                        // `size_full`, then Settings. The Scrollable wrap is
-                        // what gives `h_resizable` panels a definite-width
-                        // parent so flex_basis on the sidebar panel resolves.
+                    .flex()
+                    .child(
                         div()
-                            .size_full()
-                            .overflow_y_scrollbar()
-                            .child(
+                            .flex_1()
+                            .overflow_hidden()
+                            .ml_4()
+                            .when(!self.show_queue, |d| d.mr_4())
+                            .child(if show_settings {
+                                // Match gpui-component's StoryContainer wrap chain
+                                // exactly: outer `size_full` + Scrollable, then inner
+                                // `size_full`, then Settings. The Scrollable wrap is
+                                // what gives `h_resizable` panels a definite-width
+                                // parent so flex_basis on the sidebar panel resolves.
                                 div()
                                     .size_full()
-                                    .child(crate::settings_view::settings_widget(
-                                        self.settings_pages.clone(),
-                                    )),
-                            )
-                            .into_any_element()
-                    } else {
-                        self.library_view.clone().into_any_element()
+                                    .overflow_y_scrollbar()
+                                    .child(div().size_full().child(
+                                        crate::settings_view::settings_widget(
+                                            self.settings_pages.clone(),
+                                        ),
+                                    ))
+                                    .into_any_element()
+                            } else {
+                                self.library_view.clone().into_any_element()
+                            }),
+                    )
+                    .when(self.show_queue, |d| {
+                        let queue_width = self.queue_width;
+                        d.child(
+                            div()
+                                .w(px(queue_width))
+                                .flex_shrink_0()
+                                .border_l(px(1.))
+                                .border_color(cx.theme().border)
+                                .relative()
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .overflow_hidden()
+                                        .child(self.queue_view.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .id("queue_resize_handle")
+                                        .absolute()
+                                        .left(px(-3.))
+                                        .top(px(0.))
+                                        .h_full()
+                                        .w(px(6.))
+                                        .cursor(gpui::CursorStyle::ResizeLeftRight)
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, e: &MouseDownEvent, _, _| {
+                                                this.queue_resize_origin =
+                                                    Some((e.position.x, this.queue_width));
+                                            }),
+                                        )
+                                        .on_drag(DragQueueResize(entity_id), |drag, _, _, cx| {
+                                            cx.new(|_| drag.clone())
+                                        }),
+                                ),
+                        )
                     }),
             )
             .child(
@@ -241,6 +344,27 @@ impl Render for MainView {
                     FADE_HEIGHT,
                     FOOTER_HEIGHT,
                 ))
+            })
+            .child({
+                let entity = cx.entity();
+                canvas(
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
+                            if phase != DispatchPhase::Capture {
+                                return;
+                            }
+                            if e.button != MouseButton::Left {
+                                return;
+                            }
+                            entity.update(cx, |this, _| {
+                                this.queue_resize_origin = None;
+                            });
+                        });
+                    },
+                )
+                .absolute()
+                .size_full()
             })
             .children(Root::render_notification_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))

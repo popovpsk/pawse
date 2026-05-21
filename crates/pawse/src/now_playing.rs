@@ -2,7 +2,7 @@ use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, IntoElement, ParentElement, Render, Styled, StyledImage, Subscription, Window, div,
-    img, px,
+    img, px, rems,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 use ui_components::fade::{FadeEdge, fade_overlay};
@@ -96,6 +96,22 @@ impl Render for NowPlaying {
         let viewport_w = f32::from(window.viewport_size().width);
         let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 
+        let title_overflows = if !self.track_title.is_empty() {
+            let font_size = rems(0.875).to_pixels(window.rem_size());
+            let mut text_style = window.text_style();
+            text_style.font_weight = gpui::FontWeight::SEMIBOLD;
+            let run = text_style.to_run(self.track_title.len());
+            let shaped = window.text_system().shape_line(
+                self.track_title.clone().into(),
+                font_size,
+                &[run],
+                None,
+            );
+            shaped.width > px(title_max_w)
+        } else {
+            false
+        };
+
         h_flex()
             .gap_3()
             .items_center()
@@ -151,12 +167,14 @@ impl Render for NowPlaying {
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .child(self.track_title.clone()),
                             )
-                            .child(fade_overlay(
-                                FadeEdge::Right,
-                                cx.theme().background,
-                                20.0,
-                                0.0,
-                            )),
+                            .when(title_overflows, |this| {
+                                this.child(fade_overlay(
+                                    FadeEdge::Right,
+                                    cx.theme().background,
+                                    20.0,
+                                    0.0,
+                                ))
+                            }),
                     )
                     .child(
                         div()
