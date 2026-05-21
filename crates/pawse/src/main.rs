@@ -21,9 +21,11 @@ pub mod now_playing;
 pub mod play_button;
 pub mod playback_queue;
 pub mod prev_button;
+pub mod repeat_button;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
+pub mod shuffle_button;
 pub mod themes;
 pub mod track_progress_slider;
 pub mod volume;
@@ -107,12 +109,15 @@ fn main() {
             };
             let services = cx.global::<Services>();
             services.output.set_volume(initial_volume);
-            if !stored.queue.is_empty() {
+            {
                 let mut queue = services.playback_queue.borrow_mut();
-                queue.set_tracks(stored.queue);
-                if let Some(idx) = stored.current_index {
-                    queue.play_track_at(idx);
-                }
+                queue.restore(
+                    stored.queue,
+                    stored.original_queue,
+                    stored.current_index,
+                    stored.shuffle,
+                    stored.repeat.into(),
+                );
             }
         }
 

@@ -85,8 +85,11 @@ impl Services {
         let queue = self.playback_queue.borrow();
         crate::settings_store::PlaybackState {
             queue: queue.tracks_vec(),
+            original_queue: queue.original_order_vec(),
             current_index: queue.current_index(),
             position_ms: self.current_position_ms.load(Ordering::Relaxed),
+            shuffle: queue.shuffle(),
+            repeat: queue.repeat().into(),
         }
     }
 }

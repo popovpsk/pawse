@@ -59,8 +59,7 @@ impl AudioSettings {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
         let is_exclusive = services.output.is_exclusive();
-        let settings_store_subscription =
-            cx.observe_global::<SettingsStore>(|_, cx| cx.notify());
+        let settings_store_subscription = cx.observe_global::<SettingsStore>(|_, cx| cx.notify());
         Self {
             is_exclusive,
             pending_notification: None,

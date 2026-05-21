@@ -66,14 +66,49 @@ fn default_volume() -> f32 {
     1.0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RepeatModePersist {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+impl From<crate::playback_queue::RepeatMode> for RepeatModePersist {
+    fn from(mode: crate::playback_queue::RepeatMode) -> Self {
+        match mode {
+            crate::playback_queue::RepeatMode::Off => Self::Off,
+            crate::playback_queue::RepeatMode::All => Self::All,
+            crate::playback_queue::RepeatMode::One => Self::One,
+        }
+    }
+}
+
+impl From<RepeatModePersist> for crate::playback_queue::RepeatMode {
+    fn from(mode: RepeatModePersist) -> Self {
+        match mode {
+            RepeatModePersist::Off => Self::Off,
+            RepeatModePersist::All => Self::All,
+            RepeatModePersist::One => Self::One,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PlaybackState {
     #[serde(default)]
     pub queue: Vec<Track>,
     #[serde(default)]
+    pub original_queue: Option<Vec<Track>>,
+    #[serde(default)]
     pub current_index: Option<usize>,
     #[serde(default)]
     pub position_ms: u64,
+    #[serde(default)]
+    pub shuffle: bool,
+    #[serde(default)]
+    pub repeat: RepeatModePersist,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -420,8 +455,11 @@ mod tests {
             volume: 0.42,
             playback: PlaybackState {
                 queue: vec![track.clone()],
+                original_queue: Some(vec![track.clone()]),
                 current_index: Some(0),
                 position_ms: 12_345,
+                shuffle: true,
+                repeat: RepeatModePersist::All,
             },
             show_hog_button: true,
         };
@@ -432,6 +470,8 @@ mod tests {
         assert_eq!(back.playback.queue[0], track);
         assert_eq!(back.playback.current_index, Some(0));
         assert_eq!(back.playback.position_ms, 12_345);
+        assert!(back.playback.shuffle);
+        assert_eq!(back.playback.repeat, RepeatModePersist::All);
     }
 
     #[test]

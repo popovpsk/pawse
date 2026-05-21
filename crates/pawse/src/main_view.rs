@@ -229,8 +229,18 @@ impl Render for MainView {
                     .child(self.footer.clone()),
             )
             .when(!show_settings, |d| {
-                d.child(fade_overlay(FadeEdge::Top, cx.theme().background, FADE_HEIGHT, HEADER_HEIGHT))
-                    .child(fade_overlay(FadeEdge::Bottom, cx.theme().background, FADE_HEIGHT, FOOTER_HEIGHT))
+                d.child(fade_overlay(
+                    FadeEdge::Top,
+                    cx.theme().background,
+                    FADE_HEIGHT,
+                    HEADER_HEIGHT,
+                ))
+                .child(fade_overlay(
+                    FadeEdge::Bottom,
+                    cx.theme().background,
+                    FADE_HEIGHT,
+                    FOOTER_HEIGHT,
+                ))
             })
             .children(Root::render_notification_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))

@@ -8,13 +8,16 @@ use gpui_component::{h_flex, v_flex};
 use crate::services::Services;
 use crate::{
     next_button::NextButton, now_playing::NowPlaying, play_button::PlayButton,
-    prev_button::PrevButton, track_progress_slider::TrackProgressSlider, volume::Volume,
+    prev_button::PrevButton, repeat_button::RepeatButton, shuffle_button::ShuffleButton,
+    track_progress_slider::TrackProgressSlider, volume::Volume,
 };
 
 pub struct Footer {
     play_button: Entity<PlayButton>,
     prev_button: Entity<PrevButton>,
     next_button: Entity<NextButton>,
+    shuffle_button: Entity<ShuffleButton>,
+    repeat_button: Entity<RepeatButton>,
     volume_slider: Entity<Volume>,
     track_progress_slider: Entity<TrackProgressSlider>,
     now_playing: Entity<NowPlaying>,
@@ -44,6 +47,8 @@ impl Footer {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
             prev_button: cx.new(|cx| PrevButton::new(window, cx)),
             next_button: cx.new(|cx| NextButton::new(window, cx)),
+            shuffle_button: cx.new(|cx| ShuffleButton::new(window, cx)),
+            repeat_button: cx.new(|cx| RepeatButton::new(window, cx)),
             volume_slider: cx.new(|cx| Volume::new(window, cx)),
             track_progress_slider: cx.new(|cx| TrackProgressSlider::new(window, cx)),
             now_playing: cx.new(|cx| NowPlaying::new(window, cx)),
@@ -70,9 +75,12 @@ impl Render for Footer {
                     .child(
                         h_flex()
                             .gap_2()
+                            .items_center()
+                            .child(self.shuffle_button.clone())
                             .child(self.prev_button.clone())
                             .child(self.play_button.clone())
-                            .child(self.next_button.clone()),
+                            .child(self.next_button.clone())
+                            .child(self.repeat_button.clone()),
                     )
                     .child(
                         h_flex()

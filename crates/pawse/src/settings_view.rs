@@ -403,16 +403,16 @@ fn appearance_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_hog_button();
                     h_flex().items_center().justify_end().child(
-                        Switch::new("exclusive-mode-toggle")
-                            .checked(show)
-                            .on_click(|new_val, _, cx| {
+                        Switch::new("exclusive-mode-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
                                 if let Err(e) = cx
                                     .global_mut::<SettingsStore>()
                                     .set_show_hog_button(*new_val)
                                 {
                                     notify_save_error(cx, e);
                                 }
-                            }),
+                            },
+                        ),
                     )
                 }),
             )
