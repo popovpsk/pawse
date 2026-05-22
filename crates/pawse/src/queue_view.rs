@@ -184,8 +184,10 @@ impl Render for QueueView {
         let muted_fg = theme.muted_foreground;
         let border = theme.border;
         let secondary = theme.secondary;
-        let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
-        let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+        let settings = cx.global::<SettingsStore>();
+        let liked_enabled = settings.liked_enabled();
+        let playlists_enabled = settings.playlists_enabled();
+        let show_track_duration = settings.show_track_duration();
         // Only surface the "remove from playlist" X if both the queue is backed
         // by a playlist AND the playlists feature flag is on. If the user
         // disables the flag mid-playback the X disappears immediately.
@@ -329,7 +331,9 @@ impl Render for QueueView {
                                     .when_some(playlist_source, |row, pid| {
                                         row.child(remove_from_playlist_button(track_id, pid, cx))
                                     })
-                                    .child(div().text_sm().text_color(muted_fg).child(duration_str))
+                                    .when(show_track_duration, |row| {
+                                        row.child(div().text_sm().text_color(muted_fg).child(duration_str))
+                                    })
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |_this, _, _, cx| {
                                         let services = cx.global::<Services>();

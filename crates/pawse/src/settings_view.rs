@@ -464,6 +464,27 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
         )
         .item(
             SettingItem::new(
+                "Queue: Track duration",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_track_duration();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("track-duration-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_track_duration(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description("Show or hide the track duration in the queue"),
+        )
+        .item(
+            SettingItem::new(
                 "Liked tracks",
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().liked_enabled();

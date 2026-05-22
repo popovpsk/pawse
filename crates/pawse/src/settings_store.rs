@@ -159,6 +159,8 @@ pub struct UserSettings {
     pub liked_enabled: bool,
     #[serde(default = "default_true")]
     pub playlists_enabled: bool,
+    #[serde(default = "default_true")]
+    pub show_track_duration: bool,
 }
 
 impl Default for UserSettings {
@@ -173,6 +175,7 @@ impl Default for UserSettings {
             show_time_labels: true,
             liked_enabled: true,
             playlists_enabled: true,
+            show_track_duration: true,
         }
     }
 }
@@ -308,6 +311,15 @@ impl SettingsStore {
 
     pub fn set_playlists_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.playlists_enabled = enabled;
+        self.save()
+    }
+
+    pub fn show_track_duration(&self) -> bool {
+        self.settings.show_track_duration
+    }
+
+    pub fn set_show_track_duration(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_track_duration = show;
         self.save()
     }
 }
@@ -544,6 +556,7 @@ mod tests {
             show_time_labels: true,
             liked_enabled: true,
             playlists_enabled: true,
+            show_track_duration: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
