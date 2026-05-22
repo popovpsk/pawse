@@ -101,10 +101,14 @@ pub struct PlaylistSummary {
 /// A frozen reference to one track within one playlist by **content key**
 /// (path + start_offset_ms), not by `track_id`. Used to preserve playlist
 /// contents across a full rescan, where `tracks` rows get fresh ids.
+///
+/// Original positions are not stored — `playlist_track_refs` returns the
+/// refs in `(playlist_id, position)` order, and `restore_playlist_track_refs`
+/// re-densifies positions starting from 0. So `Vec` order is the contract;
+/// stale gaps from removed tracks aren't carried over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistTrackRef {
     pub playlist_id: i64,
-    pub position: i64,
     pub path: String,
     pub start_offset_ms: i32,
 }

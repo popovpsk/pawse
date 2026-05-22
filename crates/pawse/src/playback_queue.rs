@@ -98,6 +98,14 @@ impl PlaybackQueue {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.tracks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tracks.is_empty()
+    }
+
     pub fn play_track_at(&mut self, index: usize) -> Option<&Track> {
         if index < self.tracks.len() {
             self.current_index = Some(index);

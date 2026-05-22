@@ -734,8 +734,10 @@ impl LibraryRepository for SqliteLibrary {
 
     fn playlist_track_refs(&self) -> Result<Vec<PlaylistTrackRef>> {
         let conn = self.conn.lock().unwrap();
+        // ORDER BY position is load-bearing: the restore step relies on Vec
+        // order to assign new dense positions starting at 0.
         let mut stmt = conn.prepare(
-            "SELECT pt.playlist_id, pt.position, t.path, t.start_offset_ms \
+            "SELECT pt.playlist_id, t.path, t.start_offset_ms \
              FROM playlist_tracks pt \
              JOIN tracks t ON t.id = pt.track_id \
              ORDER BY pt.playlist_id, pt.position",
@@ -743,9 +745,8 @@ impl LibraryRepository for SqliteLibrary {
         let rows = stmt.query_map([], |row| {
             Ok(PlaylistTrackRef {
                 playlist_id: row.get(0)?,
-                position: row.get(1)?,
-                path: row.get(2)?,
-                start_offset_ms: row.get(3)?,
+                path: row.get(1)?,
+                start_offset_ms: row.get(2)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()

@@ -107,7 +107,7 @@ pub fn remove_from_playlist_button(track_id: i64, playlist_id: i64, cx: &App) ->
                 let next = {
                     let mut queue = services.playback_queue.borrow_mut();
                     let next_ix = queue.current_index().map(|i| i + 1).unwrap_or(0);
-                    if next_ix < queue.tracks_vec().len() {
+                    if next_ix < queue.len() {
                         queue.play_track_at(next_ix).cloned()
                     } else {
                         None
