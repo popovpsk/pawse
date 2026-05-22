@@ -80,6 +80,7 @@ fn main() {
         macos_integration::app_icon::set_application_icon();
 
         gpui_component::init(cx);
+        crate::playlist_popup::init(cx);
 
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);
@@ -104,6 +105,7 @@ fn main() {
         let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
         let current_position_ms = services.current_position_ms.clone();
+        let is_playing = services.is_playing.clone();
         cx.set_global(services);
 
         {
@@ -177,7 +179,14 @@ fn main() {
         .detach();
 
         cx.spawn(async move |cx| {
-            run_engine_events_bus(cx, engine_manager, engine_event_bus, current_position_ms).await;
+            run_engine_events_bus(
+                cx,
+                engine_manager,
+                engine_event_bus,
+                current_position_ms,
+                is_playing,
+            )
+            .await;
         })
         .detach();
     });

@@ -172,11 +172,24 @@ impl LibraryService {
 
         std::thread::spawn(move || {
             let _ = event_tx.send(LibraryEvent::ScanStarted);
+
+            // Snapshot playlist memberships by (path, start_offset_ms) before
+            // the clear wipes the `tracks` table — rescanned tracks get fresh
+            // ids, so without this the playlist contents would silently
+            // disappear from the user's library.
+            let playlist_refs = repo.playlist_track_refs().unwrap_or_else(|e| {
+                eprintln!("Failed to snapshot playlist tracks: {}", e);
+                Vec::new()
+            });
+
             if let Err(e) = repo.clear() {
                 eprintln!("Failed to clear library: {}", e);
             }
 
             if paths.is_empty() {
+                if let Err(e) = repo.restore_playlist_track_refs(&playlist_refs) {
+                    eprintln!("Failed to restore playlist tracks: {}", e);
+                }
                 let _ = event_tx.send(LibraryEvent::ScanComplete);
                 return;
             }
@@ -213,6 +226,9 @@ impl LibraryService {
                         eprintln!("Scan error for {}: {}", path.display(), error);
                     }
                     Err(_) => {
+                        if let Err(e) = repo.restore_playlist_track_refs(&playlist_refs) {
+                            eprintln!("Failed to restore playlist tracks: {}", e);
+                        }
                         let _ = event_tx.send(LibraryEvent::ScanComplete);
                         break;
                     }

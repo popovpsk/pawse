@@ -84,47 +84,18 @@ impl PlaybackQueue {
 
     /// Replace the queue's track list with a fresh snapshot, preserving the
     /// currently-playing track by id. Used when the playlist backing the
-    /// queue has new tracks added/reordered. Drops any prior shuffle order.
+    /// queue has new tracks added/reordered. When shuffle is on, the new
+    /// snapshot becomes the new `original_order` and is reshuffled so
+    /// `set_shuffle(false)` can still restore a meaningful order later.
     pub fn refresh_keeping_current(&mut self, new_tracks: Vec<Track>) {
         let current_id = self.current_track().map(|t| t.id);
         self.tracks = new_tracks;
-        self.original_order = None;
         self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
-    }
-
-    /// Remove a track from the current queue by id. Returns true if the
-    /// currently-playing track was removed (caller should stop / advance).
-    pub fn remove_track_by_id(&mut self, track_id: i64) -> bool {
-        let mut removed_current = false;
-        if let Some(original) = self.original_order.as_mut() {
-            original.retain(|t| t.id != track_id);
-        }
-        let mut new_index = self.current_index;
-        let mut i = 0;
-        self.tracks.retain(|t| {
-            let keep = t.id != track_id;
-            if !keep {
-                if Some(i) == self.current_index {
-                    removed_current = true;
-                } else if let Some(ix) = new_index
-                    && ix > i
-                {
-                    new_index = Some(ix - 1);
-                }
-            }
-            i += 1;
-            keep
-        });
-        if removed_current {
-            if self.tracks.is_empty() {
-                self.current_index = None;
-            } else if let Some(ix) = self.current_index {
-                self.current_index = Some(ix.min(self.tracks.len() - 1));
-            }
+        if self.shuffle {
+            self.apply_shuffle();
         } else {
-            self.current_index = new_index;
+            self.original_order = None;
         }
-        removed_current
     }
 
     pub fn play_track_at(&mut self, index: usize) -> Option<&Track> {
@@ -365,6 +336,29 @@ mod tests {
 
         assert!(q.next_track().is_none());
         assert_eq!(q.current_index(), None);
+    }
+
+    #[test]
+    fn refresh_keeping_current_preserves_shuffle_and_seeds_new_original_order() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(2);
+        q.set_shuffle(true);
+        assert!(q.shuffle());
+
+        // Pretend the backing playlist gained tracks and we refresh.
+        let refreshed: Vec<Track> = (10..20)
+            .map(|i| track(i, &format!("/r/{}.flac", i)))
+            .collect();
+        q.refresh_keeping_current(refreshed);
+
+        // Shuffle stays on, original_order is set, set_shuffle(false) now
+        // restores into the *new* set's order rather than no-opping.
+        assert!(q.shuffle());
+        assert!(q.original_order_vec().is_some());
+        q.set_shuffle(false);
+        let restored: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(restored, (10..20).collect::<Vec<_>>());
     }
 
     #[test]

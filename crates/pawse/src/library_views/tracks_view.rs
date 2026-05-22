@@ -64,6 +64,9 @@ impl TracksView {
             .borrow()
             .current_track()
             .map(|t| t.id);
+        let is_playing = services
+            .is_playing
+            .load(std::sync::atomic::Ordering::Relaxed);
         let album_info = cx.new(|_cx| AlbumInfo::new(album));
 
         let subscription =
@@ -77,9 +80,8 @@ impl TracksView {
                             .borrow()
                             .current_track()
                             .map(|t| t.id);
-                        if this.current_track_id != id || !this.is_playing {
+                        if this.current_track_id != id {
                             this.current_track_id = id;
-                            this.is_playing = true;
                             cx.notify();
                         }
                     }
@@ -143,7 +145,7 @@ impl TracksView {
             scroll_handle: VirtualListScrollHandle::new(),
             album_info,
             current_track_id,
-            is_playing: current_track_id.is_some(),
+            is_playing,
             _subscription: subscription,
             _library_subscription: library_subscription,
         }

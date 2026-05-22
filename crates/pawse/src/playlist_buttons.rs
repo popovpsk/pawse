@@ -120,10 +120,13 @@ pub fn remove_from_playlist_button(track_id: i64, playlist_id: i64, cx: &App) ->
                 }
             }
 
+            // `save_playback` runs centrally in `sync_queue_with_playlist`
+            // after the PlaylistTracksChanged event is processed; calling it
+            // here would snapshot the stale queue (still holding the removed
+            // track) into settings.json.
             services
                 .library
                 .remove_track_from_playlist(playlist_id, track_id);
-            crate::services::save_playback(cx);
         })
         .child(
             svg()

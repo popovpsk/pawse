@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -25,6 +25,10 @@ pub struct Services {
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
     pub current_position_ms: Arc<AtomicU64>,
+    /// Engine playback state mirror. Updated by the engine-events forwarder so
+    /// any view constructed while a track is playing can initialize without
+    /// waiting for the next `Playing` event.
+    pub is_playing: Arc<AtomicBool>,
     pub playlist_popup_bus: Entity<crate::playlist_popup::PlaylistPopupBus>,
 }
 
@@ -68,6 +72,7 @@ impl Services {
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
             cover_art_cache: Rc::new(RefCell::new(CoverArtCache::new())),
             current_position_ms: Arc::new(AtomicU64::new(0)),
+            is_playing: Arc::new(AtomicBool::new(false)),
             playlist_popup_bus,
         }
     }
@@ -108,7 +113,9 @@ impl Services {
 
 /// If the active playback queue is backed by the given playlist, replace its
 /// track list with a fresh copy from the library, preserving the currently-
-/// playing track by id. No-op otherwise.
+/// playing track by id. Also snapshots the new queue into the settings store
+/// so the on-disk `playback` block doesn't reference a track that was just
+/// removed. No-op otherwise.
 fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
     let services = cx.global::<Services>();
     let matches = matches!(
@@ -123,6 +130,7 @@ fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
         .playback_queue
         .borrow_mut()
         .refresh_keeping_current(new_tracks);
+    save_playback(cx);
 }
 
 pub fn save_playback(cx: &mut App) {
@@ -156,11 +164,19 @@ pub async fn run_engine_events_bus(
     engine_manager: Rc<EngineManager>,
     engine_event_bus: Entity<EngineEventsBus>,
     current_position_ms: Arc<AtomicU64>,
+    is_playing: Arc<AtomicBool>,
 ) {
     let rx = engine_manager.events();
     while let Ok(event) = rx.recv_async().await {
-        if let EngineEvent::PositionChanged(dur) = &event {
-            current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
+        match &event {
+            EngineEvent::PositionChanged(dur) => {
+                current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
+            }
+            EngineEvent::Playing => is_playing.store(true, Ordering::Relaxed),
+            EngineEvent::Paused | EngineEvent::TrackEnded => {
+                is_playing.store(false, Ordering::Relaxed);
+            }
+            _ => {}
         }
         cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)))
             .expect("run_engine_events_bus:cx.update")

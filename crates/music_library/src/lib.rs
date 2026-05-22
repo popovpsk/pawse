@@ -8,7 +8,7 @@ pub mod thumbnail;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Playlist,
-    PlaylistSummary, Track,
+    PlaylistSummary, PlaylistTrackRef, Track,
 };
 pub use repository::LibraryRepository;
 pub use sqlite::SqliteLibrary;
@@ -866,5 +866,81 @@ mod tests {
         let (lib, _path) = create_test_db();
         let map = lib.track_artists_map(&[]).unwrap();
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_delete_playlist_cascades_to_playlist_tracks() {
+        // Verifies the FK pragma + ON DELETE CASCADE: dropping a playlist
+        // must take its membership rows with it. Without `PRAGMA foreign_keys
+        // = ON` this silently leaves orphaned playlist_tracks rows.
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        let playlist_id = lib.create_playlist("My Playlist").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+        assert_eq!(lib.tracks_for_playlist(playlist_id).unwrap().len(), 1);
+
+        lib.delete_playlist(playlist_id).unwrap();
+        // The membership row is gone — playlists_containing_track must not
+        // return the deleted playlist id.
+        assert!(lib.playlists_containing_track(track_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_add_track_to_playlist_is_idempotent() {
+        // Double-click / stale `containing` UI checks should be harmless.
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        let playlist_id = lib.create_playlist("My Playlist").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+        assert_eq!(lib.tracks_for_playlist(playlist_id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_playlist_track_refs_survive_clear_and_rescan() {
+        // Snapshot → clear → re-insert tracks at new ids → restore: playlist
+        // contents must reappear referencing the new track ids.
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Persistent Song", "Album", "Artist");
+        let playlist_id = lib.create_playlist("Keepers").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+
+        let refs = lib.playlist_track_refs().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].path, "/music/Persistent Song.flac");
+
+        lib.clear().unwrap();
+        // After clear, playlists themselves survive but membership is empty.
+        assert!(lib.tracks_for_playlist(playlist_id).unwrap().is_empty());
+
+        // Rescan: re-insert the same track. It gets a fresh id; the snapshot
+        // matches by (path, start_offset_ms) and reinstates the membership.
+        let new_track_id = seed_track(&lib, "Persistent Song", "Album", "Artist");
+        lib.restore_playlist_track_refs(&refs).unwrap();
+        let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, new_track_id);
+    }
+
+    #[test]
+    fn test_restore_playlist_track_refs_skips_missing_tracks() {
+        // A track that doesn't reappear after a rescan (file deleted on disk)
+        // simply drops out of any playlists referencing it.
+        let (lib, _path) = create_test_db();
+        let kept_id = seed_track(&lib, "Kept", "Album", "Artist");
+        let dropped_id = seed_track(&lib, "Dropped", "Album", "Artist");
+        let playlist_id = lib.create_playlist("Mixed").unwrap();
+        lib.add_track_to_playlist(playlist_id, kept_id).unwrap();
+        lib.add_track_to_playlist(playlist_id, dropped_id).unwrap();
+
+        let refs = lib.playlist_track_refs().unwrap();
+        lib.clear().unwrap();
+        // Only re-seed the kept track.
+        seed_track(&lib, "Kept", "Album", "Artist");
+        lib.restore_playlist_track_refs(&refs).unwrap();
+
+        let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "Kept");
     }
 }

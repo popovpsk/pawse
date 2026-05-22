@@ -82,6 +82,9 @@ impl ArtistTracksView {
             .borrow()
             .current_track()
             .map(|t| t.id);
+        let is_playing = services
+            .is_playing
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
@@ -93,9 +96,8 @@ impl ArtistTracksView {
                         .borrow()
                         .current_track()
                         .map(|t| t.id);
-                    if this.current_track_id != id || !this.is_playing {
+                    if this.current_track_id != id {
                         this.current_track_id = id;
-                        this.is_playing = true;
                         cx.notify();
                     }
                 }
@@ -149,7 +151,7 @@ impl ArtistTracksView {
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             current_track_id,
-            is_playing: current_track_id.is_some(),
+            is_playing,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
         }

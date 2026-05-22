@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary, Track,
+    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
+    PlaylistTrackRef, Track,
 };
 
 pub trait LibraryRepository: Send + Sync {
@@ -47,4 +48,14 @@ pub trait LibraryRepository: Send + Sync {
     fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()>;
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>>;
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>>;
+
+    /// Capture every `playlist_tracks` row by content key (path +
+    /// start_offset_ms) instead of by `track_id`. Survives a `clear()` where
+    /// tracks get fresh ids on the next scan.
+    fn playlist_track_refs(&self) -> Result<Vec<PlaylistTrackRef>>;
+    /// Re-insert playlist memberships from snapshots taken before a rescan.
+    /// Refs whose (path, start_offset_ms) no longer resolve to a track are
+    /// dropped silently; the surviving refs are renumbered into a dense
+    /// position sequence per playlist.
+    fn restore_playlist_track_refs(&self, refs: &[PlaylistTrackRef]) -> Result<()>;
 }

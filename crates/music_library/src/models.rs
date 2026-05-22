@@ -97,3 +97,14 @@ pub struct PlaylistSummary {
     pub created_at: i64,
     pub track_count: i64,
 }
+
+/// A frozen reference to one track within one playlist by **content key**
+/// (path + start_offset_ms), not by `track_id`. Used to preserve playlist
+/// contents across a full rescan, where `tracks` rows get fresh ids.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistTrackRef {
+    pub playlist_id: i64,
+    pub position: i64,
+    pub path: String,
+    pub start_offset_ms: i32,
+}

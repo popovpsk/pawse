@@ -89,6 +89,8 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
 
         CREATE INDEX idx_playlist_tracks_track_id ON playlist_tracks(track_id);
+        CREATE UNIQUE INDEX idx_playlist_tracks_pair
+            ON playlist_tracks(playlist_id, track_id);
         "#,
     ),
 ];

@@ -50,8 +50,10 @@ impl QueueView {
         let queue = services.playback_queue.borrow();
         let tracks = queue.tracks_vec();
         let current_index = queue.current_index();
-        let is_playing = current_index.is_some();
         drop(queue);
+        let is_playing = services
+            .is_playing
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         // Pre-warm cover art cache so render never hits the DB.
         {
@@ -87,7 +89,6 @@ impl QueueView {
                         this.item_sizes = Rc::new(new_sizes);
                         this.tracks = new_tracks;
                         this.current_index = new_index;
-                        this.is_playing = true;
                         cx.notify();
                     }
                     EngineEvent::Playing if !this.is_playing => {
@@ -185,9 +186,16 @@ impl Render for QueueView {
         let secondary = theme.secondary;
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
-        let playlist_source = match cx.global::<Services>().playback_queue.borrow().source() {
-            QueueSource::Playlist(id) => Some(id),
-            _ => None,
+        // Only surface the "remove from playlist" X if both the queue is backed
+        // by a playlist AND the playlists feature flag is on. If the user
+        // disables the flag mid-playback the X disappears immediately.
+        let playlist_source = if playlists_enabled {
+            match cx.global::<Services>().playback_queue.borrow().source() {
+                QueueSource::Playlist(id) => Some(id),
+                _ => None,
+            }
+        } else {
+            None
         };
 
         let header = h_flex()

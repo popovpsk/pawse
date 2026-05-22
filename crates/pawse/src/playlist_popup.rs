@@ -2,10 +2,10 @@ use std::collections::HashSet;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, ElementId, Entity, EventEmitter, FocusHandle, Global,
-    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Pixels, Point,
-    ScrollHandle, StatefulInteractiveElement, Styled, Subscription, Window, anchored, deferred,
-    div, point, px, svg,
+    AnyElement, App, AppContext, Context, ElementId, Entity, EventEmitter, FocusHandle, Global,
+    InteractiveElement, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Point,
+    ScrollHandle, StatefulInteractiveElement, Styled, Subscription, Window, actions, anchored,
+    deferred, div, point, px, svg,
 };
 use gpui_component::{
     ActiveTheme,
@@ -20,6 +20,23 @@ use crate::services::Services;
 pub struct OpenAddToPlaylist {
     pub track_id: i64,
     pub anchor: Point<Pixels>,
+}
+
+actions!(playlist_popup, [ClosePlaylistPopup]);
+
+const POPUP_KEY_CONTEXT: &str = "PlaylistPopup";
+
+/// Register the popup's escape binding once at app startup. Scoped to the
+/// `PlaylistPopup` key context so it only fires while the popup is rendered
+/// and a descendant (the popup container itself or one of its inputs) is
+/// focused. The deepest-context input binding still runs first; we rely on
+/// Input's `cx.propagate()` to let this binding fire next.
+pub fn init(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new(
+        "escape",
+        ClosePlaylistPopup,
+        Some(POPUP_KEY_CONTEXT),
+    )]);
 }
 
 pub struct PlaylistPopupBus;
@@ -55,11 +72,10 @@ pub struct PlaylistPopup {
 impl PlaylistPopup {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let filter_input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter playlists"));
-        let create_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Playlist name")
-                .clean_on_escape()
-        });
+        // No `clean_on_escape`: Input's escape handler propagates without
+        // clean_on_escape, letting the popup's ClosePlaylistPopup action fire
+        // next. Cancel button stays the explicit way to discard pending text.
+        let create_input = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
 
         let filter_subscription = cx.subscribe(&filter_input, |this, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
@@ -389,17 +405,9 @@ impl gpui::Render for PlaylistPopup {
                 .into_any_element()
         };
 
-        let popup_keyhandler = {
-            let popup = entity_handle.clone();
-            move |ev: &KeyDownEvent, _: &mut Window, cx: &mut gpui::App| {
-                if ev.keystroke.key.as_str() == "escape" {
-                    popup.update(cx, |state, cx| state.close(cx));
-                }
-            }
-        };
-
         let popup_content = v_flex()
             .id("playlist-popup-content")
+            .key_context(POPUP_KEY_CONTEXT)
             .bg(popover_bg)
             .border_1()
             .border_color(border_color)
@@ -408,7 +416,7 @@ impl gpui::Render for PlaylistPopup {
             .w(px(280.))
             .occlude()
             .track_focus(&self.focus_handle)
-            .on_key_down(popup_keyhandler)
+            .on_action(cx.listener(|this, _: &ClosePlaylistPopup, _, cx| this.close(cx)))
             .child(
                 div()
                     .px_3()

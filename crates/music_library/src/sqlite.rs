@@ -7,7 +7,8 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary, Track,
+    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
+    PlaylistTrackRef, Track,
 };
 use crate::repository::LibraryRepository;
 
@@ -69,14 +70,23 @@ impl SqliteLibrary {
                     )
                     .map(|c| c > 0)
                     .unwrap_or(false);
+                let has_playlist_unique: bool = check_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_playlist_tracks_pair'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
                 drop(check_conn);
-                if !has_cover_art || !has_liked || !has_playlists {
+                if !has_cover_art || !has_liked || !has_playlists || !has_playlist_unique {
                     let _ = std::fs::remove_file(&db_path);
                 }
             }
         }
 
         let conn = Connection::open(&db_path)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
         let lib = Self {
             conn: Mutex::new(conn),
         };
@@ -89,6 +99,7 @@ impl SqliteLibrary {
         let db_dir = path.parent().unwrap_or(path);
         std::fs::create_dir_all(db_dir)?;
         let conn = Connection::open(path)?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
         let lib = Self {
             conn: Mutex::new(conn),
         };
@@ -651,8 +662,11 @@ impl LibraryRepository for SqliteLibrary {
                 |row| row.get(0),
             )
             .unwrap_or(0);
+        // INSERT OR IGNORE: the (playlist_id, track_id) UNIQUE index silently
+        // dedupes — double-clicks and stale "containing" UI checks become
+        // harmless instead of erroring or producing duplicates.
         tx.execute(
-            "INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
             rusqlite::params![playlist_id, next_position, track_id],
         )?;
         tx.commit()?;
@@ -716,6 +730,66 @@ impl LibraryRepository for SqliteLibrary {
         let rows = stmt.query_map([track_id], |row| row.get::<_, i64>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
+    }
+
+    fn playlist_track_refs(&self) -> Result<Vec<PlaylistTrackRef>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT pt.playlist_id, pt.position, t.path, t.start_offset_ms \
+             FROM playlist_tracks pt \
+             JOIN tracks t ON t.id = pt.track_id \
+             ORDER BY pt.playlist_id, pt.position",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(PlaylistTrackRef {
+                playlist_id: row.get(0)?,
+                position: row.get(1)?,
+                path: row.get(2)?,
+                start_offset_ms: row.get(3)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn restore_playlist_track_refs(&self, refs: &[PlaylistTrackRef]) -> Result<()> {
+        if refs.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut last_playlist_id: Option<i64> = None;
+        let mut next_position: i64 = 0;
+        for r in refs {
+            if Some(r.playlist_id) != last_playlist_id {
+                last_playlist_id = Some(r.playlist_id);
+                next_position = 0;
+            }
+            let track_id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM tracks WHERE path = ?1 AND start_offset_ms = ?2",
+                    rusqlite::params![r.path, r.start_offset_ms],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let Some(track_id) = track_id else { continue };
+            // Skip rows that would violate the (playlist_id, track_id) UNIQUE
+            // index — a track that appeared multiple times historically should
+            // collapse to a single entry after restore.
+            tx.execute(
+                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+                rusqlite::params![r.playlist_id, next_position, track_id],
+            )?;
+            // Only advance position when the insert actually happened. Without
+            // checking `changes()` the positions would still be dense modulo
+            // skipped duplicates, but the simpler invariant ("contiguous from
+            // 0") matches what `add_track_to_playlist` produces.
+            if tx.changes() > 0 {
+                next_position += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>> {
