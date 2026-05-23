@@ -3,11 +3,19 @@ use gpui::{
     AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div,
     prelude::FluentBuilder, px,
 };
-use gpui_component::h_flex;
+use gpui_component::{ActiveTheme, h_flex};
 use ui_components::slider::{Slider, SliderEvent};
 
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
+
+const SLIDER_MIN_W: f32 = 250.0;
+const SLIDER_MAX_W: f32 = 400.0;
+// Fixed-width elements outside slider in footer layout:
+// now_playing(200) + queue+vol(200) + footer px_4(32) + gaps(32) + slider row px_4(32)
+const FOOTER_FIXED_W: f32 = 496.0;
+// Time labels (40px each) + gap_3 (12px) on both sides when visible
+const LABELS_W: f32 = 104.0;
 
 pub struct TrackProgressSlider {
     duration_secs: f32,
@@ -21,8 +29,11 @@ pub struct TrackProgressSlider {
 }
 
 impl Render for TrackProgressSlider {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let show_labels = self.show_labels;
+        let viewport_w = f32::from(window.viewport_size().width);
+        let labels_w = if show_labels { LABELS_W } else { 0.0 };
+        let slider_w = (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W);
         h_flex()
             .gap_3()
             .items_center()
@@ -32,17 +43,23 @@ impl Render for TrackProgressSlider {
                 b.child(
                     div()
                         .w(px(40.))
-                        .text_sm()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
                         .text_right()
                         .child(Self::format_time(self.current_position_secs)),
                 )
             })
-            .child(div().w(px(250.)).child(self.slider.clone()))
+            .child(
+                div()
+                    .w(px(slider_w))
+                    .child(self.slider.clone()),
+            )
             .when(show_labels, |b| {
                 b.child(
                     div()
                         .w(px(40.))
-                        .text_sm()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
                         .child(Self::format_time(self.duration_secs)),
                 )
             })
