@@ -437,8 +437,13 @@ impl Render for ArtistTracksView {
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         let services = cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
-                                        queue.set_tracks(this.tracks_all.clone());
-                                        let played = queue.play_track_at(global_ix).cloned();
+                                        let played = queue
+                                            .set_tracks_and_play_at(
+                                                this.tracks_all.clone(),
+                                                global_ix,
+                                                crate::playback_queue::QueueSource::Unknown,
+                                            )
+                                            .cloned();
                                         drop(queue);
                                         if let Some(track) = played {
                                             services.play_track(&track);

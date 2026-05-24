@@ -416,11 +416,13 @@ impl Render for PlaylistTracksView {
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         let services = cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
-                                        queue.set_tracks_with_source(
-                                            this.tracks.clone(),
-                                            QueueSource::Playlist(playlist_id),
-                                        );
-                                        let track = queue.play_track_at(track_ix).cloned();
+                                        let track = queue
+                                            .set_tracks_and_play_at(
+                                                this.tracks.clone(),
+                                                track_ix,
+                                                QueueSource::Playlist(playlist_id),
+                                            )
+                                            .cloned();
                                         drop(queue);
                                         if let Some(track) = track {
                                             services.play_track(&track);

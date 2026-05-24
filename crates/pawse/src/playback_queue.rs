@@ -74,6 +74,31 @@ impl PlaybackQueue {
         }
     }
 
+    /// Set tracks and immediately mark `index` as the current position,
+    /// so that `apply_shuffle` anchors the clicked track to slot 0 when
+    /// shuffle is enabled. Callers pass the index into the *natural* order.
+    /// When `index` is in bounds, `current_track()` returns the intended
+    /// track after this call; otherwise it returns `None`.
+    pub fn set_tracks_and_play_at(
+        &mut self,
+        tracks: Vec<Track>,
+        index: usize,
+        source: QueueSource,
+    ) -> Option<&Track> {
+        self.original_order = None;
+        self.source = source;
+        self.current_index = if index < tracks.len() {
+            Some(index)
+        } else {
+            None
+        };
+        self.tracks = tracks;
+        if self.shuffle {
+            self.apply_shuffle();
+        }
+        self.current_track()
+    }
+
     pub fn source(&self) -> QueueSource {
         self.source
     }
@@ -233,16 +258,16 @@ impl PlaybackQueue {
         }
         self.original_order = Some(self.tracks.clone());
 
-        let current_path = self
+        let current_id = self
             .current_index
             .and_then(|i| self.tracks.get(i))
-            .map(|t| t.path.clone());
+            .map(|t| t.id);
 
         let mut rng = rand::rng();
         self.tracks.shuffle(&mut rng);
 
-        if let Some(path) = current_path
-            && let Some(pos) = self.tracks.iter().position(|t| t.path == path)
+        if let Some(id) = current_id
+            && let Some(pos) = self.tracks.iter().position(|t| t.id == id)
         {
             self.tracks.swap(0, pos);
             self.current_index = Some(0);
@@ -253,13 +278,13 @@ impl PlaybackQueue {
         let Some(original) = self.original_order.take() else {
             return;
         };
-        let current_path = self
+        let current_id = self
             .current_index
             .and_then(|i| self.tracks.get(i))
-            .map(|t| t.path.clone());
+            .map(|t| t.id);
         self.tracks = original;
         self.current_index =
-            current_path.and_then(|path| self.tracks.iter().position(|t| t.path == path));
+            current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
     }
 }
 
@@ -388,6 +413,48 @@ mod tests {
         q.set_shuffle(false);
         let restored: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
         assert_eq!(restored, (100..110).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn set_tracks_and_play_at_with_shuffle_plays_clicked_track() {
+        let mut q = PlaybackQueue::new();
+        q.set_shuffle(true);
+        let tracks = sample_tracks(20);
+        let clicked_id = tracks[5].id;
+        let result = q
+            .set_tracks_and_play_at(tracks, 5, QueueSource::Unknown)
+            .cloned();
+        assert_eq!(result.map(|t| t.id), Some(clicked_id));
+        assert_eq!(q.current_track().map(|t| t.id), Some(clicked_id));
+        assert_eq!(q.current_index(), Some(0));
+    }
+
+    #[test]
+    fn set_tracks_and_play_at_without_shuffle_uses_index() {
+        let mut q = PlaybackQueue::new();
+        let tracks = sample_tracks(10);
+        let clicked_id = tracks[3].id;
+        let result = q
+            .set_tracks_and_play_at(tracks, 3, QueueSource::Unknown)
+            .cloned();
+        assert_eq!(result.map(|t| t.id), Some(clicked_id));
+        assert_eq!(q.current_index(), Some(3));
+    }
+
+    #[test]
+    fn shuffle_anchors_correct_track_when_paths_collide() {
+        // Multi-track files (e.g. CUE sheets) share one path but have distinct ids.
+        let tracks = vec![
+            track(1, "/album.flac"),
+            track(2, "/album.flac"),
+            track(3, "/album.flac"),
+        ];
+        let mut q = PlaybackQueue::new();
+        q.set_shuffle(true);
+        let clicked = q.set_tracks_and_play_at(tracks, 2, QueueSource::Unknown).cloned();
+        assert_eq!(clicked.map(|t| t.id), Some(3));
+        assert_eq!(q.current_track().map(|t| t.id), Some(3));
+        assert_eq!(q.current_index(), Some(0));
     }
 
     #[test]

@@ -340,8 +340,13 @@ impl Render for TracksView {
                                     .on_click(cx.listener(move |this, _, _, _cx| {
                                         let services = _cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();
-                                        queue.set_tracks(this.tracks.clone());
-                                        let track = queue.play_track_at(track_ix).cloned();
+                                        let track = queue
+                                            .set_tracks_and_play_at(
+                                                this.tracks.clone(),
+                                                track_ix,
+                                                crate::playback_queue::QueueSource::Unknown,
+                                            )
+                                            .cloned();
                                         drop(queue);
                                         if let Some(track) = track {
                                             services.play_track(&track);
