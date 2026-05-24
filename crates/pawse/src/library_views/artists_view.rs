@@ -1,14 +1,17 @@
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
-    Context, ElementId, EventEmitter, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Render, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
+    Context, ElementId, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Render, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
 };
+use ui_components::artist_avatar::artist_avatar;
 
 use crate::library_service::LibraryEvent;
 use crate::services::Services;
@@ -19,12 +22,14 @@ pub struct ArtistSelectedEvent {
 }
 
 const TOP_PADDING: f32 = 12.;
-const ARTIST_ROW_HEIGHT: f32 = 44.;
+const ARTIST_ROW_HEIGHT: f32 = 56.;
+const AVATAR_SIZE: f32 = 40.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 pub struct ArtistsView {
     artists_all: Vec<music_library::ArtistSummary>,
     artists: Vec<music_library::ArtistSummary>,
+    cover_ids: HashMap<i64, Vec<i64>>,
     filter: String,
     matcher: Matcher,
     is_scanning: bool,
@@ -42,6 +47,15 @@ impl ArtistsView {
         let artists_all = library.artists();
         let artists = artists_all.clone();
         let item_sizes = Self::make_item_sizes(&artists);
+        let cover_ids = library.artist_album_covers();
+        {
+            let mut cache = services.cover_art_cache.borrow_mut();
+            for ids in cover_ids.values() {
+                for &id in ids {
+                    cache.get_small(Some(id), &library);
+                }
+            }
+        }
 
         let subscription =
             cx.subscribe(
@@ -55,6 +69,15 @@ impl ArtistsView {
                         this.is_scanning = false;
                         let services = cx.global::<Services>();
                         this.artists_all = services.library.artists();
+                        this.cover_ids = services.library.artist_album_covers();
+                        {
+                            let mut cache = services.cover_art_cache.borrow_mut();
+                            for ids in this.cover_ids.values() {
+                                for &id in ids {
+                                    cache.get_small(Some(id), &services.library);
+                                }
+                            }
+                        }
                         this.recompute_visible();
                         cx.notify();
                     }
@@ -65,6 +88,7 @@ impl ArtistsView {
         Self {
             artists_all,
             artists,
+            cover_ids,
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             is_scanning: false,
@@ -146,6 +170,7 @@ impl Render for ArtistsView {
         }
 
         let item_sizes = self.item_sizes.clone();
+        let cover_ids = self.cover_ids.clone();
         v_flex().size_full().child(
             v_virtual_list(
                 cx.entity().clone(),
@@ -164,16 +189,28 @@ impl Render for ArtistsView {
                                 format!("{} tracks", artist.track_count)
                             };
 
+                            let covers: Vec<Arc<Image>> = {
+                                let services = cx.global::<Services>();
+                                let mut cache = services.cover_art_cache.borrow_mut();
+                                cover_ids
+                                    .get(&artist.id)
+                                    .into_iter()
+                                    .flat_map(|ids| ids.iter())
+                                    .filter_map(|&id| cache.get_small(Some(id), &services.library))
+                                    .collect()
+                            };
+
                             h_flex()
                                 .w_full()
                                 .h(px(ARTIST_ROW_HEIGHT))
                                 .px_4()
                                 .items_center()
-                                .gap_2()
+                                .gap_3()
                                 .border_b(px(1.))
                                 .border_color(border)
                                 .cursor(gpui::CursorStyle::PointingHand)
                                 .hover(|style| style.bg(secondary))
+                                .child(artist_avatar(&covers, AVATAR_SIZE, secondary, muted_fg))
                                 .child(
                                     div()
                                         .flex_1()

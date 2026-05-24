@@ -843,6 +843,31 @@ impl LibraryRepository for SqliteLibrary {
         }
         Ok(map)
     }
+
+    fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT ta.artist_id, al.cover_art_id, COALESCE(al.year, 9999999999) AS sort_year
+            FROM track_artists ta
+            JOIN tracks t ON t.id = ta.track_id
+            JOIN albums al ON al.id = t.album_id
+            WHERE al.cover_art_id IS NOT NULL
+            GROUP BY ta.artist_id, al.id
+            ORDER BY ta.artist_id, sort_year ASC, al.title COLLATE NOCASE
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+        let mut map: HashMap<i64, Vec<i64>> = HashMap::new();
+        for row in rows {
+            let (artist_id, cover_art_id) = row.map_err(LibraryError::Database)?;
+            let covers = map.entry(artist_id).or_default();
+            if covers.len() < 3 && !covers.contains(&cover_art_id) {
+                covers.push(cover_art_id);
+            }
+        }
+        Ok(map)
+    }
 }
 
 fn compute_sort_name(name: &str) -> String {

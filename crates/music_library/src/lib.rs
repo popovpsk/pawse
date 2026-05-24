@@ -651,7 +651,11 @@ mod tests {
 
         assert!(lib.get_cover_art(cover_id).unwrap().is_some());
 
+        // clear() keeps cover_art rows intact (hash→id mapping stays valid for
+        // PlaybackQueue across rescans). Orphans are removed in the post-rescan
+        // cleanup step.
         lib.clear().unwrap();
+        lib.delete_orphaned_albums_and_artists().unwrap();
 
         assert!(lib.get_cover_art(cover_id).unwrap().is_none());
     }
@@ -791,7 +795,7 @@ mod tests {
         lib.set_album_artists(kid_a, &[(radiohead, 0)]).unwrap();
         lib.set_album_artists(other_album, &[(other, 0)]).unwrap();
 
-        let mk_track = |path: &str, title: &str, album_id: i64| NewTrack {
+        let mk_track = |path: &str, title: &str, _album_id: i64| NewTrack {
             path: path.into(),
             title: Some(title.into()),
             album_title: None,
@@ -942,5 +946,101 @@ mod tests {
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "Kept");
+    }
+
+    #[test]
+    fn test_artist_album_covers_oldest_first_capped_at_three() {
+        let (lib, _path) = create_test_db();
+
+        let cover1 = lib.save_cover_art(&make_test_jpeg(&[255, 0, 0])).unwrap();
+        let cover2 = lib.save_cover_art(&make_test_jpeg(&[0, 255, 0])).unwrap();
+        let cover3 = lib.save_cover_art(&make_test_jpeg(&[0, 0, 255])).unwrap();
+        let cover4 = lib.save_cover_art(&make_test_jpeg(&[128, 128, 0])).unwrap();
+
+        let artist = lib.upsert_artist("Radiohead").unwrap();
+        let other = lib.upsert_artist("Other").unwrap();
+
+        let mk_album = |title: &str, year: Option<i32>, cover: Option<i64>| {
+            let id = lib.upsert_album(title, year, cover).unwrap();
+            lib.set_album_artists(id, &[(artist, 0)]).unwrap();
+            id
+        };
+        let album1990 = mk_album("Old Album", Some(1990), Some(cover1));
+        let album2000 = mk_album("Mid Album", Some(2000), Some(cover2));
+        let album2010 = mk_album("New Album", Some(2010), Some(cover3));
+        let album2020 = mk_album("Newest Album", Some(2020), Some(cover4));
+
+        let mk_track = |path: &str, _album_id: i64| NewTrack {
+            path: path.into(),
+            title: Some("T".into()),
+            album_title: None,
+            artist_names: vec![],
+            album_artist_names: vec![],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: Some(120_000),
+            cover_art_id: None,
+            start_offset_ms: None,
+        };
+        lib.upsert_track(
+            &mk_track("/p/t1.flac", album1990),
+            Some(album1990),
+            &[(artist, 0)],
+        )
+        .unwrap();
+        lib.upsert_track(
+            &mk_track("/p/t2.flac", album2000),
+            Some(album2000),
+            &[(artist, 0)],
+        )
+        .unwrap();
+        lib.upsert_track(
+            &mk_track("/p/t3.flac", album2010),
+            Some(album2010),
+            &[(artist, 0)],
+        )
+        .unwrap();
+        lib.upsert_track(
+            &mk_track("/p/t4.flac", album2020),
+            Some(album2020),
+            &[(artist, 0)],
+        )
+        .unwrap();
+
+        // Other artist — should not bleed into result.
+        let other_album = lib
+            .upsert_album("Other Album", Some(2005), Some(cover2))
+            .unwrap();
+        lib.set_album_artists(other_album, &[(other, 0)]).unwrap();
+        lib.upsert_track(
+            &mk_track("/p/t5.flac", other_album),
+            Some(other_album),
+            &[(other, 0)],
+        )
+        .unwrap();
+
+        let covers = lib.artist_album_covers().unwrap();
+
+        let artist_covers = covers.get(&artist).unwrap();
+        // At most 3, oldest-first: cover1 (1990), cover2 (2000), cover3 (2010).
+        assert_eq!(artist_covers.len(), 3);
+        assert_eq!(artist_covers[0], cover1);
+        assert_eq!(artist_covers[1], cover2);
+        assert_eq!(artist_covers[2], cover3);
+
+        // Other artist is present separately.
+        assert!(covers.contains_key(&other));
+        // Artist without covers is absent.
+        let no_cover_artist = lib.upsert_artist("Silent").unwrap();
+        let bare_album = lib.upsert_album("Bare", Some(2000), None).unwrap();
+        lib.upsert_track(
+            &mk_track("/p/t6.flac", bare_album),
+            Some(bare_album),
+            &[(no_cover_artist, 0)],
+        )
+        .unwrap();
+        let covers2 = lib.artist_album_covers().unwrap();
+        assert!(!covers2.contains_key(&no_cover_artist));
     }
 }

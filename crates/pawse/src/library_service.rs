@@ -61,6 +61,10 @@ impl LibraryService {
         self.repo.artists().unwrap_or_default()
     }
 
+    pub fn artist_album_covers(&self) -> HashMap<i64, Vec<i64>> {
+        self.repo.artist_album_covers().unwrap_or_default()
+    }
+
     pub fn tracks_by_artist(&self, artist_id: i64) -> Vec<music_library::Track> {
         self.repo.tracks_by_artist(artist_id).unwrap_or_default()
     }

@@ -38,6 +38,7 @@ pub trait LibraryRepository: Send + Sync {
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn album_has_artists(&self, album_id: i64) -> Result<bool>;
     fn artists(&self) -> Result<Vec<ArtistSummary>>;
+    fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()>;
