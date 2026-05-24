@@ -25,6 +25,7 @@ const TRACK_ROW_HEIGHT: f32 = 36.;
 const ALBUM_COVER_SIZE: f32 = 60.;
 const ARTIST_HEADER_HEIGHT: f32 = 48.;
 const ALBUM_HEADER_HEIGHT: f32 = 84.;
+const DISC_HEADER_HEIGHT: f32 = 32.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Debug)]
@@ -42,6 +43,7 @@ struct AlbumGroup {
 enum ItemKind {
     ArtistHeader,
     AlbumHeader(usize),
+    DiscHeader(i32),
     Track(usize, usize),
 }
 
@@ -193,7 +195,15 @@ impl ArtistTracksView {
         for (g_ix, g) in groups.iter().enumerate() {
             items.push(ItemKind::AlbumHeader(g_ix));
             sizes.push(size(px(300.), px(ALBUM_HEADER_HEIGHT + 1.)));
-            for t_ix in 0..g.tracks.len() {
+            let max_disc = g.tracks.iter().map(|t| t.disc_number).max().unwrap_or(1);
+            let multi_disc = max_disc > 1;
+            let mut current_disc = 0i32;
+            for (t_ix, track) in g.tracks.iter().enumerate() {
+                if multi_disc && track.disc_number != current_disc {
+                    current_disc = track.disc_number;
+                    items.push(ItemKind::DiscHeader(current_disc));
+                    sizes.push(size(px(300.), px(DISC_HEADER_HEIGHT + 1.)));
+                }
                 items.push(ItemKind::Track(g_ix, t_ix));
                 sizes.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
             }
@@ -301,6 +311,21 @@ impl Render for ArtistTracksView {
                             ItemKind::ArtistHeader => {
                                 artist_header_static(view.artist.name.clone()).into_any_element()
                             }
+                            ItemKind::DiscHeader(disc) => h_flex()
+                                .w_full()
+                                .h(px(DISC_HEADER_HEIGHT))
+                                .px_4()
+                                .items_center()
+                                .border_b(px(1.))
+                                .border_color(border)
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(muted_fg)
+                                        .child(format!("Disc {}", disc)),
+                                )
+                                .into_any_element(),
                             ItemKind::AlbumHeader(g_ix) => {
                                 let group = &view.groups[g_ix];
                                 let services = cx.global::<Services>();
