@@ -264,6 +264,21 @@ impl PlaybackQueue {
         self.source = source;
     }
 
+    pub fn set_track_liked(&mut self, track_id: i64, liked: bool) {
+        for t in self.tracks.iter_mut() {
+            if t.id == track_id {
+                t.liked = liked;
+            }
+        }
+        if let Some(orig) = self.original_order.as_mut() {
+            for t in orig.iter_mut() {
+                if t.id == track_id {
+                    t.liked = liked;
+                }
+            }
+        }
+    }
+
     pub fn append_track(&mut self, track: Track) {
         if let Some(ref mut original) = self.original_order {
             original.push(track.clone());
@@ -391,6 +406,22 @@ mod tests {
         (0..n)
             .map(|i| track(i as i64, &format!("/p/{}.flac", i)))
             .collect()
+    }
+
+    #[test]
+    fn set_track_liked_updates_tracks_and_original_order() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.play_track_at(0);
+        q.set_shuffle(true);
+
+        q.set_track_liked(1, true);
+        assert!(q.tracks_vec().iter().find(|t| t.id == 1).unwrap().liked);
+        assert!(!q.tracks_vec().iter().find(|t| t.id == 0).unwrap().liked);
+
+        let orig = q.original_order_vec().unwrap();
+        assert!(orig.iter().find(|t| t.id == 1).unwrap().liked);
+        assert!(!orig.iter().find(|t| t.id == 2).unwrap().liked);
     }
 
     #[test]

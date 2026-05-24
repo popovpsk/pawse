@@ -8,7 +8,12 @@ use crate::library_service::LibraryEvent;
 use crate::like_button::LIKE_ROW_GROUP;
 use crate::services::Services;
 
-pub fn add_to_queue_button(track: music_library::Track, button_size: f32, icon_size: f32, cx: &App) -> impl IntoElement {
+pub fn add_to_queue_button(
+    track: music_library::Track,
+    button_size: f32,
+    icon_size: f32,
+    cx: &App,
+) -> impl IntoElement {
     let theme = cx.theme();
     let muted_bg = theme.muted;
     let icon_color = theme.muted_foreground;
@@ -47,7 +52,12 @@ pub fn add_to_queue_button(track: music_library::Track, button_size: f32, icon_s
         )
 }
 
-pub fn add_album_to_queue_button(album_id: i64, button_size: f32, icon_size: f32, cx: &App) -> impl IntoElement {
+pub fn add_album_to_queue_button(
+    album_id: i64,
+    button_size: f32,
+    icon_size: f32,
+    cx: &App,
+) -> impl IntoElement {
     let theme = cx.theme();
     let muted_bg = theme.muted;
     let icon_color = theme.muted_foreground;

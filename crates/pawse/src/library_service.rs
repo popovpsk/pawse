@@ -255,10 +255,22 @@ fn insert_scanned_track(
         artist_ids.push((id, pos as i32));
     }
 
-    let cover_art_id = track
-        .cover_art
-        .as_ref()
-        .and_then(|data| repo.save_cover_art(data).ok());
+    let cover_art_id = match track.cover_art.as_ref() {
+        None => {
+            eprintln!("[COVER-DBG] scan: no cover source for {:?}", track.path);
+            None
+        }
+        Some(data) => match repo.save_cover_art(data) {
+            Ok(id) => {
+                eprintln!("[COVER-DBG] scan: stored cover id={id} ({} bytes raw) for {:?}", data.len(), track.path);
+                Some(id)
+            }
+            Err(e) => {
+                eprintln!("[COVER-DBG] scan: save_cover_art FAILED for {:?}: {e}", track.path);
+                None
+            }
+        },
+    };
 
     let album_id = if let Some(ref album_title) = track.album_title {
         let album_id = repo.upsert_album(album_title, track.year, cover_art_id)?;

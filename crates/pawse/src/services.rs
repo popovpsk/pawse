@@ -54,6 +54,12 @@ impl Services {
                     if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
                         sync_queue_with_playlist(*playlist_id, cx);
                     }
+                    if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
+                        cx.global::<Services>()
+                            .playback_queue
+                            .borrow_mut()
+                            .set_track_liked(*track_id, *liked);
+                    }
                     library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
                 })
                 .expect("run_library_events_bus:cx.update");
