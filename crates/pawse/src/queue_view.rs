@@ -131,6 +131,9 @@ impl QueueView {
                         // backed by this playlist; refresh our snapshot.
                         this.refresh_tracks(cx);
                     }
+                    LibraryEvent::QueueChanged => {
+                        this.refresh_tracks(cx);
+                    }
                     _ => {}
                 }
             });
@@ -315,10 +318,24 @@ impl Render for QueueView {
                                             .child(artist),
                                     )
                                     .when(playlists_enabled, |row| {
-                                        row.child(add_to_playlist_button(track_id, cx))
+                                        row.child(
+                                            div()
+                                                .id(ElementId::NamedInteger(
+                                                    "queue-playlist".into(),
+                                                    track_ix as u64,
+                                                ))
+                                                .child(add_to_playlist_button(track_id, cx)),
+                                        )
                                     })
                                     .when(liked_enabled, |row| {
-                                        row.child(like_button(track_id, liked, cx))
+                                        row.child(
+                                            div()
+                                                .id(ElementId::NamedInteger(
+                                                    "queue-like".into(),
+                                                    track_ix as u64,
+                                                ))
+                                                .child(like_button(track_id, liked, cx)),
+                                        )
                                     })
                                     .when(show_track_duration, |row| {
                                         row.child(
@@ -332,7 +349,7 @@ impl Render for QueueView {
                                         div()
                                             .id(ElementId::NamedInteger(
                                                 "remove-from-queue".into(),
-                                                track_id as u64,
+                                                track_ix as u64,
                                             ))
                                             .size(px(26.))
                                             .flex()
@@ -349,10 +366,9 @@ impl Render for QueueView {
                                                 )
                                                 .build(window, cx)
                                             })
-                                            .on_mouse_down(
-                                                gpui::MouseButton::Left,
-                                                |_, _, cx| cx.stop_propagation(),
-                                            )
+                                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                                cx.stop_propagation()
+                                            })
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 cx.stop_propagation();
                                                 let services = cx.global::<Services>();
@@ -396,7 +412,7 @@ impl Render for QueueView {
                                                     .text_color(muted_fg),
                                             ),
                                     )
-                                    .id(ElementId::Integer(track_id as u64))
+                                    .id(ElementId::Integer(track_ix as u64))
                                     .on_click(cx.listener(move |_this, _, _, cx| {
                                         let services = cx.global::<Services>();
                                         let mut queue = services.playback_queue.borrow_mut();

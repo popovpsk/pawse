@@ -24,6 +24,7 @@ pub mod playback_queue;
 pub mod playlist_buttons;
 pub mod playlist_popup;
 pub mod prev_button;
+pub mod queue_button;
 pub mod queue_view;
 pub mod repeat_button;
 pub mod services;

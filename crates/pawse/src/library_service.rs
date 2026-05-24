@@ -13,6 +13,7 @@ pub enum LibraryEvent {
     TrackLikedChanged { track_id: i64, liked: bool },
     PlaylistsChanged,
     PlaylistTracksChanged { playlist_id: i64 },
+    QueueChanged,
 }
 
 pub struct LibraryService {

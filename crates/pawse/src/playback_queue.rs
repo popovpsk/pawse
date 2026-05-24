@@ -264,15 +264,28 @@ impl PlaybackQueue {
         self.source = source;
     }
 
+    pub fn append_track(&mut self, track: Track) {
+        if let Some(ref mut original) = self.original_order {
+            original.push(track.clone());
+        }
+        self.tracks.push(track);
+    }
+
+    pub fn append_tracks(&mut self, tracks: Vec<Track>) {
+        for track in tracks {
+            self.append_track(track);
+        }
+    }
+
     pub fn remove_track_at(&mut self, index: usize) -> RemoveOutcome {
         if index >= self.tracks.len() {
             return RemoveOutcome::Unaffected;
         }
         let removed = self.tracks.remove(index);
-        if let Some(ref mut original) = self.original_order {
-            if let Some(pos) = original.iter().position(|t| t.id == removed.id) {
-                original.remove(pos);
-            }
+        if let Some(ref mut original) = self.original_order
+            && let Some(pos) = original.iter().position(|t| t.id == removed.id)
+        {
+            original.remove(pos);
         }
         match self.current_index {
             Some(cur) if index < cur => {
@@ -326,8 +339,7 @@ impl PlaybackQueue {
             .and_then(|i| self.tracks.get(i))
             .map(|t| t.id);
         self.tracks = original;
-        self.current_index =
-            current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
+        self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
     }
 }
 
@@ -494,7 +506,9 @@ mod tests {
         ];
         let mut q = PlaybackQueue::new();
         q.set_shuffle(true);
-        let clicked = q.set_tracks_and_play_at(tracks, 2, QueueSource::Unknown).cloned();
+        let clicked = q
+            .set_tracks_and_play_at(tracks, 2, QueueSource::Unknown)
+            .cloned();
         assert_eq!(clicked.map(|t| t.id), Some(3));
         assert_eq!(q.current_track().map(|t| t.id), Some(3));
         assert_eq!(q.current_index(), Some(0));
