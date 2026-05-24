@@ -49,11 +49,7 @@ impl Render for TrackProgressSlider {
                         .child(Self::format_time(self.current_position_secs)),
                 )
             })
-            .child(
-                div()
-                    .w(px(slider_w))
-                    .child(self.slider.clone()),
-            )
+            .child(div().w(px(slider_w)).child(self.slider.clone()))
             .when(show_labels, |b| {
                 b.child(
                     div()

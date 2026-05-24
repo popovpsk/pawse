@@ -9,9 +9,14 @@ use gpui_component::{ActiveTheme, h_flex, tooltip::Tooltip, v_flex};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::{
-    next_button::NextButton, now_playing::NowPlaying, play_button::PlayButton,
-    prev_button::PrevButton, repeat_button::RepeatButton, shuffle_button::ShuffleButton,
-    track_progress_slider::TrackProgressSlider, volume::Volume,
+    next_button::NextButton,
+    now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested, NowPlaying},
+    play_button::PlayButton,
+    prev_button::PrevButton,
+    repeat_button::RepeatButton,
+    shuffle_button::ShuffleButton,
+    track_progress_slider::TrackProgressSlider,
+    volume::Volume,
 };
 
 #[derive(Clone, Debug)]
@@ -32,9 +37,13 @@ pub struct Footer {
     show_repeat_shuffle: bool,
     _subscription: Subscription,
     _settings_subscription: Subscription,
+    _np_album_subscription: Subscription,
+    _np_artist_subscription: Subscription,
 }
 
 impl EventEmitter<ToggleQueueEvent> for Footer {}
+impl EventEmitter<NavigateToAlbumRequested> for Footer {}
+impl EventEmitter<NavigateToArtistRequested> for Footer {}
 
 impl Footer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -64,6 +73,25 @@ impl Footer {
             }
         });
 
+        let now_playing = cx.new(|cx| NowPlaying::new(window, cx));
+
+        let np_album_subscription = cx.subscribe(
+            &now_playing,
+            |_, _, event: &NavigateToAlbumRequested, cx| {
+                cx.emit(NavigateToAlbumRequested {
+                    album_id: event.album_id,
+                });
+            },
+        );
+        let np_artist_subscription = cx.subscribe(
+            &now_playing,
+            |_, _, event: &NavigateToArtistRequested, cx| {
+                cx.emit(NavigateToArtistRequested {
+                    artist_id: event.artist_id,
+                });
+            },
+        );
+
         Self {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
             prev_button: cx.new(|cx| PrevButton::new(window, cx)),
@@ -72,11 +100,13 @@ impl Footer {
             repeat_button: cx.new(|cx| RepeatButton::new(window, cx)),
             volume_slider: cx.new(|cx| Volume::new(window, cx)),
             track_progress_slider: cx.new(|cx| TrackProgressSlider::new(window, cx)),
-            now_playing: cx.new(|cx| NowPlaying::new(window, cx)),
+            now_playing,
             show_queue: false,
             show_repeat_shuffle,
             _subscription: subscription,
             _settings_subscription: settings_subscription,
+            _np_album_subscription: np_album_subscription,
+            _np_artist_subscription: np_artist_subscription,
         }
     }
 }

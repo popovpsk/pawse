@@ -46,6 +46,12 @@ impl LibraryService {
         self.repo.track_artists(track_id).unwrap_or_default()
     }
 
+    pub fn track_artists_with_ids(&self, track_id: i64) -> Vec<(i64, String)> {
+        self.repo
+            .track_artists_with_ids(track_id)
+            .unwrap_or_default()
+    }
+
     pub fn track_artists_map(&self, track_ids: &[i64]) -> HashMap<i64, Vec<String>> {
         self.repo.track_artists_map(track_ids).unwrap_or_default()
     }

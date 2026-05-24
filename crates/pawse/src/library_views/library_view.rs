@@ -11,6 +11,7 @@ use crate::library_views::liked_view::LikedView;
 use crate::library_views::playlist_tracks_view::PlaylistTracksView;
 use crate::library_views::playlists_view::{PlaylistSelectedEvent, PlaylistsView};
 use crate::library_views::tracks_view::TracksView;
+use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
 #[derive(Clone, Debug)]
@@ -197,6 +198,35 @@ impl LibraryView {
         self.playlist_tracks_view = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
+    }
+
+    pub fn navigate_to_album(
+        &mut self,
+        album_id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let services = cx.global::<Services>();
+        if let Some(album) = services
+            .library
+            .albums()
+            .into_iter()
+            .find(|a| a.id == album_id)
+        {
+            self.show_album_tracks(album, window, cx);
+        }
+    }
+
+    pub fn navigate_to_artist(&mut self, artist_id: i64, cx: &mut Context<Self>) {
+        let services = cx.global::<Services>();
+        if let Some(artist) = services
+            .library
+            .artists()
+            .into_iter()
+            .find(|a| a.id == artist_id)
+        {
+            self.show_artist_tracks(artist, cx);
+        }
     }
 
     fn show_album_tracks(

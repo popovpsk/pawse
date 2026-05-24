@@ -17,6 +17,7 @@ use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::media_bridge::MediaBridge;
+use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::settings_store::SettingsStore;
@@ -58,6 +59,8 @@ pub struct MainView {
     _library_subscription: Subscription,
     _search_subscription: Subscription,
     _footer_subscription: Subscription,
+    _footer_album_subscription: Subscription,
+    _footer_artist_subscription: Subscription,
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
     _theme_picker_subscription: gpui::Subscription,
@@ -128,6 +131,26 @@ impl MainView {
             cx.notify();
         });
 
+        let footer_album_subscription = cx.subscribe_in(&footer, window, {
+            let library_view = library_view.clone();
+            move |this, _, event: &NavigateToAlbumRequested, window, cx| {
+                this.show_settings = false;
+                library_view.update(cx, |view, cx| {
+                    view.navigate_to_album(event.album_id, window, cx);
+                });
+            }
+        });
+
+        let footer_artist_subscription = cx.subscribe(&footer, {
+            let library_view = library_view.clone();
+            move |this, _, event: &NavigateToArtistRequested, cx| {
+                this.show_settings = false;
+                library_view.update(cx, |view, cx| {
+                    view.navigate_to_artist(event.artist_id, cx);
+                });
+            }
+        });
+
         let queue_view = cx.new(|cx| QueueView::new(window, cx));
 
         // ShuffleButton::on_click calls cx.notify() after reordering the queue.
@@ -167,6 +190,8 @@ impl MainView {
             _library_subscription: library_subscription,
             _search_subscription: search_subscription,
             _footer_subscription: footer_subscription,
+            _footer_album_subscription: footer_album_subscription,
+            _footer_artist_subscription: footer_artist_subscription,
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
             _theme_picker_subscription: theme_picker_subscription,

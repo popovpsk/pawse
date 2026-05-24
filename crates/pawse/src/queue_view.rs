@@ -332,7 +332,12 @@ impl Render for QueueView {
                                         row.child(remove_from_playlist_button(track_id, pid, cx))
                                     })
                                     .when(show_track_duration, |row| {
-                                        row.child(div().text_sm().text_color(muted_fg).child(duration_str))
+                                        row.child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(muted_fg)
+                                                .child(duration_str),
+                                        )
                                     })
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |_this, _, _, cx| {

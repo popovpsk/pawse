@@ -383,6 +383,24 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT a.id, a.name
+            FROM artists a
+            JOIN track_artists ta ON ta.artist_id = a.id
+            WHERE ta.track_id = ?1
+            ORDER BY ta.position
+            "#,
+        )?;
+        let rows = stmt.query_map([track_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn album_title(&self, album_id: i64) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT title FROM albums WHERE id = ?1")?;

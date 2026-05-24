@@ -1,8 +1,8 @@
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, IntoElement, ParentElement, Render, Styled, StyledImage, Subscription, Window, div,
-    img, px, rems,
+    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, rems,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 use ui_components::cover_placeholder::cover_placeholder;
@@ -10,9 +10,20 @@ use ui_components::fade::{FadeEdge, fade_overlay};
 
 use crate::services::Services;
 
+#[derive(Clone, Debug)]
+pub struct NavigateToAlbumRequested {
+    pub album_id: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct NavigateToArtistRequested {
+    pub artist_id: i64,
+}
+
 pub struct NowPlaying {
     track_title: String,
-    artist_names: String,
+    artists: Vec<(i64, String)>,
+    album_id: Option<i64>,
     cover_art_id: Option<i64>,
     sample_rate: Option<u32>,
     bit_depth: Option<u8>,
@@ -45,10 +56,18 @@ impl NowPlaying {
                             let track_id = track.id;
                             let title = track.title.clone();
                             let cover = track.cover_art_id;
+                            let album_id = track.album_id;
                             drop(queue);
                             this.track_title = title;
                             this.cover_art_id = cover;
-                            this.artist_names = services.library.track_artists(track_id).join(", ");
+                            this.album_id = album_id;
+                            let mut seen = std::collections::HashSet::new();
+                            this.artists = services
+                                .library
+                                .track_artists_with_ids(track_id)
+                                .into_iter()
+                                .filter(|(id, _)| seen.insert(*id))
+                                .collect();
                             this.sample_rate = Some(params.sample_rate);
                             this.bit_depth = Some(params.bit_depth);
                         } else {
@@ -74,7 +93,8 @@ impl NowPlaying {
 
         Self {
             track_title: String::new(),
-            artist_names: String::new(),
+            artists: Vec::new(),
+            album_id: None,
             cover_art_id: None,
             sample_rate: None,
             bit_depth: None,
@@ -84,12 +104,16 @@ impl NowPlaying {
 
     fn clear(&mut self) {
         self.track_title.clear();
-        self.artist_names.clear();
+        self.artists.clear();
+        self.album_id = None;
         self.cover_art_id = None;
         self.sample_rate = None;
         self.bit_depth = None;
     }
 }
+
+impl EventEmitter<NavigateToAlbumRequested> for NowPlaying {}
+impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -112,6 +136,11 @@ impl Render for NowPlaying {
         } else {
             false
         };
+
+        let album_id = self.album_id;
+        let track_title = self.track_title.clone();
+        let artists = self.artists.clone();
+        let foreground = cx.theme().foreground;
 
         h_flex()
             .gap_3()
@@ -146,18 +175,18 @@ impl Render for NowPlaying {
                 v_flex()
                     .w(px(140.))
                     .items_start()
-                    .child(
-                        div()
+                    .child({
+                        let title_inner = div()
+                            .whitespace_nowrap()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(track_title);
+
+                        let title_container = div()
                             .relative()
                             .max_w(px(title_max_w))
                             .overflow_hidden()
-                            .child(
-                                div()
-                                    .whitespace_nowrap()
-                                    .text_sm()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child(self.track_title.clone()),
-                            )
+                            .child(title_inner)
                             .when(title_overflows, |this| {
                                 this.child(fade_overlay(
                                     FadeEdge::Right,
@@ -165,15 +194,72 @@ impl Render for NowPlaying {
                                     20.0,
                                     0.0,
                                 ))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .truncate()
-                            .child(self.artist_names.clone()),
-                    )
+                            });
+
+                        if let Some(aid) = album_id {
+                            div()
+                                .id("np_title")
+                                .cursor_pointer()
+                                .border_b(px(1.))
+                                .hover(|s| s.border_color(foreground))
+                                .on_click(cx.listener(move |_, _, _, cx| {
+                                    cx.emit(NavigateToAlbumRequested { album_id: aid });
+                                }))
+                                .child(title_container)
+                                .into_any_element()
+                        } else {
+                            title_container.into_any_element()
+                        }
+                    })
+                    .child({
+                        let muted_fg = cx.theme().muted_foreground;
+                        if artists.is_empty() {
+                            div()
+                                .text_xs()
+                                .text_color(muted_fg)
+                                .truncate()
+                                .into_any_element()
+                        } else {
+                            h_flex()
+                                .overflow_hidden()
+                                .flex_wrap()
+                                .children(
+                                    artists
+                                        .into_iter()
+                                        .enumerate()
+                                        .flat_map(|(i, (artist_id, name))| {
+                                            let separator = if i > 0 {
+                                                Some(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(muted_fg)
+                                                        .child(", ")
+                                                        .into_any_element(),
+                                                )
+                                            } else {
+                                                None
+                                            };
+                                            let link = div()
+                                                .id(("np_artist", artist_id as u64))
+                                                .text_xs()
+                                                .text_color(muted_fg)
+                                                .cursor_pointer()
+                                                .border_b(px(1.))
+                                                .hover(|s| s.border_color(muted_fg))
+                                                .on_click(cx.listener(move |_, _, _, cx| {
+                                                    cx.emit(NavigateToArtistRequested {
+                                                        artist_id,
+                                                    });
+                                                }))
+                                                .child(name)
+                                                .into_any_element();
+                                            [separator, Some(link)]
+                                        })
+                                        .flatten(),
+                                )
+                                .into_any_element()
+                        }
+                    })
                     .when_some(specs, |this, specs| {
                         this.child(
                             div()
