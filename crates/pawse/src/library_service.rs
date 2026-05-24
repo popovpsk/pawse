@@ -191,11 +191,16 @@ impl LibraryService {
 
             if let Err(e) = repo.clear() {
                 eprintln!("Failed to clear library: {}", e);
+                let _ = event_tx.send(LibraryEvent::ScanComplete);
+                return;
             }
 
             if paths.is_empty() {
                 if let Err(e) = repo.restore_playlist_track_refs(&playlist_refs) {
                     eprintln!("Failed to restore playlist tracks: {}", e);
+                }
+                if let Err(e) = repo.delete_orphaned_albums_and_artists() {
+                    eprintln!("Failed to clean up orphaned cover art: {}", e);
                 }
                 let _ = event_tx.send(LibraryEvent::ScanComplete);
                 return;
@@ -236,6 +241,9 @@ impl LibraryService {
                         if let Err(e) = repo.restore_playlist_track_refs(&playlist_refs) {
                             eprintln!("Failed to restore playlist tracks: {}", e);
                         }
+                        if let Err(e) = repo.delete_orphaned_albums_and_artists() {
+                            eprintln!("Failed to clean up orphaned cover art: {}", e);
+                        }
                         let _ = event_tx.send(LibraryEvent::ScanComplete);
                         break;
                     }
@@ -256,17 +264,11 @@ fn insert_scanned_track(
     }
 
     let cover_art_id = match track.cover_art.as_ref() {
-        None => {
-            eprintln!("[COVER-DBG] scan: no cover source for {:?}", track.path);
-            None
-        }
+        None => None,
         Some(data) => match repo.save_cover_art(data) {
-            Ok(id) => {
-                eprintln!("[COVER-DBG] scan: stored cover id={id} ({} bytes raw) for {:?}", data.len(), track.path);
-                Some(id)
-            }
+            Ok(id) => Some(id),
             Err(e) => {
-                eprintln!("[COVER-DBG] scan: save_cover_art FAILED for {:?}: {e}", track.path);
+                eprintln!("Failed to save cover art for {:?}: {e}", track.path);
                 None
             }
         },

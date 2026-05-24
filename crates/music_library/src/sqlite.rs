@@ -235,7 +235,7 @@ impl LibraryRepository for SqliteLibrary {
                     disc_number = ?4,
                     duration_ms = ?5,
                     year = ?6,
-                    cover_art_id = ?7,
+                    cover_art_id = COALESCE(?7, cover_art_id),
                     start_offset_ms = ?8
                 WHERE id = ?9"#,
                 rusqlite::params![
@@ -442,7 +442,10 @@ impl LibraryRepository for SqliteLibrary {
         tx.execute("DELETE FROM tracks", [])?;
         tx.execute("DELETE FROM albums", [])?;
         tx.execute("DELETE FROM artists", [])?;
-        tx.execute("DELETE FROM cover_art", [])?;
+        // cover_art rows are NOT deleted here; they are cleaned up after the
+        // rescan via delete_orphaned_albums_and_artists so that the same SHA-256
+        // hash always maps back to the same id. This keeps cover_art_ids valid
+        // in PlaybackQueue Track objects across rescans.
         tx.commit()?;
         Ok(())
     }
