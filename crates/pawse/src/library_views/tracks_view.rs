@@ -338,7 +338,7 @@ impl Render for TracksView {
                                         row.child(like_button(track_id, liked, cx))
                                     })
                                     .child(div().w_16().child(duration_str))
-                                    .child(add_to_queue_button(track_for_queue, cx))
+                                    .child(add_to_queue_button(track_for_queue, 30., 18., cx))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, _cx| {
                                         let services = _cx.global::<Services>();

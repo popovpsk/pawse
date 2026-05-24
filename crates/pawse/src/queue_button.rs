@@ -8,10 +8,7 @@ use crate::library_service::LibraryEvent;
 use crate::like_button::LIKE_ROW_GROUP;
 use crate::services::Services;
 
-const BUTTON_SIZE: f32 = 26.;
-const ICON_SIZE: f32 = 14.;
-
-pub fn add_to_queue_button(track: music_library::Track, cx: &App) -> impl IntoElement {
+pub fn add_to_queue_button(track: music_library::Track, button_size: f32, icon_size: f32, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let muted_bg = theme.muted;
     let icon_color = theme.muted_foreground;
@@ -21,7 +18,7 @@ pub fn add_to_queue_button(track: music_library::Track, cx: &App) -> impl IntoEl
             "add-to-queue".into(),
             track.id as u64,
         ))
-        .size(px(BUTTON_SIZE))
+        .size(px(button_size))
         .flex()
         .items_center()
         .justify_center()
@@ -45,12 +42,12 @@ pub fn add_to_queue_button(track: music_library::Track, cx: &App) -> impl IntoEl
         .child(
             svg()
                 .path("icons/add-queue.svg")
-                .size(px(ICON_SIZE))
+                .size(px(icon_size))
                 .text_color(icon_color),
         )
 }
 
-pub fn add_album_to_queue_button(album_id: i64, cx: &App) -> impl IntoElement {
+pub fn add_album_to_queue_button(album_id: i64, button_size: f32, icon_size: f32, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let muted_bg = theme.muted;
     let icon_color = theme.muted_foreground;
@@ -60,7 +57,7 @@ pub fn add_album_to_queue_button(album_id: i64, cx: &App) -> impl IntoElement {
             "add-album-to-queue".into(),
             album_id as u64,
         ))
-        .size(px(BUTTON_SIZE))
+        .size(px(button_size))
         .flex()
         .items_center()
         .justify_center()
@@ -83,7 +80,7 @@ pub fn add_album_to_queue_button(album_id: i64, cx: &App) -> impl IntoElement {
         .child(
             svg()
                 .path("icons/add-queue.svg")
-                .size(px(ICON_SIZE))
+                .size(px(icon_size))
                 .text_color(icon_color),
         )
 }

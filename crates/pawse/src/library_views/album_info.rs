@@ -64,6 +64,7 @@ impl Render for AlbumInfo {
             .child(
                 v_flex()
                     .flex_1()
+                    .overflow_hidden()
                     .gap_1()
                     .pt_1()
                     .child(
@@ -84,6 +85,6 @@ impl Render for AlbumInfo {
                         div()
                     }),
             )
-            .child(add_album_to_queue_button(album_id, cx))
+            .child(add_album_to_queue_button(album_id, 42., 26., cx))
     }
 }

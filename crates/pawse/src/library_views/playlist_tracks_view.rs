@@ -414,7 +414,7 @@ impl Render for PlaylistTracksView {
                                             .text_color(muted_fg)
                                             .child(duration_str),
                                     )
-                                    .child(add_to_queue_button(track_for_queue, cx))
+                                    .child(add_to_queue_button(track_for_queue, 30., 18., cx))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         let services = cx.global::<Services>();
