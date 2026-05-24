@@ -307,6 +307,29 @@ impl PlaybackQueue {
         }
     }
 
+    /// Move the track at `from` to position `to`, shifting the rest. Keeps the
+    /// currently-playing track pointed at the same track. Operates only on the
+    /// visible order; the shuffle `original_order` is intentionally left untouched.
+    pub fn move_track(&mut self, from: usize, to: usize) {
+        let len = self.tracks.len();
+        if from >= len || to >= len || from == to {
+            return;
+        }
+        let track = self.tracks.remove(from);
+        self.tracks.insert(to, track);
+        if let Some(cur) = self.current_index {
+            self.current_index = Some(if cur == from {
+                to
+            } else if from < to && cur > from && cur <= to {
+                cur - 1
+            } else if from > to && cur >= to && cur < from {
+                cur + 1
+            } else {
+                cur
+            });
+        }
+    }
+
     fn apply_shuffle(&mut self) {
         if self.tracks.len() <= 1 {
             self.original_order = Some(self.tracks.clone());
@@ -596,6 +619,68 @@ mod tests {
         // Turning shuffle off should restore 4 tracks (not 5).
         q.set_shuffle(false);
         assert_eq!(q.tracks_vec().len(), 4);
+    }
+
+    #[test]
+    fn move_track_down_shifts_intermediate_current_up() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(2);
+        // Drag track 0 down to slot 3; the current (id 2) shifts left by one.
+        q.move_track(0, 3);
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![1, 2, 3, 0, 4]);
+        assert_eq!(q.current_index(), Some(1));
+        assert_eq!(q.current_track().map(|t| t.id), Some(2));
+    }
+
+    #[test]
+    fn move_track_up_shifts_intermediate_current_down() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(2);
+        // Drag track 4 up to slot 1; the current (id 2) shifts right by one.
+        q.move_track(4, 1);
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![0, 4, 1, 2, 3]);
+        assert_eq!(q.current_index(), Some(3));
+        assert_eq!(q.current_track().map(|t| t.id), Some(2));
+    }
+
+    #[test]
+    fn move_current_track_follows() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(1);
+        q.move_track(1, 4);
+        assert_eq!(q.current_index(), Some(4));
+        assert_eq!(q.current_track().map(|t| t.id), Some(1));
+    }
+
+    #[test]
+    fn move_track_outside_current_range_leaves_index() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(6));
+        q.play_track_at(1);
+        // Both endpoints are after the current track — index unaffected.
+        q.move_track(3, 5);
+        assert_eq!(q.current_index(), Some(1));
+        assert_eq!(q.current_track().map(|t| t.id), Some(1));
+    }
+
+    #[test]
+    fn move_track_noop_cases() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.play_track_at(1);
+
+        q.move_track(1, 1); // same index
+        q.move_track(0, 10); // out of range
+        q.move_track(10, 0); // out of range
+
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![0, 1, 2]);
+        assert_eq!(q.current_index(), Some(1));
     }
 
     #[test]

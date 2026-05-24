@@ -4,9 +4,9 @@ use std::rc::Rc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
-    div, img, px, size,
+    AppContext, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, Window, div, img, px, size,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use ui_components::cover_placeholder::cover_placeholder;
@@ -27,6 +27,29 @@ const COVER_SIZE: f32 = 28.;
 enum QueueItem {
     TopPadding,
     Track(usize),
+}
+
+#[derive(Clone)]
+struct DraggedQueueTrack {
+    from_ix: usize,
+    title: gpui::SharedString,
+}
+
+impl Render for DraggedQueueTrack {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        div()
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .bg(theme.popover)
+            .text_color(theme.popover_foreground)
+            .border_1()
+            .border_color(theme.border)
+            .text_sm()
+            .opacity(0.9)
+            .child(self.title.clone())
+    }
 }
 
 pub struct QueueView {
@@ -423,6 +446,33 @@ impl Render for QueueView {
                                             crate::services::save_playback(cx);
                                         }
                                     }))
+                                    .on_drag(
+                                        DraggedQueueTrack {
+                                            from_ix: track_ix,
+                                            title: track.title.clone().into(),
+                                        },
+                                        |drag, _, _, cx| {
+                                            cx.stop_propagation();
+                                            cx.new(|_| drag.clone())
+                                        },
+                                    )
+                                    .drag_over::<DraggedQueueTrack>(|style, _, _, cx| {
+                                        style.border_t_2().border_color(cx.theme().drag_border)
+                                    })
+                                    .on_drop(cx.listener(
+                                        move |this, drag: &DraggedQueueTrack, _, cx| {
+                                            if drag.from_ix == track_ix {
+                                                return;
+                                            }
+                                            let services = cx.global::<Services>();
+                                            services
+                                                .playback_queue
+                                                .borrow_mut()
+                                                .move_track(drag.from_ix, track_ix);
+                                            this.refresh_tracks(cx);
+                                            crate::services::save_playback(cx);
+                                        },
+                                    ))
                                     .into_any_element()
                             }
                         })
