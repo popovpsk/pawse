@@ -122,7 +122,7 @@ impl TrackProgressSlider {
                         });
                         cx.notify();
                     }
-                    EngineEvent::TrackEnded | EngineEvent::Error(_) => {
+                    EngineEvent::TrackEnded | EngineEvent::Stopped | EngineEvent::Error(_) => {
                         this.has_track = false;
                         this.current_position_secs = 0.0;
                         this.duration_secs = 0.0;

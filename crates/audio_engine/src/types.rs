@@ -20,6 +20,7 @@ pub enum Command {
     Play,
     Pause,
     Seek(f32),
+    Stop,
     Shutdown,
 }
 

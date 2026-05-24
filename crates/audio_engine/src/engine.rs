@@ -61,6 +61,10 @@ impl AudioEngine {
         self.send_command(Command::Seek(point))
     }
 
+    pub fn stop(&self) {
+        self.send_command(Command::Stop)
+    }
+
     pub fn set_track(&self, path: PathBuf) {
         self.send_command(Command::SetLocalTrack {
             path,
@@ -249,6 +253,7 @@ impl AudioEngineLoop {
                 start_offset,
                 track_duration,
             } => self.handle_set_local_track(path, start_offset, track_duration),
+            Command::Stop => self.handle_stop(),
             Command::Shutdown => self.handle_shutdown(),
         }
     }
@@ -256,6 +261,22 @@ impl AudioEngineLoop {
     fn handle_shutdown(&mut self) {
         self.output.pause();
         self.set_state(AudioEngineState::TrackNotSet);
+    }
+
+    fn handle_stop(&mut self) {
+        self.output.pause();
+        self.output.clear();
+        self.needs_flush = true;
+        self.decoder = None;
+        self.last_position_update = Duration::ZERO;
+        self.current_position = Duration::ZERO;
+        self.track_start = Duration::ZERO;
+        self.track_end = None;
+        self.set_state(AudioEngineState::TrackNotSet);
+        _ = self.event_sender.send(EngineEvent::Stopped);
+        _ = self
+            .event_sender
+            .send(EngineEvent::PositionChanged(Duration::ZERO));
     }
 
     fn handle_set_local_track(

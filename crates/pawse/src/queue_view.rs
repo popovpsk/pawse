@@ -13,8 +13,8 @@ use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
 use crate::like_button::{LIKE_ROW_GROUP, like_button};
-use crate::playback_queue::QueueSource;
-use crate::playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};
+use crate::playback_queue::RemoveOutcome;
+use crate::playlist_buttons::add_to_playlist_button;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -103,6 +103,10 @@ impl QueueView {
                         this.is_playing = false;
                         cx.notify();
                     }
+                    EngineEvent::Stopped => {
+                        this.is_playing = false;
+                        cx.notify();
+                    }
                     _ => {}
                 },
             );
@@ -188,18 +192,6 @@ impl Render for QueueView {
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
         let show_track_duration = settings.show_track_duration();
-        // Only surface the "remove from playlist" X if both the queue is backed
-        // by a playlist AND the playlists feature flag is on. If the user
-        // disables the flag mid-playback the X disappears immediately.
-        let playlist_source = if playlists_enabled {
-            match cx.global::<Services>().playback_queue.borrow().source() {
-                QueueSource::Playlist(id) => Some(id),
-                _ => None,
-            }
-        } else {
-            None
-        };
-
         let header = h_flex()
             .w_full()
             .h(px(HEADER_HEIGHT))
@@ -328,9 +320,6 @@ impl Render for QueueView {
                                     .when(liked_enabled, |row| {
                                         row.child(like_button(track_id, liked, cx))
                                     })
-                                    .when_some(playlist_source, |row, pid| {
-                                        row.child(remove_from_playlist_button(track_id, pid, cx))
-                                    })
                                     .when(show_track_duration, |row| {
                                         row.child(
                                             div()
@@ -339,6 +328,74 @@ impl Render for QueueView {
                                                 .child(duration_str),
                                         )
                                     })
+                                    .child(
+                                        div()
+                                            .id(ElementId::NamedInteger(
+                                                "remove-from-queue".into(),
+                                                track_id as u64,
+                                            ))
+                                            .size(px(26.))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_full()
+                                            .cursor(gpui::CursorStyle::PointingHand)
+                                            .opacity(0.)
+                                            .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
+                                            .hover(|s| s.bg(muted))
+                                            .tooltip(|window, cx| {
+                                                gpui_component::tooltip::Tooltip::new(
+                                                    "Remove from queue",
+                                                )
+                                                .build(window, cx)
+                                            })
+                                            .on_mouse_down(
+                                                gpui::MouseButton::Left,
+                                                |_, _, cx| cx.stop_propagation(),
+                                            )
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                let services = cx.global::<Services>();
+                                                let outcome = services
+                                                    .playback_queue
+                                                    .borrow_mut()
+                                                    .remove_track_at(track_ix);
+                                                match outcome {
+                                                    RemoveOutcome::PlayNext(next) => {
+                                                        // The successor starts from its beginning;
+                                                        // reset the persisted position so a save
+                                                        // racing the async engine reset is correct.
+                                                        services.current_position_ms.store(
+                                                            0,
+                                                            std::sync::atomic::Ordering::Relaxed,
+                                                        );
+                                                        if this.is_playing {
+                                                            services.play_track(&next);
+                                                        } else {
+                                                            // Load the successor so now-playing
+                                                            // updates without resuming playback.
+                                                            services.load_track(&next);
+                                                        }
+                                                    }
+                                                    RemoveOutcome::Stopped => {
+                                                        services.current_position_ms.store(
+                                                            0,
+                                                            std::sync::atomic::Ordering::Relaxed,
+                                                        );
+                                                        services.engine_manager.stop();
+                                                    }
+                                                    RemoveOutcome::Unaffected => {}
+                                                }
+                                                this.refresh_tracks(cx);
+                                                crate::services::save_playback(cx);
+                                            }))
+                                            .child(
+                                                gpui::svg()
+                                                    .path("icons/s1-x.svg")
+                                                    .size(px(14.))
+                                                    .text_color(muted_fg),
+                                            ),
+                                    )
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |_this, _, _, cx| {
                                         let services = cx.global::<Services>();

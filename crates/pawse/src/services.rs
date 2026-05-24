@@ -78,6 +78,14 @@ impl Services {
     }
 
     pub fn play_track(&self, track: &Track) {
+        self.load_track(track);
+        self.engine_manager.play();
+    }
+
+    /// Load a track into the engine without starting playback. Fires
+    /// `EngineEvent::Loaded` so subscribers (now-playing, queue view) update,
+    /// but leaves the engine paused at position 0.
+    pub fn load_track(&self, track: &Track) {
         let path = std::path::PathBuf::from(&track.path);
         let start_offset = if track.start_offset_ms > 0 {
             Some(Duration::from_millis(track.start_offset_ms as u64))
@@ -87,7 +95,6 @@ impl Services {
         let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
         self.engine_manager
             .set_track_with_offset(path, start_offset, track_duration);
-        self.engine_manager.play();
     }
 }
 
@@ -175,6 +182,10 @@ pub async fn run_engine_events_bus(
             EngineEvent::Playing => is_playing.store(true, Ordering::Relaxed),
             EngineEvent::Paused | EngineEvent::TrackEnded => {
                 is_playing.store(false, Ordering::Relaxed);
+            }
+            EngineEvent::Stopped => {
+                is_playing.store(false, Ordering::Relaxed);
+                current_position_ms.store(0, Ordering::Relaxed);
             }
             _ => {}
         }

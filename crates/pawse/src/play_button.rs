@@ -32,7 +32,7 @@ impl PlayButton {
                         this.state.is_playing = false;
                         cx.notify();
                     }
-                    EngineEvent::TrackEnded => {
+                    EngineEvent::TrackEnded | EngineEvent::Stopped => {
                         this.state.is_playing = false;
                         cx.notify();
                     }

@@ -60,6 +60,10 @@ impl EngineManager {
         self.audio_engine.seek(position);
     }
 
+    pub fn stop(&self) {
+        self.audio_engine.stop();
+    }
+
     pub fn set_track(&self, path: PathBuf) {
         self.audio_engine.set_track(path);
     }

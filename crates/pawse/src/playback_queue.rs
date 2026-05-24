@@ -48,6 +48,19 @@ pub enum PreviousAction<'a> {
     PreviousTrack(&'a Track),
 }
 
+/// Outcome of removing a queue entry so the caller can keep the audio engine
+/// in sync when the currently-playing track is the one removed.
+pub enum RemoveOutcome {
+    /// A non-current track was removed (or index was out of range). The engine
+    /// keeps playing untouched — only the view needs a refresh.
+    Unaffected,
+    /// The currently-playing track was removed; play this track, which has
+    /// shifted into the same index.
+    PlayNext(Track),
+    /// The currently-playing track was removed and nothing remains after it.
+    Stopped,
+}
+
 impl PlaybackQueue {
     pub fn new() -> Self {
         Self {
@@ -249,6 +262,36 @@ impl PlaybackQueue {
         self.shuffle = shuffle;
         self.repeat = repeat;
         self.source = source;
+    }
+
+    pub fn remove_track_at(&mut self, index: usize) -> RemoveOutcome {
+        if index >= self.tracks.len() {
+            return RemoveOutcome::Unaffected;
+        }
+        let removed = self.tracks.remove(index);
+        if let Some(ref mut original) = self.original_order {
+            if let Some(pos) = original.iter().position(|t| t.id == removed.id) {
+                original.remove(pos);
+            }
+        }
+        match self.current_index {
+            Some(cur) if index < cur => {
+                self.current_index = Some(cur - 1);
+                RemoveOutcome::Unaffected
+            }
+            Some(cur) if index > cur => RemoveOutcome::Unaffected,
+            Some(_) => {
+                // index == cur: removed the currently-playing track.
+                if index < self.tracks.len() {
+                    // The next track shifted into `index`; current_index stays.
+                    RemoveOutcome::PlayNext(self.tracks[index].clone())
+                } else {
+                    self.current_index = None;
+                    RemoveOutcome::Stopped
+                }
+            }
+            None => RemoveOutcome::Unaffected,
+        }
     }
 
     fn apply_shuffle(&mut self) {
@@ -462,6 +505,83 @@ mod tests {
         assert_eq!(RepeatMode::Off.cycle(), RepeatMode::All);
         assert_eq!(RepeatMode::All.cycle(), RepeatMode::One);
         assert_eq!(RepeatMode::One.cycle(), RepeatMode::Off);
+    }
+
+    #[test]
+    fn remove_before_current_shifts_index() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(3);
+        let outcome = q.remove_track_at(1);
+        assert!(matches!(outcome, RemoveOutcome::Unaffected));
+        assert_eq!(q.current_index(), Some(2));
+        assert_eq!(q.current_track().map(|t| t.id), Some(3));
+        assert_eq!(q.len(), 4);
+    }
+
+    #[test]
+    fn remove_after_current_unchanged() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(2);
+        let outcome = q.remove_track_at(4);
+        assert!(matches!(outcome, RemoveOutcome::Unaffected));
+        assert_eq!(q.current_index(), Some(2));
+        assert_eq!(q.current_track().map(|t| t.id), Some(2));
+    }
+
+    #[test]
+    fn remove_current_non_last_returns_play_next() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(2);
+        let outcome = q.remove_track_at(2);
+        if let RemoveOutcome::PlayNext(t) = outcome {
+            assert_eq!(t.id, 3);
+        } else {
+            panic!("expected PlayNext");
+        }
+        assert_eq!(q.current_index(), Some(2));
+        assert_eq!(q.current_track().map(|t| t.id), Some(3));
+    }
+
+    #[test]
+    fn remove_current_last_returns_stopped() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.play_track_at(2);
+        let outcome = q.remove_track_at(2);
+        assert!(matches!(outcome, RemoveOutcome::Stopped));
+        assert_eq!(q.current_index(), None);
+        assert_eq!(q.len(), 2);
+    }
+
+    #[test]
+    fn remove_out_of_range_is_noop() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.play_track_at(1);
+        let outcome = q.remove_track_at(10);
+        assert!(matches!(outcome, RemoveOutcome::Unaffected));
+        assert_eq!(q.len(), 3);
+        assert_eq!(q.current_index(), Some(1));
+    }
+
+    #[test]
+    fn remove_with_shuffle_on_cleans_original_order() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(0);
+        q.set_shuffle(true);
+        // Remove the track at current shuffled index 1 (non-current).
+        q.remove_track_at(1);
+        assert_eq!(q.len(), 4);
+        // original_order should also have one fewer entry.
+        let orig = q.original_order_vec().unwrap();
+        assert_eq!(orig.len(), 4);
+        // Turning shuffle off should restore 4 tracks (not 5).
+        q.set_shuffle(false);
+        assert_eq!(q.tracks_vec().len(), 4);
     }
 
     #[test]

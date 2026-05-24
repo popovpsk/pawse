@@ -81,7 +81,7 @@ impl MediaBridge {
                     integration_clone
                         .update_position(*current_position.borrow(), MediaPlaybackState::Paused);
                 }
-                EngineEvent::TrackEnded => {
+                EngineEvent::TrackEnded | EngineEvent::Stopped => {
                     let services = cx.global::<Services>();
                     let queue = services.playback_queue.borrow();
                     if queue.current_track().is_none() {
