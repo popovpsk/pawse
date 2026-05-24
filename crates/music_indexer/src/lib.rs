@@ -927,4 +927,79 @@ FILE \"audio.flac\" WAVE
             "CUE track should inherit embedded cover art from audio file"
         );
     }
+
+    #[test]
+    fn test_scanner_cue_resolves_audio_by_stem_on_extension_mismatch() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+
+        // CUE references foo.wav (EAC convention) but only foo.flac exists on disk.
+        copy_fixture("tagged_basic.flac", &dir.join("foo.flac"));
+
+        let cue_content = "\
+FILE \"foo.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"Two\"
+    INDEX 01 00:01:00
+";
+        std::fs::write(dir.join("album.cue"), cue_content).unwrap();
+
+        let tracks: Vec<_> = collect_scan_events(dir)
+            .into_iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            tracks.len(),
+            2,
+            "CUE must expand by resolving foo.flac despite the .wav reference"
+        );
+        assert_eq!(tracks[0].title.as_deref(), Some("One"));
+    }
+
+    #[test]
+    fn test_scanner_cue_multi_disc_folder_layout() {
+        let tmp = TempDir::new();
+        let album_dir = tmp.path().join("2017 - Test Album [CAT-1]");
+        let cd2 = album_dir.join("CD2");
+        std::fs::create_dir_all(&cd2).unwrap();
+
+        copy_fixture("tagged_basic.flac", &cd2.join("disc2.flac"));
+
+        let cue_content = "\
+PERFORMER \"Artist\"
+TITLE \"Test Album CD2\"
+FILE \"disc2.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+";
+        std::fs::write(cd2.join("Artist - Test Album CD2.cue"), cue_content).unwrap();
+
+        let tracks: Vec<_> = collect_scan_events(tmp.path())
+            .into_iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(
+            tracks[0].disc_number,
+            Some(2),
+            "disc number must come from the CD2 folder"
+        );
+        assert_eq!(
+            tracks[0].album_title.as_deref(),
+            Some("Test Album"),
+            "album title must come from the cleaned parent folder so discs merge"
+        );
+    }
 }
