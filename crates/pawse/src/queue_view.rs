@@ -456,8 +456,18 @@ impl Render for QueueView {
                                             cx.new(|_| drag.clone())
                                         },
                                     )
-                                    .drag_over::<DraggedQueueTrack>(|style, _, _, cx| {
-                                        style.border_t_2().border_color(cx.theme().drag_border)
+                                    .drag_over::<DraggedQueueTrack>(move |style, drag, _, cx| {
+                                        // The dragged item lands below the target when moving
+                                        // down (the target shifts up after removal) and above
+                                        // it when moving up; match the indicator to that gap.
+                                        // When indicating the top gap, drop the row's own bottom
+                                        // divider so only the single indicator line shows.
+                                        let style = if drag.from_ix < track_ix {
+                                            style.border_b_2()
+                                        } else {
+                                            style.border_t_2().border_b(px(0.))
+                                        };
+                                        style.border_color(cx.theme().drag_border)
                                     })
                                     .on_drop(cx.listener(
                                         move |this, drag: &DraggedQueueTrack, _, cx| {
