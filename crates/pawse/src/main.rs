@@ -158,7 +158,13 @@ fn main() {
         .detach();
 
         cx.on_action(|_: &crate::app_menu::Rescan, cx| {
-            crate::settings_view::pick_and_add_folder(cx);
+            let folders = cx
+                .global::<crate::settings_store::SettingsStore>()
+                .music_folders()
+                .to_vec();
+            if !folders.is_empty() {
+                cx.global::<Services>().library.clear_and_rescan(folders);
+            }
         });
 
         cx.on_action(|_: &crate::app_menu::Quit, cx| {
