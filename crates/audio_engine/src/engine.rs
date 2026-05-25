@@ -405,6 +405,17 @@ impl AudioEngineLoop {
                 // ramp reaches zero (handled in handle_fade_event).
                 self.output.begin_fade(None, 0.0, FADE_SEEK_MS);
                 self.fade_intent = FadeIntent::SeekOut(position);
+                // Pin the UI to the target right away. The real seek is deferred
+                // ~160ms for the fade, so without this a PositionChanged that was
+                // already in flight (old position) would land after the slider
+                // moved and blink it back.
+                if let Some(target) = self.seek_target(position) {
+                    let relative = target.saturating_sub(self.track_start);
+                    self.last_position_update = relative;
+                    _ = self
+                        .event_sender
+                        .send(EngineEvent::PositionChanged(relative));
+                }
             }
             AudioEngineState::Paused => {
                 // Nothing is audible; seek straight away with no fade.
@@ -414,23 +425,32 @@ impl AudioEngineLoop {
         }
     }
 
+    /// Absolute decoder position for a seek `position` (a fraction of the
+    /// effective track range). `None` if there is no decoder or its duration
+    /// is unknown.
+    fn seek_target(&self, position: f32) -> Option<Duration> {
+        let file_duration = self.decoder.as_ref()?.duration().unwrap_or_default();
+        if file_duration == Duration::ZERO {
+            return None;
+        }
+        let effective_duration = self
+            .track_end
+            .unwrap_or(file_duration)
+            .saturating_sub(self.track_start);
+        Some(self.track_start + effective_duration.mul_f32(position))
+    }
+
     /// Clears the output, seeks the decoder to `position` (a fraction of the
     /// effective track range), and emits the new position.
     fn do_seek(&mut self, position: f32) {
         self.output.clear();
         self.needs_flush = true;
 
+        let Some(new_position) = self.seek_target(position) else {
+            return;
+        };
         let decoder = self.decoder.as_mut().unwrap();
         let file_duration = decoder.duration().unwrap_or_default();
-        if file_duration == Duration::ZERO {
-            return;
-        }
-
-        let effective_duration = self
-            .track_end
-            .unwrap_or(file_duration)
-            .saturating_sub(self.track_start);
-        let new_position = self.track_start + effective_duration.mul_f32(position);
 
         let seek_point = new_position.as_secs_f64() / file_duration.as_secs_f64();
         if let Err(e) = decoder.seek(seek_point as f32) {
