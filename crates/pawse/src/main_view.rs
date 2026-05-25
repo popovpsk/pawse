@@ -330,7 +330,7 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .bg(cx.theme().background)
+                    .bg(cx.theme().title_bar)
                     .child(left_group)
                     .when(!show_settings, |d| {
                         d.child(
@@ -339,7 +339,8 @@ impl Render for MainView {
                                     .with_size(Size::Medium)
                                     .focus_bordered(false)
                                     .rounded_full()
-                                    .cleanable(true),
+                                    .cleanable(true)
+                                    .bg(cx.theme().title_bar),
                             ),
                         )
                     })
@@ -425,7 +426,7 @@ impl Render for MainView {
             .when(!show_settings, |d| {
                 d.child(fade_overlay(
                     FadeEdge::Top,
-                    cx.theme().background,
+                    cx.theme().title_bar,
                     FADE_HEIGHT,
                     HEADER_HEIGHT,
                 ))
