@@ -43,6 +43,9 @@ pub(crate) trait Backend: Send + Sync {
     fn resume(&self);
     fn is_playing(&self) -> bool;
     fn set_volume(&self, volume: f32);
+    fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32);
+    fn take_fade_event(&self) -> Option<crate::FadeEvent>;
+    fn reset_fade(&self);
     fn set_hw_volume(&self, volume: f32);
     fn is_alive(&self) -> bool;
     fn take_event(&self) -> Option<ExclusiveEvent>;
@@ -124,6 +127,21 @@ impl ExclusiveOutput {
     /// Snapshot of device + app state for bit-perfect computation. Lock-free.
     pub(crate) fn device_snapshot(&self) -> DeviceSnapshot {
         self.backend.device_snapshot()
+    }
+
+    /// Starts a fade ramp (mirrors `CpalOutputStream::begin_fade`).
+    pub fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
+        self.backend.begin_fade(start, target, duration_ms);
+    }
+
+    /// Returns and clears a pending fade-completion signal from the IOProc.
+    pub fn take_fade_event(&self) -> Option<crate::FadeEvent> {
+        self.backend.take_fade_event()
+    }
+
+    /// Cancels any active fade and restores full gain.
+    pub fn reset_fade(&self) {
+        self.backend.reset_fade();
     }
 }
 

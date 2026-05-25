@@ -14,6 +14,11 @@ impl Backend for UnsupportedBackend {
         false
     }
     fn set_volume(&self, _: f32) {}
+    fn begin_fade(&self, _: Option<f32>, _: f32, _: u32) {}
+    fn take_fade_event(&self) -> Option<crate::FadeEvent> {
+        None
+    }
+    fn reset_fade(&self) {}
     fn set_hw_volume(&self, _: f32) {}
     fn is_alive(&self) -> bool {
         false

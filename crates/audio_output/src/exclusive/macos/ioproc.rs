@@ -23,6 +23,10 @@ pub(super) struct IoprocCtx {
     pub(super) buffer: Arc<AudioRingBuffer>,
     pub(super) volume: AtomicF32,
     pub(super) playing: std::sync::atomic::AtomicU8,
+    /// Fade envelope; shared with `apply_fade_gain` (same logic as shared mode).
+    pub(super) fade: crate::cpal_stream::FadeState,
+    pub(super) sample_rate: u32,
+    pub(super) channels: u8,
 }
 
 unsafe extern "C-unwind" fn ioproc_callback(
@@ -48,17 +52,27 @@ unsafe extern "C-unwind" fn ioproc_callback(
     let out = unsafe { slice::from_raw_parts_mut(buf_ptr, num_samples) };
 
     if ctx.playing.load(Ordering::Relaxed) == STATE_PLAYING {
+        // Frozen after a fade-out: emit silence but leave the buffer intact so
+        // resume can fade those same samples back in seamlessly.
+        if ctx.fade.is_frozen() {
+            for s in out.iter_mut() {
+                *s = 0.0;
+            }
+            return 0;
+        }
+
         let read = ctx.buffer.pop_slice(out);
 
+        // Combined volume + fade application. The near-unity skip inside keeps
+        // exclusive output bit-perfect when no fade is active and vol == 1.0.
         let vol = ctx.volume.load(Ordering::Relaxed);
-        // Skip the multiply when vol is "close enough" to 1.0 — the same
-        // tolerance bit_perfect_status uses, so the indicator and the actual
-        // signal path agree at boundary volumes (e.g. vol=0.99).
-        if vol < 1.0 - crate::bit_perfect::UNITY_VOLUME_TOLERANCE {
-            for s in &mut out[..read] {
-                *s *= vol;
-            }
-        }
+        crate::cpal_stream::apply_fade_gain(
+            &ctx.fade,
+            vol,
+            ctx.channels as usize,
+            &mut out[..read],
+        );
+
         for s in &mut out[read..] {
             *s = 0.0;
         }

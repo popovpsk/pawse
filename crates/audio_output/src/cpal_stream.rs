@@ -6,7 +6,9 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{OutputCallbackInfo, Stream, StreamConfig};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+use crate::FadeEvent;
 
 #[derive(Clone, Copy, Debug)]
 pub struct OutputConfig {
@@ -55,18 +57,118 @@ pub struct CpalOutputStream {
     inner: RwLock<CpalOutputStreamInner>,
     buffer: Arc<AudioRingBuffer>,
     volume: Arc<AtomicF32>,
+    fade: Arc<FadeState>,
     pub config: OutputConfig,
 }
 
-fn apply_volume(volume: &AtomicF32, b: &mut [f32]) {
-    let vol = volume.load(Ordering::Relaxed);
+/// Lock-free fade envelope shared between the control side (`begin_fade`) and
+/// the real-time callback. The callback ramps `gain` toward `target` by `step`
+/// (once per frame) and posts an `event` when it lands on the target.
+pub(crate) struct FadeState {
+    gain: AtomicF32,
+    step: AtomicF32,
+    target: AtomicF32,
+    event: AtomicU8,
+}
 
-    if vol >= 0.98 {
+impl FadeState {
+    pub(crate) fn new() -> Self {
+        Self {
+            gain: AtomicF32::new(1.0),
+            step: AtomicF32::new(0.0),
+            target: AtomicF32::new(1.0),
+            event: AtomicU8::new(0),
+        }
+    }
+
+    /// Starts a ramp toward `target` over `duration_ms`. If `start` is given,
+    /// the gain jumps there first (used to fade in from silence on resume).
+    pub(crate) fn begin(
+        &self,
+        sample_rate: u32,
+        start: Option<f32>,
+        target: f32,
+        duration_ms: u32,
+    ) {
+        if let Some(s) = start {
+            self.gain.store(s, Ordering::SeqCst);
+        }
+        let from = self.gain.load(Ordering::SeqCst);
+        let frames = sample_rate as f32 * (duration_ms as f32 / 1000.0);
+        let mag = if frames >= 1.0 { 1.0 / frames } else { 1.0 };
+        let step = if target >= from { mag } else { -mag };
+        self.target.store(target, Ordering::SeqCst);
+        self.event.store(0, Ordering::SeqCst);
+        // Store step last so the callback never sees a stale target/gain.
+        self.step.store(step, Ordering::SeqCst);
+    }
+
+    pub(crate) fn take_event(&self) -> Option<FadeEvent> {
+        match self.event.swap(0, Ordering::SeqCst) {
+            1 => Some(FadeEvent::FadedIn),
+            2 => Some(FadeEvent::FadedOut),
+            _ => None,
+        }
+    }
+
+    /// Cancels any ramp and pins the gain at unity. Used when (re)loading or
+    /// stopping a track so fresh content never inherits a stale/frozen gain.
+    pub(crate) fn reset(&self) {
+        self.step.store(0.0, Ordering::SeqCst);
+        self.target.store(1.0, Ordering::SeqCst);
+        self.gain.store(1.0, Ordering::SeqCst);
+        self.event.store(0, Ordering::SeqCst);
+    }
+
+    /// A completed fade-out (gain pinned at 0 with no active ramp) means the
+    /// callback should emit silence WITHOUT draining the ring buffer, so the
+    /// un-played samples survive for a seamless fade-in on resume.
+    pub(crate) fn is_frozen(&self) -> bool {
+        self.gain.load(Ordering::Relaxed) == 0.0 && self.step.load(Ordering::Relaxed) == 0.0
+    }
+}
+
+/// Applies `base_volume` and any active fade ramp to an interleaved buffer,
+/// stepping the fade gain once per frame and signalling completion.
+pub(crate) fn apply_fade_gain(
+    fade: &FadeState,
+    base_volume: f32,
+    channels: usize,
+    buf: &mut [f32],
+) {
+    let mut gain = fade.gain.load(Ordering::Relaxed);
+    let step = fade.step.load(Ordering::Relaxed);
+
+    if step == 0.0 {
+        // Steady gain: skip the multiply near unity so bit-perfect output is
+        // preserved (matches the tolerance the bit-perfect indicator uses).
+        let m = base_volume * gain;
+        if m >= 1.0 - crate::bit_perfect::UNITY_VOLUME_TOLERANCE {
+            return;
+        }
+        for s in buf.iter_mut() {
+            *s *= m;
+        }
         return;
     }
 
-    for sample in b {
-        *sample *= vol;
+    let target = fade.target.load(Ordering::Relaxed);
+    let ch = channels.max(1);
+    let mut completed = 0u8;
+    for (i, s) in buf.iter_mut().enumerate() {
+        *s *= base_volume * gain;
+        if completed == 0 && i % ch == ch - 1 {
+            gain += step;
+            if (step > 0.0 && gain >= target) || (step < 0.0 && gain <= target) {
+                gain = target;
+                completed = if target <= 0.0 { 2 } else { 1 };
+            }
+        }
+    }
+    fade.gain.store(gain, Ordering::Relaxed);
+    if completed != 0 {
+        fade.step.store(0.0, Ordering::Relaxed);
+        fade.event.store(completed, Ordering::Relaxed);
     }
 }
 
@@ -81,10 +183,24 @@ impl CpalOutputStream {
         let volume = Arc::new(AtomicF32::new(1.0));
         let volume_for_callback = volume.clone();
 
+        let fade = Arc::new(FadeState::new());
+        let fade_for_callback = fade.clone();
+        let channels = output_config.channels as usize;
+
         let cpal_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
+            // Frozen after a fade-out: emit silence but leave the buffer intact
+            // so resume can fade those same samples back in seamlessly.
+            if fade_for_callback.is_frozen() {
+                for sample in data.iter_mut() {
+                    *sample = 0.0;
+                }
+                return;
+            }
+
             let samples_read = buffer_for_callback.pop_slice(data);
 
-            apply_volume(&volume_for_callback, &mut data[..samples_read]);
+            let vol = volume_for_callback.load(Ordering::Relaxed);
+            apply_fade_gain(&fade_for_callback, vol, channels, &mut data[..samples_read]);
 
             //ToDo: notification warning
             for sample in &mut data[samples_read..] {
@@ -113,7 +229,25 @@ impl CpalOutputStream {
             buffer: buffer.clone(),
             config: output_config,
             volume,
+            fade,
         })
+    }
+
+    /// Starts a fade ramp toward `target` (0.0 = out, 1.0 = in) over
+    /// `duration_ms`. `start`, if given, seeds the gain before ramping.
+    pub fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
+        self.fade
+            .begin(self.config.sample_rate, start, target, duration_ms);
+    }
+
+    /// Returns and clears a pending fade-completion signal from the callback.
+    pub fn take_fade_event(&self) -> Option<FadeEvent> {
+        self.fade.take_event()
+    }
+
+    /// Cancels any active fade and restores full gain.
+    pub fn reset_fade(&self) {
+        self.fade.reset();
     }
 }
 

@@ -216,6 +216,9 @@ impl MacosBackend {
             buffer,
             volume: AtomicF32::new(1.0),
             playing: AtomicU8::new(STATE_IDLE),
+            fade: crate::cpal_stream::FadeState::new(),
+            sample_rate: config.sample_rate,
+            channels: config.channels,
         });
 
         // Step 1: init device state (without listeners yet)
@@ -335,6 +338,19 @@ impl Backend for MacosBackend {
 
     fn set_volume(&self, volume: f32) {
         self.shared.iopc_ctx.volume.store(volume, Ordering::Relaxed);
+    }
+
+    fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
+        let ctx = &self.shared.iopc_ctx;
+        ctx.fade.begin(ctx.sample_rate, start, target, duration_ms);
+    }
+
+    fn take_fade_event(&self) -> Option<crate::FadeEvent> {
+        self.shared.iopc_ctx.fade.take_event()
+    }
+
+    fn reset_fade(&self) {
+        self.shared.iopc_ctx.fade.reset();
     }
 
     fn set_hw_volume(&self, volume: f32) {

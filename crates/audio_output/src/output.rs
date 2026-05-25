@@ -24,6 +24,14 @@ enum OutputMode {
     Exclusive(exclusive::ExclusiveOutput),
 }
 
+/// Signal posted by the real-time callback when a fade ramp reaches its target.
+/// Drained by the engine via `Output::take_fade_event`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FadeEvent {
+    FadedIn,
+    FadedOut,
+}
+
 /// User-visible audio events. UI consumes via `drain_events`. Each variant is a
 /// single human-readable message; callers should display these as notifications.
 #[derive(Debug, Clone)]
@@ -369,6 +377,35 @@ impl Output {
             self.push_event(OutputEvent::Failure {
                 message: "No working audio device available.".to_string(),
             });
+        }
+    }
+
+    /// Starts a fade ramp on the active output. `target` 0.0 fades out, 1.0
+    /// fades in; `start` (if given) seeds the gain first. No-op while the
+    /// output is mid-transition (`current` is `None`).
+    pub fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
+        match self.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => s.begin_fade(start, target, duration_ms),
+            Some(OutputMode::Exclusive(e)) => e.begin_fade(start, target, duration_ms),
+            None => {}
+        }
+    }
+
+    /// Returns and clears a pending fade-completion signal from the callback.
+    pub fn take_fade_event(&self) -> Option<FadeEvent> {
+        match self.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => s.take_fade_event(),
+            Some(OutputMode::Exclusive(e)) => e.take_fade_event(),
+            None => None,
+        }
+    }
+
+    /// Cancels any active fade and restores full gain on the active output.
+    pub fn reset_fade(&self) {
+        match self.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => s.reset_fade(),
+            Some(OutputMode::Exclusive(e)) => e.reset_fade(),
+            None => {}
         }
     }
 

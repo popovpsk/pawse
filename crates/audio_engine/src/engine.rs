@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc, thread, time::Duration};
 use crate::{Command, EngineEvent};
 use audio_common::{AudioBatch, AudioSource};
 use audio_decoder::Decoder;
-use audio_output::{AudioOutput, Output};
+use audio_output::{AudioOutput, FadeEvent, Output};
 use flume::TryRecvError;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -13,7 +13,23 @@ enum AudioEngineState {
     Playing,
 }
 
+/// What the engine should do once the active fade ramp completes.
+#[derive(Debug, Clone, Copy)]
+enum FadeIntent {
+    None,
+    /// Fade-out running; pause the output when it lands at zero.
+    PauseOut,
+    /// Fade-out running; perform this seek when it lands at zero.
+    SeekOut(f32),
+    /// Fade-in running on resume; emit `Playing` when it lands at unity.
+    PlayIn,
+    /// Fade-in running after a seek; nothing to emit on completion.
+    SeekIn,
+}
+
 const POSITION_UPDATE_INTERVAL_MS: u64 = 200;
+const FADE_PAUSE_MS: u32 = 300;
+const FADE_SEEK_MS: u32 = 160;
 
 pub struct AudioEngine {
     command_sender: flume::Sender<Command>,
@@ -36,6 +52,7 @@ impl AudioEngine {
             track_start: Duration::ZERO,
             track_end: None,
             needs_flush: false,
+            fade_intent: FadeIntent::None,
         }
         .run();
 
@@ -108,6 +125,7 @@ struct AudioEngineLoop {
     track_start: Duration,
     track_end: Option<Duration>,
     needs_flush: bool,
+    fade_intent: FadeIntent,
 }
 
 impl AudioEngineLoop {
@@ -154,6 +172,16 @@ impl AudioEngineLoop {
                 continue;
             }
 
+            // A fade ramp may have just completed in the audio callback. When it
+            // resolves into a pause we restart the loop so the top blocks on
+            // `recv` instead of decoding ahead while parked. We deliberately keep
+            // `current_audio_batch`: it is the already-decoded remainder that
+            // didn't fit the ring buffer, and writing it first on resume is what
+            // makes playback continue from the exact same sample (no skip).
+            if self.handle_fade_event() {
+                continue;
+            }
+
             if self.needs_flush {
                 self.output.clear();
                 current_audio_batch = None;
@@ -165,6 +193,7 @@ impl AudioEngineLoop {
             {
                 self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
+                self.fade_intent = FadeIntent::None;
                 _ = self.event_sender.send(EngineEvent::TrackEnded);
                 continue;
             }
@@ -203,7 +232,11 @@ impl AudioEngineLoop {
             return;
         }
 
-        if self.state == AudioEngineState::Playing {
+        // While a seek fade is running we keep playing the OLD position to ramp
+        // it down, but the UI has already moved to the target. Stay quiet until
+        // `do_seek` emits the authoritative new position, or the slider snaps
+        // back for a moment.
+        if self.state == AudioEngineState::Playing && !self.is_seeking() {
             let relative = self.current_position.saturating_sub(self.track_start);
             if relative.saturating_sub(self.last_position_update)
                 >= Duration::from_millis(POSITION_UPDATE_INTERVAL_MS)
@@ -216,6 +249,13 @@ impl AudioEngineLoop {
         }
     }
 
+    fn is_seeking(&self) -> bool {
+        matches!(
+            self.fade_intent,
+            FadeIntent::SeekOut(_) | FadeIntent::SeekIn
+        )
+    }
+
     fn decode_next_batch(&mut self) -> Option<AudioBatch> {
         let decoder = self.decoder.as_mut()?;
 
@@ -225,6 +265,7 @@ impl AudioEngineLoop {
             Err(err) => {
                 self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
+                self.fade_intent = FadeIntent::None;
                 _ = self.event_sender.send(EngineEvent::Error(err.to_string()));
                 return None;
             }
@@ -235,6 +276,7 @@ impl AudioEngineLoop {
             None => {
                 self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
+                self.fade_intent = FadeIntent::None;
                 _ = self.event_sender.send(EngineEvent::TrackEnded);
                 return None;
             }
@@ -266,6 +308,8 @@ impl AudioEngineLoop {
     fn handle_stop(&mut self) {
         self.output.pause();
         self.output.clear();
+        self.output.reset_fade();
+        self.fade_intent = FadeIntent::None;
         self.needs_flush = true;
         self.decoder = None;
         self.last_position_update = Duration::ZERO;
@@ -286,6 +330,8 @@ impl AudioEngineLoop {
         track_duration: Option<Duration>,
     ) {
         self.output.clear();
+        self.output.reset_fade();
+        self.fade_intent = FadeIntent::None;
         self.needs_flush = true;
         self.decoder = None;
         self.last_position_update = Duration::ZERO;
@@ -296,7 +342,7 @@ impl AudioEngineLoop {
         let decoder = match Decoder::open(path.as_path()) {
             Ok(decoder) => decoder,
             Err(_) => {
-                self.handle_pause();
+                self.output.pause();
                 self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
                 return;
@@ -354,47 +400,67 @@ impl AudioEngineLoop {
 
     fn handle_seek(&mut self, position: f32) {
         match self.state {
-            AudioEngineState::Paused | AudioEngineState::Playing => {
-                self.output.clear();
-                self.needs_flush = true;
-
-                let decoder = self.decoder.as_mut().unwrap();
-                let file_duration = decoder.duration().unwrap_or_default();
-                if file_duration == Duration::ZERO {
-                    return;
-                }
-
-                let effective_duration = self
-                    .track_end
-                    .unwrap_or(file_duration)
-                    .saturating_sub(self.track_start);
-                let new_position = self.track_start + effective_duration.mul_f32(position);
-
-                let file_dur = file_duration;
-                let seek_point = new_position.as_secs_f64() / file_dur.as_secs_f64();
-                if let Err(e) = decoder.seek(seek_point as f32) {
-                    eprintln!("Seek error: {}", e);
-                    return;
-                }
-                self.current_position = new_position;
-                let relative = new_position.saturating_sub(self.track_start);
-                self.last_position_update = relative;
-                _ = self
-                    .event_sender
-                    .send(EngineEvent::PositionChanged(relative));
+            AudioEngineState::Playing => {
+                // Duck out first; the actual seek + fade-in happens once the
+                // ramp reaches zero (handled in handle_fade_event).
+                self.output.begin_fade(None, 0.0, FADE_SEEK_MS);
+                self.fade_intent = FadeIntent::SeekOut(position);
+            }
+            AudioEngineState::Paused => {
+                // Nothing is audible; seek straight away with no fade.
+                self.do_seek(position);
             }
             AudioEngineState::TrackNotSet => {}
         }
     }
 
+    /// Clears the output, seeks the decoder to `position` (a fraction of the
+    /// effective track range), and emits the new position.
+    fn do_seek(&mut self, position: f32) {
+        self.output.clear();
+        self.needs_flush = true;
+
+        let decoder = self.decoder.as_mut().unwrap();
+        let file_duration = decoder.duration().unwrap_or_default();
+        if file_duration == Duration::ZERO {
+            return;
+        }
+
+        let effective_duration = self
+            .track_end
+            .unwrap_or(file_duration)
+            .saturating_sub(self.track_start);
+        let new_position = self.track_start + effective_duration.mul_f32(position);
+
+        let seek_point = new_position.as_secs_f64() / file_duration.as_secs_f64();
+        if let Err(e) = decoder.seek(seek_point as f32) {
+            eprintln!("Seek error: {}", e);
+            return;
+        }
+        self.current_position = new_position;
+        let relative = new_position.saturating_sub(self.track_start);
+        self.last_position_update = relative;
+        _ = self
+            .event_sender
+            .send(EngineEvent::PositionChanged(relative));
+    }
+
     fn handle_play(&mut self) {
         match self.state {
-            AudioEngineState::Playing => {}
+            AudioEngineState::Playing => {
+                // Reversal: a pause fade-out is in flight — fade back in instead.
+                if matches!(self.fade_intent, FadeIntent::PauseOut) {
+                    self.output.begin_fade(None, 1.0, FADE_PAUSE_MS);
+                    self.fade_intent = FadeIntent::PlayIn;
+                }
+            }
             AudioEngineState::TrackNotSet => {}
             AudioEngineState::Paused => {
                 self.set_state(AudioEngineState::Playing);
                 self.output.resume();
-                _ = self.event_sender.send(EngineEvent::Playing);
+                self.output.begin_fade(Some(0.0), 1.0, FADE_PAUSE_MS);
+                self.fade_intent = FadeIntent::PlayIn;
+                // `Playing` is emitted when the fade-in completes.
             }
         }
     }
@@ -403,11 +469,58 @@ impl AudioEngineLoop {
         match self.state {
             AudioEngineState::Paused => {}
             AudioEngineState::Playing => {
-                self.set_state(AudioEngineState::Paused);
-                self.output.pause();
-                _ = self.event_sender.send(EngineEvent::Paused);
+                if matches!(self.fade_intent, FadeIntent::PauseOut) {
+                    return;
+                }
+                // If a seek fade-out hasn't applied its jump yet, apply it now so
+                // we pause at the position the user actually selected rather than
+                // the pre-seek one (the slider already moved there).
+                if let FadeIntent::SeekOut(position) = self.fade_intent {
+                    self.do_seek(position);
+                }
+                // Stay in Playing and keep feeding the buffer so the ramp is
+                // smooth; the real pause + `Paused` event fire on completion.
+                self.output.begin_fade(None, 0.0, FADE_PAUSE_MS);
+                self.fade_intent = FadeIntent::PauseOut;
             }
             AudioEngineState::TrackNotSet => {}
+        }
+    }
+
+    /// Acts on a fade ramp that just completed in the audio callback. Returns
+    /// `true` if the engine transitioned to a parked (paused) state and the
+    /// run loop should restart.
+    fn handle_fade_event(&mut self) -> bool {
+        let Some(event) = self.output.take_fade_event() else {
+            return false;
+        };
+
+        match (event, self.fade_intent) {
+            (FadeEvent::FadedOut, FadeIntent::PauseOut) => {
+                self.fade_intent = FadeIntent::None;
+                // No clear: the un-played buffered samples stay pristine so the
+                // next fade-in resumes from the exact same spot.
+                self.output.pause();
+                self.set_state(AudioEngineState::Paused);
+                _ = self.event_sender.send(EngineEvent::Paused);
+                true
+            }
+            (FadeEvent::FadedOut, FadeIntent::SeekOut(position)) => {
+                self.do_seek(position);
+                self.output.begin_fade(Some(0.0), 1.0, FADE_SEEK_MS);
+                self.fade_intent = FadeIntent::SeekIn;
+                false
+            }
+            (FadeEvent::FadedIn, FadeIntent::PlayIn) => {
+                self.fade_intent = FadeIntent::None;
+                _ = self.event_sender.send(EngineEvent::Playing);
+                false
+            }
+            (FadeEvent::FadedIn, FadeIntent::SeekIn) => {
+                self.fade_intent = FadeIntent::None;
+                false
+            }
+            _ => false,
         }
     }
 

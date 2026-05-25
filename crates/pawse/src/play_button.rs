@@ -20,6 +20,8 @@ impl PlayButton {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
 
+        // The engine emits these when a fade completes; they are authoritative
+        // and reconcile the optimistic icon set in `on_click`.
         let subscription =
             cx.subscribe(
                 &engine_event_bus,
@@ -48,11 +50,17 @@ impl PlayButton {
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
+        // Flip the icon instantly to reflect intent. The engine fades over
+        // ~300ms and then emits the matching event (which just confirms this
+        // state). A second click while the fade is running reverses it.
         if self.state.is_playing {
             services.engine_manager.pause();
+            self.state.is_playing = false;
         } else {
             services.engine_manager.play();
+            self.state.is_playing = true;
         }
+        cx.notify();
     }
 }
 
