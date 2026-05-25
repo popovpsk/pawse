@@ -16,7 +16,7 @@ pub const LIKE_BUTTON_SIZE: f32 = 26.;
 
 pub fn like_button(track_id: i64, liked: bool, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
-    let muted_bg = theme.muted;
+    let hover_bg = theme.accent;
     let icon_color = if liked {
         theme.primary
     } else {
@@ -39,7 +39,7 @@ pub fn like_button(track_id: i64, liked: bool, cx: &App) -> impl IntoElement {
         .when(!liked, |d| {
             d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         })
-        .hover(|s| s.bg(muted_bg))
+        .hover(|s| s.bg(hover_bg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();

@@ -246,7 +246,7 @@ impl Render for PlaylistTracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let border = theme.border;
-        let secondary = theme.secondary;
+        let list_hover = theme.list_hover;
         let muted = theme.muted;
         let muted_fg = theme.muted_foreground;
         let foreground = theme.foreground;
@@ -375,11 +375,10 @@ impl Render for PlaylistTracksView {
                                     .pr_2()
                                     .gap_2()
                                     .items_center()
-                                    .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
                                     .border_color(border)
-                                    .when(is_current, |s| s.bg(secondary))
-                                    .hover(|s| s.bg(secondary))
+                                    .when(is_current, |s| crate::row_style::current_row(s, cx))
+                                    .hover(|s| s.bg(list_hover))
                                     .child(leading)
                                     .child(
                                         div()

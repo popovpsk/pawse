@@ -238,7 +238,7 @@ impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let border = theme.border;
-        let secondary = theme.secondary;
+        let list_hover = theme.list_hover;
         let muted_fg = theme.muted_foreground;
         let foreground = theme.foreground;
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
@@ -311,11 +311,10 @@ impl Render for TracksView {
                                     .pr_2()
                                     .gap_2()
                                     .items_center()
-                                    .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
                                     .border_color(border)
-                                    .when(is_current, |style| style.bg(secondary))
-                                    .hover(|style| style.bg(secondary))
+                                    .when(is_current, |s| crate::row_style::current_row(s, cx))
+                                    .hover(|style| style.bg(list_hover))
                                     .child(if is_current {
                                         let icon = if view.is_playing {
                                             "icons/play.svg"

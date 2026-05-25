@@ -27,6 +27,7 @@ pub mod prev_button;
 pub mod queue_button;
 pub mod queue_view;
 pub mod repeat_button;
+pub mod row_style;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;

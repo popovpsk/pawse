@@ -17,7 +17,7 @@ const ICON_SIZE: f32 = 14.;
 /// disabled — caller must check `playlists_enabled` first.
 pub fn add_to_playlist_button(track_id: i64, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
-    let muted_bg = theme.muted;
+    let hover_bg = theme.accent;
     let icon_color = theme.muted_foreground;
 
     div()
@@ -33,7 +33,7 @@ pub fn add_to_playlist_button(track_id: i64, cx: &App) -> impl IntoElement {
         .cursor_pointer()
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-        .hover(|s| s.bg(muted_bg))
+        .hover(|s| s.bg(hover_bg))
         .tooltip(|window, cx| Tooltip::new("Add to playlist").build(window, cx))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |event, _, cx| {
@@ -59,7 +59,7 @@ pub fn add_to_playlist_button(track_id: i64, cx: &App) -> impl IntoElement {
 /// Removes the track from the playlist (and from the active queue).
 pub fn remove_from_playlist_button(track_id: i64, playlist_id: i64, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
-    let muted_bg = theme.muted;
+    let hover_bg = theme.accent;
     let icon_color = theme.muted_foreground;
 
     div()
@@ -75,7 +75,7 @@ pub fn remove_from_playlist_button(track_id: i64, playlist_id: i64, cx: &App) ->
         .cursor_pointer()
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-        .hover(|s| s.bg(muted_bg))
+        .hover(|s| s.bg(hover_bg))
         .tooltip(|window, cx| Tooltip::new("Remove from playlist").build(window, cx))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {

@@ -120,6 +120,7 @@ impl Render for Footer {
             .h_full()
             .items_center()
             .px_4()
+            .bg(cx.theme().background)
             .child(self.now_playing.clone())
             .child(
                 v_flex()

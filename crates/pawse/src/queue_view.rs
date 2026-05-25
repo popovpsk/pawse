@@ -213,7 +213,8 @@ impl Render for QueueView {
         let muted = theme.muted;
         let muted_fg = theme.muted_foreground;
         let border = theme.border;
-        let secondary = theme.secondary;
+        let accent = theme.accent;
+        let list_hover = theme.list_hover;
         let settings = cx.global::<SettingsStore>();
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
@@ -315,11 +316,10 @@ impl Render for QueueView {
                                     .pr_2()
                                     .gap_2()
                                     .items_center()
-                                    .cursor(gpui::CursorStyle::PointingHand)
                                     .border_b(px(1.))
                                     .border_color(border)
-                                    .when(is_current, |s| s.bg(secondary))
-                                    .hover(|s| s.bg(secondary))
+                                    .when(is_current, |s| crate::row_style::current_row(s, cx))
+                                    .hover(|s| s.bg(list_hover))
                                     .child(div().flex_shrink_0().child(left_cell))
                                     .child(
                                         div()
@@ -391,7 +391,7 @@ impl Render for QueueView {
                                             .cursor(gpui::CursorStyle::PointingHand)
                                             .opacity(0.)
                                             .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-                                            .hover(|s| s.bg(muted))
+                                            .hover(|s| s.bg(accent))
                                             .tooltip(|window, cx| {
                                                 gpui_component::tooltip::Tooltip::new(
                                                     "Remove from queue",

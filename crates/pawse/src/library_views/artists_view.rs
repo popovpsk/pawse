@@ -149,6 +149,7 @@ impl Render for ArtistsView {
         let theme = cx.theme();
         let border = theme.border;
         let secondary = theme.secondary;
+        let list_hover = theme.list_hover;
         let muted_fg = theme.muted_foreground;
 
         if self.is_scanning && self.artists_all.is_empty() {
@@ -208,8 +209,7 @@ impl Render for ArtistsView {
                                 .gap_3()
                                 .border_b(px(1.))
                                 .border_color(border)
-                                .cursor(gpui::CursorStyle::PointingHand)
-                                .hover(|style| style.bg(secondary))
+                                .hover(|style| style.bg(list_hover))
                                 .child(artist_avatar(&covers, AVATAR_SIZE, secondary, muted_fg))
                                 .child(
                                     div()

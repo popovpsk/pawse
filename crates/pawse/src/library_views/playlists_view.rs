@@ -134,7 +134,7 @@ impl Render for PlaylistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let border = theme.border;
-        let secondary = theme.secondary;
+        let list_hover = theme.list_hover;
         let muted_fg = theme.muted_foreground;
         let danger_fg = theme.foreground;
 
@@ -228,7 +228,7 @@ impl Render for PlaylistsView {
                     .when(!pending_delete, |d| {
                         d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
                     })
-                    .hover(|s| s.bg(theme.muted))
+                    .hover(|s| s.bg(theme.accent))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.pending_delete_id = Some(playlist_id);
@@ -250,8 +250,7 @@ impl Render for PlaylistsView {
                     .items_center()
                     .border_b(px(1.))
                     .border_color(border)
-                    .cursor(gpui::CursorStyle::PointingHand)
-                    .hover(|s| s.bg(secondary))
+                    .hover(|s| s.bg(list_hover))
                     .child(
                         svg()
                             .path("icons/s1-playlists.svg")

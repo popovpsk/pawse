@@ -15,7 +15,7 @@ pub fn add_to_queue_button(
     cx: &App,
 ) -> impl IntoElement {
     let theme = cx.theme();
-    let muted_bg = theme.muted;
+    let hover_bg = theme.accent;
     let icon_color = theme.muted_foreground;
 
     div()
@@ -31,7 +31,7 @@ pub fn add_to_queue_button(
         .cursor_pointer()
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-        .hover(|s| s.bg(muted_bg))
+        .hover(|s| s.bg(hover_bg))
         .tooltip(|window, cx| Tooltip::new("Add to queue").build(window, cx))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {

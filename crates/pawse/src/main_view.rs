@@ -330,6 +330,7 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
+                    .bg(cx.theme().background)
                     .child(left_group)
                     .when(!show_settings, |d| {
                         d.child(
@@ -349,6 +350,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
+                    .bg(cx.theme().title_bar)
                     .child(
                         div()
                             .flex_1()
@@ -367,6 +369,7 @@ impl Render for MainView {
                                     .child(div().size_full().child(
                                         crate::settings_view::settings_widget(
                                             self.settings_pages.clone(),
+                                            cx,
                                         ),
                                     ))
                                     .into_any_element()

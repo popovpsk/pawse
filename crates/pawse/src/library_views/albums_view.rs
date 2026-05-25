@@ -161,6 +161,7 @@ impl Render for AlbumsView {
         let theme = cx.theme();
         let border = theme.border;
         let secondary = theme.secondary;
+        let list_hover = theme.list_hover;
         let muted_fg = theme.muted_foreground;
 
         if self.is_scanning && self.albums_all.is_empty() {
@@ -229,8 +230,7 @@ impl Render for AlbumsView {
                                 .gap_2()
                                 .border_b(px(1.))
                                 .border_color(border)
-                                .cursor(gpui::CursorStyle::PointingHand)
-                                .hover(|style| style.bg(secondary))
+                                .hover(|style| style.bg(list_hover))
                                 .child({
                                     let fallback_bg = secondary;
                                     let fallback_fg = muted_fg;

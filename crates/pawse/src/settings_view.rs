@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use gpui::{
     AnyElement, App, Axis, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
-    anchored, deferred, div, point, prelude::FluentBuilder, px,
+    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement,
+    StyleRefinement, Styled, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable,
@@ -109,8 +109,13 @@ pub fn build_settings_pages(cx: &App, picker: Entity<ThemePickerState>) -> Vec<S
 }
 
 /// Wrap pre-built pages into the `Settings` element for inline rendering.
-pub fn settings_widget(pages: Vec<SettingPage>) -> Settings {
-    Settings::new("pawse-settings").pages(pages)
+/// The category sidebar background is overridden to match the central content
+/// surface (`title_bar`) instead of the default `sidebar` token.
+pub fn settings_widget(pages: Vec<SettingPage>, cx: &App) -> Settings {
+    let sidebar_style = StyleRefinement::default().bg(cx.theme().title_bar);
+    Settings::new("pawse-settings")
+        .pages(pages)
+        .sidebar_style(&sidebar_style)
 }
 
 /// Spawn an OS folder picker on a background thread, then add the chosen
@@ -182,7 +187,7 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
                                 .px_3()
                                 .py_1p5()
                                 .rounded(px(6.))
-                                .bg(cx.theme().background)
+                                .bg(cx.theme().title_bar)
                                 .border_1()
                                 .border_color(cx.theme().border)
                                 .cursor_pointer()
