@@ -1,16 +1,19 @@
 use gpui::{
-    Context, IntoElement, ParentElement, Render, Styled, StyledImage, Window, div, img, px,
+    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, px,
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 use ui_components::cover_placeholder::cover_placeholder;
 
+use crate::now_playing::NavigateToArtistRequested;
 use crate::queue_button::add_album_to_queue_button;
 use crate::services::Services;
 
 pub struct AlbumInfo {
     album_id: i64,
     title: String,
-    artist_name: String,
+    artist_name: SharedString,
+    artist_id: Option<i64>,
     year: Option<i32>,
     cover_art_id: Option<i64>,
 }
@@ -20,17 +23,21 @@ impl AlbumInfo {
         Self {
             album_id: album.id,
             title: album.title.clone(),
-            artist_name: album.artist_name.clone(),
+            artist_name: album.artist_name.clone().into(),
+            artist_id: album.artist_id,
             year: album.year,
             cover_art_id: album.cover_art_id,
         }
     }
 }
 
+impl EventEmitter<NavigateToArtistRequested> for AlbumInfo {}
+
 impl Render for AlbumInfo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted_fg = cx.theme().muted_foreground;
         let album_id = self.album_id;
+        let artist_id = self.artist_id;
 
         h_flex()
             .w_full()
@@ -73,12 +80,29 @@ impl Render for AlbumInfo {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(self.title.clone()),
                     )
-                    .child(
+                    .child(if let Some(aid) = artist_id {
+                        h_flex()
+                            .child(
+                                div()
+                                    .id(("al_artist", aid as u64))
+                                    .text_sm()
+                                    .text_color(muted_fg)
+                                    .cursor_pointer()
+                                    .border_b(px(1.))
+                                    .hover(|s| s.border_color(muted_fg))
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.emit(NavigateToArtistRequested { artist_id: aid });
+                                    }))
+                                    .child(self.artist_name.clone()),
+                            )
+                            .into_any_element()
+                    } else {
                         div()
                             .text_sm()
                             .text_color(muted_fg)
-                            .child(self.artist_name.clone()),
-                    )
+                            .child(self.artist_name.clone())
+                            .into_any_element()
+                    })
                     .child(if let Some(year) = self.year {
                         div().text_sm().text_color(muted_fg).child(year.to_string())
                     } else {

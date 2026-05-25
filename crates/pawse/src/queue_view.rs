@@ -218,6 +218,8 @@ impl Render for QueueView {
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
         let show_track_duration = settings.show_track_duration();
+        let show_queue_actions = settings.show_queue_actions();
+        let show_queue_artist = settings.show_queue_artist();
         let header = h_flex()
             .w_full()
             .h(px(HEADER_HEIGHT))
@@ -331,17 +333,19 @@ impl Render for QueueView {
                                             })
                                             .child(track.title.clone()),
                                     )
-                                    .child(
-                                        div()
-                                            .min_w(px(0.))
-                                            .max_w(px(110.))
-                                            .overflow_hidden()
-                                            .truncate()
-                                            .text_sm()
-                                            .text_color(muted_fg)
-                                            .child(artist),
-                                    )
-                                    .when(playlists_enabled, |row| {
+                                    .when(show_queue_artist, |row| {
+                                        row.child(
+                                            div()
+                                                .min_w(px(0.))
+                                                .max_w(px(110.))
+                                                .overflow_hidden()
+                                                .truncate()
+                                                .text_sm()
+                                                .text_color(muted_fg)
+                                                .child(artist),
+                                        )
+                                    })
+                                    .when(show_queue_actions && playlists_enabled, |row| {
                                         row.child(
                                             div()
                                                 .flex_shrink_0()
@@ -352,7 +356,7 @@ impl Render for QueueView {
                                                 .child(add_to_playlist_button(track_id, cx)),
                                         )
                                     })
-                                    .when(liked_enabled, |row| {
+                                    .when(show_queue_actions && liked_enabled, |row| {
                                         row.child(
                                             div()
                                                 .flex_shrink_0()

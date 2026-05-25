@@ -11,6 +11,7 @@ use crate::library_views::liked_view::LikedView;
 use crate::library_views::playlist_tracks_view::PlaylistTracksView;
 use crate::library_views::playlists_view::{PlaylistSelectedEvent, PlaylistsView};
 use crate::library_views::tracks_view::TracksView;
+use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -49,6 +50,7 @@ pub struct LibraryView {
     _playlist_subscription: Subscription,
     _settings_subscription: Subscription,
     _settings_observer: Subscription,
+    _tracks_artist_subscription: Option<Subscription>,
 }
 
 impl LibraryView {
@@ -100,6 +102,7 @@ impl LibraryView {
                 this.tracks_view = None;
                 this.artist_tracks_view = None;
                 this.playlist_tracks_view = None;
+                this._tracks_artist_subscription = None;
                 cx.emit(LibraryViewEvent::StateChanged);
                 cx.notify();
             }
@@ -119,6 +122,7 @@ impl LibraryView {
             _playlist_subscription: playlist_subscription,
             _settings_subscription: settings_subscription,
             _settings_observer: settings_observer,
+            _tracks_artist_subscription: None,
         }
     }
 
@@ -147,6 +151,7 @@ impl LibraryView {
         self.tracks_view = None;
         self.artist_tracks_view = None;
         self.playlist_tracks_view = None;
+        self._tracks_artist_subscription = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -196,6 +201,7 @@ impl LibraryView {
         self.tracks_view = None;
         self.artist_tracks_view = None;
         self.playlist_tracks_view = None;
+        self._tracks_artist_subscription = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -237,6 +243,12 @@ impl LibraryView {
     ) {
         self.state = LibraryViewState::AlbumTracks;
         let tracks_view = cx.new(|cx| TracksView::new(&album, cx));
+        self._tracks_artist_subscription = Some(cx.subscribe(
+            &tracks_view,
+            |this, _, event: &NavigateToArtistRequested, cx| {
+                this.navigate_to_artist(event.artist_id, cx);
+            },
+        ));
         self.tracks_view = Some(tracks_view);
         self.artist_tracks_view = None;
         self.playlist_tracks_view = None;
@@ -250,6 +262,7 @@ impl LibraryView {
         self.artist_tracks_view = Some(artist_tracks_view);
         self.tracks_view = None;
         self.playlist_tracks_view = None;
+        self._tracks_artist_subscription = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -265,6 +278,7 @@ impl LibraryView {
         self.playlist_tracks_view = Some(view);
         self.tracks_view = None;
         self.artist_tracks_view = None;
+        self._tracks_artist_subscription = None;
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }

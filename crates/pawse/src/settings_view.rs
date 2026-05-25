@@ -101,7 +101,9 @@ fn confirm_save(key: &SharedString, state: &mut ThemePickerState, cx: &mut App) 
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
 pub fn build_settings_pages(cx: &App, picker: Entity<ThemePickerState>) -> Vec<SettingPage> {
     vec![
-        SettingPage::new("Interface").group(interface_group(cx, picker)),
+        SettingPage::new("Interface")
+            .group(interface_group(cx, picker))
+            .group(queue_group()),
         SettingPage::new("Library").group(library_group()),
     ]
 }
@@ -464,27 +466,6 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
         )
         .item(
             SettingItem::new(
-                "Queue: Track duration",
-                SettingField::render(|_opts, _window, cx: &mut App| {
-                    let show = cx.global::<SettingsStore>().show_track_duration();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("track-duration-toggle").checked(show).on_click(
-                            |new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_show_track_duration(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            },
-                        ),
-                    )
-                }),
-            )
-            .description("Show or hide the track duration in the queue"),
-        )
-        .item(
-            SettingItem::new(
                 "Liked tracks",
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().liked_enabled();
@@ -527,6 +508,74 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
             .description(
                 "Show the Playlists tab and the add-to-playlist button on every track row.",
             ),
+        )
+}
+
+fn queue_group() -> SettingGroup {
+    SettingGroup::new()
+        .title("Queue")
+        .item(
+            SettingItem::new(
+                "Track duration",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_track_duration();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("track-duration-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_track_duration(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description("Show or hide the track duration in the queue"),
+        )
+        .item(
+            SettingItem::new(
+                "Action buttons",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_queue_actions();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("queue-actions-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_queue_actions(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description("Show or hide the add-to-playlist and like buttons in the queue"),
+        )
+        .item(
+            SettingItem::new(
+                "Artist name",
+                SettingField::render(|_opts, _window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_queue_artist();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("queue-artist-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_queue_artist(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description("Show or hide the artist name in the queue"),
         )
 }
 

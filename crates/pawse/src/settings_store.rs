@@ -161,6 +161,10 @@ pub struct UserSettings {
     pub playlists_enabled: bool,
     #[serde(default = "default_true")]
     pub show_track_duration: bool,
+    #[serde(default = "default_true")]
+    pub show_queue_actions: bool,
+    #[serde(default = "default_true")]
+    pub show_queue_artist: bool,
 }
 
 impl Default for UserSettings {
@@ -176,6 +180,8 @@ impl Default for UserSettings {
             liked_enabled: true,
             playlists_enabled: true,
             show_track_duration: true,
+            show_queue_actions: true,
+            show_queue_artist: true,
         }
     }
 }
@@ -320,6 +326,24 @@ impl SettingsStore {
 
     pub fn set_show_track_duration(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_track_duration = show;
+        self.save()
+    }
+
+    pub fn show_queue_actions(&self) -> bool {
+        self.settings.show_queue_actions
+    }
+
+    pub fn set_show_queue_actions(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_queue_actions = show;
+        self.save()
+    }
+
+    pub fn show_queue_artist(&self) -> bool {
+        self.settings.show_queue_artist
+    }
+
+    pub fn set_show_queue_artist(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_queue_artist = show;
         self.save()
     }
 }
@@ -557,6 +581,8 @@ mod tests {
             liked_enabled: true,
             playlists_enabled: true,
             show_track_duration: true,
+            show_queue_actions: true,
+            show_queue_artist: true,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();

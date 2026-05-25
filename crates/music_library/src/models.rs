@@ -43,6 +43,7 @@ pub struct AlbumSummary {
     pub year: Option<i32>,
     pub cover_art_id: Option<i64>,
     pub artist_name: String,
+    pub artist_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

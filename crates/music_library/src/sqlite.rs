@@ -292,7 +292,8 @@ impl LibraryRepository for SqliteLibrary {
                 a.title,
                 a.year,
                 a.cover_art_id,
-                art.name
+                art.name,
+                art.id
             FROM albums a
             LEFT JOIN album_artists aa ON aa.album_id = a.id AND aa.position = 0
             LEFT JOIN artists art ON art.id = aa.artist_id
@@ -306,6 +307,7 @@ impl LibraryRepository for SqliteLibrary {
                 year: row.get(2)?,
                 cover_art_id: row.get(3)?,
                 artist_name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                artist_id: row.get::<_, Option<i64>>(5)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()

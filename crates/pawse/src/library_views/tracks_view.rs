@@ -3,9 +3,9 @@ use std::rc::Rc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, ElementId, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, px, size, svg,
+    AppContext, Context, ElementId, Entity, EventEmitter, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, px, size, svg,
 };
 use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use nucleo_matcher::{
@@ -16,6 +16,7 @@ use nucleo_matcher::{
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
 use crate::like_button::{LIKE_ROW_GROUP, like_button};
+use crate::now_playing::NavigateToArtistRequested;
 use crate::playlist_buttons::add_to_playlist_button;
 use crate::queue_button::add_to_queue_button;
 use crate::services::Services;
@@ -48,6 +49,7 @@ pub struct TracksView {
     is_playing: bool,
     _subscription: Subscription,
     _library_subscription: Subscription,
+    _album_info_subscription: Subscription,
 }
 
 impl TracksView {
@@ -136,6 +138,15 @@ impl TracksView {
                 }
             });
 
+        let album_info_subscription = cx.subscribe(
+            &album_info,
+            |_, _, event: &NavigateToArtistRequested, cx| {
+                cx.emit(NavigateToArtistRequested {
+                    artist_id: event.artist_id,
+                });
+            },
+        );
+
         Self {
             tracks_all,
             tracks,
@@ -149,6 +160,7 @@ impl TracksView {
             is_playing,
             _subscription: subscription,
             _library_subscription: library_subscription,
+            _album_info_subscription: album_info_subscription,
         }
     }
 
@@ -219,6 +231,8 @@ impl TracksView {
         self.item_sizes = Rc::new(item_sizes_vec);
     }
 }
+
+impl EventEmitter<NavigateToArtistRequested> for TracksView {}
 
 impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
