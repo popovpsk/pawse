@@ -229,10 +229,12 @@ impl LibraryService {
             }
 
             if paths.is_empty() {
-                if let Err(e) = session.finish() {
-                    eprintln!("Failed to finish scan session: {}", e);
+                match session.finish() {
+                    Ok(()) => {
+                        finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                    }
+                    Err(e) => eprintln!("Failed to finish scan session: {}", e),
                 }
-                finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
                 let _ = event_tx.send(LibraryEvent::ScanComplete);
                 return;
             }
@@ -268,10 +270,15 @@ impl LibraryService {
                 }
             }
 
-            if let Err(e) = session.finish() {
-                eprintln!("Failed to finish scan session: {}", e);
+            // Only finalize (and record the fingerprint) if the final commit
+            // succeeded. Otherwise the fast path would lock in a partially
+            // written library and never rescan to repair it.
+            match session.finish() {
+                Ok(()) => {
+                    finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                }
+                Err(e) => eprintln!("Failed to finish scan session: {}", e),
             }
-            finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
             let _ = event_tx.send(LibraryEvent::ScanComplete);
         });
     }

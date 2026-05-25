@@ -240,8 +240,10 @@ fn emit_track(
                                 "Failed to generate cover thumbnail for {:?}: {e}",
                                 track.path
                             );
-                            // No Cover emitted: the writer inserts these tracks
-                            // cover-less at finish.
+                            // Release the claim so a peer can retry; otherwise the
+                            // hash stays claimed-but-unfulfilled and every track
+                            // sharing this cover is written art-less at finish.
+                            claimed.lock().unwrap().remove(&hash);
                         }
                     }
                 }

@@ -1127,8 +1127,11 @@ impl ScanSession {
         let duration_ms = track.duration_ms.map(|n| n as i64);
         let start_offset_ms = track.start_offset_ms.unwrap_or(0) as i64;
 
-        self.conn.execute(
-            r#"INSERT INTO tracks
+        // OR IGNORE: the same file can appear under two overlapping scan roots.
+        // The UNIQUE(path, start_offset_ms) index drops the duplicate instead of
+        // failing the statement.
+        let inserted = self.conn.execute(
+            r#"INSERT OR IGNORE INTO tracks
                 (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
             rusqlite::params![
@@ -1143,6 +1146,12 @@ impl ScanSession {
                 start_offset_ms,
             ],
         )?;
+        // A duplicate was ignored: bail before linking artists, otherwise
+        // last_insert_rowid() would still point at the prior insert and we'd
+        // attach track_artists rows to the wrong track.
+        if inserted == 0 {
+            return self.maybe_commit();
+        }
         let track_id = self.conn.last_insert_rowid();
 
         for (artist_id, position) in &artist_ids {
