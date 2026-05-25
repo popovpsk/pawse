@@ -1,9 +1,12 @@
+pub mod cue;
 pub mod metadata;
+pub mod pipeline;
 pub mod scanner;
 pub mod types;
 
+pub use pipeline::{collect_sources, run};
 pub use scanner::DirectoryScanner;
-pub use types::{ScanEvent, ScannedTrack};
+pub use types::{PreparedTrack, ScanEvent, ScannedTrack, SourceSet};
 
 #[cfg(test)]
 mod tests {
@@ -923,7 +926,7 @@ FILE \"audio.flac\" WAVE
             .collect();
         assert_eq!(tracks.len(), 1, "CUE track should be parsed");
         assert!(
-            tracks[0].cover_art.is_some(),
+            tracks[0].cover_hash.is_some(),
             "CUE track should inherit embedded cover art from audio file"
         );
     }
@@ -961,6 +964,50 @@ FILE \"foo.wav\" WAVE
             "CUE must expand by resolving foo.flac despite the .wav reference"
         );
         assert_eq!(tracks[0].title.as_deref(), Some("One"));
+    }
+
+    // ── collect_sources: fast-path fingerprint ───────────────────────
+
+    #[test]
+    fn test_collect_sources_fingerprint_stable_then_changes() {
+        let tmp = TempDir::new();
+        copy_fixture_wav(&tmp.path().join("a.wav"));
+        let folders = vec![tmp.path().to_path_buf()];
+
+        let s1 = crate::collect_sources(&folders);
+        let s2 = crate::collect_sources(&folders);
+        assert_eq!(
+            s1.fingerprint, s2.fingerprint,
+            "fingerprint must be stable when nothing changed"
+        );
+        assert_eq!(s1.audio_files.len(), 1);
+
+        copy_fixture_wav(&tmp.path().join("b.wav"));
+        let s3 = crate::collect_sources(&folders);
+        assert_ne!(
+            s1.fingerprint, s3.fingerprint,
+            "fingerprint must change when a file is added"
+        );
+        assert_eq!(s3.audio_files.len(), 2);
+    }
+
+    #[test]
+    fn test_collect_sources_excludes_cue_referenced_audio() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("audio.wav"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "FILE \"audio.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"X\"\n    INDEX 01 00:00:00\n",
+        )
+        .unwrap();
+
+        let sources = crate::collect_sources(&[dir.to_path_buf()]);
+        assert_eq!(sources.cue_files.len(), 1);
+        assert!(
+            sources.audio_files.is_empty(),
+            "cue-referenced audio must not be indexed as a standalone file"
+        );
     }
 
     #[test]

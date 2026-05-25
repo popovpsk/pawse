@@ -3,8 +3,25 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
-    PlaylistTrackRef, Track,
+    PlaylistTrackRef, ScanTrack, Track,
 };
+
+/// A batched, single-transaction sink for a full rescan. Implementations own a
+/// dedicated DB connection (separate from the repository's read connection) so
+/// the UI can keep reading while a scan writes. Covers and tracks arrive in any
+/// order; a track whose cover hash has not been seen yet is buffered until the
+/// matching [`add_cover`](ScanWrite::add_cover) (or inserted cover-less at
+/// [`finish`](ScanWrite::finish)).
+pub trait ScanWrite: Send {
+    /// Wipe tracks/artists/albums (keeping `cover_art`, like [`LibraryRepository::clear`]).
+    fn clear(&mut self) -> Result<()>;
+    /// Register a freshly generated cover thumbnail by content hash.
+    fn add_cover(&mut self, hash: &str, small: Vec<u8>, large: Vec<u8>) -> Result<()>;
+    /// Insert one scanned track, resolving artists/album/cover from caches.
+    fn add_track(&mut self, track: ScanTrack) -> Result<()>;
+    /// Flush any buffered tracks and commit.
+    fn finish(self: Box<Self>) -> Result<()>;
+}
 
 pub trait LibraryRepository: Send + Sync {
     fn upsert_artist(&self, name: &str) -> Result<i64>;
@@ -60,4 +77,20 @@ pub trait LibraryRepository: Send + Sync {
     /// dropped silently; the surviving refs are renumbered into a dense
     /// position sequence per playlist.
     fn restore_playlist_track_refs(&self, refs: &[PlaylistTrackRef]) -> Result<()>;
+
+    /// All `(hash, id)` pairs in `cover_art`. Lets the scan pipeline skip
+    /// thumbnail generation for covers that already exist (they survive
+    /// `clear()`), which is why the 2nd scan is much faster than the 1st.
+    fn cover_art_hashes(&self) -> Result<Vec<(String, i64)>>;
+
+    /// Open a batched scan-write session on a dedicated connection.
+    fn open_scan_session(&self) -> Result<Box<dyn ScanWrite>>;
+
+    /// Fingerprint of the filesystem state captured at the last successful
+    /// scan, or `None` if never scanned. See [`set_scan_meta`](LibraryRepository::set_scan_meta).
+    fn scan_fingerprint(&self) -> Result<Option<String>>;
+    /// Serialized folder set from the last successful scan.
+    fn scan_folders(&self) -> Result<Option<String>>;
+    /// Persist the fingerprint + folder set after a successful scan.
+    fn set_scan_meta(&self, fingerprint: &str, folders: &str) -> Result<()>;
 }

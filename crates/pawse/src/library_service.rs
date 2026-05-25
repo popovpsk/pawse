@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use music_indexer::{DirectoryScanner, ScanEvent};
-use music_library::{LibraryRepository, NewTrack, SqliteLibrary};
+use music_indexer::{PreparedTrack, ScanEvent};
+use music_library::{LibraryRepository, PlaylistTrackRef, ScanTrack, SqliteLibrary};
 
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
@@ -184,6 +184,20 @@ impl LibraryService {
         std::thread::spawn(move || {
             let _ = event_tx.send(LibraryEvent::ScanStarted);
 
+            // Cheap walk + fingerprint. Fast path: if nothing on disk changed
+            // since the last successful scan, skip all DB work entirely. This
+            // is what makes run-on-launch / background rescans viable.
+            let sources = music_indexer::collect_sources(&paths);
+            let folders_key = serialize_folders(&paths);
+            let unchanged = repo.has_tracks().unwrap_or(false)
+                && matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
+                && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
+            if unchanged {
+                let _ = event_tx.send(LibraryEvent::ScanComplete);
+                return;
+            }
+            let fingerprint = sources.fingerprint.clone();
+
             // Snapshot playlist memberships by (path, start_offset_ms) before
             // the clear wipes the `tracks` table — rescanned tracks get fresh
             // ids, so without this the playlist contents would silently
@@ -193,128 +207,119 @@ impl LibraryService {
                 Vec::new()
             });
 
-            if let Err(e) = repo.clear() {
+            // Covers survive clear(); hand the pipeline their hashes so it skips
+            // regenerating thumbnails that already exist.
+            let known_hashes: HashSet<String> = repo
+                .cover_art_hashes()
+                .map(|pairs| pairs.into_iter().map(|(hash, _)| hash).collect())
+                .unwrap_or_default();
+
+            let mut session = match repo.open_scan_session() {
+                Ok(session) => session,
+                Err(e) => {
+                    eprintln!("Failed to open scan session: {}", e);
+                    let _ = event_tx.send(LibraryEvent::ScanComplete);
+                    return;
+                }
+            };
+            if let Err(e) = session.clear() {
                 eprintln!("Failed to clear library: {}", e);
                 let _ = event_tx.send(LibraryEvent::ScanComplete);
                 return;
             }
 
             if paths.is_empty() {
-                if let Err(e) = repo.restore_playlist_track_refs(&playlist_refs) {
-                    eprintln!("Failed to restore playlist tracks: {}", e);
+                if let Err(e) = session.finish() {
+                    eprintln!("Failed to finish scan session: {}", e);
                 }
-                if let Err(e) = repo.delete_orphaned_albums_and_artists() {
-                    eprintln!("Failed to clean up orphaned cover art: {}", e);
-                }
+                finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
                 let _ = event_tx.send(LibraryEvent::ScanComplete);
                 return;
             }
 
-            let (scan_tx, scan_rx) = flume::unbounded();
-            let scan_paths = paths.clone();
+            // Run the parallel pipeline on its own thread; consume its events
+            // here and feed the batched writer. The bounded channel applies
+            // backpressure so cover bytes don't pile up in memory.
+            let (scan_tx, scan_rx) = flume::bounded(512);
             std::thread::spawn(move || {
-                for path in scan_paths {
-                    DirectoryScanner::scan(path, scan_tx.clone());
-                }
-                // Dropping `scan_tx` closes the channel; main thread loop exits.
-                drop(scan_tx);
+                music_indexer::run(sources, known_hashes, scan_tx);
             });
 
-            let mut total_scanned: usize = 0;
             loop {
                 match scan_rx.recv() {
+                    Ok(ScanEvent::Cover { hash, small, large }) => {
+                        if let Err(e) = session.add_cover(&hash, small, large) {
+                            eprintln!("Failed to insert cover art: {}", e);
+                        }
+                    }
                     Ok(ScanEvent::Track(track)) => {
-                        if let Err(e) = insert_scanned_track(&*repo, &track) {
+                        if let Err(e) = session.add_track(to_scan_track(track)) {
                             eprintln!("Failed to insert track: {}", e);
                         }
                     }
                     Ok(ScanEvent::Progress { scanned }) => {
-                        total_scanned = total_scanned.saturating_add(scanned);
-                        let _ = event_tx.send(LibraryEvent::ScanProgress {
-                            scanned: total_scanned,
-                        });
-                    }
-                    Ok(ScanEvent::Complete) => {
-                        // Per-folder Complete is collapsed into a single
-                        // ScanComplete emitted after the last folder finishes.
+                        let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
                     }
                     Ok(ScanEvent::Error { path, error }) => {
                         eprintln!("Scan error for {}: {}", path.display(), error);
                     }
-                    Err(_) => {
-                        if let Err(e) = repo.restore_playlist_track_refs(&playlist_refs) {
-                            eprintln!("Failed to restore playlist tracks: {}", e);
-                        }
-                        if let Err(e) = repo.delete_orphaned_albums_and_artists() {
-                            eprintln!("Failed to clean up orphaned cover art: {}", e);
-                        }
-                        let _ = event_tx.send(LibraryEvent::ScanComplete);
-                        break;
-                    }
+                    Ok(ScanEvent::Complete) => break,
+                    Err(_) => break, // pipeline thread gone
                 }
             }
+
+            if let Err(e) = session.finish() {
+                eprintln!("Failed to finish scan session: {}", e);
+            }
+            finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
         });
     }
 }
 
-fn insert_scanned_track(
-    repo: &dyn LibraryRepository,
-    track: &music_indexer::ScannedTrack,
-) -> anyhow::Result<()> {
-    let mut artist_ids = Vec::new();
-    for (pos, name) in track.artist_names.iter().enumerate() {
-        let id = repo.upsert_artist(name)?;
-        artist_ids.push((id, pos as i32));
-    }
+/// Serialize the scanned folder set into a stable key, so a fast-path skip only
+/// happens when the same folders are being scanned as last time.
+fn serialize_folders(paths: &[PathBuf]) -> String {
+    let mut items: Vec<String> = paths
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    items.sort();
+    items.join("\n")
+}
 
-    let cover_art_id = match track.cover_art.as_ref() {
-        None => None,
-        Some(data) => match repo.save_cover_art(data) {
-            Ok(id) => Some(id),
-            Err(e) => {
-                eprintln!("Failed to save cover art for {:?}: {e}", track.path);
-                None
-            }
-        },
-    };
-
-    let album_id = if let Some(ref album_title) = track.album_title {
-        let album_id = repo.upsert_album(album_title, track.year, cover_art_id)?;
-
-        if !repo.album_has_artists(album_id)? {
-            let album_artist_names = if !track.album_artist_names.is_empty() {
-                &track.album_artist_names
-            } else {
-                &track.artist_names
-            };
-            let mut album_artist_ids = Vec::new();
-            for (pos, name) in album_artist_names.iter().enumerate() {
-                let id = repo.upsert_artist(name)?;
-                album_artist_ids.push((id, pos as i32));
-            }
-            if !album_artist_ids.is_empty() {
-                repo.set_album_artists(album_id, &album_artist_ids)?;
-            }
-        }
-        Some(album_id)
-    } else {
-        None
-    };
-
-    let new_track = NewTrack {
+fn to_scan_track(track: PreparedTrack) -> ScanTrack {
+    ScanTrack {
         path: track.path.to_string_lossy().into_owned(),
-        title: track.title.clone(),
-        album_title: track.album_title.clone(),
-        artist_names: track.artist_names.clone(),
-        album_artist_names: track.album_artist_names.clone(),
+        title: track.title,
+        album_title: track.album_title,
+        artist_names: track.artist_names,
+        album_artist_names: track.album_artist_names,
         track_number: track.track_number,
         disc_number: track.disc_number,
         year: track.year,
         duration_ms: track.duration_ms,
-        cover_art_id,
+        cover_hash: track.cover_hash,
         start_offset_ms: track.start_offset_ms,
-    };
-    repo.upsert_track(&new_track, album_id, &artist_ids)?;
+    }
+}
 
-    Ok(())
+/// Post-scan cleanup, run on the main connection after the writer connection is
+/// dropped: re-link playlists by content key, drop orphaned albums/artists/
+/// covers, and record the fingerprint that future fast-path checks compare to.
+fn finalize_rescan(
+    repo: &dyn LibraryRepository,
+    playlist_refs: &[PlaylistTrackRef],
+    fingerprint: &str,
+    folders_key: &str,
+) {
+    if let Err(e) = repo.restore_playlist_track_refs(playlist_refs) {
+        eprintln!("Failed to restore playlist tracks: {}", e);
+    }
+    if let Err(e) = repo.delete_orphaned_albums_and_artists() {
+        eprintln!("Failed to clean up orphaned cover art: {}", e);
+    }
+    if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
+        eprintln!("Failed to store scan fingerprint: {}", e);
+    }
 }

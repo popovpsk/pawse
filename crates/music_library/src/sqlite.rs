@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension};
@@ -8,9 +8,13 @@ use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
-    PlaylistTrackRef, Track,
+    PlaylistTrackRef, ScanTrack, Track,
 };
-use crate::repository::LibraryRepository;
+use crate::repository::{LibraryRepository, ScanWrite};
+
+/// Tracks committed per transaction during a batched scan. One `fsync` per
+/// batch (with `synchronous = NORMAL`) instead of one per track.
+const SCAN_BATCH_SIZE: usize = 256;
 
 const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
     duration_ms, year, cover_art_id, start_offset_ms, liked";
@@ -33,6 +37,32 @@ fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
 
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
+    db_path: PathBuf,
+}
+
+/// Remove the SQLite database and its WAL sidecar files. Used when an
+/// incompatible on-disk schema is detected (no users → no migrations).
+fn remove_db_files(db_path: &Path) {
+    let _ = std::fs::remove_file(db_path);
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = db_path.as_os_str().to_owned();
+        sidecar.push(suffix);
+        let _ = std::fs::remove_file(PathBuf::from(sidecar));
+    }
+}
+
+fn apply_pragmas(conn: &Connection) -> Result<()> {
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    // WAL lets the scan-writer connection commit concurrently with UI reads on
+    // the main connection; NORMAL drops the per-commit fsync to one per WAL
+    // checkpoint — the single biggest reindex speedup, especially on Windows.
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    // The scan writer holds a transaction open across each batch; without a
+    // busy timeout a concurrent UI write (e.g. liking a track mid-scan) would
+    // fail with SQLITE_BUSY instead of waiting for the batch to commit.
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    Ok(())
 }
 
 impl SqliteLibrary {
@@ -78,17 +108,31 @@ impl SqliteLibrary {
                     )
                     .map(|c| c > 0)
                     .unwrap_or(false);
+                let has_scan_meta: bool = check_conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scan_meta'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
                 drop(check_conn);
-                if !has_cover_art || !has_liked || !has_playlists || !has_playlist_unique {
-                    let _ = std::fs::remove_file(&db_path);
+                if !has_cover_art
+                    || !has_liked
+                    || !has_playlists
+                    || !has_playlist_unique
+                    || !has_scan_meta
+                {
+                    remove_db_files(&db_path);
                 }
             }
         }
 
         let conn = Connection::open(&db_path)?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
+        apply_pragmas(&conn)?;
         let lib = Self {
             conn: Mutex::new(conn),
+            db_path,
         };
         lib.run_migrations()?;
         Ok(lib)
@@ -99,9 +143,10 @@ impl SqliteLibrary {
         let db_dir = path.parent().unwrap_or(path);
         std::fs::create_dir_all(db_dir)?;
         let conn = Connection::open(path)?;
-        conn.pragma_update(None, "foreign_keys", "ON")?;
+        apply_pragmas(&conn)?;
         let lib = Self {
             conn: Mutex::new(conn),
+            db_path: path.to_path_buf(),
         };
         lib.run_migrations()?;
         Ok(lib)
@@ -870,6 +915,315 @@ impl LibraryRepository for SqliteLibrary {
         }
         Ok(map)
     }
+
+    fn cover_art_hashes(&self) -> Result<Vec<(String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT hash, id FROM cover_art")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn open_scan_session(&self) -> Result<Box<dyn ScanWrite>> {
+        Ok(Box::new(ScanSession::open(&self.db_path)?))
+    }
+
+    fn scan_fingerprint(&self) -> Result<Option<String>> {
+        self.scan_meta_value("fingerprint")
+    }
+
+    fn scan_folders(&self) -> Result<Option<String>> {
+        self.scan_meta_value("folders")
+    }
+
+    fn set_scan_meta(&self, fingerprint: &str, folders: &str) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO scan_meta (key, value) VALUES ('fingerprint', ?1) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [fingerprint],
+        )?;
+        tx.execute(
+            "INSERT INTO scan_meta (key, value) VALUES ('folders', ?1) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [folders],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+impl SqliteLibrary {
+    fn scan_meta_value(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let value = conn
+            .query_row("SELECT value FROM scan_meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?;
+        Ok(value)
+    }
+}
+
+/// Batched scan writer on a dedicated WAL connection. Holds one transaction
+/// open across `SCAN_BATCH_SIZE` track inserts, then commits and reopens — so
+/// the whole rescan costs a handful of `fsync`s instead of thousands. All
+/// id resolution (artists / albums / covers) is served from in-memory caches,
+/// eliminating the per-track `SELECT`s the old per-op path did.
+pub struct ScanSession {
+    conn: Connection,
+    in_tx: bool,
+    uncommitted: usize,
+    artist_cache: HashMap<String, i64>,
+    album_cache: HashMap<(String, Option<i32>), i64>,
+    album_artists_set: HashSet<i64>,
+    cover_cache: HashMap<String, i64>,
+    pending_by_hash: HashMap<String, Vec<ScanTrack>>,
+}
+
+impl ScanSession {
+    fn open(db_path: &Path) -> Result<Self> {
+        let conn = Connection::open(db_path)?;
+        apply_pragmas(&conn)?;
+
+        // Covers survive clear(), so seed the hash→id cache up front: most
+        // covers on a re-scan resolve here with neither a thumbnail nor a SELECT.
+        let mut cover_cache = HashMap::new();
+        {
+            let mut stmt = conn.prepare("SELECT hash, id FROM cover_art")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            for row in rows {
+                let (hash, id) = row?;
+                cover_cache.insert(hash, id);
+            }
+        }
+
+        let mut session = Self {
+            conn,
+            in_tx: false,
+            uncommitted: 0,
+            artist_cache: HashMap::new(),
+            album_cache: HashMap::new(),
+            album_artists_set: HashSet::new(),
+            cover_cache,
+            pending_by_hash: HashMap::new(),
+        };
+        session.begin()?;
+        Ok(session)
+    }
+
+    fn begin(&mut self) -> Result<()> {
+        if !self.in_tx {
+            self.conn.execute_batch("BEGIN")?;
+            self.in_tx = true;
+        }
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<()> {
+        if self.in_tx {
+            self.conn.execute_batch("COMMIT")?;
+            self.in_tx = false;
+            self.uncommitted = 0;
+        }
+        Ok(())
+    }
+
+    fn maybe_commit(&mut self) -> Result<()> {
+        self.uncommitted += 1;
+        if self.uncommitted >= SCAN_BATCH_SIZE {
+            self.commit()?;
+            self.begin()?;
+        }
+        Ok(())
+    }
+
+    fn resolve_artist(&mut self, name: &str) -> Result<i64> {
+        if let Some(&id) = self.artist_cache.get(name) {
+            return Ok(id);
+        }
+        let sort_name = compute_sort_name(name);
+        self.conn.execute(
+            "INSERT INTO artists (name, sort_name) VALUES (?1, ?2)",
+            [name, &sort_name],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        self.artist_cache.insert(name.to_string(), id);
+        Ok(id)
+    }
+
+    fn resolve_album(
+        &mut self,
+        title: &str,
+        year: Option<i32>,
+        cover_id: Option<i64>,
+    ) -> Result<i64> {
+        let key = (title.to_string(), year);
+        if let Some(&id) = self.album_cache.get(&key) {
+            // First cover wins (matches the old upsert behavior of filling a
+            // missing cover from whichever track carries one).
+            if let Some(cid) = cover_id {
+                self.conn.execute(
+                    "UPDATE albums SET cover_art_id = ?1 WHERE id = ?2 AND cover_art_id IS NULL",
+                    rusqlite::params![cid, id],
+                )?;
+            }
+            return Ok(id);
+        }
+        self.conn.execute(
+            "INSERT INTO albums (title, year, cover_art_id) VALUES (?1, ?2, ?3)",
+            rusqlite::params![title, year, cover_id],
+        )?;
+        let id = self.conn.last_insert_rowid();
+        self.album_cache.insert(key, id);
+        Ok(id)
+    }
+
+    fn insert_track(&mut self, track: ScanTrack) -> Result<()> {
+        let cover_id = track
+            .cover_hash
+            .as_ref()
+            .and_then(|h| self.cover_cache.get(h).copied());
+
+        let mut artist_ids = Vec::with_capacity(track.artist_names.len());
+        for (pos, name) in track.artist_names.iter().enumerate() {
+            let id = self.resolve_artist(name)?;
+            artist_ids.push((id, pos as i64));
+        }
+
+        let album_id = if let Some(title) = &track.album_title {
+            let album_id = self.resolve_album(title, track.year, cover_id)?;
+            if !self.album_artists_set.contains(&album_id) {
+                let names = if !track.album_artist_names.is_empty() {
+                    track.album_artist_names.clone()
+                } else {
+                    track.artist_names.clone()
+                };
+                for (pos, name) in names.iter().enumerate() {
+                    let artist_id = self.resolve_artist(name)?;
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO album_artists (album_id, artist_id, position) VALUES (?1, ?2, ?3)",
+                        [album_id, artist_id, pos as i64],
+                    )?;
+                }
+                self.album_artists_set.insert(album_id);
+            }
+            Some(album_id)
+        } else {
+            None
+        };
+
+        let title = track
+            .title
+            .clone()
+            .unwrap_or_else(|| fallback_title_from_path(&track.path));
+        let track_number = track.track_number.map(|n| n as i64);
+        let disc_number = track.disc_number.unwrap_or(1) as i64;
+        let duration_ms = track.duration_ms.map(|n| n as i64);
+        let start_offset_ms = track.start_offset_ms.unwrap_or(0) as i64;
+
+        self.conn.execute(
+            r#"INSERT INTO tracks
+                (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            rusqlite::params![
+                track.path,
+                title,
+                album_id,
+                track_number,
+                disc_number,
+                duration_ms,
+                track.year,
+                cover_id,
+                start_offset_ms,
+            ],
+        )?;
+        let track_id = self.conn.last_insert_rowid();
+
+        for (artist_id, position) in &artist_ids {
+            self.conn.execute(
+                "INSERT INTO track_artists (track_id, artist_id, role, position) VALUES (?1, ?2, 'main', ?3)",
+                [track_id, *artist_id, *position],
+            )?;
+        }
+
+        self.maybe_commit()
+    }
+}
+
+impl ScanWrite for ScanSession {
+    fn clear(&mut self) -> Result<()> {
+        // Same delete set as SqliteLibrary::clear — cover_art is intentionally
+        // kept so the hash→id cache (and PlaybackQueue cover ids) stay valid.
+        self.conn.execute_batch(
+            "DELETE FROM playlist_tracks; \
+             DELETE FROM track_artists; \
+             DELETE FROM album_artists; \
+             DELETE FROM tracks; \
+             DELETE FROM albums; \
+             DELETE FROM artists;",
+        )?;
+        Ok(())
+    }
+
+    fn add_cover(&mut self, hash: &str, small: Vec<u8>, large: Vec<u8>) -> Result<()> {
+        if !self.cover_cache.contains_key(hash) {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO cover_art (hash, small, large) VALUES (?1, ?2, ?3)",
+                rusqlite::params![hash, small, large],
+            )?;
+            let id: i64 =
+                self.conn
+                    .query_row("SELECT id FROM cover_art WHERE hash = ?1", [hash], |row| {
+                        row.get(0)
+                    })?;
+            self.cover_cache.insert(hash.to_string(), id);
+        }
+        if let Some(tracks) = self.pending_by_hash.remove(hash) {
+            for track in tracks {
+                self.insert_track(track)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn add_track(&mut self, track: ScanTrack) -> Result<()> {
+        if let Some(hash) = &track.cover_hash
+            && !self.cover_cache.contains_key(hash)
+        {
+            // Cover thumbnail hasn't been inserted yet; hold the track until the
+            // matching add_cover arrives (it always does for a claimed hash).
+            self.pending_by_hash
+                .entry(hash.clone())
+                .or_default()
+                .push(track);
+            return Ok(());
+        }
+        self.insert_track(track)
+    }
+
+    fn finish(mut self: Box<Self>) -> Result<()> {
+        // Any track still waiting on a cover that never materialized (e.g. a
+        // thumbnail-generation error) is inserted cover-less.
+        let leftovers: Vec<ScanTrack> = self
+            .pending_by_hash
+            .drain()
+            .flat_map(|(_, tracks)| tracks)
+            .map(|mut t| {
+                t.cover_hash = None;
+                t
+            })
+            .collect();
+        for track in leftovers {
+            self.insert_track(track)?;
+        }
+        self.commit()
+    }
 }
 
 fn compute_sort_name(name: &str) -> String {
@@ -893,6 +1247,13 @@ fn fallback_title_from_path(path: &str) -> String {
 }
 
 fn compute_sha256(data: &[u8]) -> String {
+    sha256_hex(data)
+}
+
+/// Hex-encoded SHA-256 of `data`. Used both for cover-art content addressing
+/// and for the scan fingerprint, so the indexer can dedupe covers with the
+/// exact same hash the DB stores.
+pub fn sha256_hex(data: &[u8]) -> String {
     use sha2::Digest;
     let hash = sha2::Sha256::digest(data);
     format!("{:x}", hash)

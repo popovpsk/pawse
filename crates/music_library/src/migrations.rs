@@ -93,4 +93,13 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             ON playlist_tracks(playlist_id, track_id);
         "#,
     ),
+    (
+        3,
+        r#"
+        CREATE TABLE scan_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        "#,
+    ),
 ];

@@ -8,10 +8,10 @@ pub mod thumbnail;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Playlist,
-    PlaylistSummary, PlaylistTrackRef, Track,
+    PlaylistSummary, PlaylistTrackRef, ScanTrack, Track,
 };
-pub use repository::LibraryRepository;
-pub use sqlite::SqliteLibrary;
+pub use repository::{LibraryRepository, ScanWrite};
+pub use sqlite::{SqliteLibrary, sha256_hex};
 
 #[cfg(test)]
 mod tests {
@@ -946,6 +946,124 @@ mod tests {
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "Kept");
+    }
+
+    #[test]
+    fn test_scan_session_buffers_track_until_cover_arrives() {
+        // A track may reach the writer before its cover thumbnail; it must be
+        // buffered and linked once add_cover lands.
+        let (lib, _path) = create_test_db();
+        let cover = make_test_jpeg(&[10, 20, 30]);
+        let hash = sha256_hex(&cover);
+        let thumbs = crate::thumbnail::generate_thumbnails(&cover).unwrap();
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_track(ScanTrack {
+                path: "/music/a.flac".into(),
+                title: Some("A".into()),
+                album_title: Some("Album".into()),
+                artist_names: vec!["Artist".into()],
+                album_artist_names: vec!["Artist".into()],
+                track_number: Some(1),
+                disc_number: Some(1),
+                year: Some(2020),
+                duration_ms: Some(1000),
+                cover_hash: Some(hash.clone()),
+                start_offset_ms: None,
+            })
+            .unwrap();
+        session
+            .add_cover(&hash, thumbs.small, thumbs.large)
+            .unwrap();
+        session.finish().unwrap();
+
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].title, "Album");
+        assert_eq!(albums[0].artist_name, "Artist");
+        assert!(albums[0].cover_art_id.is_some());
+        let tracks = lib.tracks_for_album(albums[0].id).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].title, "A");
+        assert_eq!(tracks[0].cover_art_id, albums[0].cover_art_id);
+    }
+
+    #[test]
+    fn test_scan_session_reuses_existing_cover_without_add_cover() {
+        // A cover already in the DB (survives clear) resolves by hash from the
+        // seeded cache — no add_cover needed, no duplicate row.
+        let (lib, _path) = create_test_db();
+        let cover = make_test_jpeg(&[1, 2, 3]);
+        let existing_id = lib.save_cover_art(&cover).unwrap();
+        let hash = sha256_hex(&cover);
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_track(ScanTrack {
+                path: "/m/x.flac".into(),
+                title: Some("X".into()),
+                album_title: Some("Al".into()),
+                artist_names: vec!["Ar".into()],
+                album_artist_names: vec![],
+                track_number: Some(1),
+                disc_number: Some(1),
+                year: None,
+                duration_ms: None,
+                cover_hash: Some(hash),
+                start_offset_ms: None,
+            })
+            .unwrap();
+        session.finish().unwrap();
+
+        let albums = lib.albums().unwrap();
+        let tracks = lib.tracks_for_album(albums[0].id).unwrap();
+        assert_eq!(tracks[0].cover_art_id, Some(existing_id));
+    }
+
+    #[test]
+    fn test_scan_session_commits_across_batch_boundary() {
+        // Exercise the COMMIT/BEGIN cycle: insert well over SCAN_BATCH_SIZE.
+        let (lib, _path) = create_test_db();
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        for i in 0..600 {
+            session
+                .add_track(ScanTrack {
+                    path: format!("/m/{i}.flac"),
+                    title: Some(format!("T{i}")),
+                    album_title: Some("Big".into()),
+                    artist_names: vec!["Ar".into()],
+                    album_artist_names: vec!["Ar".into()],
+                    track_number: Some(i as u32),
+                    disc_number: Some(1),
+                    year: Some(2020),
+                    duration_ms: Some(1000),
+                    cover_hash: None,
+                    start_offset_ms: None,
+                })
+                .unwrap();
+        }
+        session.finish().unwrap();
+
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(lib.tracks_for_album(albums[0].id).unwrap().len(), 600);
+    }
+
+    #[test]
+    fn test_scan_meta_roundtrip() {
+        let (lib, _path) = create_test_db();
+        assert!(lib.scan_fingerprint().unwrap().is_none());
+        assert!(lib.scan_folders().unwrap().is_none());
+        lib.set_scan_meta("fp123", "/a\n/b").unwrap();
+        assert_eq!(lib.scan_fingerprint().unwrap(), Some("fp123".into()));
+        assert_eq!(lib.scan_folders().unwrap(), Some("/a\n/b".into()));
+        lib.set_scan_meta("fp456", "/c").unwrap();
+        assert_eq!(lib.scan_fingerprint().unwrap(), Some("fp456".into()));
+        assert_eq!(lib.scan_folders().unwrap(), Some("/c".into()));
     }
 
     #[test]
