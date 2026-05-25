@@ -312,7 +312,8 @@ impl Render for LikedView {
                                     .group(LIKE_ROW_GROUP)
                                     .w_full()
                                     .h(px(TRACK_ROW_HEIGHT))
-                                    .px_4()
+                                    .pl_4()
+                                    .pr_2()
                                     .gap_2()
                                     .items_center()
                                     .cursor(gpui::CursorStyle::PointingHand)
@@ -347,14 +348,8 @@ impl Render for LikedView {
                                     .when(liked_enabled, |row| {
                                         row.child(like_button(track_id, liked, cx))
                                     })
-                                    .child(
-                                        div()
-                                            .w_16()
-                                            .text_sm()
-                                            .text_color(muted_fg)
-                                            .child(duration_str),
-                                    )
-                                    .child(add_to_queue_button(track_for_queue, 30., 18., cx))
+                                    .child(div().text_sm().text_color(muted_fg).child(duration_str))
+                                    .child(add_to_queue_button(track_for_queue, 26., 16., cx))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         let services = cx.global::<Services>();

@@ -318,11 +318,11 @@ impl Render for QueueView {
                                     .border_color(border)
                                     .when(is_current, |s| s.bg(secondary))
                                     .hover(|s| s.bg(secondary))
-                                    .child(left_cell)
+                                    .child(div().flex_shrink_0().child(left_cell))
                                     .child(
                                         div()
                                             .flex_1()
-                                            .min_w(px(80.))
+                                            .min_w(px(0.))
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()
@@ -333,6 +333,7 @@ impl Render for QueueView {
                                     )
                                     .child(
                                         div()
+                                            .min_w(px(0.))
                                             .max_w(px(110.))
                                             .overflow_hidden()
                                             .truncate()
@@ -343,6 +344,7 @@ impl Render for QueueView {
                                     .when(playlists_enabled, |row| {
                                         row.child(
                                             div()
+                                                .flex_shrink_0()
                                                 .id(ElementId::NamedInteger(
                                                     "queue-playlist".into(),
                                                     track_ix as u64,
@@ -353,6 +355,7 @@ impl Render for QueueView {
                                     .when(liked_enabled, |row| {
                                         row.child(
                                             div()
+                                                .flex_shrink_0()
                                                 .id(ElementId::NamedInteger(
                                                     "queue-like".into(),
                                                     track_ix as u64,
@@ -363,6 +366,7 @@ impl Render for QueueView {
                                     .when(show_track_duration, |row| {
                                         row.child(
                                             div()
+                                                .flex_shrink_0()
                                                 .text_sm()
                                                 .text_color(muted_fg)
                                                 .child(duration_str),
@@ -370,6 +374,7 @@ impl Render for QueueView {
                                     })
                                     .child(
                                         div()
+                                            .flex_shrink_0()
                                             .id(ElementId::NamedInteger(
                                                 "remove-from-queue".into(),
                                                 track_ix as u64,
