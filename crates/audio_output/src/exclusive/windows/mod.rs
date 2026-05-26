@@ -24,6 +24,7 @@ use super::render::{RenderCtx, STATE_IDLE, STATE_PLAYING, fill};
 use super::{Backend, DeviceSnapshot, ExclusiveEvent};
 use crate::cpal_stream::OutputConfig;
 use crate::ring_buffer::AudioRingBuffer;
+use format::SampleFmt;
 use sleep::SleepPreventer;
 
 const MAX_EVENTS: usize = 32;
@@ -95,6 +96,60 @@ struct ThreadObjects {
     render: IAudioRenderClient,
     endpoint: Option<windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume>,
     buffer_frames: u32,
+    sample_fmt: SampleFmt,
+}
+
+// ----- f32 -> device-format conversion ---------------------------------------
+
+#[inline]
+fn f32_to_i32(x: f32) -> i32 {
+    (x.clamp(-1.0, 1.0) as f64 * i32::MAX as f64).round() as i32
+}
+
+#[inline]
+fn f32_to_i16(x: f32) -> i16 {
+    (x.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16
+}
+
+/// Fills `ptr` (the WASAPI render buffer for `frame_samples` interleaved
+/// samples) with the next audio block, converting from internal f32 to the
+/// device's negotiated sample format. `scratch` is reused across calls to hold
+/// the f32 block for the integer paths.
+fn fill_convert(
+    ctx: &RenderCtx,
+    fmt: SampleFmt,
+    ptr: *mut u8,
+    frame_samples: usize,
+    scratch: &mut [f32],
+) {
+    match fmt {
+        SampleFmt::F32 => {
+            let out = unsafe { slice::from_raw_parts_mut(ptr as *mut f32, frame_samples) };
+            fill(ctx, out);
+        }
+        SampleFmt::S32 => {
+            fill(ctx, scratch);
+            let out = unsafe { slice::from_raw_parts_mut(ptr as *mut i32, frame_samples) };
+            for (o, &s) in out.iter_mut().zip(scratch.iter()) {
+                *o = f32_to_i32(s);
+            }
+        }
+        SampleFmt::S24In32 => {
+            // 24 valid bits left-justified in the 32-bit container (low byte 0).
+            fill(ctx, scratch);
+            let out = unsafe { slice::from_raw_parts_mut(ptr as *mut i32, frame_samples) };
+            for (o, &s) in out.iter_mut().zip(scratch.iter()) {
+                *o = f32_to_i32(s) & !0xFF;
+            }
+        }
+        SampleFmt::S16 => {
+            fill(ctx, scratch);
+            let out = unsafe { slice::from_raw_parts_mut(ptr as *mut i16, frame_samples) };
+            for (o, &s) in out.iter_mut().zip(scratch.iter()) {
+                *o = f32_to_i16(s);
+            }
+        }
+    }
 }
 
 /// Resolves the device, negotiates the exclusive f32 format, and wires the event
@@ -132,6 +187,7 @@ fn setup(
         render,
         endpoint,
         buffer_frames: init.buffer_frames,
+        sample_fmt: init.sample_fmt,
     })
 }
 
@@ -141,9 +197,11 @@ fn render_loop(shared: &WasapiShared, objs: ThreadObjects) {
         render,
         endpoint,
         buffer_frames,
+        sample_fmt,
     } = objs;
     let channels = shared.channels as usize;
     let frame_samples = buffer_frames as usize * channels;
+    let mut scratch = vec![0f32; frame_samples];
     let mut sleep = SleepPreventer::new();
     let mut started = false;
     let mut tick: u32 = 0;
@@ -154,8 +212,7 @@ fn render_loop(shared: &WasapiShared, objs: ThreadObjects) {
         if want && !started {
             // Prime one buffer before starting so the first event has data.
             if let Ok(ptr) = unsafe { render.GetBuffer(buffer_frames) } {
-                let out = unsafe { slice::from_raw_parts_mut(ptr as *mut f32, frame_samples) };
-                fill(&shared.ctx, out);
+                fill_convert(&shared.ctx, sample_fmt, ptr, frame_samples, &mut scratch);
                 let _ = unsafe { render.ReleaseBuffer(buffer_frames, 0) };
             }
             if unsafe { client.Start() }.is_ok() {
@@ -190,8 +247,7 @@ fn render_loop(shared: &WasapiShared, objs: ThreadObjects) {
 
         match unsafe { render.GetBuffer(buffer_frames) } {
             Ok(ptr) => {
-                let out = unsafe { slice::from_raw_parts_mut(ptr as *mut f32, frame_samples) };
-                fill(&shared.ctx, out);
+                fill_convert(&shared.ctx, sample_fmt, ptr, frame_samples, &mut scratch);
                 let _ = unsafe { render.ReleaseBuffer(buffer_frames, 0) };
             }
             Err(e) if e.code() == AUDCLNT_E_DEVICE_INVALIDATED => {
