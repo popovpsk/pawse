@@ -30,13 +30,26 @@ rand = "0.9"
 [target.'cfg(target_os = "windows")'.dependencies]
 raw-window-handle = "0.6.2"
 
-[package.metadata.bundle]
-name = "Pawse"
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.packager]
+product-name = "Pawse"
 identifier = "dev.pawse.app"
-icon = ["../../assets/pawse.svg"]
-version = "0.1.0"
-copyright = ""
 category = "Music"
+icons = [
+    "../../assets/app-icon/32x32.png",
+    "../../assets/app-icon/128x128.png",
+    "../../assets/app-icon/128x128@2x.png",
+    "../../assets/app-icon/icon.icns",
+    "../../assets/app-icon/icon.ico",
+]
+
+[package.metadata.packager.macos]
+minimum-system-version = "10.15"
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
 
 [lints]
 workspace = true

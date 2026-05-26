@@ -8,7 +8,6 @@ use objc2_media_player::MPMediaItemArtwork;
 
 use crate::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
-pub mod app_icon;
 mod now_playing;
 mod remote_command;
 

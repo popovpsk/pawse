@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: Bundle (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            os: macos-14
+            formats: dmg
+          - label: macos-x86_64
+            os: macos-13
+            formats: dmg
+          - label: windows-x86_64
+            os: windows-latest
+            formats: nsis
+          - label: linux-x86_64
+            os: ubuntu-22.04
+            formats: appimage deb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfontconfig-dev libwayland-dev \
+            libxkbcommon-x11-dev libssl-dev libzstd-dev libgit2-dev \
+            libfuse2 build-essential cmake clang
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager
+
+      - name: Build release binary
+        run: cargo build --release -p pawse
+
+      - name: Package
+        working-directory: crates/pawse
+        run: cargo packager --release --formats ${{ matrix.formats }} --verbose
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          shopt -s nullglob
+          for f in \
+            target/release/*.dmg \
+            target/release/*.AppImage \
+            target/release/*.deb \
+            target/release/*-setup.exe \
+            target/release/nsis/*-setup.exe; do
+            cp "$f" dist/
+          done
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true
+          generate_release_notes: true
+          body: |
+            ## Установка
+
+            Сборки не подписаны цифровой подписью.
+
+            **macOS** — после переноса `Pawse.app` в Программы один раз снимите карантин:
+            ```
+            xattr -dr com.apple.quarantine /Applications/Pawse.app
+            ```
+            либо правый клик по приложению → «Открыть» → «Открыть».
+
+            **Windows** — в окне SmartScreen нажмите «Подробнее» → «Выполнить в любом случае».
+
+            **Linux** — `.AppImage` сделайте исполняемым (`chmod +x`) и запустите, либо установите `.deb`.

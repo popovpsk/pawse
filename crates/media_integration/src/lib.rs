@@ -80,13 +80,3 @@ pub fn create_integration(
         None
     }
 }
-
-/// Set the application's runtime icon.
-///
-/// Only does work on macOS (sets the Dock icon when running unbundled); a no-op
-/// on other platforms, where the icon comes from the bundle / `.desktop` file.
-/// Must be called on the main thread.
-pub fn set_application_icon() {
-    #[cfg(target_os = "macos")]
-    macos::app_icon::set_application_icon();
-}

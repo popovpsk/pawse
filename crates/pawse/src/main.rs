@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use audio_output::AudioOutput;
 use gpui::*;
 use gpui_component::*;
@@ -79,8 +81,6 @@ fn main() {
     let app = Application::new().with_assets(assets::Assets);
 
     app.run(move |cx| {
-        media_integration::set_application_icon();
-
         gpui_component::init(cx);
         crate::playlist_popup::init(cx);
 
