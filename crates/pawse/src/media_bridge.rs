@@ -113,7 +113,7 @@ fn window_hwnd(window: &Window) -> Option<*mut std::ffi::c_void> {
     #[cfg(target_os = "windows")]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        match window.window_handle().ok()?.as_raw() {
+        match HasWindowHandle::window_handle(window).ok()?.as_raw() {
             RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as *mut std::ffi::c_void),
             _ => None,
         }
