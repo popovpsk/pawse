@@ -4,8 +4,10 @@ use gpui::{
     IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
 };
+#[cfg(target_os = "linux")]
+use gpui_component::window_border;
 use gpui_component::{
-    ActiveTheme, Icon, Root, Sizable, Size, StyledExt,
+    ActiveTheme, Icon, Root, Sizable, Size, StyledExt, TitleBar,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
@@ -299,7 +301,7 @@ impl Render for MainView {
             .when(!show_settings, |d| d.child(settings_gear_button(cx)))
             .child(self.audio_settings.clone());
 
-        div()
+        let content = div()
             .id("main_view")
             .v_flex()
             .size_full()
@@ -320,6 +322,11 @@ impl Render for MainView {
                         cx.notify();
                     }
                 }),
+            )
+            .child(
+                TitleBar::new()
+                    .bg(cx.theme().background)
+                    .border_color(cx.theme().background),
             )
             .child(
                 div()
@@ -428,7 +435,7 @@ impl Render for MainView {
                     FadeEdge::Top,
                     cx.theme().title_bar,
                     FADE_HEIGHT,
-                    HEADER_HEIGHT,
+                    34.0 + HEADER_HEIGHT,
                 ))
                 .child(fade_overlay(
                     FadeEdge::Bottom,
@@ -460,7 +467,12 @@ impl Render for MainView {
             })
             .children(Root::render_notification_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))
-            .child(self.playlist_popup.clone())
+            .child(self.playlist_popup.clone());
+
+        #[cfg(not(target_os = "linux"))]
+        return content;
+        #[cfg(target_os = "linux")]
+        return window_border().child(content);
     }
 }
 

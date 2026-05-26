@@ -100,6 +100,9 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(800.0), px(400.0))),
+            titlebar: Some(TitleBar::title_bar_options()),
+            #[cfg(target_os = "linux")]
+            window_decorations: Some(WindowDecorations::Client),
             ..Default::default()
         };
         let services = Services::initialize(cx);
