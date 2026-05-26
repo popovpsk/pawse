@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the v prefix (e.g. 0.2.1). Leave empty to only build artifacts without publishing a release."
+        required: false
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -85,7 +90,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: bundle
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || inputs.version != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v5
@@ -99,6 +104,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
+          tag_name: ${{ inputs.version != '' && format('v{0}', inputs.version) || github.ref_name }}
           draft: true
           generate_release_notes: true
           body: |
