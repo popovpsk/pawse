@@ -102,6 +102,8 @@ fn main() {
             window_min_size: Some(size(px(800.0), px(400.0))),
             titlebar: Some(TitleBar::title_bar_options()),
             #[cfg(target_os = "linux")]
+            window_background: WindowBackgroundAppearance::Transparent,
+            #[cfg(target_os = "linux")]
             window_decorations: Some(WindowDecorations::Client),
             ..Default::default()
         };
