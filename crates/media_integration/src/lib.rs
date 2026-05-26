@@ -1,4 +1,12 @@
 use std::path::PathBuf;
+use std::rc::Rc;
+
+use flume::Sender;
+
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+mod souvlaki_backend;
 
 /// Snapshot of the currently playing track for system media widgets.
 #[derive(Debug, Clone, Default)]
@@ -44,4 +52,41 @@ pub trait SystemMediaIntegration {
     /// Update just the elapsed playback time in the Now Playing widget.
     /// Called frequently (e.g. every second) so it should be lightweight.
     fn update_position(&self, elapsed_secs: f64, state: MediaPlaybackState);
+}
+
+/// Create the platform's system media integration.
+///
+/// `hwnd` is the native window handle, required by the Windows System Media
+/// Transport Controls; it is ignored on every other platform. Returns `None`
+/// when the current platform has no integration or it failed to initialize.
+///
+/// Must be called on the main thread.
+pub fn create_integration(
+    #[allow(unused)] command_sender: Sender<MediaCommand>,
+    #[allow(unused)] hwnd: Option<*mut std::ffi::c_void>,
+) -> Option<Rc<dyn SystemMediaIntegration>> {
+    #[cfg(target_os = "macos")]
+    {
+        let integration = macos::MacOsIntegration::new(command_sender)?;
+        Some(Rc::new(integration))
+    }
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        let integration = souvlaki_backend::SouvlakiIntegration::new(command_sender, hwnd)?;
+        Some(Rc::new(integration))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Set the application's runtime icon.
+///
+/// Only does work on macOS (sets the Dock icon when running unbundled); a no-op
+/// on other platforms, where the icon comes from the bundle / `.desktop` file.
+/// Must be called on the main thread.
+pub fn set_application_icon() {
+    #[cfg(target_os = "macos")]
+    macos::app_icon::set_application_icon();
 }

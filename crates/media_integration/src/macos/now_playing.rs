@@ -1,4 +1,4 @@
-use media_integration::{MediaPlaybackState, NowPlayingInfo};
+use crate::{MediaPlaybackState, NowPlayingInfo};
 use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;

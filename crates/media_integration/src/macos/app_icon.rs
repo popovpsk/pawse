@@ -15,16 +15,16 @@ pub fn set_application_icon() {
     let _mtm = match MainThreadMarker::new() {
         Some(mtm) => mtm,
         None => {
-            eprintln!("macos_integration: set_application_icon must be called on the main thread");
+            eprintln!("media_integration: set_application_icon must be called on the main thread");
             return;
         }
     };
 
     unsafe {
-        let bytes = include_bytes!("../../../assets/pawse.svg");
+        let bytes = include_bytes!("../../../../assets/pawse.svg");
         let data = NSData::dataWithBytes_length(bytes.as_ptr().cast::<c_void>(), bytes.len());
         let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
-            eprintln!("macos_integration: failed to decode pawse.png for app icon");
+            eprintln!("media_integration: failed to decode pawse.svg for app icon");
             return;
         };
 

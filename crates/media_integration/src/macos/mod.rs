@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 use flume::Sender;
-use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 use objc2::rc::Retained;
 use objc2_foundation::MainThreadMarker;
 use objc2_media_player::MPMediaItemArtwork;
+
+use crate::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
 pub mod app_icon;
 mod now_playing;

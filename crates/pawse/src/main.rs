@@ -79,8 +79,7 @@ fn main() {
     let app = Application::new().with_assets(assets::Assets);
 
     app.run(move |cx| {
-        #[cfg(target_os = "macos")]
-        macos_integration::app_icon::set_application_icon();
+        media_integration::set_application_icon();
 
         gpui_component::init(cx);
         crate::playlist_popup::init(cx);

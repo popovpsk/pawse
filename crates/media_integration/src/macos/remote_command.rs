@@ -1,7 +1,7 @@
+use crate::MediaCommand;
 use block2::RcBlock;
 use core::ptr::NonNull;
 use flume::Sender;
-use media_integration::MediaCommand;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_media_player::{

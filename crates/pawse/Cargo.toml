@@ -27,8 +27,8 @@ rust-embed.workspace = true
 nucleo-matcher = "0.3"
 rand = "0.9"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-macos_integration = { path = "../macos_integration" }
+[target.'cfg(target_os = "windows")'.dependencies]
+raw-window-handle = "0.6.2"
 
 [package.metadata.bundle]
 name = "Pawse"

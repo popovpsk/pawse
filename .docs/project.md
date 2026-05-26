@@ -13,8 +13,7 @@ A local audio player built with Rust and [GPUI](https://github.com/zed-industrie
 | `music_library` | `crates/music_library/` | SQLite repository. Artists, albums, tracks with many-to-many relationships. Cover art stored as DB blobs (small + large thumbnails) |
 | `music_indexer` | `crates/music_indexer/` | Directory scanner (`jwalk`) + metadata reader (`lofty`) + CUE-sheet expansion. Emits `ScanEvent` |
 | `cue_parser` | `crates/cue_parser/` | Plain-Rust CUE sheet parser (no audio dependencies). Returns `CueSheet` with tracks, FILE references, indexes |
-| `media_integration` | `crates/media_integration/` | Platform-agnostic system media integration trait (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) |
-| `macos_integration` | `crates/macos_integration/` | macOS-specific implementation: status bar item, Now Playing widget, remote commands (media keys) via `objc2`, app icon |
+| `media_integration` | `crates/media_integration/` | System media integration: platform-agnostic facade (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) plus a per-OS implementation. macOS = native `objc2` (Now Playing widget, remote media-key commands, Dock icon) under `src/macos/`; Windows (SMTC) + Linux (MPRIS) share a `souvlaki`-based backend in `src/souvlaki_backend.rs` |
 | `ui_components` | `crates/ui_components/` | Reusable GPUI components (custom `slider`, `fade` overlay) not provided by `gpui-component` |
 | `pawse` | `crates/pawse/` | GPUI application binary. Views, service globals, event buses, settings store, theme management |
 
@@ -82,13 +81,13 @@ The two buses are `EngineEventsBus` (audio playback) and `LibraryEventsBus` (sca
 
 ### System Media Bridge (`MediaBridge`)
 
-`MediaBridge` is a GPUI entity (instantiated in `MainView`) that listens to `EngineEvent`s via the `EngineEventsBus` and forwards them to the platform's system media UI:
+`MediaBridge` is a GPUI entity (instantiated in `MainView`) that listens to `EngineEvent`s via the `EngineEventsBus` and forwards them to the platform's system media UI. It is platform-agnostic: it calls `media_integration::create_integration(command_tx, hwnd)` and, if an integration exists for the platform, installs the event subscription and command loop; otherwise it falls back to an empty subscription.
 
-- On **macOS**: creates `MacOsIntegration`, which updates the Now Playing widget, status bar menu, and registers for remote media-key commands
-- Commands from the OS (play / pause / next / previous) flow through a `flume` channel into an async task that drives the `EngineManager` and `PlaybackQueue`
-- The `MediaCommandProxy` (an Objective-C object) bridges AppKit callbacks to the Rust channel via a `OnceLock<Sender<MediaCommand>>`
+- On **macOS**: `MacOsIntegration` updates the Now Playing widget, status bar menu, and registers for remote media-key commands via `objc2`
+- On **Windows / Linux**: the `souvlaki`-based backend drives SMTC (Windows) / MPRIS (Linux). Windows needs the native window handle (`hwnd`), which `MediaBridge::new` extracts from the GPUI `Window` (it implements `raw_window_handle::HasWindowHandle`)
+- Commands from the OS (play / pause / next / previous / seek) flow through a `flume` channel into an async task that drives the `EngineManager` and `PlaybackQueue`
 
-> See `.docs/macos-media-integration.md` for a detailed explanation of the design decisions (why `OnceLock`, `flume`, `RcBlock`, `RefCell` caching, and the trait split were chosen).
+> See `.docs/macos-media-integration.md` for a detailed explanation of the macOS design decisions (why `OnceLock`, `flume`, `RcBlock`, `RefCell` caching, and the trait split were chosen).
 
 ### MainView Layout
 

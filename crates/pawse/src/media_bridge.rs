@@ -14,109 +14,126 @@ pub struct MediaBridge {
 }
 
 impl MediaBridge {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
+        let hwnd = window_hwnd(window);
 
-        #[cfg(target_os = "macos")]
-        let subscription = Self::init_macos(cx, &engine_event_bus);
-
-        #[cfg(not(target_os = "macos"))]
-        let subscription = cx.subscribe(&engine_event_bus, |_, _, _, _| {});
+        let subscription = Self::init(cx, &engine_event_bus, hwnd)
+            .unwrap_or_else(|| cx.subscribe(&engine_event_bus, |_, _, _, _| {}));
 
         Self {
             _subscription: subscription,
         }
     }
 
-    #[cfg(target_os = "macos")]
-    fn init_macos(
+    fn init(
         cx: &mut Context<Self>,
         engine_event_bus: &Entity<EngineEventsBus>,
-    ) -> Subscription {
+        hwnd: Option<*mut std::ffi::c_void>,
+    ) -> Option<Subscription> {
         let current_position = Rc::new(RefCell::new(0.0f64));
         let current_duration = Rc::new(RefCell::new(0.0f64));
         let last_state = Rc::new(RefCell::new(MediaPlaybackState::Stopped));
         let integration = create_integration(
             cx,
+            hwnd,
             current_position.clone(),
             current_duration.clone(),
             last_state.clone(),
-        )
-        .expect("macOS integration should initialize");
+        )?;
         let integration_clone = integration.clone();
 
-        cx.subscribe(
-            engine_event_bus,
-            move |_, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { duration, .. } => {
-                    let dur_secs = duration.as_secs_f64();
-                    current_position.replace(0.0);
-                    current_duration.replace(dur_secs);
-                    let services = cx.global::<Services>();
-                    let queue = services.playback_queue.borrow();
-                    if let Some(track) = queue.current_track() {
-                        let artwork_path = track
-                            .cover_art_id
-                            .and_then(|id| services.library.get_cover_art_path_for_media(id));
-                        let mut info = build_now_playing_info(track, artwork_path, dur_secs);
-                        info.artist = services.library.track_artists(track.id).join(", ");
-                        info.album = track
-                            .album_id
-                            .and_then(|id| services.library.album_title(id))
-                            .unwrap_or_default();
-                        integration_clone.update_now_playing(info);
-                        integration_clone.set_playback_state(MediaPlaybackState::Playing);
+        let subscription =
+            cx.subscribe(
+                engine_event_bus,
+                move |_, _, event: &EngineEvent, cx| match event {
+                    EngineEvent::Loaded { duration, .. } => {
+                        let dur_secs = duration.as_secs_f64();
+                        current_position.replace(0.0);
+                        current_duration.replace(dur_secs);
+                        let services = cx.global::<Services>();
+                        let queue = services.playback_queue.borrow();
+                        if let Some(track) = queue.current_track() {
+                            let artwork_path = track
+                                .cover_art_id
+                                .and_then(|id| services.library.get_cover_art_path_for_media(id));
+                            let mut info = build_now_playing_info(track, artwork_path, dur_secs);
+                            info.artist = services.library.track_artists(track.id).join(", ");
+                            info.album = track
+                                .album_id
+                                .and_then(|id| services.library.album_title(id))
+                                .unwrap_or_default();
+                            integration_clone.update_now_playing(info);
+                            integration_clone.set_playback_state(MediaPlaybackState::Playing);
+                            last_state.replace(MediaPlaybackState::Playing);
+                        }
+                    }
+                    EngineEvent::Playing => {
                         last_state.replace(MediaPlaybackState::Playing);
+                        integration_clone.set_playback_state(MediaPlaybackState::Playing);
+                        integration_clone.update_position(
+                            *current_position.borrow(),
+                            MediaPlaybackState::Playing,
+                        );
                     }
-                }
-                EngineEvent::Playing => {
-                    last_state.replace(MediaPlaybackState::Playing);
-                    integration_clone.set_playback_state(MediaPlaybackState::Playing);
-                    integration_clone
-                        .update_position(*current_position.borrow(), MediaPlaybackState::Playing);
-                }
-                EngineEvent::Paused => {
-                    last_state.replace(MediaPlaybackState::Paused);
-                    integration_clone.set_playback_state(MediaPlaybackState::Paused);
-                    integration_clone
-                        .update_position(*current_position.borrow(), MediaPlaybackState::Paused);
-                }
-                EngineEvent::TrackEnded | EngineEvent::Stopped => {
-                    let services = cx.global::<Services>();
-                    let queue = services.playback_queue.borrow();
-                    if queue.current_track().is_none() {
-                        last_state.replace(MediaPlaybackState::Stopped);
-                        integration_clone.set_playback_state(MediaPlaybackState::Stopped);
-                        integration_clone.update_position(0.0, MediaPlaybackState::Stopped);
+                    EngineEvent::Paused => {
+                        last_state.replace(MediaPlaybackState::Paused);
+                        integration_clone.set_playback_state(MediaPlaybackState::Paused);
+                        integration_clone.update_position(
+                            *current_position.borrow(),
+                            MediaPlaybackState::Paused,
+                        );
                     }
-                }
-                EngineEvent::PositionChanged(position) => {
-                    if *last_state.borrow() == MediaPlaybackState::Stopped {
-                        return;
+                    EngineEvent::TrackEnded | EngineEvent::Stopped => {
+                        let services = cx.global::<Services>();
+                        let queue = services.playback_queue.borrow();
+                        if queue.current_track().is_none() {
+                            last_state.replace(MediaPlaybackState::Stopped);
+                            integration_clone.set_playback_state(MediaPlaybackState::Stopped);
+                            integration_clone.update_position(0.0, MediaPlaybackState::Stopped);
+                        }
                     }
-                    let secs = position.as_secs_f64();
-                    current_position.replace(secs);
-                    let state = *last_state.borrow();
-                    integration_clone.update_position(secs, state);
-                }
-                _ => {}
-            },
-        )
+                    EngineEvent::PositionChanged(position) => {
+                        if *last_state.borrow() == MediaPlaybackState::Stopped {
+                            return;
+                        }
+                        let secs = position.as_secs_f64();
+                        current_position.replace(secs);
+                        let state = *last_state.borrow();
+                        integration_clone.update_position(secs, state);
+                    }
+                    _ => {}
+                },
+            );
+        Some(subscription)
     }
 }
 
-#[cfg(target_os = "macos")]
+fn window_hwnd(window: &Window) -> Option<*mut std::ffi::c_void> {
+    #[cfg(target_os = "windows")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match window.window_handle().ok()?.as_raw() {
+            RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as *mut std::ffi::c_void),
+            _ => None,
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        None
+    }
+}
+
 fn create_integration(
     cx: &mut App,
+    hwnd: Option<*mut std::ffi::c_void>,
     current_position: Rc<RefCell<f64>>,
     current_duration: Rc<RefCell<f64>>,
     last_state: Rc<RefCell<MediaPlaybackState>>,
 ) -> Option<Rc<dyn SystemMediaIntegration>> {
-    use macos_integration::MacOsIntegration;
-
     let (command_tx, command_rx) = flume::unbounded::<MediaCommand>();
-    let integration = MacOsIntegration::new(command_tx)?;
-    let integration: Rc<dyn SystemMediaIntegration> = Rc::new(integration);
+    let integration = media_integration::create_integration(command_tx, hwnd)?;
 
     let engine_manager = cx.global::<Services>().engine_manager.clone();
     let queue = cx.global::<Services>().playback_queue.clone();
