@@ -17,12 +17,11 @@ use objc2_core_audio::AudioDeviceIOProcID;
 use crate::cpal_stream::{OutputConfig, PlaybackState};
 use crate::ring_buffer::AudioRingBuffer;
 
+use super::render::{RenderCtx, STATE_IDLE, STATE_PLAYING};
 use super::{Backend, DeviceSnapshot, ExclusiveEvent};
 use format::{apply_format, read_device_format, set_and_wait_sample_rate};
 use hog::{acquire_hog_mode, get_device_id_by_uid, get_hogging_pid, release_hog_mode};
-use ioproc::{
-    IoprocCtx, STATE_IDLE, STATE_PLAYING, create_ioproc, destroy_ioproc, start_ioproc, stop_ioproc,
-};
+use ioproc::{create_ioproc, destroy_ioproc, start_ioproc, stop_ioproc};
 use listeners::{
     register_format_listener, register_is_alive_listener, register_mute_listener,
     register_volume_listener, unregister_format_listener, unregister_is_alive_listener,
@@ -75,7 +74,7 @@ pub(super) struct MacosShared {
     /// Channel count from the output config; used for per-channel volume writes.
     pub(super) channels: u8,
     inner: Mutex<MacosInner>,
-    iopc_ctx: Arc<IoprocCtx>,
+    iopc_ctx: Arc<RenderCtx>,
 }
 
 impl MacosShared {
@@ -151,7 +150,7 @@ fn init_inner_no_listener(
     device_id: u32,
     config: OutputConfig,
     original_rate: Option<f64>,
-    iopc_ctx: &Arc<IoprocCtx>,
+    iopc_ctx: &Arc<RenderCtx>,
 ) -> Result<MacosInner, AudioError> {
     let orig_rate = match original_rate {
         Some(r) => r,
@@ -212,7 +211,7 @@ impl MacosBackend {
     ) -> Result<Self, AudioError> {
         let device_id = get_device_id_by_uid(device_uid)?;
 
-        let iopc_ctx = Arc::new(IoprocCtx {
+        let iopc_ctx = Arc::new(RenderCtx {
             buffer,
             volume: AtomicF32::new(1.0),
             playing: AtomicU8::new(STATE_IDLE),

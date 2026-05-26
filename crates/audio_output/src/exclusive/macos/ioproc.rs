@@ -2,9 +2,7 @@ use std::os::raw::c_void;
 use std::ptr::NonNull;
 use std::slice;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
-use atomic_float::AtomicF32;
 use audio_common::AudioError;
 use objc2_core_audio::{
     AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart,
@@ -12,22 +10,7 @@ use objc2_core_audio::{
 };
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 
-use crate::ring_buffer::AudioRingBuffer;
-
-pub(super) const STATE_IDLE: u8 = 0;
-pub(super) const STATE_PLAYING: u8 = 1;
-
-/// State shared between the ring-buffer writer (write()) and the IOProc callback.
-/// Everything here must be lock-free.
-pub(super) struct IoprocCtx {
-    pub(super) buffer: Arc<AudioRingBuffer>,
-    pub(super) volume: AtomicF32,
-    pub(super) playing: std::sync::atomic::AtomicU8,
-    /// Fade envelope; shared with `apply_fade_gain` (same logic as shared mode).
-    pub(super) fade: crate::cpal_stream::FadeState,
-    pub(super) sample_rate: u32,
-    pub(super) channels: u8,
-}
+use crate::exclusive::render::{RenderCtx, fill};
 
 unsafe extern "C-unwind" fn ioproc_callback(
     _device: AudioObjectID,
@@ -38,7 +21,7 @@ unsafe extern "C-unwind" fn ioproc_callback(
     _output_time: NonNull<AudioTimeStamp>,
     client_data: *mut c_void,
 ) -> i32 {
-    let ctx = unsafe { &*(client_data as *const IoprocCtx) };
+    let ctx = unsafe { &*(client_data as *const RenderCtx) };
     let buf_list = unsafe { output_data.as_ref() };
 
     let buf_ptr = buf_list.mBuffers[0].mData as *mut f32;
@@ -50,37 +33,7 @@ unsafe extern "C-unwind" fn ioproc_callback(
     }
 
     let out = unsafe { slice::from_raw_parts_mut(buf_ptr, num_samples) };
-
-    if ctx.playing.load(Ordering::Relaxed) == STATE_PLAYING {
-        // Frozen after a fade-out: emit silence but leave the buffer intact so
-        // resume can fade those same samples back in seamlessly.
-        if ctx.fade.is_frozen() {
-            for s in out.iter_mut() {
-                *s = 0.0;
-            }
-            return 0;
-        }
-
-        let read = ctx.buffer.pop_slice(out);
-
-        // Combined volume + fade application. The near-unity skip inside keeps
-        // exclusive output bit-perfect when no fade is active and vol == 1.0.
-        let vol = ctx.volume.load(Ordering::Relaxed);
-        crate::cpal_stream::apply_fade_gain(
-            &ctx.fade,
-            vol,
-            ctx.channels as usize,
-            &mut out[..read],
-        );
-
-        for s in &mut out[read..] {
-            *s = 0.0;
-        }
-    } else {
-        for s in out.iter_mut() {
-            *s = 0.0;
-        }
-    }
+    fill(ctx, out);
 
     0 // noErr
 }
@@ -91,7 +44,7 @@ unsafe extern "C-unwind" fn ioproc_callback(
 /// You must call `destroy_ioproc` with the returned `ctx_raw` to recover it.
 pub(super) fn create_ioproc(
     device_id: u32,
-    ctx: Arc<IoprocCtx>,
+    ctx: Arc<RenderCtx>,
 ) -> Result<(AudioDeviceIOProcID, usize), AudioError> {
     let ctx_raw = Arc::into_raw(ctx) as usize;
     let mut proc_id: AudioDeviceIOProcID = None;
@@ -107,7 +60,7 @@ pub(super) fn create_ioproc(
 
     if status != 0 {
         // Recover leaked refcount before returning error
-        unsafe { drop(Arc::from_raw(ctx_raw as *const IoprocCtx)) };
+        unsafe { drop(Arc::from_raw(ctx_raw as *const RenderCtx)) };
         return Err(AudioError::Output(format!(
             "AudioDeviceCreateIOProcID: {:#x}",
             status
@@ -144,5 +97,5 @@ pub(super) fn destroy_ioproc(device_id: u32, proc_id: AudioDeviceIOProcID, ctx_r
         eprintln!("coreaudio: AudioDeviceDestroyIOProcID: {:#x}", status);
     }
     // Recover the leaked Arc refcount
-    unsafe { drop(Arc::from_raw(ctx_raw as *const IoprocCtx)) };
+    unsafe { drop(Arc::from_raw(ctx_raw as *const RenderCtx)) };
 }

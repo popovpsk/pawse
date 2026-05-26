@@ -1,7 +1,15 @@
+mod render;
+
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 mod unsupported;
 
 use std::sync::Arc;
@@ -88,12 +96,34 @@ impl ExclusiveOutput {
             })
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            let backend = windows::WasapiBackend::new(buffer, config, device_uid, original_rate)?;
+            let rate = backend.original_rate();
+            Ok(ExclusiveOutput {
+                backend: Box::new(backend),
+                config,
+                original_rate: rate,
+            })
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let backend = linux::AlsaBackend::new(buffer, config, device_uid, original_rate)?;
+            let rate = backend.original_rate();
+            Ok(ExclusiveOutput {
+                backend: Box::new(backend),
+                config,
+                original_rate: rate,
+            })
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         {
             let _ = (buffer, config, device_uid, original_rate);
-            return Err(AudioError::UnsupportedFormat(
+            Err(AudioError::UnsupportedFormat(
                 "Exclusive mode is not supported on this platform".to_string(),
-            ));
+            ))
         }
     }
 
@@ -150,6 +180,8 @@ impl ExclusiveOutput {
 pub fn restore_device_state(device_uid: &str, original_rate: f64) {
     #[cfg(target_os = "macos")]
     macos::restore_device_state(device_uid, original_rate);
+    // Windows (WASAPI exclusive) and Linux (ALSA hw:) do not persistently mutate
+    // device configuration, so there is nothing to restore.
     #[cfg(not(target_os = "macos"))]
     let _ = (device_uid, original_rate);
 }
