@@ -23,15 +23,12 @@ jobs:
           - label: macos-arm64
             os: macos-14
             formats: dmg
-          - label: macos-x86_64
-            os: macos-13
-            formats: dmg
           - label: windows-x86_64
             os: windows-latest
             formats: nsis
           - label: linux-x86_64
             os: ubuntu-22.04
-            formats: appimage deb
+            formats: appimage,deb
     steps:
       - uses: actions/checkout@v4
 

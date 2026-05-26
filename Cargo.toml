@@ -28,9 +28,9 @@ anyhow = "1.0"
 rust-embed = "8"
 
 [profile.release]
-debug = "limited"
+debug = false
 lto = "thin"
-codegen-units = 1
+codegen-units = 16
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
