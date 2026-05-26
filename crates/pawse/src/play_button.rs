@@ -3,7 +3,9 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
 };
-use gpui_component::{ActiveTheme, tooltip::Tooltip};
+use gpui_component::tooltip::Tooltip;
+
+use crate::theme_colors::Colors;
 
 use crate::services::Services;
 
@@ -86,15 +88,15 @@ impl Render for PlayButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .bg(cx.theme().primary)
-            .hover(|style| style.bg(cx.theme().primary_hover))
+            .bg(Colors::play_button_bg(cx))
+            .hover(|style| style.bg(Colors::play_button_bg_hover(cx)))
             .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
             .on_click(cx.listener(PlayButton::on_click))
             .child(
                 svg()
                     .path(icon_path)
                     .size(px(30.))
-                    .text_color(cx.theme().primary_foreground),
+                    .text_color(Colors::text_on_play_button(cx)),
             )
     }
 }

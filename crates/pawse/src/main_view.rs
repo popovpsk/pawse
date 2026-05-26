@@ -7,7 +7,7 @@ use gpui::{
 #[cfg(target_os = "linux")]
 use gpui_component::window_border;
 use gpui_component::{
-    ActiveTheme, Icon, Root, Sizable, Size, StyledExt, TitleBar,
+    Icon, Root, Sizable, Size, StyledExt, TitleBar,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
@@ -24,6 +24,7 @@ use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::settings_store::SettingsStore;
 use crate::settings_view::ThemePickerState;
+use crate::theme_colors::Colors;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
 const HEADER_HEIGHT: f32 = 44.0;
@@ -225,7 +226,7 @@ impl Render for MainView {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(cx.theme().muted))
+            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.clear_search(window, cx);
                 if this.show_settings {
@@ -239,7 +240,7 @@ impl Render for MainView {
                 svg()
                     .path("icons/back.svg")
                     .size(px(22.))
-                    .text_color(cx.theme().foreground),
+                    .text_color(Colors::text_primary(cx)),
             );
 
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
@@ -325,8 +326,8 @@ impl Render for MainView {
             )
             .child(
                 TitleBar::new()
-                    .bg(cx.theme().background)
-                    .border_color(cx.theme().background),
+                    .bg(Colors::app_background(cx))
+                    .border_color(Colors::app_background(cx)),
             )
             .child(
                 div()
@@ -337,7 +338,7 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .bg(cx.theme().title_bar)
+                    .bg(Colors::header_background(cx))
                     .child(left_group)
                     .when(!show_settings, |d| {
                         d.child(
@@ -347,7 +348,7 @@ impl Render for MainView {
                                     .focus_bordered(false)
                                     .rounded_full()
                                     .cleanable(true)
-                                    .bg(cx.theme().title_bar),
+                                    .bg(Colors::header_background(cx)),
                             ),
                         )
                     })
@@ -358,7 +359,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .bg(cx.theme().title_bar)
+                    .bg(Colors::header_background(cx))
                     .child(
                         div()
                             .flex_1()
@@ -392,7 +393,7 @@ impl Render for MainView {
                                 .w(px(queue_width))
                                 .flex_shrink_0()
                                 .border_l(px(1.))
-                                .border_color(cx.theme().border)
+                                .border_color(Colors::panel_border(cx))
                                 .relative()
                                 .child(
                                     div()
@@ -433,13 +434,13 @@ impl Render for MainView {
             .when(!show_settings, |d| {
                 d.child(fade_overlay(
                     FadeEdge::Top,
-                    cx.theme().title_bar,
+                    Colors::header_background(cx),
                     FADE_HEIGHT,
                     34.0 + HEADER_HEIGHT,
                 ))
                 .child(fade_overlay(
                     FadeEdge::Bottom,
-                    cx.theme().background,
+                    Colors::app_background(cx),
                     FADE_HEIGHT,
                     FOOTER_HEIGHT,
                 ))
@@ -500,13 +501,12 @@ fn tab_icon_button(
     tab: LibraryRootTab,
     cx: &mut Context<MainView>,
 ) -> impl IntoElement {
-    let theme = cx.theme();
-    let active_bg = theme.secondary;
-    let hover_bg = theme.muted;
+    let active_bg = Colors::tab_active_bg(cx);
+    let hover_bg = Colors::control_hover_bg(cx);
     let fg = if active {
-        theme.primary
+        Colors::text_accent(cx)
     } else {
-        theme.foreground
+        Colors::text_primary(cx)
     };
 
     div()

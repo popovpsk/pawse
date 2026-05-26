@@ -2,9 +2,10 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
-use gpui_component::{ActiveTheme, tooltip::Tooltip};
+use gpui_component::tooltip::Tooltip;
 
 use crate::services::Services;
+use crate::theme_colors::Colors;
 
 pub struct ShuffleButton;
 
@@ -29,9 +30,9 @@ impl Render for ShuffleButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let enabled = cx.global::<Services>().playback_queue.borrow().shuffle();
         let color = if enabled {
-            cx.theme().primary
+            Colors::text_accent(cx)
         } else {
-            cx.theme().muted_foreground
+            Colors::text_secondary(cx)
         };
         div()
             .id("shuffle_button")
@@ -41,7 +42,7 @@ impl Render for ShuffleButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(cx.theme().muted))
+            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
             .tooltip(|window, cx| Tooltip::new("Shuffle").build(window, cx))
             .on_click(cx.listener(ShuffleButton::on_click))
             .child(

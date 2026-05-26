@@ -2,7 +2,9 @@ use gpui::{
     App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px, svg,
 };
-use gpui_component::{ActiveTheme, tooltip::Tooltip};
+use gpui_component::tooltip::Tooltip;
+
+use crate::theme_colors::Colors;
 
 use crate::library_service::LibraryEvent;
 use crate::like_button::LIKE_ROW_GROUP;
@@ -14,9 +16,8 @@ pub fn add_to_queue_button(
     icon_size: f32,
     cx: &App,
 ) -> impl IntoElement {
-    let theme = cx.theme();
-    let hover_bg = theme.accent;
-    let icon_color = theme.muted_foreground;
+    let hover_bg = Colors::icon_button_hover_bg(cx);
+    let icon_color = Colors::text_secondary(cx);
 
     div()
         .id(ElementId::NamedInteger(
@@ -58,9 +59,8 @@ pub fn add_album_to_queue_button(
     icon_size: f32,
     cx: &App,
 ) -> impl IntoElement {
-    let theme = cx.theme();
-    let muted_bg = theme.muted;
-    let icon_color = theme.muted_foreground;
+    let muted_bg = Colors::control_hover_bg(cx);
+    let icon_color = Colors::text_secondary(cx);
 
     div()
         .id(ElementId::NamedInteger(

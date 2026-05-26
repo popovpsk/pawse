@@ -5,9 +5,9 @@ use gpui::{
     Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
     px, size,
 };
-use gpui_component::{
-    ActiveTheme, VirtualListScrollHandle, button::Button, v_flex, v_virtual_list,
-};
+use gpui_component::{VirtualListScrollHandle, button::Button, v_flex, v_virtual_list};
+
+use crate::theme_colors::Colors;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -158,11 +158,10 @@ impl EventEmitter<OpenSettingsRequested> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let border = theme.border;
-        let secondary = theme.secondary;
-        let list_hover = theme.list_hover;
-        let muted_fg = theme.muted_foreground;
+        let border = Colors::panel_border(cx);
+        let secondary = Colors::cover_fallback_bg(cx);
+        let list_hover = Colors::list_row_hover_bg(cx);
+        let muted_fg = Colors::text_secondary(cx);
 
         if self.is_scanning && self.albums_all.is_empty() {
             return v_flex()

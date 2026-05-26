@@ -6,7 +6,7 @@ use gpui::{
     StyleRefinement, Styled, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
-    ActiveTheme as _, Icon, IconName, Sizable,
+    Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     scroll::ScrollableElement,
@@ -18,6 +18,7 @@ use gpui_component::{
 
 use crate::services::Services;
 use crate::settings_store::{SettingsStore, ThemeChoice, apply_theme, notify_save_error};
+use crate::theme_colors::Colors;
 
 /// State for the custom theme picker dropdown.
 pub struct ThemePickerState {
@@ -112,7 +113,7 @@ pub fn build_settings_pages(cx: &App, picker: Entity<ThemePickerState>) -> Vec<S
 /// The category sidebar background is overridden to match the central content
 /// surface (`title_bar`) instead of the default `sidebar` token.
 pub fn settings_widget(pages: Vec<SettingPage>, cx: &App) -> Settings {
-    let sidebar_style = StyleRefinement::default().bg(cx.theme().title_bar);
+    let sidebar_style = StyleRefinement::default().bg(Colors::header_background(cx));
     Settings::new("pawse-settings")
         .pages(pages)
         .sidebar_style(&sidebar_style)
@@ -187,21 +188,21 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
                                 .px_3()
                                 .py_1p5()
                                 .rounded(px(6.))
-                                .bg(cx.theme().title_bar)
+                                .bg(Colors::header_background(cx))
                                 .border_1()
-                                .border_color(cx.theme().border)
+                                .border_color(Colors::panel_border(cx))
                                 .cursor_pointer()
-                                .hover(|s| s.bg(cx.theme().muted))
+                                .hover(|s| s.bg(Colors::control_hover_bg(cx)))
                                 .child(
                                     div()
                                         .text_sm()
-                                        .text_color(cx.theme().foreground)
+                                        .text_color(Colors::text_primary(cx))
                                         .child(current_label),
                                 )
                                 .child(
                                     Icon::new(IconName::ChevronDown)
                                         .xsmall()
-                                        .text_color(cx.theme().muted_foreground),
+                                        .text_color(Colors::text_secondary(cx)),
                                 )
                                 .on_click(move |_, window, cx| {
                                     // When popup is open, a backdrop (priority 0) sits above
@@ -274,11 +275,11 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
                                         .text_sm()
                                         .cursor_pointer()
                                         .when(is_highlighted, |d| {
-                                            d.bg(cx.theme().accent)
-                                                .text_color(cx.theme().accent_foreground)
+                                            d.bg(Colors::selection_bg(cx))
+                                                .text_color(Colors::text_on_selection(cx))
                                         })
                                         .when(!is_highlighted, |d| {
-                                            d.hover(|s| s.bg(cx.theme().secondary))
+                                            d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
                                         })
                                         .child(label_c)
                                         .on_mouse_move({
@@ -312,9 +313,9 @@ fn interface_group(_cx: &App, picker: Entity<ThemePickerState>) -> SettingGroup 
 
                             let popup_content = v_flex()
                                 .id("theme-picker-popup")
-                                .bg(cx.theme().popover)
+                                .bg(Colors::popover_background(cx))
                                 .border_1()
-                                .border_color(cx.theme().border)
+                                .border_color(Colors::panel_border(cx))
                                 .rounded(px(6.))
                                 .shadow_md()
                                 .w(px(220.))
@@ -599,7 +600,7 @@ fn library_group() -> SettingGroup {
                             .px_3()
                             .py_2()
                             .text_sm()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_color(Colors::text_secondary(cx))
                             .child("No folders added"),
                     );
                 } else {
@@ -617,17 +618,17 @@ fn library_group() -> SettingGroup {
                                 .px_3()
                                 .py_2()
                                 .rounded(px(6.))
-                                .bg(cx.theme().muted)
+                                .bg(Colors::control_hover_bg(cx))
                                 .child(
                                     Icon::new(IconName::Folder)
-                                        .text_color(cx.theme().muted_foreground),
+                                        .text_color(Colors::text_secondary(cx)),
                                 )
                                 .child(
                                     div()
                                         .flex_1()
                                         .text_sm()
                                         .truncate()
-                                        .text_color(cx.theme().foreground)
+                                        .text_color(Colors::text_primary(cx))
                                         .child(path_text),
                                 )
                                 .child(

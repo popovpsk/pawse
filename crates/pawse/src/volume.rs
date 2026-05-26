@@ -3,7 +3,9 @@ use gpui::{
     AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     Render, StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
-use gpui_component::{ActiveTheme, h_flex, tooltip::Tooltip};
+use gpui_component::{h_flex, tooltip::Tooltip};
+
+use crate::theme_colors::Colors;
 use ui_components::slider::{Slider, SliderEvent};
 
 use crate::services::Services;
@@ -47,7 +49,7 @@ impl Render for Volume {
                         svg()
                             .path(icon_path)
                             .size(px(22.))
-                            .text_color(cx.theme().foreground),
+                            .text_color(Colors::text_primary(cx)),
                     )
             });
 

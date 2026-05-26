@@ -32,6 +32,7 @@ pub mod services;
 pub mod settings_store;
 pub mod settings_view;
 pub mod shuffle_button;
+pub mod theme_colors;
 pub mod themes;
 pub mod track_progress_slider;
 pub mod volume;

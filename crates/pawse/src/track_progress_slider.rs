@@ -3,7 +3,9 @@ use gpui::{
     AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div,
     prelude::FluentBuilder, px,
 };
-use gpui_component::{ActiveTheme, h_flex};
+use gpui_component::h_flex;
+
+use crate::theme_colors::Colors;
 use ui_components::slider::{Slider, SliderEvent};
 
 use crate::services::Services;
@@ -44,7 +46,7 @@ impl Render for TrackProgressSlider {
                     div()
                         .w(px(40.))
                         .text_xs()
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(Colors::text_secondary(cx))
                         .text_right()
                         .child(Self::format_time(self.current_position_secs)),
                 )
@@ -55,7 +57,7 @@ impl Render for TrackProgressSlider {
                     div()
                         .w(px(40.))
                         .text_xs()
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(Colors::text_secondary(cx))
                         .child(Self::format_time(self.duration_secs)),
                 )
             })

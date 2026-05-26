@@ -4,7 +4,9 @@ use gpui::{
     Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder,
     px, svg,
 };
-use gpui_component::{ActiveTheme, h_flex, tooltip::Tooltip, v_flex};
+use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
+
+use crate::theme_colors::Colors;
 
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -120,7 +122,7 @@ impl Render for Footer {
             .h_full()
             .items_center()
             .px_4()
-            .bg(cx.theme().background)
+            .bg(Colors::app_background(cx))
             .child(self.now_playing.clone())
             .child(
                 v_flex()
@@ -149,9 +151,9 @@ impl Render for Footer {
             )
             .child({
                 let queue_color = if self.show_queue {
-                    cx.theme().primary
+                    Colors::text_accent(cx)
                 } else {
-                    cx.theme().muted_foreground
+                    Colors::text_secondary(cx)
                 };
                 v_flex()
                     .w(px(200.))
@@ -163,7 +165,7 @@ impl Render for Footer {
                             .id("queue_toggle")
                             .cursor_pointer()
                             .rounded(px(4.))
-                            .hover(|s| s.bg(cx.theme().muted))
+                            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
                             .tooltip(|window, cx| Tooltip::new("Queue").build(window, cx))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_queue = !this.show_queue;

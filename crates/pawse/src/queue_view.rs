@@ -8,7 +8,9 @@ use gpui::{
     ParentElement, Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage,
     Subscription, Window, div, img, px, size,
 };
-use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+
+use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
@@ -37,15 +39,14 @@ struct DraggedQueueTrack {
 
 impl Render for DraggedQueueTrack {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
         div()
             .px_3()
             .py_1()
             .rounded_md()
-            .bg(theme.popover)
-            .text_color(theme.popover_foreground)
+            .bg(Colors::popover_background(cx))
+            .text_color(Colors::popover_text(cx))
             .border_1()
-            .border_color(theme.border)
+            .border_color(Colors::panel_border(cx))
             .text_sm()
             .opacity(0.9)
             .child(self.title.clone())
@@ -208,13 +209,12 @@ impl QueueView {
 
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let foreground = theme.foreground;
-        let muted = theme.muted;
-        let muted_fg = theme.muted_foreground;
-        let border = theme.border;
-        let accent = theme.accent;
-        let list_hover = theme.list_hover;
+        let foreground = Colors::text_primary(cx);
+        let muted = Colors::control_hover_bg(cx);
+        let muted_fg = Colors::text_secondary(cx);
+        let border = Colors::panel_border(cx);
+        let accent = Colors::icon_button_hover_bg(cx);
+        let list_hover = Colors::list_row_hover_bg(cx);
         let settings = cx.global::<SettingsStore>();
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
@@ -476,7 +476,7 @@ impl Render for QueueView {
                                         } else {
                                             style.border_t_2().border_b(px(0.))
                                         };
-                                        style.border_color(cx.theme().drag_border)
+                                        style.border_color(Colors::drag_over_border(cx))
                                     })
                                     .on_drop(cx.listener(
                                         move |this, drag: &DraggedQueueTrack, _, cx| {

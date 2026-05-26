@@ -5,7 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IconName, WindowExt,
+    Icon, IconName, WindowExt,
     button::{Button, ButtonVariants},
     h_flex,
     notification::Notification,
@@ -15,6 +15,7 @@ use gpui_component::{
 
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
+use crate::theme_colors::Colors;
 
 pub struct AudioSettings {
     is_exclusive: bool,
@@ -122,9 +123,9 @@ impl Render for AudioSettings {
                 let is_perfect = bit_perfect.is_bit_perfect();
                 let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
                 let icon_color = if is_perfect {
-                    cx.theme().success
+                    Colors::status_ok(cx)
                 } else {
-                    cx.theme().warning
+                    Colors::status_warning(cx)
                 };
                 let icon_name = if is_perfect {
                     IconName::Check
@@ -227,7 +228,7 @@ impl Render for AudioSettings {
                         let services = pop_cx.global::<Services>();
                         let devices = services.output.devices();
                         let selected = services.output.selected_device_index();
-                        let muted_color = pop_cx.theme().muted;
+                        let muted_color = Colors::control_hover_bg(pop_cx);
                         let mut children: Vec<AnyElement> = Vec::new();
                         for (i, d) in devices.into_iter().enumerate() {
                             let view_row = view.clone();

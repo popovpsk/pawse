@@ -2,7 +2,9 @@ use gpui::{
     Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Window, div, img, px,
 };
-use gpui_component::{ActiveTheme, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
+
+use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::now_playing::NavigateToArtistRequested;
@@ -35,7 +37,7 @@ impl EventEmitter<NavigateToArtistRequested> for AlbumInfo {}
 
 impl Render for AlbumInfo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = cx.theme().muted_foreground;
+        let muted_fg = Colors::text_secondary(cx);
         let album_id = self.album_id;
         let artist_id = self.artist_id;
 
@@ -45,7 +47,7 @@ impl Render for AlbumInfo {
             .gap_4()
             .items_start()
             .child({
-                let fallback_bg = cx.theme().secondary;
+                let fallback_bg = Colors::cover_fallback_bg(cx);
                 let fallback_fg = muted_fg;
                 let services = cx.global::<Services>();
                 let cover_img = services

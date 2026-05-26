@@ -4,7 +4,9 @@ use gpui::{
     Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, rems,
 };
-use gpui_component::{ActiveTheme, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
+
+use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
@@ -140,7 +142,7 @@ impl Render for NowPlaying {
         let album_id = self.album_id;
         let track_title = self.track_title.clone();
         let artists = self.artists.clone();
-        let foreground = cx.theme().foreground;
+        let foreground = Colors::text_primary(cx);
 
         h_flex()
             .gap_3()
@@ -161,14 +163,19 @@ impl Render for NowPlaying {
                         .rounded(px(4.))
                         .object_fit(gpui::ObjectFit::Cover)
                         .with_fallback({
-                            let bg = cx.theme().secondary;
-                            let fg = cx.theme().muted_foreground;
+                            let bg = Colors::cover_fallback_bg(cx);
+                            let fg = Colors::text_secondary(cx);
                             move || cover_placeholder(48., 4., bg, fg).into_any_element()
                         })
                         .into_any_element()
                 } else {
-                    cover_placeholder(48., 4., cx.theme().secondary, cx.theme().muted_foreground)
-                        .into_any_element()
+                    cover_placeholder(
+                        48.,
+                        4.,
+                        Colors::cover_fallback_bg(cx),
+                        Colors::text_secondary(cx),
+                    )
+                    .into_any_element()
                 }
             })
             .child(
@@ -190,7 +197,7 @@ impl Render for NowPlaying {
                             .when(title_overflows, |this| {
                                 this.child(fade_overlay(
                                     FadeEdge::Right,
-                                    cx.theme().background,
+                                    Colors::app_background(cx),
                                     20.0,
                                     0.0,
                                 ))
@@ -212,7 +219,7 @@ impl Render for NowPlaying {
                         }
                     })
                     .child({
-                        let muted_fg = cx.theme().muted_foreground;
+                        let muted_fg = Colors::text_secondary(cx);
                         if artists.is_empty() {
                             div()
                                 .text_xs()
@@ -264,7 +271,7 @@ impl Render for NowPlaying {
                         this.child(
                             div()
                                 .text_xs()
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(Colors::text_secondary(cx))
                                 .truncate()
                                 .child(specs),
                         )

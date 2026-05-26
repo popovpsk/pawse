@@ -2,10 +2,11 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px, svg,
 };
-use gpui_component::{ActiveTheme, tooltip::Tooltip};
+use gpui_component::tooltip::Tooltip;
 
 use crate::playback_queue::RepeatMode;
 use crate::services::Services;
+use crate::theme_colors::Colors;
 
 pub struct RepeatButton;
 
@@ -30,9 +31,9 @@ impl Render for RepeatButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mode = cx.global::<Services>().playback_queue.borrow().repeat();
         let (icon, color) = match mode {
-            RepeatMode::Off => ("icons/repeat.svg", cx.theme().muted_foreground),
-            RepeatMode::All => ("icons/repeat.svg", cx.theme().primary),
-            RepeatMode::One => ("icons/repeat-one.svg", cx.theme().primary),
+            RepeatMode::Off => ("icons/repeat.svg", Colors::text_secondary(cx)),
+            RepeatMode::All => ("icons/repeat.svg", Colors::text_accent(cx)),
+            RepeatMode::One => ("icons/repeat-one.svg", Colors::text_accent(cx)),
         };
         let tooltip_text = "Repeat mode";
 
@@ -44,7 +45,7 @@ impl Render for RepeatButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(cx.theme().muted))
+            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
             .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
             .on_click(cx.listener(RepeatButton::on_click))
             .child(svg().path(icon).size(px(18.)).text_color(color))

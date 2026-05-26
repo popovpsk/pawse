@@ -8,7 +8,9 @@ use gpui::{
     Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
     div, img, px, size,
 };
-use gpui_component::{ActiveTheme, VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+
+use crate::theme_colors::Colors;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -226,11 +228,10 @@ fn build_artist_map(
 
 impl Render for LikedView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let border = theme.border;
-        let list_hover = theme.list_hover;
-        let muted = theme.muted;
-        let muted_fg = theme.muted_foreground;
+        let border = Colors::panel_border(cx);
+        let list_hover = Colors::list_row_hover_bg(cx);
+        let muted = Colors::control_hover_bg(cx);
+        let muted_fg = Colors::text_secondary(cx);
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
 

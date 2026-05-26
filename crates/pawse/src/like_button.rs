@@ -1,11 +1,10 @@
+use crate::services::Services;
+use crate::theme_colors::Colors;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px, svg,
 };
-use gpui_component::ActiveTheme;
-
-use crate::services::Services;
 
 /// Group name used by track rows so the like-button can reveal itself on row hover.
 /// Apply `.group(LIKE_ROW_GROUP)` to the row container and the outline heart inside
@@ -15,12 +14,11 @@ pub const LIKE_ROW_GROUP: &str = "pawse-track-row";
 pub const LIKE_BUTTON_SIZE: f32 = 26.;
 
 pub fn like_button(track_id: i64, liked: bool, cx: &App) -> impl IntoElement {
-    let theme = cx.theme();
-    let hover_bg = theme.accent;
+    let hover_bg = Colors::icon_button_hover_bg(cx);
     let icon_color = if liked {
-        theme.primary
+        Colors::text_accent(cx)
     } else {
-        theme.muted_foreground
+        Colors::text_secondary(cx)
     };
     let icon_path = if liked {
         "icons/s1-heart-fill.svg"

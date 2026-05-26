@@ -8,10 +8,11 @@ use gpui::{
     deferred, div, point, px, svg,
 };
 use gpui_component::{
-    ActiveTheme,
     input::{Input, InputEvent, InputState},
     v_flex,
 };
+
+use crate::theme_colors::Colors;
 
 use crate::library_service::LibraryEvent;
 use crate::services::Services;
@@ -226,15 +227,14 @@ impl gpui::Render for PlaylistPopup {
             return div().into_any_element();
         }
 
-        let theme = cx.theme();
-        let popover_bg = theme.popover;
-        let border_color = theme.border;
-        let accent = theme.accent;
-        let accent_fg = theme.accent_foreground;
-        let secondary = theme.secondary;
-        let muted_fg = theme.muted_foreground;
-        let foreground = theme.foreground;
-        let primary = theme.primary;
+        let popover_bg = Colors::popover_background(cx);
+        let border_color = Colors::panel_border(cx);
+        let accent = Colors::selection_bg(cx);
+        let accent_fg = Colors::text_on_selection(cx);
+        let secondary = Colors::tab_active_bg(cx);
+        let muted_fg = Colors::text_secondary(cx);
+        let foreground = Colors::text_primary(cx);
+        let primary = Colors::text_accent(cx);
 
         let viewport = window.viewport_size();
         let entity_handle = cx.entity();

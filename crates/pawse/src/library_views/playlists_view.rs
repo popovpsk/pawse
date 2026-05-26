@@ -5,7 +5,7 @@ use gpui::{
     div, px, svg,
 };
 use gpui_component::{
-    ActiveTheme, Sizable,
+    Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -19,6 +19,7 @@ use nucleo_matcher::{
 use crate::library_service::LibraryEvent;
 use crate::like_button::LIKE_ROW_GROUP;
 use crate::services::Services;
+use crate::theme_colors::Colors;
 
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
@@ -132,11 +133,11 @@ impl EventEmitter<PlaylistSelectedEvent> for PlaylistsView {}
 
 impl Render for PlaylistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let border = theme.border;
-        let list_hover = theme.list_hover;
-        let muted_fg = theme.muted_foreground;
-        let danger_fg = theme.foreground;
+        let border = Colors::panel_border(cx);
+        let list_hover = Colors::list_row_hover_bg(cx);
+        let muted_fg = Colors::text_secondary(cx);
+        let danger_fg = Colors::text_primary(cx);
+        let icon_btn_hover = Colors::icon_button_hover_bg(cx);
 
         let create_section = if self.creating {
             v_flex().px_4().py_3().child(
@@ -228,7 +229,7 @@ impl Render for PlaylistsView {
                     .when(!pending_delete, |d| {
                         d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
                     })
-                    .hover(|s| s.bg(theme.accent))
+                    .hover(|s| s.bg(icon_btn_hover))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.pending_delete_id = Some(playlist_id);
@@ -255,7 +256,7 @@ impl Render for PlaylistsView {
                         svg()
                             .path("icons/s1-playlists.svg")
                             .size(px(20.))
-                            .text_color(theme.foreground),
+                            .text_color(danger_fg),
                     )
                     .child(
                         div()
