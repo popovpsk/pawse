@@ -308,6 +308,7 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         duration_ms: track.duration_ms,
         cover_hash: track.cover_hash,
         start_offset_ms: track.start_offset_ms,
+        bitrate: track.bitrate,
     }
 }
 

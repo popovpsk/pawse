@@ -16,6 +16,7 @@ pub struct ScannedTrack {
     pub duration_ms: Option<u64>,
     pub cover_art: Option<Vec<u8>>,
     pub start_offset_ms: Option<u64>,
+    pub bitrate: Option<u32>,
 }
 
 /// A parsed track ready for the DB writer. Identical to [`ScannedTrack`] minus
@@ -34,6 +35,7 @@ pub struct PreparedTrack {
     pub duration_ms: Option<u64>,
     pub cover_hash: Option<String>,
     pub start_offset_ms: Option<u64>,
+    pub bitrate: Option<u32>,
 }
 
 /// The filesystem state to index, captured cheaply by [`collect_sources`](crate::collect_sources).

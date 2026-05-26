@@ -29,18 +29,31 @@ pub struct NowPlaying {
     cover_art_id: Option<i64>,
     sample_rate: Option<u32>,
     bit_depth: Option<u8>,
+    bitrate: Option<u32>,
     _subscription: Subscription,
 }
 
-fn format_specs(sample_rate: Option<u32>, bit_depth: Option<u8>) -> Option<String> {
-    let (sr, bd) = (sample_rate?, bit_depth?);
-    let khz = sr as f32 / 1000.0;
-    let khz_str = if (khz.fract()).abs() < f32::EPSILON {
-        format!("{} kHz", khz as u32)
-    } else {
-        format!("{:.1} kHz", khz)
-    };
-    Some(format!("{} \u{b7} {}-bit", khz_str, bd))
+fn format_specs(
+    sample_rate: Option<u32>,
+    bit_depth: Option<u8>,
+    bitrate: Option<u32>,
+) -> Option<String> {
+    let mut specs = String::new();
+    if let (Some(sr), Some(bd)) = (sample_rate, bit_depth) {
+        let khz = sr as f32 / 1000.0;
+        if (khz.fract()).abs() < f32::EPSILON {
+            specs.push_str(&format!("{} kHz \u{b7} {}-bit", khz as u32, bd));
+        } else {
+            specs.push_str(&format!("{:.1} kHz \u{b7} {}-bit", khz, bd));
+        }
+    }
+    if let Some(kbps) = bitrate {
+        if !specs.is_empty() {
+            specs.push_str(" \u{b7} ");
+        }
+        specs.push_str(&format!("{} kbps", kbps));
+    }
+    if specs.is_empty() { None } else { Some(specs) }
 }
 
 impl NowPlaying {
@@ -59,10 +72,12 @@ impl NowPlaying {
                             let title = track.title.clone();
                             let cover = track.cover_art_id;
                             let album_id = track.album_id;
+                            let bitrate = track.bitrate;
                             drop(queue);
                             this.track_title = title;
                             this.cover_art_id = cover;
                             this.album_id = album_id;
+                            this.bitrate = bitrate;
                             let mut seen = std::collections::HashSet::new();
                             this.artists = services
                                 .library
@@ -100,6 +115,7 @@ impl NowPlaying {
             cover_art_id: None,
             sample_rate: None,
             bit_depth: None,
+            bitrate: None,
             _subscription: subscription,
         }
     }
@@ -111,6 +127,7 @@ impl NowPlaying {
         self.cover_art_id = None;
         self.sample_rate = None;
         self.bit_depth = None;
+        self.bitrate = None;
     }
 }
 
@@ -119,7 +136,7 @@ impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let specs = format_specs(self.sample_rate, self.bit_depth);
+        let specs = format_specs(self.sample_rate, self.bit_depth, self.bitrate);
         let viewport_w = f32::from(window.viewport_size().width);
         let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 

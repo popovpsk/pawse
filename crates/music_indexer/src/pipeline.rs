@@ -265,6 +265,7 @@ fn emit_track(
         duration_ms: track.duration_ms,
         cover_hash,
         start_offset_ms: track.start_offset_ms,
+        bitrate: track.bitrate,
     };
 
     if tx.send(ScanEvent::Track(prepared)).is_err() {

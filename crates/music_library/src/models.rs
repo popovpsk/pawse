@@ -34,6 +34,8 @@ pub struct Track {
     pub start_offset_ms: i32,
     #[serde(default)]
     pub liked: bool,
+    #[serde(default)]
+    pub bitrate: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +75,7 @@ pub struct NewTrack {
     pub duration_ms: Option<u64>,
     pub cover_art_id: Option<i64>,
     pub start_offset_ms: Option<u64>,
+    pub bitrate: Option<u32>,
 }
 
 /// A track ready for batched scan insertion. Unlike [`NewTrack`], the cover is
@@ -91,6 +94,7 @@ pub struct ScanTrack {
     pub duration_ms: Option<u64>,
     pub cover_hash: Option<String>,
     pub start_offset_ms: Option<u64>,
+    pub bitrate: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

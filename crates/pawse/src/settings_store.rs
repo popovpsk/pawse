@@ -561,6 +561,7 @@ mod tests {
             cover_art_id: None,
             start_offset_ms: 0,
             liked: false,
+            bitrate: None,
         };
         let settings = UserSettings {
             theme: ThemeChoice::System,

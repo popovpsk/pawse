@@ -17,7 +17,7 @@ use crate::repository::{LibraryRepository, ScanWrite};
 const SCAN_BATCH_SIZE: usize = 256;
 
 const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
-    duration_ms, year, cover_art_id, start_offset_ms, liked";
+    duration_ms, year, cover_art_id, start_offset_ms, liked, bitrate";
 
 fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
     Ok(Track {
@@ -32,6 +32,7 @@ fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
         cover_art_id: row.get(8)?,
         start_offset_ms: row.get(9)?,
         liked: row.get::<_, i64>(10)? != 0,
+        bitrate: row.get(11)?,
     })
 }
 
@@ -281,7 +282,8 @@ impl LibraryRepository for SqliteLibrary {
                     duration_ms = ?5,
                     year = ?6,
                     cover_art_id = COALESCE(?7, cover_art_id),
-                    start_offset_ms = ?8
+                    start_offset_ms = ?8,
+                    bitrate = ?10
                 WHERE id = ?9"#,
                 rusqlite::params![
                     title,
@@ -293,14 +295,15 @@ impl LibraryRepository for SqliteLibrary {
                     track.cover_art_id,
                     start_offset_ms,
                     id,
+                    track.bitrate,
                 ],
             )?;
             id
         } else {
             tx.execute(
                 r#"INSERT INTO tracks
-                    (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+                    (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
                 rusqlite::params![
                     track.path,
                     title,
@@ -311,6 +314,7 @@ impl LibraryRepository for SqliteLibrary {
                     track.year,
                     track.cover_art_id,
                     start_offset_ms,
+                    track.bitrate,
                 ],
             )?;
             tx.last_insert_rowid()
@@ -1132,8 +1136,8 @@ impl ScanSession {
         // failing the statement.
         let inserted = self.conn.execute(
             r#"INSERT OR IGNORE INTO tracks
-                (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+                (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
             rusqlite::params![
                 track.path,
                 title,
@@ -1144,6 +1148,7 @@ impl ScanSession {
                 track.year,
                 cover_id,
                 start_offset_ms,
+                track.bitrate,
             ],
         )?;
         // A duplicate was ignored: bail before linking artists, otherwise

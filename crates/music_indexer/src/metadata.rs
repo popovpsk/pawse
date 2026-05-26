@@ -13,6 +13,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
 
     let properties = tagged_file.properties();
     let duration_ms = properties.duration().as_millis() as u64;
+    let bitrate = properties.audio_bitrate();
 
     let tag = tagged_file
         .primary_tag()
@@ -99,6 +100,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         duration_ms: Some(duration_ms),
         cover_art,
         start_offset_ms: None,
+        bitrate,
     })
 }
 

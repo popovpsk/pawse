@@ -94,6 +94,7 @@ mod tests {
             duration_ms: Some(285_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         let _track_id = lib
             .upsert_track(&track, Some(album_id), &[(artist_id, 0)])
@@ -142,6 +143,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
             .unwrap();
@@ -170,6 +172,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
             .unwrap();
@@ -198,6 +201,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         let _track_id = lib
             .upsert_track(&track, Some(album_id), &[(artist_id, 0)])
@@ -228,6 +232,7 @@ mod tests {
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         let track2 = NewTrack {
             path: "/music/disc2/track01.flac".into(),
@@ -241,6 +246,7 @@ mod tests {
             duration_ms: Some(200_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
 
         lib.upsert_track(&track1, Some(album_id), &[(track1_artist_id, 0)])
@@ -281,6 +287,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         let track_id = lib
             .upsert_track(&track, Some(album_id), &[(artist1, 0), (artist2, 1)])
@@ -371,6 +378,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
             .unwrap();
@@ -408,6 +416,7 @@ mod tests {
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
             .unwrap();
@@ -433,6 +442,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         let track_id = lib.upsert_track(&track, None, &[(artist_id, 0)]).unwrap();
 
@@ -460,6 +470,7 @@ mod tests {
             duration_ms: Some(300_000),
             cover_art_id: None,
             start_offset_ms: Some(0),
+            bitrate: None,
         };
         let track2 = NewTrack {
             path: "/music/track.flac".into(),
@@ -473,6 +484,7 @@ mod tests {
             duration_ms: Some(300_000),
             cover_art_id: None,
             start_offset_ms: Some(300_000),
+            bitrate: None,
         };
 
         let id1 = lib
@@ -575,6 +587,7 @@ mod tests {
             duration_ms: Some(200_000),
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
             .unwrap();
@@ -616,6 +629,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
+            bitrate: None,
         };
         let track2 = NewTrack {
             path: "/music/track2.flac".into(),
@@ -629,6 +643,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
+            bitrate: None,
         };
 
         lib.upsert_track(&track1, Some(album1), &[(artist_id, 0)])
@@ -690,6 +705,7 @@ mod tests {
             duration_ms: Some(180_000),
             cover_art_id: Some(cover_art_id),
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&new_track, Some(album_id), &[(artist_id, 0)])
             .unwrap();
@@ -735,6 +751,7 @@ mod tests {
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
             .unwrap()
@@ -807,6 +824,7 @@ mod tests {
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(
             &mk_track("/p/airbag.flac", "Airbag", ok_computer),
@@ -854,6 +872,7 @@ mod tests {
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         let id = lib
             .upsert_track(&track, Some(album), &[(a1, 0), (a2, 1)])
@@ -972,6 +991,7 @@ mod tests {
                 duration_ms: Some(1000),
                 cover_hash: Some(hash.clone()),
                 start_offset_ms: None,
+                bitrate: None,
             })
             .unwrap();
         session
@@ -1014,6 +1034,7 @@ mod tests {
                 duration_ms: None,
                 cover_hash: Some(hash),
                 start_offset_ms: None,
+                bitrate: None,
             })
             .unwrap();
         session.finish().unwrap();
@@ -1043,6 +1064,7 @@ mod tests {
                     duration_ms: Some(1000),
                     cover_hash: None,
                     start_offset_ms: None,
+                    bitrate: None,
                 })
                 .unwrap();
         }
@@ -1100,6 +1122,7 @@ mod tests {
             duration_ms: Some(120_000),
             cover_art_id: None,
             start_offset_ms: None,
+            bitrate: None,
         };
         lib.upsert_track(
             &mk_track("/p/t1.flac", album1990),

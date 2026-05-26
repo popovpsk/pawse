@@ -102,4 +102,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
         "#,
     ),
+    (
+        4,
+        r#"
+        ALTER TABLE tracks ADD COLUMN bitrate INTEGER;
+        "#,
+    ),
 ];
