@@ -441,6 +441,7 @@ impl Render for ArtistTracksView {
                                     .child(
                                         div()
                                             .flex_1()
+                                            .min_w(px(0.))
                                             .overflow_hidden()
                                             .truncate()
                                             .when(is_current, |d| {

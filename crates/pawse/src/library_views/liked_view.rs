@@ -325,6 +325,7 @@ impl Render for LikedView {
                                     .child(
                                         div()
                                             .flex_1()
+                                            .min_w(px(0.))
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()
@@ -336,6 +337,7 @@ impl Render for LikedView {
                                     .child(
                                         div()
                                             .w(px(140.))
+                                            .min_w(px(0.))
                                             .overflow_hidden()
                                             .truncate()
                                             .text_sm()

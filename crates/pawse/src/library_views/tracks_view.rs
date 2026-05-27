@@ -339,6 +339,7 @@ impl Render for TracksView {
                                     .child(
                                         div()
                                             .flex_1()
+                                            .min_w(px(0.))
                                             .overflow_hidden()
                                             .truncate()
                                             .when(is_current, |d| {
