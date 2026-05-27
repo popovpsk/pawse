@@ -3,6 +3,9 @@ use std::sync::Arc;
 use audio_common::AudioError;
 use cpal::traits::{DeviceTrait, HostTrait};
 
+#[cfg(target_os = "linux")]
+use std::collections::{BTreeMap, HashMap};
+
 #[derive(Clone, Debug)]
 pub struct OutputDeviceInfo {
     pub name: String,
@@ -67,7 +70,15 @@ impl DeviceManager {
             })
             .collect();
 
-        Ok(devices)
+        #[cfg(target_os = "linux")]
+        {
+            return Ok(curate_linux(devices, default_uid.as_deref()));
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(devices)
+        }
     }
 
     /// The most recently confirmed display name for the selected device.
@@ -189,6 +200,94 @@ fn device_uid(d: &cpal::Device) -> Result<String, AudioError> {
     d.id()
         .map(|id| id.1)
         .map_err(|e| AudioError::DeviceNotFound(format!("Could not read device UID: {}", e)))
+}
+
+#[cfg(target_os = "linux")]
+fn extract_card(uid: &str) -> Option<String> {
+    let after = uid.split("CARD=").nth(1)?;
+    let card = after.split([',', ':']).next()?.trim();
+    if card.is_empty() {
+        None
+    } else {
+        Some(card.to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn alsa_card_longnames() -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for card in alsa::card::Iter::new().flatten() {
+        if let Ok(ctl) = alsa::Ctl::from_card(&card, false)
+            && let Ok(info) = ctl.card_info()
+            && let (Ok(id), Ok(name)) = (info.get_id(), info.get_name())
+        {
+            map.insert(id.to_string(), name.to_string());
+        }
+    }
+    map
+}
+
+#[cfg(target_os = "linux")]
+fn pick_best_uid(devices: &[OutputDeviceInfo]) -> String {
+    let uids: Vec<&str> = devices.iter().map(|d| d.uid.as_str()).collect();
+
+    for prefix in &["plughw:", "hw:", "sysdefault:", "front:"] {
+        if let Some(uid) = uids.iter().find(|u| u.starts_with(prefix)) {
+            return uid.to_string();
+        }
+    }
+
+    uids.first().map(|s| s.to_string()).unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn curate_linux(raw: Vec<OutputDeviceInfo>, _default_uid: Option<&str>) -> Vec<OutputDeviceInfo> {
+    let longnames = alsa_card_longnames();
+
+    let (card_devices, _non_card): (Vec<_>, Vec<_>) =
+        raw.into_iter().partition(|d| d.uid.contains("CARD="));
+
+    let mut groups: BTreeMap<String, Vec<OutputDeviceInfo>> = BTreeMap::new();
+    for d in card_devices {
+        if let Some(card) = extract_card(&d.uid) {
+            groups.entry(card).or_default().push(d);
+        }
+    }
+
+    let mut result = Vec::new();
+
+    result.push(OutputDeviceInfo {
+        name: "System Default".to_string(),
+        uid: String::new(),
+        is_default: true,
+    });
+
+    for (card_token, devices) in groups {
+        let representative = pick_best_uid(&devices);
+
+        let name = longnames
+            .get(&card_token)
+            .cloned()
+            .or_else(|| {
+                devices.iter().find_map(|d| {
+                    let n = d.name.as_str();
+                    if !n.is_empty() && !n.contains("Default") && !n.contains("HDA Intel") {
+                        Some(d.name.clone())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| card_token.clone());
+
+        result.push(OutputDeviceInfo {
+            name,
+            uid: representative,
+            is_default: false,
+        });
+    }
+
+    result
 }
 
 #[cfg(test)]

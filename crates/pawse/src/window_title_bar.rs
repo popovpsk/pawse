@@ -3,12 +3,11 @@ use gpui::{App, IntoElement, RenderOnce, Styled, Window};
 #[cfg(target_os = "linux")]
 use gpui::{
     Decorations, InteractiveElement, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement as _, WindowControlArea, div,
-    prelude::FluentBuilder, px, svg,
+    StatefulInteractiveElement as _, WindowControlArea, div, prelude::FluentBuilder, px, svg,
 };
 
 #[cfg(target_os = "linux")]
-use gpui_component::{h_flex, ActiveTheme, InteractiveElementExt as _};
+use gpui_component::{ActiveTheme, InteractiveElementExt as _, h_flex};
 
 use crate::theme_colors::Colors;
 
