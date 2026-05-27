@@ -203,7 +203,7 @@ impl Output {
 
     fn recreate_shared(&self, new_config: OutputConfig, was_playing: bool) {
         let _ = self.take_current();
-        let device = match self.device_manager.write().resolve_device() {
+        let device = match self.device_manager.write().resolve_shared_device() {
             Ok(d) => d,
             Err(e) => {
                 self.push_event(OutputEvent::Failure {
@@ -249,7 +249,7 @@ impl Output {
     /// On failure of the selected device, retries on system default; only
     /// returns false if even that doesn't work.
     fn install_shared_fallback(&self, config: &OutputConfig, resume_after: bool) -> bool {
-        let device = match self.device_manager.write().resolve_device() {
+        let device = match self.device_manager.write().resolve_shared_device() {
             Ok(d) => d,
             Err(_) => return self.try_install_shared_on_default(config, resume_after),
         };
@@ -486,19 +486,46 @@ impl Output {
                 }
             }
         } else {
-            let device = self.device_manager.write().resolve_device()?;
+            let device = match self.device_manager.write().resolve_shared_device() {
+                Ok(d) => d,
+                Err(e) => {
+                    self.push_event(OutputEvent::Failure {
+                        message: format!("Cannot open output device: {}", e),
+                    });
+                    return Err(e);
+                }
+            };
             let selected = SelectedOutputDevice {
                 host: self.host.clone(),
                 device,
             };
             let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
-            let stream = CpalOutputStream::new(buffer, config, selected)?;
-            if was_playing {
-                stream.resume();
+            match CpalOutputStream::new(buffer, config, selected) {
+                Ok(stream) => {
+                    if was_playing {
+                        stream.resume();
+                    }
+                    *self.current.write() = Some(OutputMode::Shared(stream));
+                    self.apply_current_volume();
+                    Ok(())
+                }
+                Err(e) => {
+                    self.device_manager.write().select_default();
+                    if !self.try_install_shared_on_default(&config, was_playing) {
+                        self.push_event(OutputEvent::Failure {
+                            message: format!("Failed to create shared stream: {}", e),
+                        });
+                    } else {
+                        self.push_event(OutputEvent::Recovered {
+                            message: format!(
+                                "Selected device unavailable ({}); switched to system default.",
+                                e
+                            ),
+                        });
+                    }
+                    Err(e)
+                }
             }
-            *self.current.write() = Some(OutputMode::Shared(stream));
-            self.apply_current_volume();
-            Ok(())
         }
     }
 

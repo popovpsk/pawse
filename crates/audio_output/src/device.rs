@@ -121,6 +121,24 @@ impl DeviceManager {
         Ok(Arc::new(default))
     }
 
+    /// The device shared-mode streams should open. On Linux this is always the
+    /// system default (PipeWire): routing a specific ALSA card in shared mode
+    /// bypasses PipeWire and causes stutter/EBUSY, so the per-card selection is
+    /// reserved for exclusive mode. macOS/Windows honor the explicit pick.
+    pub fn resolve_shared_device(&mut self) -> Result<Arc<cpal::Device>, AudioError> {
+        #[cfg(target_os = "linux")]
+        {
+            let default = self.host.default_output_device().ok_or_else(|| {
+                AudioError::DeviceNotFound("No default output device".to_string())
+            })?;
+            return Ok(Arc::new(default));
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.resolve_device()
+        }
+    }
+
     /// Returns the UID string to use for exclusive-mode lookups. For "follow
     /// system default" selections, queries the host for the current default
     /// device's UID, so that exclusive mode tracks the system default if the
