@@ -87,9 +87,8 @@ impl MainView {
                     this.clear_search(window, cx);
                     cx.notify();
                 }
-                LibraryViewEvent::OpenSettingsRequested => {
-                    this.show_settings = true;
-                    cx.notify();
+                LibraryViewEvent::AddMusicFolderRequested => {
+                    crate::settings_view::pick_and_add_folder(cx);
                 }
             },
         );

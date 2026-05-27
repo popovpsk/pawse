@@ -5,7 +5,7 @@ use gpui::{
     Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
     px, size,
 };
-use gpui_component::{VirtualListScrollHandle, button::Button, v_flex, v_virtual_list};
+use gpui_component::{VirtualListScrollHandle, button::Button, h_flex, v_flex, v_virtual_list};
 
 use crate::theme_colors::Colors;
 use nucleo_matcher::{
@@ -24,7 +24,7 @@ pub struct AlbumSelectedEvent {
 }
 
 #[derive(Clone, Debug)]
-pub struct OpenSettingsRequested;
+pub struct AddMusicFolderRequested;
 
 const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
@@ -154,7 +154,7 @@ impl AlbumsView {
 }
 
 impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
-impl EventEmitter<OpenSettingsRequested> for AlbumsView {}
+impl EventEmitter<AddMusicFolderRequested> for AlbumsView {}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -183,11 +183,11 @@ impl Render for AlbumsView {
                             .child("No music folders configured."),
                     )
                     .child(
-                        div().child(
-                            Button::new("open-settings")
-                                .label("Open Settings")
+                        h_flex().child(
+                            Button::new("add-music-folder")
+                                .label("Add music folder")
                                 .on_click(cx.listener(|_, _, _, cx| {
-                                    cx.emit(OpenSettingsRequested);
+                                    cx.emit(AddMusicFolderRequested);
                                 })),
                         ),
                     );

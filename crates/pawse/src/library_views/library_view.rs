@@ -4,7 +4,7 @@ use gpui::{
 };
 use gpui_component::v_flex;
 
-use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, OpenSettingsRequested};
+use crate::library_views::albums_view::{AddMusicFolderRequested, AlbumSelectedEvent, AlbumsView};
 use crate::library_views::artist_tracks_view::ArtistTracksView;
 use crate::library_views::artists_view::{ArtistSelectedEvent, ArtistsView};
 use crate::library_views::liked_view::LikedView;
@@ -18,7 +18,7 @@ use crate::settings_store::SettingsStore;
 #[derive(Clone, Debug)]
 pub enum LibraryViewEvent {
     StateChanged,
-    OpenSettingsRequested,
+    AddMusicFolderRequested,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,8 +82,8 @@ impl LibraryView {
         );
 
         let settings_subscription =
-            cx.subscribe(&albums_view, |_, _, _: &OpenSettingsRequested, cx| {
-                cx.emit(LibraryViewEvent::OpenSettingsRequested);
+            cx.subscribe(&albums_view, |_, _, _: &AddMusicFolderRequested, cx| {
+                cx.emit(LibraryViewEvent::AddMusicFolderRequested);
             });
 
         // Pop back to a still-visible tab if the user disables the one we're on.
