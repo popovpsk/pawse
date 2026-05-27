@@ -280,6 +280,9 @@ impl PlaybackQueue {
     }
 
     pub fn append_track(&mut self, track: Track) {
+        if self.tracks.iter().any(|t| t.id == track.id) {
+            return;
+        }
         if let Some(ref mut original) = self.original_order {
             original.push(track.clone());
         }

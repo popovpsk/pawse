@@ -219,7 +219,6 @@ impl Render for MainView {
 
         let back_button = div()
             .id("back_button")
-            .cursor_pointer()
             .size(px(36.))
             .flex()
             .items_center()
@@ -509,7 +508,6 @@ fn tab_icon_button(
 
     div()
         .id(id)
-        .cursor_pointer()
         .size(px(36.))
         .flex()
         .items_center()
