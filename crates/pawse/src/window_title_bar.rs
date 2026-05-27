@@ -54,13 +54,12 @@ impl RenderOnce for WindowTitleBar {
 
         let minimize_btn = div()
             .id("minimize")
+            .group("ctrl-min")
             .flex()
             .items_center()
             .justify_center()
             .h_full()
             .px(px(8.))
-            .text_color(text_secondary)
-            .hover(|style| style.text_color(text_primary))
             .on_mouse_down(MouseButton::Left, |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();
@@ -69,18 +68,23 @@ impl RenderOnce for WindowTitleBar {
                 cx.stop_propagation();
                 window.minimize_window();
             })
-            .child(svg().path("icons/window-minimize.svg").size(px(14.)));
+            .child(
+                svg()
+                    .path("icons/window-minimize.svg")
+                    .size(px(14.))
+                    .text_color(text_secondary)
+                    .group_hover("ctrl-min", |s| s.text_color(text_primary)),
+            );
 
         let max_restore_btn = if window.is_maximized() {
             div()
                 .id("restore")
+                .group("ctrl-max")
                 .flex()
                 .items_center()
                 .justify_center()
                 .h_full()
                 .px(px(8.))
-                .text_color(text_secondary)
-                .hover(|style| style.text_color(text_primary))
                 .on_mouse_down(MouseButton::Left, |_, window, cx| {
                     window.prevent_default();
                     cx.stop_propagation();
@@ -89,17 +93,22 @@ impl RenderOnce for WindowTitleBar {
                     cx.stop_propagation();
                     window.zoom_window();
                 })
-                .child(svg().path("icons/window-restore.svg").size(px(14.)))
+                .child(
+                    svg()
+                        .path("icons/window-restore.svg")
+                        .size(px(14.))
+                        .text_color(text_secondary)
+                        .group_hover("ctrl-max", |s| s.text_color(text_primary)),
+                )
         } else {
             div()
                 .id("maximize")
+                .group("ctrl-max")
                 .flex()
                 .items_center()
                 .justify_center()
                 .h_full()
                 .px(px(8.))
-                .text_color(text_secondary)
-                .hover(|style| style.text_color(text_primary))
                 .on_mouse_down(MouseButton::Left, |_, window, cx| {
                     window.prevent_default();
                     cx.stop_propagation();
@@ -108,18 +117,23 @@ impl RenderOnce for WindowTitleBar {
                     cx.stop_propagation();
                     window.zoom_window();
                 })
-                .child(svg().path("icons/window-maximize.svg").size(px(14.)))
+                .child(
+                    svg()
+                        .path("icons/window-maximize.svg")
+                        .size(px(14.))
+                        .text_color(text_secondary)
+                        .group_hover("ctrl-max", |s| s.text_color(text_primary)),
+                )
         };
 
         let close_btn = div()
             .id("close")
+            .group("ctrl-close")
             .flex()
             .items_center()
             .justify_center()
             .h_full()
             .px(px(8.))
-            .text_color(text_secondary)
-            .hover(|style| style.text_color(danger))
             .on_mouse_down(MouseButton::Left, |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();
@@ -128,7 +142,13 @@ impl RenderOnce for WindowTitleBar {
                 cx.stop_propagation();
                 window.remove_window();
             })
-            .child(svg().path("icons/window-close.svg").size(px(14.)));
+            .child(
+                svg()
+                    .path("icons/window-close.svg")
+                    .size(px(14.))
+                    .text_color(text_secondary)
+                    .group_hover("ctrl-close", |s| s.text_color(danger)),
+            );
 
         div().flex_shrink_0().child(
             div()
