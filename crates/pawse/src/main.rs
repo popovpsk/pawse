@@ -38,6 +38,7 @@ pub mod theme_colors;
 pub mod themes;
 pub mod track_progress_slider;
 pub mod volume;
+pub mod window_title_bar;
 
 fn restore_engine_state(cx: &mut App) {
     let stored_position_ms = cx

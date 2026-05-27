@@ -5,7 +5,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
 };
 use gpui_component::{
-    Icon, Root, Sizable, Size, StyledExt, TitleBar,
+    Icon, Root, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
@@ -320,11 +320,7 @@ impl Render for MainView {
                     }
                 }),
             )
-            .child(
-                TitleBar::new()
-                    .bg(Colors::app_background(cx))
-                    .border_color(Colors::app_background(cx)),
-            )
+            .child(crate::window_title_bar::WindowTitleBar::new())
             .child(
                 div()
                     .w_full()
