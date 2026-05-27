@@ -175,20 +175,20 @@ impl Render for NowPlaying {
                 };
                 if let Some(cover_img) = cover_img {
                     img(cover_img)
-                        .w(px(48.))
-                        .h(px(48.))
-                        .rounded(px(4.))
+                        .w(px(56.))
+                        .h(px(56.))
+                        .rounded(px(6.))
                         .object_fit(gpui::ObjectFit::Cover)
                         .with_fallback({
                             let bg = Colors::cover_fallback_bg(cx);
                             let fg = Colors::text_secondary(cx);
-                            move || cover_placeholder(48., 4., bg, fg).into_any_element()
+                            move || cover_placeholder(56., 6., bg, fg).into_any_element()
                         })
                         .into_any_element()
                 } else {
                     cover_placeholder(
-                        48.,
-                        4.,
+                        56.,
+                        6.,
                         Colors::cover_fallback_bg(cx),
                         Colors::text_secondary(cx),
                     )
@@ -197,7 +197,7 @@ impl Render for NowPlaying {
             })
             .child(
                 v_flex()
-                    .w(px(140.))
+                    .w(px(132.))
                     .items_start()
                     .child({
                         let title_inner = div()
