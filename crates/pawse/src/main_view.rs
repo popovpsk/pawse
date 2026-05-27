@@ -346,7 +346,6 @@ impl Render for MainView {
                                     .with_size(Size::Medium)
                                     .focus_bordered(false)
                                     .rounded_full()
-                                    .cleanable(true)
                                     .bg(Colors::header_background(cx)),
                             ),
                         )
