@@ -4,8 +4,6 @@ use gpui::{
     IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
 };
-#[cfg(target_os = "linux")]
-use gpui_component::window_border;
 use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt, TitleBar,
     button::{Button, ButtonVariants},
@@ -300,7 +298,7 @@ impl Render for MainView {
             .when(!show_settings, |d| d.child(settings_gear_button(cx)))
             .child(self.audio_settings.clone());
 
-        let content = div()
+        div()
             .id("main_view")
             .v_flex()
             .size_full()
@@ -465,12 +463,7 @@ impl Render for MainView {
             })
             .children(Root::render_notification_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))
-            .child(self.playlist_popup.clone());
-
-        #[cfg(not(target_os = "linux"))]
-        return content;
-        #[cfg(target_os = "linux")]
-        return window_border().child(content);
+            .child(self.playlist_popup.clone())
     }
 }
 
