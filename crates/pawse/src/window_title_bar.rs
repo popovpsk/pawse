@@ -60,6 +60,7 @@ impl RenderOnce for WindowTitleBar {
             .justify_center()
             .h_full()
             .px(px(8.))
+            .cursor_pointer()
             .on_mouse_down(MouseButton::Left, |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();
@@ -85,6 +86,7 @@ impl RenderOnce for WindowTitleBar {
                 .justify_center()
                 .h_full()
                 .px(px(8.))
+                .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, |_, window, cx| {
                     window.prevent_default();
                     cx.stop_propagation();
@@ -109,6 +111,7 @@ impl RenderOnce for WindowTitleBar {
                 .justify_center()
                 .h_full()
                 .px(px(8.))
+                .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, |_, window, cx| {
                     window.prevent_default();
                     cx.stop_propagation();
@@ -134,6 +137,7 @@ impl RenderOnce for WindowTitleBar {
             .justify_center()
             .h_full()
             .px(px(8.))
+            .cursor_pointer()
             .on_mouse_down(MouseButton::Left, |_, window, cx| {
                 window.prevent_default();
                 cx.stop_propagation();
