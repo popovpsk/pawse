@@ -477,10 +477,10 @@ impl AudioEngineLoop {
             AudioEngineState::TrackNotSet => {}
             AudioEngineState::Paused => {
                 self.set_state(AudioEngineState::Playing);
+                _ = self.event_sender.send(EngineEvent::Playing);
                 self.output.resume();
                 self.output.begin_fade(Some(0.0), 1.0, FADE_PAUSE_MS);
                 self.fade_intent = FadeIntent::PlayIn;
-                // `Playing` is emitted when the fade-in completes.
             }
         }
     }
@@ -533,7 +533,6 @@ impl AudioEngineLoop {
             }
             (FadeEvent::FadedIn, FadeIntent::PlayIn) => {
                 self.fade_intent = FadeIntent::None;
-                _ = self.event_sender.send(EngineEvent::Playing);
                 false
             }
             (FadeEvent::FadedIn, FadeIntent::SeekIn) => {
