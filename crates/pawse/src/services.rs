@@ -16,6 +16,7 @@ use music_library::Track;
 use crate::cover_art_cache::CoverArtCache;
 use crate::library_service::{LibraryEvent, LibraryService};
 
+#[derive(Clone)]
 pub struct Services {
     pub engine_manager: Rc<EngineManager>,
     pub output: Arc<Output>,
