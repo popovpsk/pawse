@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Div, ElementId, FontWeight, Hsla, InteractiveElement,
+    AnyElement, AppContext, Context, Div, ElementId, FontWeight, Hsla, Image, InteractiveElement,
     IntoElement, ObjectFit, ParentElement, Pixels, Render, SharedString, Size,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px,
 };
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
+use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 
@@ -19,8 +21,6 @@ use crate::playback_queue::RemoveOutcome;
 use crate::playlist_buttons::add_to_playlist_button;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
-
-const HEADER_HEIGHT: f32 = 40.;
 
 #[derive(Clone)]
 struct DraggedQueueTrack {
@@ -84,7 +84,7 @@ struct Track {
     title: SharedString,
     duration: SharedString,
     artist: SharedString,
-    cover_art_id: Option<i64>,
+    cover: Option<Arc<Image>>,
     liked: bool,
 }
 
@@ -92,6 +92,8 @@ impl Track {
     pub fn from_library_track(
         src: &music_library::Track,
         artist_by_track: &HashMap<i64, SharedString>,
+        cover_art_cache: &mut CoverArtCache,
+        library: &crate::library_service::LibraryService,
     ) -> Self {
         let duration = src
             .duration_ms
@@ -100,13 +102,15 @@ impl Track {
                 format!("{:02}:{:02}", secs / 60, secs % 60)
             })
             .unwrap_or_default();
+
+        let cover = cover_art_cache.get_small(src.cover_art_id, library);
         Self {
             id: src.id,
             title: src.title.clone().into(),
-            duration: duration.into(),
             artist: artist_by_track.get(&src.id).cloned().unwrap_or_default(),
-            cover_art_id: src.cover_art_id,
+            cover: cover,
             liked: src.liked,
+            duration: duration.into(),
         }
     }
 }
@@ -213,9 +217,18 @@ impl QueueView {
 
         if !is_same_queue {
             let artist_by_track = build_artist_map(&services.library, &new_tracks);
+            let mut art_cache = services.cover_art_cache.borrow_mut();
+
             self.tracks = new_tracks
                 .iter()
-                .map(|x| Track::from_library_track(x, &artist_by_track))
+                .map(|x| {
+                    Track::from_library_track(
+                        x,
+                        &artist_by_track,
+                        &mut *art_cache,
+                        &services.library,
+                    )
+                })
                 .collect();
         };
         self.current_index = new_index;
@@ -249,7 +262,6 @@ impl Render for QueueView {
         }
 
         let params = QueueRowParams::from_cx(cx);
-        let services = cx.global::<Services>().clone();
 
         v_flex().size_full().child(header).child(
             v_virtual_list(
@@ -259,8 +271,7 @@ impl Render for QueueView {
                 move |view, visible_range, _window, cx| {
                     visible_range
                         .map(|track_ix| {
-                            queue_visible_range_row(cx, view, &params, &services, track_ix)
-                                .into_any_element()
+                            queue_visible_range_row(cx, view, &params, track_ix).into_any_element()
                         })
                         .collect::<Vec<_>>()
                 },
@@ -274,7 +285,6 @@ fn queue_visible_range_row(
     cx: &mut Context<QueueView>,
     view: &mut QueueView,
     params: &QueueRowParams,
-    services: &Services,
     track_ix: usize,
 ) -> gpui::Stateful<Div> {
     let track = &view.tracks[track_ix];
@@ -294,7 +304,7 @@ fn queue_visible_range_row(
         .border_color(params.border)
         .when(is_current, |s| crate::row_style::current_row(s, cx))
         .hover(|s| s.bg(params.list_hover))
-        .child(album_cover_cell(params, services, track.cover_art_id))
+        .child(album_cover_cell(params, track.cover.clone()))
         .when_else(
             params.show_queue_artist,
             |row| {
@@ -493,7 +503,7 @@ fn queue_empty_state(cx: &Context<QueueView>, header: Div) -> Div {
 fn queue_header(foreground: Hsla) -> Div {
     h_flex()
         .w_full()
-        .h(px(HEADER_HEIGHT))
+        .h(px(40.))
         .flex_shrink_0()
         .px_4()
         .items_center()
@@ -506,17 +516,9 @@ fn queue_header(foreground: Hsla) -> Div {
         )
 }
 
-fn album_cover_cell(
-    params: &QueueRowParams,
-    services: &Services,
-    cover_art_id: Option<i64>,
-) -> AnyElement {
+fn album_cover_cell(params: &QueueRowParams, cover_img: Option<Arc<Image>>) -> AnyElement {
     let cover_size = if params.show_queue_artist { 32. } else { 24. };
 
-    let cover_img = services
-        .cover_art_cache
-        .borrow_mut()
-        .get_small(cover_art_id, &services.library);
     if let Some(cover_img) = cover_img {
         img(cover_img)
             .flex_shrink_0()
