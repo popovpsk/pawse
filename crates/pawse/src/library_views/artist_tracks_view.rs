@@ -1,14 +1,16 @@
 use std::rc::Rc;
+use std::sync::Arc;
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
-    div, img, px, size, svg,
+    Context, ElementId, FontWeight, Image, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
+    StyledImage, Subscription, Window, div, img, px, size, svg,
 };
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
+use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_duration::track_duration;
 use nucleo_matcher::{
@@ -32,12 +34,46 @@ const DISC_HEADER_HEIGHT: f32 = 32.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Debug)]
+struct TrackRow {
+    id: i64,
+    title: SharedString,
+    duration: SharedString,
+    track_num_str: SharedString,
+    disc_number: i32,
+    liked: bool,
+}
+
+impl TrackRow {
+    fn from_track(track: &music_library::Track) -> Self {
+        let duration = track
+            .duration_ms
+            .map(|ms| {
+                let secs = (ms / 1000) as u32;
+                format!("{:02}:{:02}", secs / 60, secs % 60)
+            })
+            .unwrap_or_default();
+        let track_num_str = track
+            .track_number
+            .map(|n| format!("{}.", n))
+            .unwrap_or_default();
+        Self {
+            id: track.id,
+            title: track.title.clone().into(),
+            duration: duration.into(),
+            track_num_str: track_num_str.into(),
+            disc_number: track.disc_number,
+            liked: track.liked,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct AlbumGroup {
     album_id: Option<i64>,
-    album_title: String,
+    album_title: SharedString,
     year: Option<i32>,
-    cover_art_id: Option<i64>,
-    tracks: Vec<music_library::Track>,
+    cover: Option<Arc<Image>>,
+    tracks: Vec<TrackRow>,
     /// Indices of `tracks` in the flat artist-wide list (used as playback queue index).
     global_indices: Vec<usize>,
 }
@@ -51,7 +87,7 @@ enum ItemKind {
 }
 
 pub struct ArtistTracksView {
-    artist: music_library::ArtistSummary,
+    artist_name: SharedString,
     tracks_all: Vec<music_library::Track>,
     groups: Vec<AlbumGroup>,
     items: Vec<ItemKind>,
@@ -72,15 +108,10 @@ impl ArtistTracksView {
         let library_event_bus = services.library_event_bus.clone();
         let tracks_all = services.library.tracks_by_artist(artist.id);
 
-        // Pre-warm cover cache for album headers.
-        {
+        let groups = {
             let mut cache = services.cover_art_cache.borrow_mut();
-            for t in &tracks_all {
-                cache.get_small(t.cover_art_id, &services.library);
-            }
-        }
-
-        let groups = Self::group_by_album(&tracks_all, &services.library);
+            Self::group_by_album(&tracks_all, &services.library, &mut cache)
+        };
         let (items, sizes) = Self::build_items(&groups);
 
         let current_track_id = services
@@ -148,7 +179,7 @@ impl ArtistTracksView {
             });
 
         Self {
-            artist: artist.clone(),
+            artist_name: artist.name.clone().into(),
             tracks_all,
             groups,
             items,
@@ -166,6 +197,7 @@ impl ArtistTracksView {
     fn group_by_album(
         tracks: &[music_library::Track],
         library: &crate::library_service::LibraryService,
+        cover_cache: &mut CoverArtCache,
     ) -> Vec<AlbumGroup> {
         let mut groups: Vec<AlbumGroup> = Vec::new();
         for (ix, track) in tracks.iter().enumerate() {
@@ -173,19 +205,20 @@ impl ArtistTracksView {
             if let Some(last) = groups.last_mut()
                 && last.album_id == album_id
             {
-                last.tracks.push(track.clone());
+                last.tracks.push(TrackRow::from_track(track));
                 last.global_indices.push(ix);
                 continue;
             }
             let album_title = album_id
                 .and_then(|id| library.album_title(id))
                 .unwrap_or_else(|| "Unknown".to_string());
+            let cover = cover_cache.get_small(track.cover_art_id, library);
             groups.push(AlbumGroup {
                 album_id,
-                album_title,
+                album_title: album_title.into(),
                 year: track.year,
-                cover_art_id: track.cover_art_id,
-                tracks: vec![track.clone()],
+                cover,
+                tracks: vec![TrackRow::from_track(track)],
                 global_indices: vec![ix],
             });
         }
@@ -227,8 +260,9 @@ impl ArtistTracksView {
     fn recompute_groups(&mut self, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
         let library = services.library.clone();
+        let mut cover_cache = services.cover_art_cache.borrow_mut();
         if self.filter.is_empty() {
-            self.groups = Self::group_by_album(&self.tracks_all, &library);
+            self.groups = Self::group_by_album(&self.tracks_all, &library, &mut cover_cache);
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
@@ -252,19 +286,20 @@ impl ArtistTracksView {
                 if let Some(last) = groups.last_mut()
                     && last.album_id == album_id
                 {
-                    last.tracks.push(track);
+                    last.tracks.push(TrackRow::from_track(&track));
                     last.global_indices.push(global_ix);
                     continue;
                 }
                 let album_title = album_id
                     .and_then(|id| library.album_title(id))
                     .unwrap_or_else(|| "Unknown".to_string());
+                let cover = cover_cache.get_small(track.cover_art_id, &library);
                 groups.push(AlbumGroup {
                     album_id,
-                    album_title,
+                    album_title: album_title.into(),
                     year: track.year,
-                    cover_art_id: track.cover_art_id,
-                    tracks: vec![track],
+                    cover,
+                    tracks: vec![TrackRow::from_track(&track)],
                     global_indices: vec![global_ix],
                 });
             }
@@ -290,17 +325,25 @@ impl Render for ArtistTracksView {
         if self.tracks_all.is_empty() {
             return v_flex()
                 .size_full()
-                .child(artist_header_static(self.artist.name.clone()))
+                .child(artist_header_static(self.artist_name.clone()))
                 .child(div().px_4().child("No tracks for this artist."));
         }
 
         if self.groups.is_empty() {
             return v_flex()
                 .size_full()
-                .child(artist_header_static(self.artist.name.clone()))
+                .child(artist_header_static(self.artist_name.clone()))
                 .child(div().px_4().child("No tracks match your search."));
         }
 
+        let p = ArtistTrackRowParams {
+            border,
+            list_hover,
+            muted_fg,
+            foreground,
+            liked_enabled,
+            playlists_enabled,
+        };
         let item_sizes = self.item_sizes.clone();
         v_flex().size_full().child(
             v_virtual_list(
@@ -311,171 +354,16 @@ impl Render for ArtistTracksView {
                     visible_range
                         .map(|ix| match view.items[ix] {
                             ItemKind::ArtistHeader => {
-                                artist_header_static(view.artist.name.clone()).into_any_element()
+                                artist_header_static(view.artist_name.clone()).into_any_element()
                             }
-                            ItemKind::DiscHeader(disc) => h_flex()
-                                .w_full()
-                                .h(px(DISC_HEADER_HEIGHT))
-                                .px_4()
-                                .items_center()
-                                .border_b(px(1.))
-                                .border_color(border)
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .text_color(muted_fg)
-                                        .child(format!("Disc {}", disc)),
-                                )
-                                .into_any_element(),
+                            ItemKind::DiscHeader(disc) => {
+                                artist_disc_header(disc, border, muted_fg)
+                            }
                             ItemKind::AlbumHeader(g_ix) => {
-                                let group = &view.groups[g_ix];
-                                let services = cx.global::<Services>();
-                                let cover_img = services
-                                    .cover_art_cache
-                                    .borrow_mut()
-                                    .get_small(group.cover_art_id, &services.library);
-                                let cover_el: gpui::AnyElement = if let Some(cover_img) = cover_img
-                                {
-                                    img(cover_img)
-                                        .w(px(ALBUM_COVER_SIZE))
-                                        .h(px(ALBUM_COVER_SIZE))
-                                        .rounded(px(4.))
-                                        .object_fit(ObjectFit::Cover)
-                                        .with_fallback(move || {
-                                            cover_placeholder(
-                                                ALBUM_COVER_SIZE,
-                                                4.,
-                                                fallback_bg,
-                                                fallback_fg,
-                                            )
-                                            .into_any_element()
-                                        })
-                                        .into_any_element()
-                                } else {
-                                    cover_placeholder(
-                                        ALBUM_COVER_SIZE,
-                                        4.,
-                                        fallback_bg,
-                                        fallback_fg,
-                                    )
-                                    .into_any_element()
-                                };
-                                let year_str =
-                                    group.year.map(|y| format!(" · {}", y)).unwrap_or_default();
-                                h_flex()
-                                    .w_full()
-                                    .h(px(ALBUM_HEADER_HEIGHT))
-                                    .px_4()
-                                    .gap_3()
-                                    .items_center()
-                                    .border_b(px(1.))
-                                    .border_color(border)
-                                    .child(cover_el)
-                                    .child(
-                                        div().flex_1().overflow_hidden().child(
-                                            div().font_weight(FontWeight::SEMIBOLD).child(format!(
-                                                "{}{}",
-                                                group.album_title, year_str
-                                            )),
-                                        ),
-                                    )
-                                    .into_any_element()
+                                artist_album_header(view, g_ix, border, fallback_bg, fallback_fg)
                             }
                             ItemKind::Track(g_ix, t_ix) => {
-                                let group = &view.groups[g_ix];
-                                let track = &group.tracks[t_ix];
-                                let track_id = track.id;
-                                let is_current = Some(track_id) == view.current_track_id;
-                                let is_playing = view.is_playing;
-                                let track_num_str = track
-                                    .track_number
-                                    .map(|n| format!("{}.", n))
-                                    .unwrap_or_default();
-                                let duration_str = track
-                                    .duration_ms
-                                    .map(|ms| {
-                                        let secs = (ms / 1000) as u32;
-                                        format!("{:02}:{:02}", secs / 60, secs % 60)
-                                    })
-                                    .unwrap_or_default();
-                                let title = track.title.clone();
-                                let liked = track.liked;
-                                let global_ix = group.global_indices[t_ix];
-                                let track_for_queue = track.clone();
-
-                                let leading: gpui::AnyElement = if is_current {
-                                    let icon = if is_playing {
-                                        "icons/play.svg"
-                                    } else {
-                                        "icons/pause.svg"
-                                    };
-                                    div()
-                                        .w_8()
-                                        .flex()
-                                        .items_center()
-                                        .child(
-                                            svg().path(icon).size(px(12.)).text_color(foreground),
-                                        )
-                                        .into_any_element()
-                                } else {
-                                    div()
-                                        .w_8()
-                                        .text_color(muted_fg)
-                                        .child(track_num_str)
-                                        .into_any_element()
-                                };
-
-                                h_flex()
-                                    .group(LIKE_ROW_GROUP)
-                                    .w_full()
-                                    .h(px(TRACK_ROW_HEIGHT))
-                                    .pl_4()
-                                    .pr_2()
-                                    .gap_2()
-                                    .items_center()
-                                    .border_b(px(1.))
-                                    .border_color(border)
-                                    .when(is_current, |s| crate::row_style::current_row(s, cx))
-                                    .hover(|s| s.bg(list_hover))
-                                    .child(leading)
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w(px(0.))
-                                            .overflow_hidden()
-                                            .truncate()
-                                            .when(is_current, |d| {
-                                                d.font_weight(FontWeight::SEMIBOLD)
-                                            })
-                                            .child(title),
-                                    )
-                                    .when(playlists_enabled, |row| {
-                                        row.child(add_to_playlist_button(track_id, cx))
-                                    })
-                                    .when(liked_enabled, |row| {
-                                        row.child(like_button(track_id, liked, cx))
-                                    })
-                                    .child(track_duration(cx, duration_str.into()))
-                                    .child(add_to_queue_button(track_for_queue, 26., 16., cx))
-                                    .id(ElementId::Integer(track_id as u64))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        let services = cx.global::<Services>();
-                                        let mut queue = services.playback_queue.borrow_mut();
-                                        let played = queue
-                                            .set_tracks_and_play_at(
-                                                this.tracks_all.clone(),
-                                                global_ix,
-                                                crate::playback_queue::QueueSource::Unknown,
-                                            )
-                                            .cloned();
-                                        drop(queue);
-                                        if let Some(track) = played {
-                                            services.play_track(&track);
-                                            crate::services::save_playback(cx);
-                                        }
-                                    }))
-                                    .into_any_element()
+                                artist_track_row(view, g_ix, t_ix, &p, cx)
                             }
                         })
                         .collect::<Vec<_>>()
@@ -487,7 +375,158 @@ impl Render for ArtistTracksView {
     }
 }
 
-fn artist_header_static(name: String) -> gpui::Div {
+fn artist_disc_header(disc: i32, border: gpui::Hsla, muted_fg: gpui::Hsla) -> gpui::AnyElement {
+    h_flex()
+        .w_full()
+        .h(px(DISC_HEADER_HEIGHT))
+        .px_4()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(border)
+        .child(
+            div()
+                .text_sm()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(muted_fg)
+                .child(format!("Disc {}", disc)),
+        )
+        .into_any_element()
+}
+
+fn artist_album_header(
+    view: &mut ArtistTracksView,
+    g_ix: usize,
+    border: gpui::Hsla,
+    fallback_bg: gpui::Hsla,
+    fallback_fg: gpui::Hsla,
+) -> gpui::AnyElement {
+    let group = &view.groups[g_ix];
+    let cover_el: gpui::AnyElement = if let Some(ref cover_img) = group.cover {
+        img(cover_img.clone())
+            .w(px(ALBUM_COVER_SIZE))
+            .h(px(ALBUM_COVER_SIZE))
+            .rounded(px(4.))
+            .object_fit(ObjectFit::Cover)
+            .with_fallback(move || {
+                cover_placeholder(ALBUM_COVER_SIZE, 4., fallback_bg, fallback_fg).into_any_element()
+            })
+            .into_any_element()
+    } else {
+        cover_placeholder(ALBUM_COVER_SIZE, 4., fallback_bg, fallback_fg).into_any_element()
+    };
+    let year_str = group.year.map(|y| format!(" · {}", y)).unwrap_or_default();
+    h_flex()
+        .w_full()
+        .h(px(ALBUM_HEADER_HEIGHT))
+        .px_4()
+        .gap_3()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(border)
+        .child(cover_el)
+        .child(
+            div().flex_1().overflow_hidden().child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(format!("{}{}", group.album_title, year_str)),
+            ),
+        )
+        .into_any_element()
+}
+
+struct ArtistTrackRowParams {
+    border: gpui::Hsla,
+    list_hover: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    foreground: gpui::Hsla,
+    liked_enabled: bool,
+    playlists_enabled: bool,
+}
+
+fn artist_track_row(
+    view: &mut ArtistTracksView,
+    g_ix: usize,
+    t_ix: usize,
+    p: &ArtistTrackRowParams,
+    cx: &mut Context<ArtistTracksView>,
+) -> gpui::AnyElement {
+    let group = &view.groups[g_ix];
+    let track = &group.tracks[t_ix];
+    let global_ix = group.global_indices[t_ix];
+    let track_id = track.id;
+    let is_current = Some(track_id) == view.current_track_id;
+    let is_playing = view.is_playing;
+    let track_for_queue = view.tracks_all[global_ix].clone();
+
+    let leading = if is_current {
+        let icon = if is_playing {
+            "icons/play.svg"
+        } else {
+            "icons/pause.svg"
+        };
+        div()
+            .w_8()
+            .flex()
+            .items_center()
+            .child(svg().path(icon).size(px(12.)).text_color(p.foreground))
+    } else {
+        div()
+            .w_8()
+            .text_color(p.muted_fg)
+            .child(track.track_num_str.clone())
+    };
+
+    h_flex()
+        .group(LIKE_ROW_GROUP)
+        .w_full()
+        .h(px(TRACK_ROW_HEIGHT))
+        .pl_4()
+        .pr_2()
+        .gap_2()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(p.border)
+        .when(is_current, |s| crate::row_style::current_row(s, cx))
+        .hover(|s| s.bg(p.list_hover))
+        .child(leading)
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .overflow_hidden()
+                .truncate()
+                .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
+                .child(track.title.clone()),
+        )
+        .when(p.playlists_enabled, |el| {
+            el.child(add_to_playlist_button(track_id, cx))
+        })
+        .when(p.liked_enabled, |el| {
+            el.child(like_button(track_id, track.liked, cx))
+        })
+        .child(track_duration(cx, track.duration.clone()))
+        .child(add_to_queue_button(track_for_queue, 26., 16., cx))
+        .id(ElementId::Integer(track_id as u64))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            let services = cx.global::<Services>();
+            let mut queue = services.playback_queue.borrow_mut();
+            let played = queue
+                .set_tracks_and_play_at(
+                    this.tracks_all.clone(),
+                    global_ix,
+                    crate::playback_queue::QueueSource::Unknown,
+                )
+                .cloned();
+            drop(queue);
+            if let Some(track) = played {
+                services.play_track(&track);
+                crate::services::save_playback(cx);
+            }
+        }))
+        .into_any_element()
+}
+
+fn artist_header_static(name: SharedString) -> gpui::Div {
     div().px_4().pt_3().pb_2().child(
         div()
             .text_xl()

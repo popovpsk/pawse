@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    Pixels, Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
-    div, img, px, size,
+    Context, ElementId, FontWeight, Image, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
+    StyledImage, Subscription, Window, div, img, px, size,
 };
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
+use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_duration::track_duration;
 use nucleo_matcher::{
@@ -36,10 +38,48 @@ enum LikedItem {
     Track(usize),
 }
 
+struct RowData {
+    id: i64,
+    track_all_ix: usize,
+    title: SharedString,
+    duration: SharedString,
+    artist: SharedString,
+    cover: Option<Arc<Image>>,
+    liked: bool,
+}
+
+impl RowData {
+    fn from_track(
+        track: &music_library::Track,
+        track_all_ix: usize,
+        artist_by_track: &HashMap<i64, SharedString>,
+        cover_cache: &mut CoverArtCache,
+        library: &crate::library_service::LibraryService,
+    ) -> Self {
+        let duration = track
+            .duration_ms
+            .map(|ms| {
+                let secs = (ms / 1000) as u32;
+                format!("{:02}:{:02}", secs / 60, secs % 60)
+            })
+            .unwrap_or_default();
+        let cover = cover_cache.get_small(track.cover_art_id, library);
+        Self {
+            id: track.id,
+            track_all_ix,
+            title: track.title.clone().into(),
+            duration: duration.into(),
+            artist: artist_by_track.get(&track.id).cloned().unwrap_or_default(),
+            cover,
+            liked: track.liked,
+        }
+    }
+}
+
 pub struct LikedView {
     tracks_all: Vec<music_library::Track>,
-    tracks: Vec<music_library::Track>,
-    artist_by_track: HashMap<i64, String>,
+    row_data: Vec<RowData>,
+    artist_by_track: HashMap<i64, SharedString>,
     items: Vec<LikedItem>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     filter: String,
@@ -60,9 +100,17 @@ impl LikedView {
 
         let tracks_all = library.liked_tracks();
         let artist_by_track = build_artist_map(&library, &tracks_all);
-        Self::prewarm_covers(services, &tracks_all);
-        let tracks = tracks_all.clone();
-        let (items, item_sizes) = Self::build_items(&tracks);
+        let (items, item_sizes) = Self::build_items(tracks_all.len());
+        let row_data = {
+            let mut cover_cache = services.cover_art_cache.borrow_mut();
+            tracks_all
+                .iter()
+                .enumerate()
+                .map(|(ix, t)| {
+                    RowData::from_track(t, ix, &artist_by_track, &mut cover_cache, &library)
+                })
+                .collect()
+        };
 
         let current_track_id = services
             .playback_queue
@@ -80,8 +128,7 @@ impl LikedView {
                     let services = cx.global::<Services>();
                     this.tracks_all = services.library.liked_tracks();
                     this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
-                    Self::prewarm_covers(services, &this.tracks_all);
-                    this.recompute_visible();
+                    this.recompute_visible(cx);
                     cx.notify();
                 }
                 LibraryEvent::TrackLikedChanged { track_id, liked } => {
@@ -91,15 +138,14 @@ impl LikedView {
                             this.tracks_all = services.library.liked_tracks();
                             this.artist_by_track =
                                 build_artist_map(&services.library, &this.tracks_all);
-                            Self::prewarm_covers(services, &this.tracks_all);
-                            this.recompute_visible();
+                            this.recompute_visible(cx);
                             cx.notify();
                         }
                     } else {
                         let before = this.tracks_all.len();
                         this.tracks_all.retain(|t| t.id != *track_id);
                         if this.tracks_all.len() != before {
-                            this.recompute_visible();
+                            this.recompute_visible(cx);
                             cx.notify();
                         }
                     }
@@ -141,7 +187,7 @@ impl LikedView {
 
         Self {
             tracks_all,
-            tracks,
+            row_data,
             artist_by_track,
             items,
             item_sizes: Rc::new(item_sizes),
@@ -155,21 +201,14 @@ impl LikedView {
         }
     }
 
-    fn build_items(tracks: &[music_library::Track]) -> (Vec<LikedItem>, Vec<Size<Pixels>>) {
+    fn build_items(count: usize) -> (Vec<LikedItem>, Vec<Size<Pixels>>) {
         let mut items = vec![LikedItem::TopPadding];
         let mut sizes = vec![size(px(300.), px(TOP_PADDING))];
-        for ix in 0..tracks.len() {
+        for ix in 0..count {
             items.push(LikedItem::Track(ix));
             sizes.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
         }
         (items, sizes)
-    }
-
-    fn prewarm_covers(services: &Services, tracks: &[music_library::Track]) {
-        let mut cache = services.cover_art_cache.borrow_mut();
-        for track in tracks {
-            cache.get_small(track.cover_art_id, &services.library);
-        }
     }
 
     pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
@@ -178,38 +217,54 @@ impl LikedView {
             return;
         }
         self.filter = trimmed;
-        self.recompute_visible();
+        self.recompute_visible(cx);
         cx.notify();
     }
 
-    fn recompute_visible(&mut self) {
+    fn recompute_visible(&mut self, cx: &mut Context<Self>) {
+        let services = cx.global::<Services>();
+        let mut cover_cache = services.cover_art_cache.borrow_mut();
+        let library = &services.library;
         if self.filter.is_empty() {
-            self.tracks = self.tracks_all.clone();
+            self.row_data = self
+                .tracks_all
+                .iter()
+                .enumerate()
+                .map(|(ix, t)| {
+                    RowData::from_track(t, ix, &self.artist_by_track, &mut cover_cache, library)
+                })
+                .collect();
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
             let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(music_library::Track, u32)> = self
+            let mut scored: Vec<(usize, music_library::Track, u32)> = self
                 .tracks_all
                 .iter()
-                .filter_map(|track| {
+                .enumerate()
+                .filter_map(|(ix, track)| {
                     let artist = self
                         .artist_by_track
                         .get(&track.id)
-                        .map(String::as_str)
+                        .map(SharedString::as_str)
                         .unwrap_or("");
                     let haystack_str = format!("{} {}", track.title, artist);
                     let haystack = Utf32Str::new(&haystack_str, &mut buf);
                     pattern
                         .score(haystack, &mut self.matcher)
                         .filter(|s| *s >= threshold)
-                        .map(|s| (track.clone(), s))
+                        .map(|s| (ix, track.clone(), s))
                 })
                 .collect();
-            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-            self.tracks = scored.into_iter().map(|(t, _)| t).collect();
+            scored.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
+            self.row_data = scored
+                .iter()
+                .map(|(ix, t, _)| {
+                    RowData::from_track(t, *ix, &self.artist_by_track, &mut cover_cache, library)
+                })
+                .collect()
         }
-        let (items, sizes) = Self::build_items(&self.tracks);
+        let (items, sizes) = Self::build_items(self.row_data.len());
         self.items = items;
         self.item_sizes = Rc::new(sizes);
     }
@@ -218,12 +273,12 @@ impl LikedView {
 fn build_artist_map(
     library: &crate::library_service::LibraryService,
     tracks: &[music_library::Track],
-) -> HashMap<i64, String> {
+) -> HashMap<i64, SharedString> {
     let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
     library
         .track_artists_map(&ids)
         .into_iter()
-        .map(|(id, names)| (id, names.join(", ")))
+        .map(|(id, names)| (id, names.join(", ").into()))
         .collect()
 }
 
@@ -236,7 +291,7 @@ impl Render for LikedView {
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
 
-        if self.tracks.is_empty() {
+        if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
                 "No liked tracks yet. Hover a track and tap the heart to like it."
             } else {
@@ -249,6 +304,14 @@ impl Render for LikedView {
                 .child(div().px_4().text_color(muted_fg).child(message));
         }
 
+        let p = LikedTrackRowParams {
+            border,
+            list_hover,
+            muted,
+            muted_fg,
+            liked_enabled,
+            playlists_enabled,
+        };
         let item_sizes = self.item_sizes.clone();
         v_flex().size_full().child(
             v_virtual_list(
@@ -261,117 +324,7 @@ impl Render for LikedView {
                             LikedItem::TopPadding => {
                                 div().w_full().h(px(TOP_PADDING)).into_any_element()
                             }
-                            LikedItem::Track(track_ix) => {
-                                let track = &view.tracks[track_ix];
-                                let track_id = track.id;
-                                let cover_art_id = track.cover_art_id;
-                                let title = track.title.clone();
-                                let artist = view
-                                    .artist_by_track
-                                    .get(&track_id)
-                                    .cloned()
-                                    .unwrap_or_default();
-                                let duration_str = track
-                                    .duration_ms
-                                    .map(|ms| {
-                                        let secs = (ms / 1000) as u32;
-                                        format!("{:02}:{:02}", secs / 60, secs % 60)
-                                    })
-                                    .unwrap_or_default();
-                                let liked = track.liked;
-                                let is_current = Some(track_id) == view.current_track_id;
-                                let track_for_queue = track.clone();
-
-                                let services = cx.global::<Services>();
-                                let cover_img = services
-                                    .cover_art_cache
-                                    .borrow_mut()
-                                    .get_small(cover_art_id, &services.library);
-                                let fallback_bg = muted;
-                                let fallback_fg = muted_fg;
-                                let cover_el: gpui::AnyElement = if let Some(cover_img) = cover_img
-                                {
-                                    img(cover_img)
-                                        .w(px(COVER_SIZE))
-                                        .h(px(COVER_SIZE))
-                                        .rounded(px(3.))
-                                        .object_fit(ObjectFit::Cover)
-                                        .with_fallback({
-                                            let bg = fallback_bg;
-                                            let fg = fallback_fg;
-                                            move || {
-                                                cover_placeholder(COVER_SIZE, 3., bg, fg)
-                                                    .into_any_element()
-                                            }
-                                        })
-                                        .into_any_element()
-                                } else {
-                                    cover_placeholder(COVER_SIZE, 3., fallback_bg, fallback_fg)
-                                        .into_any_element()
-                                };
-
-                                h_flex()
-                                    .group(LIKE_ROW_GROUP)
-                                    .w_full()
-                                    .h(px(TRACK_ROW_HEIGHT))
-                                    .pl_4()
-                                    .pr_2()
-                                    .gap_2()
-                                    .items_center()
-                                    .border_b(px(1.))
-                                    .border_color(border)
-                                    .when(is_current, |s| crate::row_style::current_row(s, cx))
-                                    .hover(|s| s.bg(list_hover))
-                                    .child(cover_el)
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w(px(0.))
-                                            .overflow_hidden()
-                                            .truncate()
-                                            .text_sm()
-                                            .when(is_current, |d| {
-                                                d.font_weight(FontWeight::SEMIBOLD)
-                                            })
-                                            .child(title),
-                                    )
-                                    .child(
-                                        div()
-                                            .w(px(140.))
-                                            .min_w(px(0.))
-                                            .overflow_hidden()
-                                            .truncate()
-                                            .text_sm()
-                                            .text_color(muted_fg)
-                                            .child(artist),
-                                    )
-                                    .when(playlists_enabled, |row| {
-                                        row.child(add_to_playlist_button(track_id, cx))
-                                    })
-                                    .when(liked_enabled, |row| {
-                                        row.child(like_button(track_id, liked, cx))
-                                    })
-                                    .child(track_duration(cx, duration_str.into()))
-                                    .child(add_to_queue_button(track_for_queue, 26., 16., cx))
-                                    .id(ElementId::Integer(track_id as u64))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        let services = cx.global::<Services>();
-                                        let mut queue = services.playback_queue.borrow_mut();
-                                        let track = queue
-                                            .set_tracks_and_play_at(
-                                                this.tracks.clone(),
-                                                track_ix,
-                                                crate::playback_queue::QueueSource::Unknown,
-                                            )
-                                            .cloned();
-                                        drop(queue);
-                                        if let Some(track) = track {
-                                            services.play_track(&track);
-                                            crate::services::save_playback(cx);
-                                        }
-                                    }))
-                                    .into_any_element()
-                            }
+                            LikedItem::Track(track_ix) => liked_track_row(view, track_ix, &p, cx),
                         })
                         .collect::<Vec<_>>()
                 },
@@ -380,4 +333,106 @@ impl Render for LikedView {
             .flex_1(),
         )
     }
+}
+
+struct LikedTrackRowParams {
+    border: gpui::Hsla,
+    list_hover: gpui::Hsla,
+    muted: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    liked_enabled: bool,
+    playlists_enabled: bool,
+}
+
+fn liked_track_row(
+    view: &mut LikedView,
+    track_ix: usize,
+    p: &LikedTrackRowParams,
+    cx: &mut Context<LikedView>,
+) -> gpui::AnyElement {
+    let row = &view.row_data[track_ix];
+    let track_id = row.id;
+    let is_current = Some(track_id) == view.current_track_id;
+    let track_for_queue = view.tracks_all[row.track_all_ix].clone();
+
+    let cover_el: gpui::AnyElement = if let Some(ref cover_img) = row.cover {
+        img(cover_img.clone())
+            .w(px(COVER_SIZE))
+            .h(px(COVER_SIZE))
+            .rounded(px(3.))
+            .object_fit(ObjectFit::Cover)
+            .with_fallback({
+                let bg = p.muted;
+                let fg = p.muted_fg;
+                move || cover_placeholder(COVER_SIZE, 3., bg, fg).into_any_element()
+            })
+            .into_any_element()
+    } else {
+        cover_placeholder(COVER_SIZE, 3., p.muted, p.muted_fg).into_any_element()
+    };
+
+    h_flex()
+        .group(LIKE_ROW_GROUP)
+        .w_full()
+        .h(px(TRACK_ROW_HEIGHT))
+        .pl_4()
+        .pr_2()
+        .gap_2()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(p.border)
+        .when(is_current, |s| crate::row_style::current_row(s, cx))
+        .hover(|s| s.bg(p.list_hover))
+        .child(cover_el)
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .overflow_hidden()
+                .truncate()
+                .text_sm()
+                .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
+                .child(row.title.clone()),
+        )
+        .child(
+            div()
+                .w(px(140.))
+                .min_w(px(0.))
+                .overflow_hidden()
+                .truncate()
+                .text_sm()
+                .text_color(p.muted_fg)
+                .child(row.artist.clone()),
+        )
+        .when(p.playlists_enabled, |el| {
+            el.child(add_to_playlist_button(track_id, cx))
+        })
+        .when(p.liked_enabled, |el| {
+            el.child(like_button(track_id, row.liked, cx))
+        })
+        .child(track_duration(cx, row.duration.clone()))
+        .child(add_to_queue_button(track_for_queue, 26., 16., cx))
+        .id(ElementId::Integer(track_id as u64))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            let services = cx.global::<Services>();
+            let pos = this
+                .tracks_all
+                .iter()
+                .position(|t| t.id == track_id)
+                .unwrap();
+            let mut queue = services.playback_queue.borrow_mut();
+            let track = queue
+                .set_tracks_and_play_at(
+                    this.tracks_all.clone(),
+                    pos,
+                    crate::playback_queue::QueueSource::Unknown,
+                )
+                .cloned();
+            drop(queue);
+            if let Some(track) = track {
+                services.play_track(&track);
+                crate::services::save_playback(cx);
+            }
+        }))
+        .into_any_element()
 }

@@ -109,7 +109,7 @@ impl Track {
             id: src.id,
             title: src.title.clone().into(),
             artist: artist_by_track.get(&src.id).cloned().unwrap_or_default(),
-            cover: cover,
+            cover,
             liked: src.liked,
             duration: duration.into(),
         }
@@ -226,7 +226,7 @@ impl QueueView {
                     Track::from_library_track(
                         x,
                         &artist_by_track,
-                        &mut *art_cache,
+                        &mut art_cache,
                         &services.library,
                     )
                 })
