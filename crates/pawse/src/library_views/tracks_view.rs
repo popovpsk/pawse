@@ -10,6 +10,7 @@ use gpui::{
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::theme_colors::Colors;
+use crate::track_duration::track_duration;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -322,19 +323,11 @@ impl Render for TracksView {
                                         } else {
                                             "icons/pause.svg"
                                         };
-                                        div()
-                                            .w_8()
-                                            .flex()
-                                            .items_center()
-                                            .child(
-                                                svg()
-                                                    .path(icon)
-                                                    .size(px(12.))
-                                                    .text_color(foreground),
-                                            )
-                                            .into_any_element()
+                                        div().w_8().flex().items_center().child(
+                                            svg().path(icon).size(px(12.)).text_color(foreground),
+                                        )
                                     } else {
-                                        div().w_8().child(track_num_str).into_any_element()
+                                        div().w_8().child(track_num_str)
                                     })
                                     .child(
                                         div()
@@ -353,7 +346,7 @@ impl Render for TracksView {
                                     .when(liked_enabled, |row| {
                                         row.child(like_button(track_id, liked, cx))
                                     })
-                                    .child(div().child(duration_str))
+                                    .child(track_duration(cx, duration_str.into()))
                                     .child(add_to_queue_button(track_for_queue, 26., 16., cx))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, _cx| {

@@ -13,6 +13,7 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
+use crate::track_duration::track_duration;
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
@@ -369,17 +370,7 @@ fn queue_visible_range_row(
             )
         })
         .when(params.show_track_duration, |row| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .size(px(40.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_sm()
-                    .text_color(params.muted_fg)
-                    .child(track.duration.clone()),
-            )
+            row.child(track_duration(cx, track.duration.clone()))
         })
         .child(
             div()

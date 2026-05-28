@@ -10,6 +10,7 @@ use gpui::{
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::theme_colors::Colors;
+use crate::track_duration::track_duration;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -455,7 +456,7 @@ impl Render for ArtistTracksView {
                                     .when(liked_enabled, |row| {
                                         row.child(like_button(track_id, liked, cx))
                                     })
-                                    .child(div().text_sm().text_color(muted_fg).child(duration_str))
+                                    .child(track_duration(cx, duration_str.into()))
                                     .child(add_to_queue_button(track_for_queue, 26., 16., cx))
                                     .id(ElementId::Integer(track_id as u64))
                                     .on_click(cx.listener(move |this, _, _, cx| {

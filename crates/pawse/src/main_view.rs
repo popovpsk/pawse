@@ -25,12 +25,12 @@ use crate::settings_view::ThemePickerState;
 use crate::theme_colors::Colors;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
-const HEADER_HEIGHT: f32 = 44.0;
-const FOOTER_HEIGHT: f32 = 80.0;
-const FADE_HEIGHT: f32 = 16.0;
-const QUEUE_WIDTH_DEFAULT: f32 = 360.0;
-const QUEUE_WIDTH_MIN: f32 = 200.0;
-const QUEUE_WIDTH_MAX: f32 = 560.0;
+const HEADER_HEIGHT: f32 = 44.;
+const FOOTER_HEIGHT: f32 = 80.;
+const FADE_HEIGHT: f32 = 16.;
+const QUEUE_WIDTH_DEFAULT: f32 = 360.;
+const QUEUE_WIDTH_MIN: f32 = 280.;
+const QUEUE_WIDTH_MAX: f32 = 560.;
 
 #[derive(Clone)]
 struct DragQueueResize(EntityId);
@@ -269,7 +269,7 @@ impl Render for MainView {
                 .when(liked_enabled, |d| {
                     d.child(tab_icon_button(
                         "tab_liked",
-                        "icons/s1-heart-fill.svg",
+                        "icons/s1-heart.svg",
                         "Liked",
                         current_tab == LibraryRootTab::Liked,
                         LibraryRootTab::Liked,
