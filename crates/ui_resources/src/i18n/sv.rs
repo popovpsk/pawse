@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static SV: Strings = lang! {
+    plural: OneOther,
     play: "Spela",
     pause: "Pausa",
     next: "Nästa",
@@ -103,6 +104,7 @@ pub static SV: Strings = lang! {
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",
+    n_tracks_few: "{} låtar",
     n_tracks_other: "{} låtar",
     bp_system_volume_t: "• Systemvolym inte på max: {}",
     bp_app_volume_t: "• App-volym inte på max: {}",

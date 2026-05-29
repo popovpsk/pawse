@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static NL: Strings = lang! {
+    plural: OneOther,
     play: "Afspelen",
     pause: "Pauzeren",
     next: "Volgende",
@@ -103,6 +104,7 @@ pub static NL: Strings = lang! {
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",
+    n_tracks_few: "{} nummers",
     n_tracks_other: "{} nummers",
     bp_system_volume_t: "• Systeemvolume niet op maximum: {}",
     bp_app_volume_t: "• App-volume niet op maximum: {}",

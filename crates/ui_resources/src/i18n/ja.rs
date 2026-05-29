@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static JA: Strings = lang! {
+    plural: OneOther,
     play: "再生",
     pause: "一時停止",
     next: "次へ",
@@ -103,6 +104,7 @@ pub static JA: Strings = lang! {
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",
+    n_tracks_few: "{} 曲",
     n_tracks_other: "{} 曲",
     bp_system_volume_t: "• システム音量が最大ではありません: {}",
     bp_app_volume_t: "• アプリ音量が最大ではありません: {}",

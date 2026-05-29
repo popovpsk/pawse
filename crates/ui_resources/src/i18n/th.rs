@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static TH: Strings = lang! {
+    plural: OneOther,
     play: "เล่น",
     pause: "หยุดชั่วคราว",
     next: "ถัดไป",
@@ -103,6 +104,7 @@ pub static TH: Strings = lang! {
 
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",
+    n_tracks_few: "{} เพลง",
     n_tracks_other: "{} เพลง",
     bp_system_volume_t: "• ระดับเสียงระบบไม่เต็ม: {}",
     bp_app_volume_t: "• ระดับเสียงแอปไม่เต็ม: {}",

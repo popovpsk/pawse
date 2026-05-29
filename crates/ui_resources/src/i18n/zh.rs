@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static ZH: Strings = lang! {
+    plural: OneOther,
     play: "播放",
     pause: "暂停",
     next: "下一首",
@@ -103,6 +104,7 @@ pub static ZH: Strings = lang! {
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",
+    n_tracks_few: "{} 首曲目",
     n_tracks_other: "{} 首曲目",
     bp_system_volume_t: "• 系统音量未满：{}",
     bp_app_volume_t: "• 应用音量未满：{}",

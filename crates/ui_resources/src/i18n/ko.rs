@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static KO: Strings = lang! {
+    plural: OneOther,
     play: "재생",
     pause: "일시정지",
     next: "다음",
@@ -103,6 +104,7 @@ pub static KO: Strings = lang! {
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",
+    n_tracks_few: "트랙 {}개",
     n_tracks_other: "트랙 {}개",
     bp_system_volume_t: "• 시스템 볼륨이 최대가 아님: {}",
     bp_app_volume_t: "• 앱 볼륨이 최대가 아님: {}",

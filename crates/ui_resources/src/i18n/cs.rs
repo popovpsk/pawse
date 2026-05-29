@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static CS: Strings = lang! {
+    plural: Czech,
     play: "Přehrát",
     pause: "Pozastavit",
     next: "Další",
@@ -103,6 +104,7 @@ pub static CS: Strings = lang! {
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",
+    n_tracks_few: "{} skladby",
     n_tracks_other: "{} skladeb",
     bp_system_volume_t: "• Hlasitost systému není na maximu: {}",
     bp_app_volume_t: "• Hlasitost aplikace není na maximu: {}",

@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static DE: Strings = lang! {
+    plural: OneOther,
     play: "Wiedergabe",
     pause: "Pause",
     next: "Weiter",
@@ -103,6 +104,7 @@ pub static DE: Strings = lang! {
 
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",
+    n_tracks_few: "{} Titel",
     n_tracks_other: "{} Titel",
     bp_system_volume_t: "• Systemlautstärke nicht auf Maximum: {}",
     bp_app_volume_t: "• App-Lautstärke nicht auf Maximum: {}",

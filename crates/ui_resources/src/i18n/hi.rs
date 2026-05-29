@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static HI: Strings = lang! {
+    plural: OneOther,
     play: "चलाएँ",
     pause: "रोकें",
     next: "अगला",
@@ -103,6 +104,7 @@ pub static HI: Strings = lang! {
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",
+    n_tracks_few: "{} ट्रैक",
     n_tracks_other: "{} ट्रैक",
     bp_system_volume_t: "• सिस्टम वॉल्यूम अधिकतम पर नहीं: {}",
     bp_app_volume_t: "• ऐप वॉल्यूम अधिकतम पर नहीं: {}",

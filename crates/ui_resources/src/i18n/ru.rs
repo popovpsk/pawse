@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static RU: Strings = lang! {
+    plural: EastSlavic,
     play: "Воспроизвести",
     pause: "Пауза",
     next: "Следующий",
@@ -103,6 +104,7 @@ pub static RU: Strings = lang! {
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",
+    n_tracks_few: "{} трека",
     n_tracks_other: "{} треков",
     bp_system_volume_t: "• Системная громкость не на максимуме: {}",
     bp_app_volume_t: "• Громкость приложения не на максимуме: {}",

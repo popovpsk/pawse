@@ -43,6 +43,9 @@ mod zh;
 
 /// One immutable string per UI label. See the module docs.
 pub struct Strings {
+    /// CLDR plural family, used by [`Strings::n_tracks`] to pick the count form.
+    plural: Plural,
+
     // --- Transport / footer ---
     pub play: SharedString,
     pub pause: SharedString,
@@ -153,6 +156,7 @@ pub struct Strings {
     // --- Templated (read via the accessor methods below) ---
     pub disc_t: SharedString,
     pub n_tracks_one: SharedString,
+    pub n_tracks_few: SharedString,
     pub n_tracks_other: SharedString,
     pub bp_system_volume_t: SharedString,
     pub bp_app_volume_t: SharedString,
@@ -161,6 +165,70 @@ pub struct Strings {
     pub failed_exclusive_t: SharedString,
     pub failed_switch_device_t: SharedString,
     pub failed_save_settings_t: SharedString,
+}
+
+/// CLDR-style plural family, used to pick the right count form for a language.
+/// Most languages collapse into [`Plural::OneOther`]; the East-Slavic, Polish
+/// and Czech families additionally need a `few` form (and their CLDR `many`
+/// category reuses the `other` template, so three forms cover everything).
+#[derive(Copy, Clone)]
+enum Plural {
+    OneOther,
+    EastSlavic,
+    Polish,
+    Czech,
+}
+
+enum PluralForm {
+    One,
+    Few,
+    Other,
+}
+
+impl Plural {
+    fn form(self, n: i64) -> PluralForm {
+        let n = n.unsigned_abs();
+        let (m10, m100) = (n % 10, n % 100);
+        match self {
+            Plural::OneOther => {
+                if n == 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
+            }
+            // ru, uk
+            Plural::EastSlavic => {
+                if m10 == 1 && m100 != 11 {
+                    PluralForm::One
+                } else if (2..=4).contains(&m10) && !(12..=14).contains(&m100) {
+                    PluralForm::Few
+                } else {
+                    PluralForm::Other
+                }
+            }
+            // pl: `one` is strictly n == 1
+            Plural::Polish => {
+                if n == 1 {
+                    PluralForm::One
+                } else if (2..=4).contains(&m10) && !(12..=14).contains(&m100) {
+                    PluralForm::Few
+                } else {
+                    PluralForm::Other
+                }
+            }
+            // cs: `few` is exactly 2..=4
+            Plural::Czech => {
+                if n == 1 {
+                    PluralForm::One
+                } else if (2..=4).contains(&n) {
+                    PluralForm::Few
+                } else {
+                    PluralForm::Other
+                }
+            }
+        }
+    }
 }
 
 /// Replace each `{}` marker in `template` with the next arg, in order.
@@ -183,14 +251,13 @@ impl Strings {
         fill(&self.disc_t, &[&disc.to_string()])
     }
 
-    /// Track-count label, e.g. "1 track" / "12 tracks". Two-form plural
-    /// (singular when `n == 1`); languages with richer plural rules fall back
-    /// to the general form.
+    /// Track-count label, e.g. "1 track" / "2 трека" / "5 треков". Picks the
+    /// `one`/`few`/`other` form per this language's CLDR plural family.
     pub fn n_tracks(&self, n: i64) -> String {
-        let template = if n == 1 {
-            &self.n_tracks_one
-        } else {
-            &self.n_tracks_other
+        let template = match self.plural.form(n) {
+            PluralForm::One => &self.n_tracks_one,
+            PluralForm::Few => &self.n_tracks_few,
+            PluralForm::Other => &self.n_tracks_other,
         };
         fill(template, &[&n.to_string()])
     }
@@ -231,8 +298,9 @@ impl Strings {
 /// literal, so a missing or misspelled key is a compile error.
 #[macro_export]
 macro_rules! lang {
-    ($($key:ident : $val:literal),* $(,)?) => {
+    (plural: $plural:ident, $($key:ident : $val:literal),* $(,)?) => {
         $crate::i18n::Strings {
+            plural: $crate::i18n::Plural::$plural,
             $( $key: ::gpui::SharedString::new_static($val) ),*
         }
     };
@@ -378,6 +446,39 @@ mod tests {
             assert_eq!(strings().play, lang.strings().play);
         }
         set_active(Lang::En);
+    }
+
+    #[test]
+    fn n_tracks_plural_forms() {
+        // `n_tracks` reads the family off the table itself, so we can test each
+        // language directly without touching the active-language global.
+        let en = Lang::En.strings();
+        assert_eq!(en.n_tracks(1), "1 track");
+        assert_eq!(en.n_tracks(2), "2 tracks");
+
+        let ru = Lang::Ru.strings();
+        assert_eq!(ru.n_tracks(1), "1 трек");
+        assert_eq!(ru.n_tracks(2), "2 трека");
+        assert_eq!(ru.n_tracks(5), "5 треков");
+        assert_eq!(ru.n_tracks(11), "11 треков");
+        assert_eq!(ru.n_tracks(21), "21 трек");
+        assert_eq!(ru.n_tracks(22), "22 трека");
+        assert_eq!(ru.n_tracks(0), "0 треков");
+
+        let uk = Lang::Uk.strings();
+        assert_eq!(uk.n_tracks(2), "2 треки");
+        assert_eq!(uk.n_tracks(5), "5 треків");
+
+        let pl = Lang::Pl.strings();
+        assert_eq!(pl.n_tracks(1), "1 utwór");
+        assert_eq!(pl.n_tracks(2), "2 utwory");
+        assert_eq!(pl.n_tracks(5), "5 utworów");
+        assert_eq!(pl.n_tracks(22), "22 utwory");
+
+        let cs = Lang::Cs.strings();
+        assert_eq!(cs.n_tracks(1), "1 skladba");
+        assert_eq!(cs.n_tracks(3), "3 skladby");
+        assert_eq!(cs.n_tracks(5), "5 skladeb");
     }
 
     #[test]

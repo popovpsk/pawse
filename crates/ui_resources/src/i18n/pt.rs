@@ -2,6 +2,7 @@ use crate::i18n::Strings;
 use crate::lang;
 
 pub static PT: Strings = lang! {
+    plural: OneOther,
     play: "Reproduzir",
     pause: "Pausar",
     next: "Próxima",
@@ -103,6 +104,7 @@ pub static PT: Strings = lang! {
 
     disc_t: "Disco {}",
     n_tracks_one: "{} faixa",
+    n_tracks_few: "{} faixas",
     n_tracks_other: "{} faixas",
     bp_system_volume_t: "• Volume do sistema não está no máximo: {}",
     bp_app_volume_t: "• Volume do app não está no máximo: {}",

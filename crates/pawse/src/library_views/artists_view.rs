@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use gpui::{
     Context, ElementId, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Render, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
+    Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, size,
 };
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
@@ -24,6 +25,41 @@ pub struct ArtistSelectedEvent {
     pub artist: music_library::ArtistSummary,
 }
 
+/// A display-ready artist row. All per-row work (the localized track-count
+/// label, the name as a `SharedString`, and the resolved cover thumbnails) is
+/// done here, off the render hot path, so the `v_virtual_list` closure only
+/// clones cheap handles.
+struct ArtistRow {
+    summary: music_library::ArtistSummary,
+    name: SharedString,
+    count_label: SharedString,
+    covers: Vec<Arc<Image>>,
+}
+
+impl ArtistRow {
+    fn build(
+        summary: music_library::ArtistSummary,
+        cover_ids: &HashMap<i64, Vec<i64>>,
+        cache: &mut crate::cover_art_cache::CoverArtCache,
+        library: &crate::library_service::LibraryService,
+    ) -> Self {
+        let covers = cover_ids
+            .get(&summary.id)
+            .into_iter()
+            .flat_map(|ids| ids.iter())
+            .filter_map(|&id| cache.get_small(Some(id), library))
+            .collect();
+        let count_label = tr().n_tracks(summary.track_count).into();
+        let name = summary.name.clone().into();
+        Self {
+            summary,
+            name,
+            count_label,
+            covers,
+        }
+    }
+}
+
 const TOP_PADDING: f32 = 12.;
 const ARTIST_ROW_HEIGHT: f32 = 56.;
 const AVATAR_SIZE: f32 = 40.;
@@ -31,7 +67,7 @@ const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 pub struct ArtistsView {
     artists_all: Vec<music_library::ArtistSummary>,
-    artists: Vec<music_library::ArtistSummary>,
+    rows: Vec<ArtistRow>,
     cover_ids: HashMap<i64, Vec<i64>>,
     filter: String,
     matcher: Matcher,
@@ -48,17 +84,12 @@ impl ArtistsView {
         let library = services.library.clone();
 
         let artists_all = library.artists();
-        let artists = artists_all.clone();
-        let item_sizes = Self::make_item_sizes(&artists);
         let cover_ids = library.artist_album_covers();
-        {
+        let rows = {
             let mut cache = services.cover_art_cache.borrow_mut();
-            for ids in cover_ids.values() {
-                for &id in ids {
-                    cache.get_small(Some(id), &library);
-                }
-            }
-        }
+            Self::build_rows(&artists_all, &cover_ids, &mut cache, &library)
+        };
+        let item_sizes = Self::make_item_sizes(rows.len());
 
         let subscription =
             cx.subscribe(
@@ -70,18 +101,12 @@ impl ArtistsView {
                     }
                     LibraryEvent::ScanComplete => {
                         this.is_scanning = false;
-                        let services = cx.global::<Services>();
-                        this.artists_all = services.library.artists();
-                        this.cover_ids = services.library.artist_album_covers();
                         {
-                            let mut cache = services.cover_art_cache.borrow_mut();
-                            for ids in this.cover_ids.values() {
-                                for &id in ids {
-                                    cache.get_small(Some(id), &services.library);
-                                }
-                            }
+                            let services = cx.global::<Services>();
+                            this.artists_all = services.library.artists();
+                            this.cover_ids = services.library.artist_album_covers();
                         }
-                        this.recompute_visible();
+                        this.recompute_visible(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -90,7 +115,7 @@ impl ArtistsView {
 
         Self {
             artists_all,
-            artists,
+            rows,
             cover_ids,
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
@@ -101,11 +126,23 @@ impl ArtistsView {
         }
     }
 
-    fn make_item_sizes(artists: &[music_library::ArtistSummary]) -> Rc<Vec<Size<Pixels>>> {
+    fn build_rows(
+        artists: &[music_library::ArtistSummary],
+        cover_ids: &HashMap<i64, Vec<i64>>,
+        cache: &mut crate::cover_art_cache::CoverArtCache,
+        library: &crate::library_service::LibraryService,
+    ) -> Vec<ArtistRow> {
+        artists
+            .iter()
+            .map(|a| ArtistRow::build(a.clone(), cover_ids, cache, library))
+            .collect()
+    }
+
+    fn make_item_sizes(row_count: usize) -> Rc<Vec<Size<Pixels>>> {
         let mut sizes = vec![size(px(300.), px(TOP_PADDING))];
         sizes.extend(vec![
             size(px(300.), px(ARTIST_ROW_HEIGHT + 1.));
-            artists.len()
+            row_count
         ]);
         Rc::new(sizes)
     }
@@ -116,13 +153,13 @@ impl ArtistsView {
             return;
         }
         self.filter = trimmed;
-        self.recompute_visible();
+        self.recompute_visible(cx);
         cx.notify();
     }
 
-    fn recompute_visible(&mut self) {
-        if self.filter.is_empty() {
-            self.artists = self.artists_all.clone();
+    fn recompute_visible(&mut self, cx: &mut Context<Self>) {
+        let filtered: Vec<music_library::ArtistSummary> = if self.filter.is_empty() {
+            self.artists_all.clone()
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
@@ -139,9 +176,15 @@ impl ArtistsView {
                 })
                 .collect();
             scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-            self.artists = scored.into_iter().map(|(a, _)| a).collect();
-        }
-        self.item_sizes = Self::make_item_sizes(&self.artists);
+            scored.into_iter().map(|(a, _)| a).collect()
+        };
+
+        let services = cx.global::<Services>();
+        let library = services.library.clone();
+        let mut cache = services.cover_art_cache.borrow_mut();
+        self.rows = Self::build_rows(&filtered, &self.cover_ids, &mut cache, &library);
+        drop(cache);
+        self.item_sizes = Self::make_item_sizes(self.rows.len());
     }
 }
 
@@ -160,7 +203,7 @@ impl Render for ArtistsView {
                 .child(div().px_4().child(tr().scanning.clone()));
         }
 
-        if self.artists.is_empty() {
+        if self.rows.is_empty() {
             let message = if self.artists_all.is_empty() {
                 tr().no_artists_found.clone()
             } else {
@@ -173,7 +216,6 @@ impl Render for ArtistsView {
         }
 
         let item_sizes = self.item_sizes.clone();
-        let cover_ids = self.cover_ids.clone();
         v_flex().size_full().child(
             v_virtual_list(
                 cx.entity().clone(),
@@ -185,19 +227,8 @@ impl Render for ArtistsView {
                             if ix == 0 {
                                 return div().w_full().h(px(TOP_PADDING)).into_any_element();
                             }
-                            let artist = view.artists[ix - 1].clone();
-                            let count_label = tr().n_tracks(artist.track_count);
-
-                            let covers: Vec<Arc<Image>> = {
-                                let services = cx.global::<Services>();
-                                let mut cache = services.cover_art_cache.borrow_mut();
-                                cover_ids
-                                    .get(&artist.id)
-                                    .into_iter()
-                                    .flat_map(|ids| ids.iter())
-                                    .filter_map(|&id| cache.get_small(Some(id), &services.library))
-                                    .collect()
-                            };
+                            let row_ix = ix - 1;
+                            let row = &view.rows[row_ix];
 
                             h_flex()
                                 .w_full()
@@ -208,20 +239,27 @@ impl Render for ArtistsView {
                                 .border_b(px(1.))
                                 .border_color(border)
                                 .hover(|style| style.bg(list_hover))
-                                .child(artist_avatar(&covers, AVATAR_SIZE, secondary, muted_fg))
+                                .child(artist_avatar(&row.covers, AVATAR_SIZE, secondary, muted_fg))
                                 .child(
                                     div()
                                         .flex_1()
                                         .overflow_hidden()
                                         .truncate()
-                                        .child(artist.name.clone()),
+                                        .child(row.name.clone()),
                                 )
-                                .child(div().text_sm().text_color(muted_fg).child(count_label))
-                                .id(ElementId::Integer(artist.id as u64))
-                                .on_click(cx.listener(move |_this, _, _, cx| {
-                                    cx.emit(ArtistSelectedEvent {
-                                        artist: artist.clone(),
-                                    });
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(muted_fg)
+                                        .child(row.count_label.clone()),
+                                )
+                                .id(ElementId::Integer(row.summary.id as u64))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(row) = this.rows.get(row_ix) {
+                                        cx.emit(ArtistSelectedEvent {
+                                            artist: row.summary.clone(),
+                                        });
+                                    }
                                 }))
                                 .into_any_element()
                         })
