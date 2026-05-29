@@ -177,14 +177,15 @@ TARGET ?= $(shell rustc -vV | sed -n 's/host: //p')
 SAN_CRATES = \
 	-p audio_common \
 	-p audio_decoder \
+	-p audio_engine \
 	-p audio_output \
 	-p cue_parser \
 	-p media_integration \
 	-p music_indexer \
 	-p music_library \
-	-p macos_integration
-
-MIRI_CRATES = -p audio_common
+	-p pawse \
+	-p ui_components \
+	-p ui_resources
 
 .PHONY: test test-careful test-asan test-tsan test-miri test-leaks test-san test-full help-test
 
@@ -205,7 +206,7 @@ test-tsan:
 	cargo +nightly test $(SAN_CRATES) --target $(TARGET) -Zbuild-std
 
 test-miri:
-	cargo +nightly miri test $(MIRI_CRATES)
+	cargo +nightly miri test $(SAN_CRATES)
 
 # Runs every workspace test binary under leaks(1). Requires `jq` and `leaks`.
 #

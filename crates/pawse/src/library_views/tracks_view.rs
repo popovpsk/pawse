@@ -21,7 +21,7 @@ use nucleo_matcher::{
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
-use crate::localization::tr;
+use crate::localization::{LangChanged, tr};
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -72,6 +72,7 @@ pub struct TracksView {
     _subscription: Subscription,
     _library_subscription: Subscription,
     _album_info_subscription: Subscription,
+    _lang_subscription: Subscription,
 }
 
 impl TracksView {
@@ -93,6 +94,7 @@ impl TracksView {
         let item_sizes = Rc::new(item_sizes_vec);
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
+        let lang_event_bus = services.lang_event_bus.clone();
         let current_track_id = services
             .playback_queue
             .borrow()
@@ -178,6 +180,14 @@ impl TracksView {
             },
         );
 
+        let lang_subscription =
+            cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+                let (items, item_sizes_vec) = Self::build_items(&this.row_data, tr());
+                this.items = items;
+                this.item_sizes = Rc::new(item_sizes_vec);
+                cx.notify();
+            });
+
         Self {
             tracks_all,
             row_data,
@@ -192,6 +202,7 @@ impl TracksView {
             _subscription: subscription,
             _library_subscription: library_subscription,
             _album_info_subscription: album_info_subscription,
+            _lang_subscription: lang_subscription,
         }
     }
 

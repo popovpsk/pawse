@@ -23,7 +23,7 @@ use nucleo_matcher::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
-use crate::localization::tr;
+use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -83,6 +83,7 @@ pub struct ArtistTracksView {
     is_playing: bool,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
+    _lang_subscription: Subscription,
 }
 
 impl ArtistTracksView {
@@ -90,6 +91,7 @@ impl ArtistTracksView {
         let services = cx.global::<Services>();
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
+        let lang_event_bus = services.lang_event_bus.clone();
         let tracks_all: Vec<Rc<_>> = services
             .library
             .tracks_by_artist(artist.id)
@@ -167,6 +169,13 @@ impl ArtistTracksView {
                 }
             });
 
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            let (items, sizes) = Self::build_items(&this.groups, tr());
+            this.items = items;
+            this.item_sizes = Rc::new(sizes);
+            cx.notify();
+        });
+
         Self {
             artist_name: artist.name.clone().into(),
             tracks_all,
@@ -180,6 +189,7 @@ impl ArtistTracksView {
             is_playing,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
+            _lang_subscription: lang_subscription,
         }
     }
 
