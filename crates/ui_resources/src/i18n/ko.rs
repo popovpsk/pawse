@@ -21,7 +21,7 @@ pub static KO: Strings = lang! {
     add_album_to_queue: "앨범을 대기열에 추가",
 
     settings: "설정",
-    search_placeholder: "아티스트, 앨범, 트랙 검색",
+    search_placeholder: "검색...",
     tab_albums: "앨범",
     tab_artists: "아티스트",
     tab_liked: "좋아요",

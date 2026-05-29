@@ -21,7 +21,7 @@ pub static VI: Strings = lang! {
     add_album_to_queue: "Thêm album vào hàng đợi",
 
     settings: "Cài đặt",
-    search_placeholder: "Tìm nghệ sĩ, album, bài hát",
+    search_placeholder: "Tìm...",
     tab_albums: "Album",
     tab_artists: "Nghệ sĩ",
     tab_liked: "Yêu thích",

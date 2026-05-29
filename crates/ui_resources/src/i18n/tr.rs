@@ -21,7 +21,7 @@ pub static TR: Strings = lang! {
     add_album_to_queue: "Albümü sıraya ekle",
 
     settings: "Ayarlar",
-    search_placeholder: "Sanatçı, albüm, parça ara",
+    search_placeholder: "Ara...",
     tab_albums: "Albümler",
     tab_artists: "Sanatçılar",
     tab_liked: "Beğenilenler",

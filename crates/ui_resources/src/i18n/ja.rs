@@ -21,7 +21,7 @@ pub static JA: Strings = lang! {
     add_album_to_queue: "アルバムをキューに追加",
 
     settings: "設定",
-    search_placeholder: "アーティスト・アルバム・曲を検索",
+    search_placeholder: "検索...",
     tab_albums: "アルバム",
     tab_artists: "アーティスト",
     tab_liked: "お気に入り",

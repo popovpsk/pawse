@@ -21,7 +21,7 @@ pub static CS: Strings = lang! {
     add_album_to_queue: "Přidat album do fronty",
 
     settings: "Nastavení",
-    search_placeholder: "Hledat interprety, alba, skladby",
+    search_placeholder: "Hledat...",
     tab_albums: "Alba",
     tab_artists: "Interpreti",
     tab_liked: "Oblíbené",

@@ -21,7 +21,7 @@ pub static DE: Strings = lang! {
     add_album_to_queue: "Album zur Warteschlange hinzufügen",
 
     settings: "Einstellungen",
-    search_placeholder: "Künstler, Alben, Titel suchen",
+    search_placeholder: "Suchen...",
     tab_albums: "Alben",
     tab_artists: "Künstler",
     tab_liked: "Favoriten",

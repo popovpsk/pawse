@@ -21,7 +21,7 @@ pub static TH: Strings = lang! {
     add_album_to_queue: "เพิ่มอัลบั้มลงคิว",
 
     settings: "การตั้งค่า",
-    search_placeholder: "ค้นหาศิลปิน อัลบั้ม เพลง",
+    search_placeholder: "ค้นหา...",
     tab_albums: "อัลบั้ม",
     tab_artists: "ศิลปิน",
     tab_liked: "ที่ถูกใจ",

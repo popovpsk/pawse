@@ -21,7 +21,7 @@ pub static SV: Strings = lang! {
     add_album_to_queue: "Lägg till album i kön",
 
     settings: "Inställningar",
-    search_placeholder: "Sök artister, album, låtar",
+    search_placeholder: "Sök...",
     tab_albums: "Album",
     tab_artists: "Artister",
     tab_liked: "Gillade",

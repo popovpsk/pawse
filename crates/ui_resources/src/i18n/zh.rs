@@ -21,7 +21,7 @@ pub static ZH: Strings = lang! {
     add_album_to_queue: "将专辑添加到队列",
 
     settings: "设置",
-    search_placeholder: "搜索艺术家、专辑、曲目",
+    search_placeholder: "搜索...",
     tab_albums: "专辑",
     tab_artists: "艺术家",
     tab_liked: "喜欢",

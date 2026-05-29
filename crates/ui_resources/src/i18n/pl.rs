@@ -21,7 +21,7 @@ pub static PL: Strings = lang! {
     add_album_to_queue: "Dodaj album do kolejki",
 
     settings: "Ustawienia",
-    search_placeholder: "Szukaj wykonawców, albumów, utworów",
+    search_placeholder: "Szukaj...",
     tab_albums: "Albumy",
     tab_artists: "Wykonawcy",
     tab_liked: "Polubione",

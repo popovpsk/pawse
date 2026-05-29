@@ -21,7 +21,7 @@ pub static IT: Strings = lang! {
     add_album_to_queue: "Aggiungi album alla coda",
 
     settings: "Impostazioni",
-    search_placeholder: "Cerca artisti, album, brani",
+    search_placeholder: "Cerca...",
     tab_albums: "Album",
     tab_artists: "Artisti",
     tab_liked: "Preferiti",

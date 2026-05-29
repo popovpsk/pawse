@@ -21,7 +21,7 @@ pub static RU: Strings = lang! {
     add_album_to_queue: "Добавить альбом в очередь",
 
     settings: "Настройки",
-    search_placeholder: "Поиск исполнителей, альбомов, треков",
+    search_placeholder: "Поиск...",
     tab_albums: "Альбомы",
     tab_artists: "Исполнители",
     tab_liked: "Понравившиеся",

@@ -21,7 +21,7 @@ pub static EN: Strings = lang! {
     add_album_to_queue: "Add album to queue",
 
     settings: "Settings",
-    search_placeholder: "Search artists, albums, tracks",
+    search_placeholder: "Search...",
     tab_albums: "Albums",
     tab_artists: "Artists",
     tab_liked: "Liked",

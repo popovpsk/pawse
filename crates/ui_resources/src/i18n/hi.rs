@@ -21,7 +21,7 @@ pub static HI: Strings = lang! {
     add_album_to_queue: "एल्बम को क़तार में जोड़ें",
 
     settings: "सेटिंग्स",
-    search_placeholder: "कलाकार, एल्बम, ट्रैक खोजें",
+    search_placeholder: "खोजें...",
     tab_albums: "एल्बम",
     tab_artists: "कलाकार",
     tab_liked: "पसंदीदा",

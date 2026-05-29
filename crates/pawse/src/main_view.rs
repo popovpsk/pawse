@@ -25,6 +25,7 @@ use crate::settings_store::SettingsStore;
 use crate::settings_view::{LangPickerState, ThemePickerState};
 use crate::theme_colors::Colors;
 use ui_components::fade::{FadeEdge, fade_overlay};
+use ui_resources::i18n::Lang;
 
 const HEADER_HEIGHT: f32 = 44.;
 const FOOTER_HEIGHT: f32 = 80.;
@@ -56,6 +57,7 @@ pub struct MainView {
     queue_resize_origin: Option<(Pixels, f32)>,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
+    last_lang: Lang,
     _theme_picker: Entity<ThemePickerState>,
     _lang_picker: Entity<LangPickerState>,
     _media_bridge: Entity<MediaBridge>,
@@ -203,6 +205,7 @@ impl MainView {
             queue_resize_origin: None,
             settings_pages,
             search_input,
+            last_lang: ui_resources::i18n::active(),
             _theme_picker: theme_picker,
             _lang_picker: lang_picker,
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
@@ -229,6 +232,17 @@ impl MainView {
 
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let lang = ui_resources::i18n::active();
+        if lang != self.last_lang {
+            self.last_lang = lang;
+            self.search_input.update(cx, |input, cx| {
+                input.set_placeholder(
+                    crate::localization::tr().search_placeholder.clone(),
+                    window,
+                    cx,
+                );
+            });
+        }
         let entity_id = cx.entity_id();
         let library_view = self.library_view.clone();
         let show_settings = self.show_settings;

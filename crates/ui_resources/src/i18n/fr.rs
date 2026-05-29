@@ -21,7 +21,7 @@ pub static FR: Strings = lang! {
     add_album_to_queue: "Ajouter l'album à la file",
 
     settings: "Réglages",
-    search_placeholder: "Rechercher artistes, albums, titres",
+    search_placeholder: "Rechercher...",
     tab_albums: "Albums",
     tab_artists: "Artistes",
     tab_liked: "Favoris",

@@ -21,7 +21,7 @@ pub static NL: Strings = lang! {
     add_album_to_queue: "Album aan wachtrij toevoegen",
 
     settings: "Instellingen",
-    search_placeholder: "Zoek artiesten, albums, nummers",
+    search_placeholder: "Zoeken...",
     tab_albums: "Albums",
     tab_artists: "Artiesten",
     tab_liked: "Vind-ik-leuks",

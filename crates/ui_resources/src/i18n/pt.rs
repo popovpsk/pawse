@@ -21,7 +21,7 @@ pub static PT: Strings = lang! {
     add_album_to_queue: "Adicionar álbum à fila",
 
     settings: "Configurações",
-    search_placeholder: "Buscar artistas, álbuns, faixas",
+    search_placeholder: "Buscar...",
     tab_albums: "Álbuns",
     tab_artists: "Artistas",
     tab_liked: "Curtidas",

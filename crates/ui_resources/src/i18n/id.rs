@@ -21,7 +21,7 @@ pub static ID: Strings = lang! {
     add_album_to_queue: "Tambahkan album ke antrean",
 
     settings: "Pengaturan",
-    search_placeholder: "Cari artis, album, lagu",
+    search_placeholder: "Cari...",
     tab_albums: "Album",
     tab_artists: "Artis",
     tab_liked: "Disukai",

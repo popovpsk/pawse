@@ -40,12 +40,12 @@ files.
 
 ### Contract / non-obvious behavior
 
-- **Static vs templated.** Plain labels are read as `tr(cx).key.clone()` — the
+- **Static vs templated.** Plain labels are read as `tr().key.clone()` — the
   field is `SharedString::new_static`, so it is the `Borrowed(&'static str)`
   variant and the clone is allocation-free (safe on the render hot path). Strings
   that interpolate runtime values are stored as `*_t` fields holding `{}`
   placeholders and are read through the methods on `impl Strings`
-  (`disc`, `audio_spec`, `bitrate`, `n_tracks`, `bp_*`, `failed_*`); those
+  (`disc`, `n_tracks`, `bp_*`, `failed_*`); those
   allocate a `String`, so call them off the hot path / cache the result.
 - **Completeness is enforced by the compiler.** `lang!` expands to a full
   `Strings { .. }` struct literal, so a language missing or misspelling a key

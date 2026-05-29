@@ -21,7 +21,7 @@ pub static UK: Strings = lang! {
     add_album_to_queue: "Додати альбом до черги",
 
     settings: "Налаштування",
-    search_placeholder: "Пошук виконавців, альбомів, треків",
+    search_placeholder: "Пошук...",
     tab_albums: "Альбоми",
     tab_artists: "Виконавці",
     tab_liked: "Вподобані",
