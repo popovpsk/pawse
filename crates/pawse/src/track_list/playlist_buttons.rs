@@ -6,7 +6,7 @@ use gpui_component::tooltip::Tooltip;
 
 use crate::theme_colors::Colors;
 
-use crate::like_button::LIKE_ROW_GROUP;
+use super::like_button::LIKE_ROW_GROUP;
 use crate::playback_queue::QueueSource;
 use crate::playlist_popup::OpenAddToPlaylist;
 use crate::services::Services;

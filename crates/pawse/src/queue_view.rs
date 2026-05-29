@@ -13,13 +13,13 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
-use crate::track_duration::track_duration;
+use crate::track_list::{
+    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, like_button, track_duration,
+};
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
-use crate::like_button::{LIKE_ROW_GROUP, like_button};
 use crate::playback_queue::RemoveOutcome;
-use crate::playlist_buttons::add_to_playlist_button;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -81,12 +81,9 @@ impl QueueRowParams {
 }
 
 struct Track {
-    id: i64,
-    title: SharedString,
-    duration: SharedString,
+    base: TrackRowBase,
     artist: SharedString,
     cover: Option<Arc<Image>>,
-    liked: bool,
 }
 
 impl Track {
@@ -96,22 +93,10 @@ impl Track {
         cover_art_cache: &mut CoverArtCache,
         library: &crate::library_service::LibraryService,
     ) -> Self {
-        let duration = src
-            .duration_ms
-            .map(|ms| {
-                let secs = (ms / 1000) as u32;
-                format!("{:02}:{:02}", secs / 60, secs % 60)
-            })
-            .unwrap_or_default();
-
-        let cover = cover_art_cache.get_small(src.cover_art_id, library);
         Self {
-            id: src.id,
-            title: src.title.clone().into(),
+            base: TrackRowBase::from_track(src),
             artist: artist_by_track.get(&src.id).cloned().unwrap_or_default(),
-            cover,
-            liked: src.liked,
-            duration: duration.into(),
+            cover: cover_art_cache.get_small(src.cover_art_id, library),
         }
     }
 }
@@ -169,8 +154,8 @@ impl QueueView {
                     LibraryEvent::TrackLikedChanged { track_id, liked } => {
                         let mut changed = false;
                         for t in this.tracks.iter_mut() {
-                            if t.id == *track_id && t.liked != *liked {
-                                t.liked = *liked;
+                            if t.base.id == *track_id && t.base.liked != *liked {
+                                t.base.liked = *liked;
                                 changed = true;
                             }
                         }
@@ -214,7 +199,7 @@ impl QueueView {
                 .tracks
                 .iter()
                 .zip(new_tracks.iter())
-                .all(|(x, y)| x.id == y.id);
+                .all(|(x, y)| x.base.id == y.id);
 
         if !is_same_queue {
             let artist_by_track = build_artist_map(&services.library, &new_tracks);
@@ -289,7 +274,7 @@ fn queue_visible_range_row(
     track_ix: usize,
 ) -> gpui::Stateful<Div> {
     let track = &view.tracks[track_ix];
-    let track_id = track.id;
+    let track_id = track.base.id;
     let is_current = Some(track_ix) == view.current_index;
 
     h_flex()
@@ -303,7 +288,7 @@ fn queue_visible_range_row(
         .items_center()
         .border_b(px(1.))
         .border_color(params.border)
-        .when(is_current, |s| crate::row_style::current_row(s, cx))
+        .when(is_current, |s| crate::track_list::current_row(s, cx))
         .hover(|s| s.bg(params.list_hover))
         .child(album_cover_cell(params, track.cover.clone()))
         .when_else(
@@ -319,7 +304,7 @@ fn queue_visible_range_row(
                             div()
                                 .text_sm()
                                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
-                                .child(track.title.clone()),
+                                .child(track.base.title.clone()),
                         )
                         .child(
                             div()
@@ -340,7 +325,7 @@ fn queue_visible_range_row(
                         .truncate()
                         .text_sm()
                         .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
-                        .child(track.title.clone()),
+                        .child(track.base.title.clone()),
                 )
             },
         )
@@ -366,11 +351,11 @@ fn queue_visible_range_row(
                         "queue-like".into(),
                         track_ix as u64,
                     ))
-                    .child(like_button(track_id, track.liked, cx)),
+                    .child(like_button(track_id, track.base.liked, cx)),
             )
         })
         .when(params.show_track_duration, |row| {
-            row.child(track_duration(cx, track.duration.clone()))
+            row.child(track_duration(cx, track.base.duration.clone()))
         })
         .child(
             div()
@@ -446,7 +431,7 @@ fn queue_visible_range_row(
         .on_drag(
             DraggedQueueTrack {
                 from_ix: track_ix,
-                title: track.title.clone(),
+                title: track.base.title.clone(),
             },
             |drag, _, _, cx| {
                 cx.stop_propagation();

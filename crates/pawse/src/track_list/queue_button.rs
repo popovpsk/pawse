@@ -6,8 +6,8 @@ use gpui_component::tooltip::Tooltip;
 
 use crate::theme_colors::Colors;
 
+use super::like_button::LIKE_ROW_GROUP;
 use crate::library_service::LibraryEvent;
-use crate::like_button::LIKE_ROW_GROUP;
 use crate::services::Services;
 
 pub fn add_to_queue_button(

@@ -8,8 +8,8 @@ use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::now_playing::NavigateToArtistRequested;
-use crate::queue_button::add_album_to_queue_button;
 use crate::services::Services;
+use crate::track_list::add_album_to_queue_button;
 
 pub struct AlbumInfo {
     album_id: i64,

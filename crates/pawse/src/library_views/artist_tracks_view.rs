@@ -12,7 +12,10 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
-use crate::track_duration::track_duration;
+use crate::track_list::{
+    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, add_to_queue_button, fmt_track_num,
+    like_button, track_duration,
+};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -20,9 +23,6 @@ use nucleo_matcher::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
-use crate::like_button::{LIKE_ROW_GROUP, like_button};
-use crate::playlist_buttons::add_to_playlist_button;
-use crate::queue_button::add_to_queue_button;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -35,34 +35,17 @@ const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Debug)]
 struct TrackRow {
-    id: i64,
-    title: SharedString,
-    duration: SharedString,
+    base: TrackRowBase,
     track_num_str: SharedString,
     disc_number: i32,
-    liked: bool,
 }
 
 impl TrackRow {
     fn from_track(track: &music_library::Track) -> Self {
-        let duration = track
-            .duration_ms
-            .map(|ms| {
-                let secs = (ms / 1000) as u32;
-                format!("{:02}:{:02}", secs / 60, secs % 60)
-            })
-            .unwrap_or_default();
-        let track_num_str = track
-            .track_number
-            .map(|n| format!("{}.", n))
-            .unwrap_or_default();
         Self {
-            id: track.id,
-            title: track.title.clone().into(),
-            duration: duration.into(),
-            track_num_str: track_num_str.into(),
+            base: TrackRowBase::from_track(track),
+            track_num_str: fmt_track_num(track.track_number),
             disc_number: track.disc_number,
-            liked: track.liked,
         }
     }
 }
@@ -166,8 +149,8 @@ impl ArtistTracksView {
                     }
                     for g in this.groups.iter_mut() {
                         for t in g.tracks.iter_mut() {
-                            if t.id == *track_id && t.liked != *liked {
-                                t.liked = *liked;
+                            if t.base.id == *track_id && t.base.liked != *liked {
+                                t.base.liked = *liked;
                                 changed = true;
                             }
                         }
@@ -453,7 +436,7 @@ fn artist_track_row(
     let group = &view.groups[g_ix];
     let track = &group.tracks[t_ix];
     let global_ix = group.global_indices[t_ix];
-    let track_id = track.id;
+    let track_id = track.base.id;
     let is_current = Some(track_id) == view.current_track_id;
     let is_playing = view.is_playing;
     let track_for_queue = view.tracks_all[global_ix].clone();
@@ -486,7 +469,7 @@ fn artist_track_row(
         .items_center()
         .border_b(px(1.))
         .border_color(p.border)
-        .when(is_current, |s| crate::row_style::current_row(s, cx))
+        .when(is_current, |s| crate::track_list::current_row(s, cx))
         .hover(|s| s.bg(p.list_hover))
         .child(leading)
         .child(
@@ -496,15 +479,15 @@ fn artist_track_row(
                 .overflow_hidden()
                 .truncate()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
-                .child(track.title.clone()),
+                .child(track.base.title.clone()),
         )
         .when(p.playlists_enabled, |el| {
             el.child(add_to_playlist_button(track_id, cx))
         })
         .when(p.liked_enabled, |el| {
-            el.child(like_button(track_id, track.liked, cx))
+            el.child(like_button(track_id, track.base.liked, cx))
         })
-        .child(track_duration(cx, track.duration.clone()))
+        .child(track_duration(cx, track.base.duration.clone()))
         .child(add_to_queue_button(track_for_queue, 26., 16., cx))
         .id(ElementId::Integer(track_id as u64))
         .on_click(cx.listener(move |this, _, _, cx| {

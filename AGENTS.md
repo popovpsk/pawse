@@ -4,6 +4,11 @@ Always start by reading `.docs/project.md` to understand the project architectur
 
 For icon usage, embedding, and SVG conventions, see `.docs/icons.md`.
 
+Each folder-style module (and crate) carries a `doc.md` next to its sources. It
+states what the module is responsible for, which file holds what (briefly), and any
+non-obvious behavior. Read a module's `doc.md` before changing it, and keep it in
+sync when you move or rename things (e.g. `crates/pawse/src/library_views/doc.md`).
+
 ## File Operations
 
 The model must not create or modify any files without explicit user instruction.

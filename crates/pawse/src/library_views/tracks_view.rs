@@ -10,7 +10,10 @@ use gpui::{
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::theme_colors::Colors;
-use crate::track_duration::track_duration;
+use crate::track_list::{
+    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, add_to_queue_button, fmt_track_num,
+    like_button, track_duration,
+};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
@@ -18,10 +21,7 @@ use nucleo_matcher::{
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
-use crate::like_button::{LIKE_ROW_GROUP, like_button};
 use crate::now_playing::NavigateToArtistRequested;
-use crate::playlist_buttons::add_to_playlist_button;
-use crate::queue_button::add_to_queue_button;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -39,44 +39,27 @@ enum TrackItem {
     Track(usize),
 }
 
-struct RowData {
-    id: i64,
+struct TrackRow {
+    base: TrackRowBase,
     track_all_ix: usize,
-    title: SharedString,
-    duration: SharedString,
     track_num_str: SharedString,
     disc_number: i32,
-    liked: bool,
 }
 
-impl RowData {
+impl TrackRow {
     fn from_track(track: &music_library::Track, track_all_ix: usize) -> Self {
-        let duration = track
-            .duration_ms
-            .map(|ms| {
-                let secs = (ms / 1000) as u32;
-                format!("{:02}:{:02}", secs / 60, secs % 60)
-            })
-            .unwrap_or_default();
-        let track_num_str = track
-            .track_number
-            .map(|n| format!("{}.", n))
-            .unwrap_or_default();
         Self {
-            id: track.id,
+            base: TrackRowBase::from_track(track),
             track_all_ix,
-            title: track.title.clone().into(),
-            duration: duration.into(),
-            track_num_str: track_num_str.into(),
+            track_num_str: fmt_track_num(track.track_number),
             disc_number: track.disc_number,
-            liked: track.liked,
         }
     }
 }
 
 pub struct TracksView {
     tracks_all: Vec<music_library::Track>,
-    row_data: Vec<RowData>,
+    row_data: Vec<TrackRow>,
     filter: String,
     matcher: Matcher,
     items: Vec<TrackItem>,
@@ -97,7 +80,7 @@ impl TracksView {
         let row_data: Vec<_> = tracks_all
             .iter()
             .enumerate()
-            .map(|(ix, t)| RowData::from_track(t, ix))
+            .map(|(ix, t)| TrackRow::from_track(t, ix))
             .collect();
         let (items, item_sizes_vec) = Self::build_items(&row_data);
 
@@ -169,8 +152,8 @@ impl TracksView {
                         }
                     }
                     for r in this.row_data.iter_mut() {
-                        if r.id == *track_id && r.liked != *liked {
-                            r.liked = *liked;
+                        if r.base.id == *track_id && r.base.liked != *liked {
+                            r.base.liked = *liked;
                             changed = true;
                         }
                     }
@@ -206,7 +189,7 @@ impl TracksView {
         }
     }
 
-    fn build_items(rows: &[RowData]) -> (Vec<TrackItem>, Vec<Size<Pixels>>) {
+    fn build_items(rows: &[TrackRow]) -> (Vec<TrackItem>, Vec<Size<Pixels>>) {
         let max_disc = rows.iter().map(|r| r.disc_number).max().unwrap_or(1);
         let multi_disc = max_disc > 1;
 
@@ -253,7 +236,7 @@ impl TracksView {
                 .tracks_all
                 .iter()
                 .enumerate()
-                .map(|(ix, t)| RowData::from_track(t, ix))
+                .map(|(ix, t)| TrackRow::from_track(t, ix))
                 .collect();
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
@@ -274,7 +257,7 @@ impl TracksView {
             scored.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
             self.row_data = scored
                 .iter()
-                .map(|(ix, t, _)| RowData::from_track(t, *ix))
+                .map(|(ix, t, _)| TrackRow::from_track(t, *ix))
                 .collect();
         }
         let (items, item_sizes_vec) = Self::build_items(&self.row_data);
@@ -368,8 +351,9 @@ fn track_row(
     cx: &mut Context<TracksView>,
 ) -> gpui::AnyElement {
     let row = &view.row_data[track_ix];
-    let track_id = row.id;
-    let is_current = Some(row.id) == view.current_track_id;
+    let track_id = row.base.id;
+    let track_all_ix = row.track_all_ix;
+    let is_current = Some(track_id) == view.current_track_id;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
 
     h_flex()
@@ -382,7 +366,7 @@ fn track_row(
         .items_center()
         .border_b(px(1.))
         .border_color(p.border)
-        .when(is_current, |s| crate::row_style::current_row(s, cx))
+        .when(is_current, |s| crate::track_list::current_row(s, cx))
         .hover(|style| style.bg(p.list_hover))
         .child(if is_current {
             let icon = if view.is_playing {
@@ -408,29 +392,24 @@ fn track_row(
                 .overflow_hidden()
                 .truncate()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
-                .child(row.title.clone()),
+                .child(row.base.title.clone()),
         )
         .when(p.playlists_enabled, |el| {
             el.child(add_to_playlist_button(track_id, cx))
         })
         .when(p.liked_enabled, |el| {
-            el.child(like_button(track_id, row.liked, cx))
+            el.child(like_button(track_id, row.base.liked, cx))
         })
-        .child(track_duration(cx, row.duration.clone()))
+        .child(track_duration(cx, row.base.duration.clone()))
         .child(add_to_queue_button(track_for_queue, 26., 16., cx))
         .id(ElementId::Integer(track_id as u64))
         .on_click(cx.listener(move |this, _, _, _cx| {
             let services = _cx.global::<Services>();
-            let pos = this
-                .tracks_all
-                .iter()
-                .position(|t| t.id == track_id)
-                .unwrap();
             let mut queue = services.playback_queue.borrow_mut();
             let track = queue
                 .set_tracks_and_play_at(
                     this.tracks_all.clone(),
-                    pos,
+                    track_all_ix,
                     crate::playback_queue::QueueSource::Unknown,
                 )
                 .cloned();

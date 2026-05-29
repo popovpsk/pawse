@@ -17,9 +17,9 @@ use nucleo_matcher::{
 };
 
 use crate::library_service::LibraryEvent;
-use crate::like_button::LIKE_ROW_GROUP;
 use crate::services::Services;
 use crate::theme_colors::Colors;
+use crate::track_list::LIKE_ROW_GROUP;
 
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
