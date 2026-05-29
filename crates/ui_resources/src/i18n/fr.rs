@@ -102,8 +102,6 @@ pub static FR: Strings = lang! {
     menu_file: "Fichier",
 
     disc_t: "Disque {}",
-    audio_spec_t: "{} kHz · {} bits",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} titre",
     n_tracks_other: "{} titres",
     bp_system_volume_t: "• Volume système pas au maximum : {}",

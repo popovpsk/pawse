@@ -102,8 +102,6 @@ pub static DE: Strings = lang! {
     menu_file: "Datei",
 
     disc_t: "CD {}",
-    audio_spec_t: "{} kHz · {} Bit",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} Titel",
     n_tracks_other: "{} Titel",
     bp_system_volume_t: "• Systemlautstärke nicht auf Maximum: {}",

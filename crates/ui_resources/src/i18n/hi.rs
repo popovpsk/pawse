@@ -102,8 +102,6 @@ pub static HI: Strings = lang! {
     menu_file: "फ़ाइल",
 
     disc_t: "डिस्क {}",
-    audio_spec_t: "{} kHz · {}-बिट",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} ट्रैक",
     n_tracks_other: "{} ट्रैक",
     bp_system_volume_t: "• सिस्टम वॉल्यूम अधिकतम पर नहीं: {}",

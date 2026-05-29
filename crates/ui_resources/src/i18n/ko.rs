@@ -102,8 +102,6 @@ pub static KO: Strings = lang! {
     menu_file: "파일",
 
     disc_t: "디스크 {}",
-    audio_spec_t: "{} kHz · {}비트",
-    bitrate_t: "{} kbps",
     n_tracks_one: "트랙 {}개",
     n_tracks_other: "트랙 {}개",
     bp_system_volume_t: "• 시스템 볼륨이 최대가 아님: {}",

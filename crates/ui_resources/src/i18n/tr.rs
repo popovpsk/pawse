@@ -102,8 +102,6 @@ pub static TR: Strings = lang! {
     menu_file: "Dosya",
 
     disc_t: "Disk {}",
-    audio_spec_t: "{} kHz · {} bit",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} parça",
     n_tracks_other: "{} parça",
     bp_system_volume_t: "• Sistem sesi tam değil: {}",

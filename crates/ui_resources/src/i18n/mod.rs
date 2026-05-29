@@ -152,8 +152,6 @@ pub struct Strings {
 
     // --- Templated (read via the accessor methods below) ---
     pub disc_t: SharedString,
-    pub audio_spec_t: SharedString,
-    pub bitrate_t: SharedString,
     pub n_tracks_one: SharedString,
     pub n_tracks_other: SharedString,
     pub bp_system_volume_t: SharedString,
@@ -183,17 +181,6 @@ impl Strings {
     /// Section header for a multi-disc album, e.g. "Disc 2".
     pub fn disc(&self, disc: u32) -> String {
         fill(&self.disc_t, &[&disc.to_string()])
-    }
-
-    /// Sample-rate / bit-depth line, e.g. "44.1 kHz · 24-bit". `khz` is already
-    /// formatted by the caller (integer vs one-decimal).
-    pub fn audio_spec(&self, khz: &str, bit_depth: u32) -> String {
-        fill(&self.audio_spec_t, &[khz, &bit_depth.to_string()])
-    }
-
-    /// Bitrate line, e.g. "320 kbps".
-    pub fn bitrate(&self, kbps: u32) -> String {
-        fill(&self.bitrate_t, &[&kbps.to_string()])
     }
 
     /// Track-count label, e.g. "1 track" / "12 tracks". Two-form plural

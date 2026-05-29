@@ -102,8 +102,6 @@ pub static VI: Strings = lang! {
     menu_file: "Tệp",
 
     disc_t: "Đĩa {}",
-    audio_spec_t: "{} kHz · {}-bit",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} bài hát",
     n_tracks_other: "{} bài hát",
     bp_system_volume_t: "• Âm lượng hệ thống chưa tối đa: {}",

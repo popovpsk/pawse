@@ -102,8 +102,6 @@ pub static SV: Strings = lang! {
     menu_file: "Arkiv",
 
     disc_t: "Skiva {}",
-    audio_spec_t: "{} kHz · {} bitar",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} låt",
     n_tracks_other: "{} låtar",
     bp_system_volume_t: "• Systemvolym inte på max: {}",

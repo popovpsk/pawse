@@ -102,8 +102,6 @@ pub static ZH: Strings = lang! {
     menu_file: "文件",
 
     disc_t: "碟片 {}",
-    audio_spec_t: "{} kHz · {} 位",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} 首曲目",
     n_tracks_other: "{} 首曲目",
     bp_system_volume_t: "• 系统音量未满：{}",

@@ -1,7 +1,7 @@
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render,
+    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, rems,
 };
 use gpui_component::{h_flex, v_flex};
@@ -10,7 +10,6 @@ use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
-use crate::localization::tr;
 use crate::services::Services;
 
 #[derive(Clone, Debug)]
@@ -28,18 +27,11 @@ pub struct NowPlaying {
     artists: Vec<(i64, String)>,
     album_id: Option<i64>,
     cover_art_id: Option<i64>,
-    sample_rate: Option<u32>,
-    bit_depth: Option<u8>,
-    bitrate: Option<u32>,
+    specs: SharedString,
     _subscription: Subscription,
 }
 
-fn format_specs(
-    sample_rate: Option<u32>,
-    bit_depth: Option<u8>,
-    bitrate: Option<u32>,
-) -> Option<String> {
-    let s = tr();
+fn format_specs(sample_rate: Option<u32>, bit_depth: Option<u8>, bitrate: Option<u32>) -> String {
     let mut specs = String::new();
     if let (Some(sr), Some(bd)) = (sample_rate, bit_depth) {
         let khz = sr as f32 / 1000.0;
@@ -48,15 +40,15 @@ fn format_specs(
         } else {
             format!("{:.1}", khz)
         };
-        specs.push_str(&s.audio_spec(&khz_str, bd as u32));
+        specs.push_str(&format!("{} kHz \u{b7} {}-bit", khz_str, bd));
     }
     if let Some(kbps) = bitrate {
         if !specs.is_empty() {
             specs.push_str(" \u{b7} ");
         }
-        specs.push_str(&s.bitrate(kbps));
+        specs.push_str(&format!("{} kbps", kbps));
     }
-    if specs.is_empty() { None } else { Some(specs) }
+    specs
 }
 
 impl NowPlaying {
@@ -80,7 +72,11 @@ impl NowPlaying {
                             this.track_title = title;
                             this.cover_art_id = cover;
                             this.album_id = album_id;
-                            this.bitrate = bitrate;
+                            this.specs = SharedString::from(format_specs(
+                                Some(params.sample_rate),
+                                Some(params.bit_depth),
+                                bitrate,
+                            ));
                             let mut seen = std::collections::HashSet::new();
                             this.artists = services
                                 .library
@@ -88,8 +84,6 @@ impl NowPlaying {
                                 .into_iter()
                                 .filter(|(id, _)| seen.insert(*id))
                                 .collect();
-                            this.sample_rate = Some(params.sample_rate);
-                            this.bit_depth = Some(params.bit_depth);
                         } else {
                             drop(queue);
                             this.clear();
@@ -116,9 +110,7 @@ impl NowPlaying {
             artists: Vec::new(),
             album_id: None,
             cover_art_id: None,
-            sample_rate: None,
-            bit_depth: None,
-            bitrate: None,
+            specs: SharedString::default(),
             _subscription: subscription,
         }
     }
@@ -128,9 +120,7 @@ impl NowPlaying {
         self.artists.clear();
         self.album_id = None;
         self.cover_art_id = None;
-        self.sample_rate = None;
-        self.bit_depth = None;
-        self.bitrate = None;
+        self.specs = SharedString::default();
     }
 }
 
@@ -139,7 +129,6 @@ impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let specs = format_specs(self.sample_rate, self.bit_depth, self.bitrate);
         let viewport_w = f32::from(window.viewport_size().width);
         let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 
@@ -287,13 +276,13 @@ impl Render for NowPlaying {
                                 .into_any_element()
                         }
                     })
-                    .when_some(specs, |this, specs| {
+                    .when(!self.specs.is_empty(), |this| {
                         this.child(
                             div()
                                 .text_xs()
                                 .text_color(Colors::text_secondary(cx))
                                 .truncate()
-                                .child(specs),
+                                .child(self.specs.clone()),
                         )
                     }),
             )

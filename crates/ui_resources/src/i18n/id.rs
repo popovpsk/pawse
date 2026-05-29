@@ -102,8 +102,6 @@ pub static ID: Strings = lang! {
     menu_file: "Berkas",
 
     disc_t: "Disk {}",
-    audio_spec_t: "{} kHz · {}-bit",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} lagu",
     n_tracks_other: "{} lagu",
     bp_system_volume_t: "• Volume sistem tidak maksimal: {}",

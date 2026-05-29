@@ -102,8 +102,6 @@ pub static CS: Strings = lang! {
     menu_file: "Soubor",
 
     disc_t: "Disk {}",
-    audio_spec_t: "{} kHz · {} bitů",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} skladba",
     n_tracks_other: "{} skladeb",
     bp_system_volume_t: "• Hlasitost systému není na maximu: {}",

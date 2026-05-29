@@ -102,8 +102,6 @@ pub static UK: Strings = lang! {
     menu_file: "Файл",
 
     disc_t: "Диск {}",
-    audio_spec_t: "{} кГц · {} біт",
-    bitrate_t: "{} кбіт/с",
     n_tracks_one: "{} трек",
     n_tracks_other: "{} треків",
     bp_system_volume_t: "• Системна гучність не на максимумі: {}",

@@ -102,8 +102,6 @@ pub static TH: Strings = lang! {
     menu_file: "ไฟล์",
 
     disc_t: "แผ่น {}",
-    audio_spec_t: "{} kHz · {}-bit",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} เพลง",
     n_tracks_other: "{} เพลง",
     bp_system_volume_t: "• ระดับเสียงระบบไม่เต็ม: {}",

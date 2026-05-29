@@ -102,8 +102,6 @@ pub static NL: Strings = lang! {
     menu_file: "Bestand",
 
     disc_t: "Schijf {}",
-    audio_spec_t: "{} kHz · {}-bit",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} nummer",
     n_tracks_other: "{} nummers",
     bp_system_volume_t: "• Systeemvolume niet op maximum: {}",

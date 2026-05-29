@@ -102,8 +102,6 @@ pub static JA: Strings = lang! {
     menu_file: "ファイル",
 
     disc_t: "ディスク {}",
-    audio_spec_t: "{} kHz · {} ビット",
-    bitrate_t: "{} kbps",
     n_tracks_one: "{} 曲",
     n_tracks_other: "{} 曲",
     bp_system_volume_t: "• システム音量が最大ではありません: {}",
