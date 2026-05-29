@@ -8,6 +8,7 @@ use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use crate::theme_colors::Colors;
 
+use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::{
@@ -167,8 +168,7 @@ impl Render for Footer {
                             .rounded(px(4.))
                             .hover(|s| s.bg(Colors::control_hover_bg(cx)))
                             .tooltip(|window, cx| {
-                                Tooltip::new(crate::localization::tr(cx).queue.clone())
-                                    .build(window, cx)
+                                Tooltip::new(tr().queue.clone()).build(window, cx)
                             })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_queue = !this.show_queue;

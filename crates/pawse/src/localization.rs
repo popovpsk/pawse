@@ -28,6 +28,6 @@ pub fn sync_active_lang(cx: &App) {
 
 /// Active language's string table — the per-label hot path. Cheap: atomic load
 /// + match. (`cx` is currently kept for signature stability; see Phase 2.)
-pub fn tr(_cx: &App) -> &'static Strings {
+pub fn tr() -> &'static Strings {
     ui_resources::i18n::strings()
 }

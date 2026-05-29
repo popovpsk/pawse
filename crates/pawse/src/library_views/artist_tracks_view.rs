@@ -23,6 +23,7 @@ use nucleo_matcher::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -100,7 +101,7 @@ impl ArtistTracksView {
             let mut cache = services.cover_art_cache.borrow_mut();
             Self::group_by_album(&tracks_all, &services.library, &mut cache)
         };
-        let (items, sizes) = Self::build_items(&groups, crate::localization::tr(cx));
+        let (items, sizes) = Self::build_items(&groups, tr());
 
         let current_track_id = services
             .playback_queue
@@ -298,7 +299,7 @@ impl ArtistTracksView {
             }
             self.groups = groups;
         }
-        let strings = crate::localization::tr(cx);
+        let strings = tr();
         let (items, sizes) = Self::build_items(&self.groups, strings);
         self.items = items;
         self.item_sizes = Rc::new(sizes);
@@ -320,22 +321,14 @@ impl Render for ArtistTracksView {
             return v_flex()
                 .size_full()
                 .child(artist_header_static(self.artist_name.clone()))
-                .child(
-                    div()
-                        .px_4()
-                        .child(crate::localization::tr(cx).no_tracks_for_artist.clone()),
-                );
+                .child(div().px_4().child(tr().no_tracks_for_artist.clone()));
         }
 
         if self.groups.is_empty() {
             return v_flex()
                 .size_full()
                 .child(artist_header_static(self.artist_name.clone()))
-                .child(
-                    div()
-                        .px_4()
-                        .child(crate::localization::tr(cx).no_tracks_match.clone()),
-                );
+                .child(div().px_4().child(tr().no_tracks_match.clone()));
         }
 
         let p = ArtistTrackRowParams {

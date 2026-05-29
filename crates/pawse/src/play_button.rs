@@ -7,6 +7,7 @@ use gpui_component::tooltip::Tooltip;
 
 use crate::theme_colors::Colors;
 
+use crate::localization::tr;
 use crate::services::Services;
 
 struct PlayButtonState {
@@ -75,9 +76,9 @@ impl Render for PlayButton {
         };
 
         let tooltip_text = if !self.state.is_playing {
-            crate::localization::tr(cx).play.clone()
+            tr().play.clone()
         } else {
-            crate::localization::tr(cx).pause.clone()
+            tr().pause.clone()
         };
 
         div()

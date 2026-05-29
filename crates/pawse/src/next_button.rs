@@ -4,6 +4,7 @@ use gpui::{
 };
 use gpui_component::tooltip::Tooltip;
 
+use crate::localization::tr;
 use crate::services::Services;
 use crate::theme_colors::Colors;
 
@@ -36,9 +37,7 @@ impl Render for NextButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(Colors::control_hover_bg(cx)))
-            .tooltip(|window, cx| {
-                Tooltip::new(crate::localization::tr(cx).next.clone()).build(window, cx)
-            })
+            .tooltip(|window, cx| Tooltip::new(tr().next.clone()).build(window, cx))
             .on_click(cx.listener(NextButton::on_click))
             .child(
                 svg()

@@ -16,6 +16,7 @@ use gpui_component::{
 use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
+use crate::localization::tr;
 use crate::media_bridge::MediaBridge;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
@@ -93,10 +94,8 @@ impl MainView {
             },
         );
 
-        let search_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(crate::localization::tr(cx).search_placeholder.clone())
-        });
+        let search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr().search_placeholder.clone()));
 
         let search_subscription = cx.subscribe(&search_input, {
             let library_view = library_view.clone();
@@ -120,7 +119,6 @@ impl MainView {
                     cx.notify();
                 });
                 this.settings_pages = crate::settings_view::build_settings_pages(
-                    &*cx,
                     theme_picker.clone(),
                     lang_picker.clone(),
                 );
@@ -136,11 +134,8 @@ impl MainView {
             cx.notify();
         });
 
-        let settings_pages = crate::settings_view::build_settings_pages(
-            &*cx,
-            theme_picker.clone(),
-            lang_picker.clone(),
-        );
+        let settings_pages =
+            crate::settings_view::build_settings_pages(theme_picker.clone(), lang_picker.clone());
 
         let footer = cx.new(|cx| Footer::new(window, cx));
         let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
@@ -490,7 +485,7 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         .w(px(40.))
         .h(px(40.))
         .icon(Icon::default().path("icons/settings.svg").size(px(20.)))
-        .tooltip(crate::localization::tr(cx).settings.clone())
+        .tooltip(tr().settings.clone())
         .on_click(cx.listener(|this, _, window, cx| {
             this.clear_search(window, cx);
             this.show_settings = true;

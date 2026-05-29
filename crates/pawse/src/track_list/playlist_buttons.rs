@@ -6,6 +6,7 @@ use gpui_component::tooltip::Tooltip;
 
 use super::RowButtonColors;
 use super::like_button::LIKE_ROW_GROUP;
+use crate::localization::tr;
 use crate::playback_queue::QueueSource;
 use crate::playlist_popup::OpenAddToPlaylist;
 use crate::services::Services;
@@ -34,9 +35,7 @@ pub fn add_to_playlist_button(track_id: i64, colors: &RowButtonColors) -> impl I
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| {
-            Tooltip::new(crate::localization::tr(cx).add_to_playlist.clone()).build(window, cx)
-        })
+        .tooltip(|window, cx| Tooltip::new(tr().add_to_playlist.clone()).build(window, cx))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |event, _, cx| {
             cx.stop_propagation();
@@ -81,9 +80,7 @@ pub fn remove_from_playlist_button(
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| {
-            Tooltip::new(crate::localization::tr(cx).remove_from_playlist.clone()).build(window, cx)
-        })
+        .tooltip(|window, cx| Tooltip::new(tr().remove_from_playlist.clone()).build(window, cx))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();

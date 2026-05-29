@@ -70,7 +70,7 @@ impl ThemePickerState {
             .iter()
             .find(|(k, _)| k.as_ref() == key)
             .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| tr(cx).unknown.clone())
+            .unwrap_or_else(|| tr().unknown.clone())
     }
 }
 
@@ -118,16 +118,16 @@ impl LangPickerState {
     pub fn new(cx: &mut App) -> Self {
         Self {
             open: false,
-            options: Self::build_options(cx),
+            options: Self::build_options(),
             highlight_index: None,
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
         }
     }
 
-    pub fn build_options(cx: &App) -> Vec<(SharedString, SharedString)> {
+    pub fn build_options() -> Vec<(SharedString, SharedString)> {
         let mut opts: Vec<(SharedString, SharedString)> =
-            vec![("system".into(), tr(cx).system.clone())];
+            vec![("system".into(), tr().system.clone())];
         for &lang in Lang::all() {
             opts.push((lang.code().into(), lang.display_name().into()));
         }
@@ -145,7 +145,7 @@ impl LangPickerState {
             .iter()
             .find(|(k, _)| k.as_ref() == key)
             .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| tr(cx).unknown.clone())
+            .unwrap_or_else(|| tr().unknown.clone())
     }
 }
 
@@ -156,7 +156,7 @@ fn close_lang(state: &mut LangPickerState) {
 }
 
 /// Save the selected language, rebuild the menus in the new language, and
-/// trigger a global redraw so every `tr(cx)` call re-reads the new table.
+/// trigger a global redraw so every `tr()` call re-reads the new table.
 /// Does NOT call cx.notify().
 fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
     let choice = LangChoice::from_key(key.as_ref());
@@ -175,15 +175,14 @@ fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
 /// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
 pub fn build_settings_pages(
-    cx: &App,
     theme_picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
 ) -> Vec<SettingPage> {
     vec![
-        SettingPage::new(tr(cx).settings_interface.clone())
-            .group(interface_group(cx, theme_picker, lang_picker))
-            .group(queue_group(cx)),
-        SettingPage::new(tr(cx).settings_library.clone()).group(library_group(cx)),
+        SettingPage::new(tr().settings_interface.clone())
+            .group(interface_group(theme_picker, lang_picker))
+            .group(queue_group()),
+        SettingPage::new(tr().settings_library.clone()).group(library_group()),
     ]
 }
 
@@ -238,13 +237,12 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
 }
 
 fn interface_group(
-    cx: &App,
     picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
 ) -> SettingGroup {
     let mut group = SettingGroup::new().item(
         SettingItem::new(
-            tr(cx).theme.clone(),
+            tr().theme.clone(),
             SettingField::render({
                 let picker = picker.clone();
                 move |_opts, window, cx: &mut App| {
@@ -481,10 +479,10 @@ fn interface_group(
                 }
             }),
         )
-        .description(tr(cx).theme_desc.clone()),
+        .description(tr().theme_desc.clone()),
     );
 
-    group = group.item(language_field(cx, lang_picker));
+    group = group.item(language_field(lang_picker));
 
     // Exclusive (hog) mode is macOS/Windows-only; hide the toggle on Linux so it
     // can't be enabled there (Linux exclusive output is unimplemented for now).
@@ -492,7 +490,7 @@ fn interface_group(
     {
         group = group.item(
             SettingItem::new(
-                tr(cx).exclusive_mode_button.clone(),
+                tr().exclusive_mode_button.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_hog_button();
                     h_flex().items_center().justify_end().child(
@@ -509,14 +507,14 @@ fn interface_group(
                     )
                 }),
             )
-            .description(tr(cx).exclusive_mode_button_desc.clone()),
+            .description(tr().exclusive_mode_button_desc.clone()),
         );
     }
 
     group
         .item(
             SettingItem::new(
-                tr(cx).repeat_shuffle.clone(),
+                tr().repeat_shuffle.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_repeat_shuffle();
                     h_flex().items_center().justify_end().child(
@@ -533,11 +531,11 @@ fn interface_group(
                     )
                 }),
             )
-            .description(tr(cx).repeat_shuffle_desc.clone()),
+            .description(tr().repeat_shuffle_desc.clone()),
         )
         .item(
             SettingItem::new(
-                tr(cx).time_labels.clone(),
+                tr().time_labels.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_time_labels();
                     h_flex().items_center().justify_end().child(
@@ -554,11 +552,11 @@ fn interface_group(
                     )
                 }),
             )
-            .description(tr(cx).time_labels_desc.clone()),
+            .description(tr().time_labels_desc.clone()),
         )
         .item(
             SettingItem::new(
-                tr(cx).liked_tracks.clone(),
+                tr().liked_tracks.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().liked_enabled();
                     h_flex().items_center().justify_end().child(
@@ -574,11 +572,11 @@ fn interface_group(
                     )
                 }),
             )
-            .description(tr(cx).liked_tracks_desc.clone()),
+            .description(tr().liked_tracks_desc.clone()),
         )
         .item(
             SettingItem::new(
-                tr(cx).tab_playlists.clone(),
+                tr().tab_playlists.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().playlists_enabled();
                     h_flex().items_center().justify_end().child(
@@ -595,16 +593,16 @@ fn interface_group(
                     )
                 }),
             )
-            .description(tr(cx).playlists_desc.clone()),
+            .description(tr().playlists_desc.clone()),
         )
 }
 
-fn queue_group(cx: &App) -> SettingGroup {
+fn queue_group() -> SettingGroup {
     SettingGroup::new()
-        .title(tr(cx).queue.clone())
+        .title(tr().queue.clone())
         .item(
             SettingItem::new(
-                tr(cx).track_duration.clone(),
+                tr().track_duration.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_track_duration();
                     h_flex().items_center().justify_end().child(
@@ -621,11 +619,11 @@ fn queue_group(cx: &App) -> SettingGroup {
                     )
                 }),
             )
-            .description(tr(cx).track_duration_desc.clone()),
+            .description(tr().track_duration_desc.clone()),
         )
         .item(
             SettingItem::new(
-                tr(cx).action_buttons.clone(),
+                tr().action_buttons.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_queue_actions();
                     h_flex().items_center().justify_end().child(
@@ -642,11 +640,11 @@ fn queue_group(cx: &App) -> SettingGroup {
                     )
                 }),
             )
-            .description(tr(cx).action_buttons_desc.clone()),
+            .description(tr().action_buttons_desc.clone()),
         )
         .item(
             SettingItem::new(
-                tr(cx).artist_name.clone(),
+                tr().artist_name.clone(),
                 SettingField::render(|_opts, _window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_queue_artist();
                     h_flex().items_center().justify_end().child(
@@ -663,14 +661,14 @@ fn queue_group(cx: &App) -> SettingGroup {
                     )
                 }),
             )
-            .description(tr(cx).artist_name_desc.clone()),
+            .description(tr().artist_name_desc.clone()),
         )
 }
 
-fn library_group(cx: &App) -> SettingGroup {
+fn library_group() -> SettingGroup {
     SettingGroup::new().item(
         SettingItem::new(
-            tr(cx).music_folders.clone(),
+            tr().music_folders.clone(),
             SettingField::render(|_opts, _window, cx: &mut App| {
                 let folders = cx.global::<SettingsStore>().music_folders().to_vec();
 
@@ -683,7 +681,7 @@ fn library_group(cx: &App) -> SettingGroup {
                             .py_2()
                             .text_sm()
                             .text_color(Colors::text_secondary(cx))
-                            .child(tr(cx).no_folders_added.clone()),
+                            .child(tr().no_folders_added.clone()),
                     );
                 } else {
                     for path in &folders {
@@ -716,7 +714,7 @@ fn library_group(cx: &App) -> SettingGroup {
                                 .child(
                                     Button::new(SharedString::from(finder_id))
                                         .ghost()
-                                        .label(tr(cx).show_in_finder.clone())
+                                        .label(tr().show_in_finder.clone())
                                         .on_click(move |_, _, _| {
                                             let _ = std::process::Command::new("open")
                                                 .arg(&path_for_finder)
@@ -726,7 +724,7 @@ fn library_group(cx: &App) -> SettingGroup {
                                 .child(
                                     Button::new(SharedString::from(remove_id))
                                         .ghost()
-                                        .label(tr(cx).remove.clone())
+                                        .label(tr().remove.clone())
                                         .on_click(move |_, _, cx| {
                                             remove_folder_and_rescan(path_for_remove.clone(), cx);
                                         }),
@@ -738,23 +736,23 @@ fn library_group(cx: &App) -> SettingGroup {
                 v_flex().gap_3().w_full().child(list).child(
                     h_flex().gap_2().child(
                         Button::new("add-folder")
-                            .label(tr(cx).add_folder.clone())
+                            .label(tr().add_folder.clone())
                             .on_click(|_, _, cx| pick_and_add_folder(cx)),
                     ),
                 )
             }),
         )
         .layout(Axis::Vertical)
-        .description(tr(cx).music_folders_desc.clone()),
+        .description(tr().music_folders_desc.clone()),
     )
 }
 
 /// The "Language" setting row: a custom dropdown mirroring the theme picker.
 /// Unlike the theme picker there is no live preview — selecting commits the
 /// language (save + menu rebuild + global redraw) immediately.
-fn language_field(cx: &App, picker: Entity<LangPickerState>) -> SettingItem {
+fn language_field(picker: Entity<LangPickerState>) -> SettingItem {
     SettingItem::new(
-        tr(cx).language.clone(),
+        tr().language.clone(),
         SettingField::render({
             let picker = picker.clone();
             move |_opts, window, cx: &mut App| {
@@ -962,5 +960,5 @@ fn language_field(cx: &App, picker: Entity<LangPickerState>) -> SettingItem {
             }
         }),
     )
-    .description(tr(cx).language_desc.clone())
+    .description(tr().language_desc.clone())
 }

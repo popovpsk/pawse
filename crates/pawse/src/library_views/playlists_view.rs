@@ -17,6 +17,7 @@ use nucleo_matcher::{
 };
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::services::Services;
 use crate::theme_colors::Colors;
 use crate::track_list::LIKE_ROW_GROUP;
@@ -46,7 +47,7 @@ impl PlaylistsView {
 
         let create_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(crate::localization::tr(cx).new_playlist_name.clone())
+                .placeholder(tr().new_playlist_name.clone())
                 .clean_on_escape()
         });
 
@@ -153,7 +154,7 @@ impl Render for PlaylistsView {
                         Button::new("playlists-confirm-create")
                             .primary()
                             .compact()
-                            .label(crate::localization::tr(cx).create.clone())
+                            .label(tr().create.clone())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.commit_create(cx);
                             })),
@@ -162,7 +163,7 @@ impl Render for PlaylistsView {
                         Button::new("playlists-cancel-create")
                             .ghost()
                             .compact()
-                            .label(crate::localization::tr(cx).cancel.clone())
+                            .label(tr().cancel.clone())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.creating = false;
                                 cx.notify();
@@ -175,7 +176,7 @@ impl Render for PlaylistsView {
                     Button::new("playlists-new")
                         .outline()
                         .compact()
-                        .label(crate::localization::tr(cx).new_playlist.clone())
+                        .label(tr().new_playlist.clone())
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.creating = true;
                             this.create_input.update(cx, |s, cx| {
@@ -192,9 +193,9 @@ impl Render for PlaylistsView {
 
         if self.playlists.is_empty() {
             let message = if self.playlists_all.is_empty() {
-                crate::localization::tr(cx).no_playlists_yet.clone()
+                tr().no_playlists_yet.clone()
             } else {
-                crate::localization::tr(cx).no_playlists_match.clone()
+                tr().no_playlists_match.clone()
             };
             list = list.child(
                 div()
@@ -208,7 +209,7 @@ impl Render for PlaylistsView {
             for p in self.playlists.iter() {
                 let playlist = p.clone();
                 let playlist_id = playlist.id;
-                let count_str = crate::localization::tr(cx).n_tracks(playlist.track_count);
+                let count_str = tr().n_tracks(playlist.track_count);
                 let pending_delete = self.pending_delete_id == Some(playlist_id);
 
                 let trash_button = div()
@@ -278,7 +279,7 @@ impl Render for PlaylistsView {
                                     ))
                                     .danger()
                                     .compact()
-                                    .label(crate::localization::tr(cx).delete.clone())
+                                    .label(tr().delete.clone())
                                     .on_click(cx.listener(
                                         move |this, _, _, cx| {
                                             cx.global::<Services>().library.delete_playlist(pid);
@@ -293,7 +294,7 @@ impl Render for PlaylistsView {
                                     ))
                                     .ghost()
                                     .compact()
-                                    .label(crate::localization::tr(cx).cancel.clone())
+                                    .label(tr().cancel.clone())
                                     .on_click(cx.listener(
                                         |this, _, _, cx| {
                                             this.pending_delete_id = None;

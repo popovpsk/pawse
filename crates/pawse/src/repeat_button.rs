@@ -4,6 +4,7 @@ use gpui::{
 };
 use gpui_component::tooltip::Tooltip;
 
+use crate::localization::tr;
 use crate::playback_queue::RepeatMode;
 use crate::services::Services;
 use crate::theme_colors::Colors;
@@ -35,7 +36,7 @@ impl Render for RepeatButton {
             RepeatMode::All => ("icons/repeat.svg", Colors::text_accent(cx)),
             RepeatMode::One => ("icons/repeat-one.svg", Colors::text_accent(cx)),
         };
-        let tooltip_text = crate::localization::tr(cx).repeat_mode.clone();
+        let tooltip_text = tr().repeat_mode.clone();
 
         div()
             .id("repeat_button")

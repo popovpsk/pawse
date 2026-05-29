@@ -4,8 +4,8 @@ use crate::localization::tr;
 
 actions!(pawse, [Rescan, Quit,]);
 
-pub fn app_menus(cx: &App) -> Vec<Menu> {
-    let s = tr(cx);
+pub fn app_menus() -> Vec<Menu> {
+    let s = tr();
     vec![
         Menu {
             name: "Pawse".into(),
@@ -27,5 +27,5 @@ pub fn app_menus(cx: &App) -> Vec<Menu> {
 /// (Re)install the application menus in the current language. Called at startup
 /// and again whenever the UI language changes.
 pub fn set_menus(cx: &App) {
-    cx.set_menus(app_menus(cx));
+    cx.set_menus(app_menus());
 }

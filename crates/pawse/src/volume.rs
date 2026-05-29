@@ -8,6 +8,7 @@ use gpui_component::{h_flex, tooltip::Tooltip};
 use crate::theme_colors::Colors;
 use ui_components::slider::{Slider, SliderEvent};
 
+use crate::localization::tr;
 use crate::services::Services;
 
 pub struct Volume {
@@ -38,7 +39,7 @@ impl Render for Volume {
             .justify_end()
             .items_center()
             .child({
-                let tooltip_text = self.tooltip_text(is_exclusive, cx);
+                let tooltip_text = self.tooltip_text(is_exclusive);
 
                 div()
                     .id("volume_icon")
@@ -98,8 +99,8 @@ impl Volume {
         }
     }
 
-    fn tooltip_text(&self, is_exclusive: bool, cx: &gpui::App) -> gpui::SharedString {
-        let s = crate::localization::tr(cx);
+    fn tooltip_text(&self, is_exclusive: bool) -> gpui::SharedString {
+        let s = tr();
         if is_exclusive {
             s.volume.clone()
         } else if self.is_muted || self.volume <= 0. {

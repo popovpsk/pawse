@@ -20,6 +20,7 @@ use crate::track_list::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::playback_queue::RemoveOutcome;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -244,7 +245,7 @@ impl QueueView {
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let foreground = Colors::text_primary(cx);
-        let header = queue_header(foreground, cx);
+        let header = queue_header(foreground);
 
         if self.tracks.is_empty() {
             return queue_empty_state(cx, header);
@@ -377,10 +378,8 @@ fn queue_visible_range_row(
                 .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
                 .hover(|s| s.bg(params.accent))
                 .tooltip(|window, cx| {
-                    gpui_component::tooltip::Tooltip::new(
-                        crate::localization::tr(cx).remove_from_queue.clone(),
-                    )
-                    .build(window, cx)
+                    gpui_component::tooltip::Tooltip::new(tr().remove_from_queue.clone())
+                        .build(window, cx)
                 })
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -478,11 +477,11 @@ fn queue_empty_state(cx: &Context<QueueView>, header: Div) -> Div {
             .pt_2()
             .text_sm()
             .text_color(Colors::text_secondary(cx))
-            .child(crate::localization::tr(cx).queue_is_empty.clone()),
+            .child(tr().queue_is_empty.clone()),
     )
 }
 
-fn queue_header(foreground: Hsla, cx: &gpui::App) -> Div {
+fn queue_header(foreground: Hsla) -> Div {
     h_flex()
         .w_full()
         .h(px(40.))
@@ -494,7 +493,7 @@ fn queue_header(foreground: Hsla, cx: &gpui::App) -> Div {
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(foreground)
-                .child(crate::localization::tr(cx).queue.clone()),
+                .child(tr().queue.clone()),
         )
 }
 

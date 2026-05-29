@@ -16,6 +16,7 @@ use nucleo_matcher::{
 use ui_components::artist_avatar::artist_avatar;
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::services::Services;
 
 #[derive(Clone, Debug)]
@@ -154,18 +155,16 @@ impl Render for ArtistsView {
         let muted_fg = Colors::text_secondary(cx);
 
         if self.is_scanning && self.artists_all.is_empty() {
-            return v_flex().size_full().child(
-                div()
-                    .px_4()
-                    .child(crate::localization::tr(cx).scanning.clone()),
-            );
+            return v_flex()
+                .size_full()
+                .child(div().px_4().child(tr().scanning.clone()));
         }
 
         if self.artists.is_empty() {
             let message = if self.artists_all.is_empty() {
-                crate::localization::tr(cx).no_artists_found.clone()
+                tr().no_artists_found.clone()
             } else {
-                crate::localization::tr(cx).no_artists_match.clone()
+                tr().no_artists_match.clone()
             };
             return v_flex()
                 .size_full()
@@ -187,8 +186,7 @@ impl Render for ArtistsView {
                                 return div().w_full().h(px(TOP_PADDING)).into_any_element();
                             }
                             let artist = view.artists[ix - 1].clone();
-                            let count_label =
-                                crate::localization::tr(cx).n_tracks(artist.track_count);
+                            let count_label = tr().n_tracks(artist.track_count);
 
                             let covers: Vec<Arc<Image>> = {
                                 let services = cx.global::<Services>();

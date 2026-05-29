@@ -9,6 +9,8 @@ use gpui_component::{
 use music_library::Track;
 use serde::{Deserialize, Serialize};
 
+use crate::localization::tr;
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum ThemeChoice {
     #[default]
@@ -448,7 +450,7 @@ pub fn notify_save_error(cx: &mut App, err: anyhow::Error) {
     eprintln!("settings: save failed: {err}");
     if let Some(handle) = cx.active_window() {
         let _ = handle.update(cx, |_, window, cx| {
-            let s = crate::localization::tr(cx);
+            let s = tr();
             window.push_notification(
                 Notification::error(s.failed_save_settings(&err.to_string()))
                     .title(s.settings.clone()),

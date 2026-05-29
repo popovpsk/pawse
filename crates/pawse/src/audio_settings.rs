@@ -13,6 +13,7 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
@@ -27,8 +28,8 @@ struct DeviceErrorNotif;
 struct StreamRecoveredNotif;
 struct StreamFailureNotif;
 
-fn format_bit_perfect_tooltip(status: &BitPerfectStatus, cx: &App) -> String {
-    let s = crate::localization::tr(cx);
+fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
+    let s = tr();
     if status.is_bit_perfect() {
         return s.bit_perfect_playback.to_string();
     }
@@ -72,7 +73,7 @@ impl Render for AudioSettings {
         if let Some(msg) = self.pending_notification.take() {
             window.push_notification(
                 Notification::error(msg)
-                    .title(crate::localization::tr(cx).audio_device.clone())
+                    .title(tr().audio_device.clone())
                     .id::<DeviceErrorNotif>(),
                 cx,
             );
@@ -96,7 +97,7 @@ impl Render for AudioSettings {
                 OutputEvent::Recovered { message } => {
                     window.push_notification(
                         Notification::warning(message)
-                            .title(crate::localization::tr(cx).audio_device.clone())
+                            .title(tr().audio_device.clone())
                             .id::<StreamRecoveredNotif>(),
                         cx,
                     );
@@ -104,7 +105,7 @@ impl Render for AudioSettings {
                 OutputEvent::Failure { message } => {
                     window.push_notification(
                         Notification::error(message)
-                            .title(crate::localization::tr(cx).audio_device.clone())
+                            .title(tr().audio_device.clone())
                             .id::<StreamFailureNotif>(),
                         cx,
                     );
@@ -119,7 +120,7 @@ impl Render for AudioSettings {
             .items_center()
             .when(self.is_exclusive, |el| {
                 let is_perfect = bit_perfect.is_bit_perfect();
-                let tooltip_text = format_bit_perfect_tooltip(&bit_perfect, cx);
+                let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
                 let icon_color = if is_perfect {
                     Colors::status_ok(cx)
                 } else {
@@ -147,8 +148,8 @@ impl Render for AudioSettings {
                     Button::new("fix-hw-volume")
                         .ghost()
                         .compact()
-                        .label(crate::localization::tr(cx).fix_volume.clone())
-                        .tooltip(crate::localization::tr(cx).fix_volume_tooltip.clone())
+                        .label(tr().fix_volume.clone())
+                        .tooltip(tr().fix_volume_tooltip.clone())
                         .on_click(move |_, _, app_cx| {
                             view.update(app_cx, |_, cx| {
                                 let services = cx.global::<Services>();
@@ -167,9 +168,9 @@ impl Render for AudioSettings {
                         "icons/hog-off.svg"
                     };
                     let tooltip = if self.is_exclusive {
-                        crate::localization::tr(cx).exclusive_click_disable.clone()
+                        tr().exclusive_click_disable.clone()
                     } else {
-                        crate::localization::tr(cx).shared_click_enable.clone()
+                        tr().shared_click_enable.clone()
                     };
                     Button::new("exclusive-toggle")
                         .ghost()
@@ -193,14 +194,9 @@ impl Render for AudioSettings {
                                         Err(e) => {
                                             window.push_notification(
                                                 Notification::error(
-                                                    crate::localization::tr(cx)
-                                                        .failed_exclusive(&e.to_string()),
+                                                    tr().failed_exclusive(&e.to_string()),
                                                 )
-                                                .title(
-                                                    crate::localization::tr(cx)
-                                                        .exclusive_mode_title
-                                                        .clone(),
-                                                )
+                                                .title(tr().exclusive_mode_title.clone())
                                                 .id::<DeviceErrorNotif>(),
                                                 cx,
                                             );
@@ -225,7 +221,7 @@ impl Render for AudioSettings {
                                 .w(px(40.))
                                 .h(px(40.))
                                 .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
-                                .tooltip(crate::localization::tr(cx).select_audio_device.clone()),
+                                .tooltip(tr().select_audio_device.clone()),
                         )
                         .content(move |_state, _window, pop_cx| {
                             let services = pop_cx.global::<Services>();
@@ -241,7 +237,7 @@ impl Render for AudioSettings {
                                     "{}{}",
                                     d.name,
                                     if d.is_default {
-                                        crate::localization::tr(pop_cx).default_suffix.as_str()
+                                        tr().default_suffix.as_str()
                                     } else {
                                         ""
                                     }
@@ -268,8 +264,7 @@ impl Render for AudioSettings {
                                                 let services = cx.global::<Services>();
                                                 if let Err(e) = services.output.select_device(i) {
                                                     this.pending_notification = Some(
-                                                        crate::localization::tr(cx)
-                                                            .failed_switch_device(&e.to_string()),
+                                                        tr().failed_switch_device(&e.to_string()),
                                                     );
                                                 }
                                                 cx.notify();

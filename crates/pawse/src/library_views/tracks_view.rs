@@ -21,6 +21,7 @@ use nucleo_matcher::{
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
+use crate::localization::tr;
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -87,7 +88,7 @@ impl TracksView {
             .enumerate()
             .map(|(ix, t)| TrackRow::from_track(t, ix))
             .collect();
-        let (items, item_sizes_vec) = Self::build_items(&row_data, crate::localization::tr(cx));
+        let (items, item_sizes_vec) = Self::build_items(&row_data, tr());
 
         let item_sizes = Rc::new(item_sizes_vec);
         let engine_event_bus = services.engine_event_bus.clone();
@@ -240,7 +241,7 @@ impl TracksView {
         cx.notify();
     }
 
-    fn recompute_visible(&mut self, cx: &mut Context<Self>) {
+    fn recompute_visible(&mut self, _cx: &mut Context<Self>) {
         if self.filter.is_empty() {
             self.row_data = self
                 .tracks_all
@@ -270,7 +271,7 @@ impl TracksView {
                 .map(|(ix, _)| TrackRow::from_track(&self.tracks_all[*ix], *ix))
                 .collect();
         }
-        let strings = crate::localization::tr(cx);
+        let strings = tr();
         let (items, item_sizes_vec) = Self::build_items(&self.row_data, strings);
         self.items = items;
         self.item_sizes = Rc::new(item_sizes_vec);
@@ -283,9 +284,9 @@ impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
-                crate::localization::tr(cx).no_tracks_for_album.clone()
+                tr().no_tracks_for_album.clone()
             } else {
-                crate::localization::tr(cx).no_tracks_match.clone()
+                tr().no_tracks_match.clone()
             };
             return v_flex()
                 .size_full()

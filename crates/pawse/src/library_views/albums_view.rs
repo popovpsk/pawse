@@ -15,6 +15,7 @@ use nucleo_matcher::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -164,11 +165,9 @@ impl Render for AlbumsView {
         let muted_fg = Colors::text_secondary(cx);
 
         if self.is_scanning && self.albums_all.is_empty() {
-            return v_flex().size_full().child(
-                div()
-                    .px_4()
-                    .child(crate::localization::tr(cx).scanning.clone()),
-            );
+            return v_flex()
+                .size_full()
+                .child(div().px_4().child(tr().scanning.clone()));
         }
 
         if self.albums.is_empty() {
@@ -180,16 +179,14 @@ impl Render for AlbumsView {
                     .px_4()
                     .pt_4()
                     .child(
-                        div().text_color(muted_fg).child(
-                            crate::localization::tr(cx)
-                                .no_music_folders_configured
-                                .clone(),
-                        ),
+                        div()
+                            .text_color(muted_fg)
+                            .child(tr().no_music_folders_configured.clone()),
                     )
                     .child(
                         h_flex().child(
                             Button::new("add-music-folder")
-                                .label(crate::localization::tr(cx).add_music_folder.clone())
+                                .label(tr().add_music_folder.clone())
                                 .on_click(cx.listener(|_, _, _, cx| {
                                     cx.emit(AddMusicFolderRequested);
                                 })),
@@ -197,9 +194,9 @@ impl Render for AlbumsView {
                     );
             }
             let message = if self.albums_all.is_empty() {
-                crate::localization::tr(cx).no_albums_found.clone()
+                tr().no_albums_found.clone()
             } else {
-                crate::localization::tr(cx).no_albums_match.clone()
+                tr().no_albums_match.clone()
             };
             return v_flex()
                 .size_full()

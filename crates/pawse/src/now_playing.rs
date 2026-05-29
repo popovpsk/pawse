@@ -10,6 +10,7 @@ use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
+use crate::localization::tr;
 use crate::services::Services;
 
 #[derive(Clone, Debug)]
@@ -37,9 +38,8 @@ fn format_specs(
     sample_rate: Option<u32>,
     bit_depth: Option<u8>,
     bitrate: Option<u32>,
-    cx: &gpui::App,
 ) -> Option<String> {
-    let s = crate::localization::tr(cx);
+    let s = tr();
     let mut specs = String::new();
     if let (Some(sr), Some(bd)) = (sample_rate, bit_depth) {
         let khz = sr as f32 / 1000.0;
@@ -139,7 +139,7 @@ impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let specs = format_specs(self.sample_rate, self.bit_depth, self.bitrate, cx);
+        let specs = format_specs(self.sample_rate, self.bit_depth, self.bitrate);
         let viewport_w = f32::from(window.viewport_size().width);
         let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 

@@ -24,6 +24,7 @@ use nucleo_matcher::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::playback_queue::QueueSource;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -325,9 +326,9 @@ impl Render for PlaylistTracksView {
 
         if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
-                crate::localization::tr(cx).playlist_is_empty.clone()
+                tr().playlist_is_empty.clone()
             } else {
-                crate::localization::tr(cx).no_tracks_match.clone()
+                tr().no_tracks_match.clone()
             };
             return v_flex()
                 .size_full()
