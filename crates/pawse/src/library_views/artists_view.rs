@@ -17,7 +17,7 @@ use nucleo_matcher::{
 use ui_components::artist_avatar::artist_avatar;
 
 use crate::library_service::LibraryEvent;
-use crate::localization::tr;
+use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 
 #[derive(Clone, Debug)]
@@ -75,12 +75,14 @@ pub struct ArtistsView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
+    _lang_subscription: Subscription,
 }
 
 impl ArtistsView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
         let library_event_bus = services.library_event_bus.clone();
+        let lang_event_bus = services.lang_event_bus.clone();
         let library = services.library.clone();
 
         let artists_all = library.artists();
@@ -113,6 +115,15 @@ impl ArtistsView {
                 },
             );
 
+        // The track-count labels are precomputed into `rows`, so a language
+        // change must rebuild them — `refresh_windows` alone only repaints the
+        // stale `SharedString`s.
+        let lang_subscription =
+            cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+                this.recompute_visible(cx);
+                cx.notify();
+            });
+
         Self {
             artists_all,
             rows,
@@ -123,6 +134,7 @@ impl ArtistsView {
             item_sizes,
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
+            _lang_subscription: lang_subscription,
         }
     }
 

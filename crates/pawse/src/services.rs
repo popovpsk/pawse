@@ -31,6 +31,7 @@ pub struct Services {
     /// waiting for the next `Playing` event.
     pub is_playing: Arc<AtomicBool>,
     pub playlist_popup_bus: Entity<crate::playlist_popup::PlaylistPopupBus>,
+    pub lang_event_bus: Entity<crate::localization::LangEventBus>,
 }
 
 impl Services {
@@ -69,6 +70,7 @@ impl Services {
         .detach();
 
         let playlist_popup_bus = cx.new(|_| crate::playlist_popup::PlaylistPopupBus);
+        let lang_event_bus = cx.new(|_| crate::localization::LangEventBus);
 
         Services {
             output,
@@ -81,6 +83,7 @@ impl Services {
             current_position_ms: Arc::new(AtomicU64::new(0)),
             is_playing: Arc::new(AtomicBool::new(false)),
             playlist_popup_bus,
+            lang_event_bus,
         }
     }
 

@@ -169,6 +169,9 @@ clean:
 #     in SAN_CRATES are where unsafe and concurrency live, so that's what we
 #     actually want to sanitize.
 
+# test-leaks uses bash features (pipefail, process substitution, $'\t').
+SHELL := /bin/bash
+
 TARGET ?= $(shell rustc -vV | sed -n 's/host: //p')
 
 SAN_CRATES = \
@@ -204,15 +207,39 @@ test-tsan:
 test-miri:
 	cargo +nightly miri test $(MIRI_CRATES)
 
-# Runs every workspace test binary under leaks(1). Requires `jq`.
+# Runs every workspace test binary under leaks(1). Requires `jq` and `leaks`.
+#
+# The binaries are launched directly (not via `cargo test`), so cargo does not
+# inject CARGO_MANIFEST_DIR. Tests that resolve fixtures via
+# `std::env::var("CARGO_MANIFEST_DIR")` would panic; we set it per-binary from
+# the artifact's manifest_path, exactly as cargo would.
+#
+# `leaks --atExit` exits 0 even when the wrapped binary's tests FAIL, so a
+# failing binary is detected via its `test result: FAILED` line as well as via
+# leaks' own non-zero exit (real leaks). Any failure makes the target exit 1.
 test-leaks:
-	@command -v jq >/dev/null 2>&1 || { echo "jq is required for test-leaks"; exit 1; }
-	@cargo test --workspace --no-run --message-format=json 2>/dev/null | \
-		jq -r 'select(.executable != null and .profile.test == true) | .executable' | \
-		while read bin; do \
-			echo "===> leaks: $$bin"; \
-			MallocStackLogging=1 leaks --atExit -- "$$bin" || true; \
-		done
+	@command -v jq    >/dev/null 2>&1 || { echo "jq is required for test-leaks"; exit 1; }
+	@command -v leaks >/dev/null 2>&1 || { echo "leaks(1) is required for test-leaks"; exit 1; }
+	@set -uo pipefail; \
+	json=$$(mktemp); \
+	if ! cargo test --workspace --no-run --message-format=json > "$$json"; then \
+		rm -f "$$json"; echo "test-leaks: build failed"; exit 1; \
+	fi; \
+	status=0; \
+	while IFS=$$'\t' read -r bin manifest; do \
+		[ -n "$$bin" ] || continue; \
+		echo "===> leaks: $$bin"; \
+		dir=$$(dirname "$$manifest"); \
+		out=$$(mktemp); \
+		if MallocStackLogging=1 CARGO_MANIFEST_DIR="$$dir" \
+			leaks --atExit -- "$$bin" 2>&1 | tee "$$out"; then lk=0; else lk=1; fi; \
+		if [ "$$lk" -ne 0 ] || grep -q "test result: FAILED" "$$out"; then \
+			echo "===> FAILURE: $$bin"; status=1; \
+		fi; \
+		rm -f "$$out"; \
+	done < <(jq -r 'select(.executable != null and .profile.test == true) | "\(.executable)\t\(.manifest_path)"' "$$json"); \
+	rm -f "$$json"; \
+	[ "$$status" -eq 0 ] || { echo "test-leaks: failures detected"; exit 1; }
 
 test-san: test-careful test-asan test-tsan test-miri
 
