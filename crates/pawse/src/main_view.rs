@@ -21,7 +21,7 @@ use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::settings_store::SettingsStore;
-use crate::settings_view::ThemePickerState;
+use crate::settings_view::{LangPickerState, ThemePickerState};
 use crate::theme_colors::Colors;
 use ui_components::fade::{FadeEdge, fade_overlay};
 
@@ -56,6 +56,7 @@ pub struct MainView {
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _theme_picker: Entity<ThemePickerState>,
+    _lang_picker: Entity<LangPickerState>,
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
     _search_subscription: Subscription,
@@ -65,6 +66,7 @@ pub struct MainView {
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
     _theme_picker_subscription: gpui::Subscription,
+    _lang_picker_subscription: gpui::Subscription,
     _settings_observer: gpui::Subscription,
 }
 
@@ -91,8 +93,10 @@ impl MainView {
             },
         );
 
-        let search_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search artists, albums, tracks"));
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(crate::localization::tr(cx).search_placeholder.clone())
+        });
 
         let search_subscription = cx.subscribe(&search_input, {
             let library_view = library_view.clone();
@@ -105,16 +109,21 @@ impl MainView {
         });
 
         let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
+        let lang_picker: Entity<LangPickerState> = cx.new(|cx| LangPickerState::new(cx));
 
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
             let theme_picker = theme_picker.clone();
+            let lang_picker = lang_picker.clone();
             move |this, cx| {
                 theme_picker.update(cx, |state, cx| {
                     state.options = ThemePickerState::build_options(&*cx);
                     cx.notify();
                 });
-                this.settings_pages =
-                    crate::settings_view::build_settings_pages(&*cx, theme_picker.clone());
+                this.settings_pages = crate::settings_view::build_settings_pages(
+                    &*cx,
+                    theme_picker.clone(),
+                    lang_picker.clone(),
+                );
                 cx.notify();
             }
         });
@@ -123,7 +132,15 @@ impl MainView {
             cx.notify();
         });
 
-        let settings_pages = crate::settings_view::build_settings_pages(&*cx, theme_picker.clone());
+        let lang_picker_subscription = cx.observe(&lang_picker, |_, _, cx| {
+            cx.notify();
+        });
+
+        let settings_pages = crate::settings_view::build_settings_pages(
+            &*cx,
+            theme_picker.clone(),
+            lang_picker.clone(),
+        );
 
         let footer = cx.new(|cx| Footer::new(window, cx));
         let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
@@ -186,6 +203,7 @@ impl MainView {
             settings_pages,
             search_input,
             _theme_picker: theme_picker,
+            _lang_picker: lang_picker,
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
             _search_subscription: search_subscription,
@@ -195,6 +213,7 @@ impl MainView {
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
             _theme_picker_subscription: theme_picker_subscription,
+            _lang_picker_subscription: lang_picker_subscription,
             _settings_observer: settings_observer,
         }
     }
@@ -471,7 +490,7 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         .w(px(40.))
         .h(px(40.))
         .icon(Icon::default().path("icons/settings.svg").size(px(20.)))
-        .tooltip("Settings")
+        .tooltip(crate::localization::tr(cx).settings.clone())
         .on_click(cx.listener(|this, _, window, cx| {
             this.clear_search(window, cx);
             this.show_settings = true;

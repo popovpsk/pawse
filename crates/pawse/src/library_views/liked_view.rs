@@ -295,9 +295,9 @@ impl Render for LikedView {
 
         if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
-                "No liked tracks yet. Hover a track and tap the heart to like it."
+                crate::localization::tr(cx).no_liked_tracks.clone()
             } else {
-                "No liked tracks match your search."
+                crate::localization::tr(cx).no_liked_match.clone()
             };
             return v_flex()
                 .size_full()

@@ -22,8 +22,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
 ui_components = { path = "../ui_components" }
+ui_resources = { path = "../ui_resources" }
 media_integration = { path = "../media_integration" }
-rust-embed.workspace = true
+sys-locale = "0.3"
 nucleo-matcher = "0.3"
 rand = "0.9"
 
@@ -38,11 +39,11 @@ product-name = "Pawse"
 identifier = "dev.pawse.app"
 category = "Music"
 icons = [
-    "../../assets/app-icon/32x32.png",
-    "../../assets/app-icon/128x128.png",
-    "../../assets/app-icon/128x128@2x.png",
-    "../../assets/app-icon/icon.icns",
-    "../../assets/app-icon/icon.ico",
+    "../ui_resources/assets/app-icon/32x32.png",
+    "../ui_resources/assets/app-icon/128x128.png",
+    "../ui_resources/assets/app-icon/128x128@2x.png",
+    "../ui_resources/assets/app-icon/icon.icns",
+    "../ui_resources/assets/app-icon/icon.ico",
 ]
 
 [package.metadata.packager.macos]

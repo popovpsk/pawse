@@ -43,7 +43,9 @@ impl Render for ShuffleButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(Colors::control_hover_bg(cx)))
-            .tooltip(|window, cx| Tooltip::new("Shuffle").build(window, cx))
+            .tooltip(|window, cx| {
+                Tooltip::new(crate::localization::tr(cx).shuffle.clone()).build(window, cx)
+            })
             .on_click(cx.listener(ShuffleButton::on_click))
             .child(
                 svg()

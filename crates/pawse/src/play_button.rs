@@ -75,9 +75,9 @@ impl Render for PlayButton {
         };
 
         let tooltip_text = if !self.state.is_playing {
-            "Play"
+            crate::localization::tr(cx).play.clone()
         } else {
-            "Pause"
+            crate::localization::tr(cx).pause.clone()
         };
 
         div()
@@ -90,7 +90,7 @@ impl Render for PlayButton {
             .rounded_full()
             .bg(Colors::play_button_bg(cx))
             .hover(|style| style.bg(Colors::play_button_bg_hover(cx)))
-            .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
+            .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
             .on_click(cx.listener(PlayButton::on_click))
             .child(
                 svg()

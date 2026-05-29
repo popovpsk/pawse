@@ -15,7 +15,8 @@ A local audio player built with Rust and [GPUI](https://github.com/zed-industrie
 | `cue_parser` | `crates/cue_parser/` | Plain-Rust CUE sheet parser (no audio dependencies). Returns `CueSheet` with tracks, FILE references, indexes |
 | `media_integration` | `crates/media_integration/` | System media integration: platform-agnostic facade (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) plus a per-OS implementation. macOS = native `objc2` (Now Playing widget, remote media-key commands, Dock icon) under `src/macos/`; Windows (SMTC) + Linux (MPRIS) share a `souvlaki`-based backend in `src/souvlaki_backend.rs` |
 | `ui_components` | `crates/ui_components/` | Reusable GPUI components (custom `slider`, `fade` overlay) not provided by `gpui-component` |
-| `pawse` | `crates/pawse/` | GPUI application binary. Views, service globals, event buses, settings store, theme management |
+| `ui_resources` | `crates/ui_resources/` | UI data layer (not UI logic): embedded icon `Assets` (`rust_embed`), bundled `themes` JSON, and `i18n` — compile-time-checked localization tables for 20 languages. See `crates/ui_resources/src/doc.md` |
+| `pawse` | `crates/pawse/` | GPUI application binary. Views, service globals, event buses, settings store, theme management, active-language resolution (`localization::tr`) |
 
 ## Audio Pipeline
 

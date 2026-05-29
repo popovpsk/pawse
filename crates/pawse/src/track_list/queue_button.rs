@@ -37,7 +37,9 @@ pub fn add_to_queue_button(
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| Tooltip::new("Add to queue").build(window, cx))
+        .tooltip(|window, cx| {
+            Tooltip::new(crate::localization::tr(cx).add_to_queue.clone()).build(window, cx)
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();
@@ -78,7 +80,9 @@ pub fn add_album_to_queue_button(
         .rounded_full()
         .cursor_pointer()
         .hover(|s| s.bg(muted_bg))
-        .tooltip(|window, cx| Tooltip::new("Add album to queue").build(window, cx))
+        .tooltip(|window, cx| {
+            Tooltip::new(crate::localization::tr(cx).add_album_to_queue.clone()).build(window, cx)
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();

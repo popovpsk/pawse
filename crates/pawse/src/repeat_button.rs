@@ -35,7 +35,7 @@ impl Render for RepeatButton {
             RepeatMode::All => ("icons/repeat.svg", Colors::text_accent(cx)),
             RepeatMode::One => ("icons/repeat-one.svg", Colors::text_accent(cx)),
         };
-        let tooltip_text = "Repeat mode";
+        let tooltip_text = crate::localization::tr(cx).repeat_mode.clone();
 
         div()
             .id("repeat_button")
@@ -46,7 +46,7 @@ impl Render for RepeatButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(Colors::control_hover_bg(cx)))
-            .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
+            .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
             .on_click(cx.listener(RepeatButton::on_click))
             .child(svg().path(icon).size(px(18.)).text_color(color))
     }

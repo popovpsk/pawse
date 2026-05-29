@@ -166,7 +166,10 @@ impl Render for Footer {
                             .cursor_pointer()
                             .rounded(px(4.))
                             .hover(|s| s.bg(Colors::control_hover_bg(cx)))
-                            .tooltip(|window, cx| Tooltip::new("Queue").build(window, cx))
+                            .tooltip(|window, cx| {
+                                Tooltip::new(crate::localization::tr(cx).queue.clone())
+                                    .build(window, cx)
+                            })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_queue = !this.show_queue;
                                 cx.emit(ToggleQueueEvent {

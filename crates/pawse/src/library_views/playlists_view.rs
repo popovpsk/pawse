@@ -46,7 +46,7 @@ impl PlaylistsView {
 
         let create_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("New playlist name")
+                .placeholder(crate::localization::tr(cx).new_playlist_name.clone())
                 .clean_on_escape()
         });
 
@@ -153,7 +153,7 @@ impl Render for PlaylistsView {
                         Button::new("playlists-confirm-create")
                             .primary()
                             .compact()
-                            .label("Create")
+                            .label(crate::localization::tr(cx).create.clone())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.commit_create(cx);
                             })),
@@ -162,7 +162,7 @@ impl Render for PlaylistsView {
                         Button::new("playlists-cancel-create")
                             .ghost()
                             .compact()
-                            .label("Cancel")
+                            .label(crate::localization::tr(cx).cancel.clone())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.creating = false;
                                 cx.notify();
@@ -175,7 +175,7 @@ impl Render for PlaylistsView {
                     Button::new("playlists-new")
                         .outline()
                         .compact()
-                        .label("+ New playlist")
+                        .label(crate::localization::tr(cx).new_playlist.clone())
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.creating = true;
                             this.create_input.update(cx, |s, cx| {
@@ -192,9 +192,9 @@ impl Render for PlaylistsView {
 
         if self.playlists.is_empty() {
             let message = if self.playlists_all.is_empty() {
-                "No playlists yet."
+                crate::localization::tr(cx).no_playlists_yet.clone()
             } else {
-                "No playlists match your search."
+                crate::localization::tr(cx).no_playlists_match.clone()
             };
             list = list.child(
                 div()
@@ -208,11 +208,7 @@ impl Render for PlaylistsView {
             for p in self.playlists.iter() {
                 let playlist = p.clone();
                 let playlist_id = playlist.id;
-                let count_str = if playlist.track_count == 1 {
-                    "1 track".to_string()
-                } else {
-                    format!("{} tracks", playlist.track_count)
-                };
+                let count_str = crate::localization::tr(cx).n_tracks(playlist.track_count);
                 let pending_delete = self.pending_delete_id == Some(playlist_id);
 
                 let trash_button = div()
@@ -282,7 +278,7 @@ impl Render for PlaylistsView {
                                     ))
                                     .danger()
                                     .compact()
-                                    .label("Delete")
+                                    .label(crate::localization::tr(cx).delete.clone())
                                     .on_click(cx.listener(
                                         move |this, _, _, cx| {
                                             cx.global::<Services>().library.delete_playlist(pid);
@@ -297,7 +293,7 @@ impl Render for PlaylistsView {
                                     ))
                                     .ghost()
                                     .compact()
-                                    .label("Cancel")
+                                    .label(crate::localization::tr(cx).cancel.clone())
                                     .on_click(cx.listener(
                                         |this, _, _, cx| {
                                             this.pending_delete_id = None;

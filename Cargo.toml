@@ -10,6 +10,7 @@ members = [
     "crates/media_integration",
     "crates/pawse",
     "crates/ui_components",
+    "crates/ui_resources",
     "crates/cue_parser"
 ]
 

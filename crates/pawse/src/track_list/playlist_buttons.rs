@@ -34,7 +34,9 @@ pub fn add_to_playlist_button(track_id: i64, colors: &RowButtonColors) -> impl I
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| Tooltip::new("Add to playlist").build(window, cx))
+        .tooltip(|window, cx| {
+            Tooltip::new(crate::localization::tr(cx).add_to_playlist.clone()).build(window, cx)
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |event, _, cx| {
             cx.stop_propagation();
@@ -79,7 +81,9 @@ pub fn remove_from_playlist_button(
         .opacity(0.)
         .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| Tooltip::new("Remove from playlist").build(window, cx))
+        .tooltip(|window, cx| {
+            Tooltip::new(crate::localization::tr(cx).remove_from_playlist.clone()).build(window, cx)
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();

@@ -27,29 +27,27 @@ struct DeviceErrorNotif;
 struct StreamRecoveredNotif;
 struct StreamFailureNotif;
 
-fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
+fn format_bit_perfect_tooltip(status: &BitPerfectStatus, cx: &App) -> String {
+    let s = crate::localization::tr(cx);
     if status.is_bit_perfect() {
-        return "Bit-perfect playback".to_string();
+        return s.bit_perfect_playback.to_string();
     }
-    let mut lines = vec!["Not bit-perfect:".to_string()];
+    let mut lines = vec![s.not_bit_perfect.to_string()];
     for issue in &status.issues {
         let line = match issue {
-            BitPerfectIssue::NotExclusive => "• Output is shared (not exclusive)".to_string(),
+            BitPerfectIssue::NotExclusive => s.bp_not_exclusive.to_string(),
             BitPerfectIssue::SystemVolumeNotUnity { current } => {
-                format!("• System volume not at unity: {:.2}", current)
+                s.bp_system_volume(&format!("{:.2}", current))
             }
-            BitPerfectIssue::SystemMuted => "• System muted".to_string(),
+            BitPerfectIssue::SystemMuted => s.bp_system_muted.to_string(),
             BitPerfectIssue::AppVolumeNotUnity { current } => {
-                format!("• App volume not at unity: {:.2}", current)
+                s.bp_app_volume(&format!("{:.2}", current))
             }
-            BitPerfectIssue::SampleRateMismatch { source, device } => format!(
-                "• Sample rate mismatch: source {} Hz → device {} Hz",
-                source, device
-            ),
-            BitPerfectIssue::BitDepthExceedsContainer { source } => {
-                format!("• Bit depth {} exceeds f32 container (24)", source)
+            BitPerfectIssue::SampleRateMismatch { source, device } => {
+                s.bp_sample_rate(*source, *device)
             }
-            BitPerfectIssue::NoSource => "• No source loaded".to_string(),
+            BitPerfectIssue::BitDepthExceedsContainer { source } => s.bp_bit_depth(*source as u32),
+            BitPerfectIssue::NoSource => s.bp_no_source.to_string(),
         };
         lines.push(line);
     }
@@ -74,7 +72,7 @@ impl Render for AudioSettings {
         if let Some(msg) = self.pending_notification.take() {
             window.push_notification(
                 Notification::error(msg)
-                    .title("Audio Device")
+                    .title(crate::localization::tr(cx).audio_device.clone())
                     .id::<DeviceErrorNotif>(),
                 cx,
             );
@@ -92,13 +90,13 @@ impl Render for AudioSettings {
             .issues
             .iter()
             .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }));
-        let show_hog = cx.global::<SettingsStore>().show_hog_button();
+        let show_hog = !cfg!(target_os = "linux") && cx.global::<SettingsStore>().show_hog_button();
         for evt in events {
             match evt {
                 OutputEvent::Recovered { message } => {
                     window.push_notification(
                         Notification::warning(message)
-                            .title("Audio Device")
+                            .title(crate::localization::tr(cx).audio_device.clone())
                             .id::<StreamRecoveredNotif>(),
                         cx,
                     );
@@ -106,7 +104,7 @@ impl Render for AudioSettings {
                 OutputEvent::Failure { message } => {
                     window.push_notification(
                         Notification::error(message)
-                            .title("Audio Device")
+                            .title(crate::localization::tr(cx).audio_device.clone())
                             .id::<StreamFailureNotif>(),
                         cx,
                     );
@@ -121,7 +119,7 @@ impl Render for AudioSettings {
             .items_center()
             .when(self.is_exclusive, |el| {
                 let is_perfect = bit_perfect.is_bit_perfect();
-                let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
+                let tooltip_text = format_bit_perfect_tooltip(&bit_perfect, cx);
                 let icon_color = if is_perfect {
                     Colors::status_ok(cx)
                 } else {
@@ -149,8 +147,8 @@ impl Render for AudioSettings {
                     Button::new("fix-hw-volume")
                         .ghost()
                         .compact()
-                        .label("Fix volume")
-                        .tooltip("Set device volume to 100% for bit-perfect playback")
+                        .label(crate::localization::tr(cx).fix_volume.clone())
+                        .tooltip(crate::localization::tr(cx).fix_volume_tooltip.clone())
                         .on_click(move |_, _, app_cx| {
                             view.update(app_cx, |_, cx| {
                                 let services = cx.global::<Services>();
@@ -169,9 +167,9 @@ impl Render for AudioSettings {
                         "icons/hog-off.svg"
                     };
                     let tooltip = if self.is_exclusive {
-                        "Exclusive mode — click to disable"
+                        crate::localization::tr(cx).exclusive_click_disable.clone()
                     } else {
-                        "Shared mode — click to enable exclusive"
+                        crate::localization::tr(cx).shared_click_enable.clone()
                     };
                     Button::new("exclusive-toggle")
                         .ghost()
@@ -194,11 +192,15 @@ impl Render for AudioSettings {
                                         }
                                         Err(e) => {
                                             window.push_notification(
-                                                Notification::error(format!(
-                                                    "Failed to enable exclusive mode: {}",
-                                                    e
-                                                ))
-                                                .title("Exclusive Mode")
+                                                Notification::error(
+                                                    crate::localization::tr(cx)
+                                                        .failed_exclusive(&e.to_string()),
+                                                )
+                                                .title(
+                                                    crate::localization::tr(cx)
+                                                        .exclusive_mode_title
+                                                        .clone(),
+                                                )
                                                 .id::<DeviceErrorNotif>(),
                                                 cx,
                                             );
@@ -210,65 +212,75 @@ impl Render for AudioSettings {
                         })
                 })
             })
-            .child({
-                let view = cx.entity().clone();
-                Popover::new("audio-device-popover")
-                    .anchor(Corner::TopRight)
-                    .trigger(
-                        Button::new("audio-device-trigger")
-                            .ghost()
-                            .compact()
-                            .rounded_full()
-                            .w(px(40.))
-                            .h(px(40.))
-                            .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
-                            .tooltip("Select audio device"),
-                    )
-                    .content(move |_state, _window, pop_cx| {
-                        let services = pop_cx.global::<Services>();
-                        let devices = services.output.devices();
-                        let selected = services.output.selected_device_index();
-                        let muted_color = Colors::control_hover_bg(pop_cx);
-                        let mut children: Vec<AnyElement> = Vec::new();
-                        for (i, d) in devices.into_iter().enumerate() {
-                            let view_row = view.clone();
-                            let is_selected =
-                                selected == Some(i) || (selected.is_none() && d.is_default);
-                            let device_label = format!(
-                                "{}{}",
-                                d.name,
-                                if d.is_default { " (default)" } else { "" }
-                            );
-                            children.push(
-                                h_flex()
-                                    .id(("device-row", i))
-                                    .cursor_pointer()
-                                    .px_1()
-                                    .py_1()
-                                    .rounded(px(4.))
-                                    .hover(move |style| style.bg(muted_color))
-                                    .gap_1()
-                                    .when(is_selected, |el| {
-                                        el.child(
-                                            Icon::default().path("icons/check.svg").size(px(14.)),
-                                        )
-                                    })
-                                    .child(div().text_sm().child(device_label))
-                                    .on_click(move |_, _, app_cx| {
-                                        view_row.update(app_cx, |this, cx| {
-                                            let services = cx.global::<Services>();
-                                            if let Err(e) = services.output.select_device(i) {
-                                                this.pending_notification =
-                                                    Some(format!("Failed to switch device: {}", e));
-                                            }
-                                            cx.notify();
-                                        });
-                                    })
-                                    .into_any_element(),
-                            );
-                        }
-                        v_flex().gap_1().min_w(px(220.)).children(children)
-                    })
+            .when(!cfg!(target_os = "linux"), |el| {
+                el.child({
+                    let view = cx.entity().clone();
+                    Popover::new("audio-device-popover")
+                        .anchor(Corner::TopRight)
+                        .trigger(
+                            Button::new("audio-device-trigger")
+                                .ghost()
+                                .compact()
+                                .rounded_full()
+                                .w(px(40.))
+                                .h(px(40.))
+                                .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
+                                .tooltip(crate::localization::tr(cx).select_audio_device.clone()),
+                        )
+                        .content(move |_state, _window, pop_cx| {
+                            let services = pop_cx.global::<Services>();
+                            let devices = services.output.devices();
+                            let selected = services.output.selected_device_index();
+                            let muted_color = Colors::control_hover_bg(pop_cx);
+                            let mut children: Vec<AnyElement> = Vec::new();
+                            for (i, d) in devices.into_iter().enumerate() {
+                                let view_row = view.clone();
+                                let is_selected =
+                                    selected == Some(i) || (selected.is_none() && d.is_default);
+                                let device_label = format!(
+                                    "{}{}",
+                                    d.name,
+                                    if d.is_default {
+                                        crate::localization::tr(pop_cx).default_suffix.as_str()
+                                    } else {
+                                        ""
+                                    }
+                                );
+                                children.push(
+                                    h_flex()
+                                        .id(("device-row", i))
+                                        .cursor_pointer()
+                                        .px_1()
+                                        .py_1()
+                                        .rounded(px(4.))
+                                        .hover(move |style| style.bg(muted_color))
+                                        .gap_1()
+                                        .when(is_selected, |el| {
+                                            el.child(
+                                                Icon::default()
+                                                    .path("icons/check.svg")
+                                                    .size(px(14.)),
+                                            )
+                                        })
+                                        .child(div().text_sm().child(device_label))
+                                        .on_click(move |_, _, app_cx| {
+                                            view_row.update(app_cx, |this, cx| {
+                                                let services = cx.global::<Services>();
+                                                if let Err(e) = services.output.select_device(i) {
+                                                    this.pending_notification = Some(
+                                                        crate::localization::tr(cx)
+                                                            .failed_switch_device(&e.to_string()),
+                                                    );
+                                                }
+                                                cx.notify();
+                                            });
+                                        })
+                                        .into_any_element(),
+                                );
+                            }
+                            v_flex().gap_1().min_w(px(220.)).children(children)
+                        })
+                })
             })
     }
 }

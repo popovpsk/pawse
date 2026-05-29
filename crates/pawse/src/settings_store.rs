@@ -58,6 +58,58 @@ impl<'de> Deserialize<'de> for ThemeChoice {
     }
 }
 
+/// UI language. `System` follows the OS locale; `Named` pins a specific
+/// language by its short code (e.g. "ru"). Serialized as a plain string,
+/// mirroring [`ThemeChoice`].
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum LangChoice {
+    #[default]
+    System,
+    Named(String),
+}
+
+impl LangChoice {
+    pub fn as_key(&self) -> String {
+        match self {
+            LangChoice::System => "system".to_string(),
+            LangChoice::Named(code) => code.clone(),
+        }
+    }
+
+    pub fn from_key(s: &str) -> Self {
+        if s == "system" {
+            Self::System
+        } else {
+            Self::Named(s.to_string())
+        }
+    }
+}
+
+impl From<LangChoice> for String {
+    fn from(c: LangChoice) -> Self {
+        c.as_key()
+    }
+}
+
+impl From<String> for LangChoice {
+    fn from(s: String) -> Self {
+        LangChoice::from_key(&s)
+    }
+}
+
+impl Serialize for LangChoice {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.as_key())
+    }
+}
+
+impl<'de> Deserialize<'de> for LangChoice {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(LangChoice::from_key(&s))
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -144,6 +196,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub theme: ThemeChoice,
     #[serde(default)]
+    pub language: LangChoice,
+    #[serde(default)]
     pub music_folders: Vec<PathBuf>,
     #[serde(default = "default_volume")]
     pub volume: f32,
@@ -171,6 +225,7 @@ impl Default for UserSettings {
     fn default() -> Self {
         Self {
             theme: ThemeChoice::default(),
+            language: LangChoice::default(),
             music_folders: Vec::new(),
             volume: 1.0,
             playback: PlaybackState::default(),
@@ -233,6 +288,15 @@ impl SettingsStore {
 
     pub fn set_theme(&mut self, theme: ThemeChoice) -> anyhow::Result<()> {
         self.settings.theme = theme;
+        self.save()
+    }
+
+    pub fn language(&self) -> LangChoice {
+        self.settings.language.clone()
+    }
+
+    pub fn set_language(&mut self, language: LangChoice) -> anyhow::Result<()> {
+        self.settings.language = language;
         self.save()
     }
 
@@ -384,8 +448,10 @@ pub fn notify_save_error(cx: &mut App, err: anyhow::Error) {
     eprintln!("settings: save failed: {err}");
     if let Some(handle) = cx.active_window() {
         let _ = handle.update(cx, |_, window, cx| {
+            let s = crate::localization::tr(cx);
             window.push_notification(
-                Notification::error(format!("Failed to save settings: {err}")).title("Settings"),
+                Notification::error(s.failed_save_settings(&err.to_string()))
+                    .title(s.settings.clone()),
                 cx,
             );
         });
@@ -565,6 +631,7 @@ mod tests {
         };
         let settings = UserSettings {
             theme: ThemeChoice::System,
+            language: LangChoice::System,
             music_folders: vec![],
             volume: 0.42,
             playback: PlaybackState {

@@ -325,9 +325,9 @@ impl Render for PlaylistTracksView {
 
         if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
-                "Playlist is empty. Add tracks with the + button on any row."
+                crate::localization::tr(cx).playlist_is_empty.clone()
             } else {
-                "No tracks match your search."
+                crate::localization::tr(cx).no_tracks_match.clone()
             };
             return v_flex()
                 .size_full()

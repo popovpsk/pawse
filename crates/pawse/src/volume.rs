@@ -38,12 +38,12 @@ impl Render for Volume {
             .justify_end()
             .items_center()
             .child({
-                let tooltip_text = self.tooltip_text(is_exclusive);
+                let tooltip_text = self.tooltip_text(is_exclusive, cx);
 
                 div()
                     .id("volume_icon")
                     .cursor_pointer()
-                    .tooltip(move |window, cx| Tooltip::new(tooltip_text).build(window, cx))
+                    .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
                     .on_click(cx.listener(Self::on_icon_click))
                     .child(
                         svg()
@@ -98,13 +98,14 @@ impl Volume {
         }
     }
 
-    fn tooltip_text(&self, is_exclusive: bool) -> &'static str {
+    fn tooltip_text(&self, is_exclusive: bool, cx: &gpui::App) -> gpui::SharedString {
+        let s = crate::localization::tr(cx);
         if is_exclusive {
-            "Volume"
+            s.volume.clone()
         } else if self.is_muted || self.volume <= 0. {
-            "Unmute"
+            s.unmute.clone()
         } else {
-            "Mute"
+            s.mute.clone()
         }
     }
 

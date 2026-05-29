@@ -73,7 +73,9 @@ impl Render for PrevButton {
             .justify_center()
             .rounded_full()
             .hover(|style| style.bg(Colors::control_hover_bg(cx)))
-            .tooltip(|window, cx| Tooltip::new("Previous").build(window, cx))
+            .tooltip(|window, cx| {
+                Tooltip::new(crate::localization::tr(cx).previous.clone()).build(window, cx)
+            })
             .on_click(cx.listener(PrevButton::on_click))
             .child(
                 svg()

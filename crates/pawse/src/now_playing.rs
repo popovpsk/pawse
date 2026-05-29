@@ -37,21 +37,24 @@ fn format_specs(
     sample_rate: Option<u32>,
     bit_depth: Option<u8>,
     bitrate: Option<u32>,
+    cx: &gpui::App,
 ) -> Option<String> {
+    let s = crate::localization::tr(cx);
     let mut specs = String::new();
     if let (Some(sr), Some(bd)) = (sample_rate, bit_depth) {
         let khz = sr as f32 / 1000.0;
-        if (khz.fract()).abs() < f32::EPSILON {
-            specs.push_str(&format!("{} kHz \u{b7} {}-bit", khz as u32, bd));
+        let khz_str = if (khz.fract()).abs() < f32::EPSILON {
+            format!("{}", khz as u32)
         } else {
-            specs.push_str(&format!("{:.1} kHz \u{b7} {}-bit", khz, bd));
-        }
+            format!("{:.1}", khz)
+        };
+        specs.push_str(&s.audio_spec(&khz_str, bd as u32));
     }
     if let Some(kbps) = bitrate {
         if !specs.is_empty() {
             specs.push_str(" \u{b7} ");
         }
-        specs.push_str(&format!("{} kbps", kbps));
+        specs.push_str(&s.bitrate(kbps));
     }
     if specs.is_empty() { None } else { Some(specs) }
 }
@@ -136,7 +139,7 @@ impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let specs = format_specs(self.sample_rate, self.bit_depth, self.bitrate);
+        let specs = format_specs(self.sample_rate, self.bit_depth, self.bitrate, cx);
         let viewport_w = f32::from(window.viewport_size().width);
         let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 

@@ -314,14 +314,22 @@ impl Render for ArtistTracksView {
             return v_flex()
                 .size_full()
                 .child(artist_header_static(self.artist_name.clone()))
-                .child(div().px_4().child("No tracks for this artist."));
+                .child(
+                    div()
+                        .px_4()
+                        .child(crate::localization::tr(cx).no_tracks_for_artist.clone()),
+                );
         }
 
         if self.groups.is_empty() {
             return v_flex()
                 .size_full()
                 .child(artist_header_static(self.artist_name.clone()))
-                .child(div().px_4().child("No tracks match your search."));
+                .child(
+                    div()
+                        .px_4()
+                        .child(crate::localization::tr(cx).no_tracks_match.clone()),
+                );
         }
 
         let p = ArtistTrackRowParams {
@@ -346,7 +354,7 @@ impl Render for ArtistTracksView {
                                 artist_header_static(view.artist_name.clone()).into_any_element()
                             }
                             ItemKind::DiscHeader(disc) => {
-                                artist_disc_header(disc, border, muted_fg)
+                                artist_disc_header(disc, border, muted_fg, cx)
                             }
                             ItemKind::AlbumHeader(g_ix) => {
                                 artist_album_header(view, g_ix, border, fallback_bg, fallback_fg)
@@ -364,7 +372,12 @@ impl Render for ArtistTracksView {
     }
 }
 
-fn artist_disc_header(disc: i32, border: gpui::Hsla, muted_fg: gpui::Hsla) -> gpui::AnyElement {
+fn artist_disc_header(
+    disc: i32,
+    border: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    cx: &gpui::App,
+) -> gpui::AnyElement {
     h_flex()
         .w_full()
         .h(px(DISC_HEADER_HEIGHT))
@@ -377,7 +390,7 @@ fn artist_disc_header(disc: i32, border: gpui::Hsla, muted_fg: gpui::Hsla) -> gp
                 .text_sm()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(muted_fg)
-                .child(format!("Disc {}", disc)),
+                .child(crate::localization::tr(cx).disc(disc as u32)),
         )
         .into_any_element()
 }

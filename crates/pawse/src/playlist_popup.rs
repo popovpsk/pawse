@@ -72,11 +72,17 @@ pub struct PlaylistPopup {
 
 impl PlaylistPopup {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let filter_input = cx.new(|cx| InputState::new(window, cx).placeholder("Filter playlists"));
+        let filter_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(crate::localization::tr(cx).filter_playlists.clone())
+        });
         // No `clean_on_escape`: Input's escape handler propagates without
         // clean_on_escape, letting the popup's ClosePlaylistPopup action fire
         // next. Cancel button stays the explicit way to discard pending text.
-        let create_input = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
+        let create_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(crate::localization::tr(cx).playlist_name.clone())
+        });
 
         let filter_subscription = cx.subscribe(&filter_input, |this, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
@@ -264,9 +270,9 @@ impl gpui::Render for PlaylistPopup {
                     .text_sm()
                     .text_color(muted_fg)
                     .child(if self.playlists.is_empty() {
-                        "No playlists yet."
+                        crate::localization::tr(cx).no_playlists_yet.clone()
                     } else {
-                        "No playlists match your search."
+                        crate::localization::tr(cx).no_playlists_match.clone()
                     })
                     .into_any_element(),
             ]
@@ -324,7 +330,7 @@ impl gpui::Render for PlaylistPopup {
                     div()
                         .text_xs()
                         .text_color(muted_fg)
-                        .child("Name new playlist"),
+                        .child(crate::localization::tr(cx).name_new_playlist.clone()),
                 )
                 .child(Input::new(&self.create_input).cleanable(false))
                 .child(
@@ -342,7 +348,7 @@ impl gpui::Render for PlaylistPopup {
                                 .cursor_pointer()
                                 .rounded(px(4.))
                                 .hover(|s| s.bg(secondary))
-                                .child("Cancel")
+                                .child(crate::localization::tr(cx).cancel.clone())
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(move |_, _, cx| {
                                     cancel_popup.update(cx, |state, cx| {
@@ -361,7 +367,7 @@ impl gpui::Render for PlaylistPopup {
                                 .bg(accent)
                                 .cursor_pointer()
                                 .rounded(px(4.))
-                                .child("Create")
+                                .child(crate::localization::tr(cx).create.clone())
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(move |_, _, cx| {
                                     popup.update(cx, |state, cx| state.commit_create(cx));
@@ -390,7 +396,7 @@ impl gpui::Render for PlaylistPopup {
                         .size(px(14.))
                         .text_color(foreground),
                 )
-                .child(div().child("Create new playlist…"))
+                .child(div().child(crate::localization::tr(cx).create_new_playlist.clone()))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_, window, cx| {
                     popup.update(cx, |state, cx| {

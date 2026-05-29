@@ -10,12 +10,12 @@ use crate::{
 };
 
 pub mod app_menu;
-pub mod assets;
 pub mod audio_settings;
 pub mod cover_art_cache;
 pub mod footer;
 pub mod library_service;
 pub mod library_views;
+pub mod localization;
 pub mod main_view;
 pub mod media_bridge;
 pub mod next_button;
@@ -31,7 +31,6 @@ pub mod settings_store;
 pub mod settings_view;
 pub mod shuffle_button;
 pub mod theme_colors;
-pub mod themes;
 pub mod track_list;
 pub mod track_progress_slider;
 pub mod volume;
@@ -76,7 +75,7 @@ fn restore_engine_state(cx: &mut App) {
 }
 
 fn main() {
-    let app = Application::new().with_assets(assets::Assets);
+    let app = Application::new().with_assets(ui_resources::assets::Assets);
 
     app.run(move |cx| {
         gpui_component::init(cx);
@@ -86,7 +85,7 @@ fn main() {
         crate::settings_store::apply_startup_theme(&settings_store, cx);
         cx.set_global(settings_store);
 
-        crate::themes::register_bundled_themes(cx, |cx| {
+        ui_resources::themes::register_bundled_themes(cx, |cx| {
             let choice = cx.global::<crate::settings_store::SettingsStore>().theme();
             if let crate::settings_store::ThemeChoice::Named(name) = choice {
                 crate::settings_store::apply_named_theme(&name, cx);
@@ -179,7 +178,7 @@ fn main() {
         });
 
         cx.activate(true);
-        cx.set_menus(crate::app_menu::app_menus());
+        crate::app_menu::set_menus(cx);
 
         cx.spawn(async move |cx| {
             cx.open_window(options, |window, cx| {

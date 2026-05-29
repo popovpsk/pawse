@@ -277,9 +277,9 @@ impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
-                "No tracks found for this album."
+                crate::localization::tr(cx).no_tracks_for_album.clone()
             } else {
-                "No tracks match your search."
+                crate::localization::tr(cx).no_tracks_match.clone()
             };
             return v_flex()
                 .size_full()
@@ -310,7 +310,7 @@ impl Render for TracksView {
                             }
                             TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
                             TrackItem::DiscHeader(disc) => {
-                                track_disc_header(disc, p.border, p.muted_fg)
+                                track_disc_header(disc, p.border, p.muted_fg, cx)
                             }
                             TrackItem::Track(track_ix) => track_row(view, track_ix, &p, cx),
                         })
@@ -323,7 +323,12 @@ impl Render for TracksView {
     }
 }
 
-fn track_disc_header(disc: i32, border: gpui::Hsla, muted_fg: gpui::Hsla) -> gpui::AnyElement {
+fn track_disc_header(
+    disc: i32,
+    border: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    cx: &gpui::App,
+) -> gpui::AnyElement {
     h_flex()
         .w_full()
         .h(px(DISC_HEADER_HEIGHT))
@@ -336,7 +341,7 @@ fn track_disc_header(disc: i32, border: gpui::Hsla, muted_fg: gpui::Hsla) -> gpu
                 .text_sm()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(muted_fg)
-                .child(format!("Disc {}", disc)),
+                .child(crate::localization::tr(cx).disc(disc as u32)),
         )
         .into_any_element()
 }

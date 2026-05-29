@@ -154,16 +154,18 @@ impl Render for ArtistsView {
         let muted_fg = Colors::text_secondary(cx);
 
         if self.is_scanning && self.artists_all.is_empty() {
-            return v_flex()
-                .size_full()
-                .child(div().px_4().child("Scanning..."));
+            return v_flex().size_full().child(
+                div()
+                    .px_4()
+                    .child(crate::localization::tr(cx).scanning.clone()),
+            );
         }
 
         if self.artists.is_empty() {
             let message = if self.artists_all.is_empty() {
-                "No artists found."
+                crate::localization::tr(cx).no_artists_found.clone()
             } else {
-                "No artists match your search."
+                crate::localization::tr(cx).no_artists_match.clone()
             };
             return v_flex()
                 .size_full()
@@ -185,11 +187,8 @@ impl Render for ArtistsView {
                                 return div().w_full().h(px(TOP_PADDING)).into_any_element();
                             }
                             let artist = view.artists[ix - 1].clone();
-                            let count_label = if artist.track_count == 1 {
-                                "1 track".to_string()
-                            } else {
-                                format!("{} tracks", artist.track_count)
-                            };
+                            let count_label =
+                                crate::localization::tr(cx).n_tracks(artist.track_count);
 
                             let covers: Vec<Arc<Image>> = {
                                 let services = cx.global::<Services>();
