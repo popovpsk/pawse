@@ -16,6 +16,8 @@
 //!   read through the accessor methods on `impl Strings` (one place, shared
 //!   across all languages).
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use gpui::SharedString;
 
 mod cs;
@@ -323,6 +325,36 @@ impl Lang {
             .to_ascii_lowercase();
         Self::from_code(&prefix).unwrap_or(Lang::En)
     }
+
+    /// Position in `all()` — stable as long as the `languages!` order is stable.
+    pub fn index(self) -> usize {
+        Self::all().iter().position(|&l| l == self).unwrap_or(0)
+    }
+
+    /// Inverse of `index`; out-of-range falls back to English.
+    pub fn from_index(i: usize) -> Lang {
+        Self::all().get(i).copied().unwrap_or(Lang::En)
+    }
+}
+
+/// Active UI language, as a `Lang` index. Derived cache of the persisted
+/// `LangChoice` in `pawse`; updated only at sync points. Defaults to index 0
+/// (English) until the app sets it at startup.
+static ACTIVE_LANG: AtomicU8 = AtomicU8::new(0);
+
+/// Set the active language (call on startup and on every language change).
+pub fn set_active(lang: Lang) {
+    ACTIVE_LANG.store(lang.index() as u8, Ordering::Relaxed);
+}
+
+/// The active language.
+pub fn active() -> Lang {
+    Lang::from_index(ACTIVE_LANG.load(Ordering::Relaxed) as usize)
+}
+
+/// The active language's string table. Allocation-free, no syscall, no hashmap.
+pub fn strings() -> &'static Strings {
+    active().strings()
 }
 
 #[cfg(test)]
@@ -348,6 +380,17 @@ mod tests {
         assert_eq!(Lang::from_locale("ru-RU"), Lang::Ru);
         assert_eq!(Lang::from_locale("zh_Hans_CN"), Lang::Zh);
         assert_eq!(Lang::from_locale("xx-YY"), Lang::En);
+    }
+
+    #[test]
+    fn active_lang_round_trips() {
+        for &lang in Lang::all() {
+            assert_eq!(Lang::from_index(lang.index()), lang);
+            set_active(lang);
+            assert_eq!(active(), lang);
+            assert_eq!(strings().play, lang.strings().play);
+        }
+        set_active(Lang::En);
     }
 
     #[test]

@@ -84,6 +84,7 @@ fn main() {
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);
         cx.set_global(settings_store);
+        crate::localization::sync_active_lang(cx);
 
         ui_resources::themes::register_bundled_themes(cx, |cx| {
             let choice = cx.global::<crate::settings_store::SettingsStore>().theme();

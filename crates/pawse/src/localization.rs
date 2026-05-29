@@ -11,17 +11,23 @@ use ui_resources::i18n::{Lang, Strings};
 
 use crate::settings_store::{LangChoice, SettingsStore};
 
-/// The active language, resolving `System` to the detected OS locale.
-pub fn current_lang(cx: &App) -> Lang {
+/// Resolve the persisted choice to a concrete language (System → OS locale).
+/// Used only at sync points, NOT per render.
+pub fn resolve_from_settings(cx: &App) -> Lang {
     match cx.global::<SettingsStore>().language() {
         LangChoice::System => Lang::from_locale(&sys_locale::get_locale().unwrap_or_default()),
         LangChoice::Named(code) => Lang::from_code(&code).unwrap_or(Lang::En),
     }
 }
 
-/// The string table for the active language. Returns a `'static` reference, so
-/// reading it in a render closure is allocation-free; clone the `SharedString`
-/// fields directly (the static variant clones for free).
-pub fn tr(cx: &App) -> &'static Strings {
-    current_lang(cx).strings()
+/// Push the resolved language into the global cache. Call at startup and after
+/// any `set_language`.
+pub fn sync_active_lang(cx: &App) {
+    ui_resources::i18n::set_active(resolve_from_settings(cx));
+}
+
+/// Active language's string table — the per-label hot path. Cheap: atomic load
+/// + match. (`cx` is currently kept for signature stability; see Phase 2.)
+pub fn tr(_cx: &App) -> &'static Strings {
+    ui_resources::i18n::strings()
 }

@@ -163,6 +163,7 @@ fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
     if let Err(e) = cx.global_mut::<SettingsStore>().set_language(choice) {
         notify_save_error(cx, e);
     }
+    crate::localization::sync_active_lang(cx);
     state.open = false;
     state.highlight_index = None;
     crate::app_menu::set_menus(cx);

@@ -228,7 +228,9 @@ impl ArtistTracksView {
             for (t_ix, track) in g.tracks.iter().enumerate() {
                 if multi_disc && track.disc_number != current_disc {
                     current_disc = track.disc_number;
-                    items.push(ItemKind::DiscHeader(strings.disc(current_disc as u32).into()));
+                    items.push(ItemKind::DiscHeader(
+                        strings.disc(current_disc as u32).into(),
+                    ));
                     sizes.push(size(px(300.), px(DISC_HEADER_HEIGHT + 1.)));
                 }
                 items.push(ItemKind::Track(g_ix, t_ix));

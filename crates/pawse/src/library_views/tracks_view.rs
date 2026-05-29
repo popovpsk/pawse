@@ -212,7 +212,9 @@ impl TracksView {
             for (ix, row) in rows.iter().enumerate() {
                 if row.disc_number != current_disc {
                     current_disc = row.disc_number;
-                    items.push(TrackItem::DiscHeader(strings.disc(current_disc as u32).into()));
+                    items.push(TrackItem::DiscHeader(
+                        strings.disc(current_disc as u32).into(),
+                    ));
                     item_sizes_vec.push(size(px(0.), px(DISC_HEADER_HEIGHT + 1.)));
                 }
                 items.push(TrackItem::Track(ix));
