@@ -177,10 +177,16 @@ impl MainView {
 
         let playlist_popup = cx.new(|cx| PlaylistPopup::new(window, cx));
 
-        let settings_observer = cx.observe_global::<SettingsStore>(|_, cx| {
-            // Re-render so the tab strip flips visibility when feature flags
-            // are toggled in settings.
-            cx.notify();
+        let settings_observer = cx.observe_global::<SettingsStore>({
+            let theme_picker = theme_picker.clone();
+            let lang_picker = lang_picker.clone();
+            move |this, cx| {
+                this.settings_pages = crate::settings_view::build_settings_pages(
+                    theme_picker.clone(),
+                    lang_picker.clone(),
+                );
+                cx.notify();
+            }
         });
 
         Self {
