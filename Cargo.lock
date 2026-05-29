@@ -3979,6 +3979,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cue_parser",
+ "encoding_rs",
  "flume 0.12.0",
  "jwalk",
  "lofty",

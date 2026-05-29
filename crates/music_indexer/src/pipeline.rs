@@ -34,6 +34,15 @@ const FINGERPRINT_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
 /// Emit a `Progress` event once every this many tracks.
 const PROGRESS_INTERVAL: usize = 10;
 
+/// Salts the change-detection fingerprint so that a change in how the indexer
+/// *interprets* unchanged files still forces a reindex. The fast path skips all
+/// DB work when the fingerprint matches, but the fingerprint is derived purely
+/// from on-disk state (path/mtime/size) — it cannot otherwise tell that the
+/// indexer's behavior changed while the input bytes did not. Bump this whenever
+/// a fix changes the tracks produced from the same files (e.g. the Windows-1252
+/// CUE decoding fix), and every existing library reindexes once on next launch.
+const INDEXER_FORMAT_VERSION: u32 = 1;
+
 enum WorkItem {
     Audio(PathBuf),
     Cue(PathBuf),
@@ -86,7 +95,7 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
     // standalone set to avoid double-indexing.
     let mut skip = HashSet::<PathBuf>::new();
     for cue_path in &cue_files {
-        if let Ok(content) = std::fs::read_to_string(cue_path)
+        if let Ok(content) = cue::read_cue_text(cue_path)
             && let Ok(sheet) = cue_parser::parse(&content)
         {
             let cue_dir = cue_path.parent().unwrap_or(Path::new("."));
@@ -102,9 +111,10 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
     });
 
     listing.sort();
-    let mut buf = String::with_capacity(listing.len() * 64);
+    let mut buf = String::with_capacity(listing.len() * 64 + 16);
+    use std::fmt::Write;
+    let _ = writeln!(buf, "v{INDEXER_FORMAT_VERSION}");
     for (path, mtime, size) in &listing {
-        use std::fmt::Write;
         let _ = writeln!(buf, "{path}|{mtime}|{size}");
     }
     let fingerprint = sha256_hex(buf.as_bytes());

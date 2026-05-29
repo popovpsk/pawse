@@ -14,8 +14,20 @@ use crate::metadata::find_external_cover_art;
 use crate::pipeline::AUDIO_EXTENSIONS;
 use crate::types::ScannedTrack;
 
+/// Read a `.cue` file as text, tolerating the legacy encodings rippers emit.
+/// EAC and friends still write Windows-1252 (e.g. a `0x92` curly apostrophe in
+/// "I'm Alive"), which is not valid UTF-8 and makes `read_to_string` fail. Try
+/// UTF-8 first, then fall back to Windows-1252, which never fails to decode.
+pub fn read_cue_text(cue_path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(cue_path)?;
+    match std::str::from_utf8(&bytes) {
+        Ok(s) => Ok(s.to_owned()),
+        Err(_) => Ok(encoding_rs::WINDOWS_1252.decode(&bytes).0.into_owned()),
+    }
+}
+
 pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
-    let content = std::fs::read_to_string(cue_path)?;
+    let content = read_cue_text(cue_path)?;
     let sheet = cue_parser::parse(&content)?;
     let cue_dir = cue_path.parent().unwrap_or(Path::new("."));
 
@@ -196,7 +208,30 @@ pub fn clean_album_folder_title(folder_name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_album_folder_title, parse_disc_folder};
+    use super::{clean_album_folder_title, parse_disc_folder, read_cue_text};
+
+    #[test]
+    fn test_read_cue_text_decodes_windows_1252() {
+        // EAC writes a 0x92 curly apostrophe (Windows-1252) in "I'm Alive",
+        // which is not valid UTF-8. `read_cue_text` must still decode it.
+        let path = std::env::temp_dir().join(format!(
+            "pawse_cue_{}_{}.cue",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut bytes = b"TITLE \"I".to_vec();
+        bytes.push(0x92);
+        bytes.extend_from_slice(b"m Alive\"\r\n");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let text = read_cue_text(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(text, "TITLE \"I\u{2019}m Alive\"\r\n");
+    }
 
     #[test]
     fn test_parse_disc_folder_accepts_disc_layouts() {

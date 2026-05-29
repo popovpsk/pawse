@@ -136,17 +136,6 @@ fn main() {
             }
         }
 
-        {
-            let store = cx.global::<crate::settings_store::SettingsStore>();
-            let folders = store.music_folders().to_vec();
-            if !folders.is_empty() {
-                let library = cx.global::<Services>().library.clone();
-                if !library.has_tracks() {
-                    library.clear_and_rescan(folders);
-                }
-            }
-        }
-
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -186,6 +175,20 @@ fn main() {
                 let view = cx.new(|cx| MainView::new(window, cx));
                 let root = cx.new(|cx| Root::new(view, window, cx));
                 restore_engine_state(cx);
+
+                // Trigger the launch rescan after the first frame so startup
+                // stays instant; clear_and_rescan offloads all work to its own
+                // thread and fast-paths an up-to-date library.
+                window.on_next_frame(|_window, cx| {
+                    let folders = cx
+                        .global::<crate::settings_store::SettingsStore>()
+                        .music_folders()
+                        .to_vec();
+                    if !folders.is_empty() {
+                        cx.global::<Services>().library.clear_and_rescan(folders);
+                    }
+                });
+
                 root
             })
             .expect("Failed to open window");
