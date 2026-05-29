@@ -14,8 +14,8 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
-    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, add_to_queue_button, like_button,
-    track_duration,
+    LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
+    like_button, track_duration,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -63,7 +63,7 @@ impl TrackRow {
 }
 
 pub struct LikedView {
-    tracks_all: Vec<music_library::Track>,
+    tracks_all: Vec<Rc<music_library::Track>>,
     row_data: Vec<TrackRow>,
     artist_by_track: HashMap<i64, SharedString>,
     items: Vec<LikedItem>,
@@ -84,7 +84,7 @@ impl LikedView {
         let library_event_bus = services.library_event_bus.clone();
         let engine_event_bus = services.engine_event_bus.clone();
 
-        let tracks_all = library.liked_tracks();
+        let tracks_all: Vec<Rc<_>> = library.liked_tracks().into_iter().map(Rc::new).collect();
         let artist_by_track = build_artist_map(&library, &tracks_all);
         let (items, item_sizes) = Self::build_items(tracks_all.len());
         let row_data = {
@@ -112,7 +112,12 @@ impl LikedView {
             |this, _, event: &LibraryEvent, cx| match event {
                 LibraryEvent::ScanComplete => {
                     let services = cx.global::<Services>();
-                    this.tracks_all = services.library.liked_tracks();
+                    this.tracks_all = services
+                        .library
+                        .liked_tracks()
+                        .into_iter()
+                        .map(Rc::new)
+                        .collect();
                     this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
                     this.recompute_visible(cx);
                     cx.notify();
@@ -121,7 +126,12 @@ impl LikedView {
                     if *liked {
                         if !this.tracks_all.iter().any(|t| t.id == *track_id) {
                             let services = cx.global::<Services>();
-                            this.tracks_all = services.library.liked_tracks();
+                            this.tracks_all = services
+                                .library
+                                .liked_tracks()
+                                .into_iter()
+                                .map(Rc::new)
+                                .collect();
                             this.artist_by_track =
                                 build_artist_map(&services.library, &this.tracks_all);
                             this.recompute_visible(cx);
@@ -224,7 +234,7 @@ impl LikedView {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
             let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(usize, music_library::Track, u32)> = self
+            let mut scored: Vec<(usize, u32)> = self
                 .tracks_all
                 .iter()
                 .enumerate()
@@ -239,14 +249,20 @@ impl LikedView {
                     pattern
                         .score(haystack, &mut self.matcher)
                         .filter(|s| *s >= threshold)
-                        .map(|s| (ix, track.clone(), s))
+                        .map(|s| (ix, s))
                 })
                 .collect();
-            scored.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
+            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
             self.row_data = scored
                 .iter()
-                .map(|(ix, t, _)| {
-                    TrackRow::from_track(t, *ix, &self.artist_by_track, &mut cover_cache, library)
+                .map(|(ix, _)| {
+                    TrackRow::from_track(
+                        &self.tracks_all[*ix],
+                        *ix,
+                        &self.artist_by_track,
+                        &mut cover_cache,
+                        library,
+                    )
                 })
                 .collect()
         }
@@ -258,7 +274,7 @@ impl LikedView {
 
 fn build_artist_map(
     library: &crate::library_service::LibraryService,
-    tracks: &[music_library::Track],
+    tracks: &[Rc<music_library::Track>],
 ) -> HashMap<i64, SharedString> {
     let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
     library
@@ -297,6 +313,7 @@ impl Render for LikedView {
             muted_fg,
             liked_enabled,
             playlists_enabled,
+            buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
         v_flex().size_full().child(
@@ -328,6 +345,7 @@ struct LikedTrackRowParams {
     muted_fg: gpui::Hsla,
     liked_enabled: bool,
     playlists_enabled: bool,
+    buttons: RowButtonColors,
 }
 
 fn liked_track_row(
@@ -392,13 +410,13 @@ fn liked_track_row(
                 .child(row.artist.clone()),
         )
         .when(p.playlists_enabled, |el| {
-            el.child(add_to_playlist_button(track_id, cx))
+            el.child(add_to_playlist_button(track_id, &p.buttons))
         })
         .when(p.liked_enabled, |el| {
-            el.child(like_button(track_id, row.base.liked, cx))
+            el.child(like_button(track_id, row.base.liked, &p.buttons))
         })
         .child(track_duration(cx, row.base.duration.clone()))
-        .child(add_to_queue_button(track_for_queue, 26., 16., cx))
+        .child(add_to_queue_button(track_for_queue, 26., 16., &p.buttons))
         .id(ElementId::Integer(track_id as u64))
         .on_click(cx.listener(move |this, _, _, cx| {
             let services = cx.global::<Services>();

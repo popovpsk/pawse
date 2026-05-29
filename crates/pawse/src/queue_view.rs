@@ -14,7 +14,8 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
-    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, like_button, track_duration,
+    LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, like_button,
+    track_duration,
 };
 use ui_components::cover_placeholder::cover_placeholder;
 
@@ -58,6 +59,7 @@ struct QueueRowParams {
     show_queue_actions: bool,
     show_queue_artist: bool,
     item_height: f32,
+    buttons: RowButtonColors,
 }
 
 impl QueueRowParams {
@@ -76,6 +78,7 @@ impl QueueRowParams {
             show_queue_actions: settings.show_queue_actions(),
             show_queue_artist,
             item_height: if show_queue_artist { 48. } else { 36. } + 1.,
+            buttons: RowButtonColors::from_cx(cx),
         }
     }
 }
@@ -339,7 +342,7 @@ fn queue_visible_range_row(
                             "queue-playlist".into(),
                             track_ix as u64,
                         ))
-                        .child(add_to_playlist_button(track_id, cx)),
+                        .child(add_to_playlist_button(track_id, &params.buttons)),
                 )
             },
         )
@@ -351,7 +354,7 @@ fn queue_visible_range_row(
                         "queue-like".into(),
                         track_ix as u64,
                     ))
-                    .child(like_button(track_id, track.base.liked, cx)),
+                    .child(like_button(track_id, track.base.liked, &params.buttons)),
             )
         })
         .when(params.show_track_duration, |row| {
@@ -515,7 +518,7 @@ fn album_cover_cell(params: &QueueRowParams, cover_img: Option<Arc<Image>>) -> A
 
 fn build_artist_map(
     library: &crate::library_service::LibraryService,
-    tracks: &[music_library::Track],
+    tracks: &[Rc<music_library::Track>],
 ) -> HashMap<i64, SharedString> {
     let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
     library

@@ -17,9 +17,30 @@ pub use playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};
 pub use queue_button::{add_album_to_queue_button, add_to_queue_button};
 pub use row_style::current_row;
 
-use gpui::{App, Div, ParentElement, SharedString, Styled, div, px};
+use gpui::{App, Div, Hsla, ParentElement, SharedString, Styled, div, px};
 
 use crate::theme_colors::Colors;
+
+/// Theme colors used by the per-row controls (`like_button`, the queue and
+/// playlist buttons). Resolve once per render via [`RowButtonColors::from_cx`]
+/// and pass by reference into the button builders, so the buttons don't re-read
+/// the theme for every visible row on every frame.
+#[derive(Clone, Copy)]
+pub struct RowButtonColors {
+    pub icon_hover: Hsla,
+    pub icon: Hsla,
+    pub accent: Hsla,
+}
+
+impl RowButtonColors {
+    pub fn from_cx(cx: &App) -> Self {
+        Self {
+            icon_hover: Colors::icon_button_hover_bg(cx),
+            icon: Colors::text_secondary(cx),
+            accent: Colors::text_accent(cx),
+        }
+    }
+}
 
 /// Fields common to every track row. Embed this in a view's row struct via
 /// composition and call [`TrackRowBase::from_track`] from the row constructor.

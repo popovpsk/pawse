@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use music_library::Track;
 use rand::seq::SliceRandom;
 
@@ -29,8 +31,8 @@ impl RepeatMode {
 }
 
 pub struct PlaybackQueue {
-    tracks: Vec<Track>,
-    original_order: Option<Vec<Track>>,
+    tracks: Vec<Rc<Track>>,
+    original_order: Option<Vec<Rc<Track>>>,
     current_index: Option<usize>,
     shuffle: bool,
     repeat: RepeatMode,
@@ -56,7 +58,7 @@ pub enum RemoveOutcome {
     Unaffected,
     /// The currently-playing track was removed; play this track, which has
     /// shifted into the same index.
-    PlayNext(Track),
+    PlayNext(Rc<Track>),
     /// The currently-playing track was removed and nothing remains after it.
     Stopped,
 }
@@ -73,11 +75,11 @@ impl PlaybackQueue {
         }
     }
 
-    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+    pub fn set_tracks(&mut self, tracks: Vec<Rc<Track>>) {
         self.set_tracks_with_source(tracks, QueueSource::Unknown);
     }
 
-    pub fn set_tracks_with_source(&mut self, tracks: Vec<Track>, source: QueueSource) {
+    pub fn set_tracks_with_source(&mut self, tracks: Vec<Rc<Track>>, source: QueueSource) {
         self.tracks = tracks;
         self.original_order = None;
         self.current_index = None;
@@ -94,10 +96,10 @@ impl PlaybackQueue {
     /// track after this call; otherwise it returns `None`.
     pub fn set_tracks_and_play_at(
         &mut self,
-        tracks: Vec<Track>,
+        tracks: Vec<Rc<Track>>,
         index: usize,
         source: QueueSource,
-    ) -> Option<&Track> {
+    ) -> Option<&Rc<Track>> {
         self.original_order = None;
         self.source = source;
         self.current_index = if index < tracks.len() {
@@ -109,7 +111,7 @@ impl PlaybackQueue {
         if self.shuffle {
             self.apply_shuffle();
         }
-        self.current_track()
+        self.current_index.and_then(|i| self.tracks.get(i))
     }
 
     pub fn source(&self) -> QueueSource {
@@ -125,7 +127,7 @@ impl PlaybackQueue {
     /// queue has new tracks added/reordered. When shuffle is on, the new
     /// snapshot becomes the new `original_order` and is reshuffled so
     /// `set_shuffle(false)` can still restore a meaningful order later.
-    pub fn refresh_keeping_current(&mut self, new_tracks: Vec<Track>) {
+    pub fn refresh_keeping_current(&mut self, new_tracks: Vec<Rc<Track>>) {
         let current_id = self.current_track().map(|t| t.id);
         self.tracks = new_tracks;
         self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
@@ -144,7 +146,7 @@ impl PlaybackQueue {
         self.tracks.is_empty()
     }
 
-    pub fn play_track_at(&mut self, index: usize) -> Option<&Track> {
+    pub fn play_track_at(&mut self, index: usize) -> Option<&Rc<Track>> {
         if index < self.tracks.len() {
             self.current_index = Some(index);
             self.tracks.get(index)
@@ -153,7 +155,7 @@ impl PlaybackQueue {
         }
     }
 
-    pub fn next_track(&mut self) -> Option<&Track> {
+    pub fn next_track(&mut self) -> Option<&Rc<Track>> {
         let current = self.current_index?;
 
         if let RepeatMode::One = self.repeat {
@@ -186,14 +188,16 @@ impl PlaybackQueue {
         match self.current_index {
             Some(current) if current > 0 => {
                 self.current_index = Some(current - 1);
-                PreviousAction::PreviousTrack(self.tracks.get(current - 1).unwrap())
+                PreviousAction::PreviousTrack(self.tracks.get(current - 1).unwrap().as_ref())
             }
             _ => PreviousAction::SeekToStart,
         }
     }
 
     pub fn current_track(&self) -> Option<&Track> {
-        self.current_index.and_then(|i| self.tracks.get(i))
+        self.current_index
+            .and_then(|i| self.tracks.get(i))
+            .map(|rc| rc.as_ref())
     }
 
     pub fn has_next(&self) -> bool {
@@ -215,7 +219,7 @@ impl PlaybackQueue {
         self.current_index
     }
 
-    pub fn tracks_vec(&self) -> Vec<Track> {
+    pub fn tracks_vec(&self) -> Vec<Rc<Track>> {
         self.tracks.clone()
     }
 
@@ -243,14 +247,14 @@ impl PlaybackQueue {
         self.repeat = mode;
     }
 
-    pub fn original_order_vec(&self) -> Option<Vec<Track>> {
+    pub fn original_order_vec(&self) -> Option<Vec<Rc<Track>>> {
         self.original_order.clone()
     }
 
     pub fn restore(
         &mut self,
-        tracks: Vec<Track>,
-        original_order: Option<Vec<Track>>,
+        tracks: Vec<Rc<Track>>,
+        original_order: Option<Vec<Rc<Track>>>,
         current_index: Option<usize>,
         shuffle: bool,
         repeat: RepeatMode,
@@ -265,21 +269,25 @@ impl PlaybackQueue {
     }
 
     pub fn set_track_liked(&mut self, track_id: i64, liked: bool) {
+        // `Rc::make_mut` clones on write only when the entry is shared (e.g. the
+        // same `Rc` also lives in `original_order`); both lists are walked, so
+        // each keeps its own up-to-date copy. Liking is rare, so the occasional
+        // clone is cheaper than paying interior mutability on every entry.
         for t in self.tracks.iter_mut() {
             if t.id == track_id {
-                t.liked = liked;
+                Rc::make_mut(t).liked = liked;
             }
         }
         if let Some(orig) = self.original_order.as_mut() {
             for t in orig.iter_mut() {
                 if t.id == track_id {
-                    t.liked = liked;
+                    Rc::make_mut(t).liked = liked;
                 }
             }
         }
     }
 
-    pub fn append_track(&mut self, track: Track) {
+    pub fn append_track(&mut self, track: Rc<Track>) {
         if self.tracks.iter().any(|t| t.id == track.id) {
             return;
         }
@@ -289,7 +297,7 @@ impl PlaybackQueue {
         self.tracks.push(track);
     }
 
-    pub fn append_tracks(&mut self, tracks: Vec<Track>) {
+    pub fn append_tracks(&mut self, tracks: Vec<Rc<Track>>) {
         for track in tracks {
             self.append_track(track);
         }
@@ -389,8 +397,8 @@ mod tests {
     use super::*;
     use music_library::Track;
 
-    fn track(id: i64, path: &str) -> Track {
-        Track {
+    fn track(id: i64, path: &str) -> Rc<Track> {
+        Rc::new(Track {
             id,
             path: path.to_string(),
             title: format!("Track {}", id),
@@ -403,10 +411,10 @@ mod tests {
             start_offset_ms: 0,
             liked: false,
             bitrate: None,
-        }
+        })
     }
 
-    fn sample_tracks(n: usize) -> Vec<Track> {
+    fn sample_tracks(n: usize) -> Vec<Rc<Track>> {
         (0..n)
             .map(|i| track(i as i64, &format!("/p/{}.flac", i)))
             .collect()
@@ -493,7 +501,7 @@ mod tests {
         assert!(q.shuffle());
 
         // Pretend the backing playlist gained tracks and we refresh.
-        let refreshed: Vec<Track> = (10..20)
+        let refreshed: Vec<Rc<Track>> = (10..20)
             .map(|i| track(i, &format!("/r/{}.flac", i)))
             .collect();
         q.refresh_keeping_current(refreshed);
@@ -515,7 +523,7 @@ mod tests {
         q.set_shuffle(true);
 
         // New tracks come in (e.g., user picks a new album with shuffle still on).
-        let new_tracks: Vec<Track> = (100..110)
+        let new_tracks: Vec<Rc<Track>> = (100..110)
             .map(|i| track(i, &format!("/np/{}.flac", i)))
             .collect();
         q.set_tracks(new_tracks);

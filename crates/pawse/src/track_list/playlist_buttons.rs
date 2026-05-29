@@ -1,11 +1,10 @@
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, point, px, svg,
 };
 use gpui_component::tooltip::Tooltip;
 
-use crate::theme_colors::Colors;
-
+use super::RowButtonColors;
 use super::like_button::LIKE_ROW_GROUP;
 use crate::playback_queue::QueueSource;
 use crate::playlist_popup::OpenAddToPlaylist;
@@ -17,9 +16,9 @@ const ICON_SIZE: f32 = 14.;
 /// "+" button placed next to the heart icon. Opens the global playlist popup
 /// anchored under the click position. Hidden when the playlist feature is
 /// disabled — caller must check `playlists_enabled` first.
-pub fn add_to_playlist_button(track_id: i64, cx: &App) -> impl IntoElement {
-    let hover_bg = Colors::icon_button_hover_bg(cx);
-    let icon_color = Colors::text_secondary(cx);
+pub fn add_to_playlist_button(track_id: i64, colors: &RowButtonColors) -> impl IntoElement {
+    let hover_bg = colors.icon_hover;
+    let icon_color = colors.icon;
 
     div()
         .id(ElementId::NamedInteger(
@@ -58,9 +57,13 @@ pub fn add_to_playlist_button(track_id: i64, cx: &App) -> impl IntoElement {
 
 /// "x" button shown when the row is part of a currently-playing playlist.
 /// Removes the track from the playlist (and from the active queue).
-pub fn remove_from_playlist_button(track_id: i64, playlist_id: i64, cx: &App) -> impl IntoElement {
-    let hover_bg = Colors::icon_button_hover_bg(cx);
-    let icon_color = Colors::text_secondary(cx);
+pub fn remove_from_playlist_button(
+    track_id: i64,
+    playlist_id: i64,
+    colors: &RowButtonColors,
+) -> impl IntoElement {
+    let hover_bg = colors.icon_hover;
+    let icon_color = colors.icon;
 
     div()
         .id(ElementId::NamedInteger(

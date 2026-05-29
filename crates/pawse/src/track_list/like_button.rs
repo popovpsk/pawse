@@ -1,8 +1,8 @@
+use super::RowButtonColors;
 use crate::services::Services;
-use crate::theme_colors::Colors;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px, svg,
 };
 
@@ -13,13 +13,9 @@ pub const LIKE_ROW_GROUP: &str = "pawse-track-row";
 
 pub const LIKE_BUTTON_SIZE: f32 = 26.;
 
-pub fn like_button(track_id: i64, liked: bool, cx: &App) -> impl IntoElement {
-    let hover_bg = Colors::icon_button_hover_bg(cx);
-    let icon_color = if liked {
-        Colors::text_accent(cx)
-    } else {
-        Colors::text_secondary(cx)
-    };
+pub fn like_button(track_id: i64, liked: bool, colors: &RowButtonColors) -> impl IntoElement {
+    let hover_bg = colors.icon_hover;
+    let icon_color = if liked { colors.accent } else { colors.icon };
     let icon_path = if liked {
         "icons/s1-heart-fill.svg"
     } else {

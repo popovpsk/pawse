@@ -124,8 +124,10 @@ fn main() {
             {
                 let mut queue = services.playback_queue.borrow_mut();
                 queue.restore(
-                    stored.queue,
-                    stored.original_queue,
+                    stored.queue.into_iter().map(std::rc::Rc::new).collect(),
+                    stored
+                        .original_queue
+                        .map(|v| v.into_iter().map(std::rc::Rc::new).collect()),
                     stored.current_index,
                     stored.shuffle,
                     stored.repeat.into(),

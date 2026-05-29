@@ -1,23 +1,27 @@
+use std::rc::Rc;
+
 use gpui::{
     App, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px, svg,
 };
 use gpui_component::tooltip::Tooltip;
+use music_library::Track;
 
 use crate::theme_colors::Colors;
 
+use super::RowButtonColors;
 use super::like_button::LIKE_ROW_GROUP;
 use crate::library_service::LibraryEvent;
 use crate::services::Services;
 
 pub fn add_to_queue_button(
-    track: music_library::Track,
+    track: Rc<Track>,
     button_size: f32,
     icon_size: f32,
-    cx: &App,
+    colors: &RowButtonColors,
 ) -> impl IntoElement {
-    let hover_bg = Colors::icon_button_hover_bg(cx);
-    let icon_color = Colors::text_secondary(cx);
+    let hover_bg = colors.icon_hover;
+    let icon_color = colors.icon;
 
     div()
         .id(ElementId::NamedInteger(
@@ -82,7 +86,7 @@ pub fn add_album_to_queue_button(
             cx.global::<Services>()
                 .playback_queue
                 .borrow_mut()
-                .append_tracks(tracks);
+                .append_tracks(tracks.into_iter().map(Rc::new).collect());
             let bus = cx.global::<Services>().library_event_bus.clone();
             bus.update(cx, |_, cx| cx.emit(LibraryEvent::QueueChanged));
             crate::services::save_playback(cx);

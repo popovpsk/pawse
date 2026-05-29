@@ -13,8 +13,8 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
-    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, add_to_queue_button, fmt_track_num,
-    like_button, track_duration,
+    LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
+    fmt_track_num, like_button, track_duration,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -71,7 +71,7 @@ enum ItemKind {
 
 pub struct ArtistTracksView {
     artist_name: SharedString,
-    tracks_all: Vec<music_library::Track>,
+    tracks_all: Vec<Rc<music_library::Track>>,
     groups: Vec<AlbumGroup>,
     items: Vec<ItemKind>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
@@ -89,7 +89,12 @@ impl ArtistTracksView {
         let services = cx.global::<Services>();
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
-        let tracks_all = services.library.tracks_by_artist(artist.id);
+        let tracks_all: Vec<Rc<_>> = services
+            .library
+            .tracks_by_artist(artist.id)
+            .into_iter()
+            .map(Rc::new)
+            .collect();
 
         let groups = {
             let mut cache = services.cover_art_cache.borrow_mut();
@@ -143,7 +148,7 @@ impl ArtistTracksView {
                     let mut changed = false;
                     for t in this.tracks_all.iter_mut() {
                         if t.id == *track_id && t.liked != *liked {
-                            t.liked = *liked;
+                            Rc::make_mut(t).liked = *liked;
                             changed = true;
                         }
                     }
@@ -178,7 +183,7 @@ impl ArtistTracksView {
     }
 
     fn group_by_album(
-        tracks: &[music_library::Track],
+        tracks: &[Rc<music_library::Track>],
         library: &crate::library_service::LibraryService,
         cover_cache: &mut CoverArtCache,
     ) -> Vec<AlbumGroup> {
@@ -250,7 +255,7 @@ impl ArtistTracksView {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
             let mut buf: Vec<char> = Vec::new();
-            let kept: Vec<(usize, music_library::Track)> = self
+            let kept: Vec<(usize, Rc<music_library::Track>)> = self
                 .tracks_all
                 .iter()
                 .enumerate()
@@ -326,6 +331,7 @@ impl Render for ArtistTracksView {
             foreground,
             liked_enabled,
             playlists_enabled,
+            buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
         v_flex().size_full().child(
@@ -424,6 +430,7 @@ struct ArtistTrackRowParams {
     foreground: gpui::Hsla,
     liked_enabled: bool,
     playlists_enabled: bool,
+    buttons: RowButtonColors,
 }
 
 fn artist_track_row(
@@ -482,13 +489,13 @@ fn artist_track_row(
                 .child(track.base.title.clone()),
         )
         .when(p.playlists_enabled, |el| {
-            el.child(add_to_playlist_button(track_id, cx))
+            el.child(add_to_playlist_button(track_id, &p.buttons))
         })
         .when(p.liked_enabled, |el| {
-            el.child(like_button(track_id, track.base.liked, cx))
+            el.child(like_button(track_id, track.base.liked, &p.buttons))
         })
         .child(track_duration(cx, track.base.duration.clone()))
-        .child(add_to_queue_button(track_for_queue, 26., 16., cx))
+        .child(add_to_queue_button(track_for_queue, 26., 16., &p.buttons))
         .id(ElementId::Integer(track_id as u64))
         .on_click(cx.listener(move |this, _, _, cx| {
             let services = cx.global::<Services>();

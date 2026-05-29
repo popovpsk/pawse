@@ -113,9 +113,14 @@ impl Services {
 
     pub fn snapshot_playback(&self) -> crate::settings_store::PlaybackState {
         let queue = self.playback_queue.borrow();
+        // The queue holds `Rc<Track>` for cheap cloning during scroll/clicks;
+        // persistence needs owned `Track`, so deep-clone here (rare: app quit /
+        // track change).
         crate::settings_store::PlaybackState {
-            queue: queue.tracks_vec(),
-            original_queue: queue.original_order_vec(),
+            queue: queue.tracks_vec().iter().map(|t| (**t).clone()).collect(),
+            original_queue: queue
+                .original_order_vec()
+                .map(|v| v.iter().map(|t| (**t).clone()).collect()),
             current_index: queue.current_index(),
             position_ms: self.current_position_ms.load(Ordering::Relaxed),
             shuffle: queue.shuffle(),
@@ -143,7 +148,7 @@ fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
     services
         .playback_queue
         .borrow_mut()
-        .refresh_keeping_current(new_tracks);
+        .refresh_keeping_current(new_tracks.into_iter().map(Rc::new).collect());
     save_playback(cx);
 }
 

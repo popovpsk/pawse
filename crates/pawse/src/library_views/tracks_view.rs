@@ -11,8 +11,8 @@ use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::theme_colors::Colors;
 use crate::track_list::{
-    LIKE_ROW_GROUP, TrackRowBase, add_to_playlist_button, add_to_queue_button, fmt_track_num,
-    like_button, track_duration,
+    LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
+    fmt_track_num, like_button, track_duration,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -58,7 +58,7 @@ impl TrackRow {
 }
 
 pub struct TracksView {
-    tracks_all: Vec<music_library::Track>,
+    tracks_all: Vec<Rc<music_library::Track>>,
     row_data: Vec<TrackRow>,
     filter: String,
     matcher: Matcher,
@@ -76,7 +76,12 @@ pub struct TracksView {
 impl TracksView {
     pub fn new(album: &music_library::AlbumSummary, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
-        let tracks_all = services.library.tracks_for_album(album.id);
+        let tracks_all: Vec<Rc<_>> = services
+            .library
+            .tracks_for_album(album.id)
+            .into_iter()
+            .map(Rc::new)
+            .collect();
         let row_data: Vec<_> = tracks_all
             .iter()
             .enumerate()
@@ -147,7 +152,7 @@ impl TracksView {
                     let mut changed = false;
                     for t in this.tracks_all.iter_mut() {
                         if t.id == *track_id && t.liked != *liked {
-                            t.liked = *liked;
+                            Rc::make_mut(t).liked = *liked;
                             changed = true;
                         }
                     }
@@ -242,7 +247,7 @@ impl TracksView {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
             let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(usize, music_library::Track, u32)> = self
+            let mut scored: Vec<(usize, u32)> = self
                 .tracks_all
                 .iter()
                 .enumerate()
@@ -251,13 +256,13 @@ impl TracksView {
                     pattern
                         .score(haystack, &mut self.matcher)
                         .filter(|s| *s >= threshold)
-                        .map(|s| (ix, track.clone(), s))
+                        .map(|s| (ix, s))
                 })
                 .collect();
-            scored.sort_by_key(|(_, _, score)| std::cmp::Reverse(*score));
+            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
             self.row_data = scored
                 .iter()
-                .map(|(ix, t, _)| TrackRow::from_track(t, *ix))
+                .map(|(ix, _)| TrackRow::from_track(&self.tracks_all[*ix], *ix))
                 .collect();
         }
         let (items, item_sizes_vec) = Self::build_items(&self.row_data);
@@ -289,6 +294,7 @@ impl Render for TracksView {
             foreground: Colors::text_primary(cx),
             liked_enabled: cx.global::<SettingsStore>().liked_enabled(),
             playlists_enabled: cx.global::<SettingsStore>().playlists_enabled(),
+            buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
         v_flex().size_full().child(
@@ -342,6 +348,7 @@ struct TrackRowParams {
     foreground: gpui::Hsla,
     liked_enabled: bool,
     playlists_enabled: bool,
+    buttons: RowButtonColors,
 }
 
 fn track_row(
@@ -395,13 +402,13 @@ fn track_row(
                 .child(row.base.title.clone()),
         )
         .when(p.playlists_enabled, |el| {
-            el.child(add_to_playlist_button(track_id, cx))
+            el.child(add_to_playlist_button(track_id, &p.buttons))
         })
         .when(p.liked_enabled, |el| {
-            el.child(like_button(track_id, row.base.liked, cx))
+            el.child(like_button(track_id, row.base.liked, &p.buttons))
         })
         .child(track_duration(cx, row.base.duration.clone()))
-        .child(add_to_queue_button(track_for_queue, 26., 16., cx))
+        .child(add_to_queue_button(track_for_queue, 26., 16., &p.buttons))
         .id(ElementId::Integer(track_id as u64))
         .on_click(cx.listener(move |this, _, _, _cx| {
             let services = _cx.global::<Services>();

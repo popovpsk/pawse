@@ -25,18 +25,22 @@ drive the `PlaybackQueue` on click.
 
 ## Conventions & non-obvious behavior
 
-- **Row model**: track-list views keep `tracks_all` (the full unfiltered source) and
-  a derived `Vec<TrackRow>` (`row_data`) of *precomputed* render data — formatted
-  strings, cover `Arc<Image>`, liked flag. `TrackRow` embeds the shared
-  `TrackRowBase` from `crate::track_list`; building it once keeps the
-  `v_virtual_list` render closures allocation-free (see `track_list/doc.md`).
-- **Filtering**: search builds a fuzzy-scored subset into `row_data`; `tracks_all`
-  is never reordered. Each `TrackRow` stores `track_all_ix` so a click maps back to
-  the unfiltered index — clicking a track replaces the queue with the *whole*
-  source list (not the filtered subset) starting at that index.
+- **Row model**: track-list views keep `tracks_all: Vec<Rc<Track>>` (the full
+  unfiltered source) and a derived `Vec<TrackRow>` (`row_data`) of *precomputed*
+  render data — formatted strings, cover `Arc<Image>`, liked flag. `TrackRow` embeds
+  the shared `TrackRowBase` from `crate::track_list`; building it once keeps the
+  `v_virtual_list` render closures allocation-free (see `track_list/doc.md`). The
+  `Rc` lets the per-row "add to queue" clone and the on-click whole-list hand-off to
+  the queue be refcount bumps rather than deep `Track` clones.
+- **Filtering**: search keeps only `(index, score)` pairs (never clones the `Track`),
+  sorts, then rebuilds `row_data` from `&tracks_all[ix]`; `tracks_all` is never
+  reordered. Each `TrackRow` stores `track_all_ix` so a click maps back to the
+  unfiltered index — clicking a track replaces the queue with the *whole* source
+  list (not the filtered subset) starting at that index.
 - **Like updates** arrive as `LibraryEvent::TrackLikedChanged` and are applied by
-  mutating the matching `TrackRow` in place (no full rebuild); `liked_view` instead
-  re-fetches, since unliking removes the row.
+  mutating the matching `TrackRow` in place (no full rebuild); the `tracks_all`
+  entry is updated via `Rc::make_mut` (copy-on-write only if shared). `liked_view`
+  instead re-fetches, since unliking removes the row.
 - **Item sizing**: virtual lists use an `items` enum (`TopPadding` / `AlbumInfo` /
   `DiscHeader` / `Track`) with a parallel `item_sizes` vec; heights are fixed
   constants, width is `px(0.)` (unused by the vertical list — kept zero on purpose).
