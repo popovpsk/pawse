@@ -35,6 +35,9 @@ jobs:
           - label: linux-x86_64
             os: ubuntu-22.04
             formats: appimage,deb
+          - label: linux-arm64
+            os: ubuntu-22.04-arm
+            formats: deb
     steps:
       - uses: actions/checkout@v5
 
