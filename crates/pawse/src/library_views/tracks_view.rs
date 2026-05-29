@@ -31,11 +31,11 @@ const DISC_HEADER_HEIGHT: f32 = 32.;
 const ALBUM_INFO_HEIGHT: f32 = 170.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum TrackItem {
     TopPadding,
     AlbumInfo,
-    DiscHeader(i32),
+    DiscHeader(SharedString),
     Track(usize),
 }
 
@@ -87,7 +87,7 @@ impl TracksView {
             .enumerate()
             .map(|(ix, t)| TrackRow::from_track(t, ix))
             .collect();
-        let (items, item_sizes_vec) = Self::build_items(&row_data);
+        let (items, item_sizes_vec) = Self::build_items(&row_data, crate::localization::tr(cx));
 
         let item_sizes = Rc::new(item_sizes_vec);
         let engine_event_bus = services.engine_event_bus.clone();
@@ -194,7 +194,10 @@ impl TracksView {
         }
     }
 
-    fn build_items(rows: &[TrackRow]) -> (Vec<TrackItem>, Vec<Size<Pixels>>) {
+    fn build_items(
+        rows: &[TrackRow],
+        strings: &ui_resources::i18n::Strings,
+    ) -> (Vec<TrackItem>, Vec<Size<Pixels>>) {
         let max_disc = rows.iter().map(|r| r.disc_number).max().unwrap_or(1);
         let multi_disc = max_disc > 1;
 
@@ -209,7 +212,7 @@ impl TracksView {
             for (ix, row) in rows.iter().enumerate() {
                 if row.disc_number != current_disc {
                     current_disc = row.disc_number;
-                    items.push(TrackItem::DiscHeader(current_disc));
+                    items.push(TrackItem::DiscHeader(strings.disc(current_disc as u32).into()));
                     item_sizes_vec.push(size(px(0.), px(DISC_HEADER_HEIGHT + 1.)));
                 }
                 items.push(TrackItem::Track(ix));
@@ -231,11 +234,11 @@ impl TracksView {
             return;
         }
         self.filter = trimmed;
-        self.recompute_visible();
+        self.recompute_visible(cx);
         cx.notify();
     }
 
-    fn recompute_visible(&mut self) {
+    fn recompute_visible(&mut self, cx: &mut Context<Self>) {
         if self.filter.is_empty() {
             self.row_data = self
                 .tracks_all
@@ -265,7 +268,8 @@ impl TracksView {
                 .map(|(ix, _)| TrackRow::from_track(&self.tracks_all[*ix], *ix))
                 .collect();
         }
-        let (items, item_sizes_vec) = Self::build_items(&self.row_data);
+        let strings = crate::localization::tr(cx);
+        let (items, item_sizes_vec) = Self::build_items(&self.row_data, strings);
         self.items = items;
         self.item_sizes = Rc::new(item_sizes_vec);
     }
@@ -304,15 +308,15 @@ impl Render for TracksView {
                 item_sizes,
                 move |view, visible_range, _window, cx| {
                     visible_range
-                        .map(|ix| match view.items[ix] {
+                        .map(|ix| match &view.items[ix] {
                             TrackItem::TopPadding => {
                                 div().w_full().h(px(TOP_PADDING)).into_any_element()
                             }
                             TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
                             TrackItem::DiscHeader(disc) => {
-                                track_disc_header(disc, p.border, p.muted_fg, cx)
+                                track_disc_header(disc.clone(), p.border, p.muted_fg)
                             }
-                            TrackItem::Track(track_ix) => track_row(view, track_ix, &p, cx),
+                            TrackItem::Track(track_ix) => track_row(view, *track_ix, &p, cx),
                         })
                         .collect::<Vec<_>>()
                 },
@@ -324,10 +328,9 @@ impl Render for TracksView {
 }
 
 fn track_disc_header(
-    disc: i32,
+    disc: SharedString,
     border: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    cx: &gpui::App,
 ) -> gpui::AnyElement {
     h_flex()
         .w_full()
@@ -341,7 +344,7 @@ fn track_disc_header(
                 .text_sm()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(muted_fg)
-                .child(crate::localization::tr(cx).disc(disc as u32)),
+                .child(disc),
         )
         .into_any_element()
 }

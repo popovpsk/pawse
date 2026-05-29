@@ -61,11 +61,11 @@ struct AlbumGroup {
     global_indices: Vec<usize>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum ItemKind {
     ArtistHeader,
     AlbumHeader(usize),
-    DiscHeader(i32),
+    DiscHeader(SharedString),
     Track(usize, usize),
 }
 
@@ -100,7 +100,7 @@ impl ArtistTracksView {
             let mut cache = services.cover_art_cache.borrow_mut();
             Self::group_by_album(&tracks_all, &services.library, &mut cache)
         };
-        let (items, sizes) = Self::build_items(&groups);
+        let (items, sizes) = Self::build_items(&groups, crate::localization::tr(cx));
 
         let current_track_id = services
             .playback_queue
@@ -213,7 +213,10 @@ impl ArtistTracksView {
         groups
     }
 
-    fn build_items(groups: &[AlbumGroup]) -> (Vec<ItemKind>, Vec<Size<Pixels>>) {
+    fn build_items(
+        groups: &[AlbumGroup],
+        strings: &ui_resources::i18n::Strings,
+    ) -> (Vec<ItemKind>, Vec<Size<Pixels>>) {
         let mut items = vec![ItemKind::ArtistHeader];
         let mut sizes = vec![size(px(300.), px(ARTIST_HEADER_HEIGHT))];
         for (g_ix, g) in groups.iter().enumerate() {
@@ -225,7 +228,7 @@ impl ArtistTracksView {
             for (t_ix, track) in g.tracks.iter().enumerate() {
                 if multi_disc && track.disc_number != current_disc {
                     current_disc = track.disc_number;
-                    items.push(ItemKind::DiscHeader(current_disc));
+                    items.push(ItemKind::DiscHeader(strings.disc(current_disc as u32).into()));
                     sizes.push(size(px(300.), px(DISC_HEADER_HEIGHT + 1.)));
                 }
                 items.push(ItemKind::Track(g_ix, t_ix));
@@ -293,7 +296,8 @@ impl ArtistTracksView {
             }
             self.groups = groups;
         }
-        let (items, sizes) = Self::build_items(&self.groups);
+        let strings = crate::localization::tr(cx);
+        let (items, sizes) = Self::build_items(&self.groups, strings);
         self.items = items;
         self.item_sizes = Rc::new(sizes);
     }
@@ -349,18 +353,18 @@ impl Render for ArtistTracksView {
                 item_sizes,
                 move |view, visible_range, _window, cx| {
                     visible_range
-                        .map(|ix| match view.items[ix] {
+                        .map(|ix| match &view.items[ix] {
                             ItemKind::ArtistHeader => {
                                 artist_header_static(view.artist_name.clone()).into_any_element()
                             }
                             ItemKind::DiscHeader(disc) => {
-                                artist_disc_header(disc, border, muted_fg, cx)
+                                artist_disc_header(disc.clone(), border, muted_fg)
                             }
                             ItemKind::AlbumHeader(g_ix) => {
-                                artist_album_header(view, g_ix, border, fallback_bg, fallback_fg)
+                                artist_album_header(view, *g_ix, border, fallback_bg, fallback_fg)
                             }
                             ItemKind::Track(g_ix, t_ix) => {
-                                artist_track_row(view, g_ix, t_ix, &p, cx)
+                                artist_track_row(view, *g_ix, *t_ix, &p, cx)
                             }
                         })
                         .collect::<Vec<_>>()
@@ -373,10 +377,9 @@ impl Render for ArtistTracksView {
 }
 
 fn artist_disc_header(
-    disc: i32,
+    disc: SharedString,
     border: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    cx: &gpui::App,
 ) -> gpui::AnyElement {
     h_flex()
         .w_full()
@@ -390,7 +393,7 @@ fn artist_disc_header(
                 .text_sm()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(muted_fg)
-                .child(crate::localization::tr(cx).disc(disc as u32)),
+                .child(disc),
         )
         .into_any_element()
 }

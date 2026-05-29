@@ -48,6 +48,7 @@ icons = [
 
 [package.metadata.packager.macos]
 minimum-system-version = "10.15"
+info-plist-path = "Info.plist"
 
 [package.metadata.packager.nsis]
 installer-mode = "currentUser"
