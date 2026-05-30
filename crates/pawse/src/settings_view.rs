@@ -201,18 +201,14 @@ pub fn settings_widget(pages: Vec<SettingPage>) -> Settings {
     Settings::new("pawse-settings").pages(pages)
 }
 
-/// Spawn an OS folder picker on a background thread, then add the chosen
-/// folder to `SettingsStore` and trigger a full clear+rescan over the whole
-/// list. Shared between the Settings view and the app menu's "Rescan" action.
+/// Open a native folder picker (async, on the main thread), then add the
+/// chosen folder to `SettingsStore` and trigger a full clear+rescan over the
+/// whole list. Shared between the Settings view and the app menu's "Rescan"
+/// action.
 pub fn pick_and_add_folder(cx: &mut App) {
-    let (tx, rx) = flume::bounded::<PathBuf>(1);
-    std::thread::spawn(move || {
-        if let Some(path) = rfd::FileDialog::new().pick_folder() {
-            let _ = tx.send(path);
-        }
-    });
     cx.spawn(async move |cx| {
-        if let Ok(path) = rx.recv_async().await {
+        if let Some(handle) = rfd::AsyncFileDialog::new().pick_folder().await {
+            let path = handle.path().to_path_buf();
             cx.update(|cx| add_folder_and_rescan(path, cx)).ok();
         }
     })

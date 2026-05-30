@@ -43,7 +43,10 @@ impl Services {
         let engine_event_bus = cx.new(|_| EngineEventsBus);
 
         let (library_event_tx, library_event_rx) = flume::unbounded();
-        let library = Arc::new(LibraryService::new(library_event_tx));
+        let library = Arc::new(LibraryService::new(
+            library_event_tx,
+            cx.background_executor().clone(),
+        ));
         let library_event_bus = cx.new(|_| LibraryEventsBus);
         let library_event_bus_clone = library_event_bus.clone();
 
@@ -237,7 +240,7 @@ fn maybe_prefetch_next_track(
         return;
     }
     let near_end = track_duration
-        .map(|d| d.saturating_sub(*position) <= Duration::from_secs(5))
+        .map(|d| d.saturating_sub(*position) <= Duration::from_secs(2))
         .unwrap_or(false);
     if !near_end {
         return;
@@ -258,10 +261,11 @@ fn maybe_prefetch_next_track(
         return;
     };
 
-    std::thread::spawn(move || {
+    cx.background_spawn(async move {
         if let Ok(mut file) = std::fs::File::open(&path) {
             let mut buf = [0u8; 65536];
             let _ = file.read(&mut buf);
         }
-    });
+    })
+    .detach();
 }

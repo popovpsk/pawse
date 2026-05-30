@@ -84,6 +84,7 @@ All tests must pass.
 - **`AtomicU8` for state flags**: `STATE_IDLE`, `STATE_PLAYING`, `STATE_PAUSED`
 - **`RwLock` for optional streams**: `RwLock<Option<OutputStream>>`
 - **Blocking with timeout**: `write_blocking_timeout()` for ring buffer writes
+- **Incidental background work** uses GPUI's background thread pool (`cx.background_spawn` / stored `BackgroundExecutor`), not `std::thread::spawn`. The carve-outs that still own their threads are the audio engine render loop, exclusive audio output, and the indexer worker pool.
 
 ### Migrations
 

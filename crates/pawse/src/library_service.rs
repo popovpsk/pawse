@@ -29,12 +29,17 @@ pub enum LibraryEvent {
 pub struct LibraryService {
     repo: Arc<dyn LibraryRepository>,
     event_tx: flume::Sender<LibraryEvent>,
+    executor: gpui::BackgroundExecutor,
 }
 
 impl LibraryService {
-    pub fn new(event_tx: flume::Sender<LibraryEvent>) -> Self {
+    pub fn new(event_tx: flume::Sender<LibraryEvent>, executor: gpui::BackgroundExecutor) -> Self {
         let repo = Arc::new(SqliteLibrary::open().expect("open library db"));
-        Self { repo, event_tx }
+        Self {
+            repo,
+            event_tx,
+            executor,
+        }
     }
 
     pub fn albums(&self) -> Vec<music_library::AlbumSummary> {
@@ -190,55 +195,106 @@ impl LibraryService {
     pub fn clear_and_rescan(&self, paths: Vec<PathBuf>) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
+        let outer_executor = self.executor.clone();
+        let inner_executor = self.executor.clone();
 
-        std::thread::spawn(move || {
-            let _ = event_tx.send(LibraryEvent::ScanStarted);
+        outer_executor
+            .spawn(async move {
+                let _ = event_tx.send(LibraryEvent::ScanStarted);
 
-            // Cheap walk + fingerprint. Fast path: if nothing on disk changed
-            // since the last successful scan, skip all DB work entirely. This
-            // is what makes run-on-launch / background rescans viable.
-            let sources = music_indexer::collect_sources(&paths);
-            let folders_key = serialize_folders(&paths);
-            let unchanged = repo.has_tracks().unwrap_or(false)
-                && matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
-                && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
-            if unchanged {
-                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
-                return;
-            }
-            let fingerprint = sources.fingerprint.clone();
-
-            // Snapshot playlist memberships by (path, start_offset_ms) before
-            // the clear wipes the `tracks` table — rescanned tracks get fresh
-            // ids, so without this the playlist contents would silently
-            // disappear from the user's library.
-            let playlist_refs = repo.playlist_track_refs().unwrap_or_else(|e| {
-                eprintln!("Failed to snapshot playlist tracks: {}", e);
-                Vec::new()
-            });
-
-            // Covers survive clear(); hand the pipeline their hashes so it skips
-            // regenerating thumbnails that already exist.
-            let known_hashes: HashSet<String> = repo
-                .cover_art_hashes()
-                .map(|pairs| pairs.into_iter().map(|(hash, _)| hash).collect())
-                .unwrap_or_default();
-
-            let mut session = match repo.open_scan_session() {
-                Ok(session) => session,
-                Err(e) => {
-                    eprintln!("Failed to open scan session: {}", e);
+                // Cheap walk + fingerprint. Fast path: if nothing on disk changed
+                // since the last successful scan, skip all DB work entirely. This
+                // is what makes run-on-launch / background rescans viable.
+                let sources = music_indexer::collect_sources(&paths);
+                let folders_key = serialize_folders(&paths);
+                let unchanged = repo.has_tracks().unwrap_or(false)
+                    && matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
+                    && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
+                if unchanged {
                     let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
                     return;
                 }
-            };
-            if let Err(e) = session.clear() {
-                eprintln!("Failed to clear library: {}", e);
-                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
-                return;
-            }
+                let fingerprint = sources.fingerprint.clone();
 
-            if paths.is_empty() {
+                // Snapshot playlist memberships by (path, start_offset_ms) before
+                // the clear wipes the `tracks` table — rescanned tracks get fresh
+                // ids, so without this the playlist contents would silently
+                // disappear from the user's library.
+                let playlist_refs = repo.playlist_track_refs().unwrap_or_else(|e| {
+                    eprintln!("Failed to snapshot playlist tracks: {}", e);
+                    Vec::new()
+                });
+
+                // Covers survive clear(); hand the pipeline their hashes so it skips
+                // regenerating thumbnails that already exist.
+                let known_hashes: HashSet<String> = repo
+                    .cover_art_hashes()
+                    .map(|pairs| pairs.into_iter().map(|(hash, _)| hash).collect())
+                    .unwrap_or_default();
+
+                let mut session = match repo.open_scan_session() {
+                    Ok(session) => session,
+                    Err(e) => {
+                        eprintln!("Failed to open scan session: {}", e);
+                        let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+                        return;
+                    }
+                };
+                if let Err(e) = session.clear() {
+                    eprintln!("Failed to clear library: {}", e);
+                    let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+                    return;
+                }
+
+                if paths.is_empty() {
+                    match session.finish() {
+                        Ok(()) => {
+                            finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                        }
+                        Err(e) => eprintln!("Failed to finish scan session: {}", e),
+                    }
+                    let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+                    return;
+                }
+
+                // Run the parallel pipeline on a background pool worker; consume
+                // its events here and feed the batched writer. The bounded channel
+                // applies backpressure so cover bytes don't pile up in memory.
+                // (The pipeline's own parse workers are dedicated threads — the
+                // indexer worker pool carve-out.)
+                let (scan_tx, scan_rx) = flume::bounded(512);
+                inner_executor
+                    .spawn(async move {
+                        music_indexer::run(sources, known_hashes, scan_tx);
+                    })
+                    .detach();
+
+                loop {
+                    match scan_rx.recv_async().await {
+                        Ok(ScanEvent::Cover { hash, small, large }) => {
+                            if let Err(e) = session.add_cover(&hash, small, large) {
+                                eprintln!("Failed to insert cover art: {}", e);
+                            }
+                        }
+                        Ok(ScanEvent::Track(track)) => {
+                            if let Err(e) = session.add_track(to_scan_track(track)) {
+                                eprintln!("Failed to insert track: {}", e);
+                            }
+                        }
+                        Ok(ScanEvent::Progress { scanned }) => {
+                            let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
+                        }
+                        Ok(ScanEvent::Error { path, error }) => {
+                            eprintln!("Scan error for {}: {}", path.display(), error);
+                        }
+                        Ok(ScanEvent::Complete) => break,
+                        Err(_) => break, // pipeline gone
+                    }
+                }
+
+                // Only finalize (and record the fingerprint) if the final commit
+                // succeeded. Otherwise the fast path would lock in a partially
+                // written library and never rescan to repair it.
                 match session.finish() {
                     Ok(()) => {
                         finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
@@ -246,51 +302,8 @@ impl LibraryService {
                     Err(e) => eprintln!("Failed to finish scan session: {}", e),
                 }
                 let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
-                return;
-            }
-
-            // Run the parallel pipeline on its own thread; consume its events
-            // here and feed the batched writer. The bounded channel applies
-            // backpressure so cover bytes don't pile up in memory.
-            let (scan_tx, scan_rx) = flume::bounded(512);
-            std::thread::spawn(move || {
-                music_indexer::run(sources, known_hashes, scan_tx);
-            });
-
-            loop {
-                match scan_rx.recv() {
-                    Ok(ScanEvent::Cover { hash, small, large }) => {
-                        if let Err(e) = session.add_cover(&hash, small, large) {
-                            eprintln!("Failed to insert cover art: {}", e);
-                        }
-                    }
-                    Ok(ScanEvent::Track(track)) => {
-                        if let Err(e) = session.add_track(to_scan_track(track)) {
-                            eprintln!("Failed to insert track: {}", e);
-                        }
-                    }
-                    Ok(ScanEvent::Progress { scanned }) => {
-                        let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
-                    }
-                    Ok(ScanEvent::Error { path, error }) => {
-                        eprintln!("Scan error for {}: {}", path.display(), error);
-                    }
-                    Ok(ScanEvent::Complete) => break,
-                    Err(_) => break, // pipeline thread gone
-                }
-            }
-
-            // Only finalize (and record the fingerprint) if the final commit
-            // succeeded. Otherwise the fast path would lock in a partially
-            // written library and never rescan to repair it.
-            match session.finish() {
-                Ok(()) => {
-                    finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
-                }
-                Err(e) => eprintln!("Failed to finish scan session: {}", e),
-            }
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
-        });
+            })
+            .detach();
     }
 }
 
