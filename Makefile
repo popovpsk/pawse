@@ -159,33 +159,40 @@ clean:
 #   cargo install cargo-careful
 #
 # Notes:
-#   - Miri does not support FFI, so only crates listed in MIRI_CRATES are run.
-#     Add crates to MIRI_CRATES as you confirm they have no FFI in their tests.
+#   - Miri does not support FFI, so only the pure-Rust, FFI-free crates listed in
+#     MIRI_CRATES are run. Add crates to MIRI_CRATES only after confirming they
+#     (and their dependencies) pull in no FFI — e.g. music_library/music_indexer
+#     are excluded because rusqlite links a bundled C library.
 #   - ASAN and TSAN are mutually exclusive (separate builds, separate processes).
 #   - Sanitizer builds rebuild std (-Zbuild-std), so each is slow on first run.
-#   - Nightly-based targets (careful/asan/tsan/miri) exclude the GUI crates
-#     (pawse, ui_components, audio_engine) because gpui pulls in pathfinder_simd,
-#     which fails to compile on current nightly. The audio/library crates listed
-#     in SAN_CRATES are where unsafe and concurrency live, so that's what we
-#     actually want to sanitize.
+#   - Nightly-based targets (careful/asan/tsan/miri) exclude the gpui crates
+#     (pawse, ui_components, audio_engine, ui_resources) because gpui pulls in
+#     pathfinder_simd, which enables unstable features on nightly and fails to
+#     compile. The audio/library crates listed in SAN_CRATES are where unsafe and
+#     concurrency live, so that's what we actually want to sanitize.
 
 # test-leaks uses bash features (pipefail, process substitution, $'\t').
 SHELL := /bin/bash
 
 TARGET ?= $(shell rustc -vV | sed -n 's/host: //p')
 
+# Crates for the native sanitizer targets (careful/asan/tsan). FFI is fine here
+# (these run real machine code); gpui crates are excluded — they fail on nightly.
 SAN_CRATES = \
 	-p audio_common \
 	-p audio_decoder \
-	-p audio_engine \
 	-p audio_output \
 	-p cue_parser \
 	-p media_integration \
 	-p music_indexer \
-	-p music_library \
-	-p pawse \
-	-p ui_components \
-	-p ui_resources
+	-p music_library
+
+# Crates miri can run: pure Rust, no FFI in the crate or its deps. audio_decoder
+# is included (symphonia is pure Rust) but its fixture-decoding tests are slow.
+MIRI_CRATES = \
+	-p audio_common \
+	-p cue_parser \
+	-p audio_decoder
 
 .PHONY: test test-careful test-asan test-tsan test-miri test-leaks test-san test-full help-test
 
@@ -205,8 +212,11 @@ test-tsan:
 	RUSTDOCFLAGS="-Zsanitizer=thread" \
 	cargo +nightly test $(SAN_CRATES) --target $(TARGET) -Zbuild-std
 
+# -Zmiri-disable-isolation lets the fixture-reading tests (cue_parser,
+# audio_decoder) perform real file I/O under miri.
 test-miri:
-	cargo +nightly miri test $(SAN_CRATES)
+	MIRIFLAGS="-Zmiri-disable-isolation" \
+	cargo +nightly miri test $(MIRI_CRATES)
 
 # Runs every workspace test binary under leaks(1). Requires `jq` and `leaks`.
 #
@@ -247,7 +257,7 @@ test-san: test-careful test-asan test-tsan test-miri
 test-full: test-san test-leaks
 
 help-test:
-	@echo "Test targets:"
+	@echo "Test targets (run 'make generate' once first to build fixtures):"
 	@echo "  make test          - fast cargo test (inner loop)"
 	@echo "  make test-careful  - cargo-careful, extra UB checks in std"
 	@echo "  make test-asan     - AddressSanitizer (use-after-free, double-free, OOB)"

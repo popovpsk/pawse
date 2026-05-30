@@ -118,11 +118,10 @@ impl ArtistsView {
         // The track-count labels are precomputed into `rows`, so a language
         // change must rebuild them — `refresh_windows` alone only repaints the
         // stale `SharedString`s.
-        let lang_subscription =
-            cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
-                this.recompute_visible(cx);
-                cx.notify();
-            });
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            this.recompute_visible(cx);
+            cx.notify();
+        });
 
         Self {
             artists_all,
@@ -152,10 +151,7 @@ impl ArtistsView {
 
     fn make_item_sizes(row_count: usize) -> Rc<Vec<Size<Pixels>>> {
         let mut sizes = vec![size(px(300.), px(TOP_PADDING))];
-        sizes.extend(vec![
-            size(px(300.), px(ARTIST_ROW_HEIGHT + 1.));
-            row_count
-        ]);
+        sizes.extend(vec![size(px(300.), px(ARTIST_ROW_HEIGHT + 1.)); row_count]);
         Rc::new(sizes)
     }
 

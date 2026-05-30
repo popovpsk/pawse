@@ -2,20 +2,20 @@ use std::path::PathBuf;
 
 use gpui::{
     AnyElement, App, Axis, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Styled, anchored, deferred, div, point, prelude::FluentBuilder, px,
+    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     scroll::ScrollableElement,
-    setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     switch::Switch,
     theme::ThemeRegistry,
     v_flex,
 };
 
+use ui_components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, Settings};
 use ui_resources::i18n::Lang;
 
 use crate::localization::tr;
@@ -187,13 +187,8 @@ pub fn build_settings_pages(
 }
 
 /// Wrap pre-built pages into the `Settings` element for inline rendering.
-/// The category sidebar background is overridden to match the central content
-/// surface (`title_bar`) instead of the default `sidebar` token.
-pub fn settings_widget(pages: Vec<SettingPage>, cx: &App) -> Settings {
-    let sidebar_style = StyleRefinement::default().bg(Colors::header_background(cx));
-    Settings::new("pawse-settings")
-        .pages(pages)
-        .sidebar_style(&sidebar_style)
+pub fn settings_widget(pages: Vec<SettingPage>) -> Settings {
+    Settings::new("pawse-settings").pages(pages)
 }
 
 /// Spawn an OS folder picker on a background thread, then add the chosen
@@ -245,7 +240,7 @@ fn interface_group(
             tr().theme.clone(),
             SettingField::render({
                 let picker = picker.clone();
-                move |_opts, window, cx: &mut App| {
+                move |window, cx: &mut App| {
                     let state = picker.read(cx);
                     let open = state.open;
                     let highlight_index = state.highlight_index;
@@ -491,7 +486,7 @@ fn interface_group(
         group = group.item(
             SettingItem::new(
                 tr().exclusive_mode_button.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_hog_button();
                     h_flex().items_center().justify_end().child(
                         Switch::new("exclusive-mode-toggle").checked(show).on_click(
@@ -515,7 +510,7 @@ fn interface_group(
         .item(
             SettingItem::new(
                 tr().repeat_shuffle.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_repeat_shuffle();
                     h_flex().items_center().justify_end().child(
                         Switch::new("repeat-shuffle-toggle").checked(show).on_click(
@@ -536,7 +531,7 @@ fn interface_group(
         .item(
             SettingItem::new(
                 tr().time_labels.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_time_labels();
                     h_flex().items_center().justify_end().child(
                         Switch::new("time-labels-toggle").checked(show).on_click(
@@ -557,7 +552,7 @@ fn interface_group(
         .item(
             SettingItem::new(
                 tr().liked_tracks.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().liked_enabled();
                     h_flex().items_center().justify_end().child(
                         Switch::new("liked-enabled-toggle")
@@ -577,7 +572,7 @@ fn interface_group(
         .item(
             SettingItem::new(
                 tr().tab_playlists.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().playlists_enabled();
                     h_flex().items_center().justify_end().child(
                         Switch::new("playlists-enabled-toggle")
@@ -603,7 +598,7 @@ fn queue_group() -> SettingGroup {
         .item(
             SettingItem::new(
                 tr().track_duration.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_track_duration();
                     h_flex().items_center().justify_end().child(
                         Switch::new("track-duration-toggle").checked(show).on_click(
@@ -624,7 +619,7 @@ fn queue_group() -> SettingGroup {
         .item(
             SettingItem::new(
                 tr().action_buttons.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_queue_actions();
                     h_flex().items_center().justify_end().child(
                         Switch::new("queue-actions-toggle").checked(show).on_click(
@@ -645,7 +640,7 @@ fn queue_group() -> SettingGroup {
         .item(
             SettingItem::new(
                 tr().artist_name.clone(),
-                SettingField::render(|_opts, _window, cx: &mut App| {
+                SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_queue_artist();
                     h_flex().items_center().justify_end().child(
                         Switch::new("queue-artist-toggle").checked(show).on_click(
@@ -669,7 +664,7 @@ fn library_group() -> SettingGroup {
     SettingGroup::new().item(
         SettingItem::new(
             tr().music_folders.clone(),
-            SettingField::render(|_opts, _window, cx: &mut App| {
+            SettingField::render(|_window, cx: &mut App| {
                 let folders = cx.global::<SettingsStore>().music_folders().to_vec();
 
                 let mut list = v_flex().gap_2().w_full();
@@ -755,7 +750,7 @@ fn language_field(picker: Entity<LangPickerState>) -> SettingItem {
         tr().language.clone(),
         SettingField::render({
             let picker = picker.clone();
-            move |_opts, window, cx: &mut App| {
+            move |window, cx: &mut App| {
                 let state = picker.read(cx);
                 let open = state.open;
                 let highlight_index = state.highlight_index;

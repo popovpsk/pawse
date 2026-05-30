@@ -180,13 +180,12 @@ impl TracksView {
             },
         );
 
-        let lang_subscription =
-            cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
-                let (items, item_sizes_vec) = Self::build_items(&this.row_data, tr());
-                this.items = items;
-                this.item_sizes = Rc::new(item_sizes_vec);
-                cx.notify();
-            });
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            let (items, item_sizes_vec) = Self::build_items(&this.row_data, tr());
+            this.items = items;
+            this.item_sizes = Rc::new(item_sizes_vec);
+            cx.notify();
+        });
 
         Self {
             tracks_all,

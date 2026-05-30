@@ -8,14 +8,13 @@ use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
-    scroll::ScrollableElement,
-    setting::SettingPage,
     theme::ThemeRegistry,
 };
 
 use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
+use crate::localization::LangChanged;
 use crate::localization::tr;
 use crate::media_bridge::MediaBridge;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
@@ -23,9 +22,9 @@ use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::settings_store::SettingsStore;
 use crate::settings_view::{LangPickerState, ThemePickerState};
-use crate::localization::LangChanged;
 use crate::theme_colors::Colors;
 use ui_components::fade::{FadeEdge, fade_overlay};
+use ui_components::settings::SettingPage;
 
 const HEADER_HEIGHT: f32 = 44.;
 const FOOTER_HEIGHT: f32 = 80.;
@@ -111,13 +110,19 @@ impl MainView {
 
         // The search placeholder is set imperatively on the input, so a
         // language change must re-set it (a plain repaint won't).
-        let lang_event_bus = cx.global::<crate::services::Services>().lang_event_bus.clone();
-        let lang_subscription =
-            cx.subscribe_in(&lang_event_bus, window, |this, _, _: &LangChanged, window, cx| {
+        let lang_event_bus = cx
+            .global::<crate::services::Services>()
+            .lang_event_bus
+            .clone();
+        let lang_subscription = cx.subscribe_in(
+            &lang_event_bus,
+            window,
+            |this, _, _: &LangChanged, window, cx| {
                 this.search_input.update(cx, |input, cx| {
                     input.set_placeholder(tr().search_placeholder.clone(), window, cx);
                 });
-            });
+            },
+        );
 
         let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
         let lang_picker: Entity<LangPickerState> = cx.new(|cx| LangPickerState::new(cx));
@@ -391,19 +396,13 @@ impl Render for MainView {
                             .ml_4()
                             .when(!self.show_queue, |d| d.mr_4())
                             .child(if show_settings {
-                                // Match gpui-component's StoryContainer wrap chain
-                                // exactly: outer `size_full` + Scrollable, then inner
-                                // `size_full`, then Settings. The Scrollable wrap is
-                                // what gives `h_resizable` panels a definite-width
-                                // parent so flex_basis on the sidebar panel resolves.
+                                // Our own tab-based settings widget (ui_components) owns
+                                // its scroll + active-tab state; it just needs a
+                                // definite-size parent, which `flex_1` provides here.
                                 div()
                                     .size_full()
-                                    .overflow_y_scrollbar()
-                                    .child(div().size_full().child(
-                                        crate::settings_view::settings_widget(
-                                            self.settings_pages.clone(),
-                                            cx,
-                                        ),
+                                    .child(crate::settings_view::settings_widget(
+                                        self.settings_pages.clone(),
                                     ))
                                     .into_any_element()
                             } else {
