@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static UK: Strings = lang! {
     plural: EastSlavic,
+    reveal_folder: ("Показати у Finder", "Показати в Провіднику", "Відкрити папку"),
     play: "Відтворити",
     pause: "Пауза",
     next: "Наступний",
@@ -20,6 +21,8 @@ pub static UK: Strings = lang! {
     remove_from_playlist: "Прибрати з плейлиста",
     add_to_queue: "Додати до черги",
     add_album_to_queue: "Додати альбом до черги",
+    add_to_liked: "Додати до вподобаних",
+    remove_from_liked: "Прибрати з вподобаних",
 
     settings: "Налаштування",
     search_placeholder: "Пошук...",
@@ -80,7 +83,6 @@ pub static UK: Strings = lang! {
     music_folders: "Папки з музикою",
     music_folders_desc: "Папки, що скануються на наявність музичних файлів",
     no_folders_added: "Папки не додані",
-    show_in_finder: "Показати у Finder",
     remove: "Видалити",
     add_folder: "Додати папку…",
 

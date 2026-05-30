@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static VI: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Hiển thị trong Finder", "Hiển thị trong Explorer", "Mở thư mục"),
     play: "Phát",
     pause: "Tạm dừng",
     next: "Tiếp theo",
@@ -20,6 +21,8 @@ pub static VI: Strings = lang! {
     remove_from_playlist: "Xóa khỏi danh sách phát",
     add_to_queue: "Thêm vào hàng đợi",
     add_album_to_queue: "Thêm album vào hàng đợi",
+    add_to_liked: "Thêm vào yêu thích",
+    remove_from_liked: "Xóa khỏi yêu thích",
 
     settings: "Cài đặt",
     search_placeholder: "Tìm...",
@@ -80,7 +83,6 @@ pub static VI: Strings = lang! {
     music_folders: "Thư mục nhạc",
     music_folders_desc: "Các thư mục được quét để tìm tệp nhạc",
     no_folders_added: "Chưa thêm thư mục",
-    show_in_finder: "Hiển thị trong Finder",
     remove: "Xóa",
     add_folder: "Thêm thư mục…",
 

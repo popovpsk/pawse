@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static PT: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Mostrar no Finder", "Mostrar no Explorador", "Abrir pasta"),
     play: "Reproduzir",
     pause: "Pausar",
     next: "Próxima",
@@ -20,6 +21,8 @@ pub static PT: Strings = lang! {
     remove_from_playlist: "Remover da playlist",
     add_to_queue: "Adicionar à fila",
     add_album_to_queue: "Adicionar álbum à fila",
+    add_to_liked: "Adicionar às curtidas",
+    remove_from_liked: "Remover das curtidas",
 
     settings: "Configurações",
     search_placeholder: "Buscar...",
@@ -80,7 +83,6 @@ pub static PT: Strings = lang! {
     music_folders: "Pastas de música",
     music_folders_desc: "Pastas escaneadas em busca de arquivos de música",
     no_folders_added: "Nenhuma pasta adicionada",
-    show_in_finder: "Mostrar no Finder",
     remove: "Remover",
     add_folder: "Adicionar pasta…",
 

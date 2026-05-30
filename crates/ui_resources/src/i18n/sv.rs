@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static SV: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Visa i Finder", "Visa i Utforskaren", "Öppna mapp"),
     play: "Spela",
     pause: "Pausa",
     next: "Nästa",
@@ -20,6 +21,8 @@ pub static SV: Strings = lang! {
     remove_from_playlist: "Ta bort från spellista",
     add_to_queue: "Lägg till i kön",
     add_album_to_queue: "Lägg till album i kön",
+    add_to_liked: "Lägg till i gillade",
+    remove_from_liked: "Ta bort från gillade",
 
     settings: "Inställningar",
     search_placeholder: "Sök...",
@@ -80,7 +83,6 @@ pub static SV: Strings = lang! {
     music_folders: "Musikmappar",
     music_folders_desc: "Mappar som söks igenom efter musikfiler",
     no_folders_added: "Inga mappar tillagda",
-    show_in_finder: "Visa i Finder",
     remove: "Ta bort",
     add_folder: "Lägg till mapp…",
 

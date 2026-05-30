@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static HI: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Finder में दिखाएँ", "एक्सप्लोरर में दिखाएँ", "फ़ोल्डर खोलें"),
     play: "चलाएँ",
     pause: "रोकें",
     next: "अगला",
@@ -20,6 +21,8 @@ pub static HI: Strings = lang! {
     remove_from_playlist: "प्लेलिस्ट से हटाएँ",
     add_to_queue: "क़तार में जोड़ें",
     add_album_to_queue: "एल्बम को क़तार में जोड़ें",
+    add_to_liked: "पसंदीदा में जोड़ें",
+    remove_from_liked: "पसंदीदा से हटाएँ",
 
     settings: "सेटिंग्स",
     search_placeholder: "खोजें...",
@@ -80,7 +83,6 @@ pub static HI: Strings = lang! {
     music_folders: "संगीत फ़ोल्डर",
     music_folders_desc: "संगीत फ़ाइलों के लिए स्कैन किए गए फ़ोल्डर",
     no_folders_added: "कोई फ़ोल्डर नहीं जोड़ा गया",
-    show_in_finder: "Finder में दिखाएँ",
     remove: "हटाएँ",
     add_folder: "फ़ोल्डर जोड़ें…",
 

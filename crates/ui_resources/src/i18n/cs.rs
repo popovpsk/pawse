@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static CS: Strings = lang! {
     plural: Czech,
+    reveal_folder: ("Zobrazit ve Finderu", "Zobrazit v Průzkumníku", "Otevřít složku"),
     play: "Přehrát",
     pause: "Pozastavit",
     next: "Další",
@@ -20,6 +21,8 @@ pub static CS: Strings = lang! {
     remove_from_playlist: "Odebrat z playlistu",
     add_to_queue: "Přidat do fronty",
     add_album_to_queue: "Přidat album do fronty",
+    add_to_liked: "Přidat do oblíbených",
+    remove_from_liked: "Odebrat z oblíbených",
 
     settings: "Nastavení",
     search_placeholder: "Hledat...",
@@ -80,7 +83,6 @@ pub static CS: Strings = lang! {
     music_folders: "Hudební složky",
     music_folders_desc: "Složky prohledávané kvůli hudebním souborům",
     no_folders_added: "Nebyly přidány žádné složky",
-    show_in_finder: "Zobrazit ve Finderu",
     remove: "Odebrat",
     add_folder: "Přidat složku…",
 

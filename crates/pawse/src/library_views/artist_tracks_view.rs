@@ -258,6 +258,8 @@ impl ArtistTracksView {
         }
         self.filter = trimmed;
         self.recompute_groups(cx);
+        self.scroll_handle
+            .scroll_to_item(0, gpui::ScrollStrategy::Top);
         cx.notify();
     }
 

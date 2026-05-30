@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static KO: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Finder에서 보기", "탐색기에서 보기", "폴더 열기"),
     play: "재생",
     pause: "일시정지",
     next: "다음",
@@ -20,6 +21,8 @@ pub static KO: Strings = lang! {
     remove_from_playlist: "재생목록에서 제거",
     add_to_queue: "대기열에 추가",
     add_album_to_queue: "앨범을 대기열에 추가",
+    add_to_liked: "좋아요에 추가",
+    remove_from_liked: "좋아요에서 제거",
 
     settings: "설정",
     search_placeholder: "검색...",
@@ -80,7 +83,6 @@ pub static KO: Strings = lang! {
     music_folders: "음악 폴더",
     music_folders_desc: "음악 파일을 스캔할 폴더",
     no_folders_added: "추가된 폴더 없음",
-    show_in_finder: "Finder에서 보기",
     remove: "제거",
     add_folder: "폴더 추가…",
 

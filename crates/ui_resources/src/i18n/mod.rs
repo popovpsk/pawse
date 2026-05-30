@@ -65,6 +65,8 @@ pub struct Strings {
     pub remove_from_playlist: SharedString,
     pub add_to_queue: SharedString,
     pub add_album_to_queue: SharedString,
+    pub add_to_liked: SharedString,
+    pub remove_from_liked: SharedString,
 
     // --- Header / navigation ---
     pub settings: SharedString,
@@ -129,7 +131,7 @@ pub struct Strings {
     pub music_folders: SharedString,
     pub music_folders_desc: SharedString,
     pub no_folders_added: SharedString,
-    pub show_in_finder: SharedString,
+    pub reveal_folder: SharedString,
     pub remove: SharedString,
     pub add_folder: SharedString,
 
@@ -298,9 +300,21 @@ impl Strings {
 /// literal, so a missing or misspelled key is a compile error.
 #[macro_export]
 macro_rules! lang {
-    (plural: $plural:ident, $($key:ident : $val:literal),* $(,)?) => {
+    (
+        plural: $plural:ident,
+        reveal_folder: ($mac:literal, $win:literal, $other:literal),
+        $($key:ident : $val:literal),* $(,)?
+    ) => {
         $crate::i18n::Strings {
             plural: $crate::i18n::Plural::$plural,
+            reveal_folder: {
+                #[cfg(target_os = "macos")]
+                { ::gpui::SharedString::new_static($mac) }
+                #[cfg(target_os = "windows")]
+                { ::gpui::SharedString::new_static($win) }
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                { ::gpui::SharedString::new_static($other) }
+            },
             $( $key: ::gpui::SharedString::new_static($val) ),*
         }
     };

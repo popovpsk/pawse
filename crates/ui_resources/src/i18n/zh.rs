@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static ZH: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("在访达中显示", "在资源管理器中显示", "打开文件夹"),
     play: "播放",
     pause: "暂停",
     next: "下一首",
@@ -20,6 +21,8 @@ pub static ZH: Strings = lang! {
     remove_from_playlist: "从播放列表移除",
     add_to_queue: "添加到队列",
     add_album_to_queue: "将专辑添加到队列",
+    add_to_liked: "添加到喜欢",
+    remove_from_liked: "从喜欢移除",
 
     settings: "设置",
     search_placeholder: "搜索...",
@@ -80,7 +83,6 @@ pub static ZH: Strings = lang! {
     music_folders: "音乐文件夹",
     music_folders_desc: "用于扫描音乐文件的文件夹",
     no_folders_added: "未添加文件夹",
-    show_in_finder: "在访达中显示",
     remove: "移除",
     add_folder: "添加文件夹…",
 

@@ -52,6 +52,10 @@ files.
   fails to compile. `Lang::strings` is an exhaustive `match`, so adding a `Lang`
   variant without a table also fails to compile. Adding a new string = add a
   field here + a line in every `<code>.rs` (compiler lists what's missing).
+- **`reveal_folder` is the one `cfg`-selected field.** After `plural:` each
+  table supplies a `reveal_folder: (mac, win, other)` literal tuple. The `lang!`
+  macro `cfg`-selects the right arm, so the field holds a per-OS, per-language
+  label without any accessor method or extra fields.
 - **No plural rules.** `n_tracks` is two-form (n == 1 vs. otherwise). Languages
   with richer plural categories use the general form.
 - **`display_name` is an endonym** shown in the language picker; it is *not*

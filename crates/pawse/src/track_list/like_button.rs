@@ -1,10 +1,12 @@
 use super::RowButtonColors;
+use crate::localization::tr;
 use crate::services::Services;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, px, svg,
 };
+use gpui_component::tooltip::Tooltip;
 
 /// Group name used by track rows so the like-button can reveal itself on row hover.
 /// Apply `.group(LIKE_ROW_GROUP)` to the row container and the outline heart inside
@@ -21,6 +23,11 @@ pub fn like_button(track_id: i64, liked: bool, colors: &RowButtonColors) -> impl
     } else {
         "icons/s1-heart.svg"
     };
+    let tooltip_text = if liked {
+        tr().remove_from_liked.clone()
+    } else {
+        tr().add_to_liked.clone()
+    };
 
     div()
         .id(ElementId::NamedInteger("like".into(), track_id as u64))
@@ -34,6 +41,7 @@ pub fn like_button(track_id: i64, liked: bool, colors: &RowButtonColors) -> impl
             d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
         })
         .hover(|s| s.bg(hover_bg))
+        .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |_, _, cx| {
             cx.stop_propagation();

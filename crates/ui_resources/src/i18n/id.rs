@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static ID: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Tampilkan di Finder", "Tampilkan di Explorer", "Buka folder"),
     play: "Putar",
     pause: "Jeda",
     next: "Berikutnya",
@@ -20,6 +21,8 @@ pub static ID: Strings = lang! {
     remove_from_playlist: "Hapus dari playlist",
     add_to_queue: "Tambahkan ke antrean",
     add_album_to_queue: "Tambahkan album ke antrean",
+    add_to_liked: "Tambahkan ke disukai",
+    remove_from_liked: "Hapus dari disukai",
 
     settings: "Pengaturan",
     search_placeholder: "Cari...",
@@ -80,7 +83,6 @@ pub static ID: Strings = lang! {
     music_folders: "Folder musik",
     music_folders_desc: "Folder yang dipindai untuk berkas musik",
     no_folders_added: "Belum ada folder ditambahkan",
-    show_in_finder: "Tampilkan di Finder",
     remove: "Hapus",
     add_folder: "Tambahkan folder…",
 

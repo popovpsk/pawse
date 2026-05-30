@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static TR: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Finder'da göster", "Dosya Gezgini'nde göster", "Klasörü aç"),
     play: "Oynat",
     pause: "Duraklat",
     next: "Sonraki",
@@ -20,6 +21,8 @@ pub static TR: Strings = lang! {
     remove_from_playlist: "Çalma listesinden kaldır",
     add_to_queue: "Sıraya ekle",
     add_album_to_queue: "Albümü sıraya ekle",
+    add_to_liked: "Beğenilenlere ekle",
+    remove_from_liked: "Beğenilenlerden kaldır",
 
     settings: "Ayarlar",
     search_placeholder: "Ara...",
@@ -80,7 +83,6 @@ pub static TR: Strings = lang! {
     music_folders: "Müzik klasörleri",
     music_folders_desc: "Müzik dosyaları için taranan klasörler",
     no_folders_added: "Klasör eklenmedi",
-    show_in_finder: "Finder'da göster",
     remove: "Kaldır",
     add_folder: "Klasör ekle…",
 

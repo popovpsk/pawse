@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static NL: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Tonen in Finder", "Tonen in Verkenner", "Map openen"),
     play: "Afspelen",
     pause: "Pauzeren",
     next: "Volgende",
@@ -20,6 +21,8 @@ pub static NL: Strings = lang! {
     remove_from_playlist: "Uit afspeellijst verwijderen",
     add_to_queue: "Aan wachtrij toevoegen",
     add_album_to_queue: "Album aan wachtrij toevoegen",
+    add_to_liked: "Toevoegen aan vind-ik-leuks",
+    remove_from_liked: "Uit vind-ik-leuks verwijderen",
 
     settings: "Instellingen",
     search_placeholder: "Zoeken...",
@@ -80,7 +83,6 @@ pub static NL: Strings = lang! {
     music_folders: "Muziekmappen",
     music_folders_desc: "Mappen die worden gescand op muziekbestanden",
     no_folders_added: "Geen mappen toegevoegd",
-    show_in_finder: "Tonen in Finder",
     remove: "Verwijderen",
     add_folder: "Map toevoegen…",
 

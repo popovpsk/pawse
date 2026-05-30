@@ -3,6 +3,7 @@ use crate::lang;
 
 pub static JA: Strings = lang! {
     plural: OneOther,
+    reveal_folder: ("Finder で表示", "エクスプローラーで表示", "フォルダーを開く"),
     play: "再生",
     pause: "一時停止",
     next: "次へ",
@@ -20,6 +21,8 @@ pub static JA: Strings = lang! {
     remove_from_playlist: "プレイリストから削除",
     add_to_queue: "キューに追加",
     add_album_to_queue: "アルバムをキューに追加",
+    add_to_liked: "お気に入りに追加",
+    remove_from_liked: "お気に入りから削除",
 
     settings: "設定",
     search_placeholder: "検索...",
@@ -80,7 +83,6 @@ pub static JA: Strings = lang! {
     music_folders: "音楽フォルダ",
     music_folders_desc: "音楽ファイルをスキャンするフォルダ",
     no_folders_added: "フォルダが追加されていません",
-    show_in_finder: "Finder で表示",
     remove: "削除",
     add_folder: "フォルダを追加…",
 

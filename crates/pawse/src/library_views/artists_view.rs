@@ -162,6 +162,8 @@ impl ArtistsView {
         }
         self.filter = trimmed;
         self.recompute_visible(cx);
+        self.scroll_handle
+            .scroll_to_item(0, gpui::ScrollStrategy::Top);
         cx.notify();
     }
 

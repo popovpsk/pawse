@@ -86,7 +86,7 @@ impl SettingItem {
         let horizontal = self.layout == Axis::Horizontal;
 
         let label = v_flex()
-            .when(horizontal, |this| this.flex_1())
+            .when(horizontal, |this| this.flex_1().overflow_hidden())
             .when(!horizontal, |this| this.w_full())
             .gap_1()
             .child(
@@ -105,6 +105,11 @@ impl SettingItem {
             });
 
         let field = (self.field.0)(window, cx);
+        let field = if horizontal {
+            div().flex_shrink_0().child(field).into_any_element()
+        } else {
+            field
+        };
 
         div()
             .w_full()

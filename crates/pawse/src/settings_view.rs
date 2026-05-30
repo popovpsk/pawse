@@ -25,6 +25,16 @@ use crate::settings_store::{
 };
 use crate::theme_colors::Colors;
 
+fn reveal_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(target_os = "windows")]
+    let program = "explorer";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let program = "xdg-open";
+    let _ = std::process::Command::new(program).arg(path).spawn();
+}
+
 /// State for the custom theme picker dropdown.
 pub struct ThemePickerState {
     pub open: bool,
@@ -262,7 +272,7 @@ fn interface_group(
                             .px_3()
                             .py_1p5()
                             .rounded(px(6.))
-                            .bg(Colors::header_background(cx))
+                            .bg(Colors::app_background(cx))
                             .border_1()
                             .border_color(Colors::panel_border(cx))
                             .cursor_pointer()
@@ -709,11 +719,9 @@ fn library_group() -> SettingGroup {
                                 .child(
                                     Button::new(SharedString::from(finder_id))
                                         .ghost()
-                                        .label(tr().show_in_finder.clone())
+                                        .label(tr().reveal_folder.clone())
                                         .on_click(move |_, _, _| {
-                                            let _ = std::process::Command::new("open")
-                                                .arg(&path_for_finder)
-                                                .spawn();
+                                            reveal_in_file_manager(&path_for_finder);
                                         }),
                                 )
                                 .child(
@@ -770,7 +778,7 @@ fn language_field(picker: Entity<LangPickerState>) -> SettingItem {
                         .px_3()
                         .py_1p5()
                         .rounded(px(6.))
-                        .bg(Colors::header_background(cx))
+                        .bg(Colors::app_background(cx))
                         .border_1()
                         .border_color(Colors::panel_border(cx))
                         .cursor_pointer()
