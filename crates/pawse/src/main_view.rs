@@ -20,6 +20,7 @@ use crate::keyboard_shortcuts::{
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::localization::LangChanged;
 use crate::localization::tr;
+#[cfg(not(target_os = "macos"))]
 use crate::media_bridge::MediaBridge;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
@@ -62,6 +63,7 @@ pub struct MainView {
     search_input: Entity<InputState>,
     _theme_picker: Entity<ThemePickerState>,
     _lang_picker: Entity<LangPickerState>,
+    #[cfg(not(target_os = "macos"))]
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
     _search_subscription: Subscription,
@@ -239,6 +241,7 @@ impl MainView {
             search_input,
             _theme_picker: theme_picker,
             _lang_picker: lang_picker,
+            #[cfg(not(target_os = "macos"))]
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
             _search_subscription: search_subscription,

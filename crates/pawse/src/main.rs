@@ -228,6 +228,9 @@ fn main() {
 
         open_initial_window(cx, true);
 
+        #[cfg(target_os = "macos")]
+        crate::media_bridge::setup(cx);
+
         cx.spawn(async move |cx| {
             run_engine_events_bus(
                 cx,

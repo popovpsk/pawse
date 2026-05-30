@@ -134,16 +134,18 @@ The integration is split into two crates:
 - `NSActionTemplate` (string value `"NSActionTemplate"`) is a generic gear/action icon that is guaranteed to exist on all macOS versions. It ensures the status item never appears blank.
 - We do **not** use SF Symbols (e.g. `speaker.wave.3`) because they require macOS 11+ and `imageWithSystemSymbolName:`. The project targets a broader macOS base.
 
-### 9. Why `MediaBridge` is a GPUI entity in `MainView`
+### 9. Lifetime: app-lived on macOS, window-lived elsewhere
 
-**Context:** The bridge needs to subscribe to `EngineEventsBus` and keep the subscription alive.
+**Context:** The bridge subscribes to `EngineEventsBus` and runs the command loop, and both must stay alive as long as playback can happen.
 
-**Decision:** `MediaBridge` is a struct holding a `Subscription`, instantiated as `Entity<MediaBridge>` inside `MainView`.
+**Decision (non-macOS):** `MediaBridge` is a struct holding a `Subscription`, instantiated as `Entity<MediaBridge>` inside `MainView` (`#[cfg(not(target_os = "macos"))]`).
+
+**Decision (macOS):** there is **no** `MediaBridge` entity. `media_bridge::setup(cx)` runs once at startup from `main()` and registers the engine-event subscription via `App::subscribe(...).detach()`, with the command loop spawned `detach`ed. Both are app-lived.
 
 **Why:**
-- GPUI subscriptions are dropped when the subscriber is dropped. If we created the subscription in a standalone function without storing it, the bridge would stop listening after the function returned.
-- `MainView` already owns other long-lived entities (`LibraryView`, `Footer`). Adding `_media_bridge` there ensures the bridge lives as long as the app window.
-- It needs access to `Window` and `Context` for entity creation, which `MainView::new` already has.
+- On macOS the last window can close while audio keeps playing (see "Window Lifecycle" in `project.md`). If the integration were owned by `MainView`, closing the window would drop the `Subscription`, drop the `MacOsIntegration` (and with it `RegisteredCommands` → the captured `flume::Sender`s → the command loop ends). The system Now-Playing panel would then have no live handlers: its buttons stop working and `last_state` / playback state stop tracking reality. Making it app-lived — like `run_engine_events_bus` and the `is_playing` mirror — keeps the panel functional with no window.
+- Windows/Linux quit when the last window closes, so window-lived ownership is correct there (and Windows SMTC needs the window `hwnd`, which only `MainView::new` has).
+- The per-event panel updates (`apply_engine_event`) and the startup seeding (`seed_from_services`) are shared by both paths.
 
 ### 10. Why the trait uses `&self` and `dyn`
 
@@ -156,13 +158,21 @@ The integration is split into two crates:
 
 ### 11. Idempotent remote-command registration (window reopen)
 
-**Context:** On macOS, closing the last window does not quit the app; clicking the Dock icon rebuilds a fresh window (see "Window Lifecycle" in `project.md`). Rebuilding `MainView` creates a new `MediaBridge`, which re-runs `register_remote_commands` against `MPRemoteCommandCenter`.
+**Context:** `register_remote_commands` should be safe to run more than once against the process-wide `MPRemoteCommandCenter`. (Since the macOS integration is now app-lived and created once at startup — see decision 9 — window reopen no longer rebuilds it, but the defensive clearing remains valuable, e.g. across future re-registration or a `MainView`-owned path on other ports.)
 
 **Decision:** `register_remote_commands` first calls `removeTarget(None)` on every command (play, pause, toggle, next, previous, changePlaybackPosition) before adding its handlers.
 
 **Why:**
-- `MPRemoteCommandCenter` is a process-wide singleton that retains handlers internally. Dropping the old `MacOsIntegration` releases our `RegisteredCommands` target references but does **not** unregister the handlers. Without clearing them, a second registration would stack handlers and fire each command twice (e.g. `Next` would skip two tracks).
-- `removeTarget(None)` wipes all existing handlers for a command, making registration idempotent. It also drops the old captured `flume::Sender`s, so the previous `run_command_loop` ends cleanly once its receiver sees the channel close.
+- `MPRemoteCommandCenter` is a process-wide singleton that retains handlers internally. Dropping a `MacOsIntegration` releases our `RegisteredCommands` target references but does **not** unregister the handlers. Without clearing them, a second registration would stack handlers and fire each command twice (e.g. `Next` would skip two tracks).
+- `removeTarget(None)` wipes all existing handlers for a command, making registration idempotent. It also drops the old captured `flume::Sender`s, so any previous `run_command_loop` ends cleanly once its receiver sees the channel close.
+
+### 12. Seeding the panel on construction
+
+**Context:** Because the integration can be (re)built mid-playback — and because no fresh `EngineEvent::Loaded` arrives for an already-playing track — the panel would otherwise start from `Stopped` with no track info.
+
+**Decision:** `seed_from_services` runs right after the integration is created: if `Services::playback_queue` has a current track, it reads `Services::is_playing` / `current_position_ms` / `current_duration_ms` and publishes the Now-Playing info, playback state, position, and seeds `last_state` accordingly.
+
+**Why:** mirrors the footer-seeding pattern (`PlayButton` / `NowPlaying` / `TrackProgressSlider` seed from live `Services`). Without it, `MediaCommand::TogglePlayPause` — which branches on `last_state` — would resolve wrong, and the OS panel would show stale info retained by its singleton.
 
 ## Threading Guarantees
 
@@ -186,7 +196,7 @@ Commands from the OS flow as follows:
    - `MediaCommand::Next` / `Previous` → advances `PlaybackQueue`, calls `set_track()` + `play()`
    - `MediaCommand::Seek(f64)` → converts seconds to fraction, calls `engine_manager.seek(fraction)`
 5. Engine emits `EngineEvent::Loaded` / `Playing` / `PositionChanged`.
-6. `MediaBridge` subscription picks up the event and calls `integration.update_*()`.
+6. The engine-event subscription (app-lived on macOS, `MediaBridge` elsewhere) picks up the event via `apply_engine_event` and calls `integration.update_*()`.
 7. macOS system UI updates accordingly.
 
 ## Known Limitations

@@ -1,18 +1,62 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use audio_engine::EngineEvent;
-use gpui::{App, AsyncApp, Context, Entity, Subscription, Window};
+use gpui::{App, AsyncApp};
+#[cfg(not(target_os = "macos"))]
+use gpui::{Context, Entity, Subscription, Window};
 use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
+#[cfg(not(target_os = "macos"))]
+use crate::services::EngineEventsBus;
 use crate::playback_queue::{PlaybackQueue, PreviousAction};
-use crate::services::{EngineEventsBus, Services};
+use crate::services::Services;
 
+#[cfg(target_os = "macos")]
+pub fn setup(cx: &mut App) {
+    let current_position = Rc::new(RefCell::new(0.0f64));
+    let current_duration = Rc::new(RefCell::new(0.0f64));
+    let last_state = Rc::new(RefCell::new(MediaPlaybackState::Stopped));
+    let Some(integration) = create_integration(
+        cx,
+        None,
+        current_position.clone(),
+        current_duration.clone(),
+        last_state.clone(),
+    ) else {
+        return;
+    };
+
+    seed_from_services(
+        cx,
+        &integration,
+        &last_state,
+        &current_position,
+        &current_duration,
+    );
+
+    let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
+    cx.subscribe(&engine_event_bus, move |_, event: &EngineEvent, cx| {
+        apply_engine_event(
+            cx,
+            event,
+            &integration,
+            &last_state,
+            &current_position,
+            &current_duration,
+        );
+    })
+    .detach();
+}
+
+#[cfg(not(target_os = "macos"))]
 pub struct MediaBridge {
     _subscription: Subscription,
 }
 
+#[cfg(not(target_os = "macos"))]
 impl MediaBridge {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
@@ -41,74 +85,118 @@ impl MediaBridge {
             current_duration.clone(),
             last_state.clone(),
         )?;
-        let integration_clone = integration.clone();
 
-        let subscription =
-            cx.subscribe(
-                engine_event_bus,
-                move |_, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { duration, .. } => {
-                        let dur_secs = duration.as_secs_f64();
-                        current_position.replace(0.0);
-                        current_duration.replace(dur_secs);
-                        let services = cx.global::<Services>();
-                        let queue = services.playback_queue.borrow();
-                        if let Some(track) = queue.current_track() {
-                            let artwork_path = track
-                                .cover_art_id
-                                .and_then(|id| services.library.get_cover_art_path_for_media(id));
-                            let mut info = build_now_playing_info(track, artwork_path, dur_secs);
-                            info.artist = services.library.track_artists(track.id).join(", ");
-                            info.album = track
-                                .album_id
-                                .and_then(|id| services.library.album_title(id))
-                                .unwrap_or_default();
-                            integration_clone.update_now_playing(info);
-                            integration_clone.set_playback_state(MediaPlaybackState::Playing);
-                            last_state.replace(MediaPlaybackState::Playing);
-                        }
-                    }
-                    EngineEvent::Playing => {
-                        last_state.replace(MediaPlaybackState::Playing);
-                        integration_clone.set_playback_state(MediaPlaybackState::Playing);
-                        integration_clone.update_position(
-                            *current_position.borrow(),
-                            MediaPlaybackState::Playing,
-                        );
-                    }
-                    EngineEvent::Paused => {
-                        last_state.replace(MediaPlaybackState::Paused);
-                        integration_clone.set_playback_state(MediaPlaybackState::Paused);
-                        integration_clone.update_position(
-                            *current_position.borrow(),
-                            MediaPlaybackState::Paused,
-                        );
-                    }
-                    EngineEvent::TrackEnded | EngineEvent::Stopped => {
-                        let services = cx.global::<Services>();
-                        let queue = services.playback_queue.borrow();
-                        if queue.current_track().is_none() {
-                            last_state.replace(MediaPlaybackState::Stopped);
-                            integration_clone.set_playback_state(MediaPlaybackState::Stopped);
-                            integration_clone.update_position(0.0, MediaPlaybackState::Stopped);
-                        }
-                    }
-                    EngineEvent::PositionChanged(position) => {
-                        if *last_state.borrow() == MediaPlaybackState::Stopped {
-                            return;
-                        }
-                        let secs = position.as_secs_f64();
-                        current_position.replace(secs);
-                        let state = *last_state.borrow();
-                        integration_clone.update_position(secs, state);
-                    }
-                    _ => {}
-                },
-            );
+        seed_from_services(
+            cx,
+            &integration,
+            &last_state,
+            &current_position,
+            &current_duration,
+        );
+
+        let subscription = cx.subscribe(
+            engine_event_bus,
+            move |_, _, event: &EngineEvent, cx| {
+                apply_engine_event(
+                    cx,
+                    event,
+                    &integration,
+                    &last_state,
+                    &current_position,
+                    &current_duration,
+                );
+            },
+        );
         Some(subscription)
     }
 }
 
+fn apply_engine_event(
+    cx: &mut App,
+    event: &EngineEvent,
+    integration: &Rc<dyn SystemMediaIntegration>,
+    last_state: &RefCell<MediaPlaybackState>,
+    current_position: &RefCell<f64>,
+    current_duration: &RefCell<f64>,
+) {
+    match event {
+        EngineEvent::Loaded { duration, .. } => {
+            let dur_secs = duration.as_secs_f64();
+            current_position.replace(0.0);
+            current_duration.replace(dur_secs);
+            if publish_track(cx, integration, dur_secs, 0.0, MediaPlaybackState::Playing) {
+                last_state.replace(MediaPlaybackState::Playing);
+            }
+        }
+        EngineEvent::Playing => {
+            last_state.replace(MediaPlaybackState::Playing);
+            integration.set_playback_state(MediaPlaybackState::Playing);
+            integration.update_position(*current_position.borrow(), MediaPlaybackState::Playing);
+        }
+        EngineEvent::Paused => {
+            last_state.replace(MediaPlaybackState::Paused);
+            integration.set_playback_state(MediaPlaybackState::Paused);
+            integration.update_position(*current_position.borrow(), MediaPlaybackState::Paused);
+        }
+        EngineEvent::TrackEnded | EngineEvent::Stopped => {
+            let has_track = cx
+                .global::<Services>()
+                .playback_queue
+                .borrow()
+                .current_track()
+                .is_some();
+            if !has_track {
+                last_state.replace(MediaPlaybackState::Stopped);
+                integration.set_playback_state(MediaPlaybackState::Stopped);
+                integration.update_position(0.0, MediaPlaybackState::Stopped);
+            }
+        }
+        EngineEvent::PositionChanged(position) => {
+            if *last_state.borrow() == MediaPlaybackState::Stopped {
+                return;
+            }
+            let secs = position.as_secs_f64();
+            current_position.replace(secs);
+            let state = *last_state.borrow();
+            integration.update_position(secs, state);
+        }
+        _ => {}
+    }
+}
+
+fn seed_from_services(
+    cx: &mut App,
+    integration: &Rc<dyn SystemMediaIntegration>,
+    last_state: &RefCell<MediaPlaybackState>,
+    current_position: &RefCell<f64>,
+    current_duration: &RefCell<f64>,
+) {
+    let seed = {
+        let services = cx.global::<Services>();
+        if services.playback_queue.borrow().current_track().is_some() {
+            let is_playing = services.is_playing.load(Ordering::Relaxed);
+            let elapsed = services.current_position_ms.load(Ordering::Relaxed) as f64 / 1000.0;
+            let dur = services.current_duration_ms.load(Ordering::Relaxed) as f64 / 1000.0;
+            Some((is_playing, elapsed, dur))
+        } else {
+            None
+        }
+    };
+    if let Some((is_playing, elapsed, dur)) = seed {
+        let state = if is_playing {
+            MediaPlaybackState::Playing
+        } else {
+            MediaPlaybackState::Paused
+        };
+        current_position.replace(elapsed);
+        current_duration.replace(dur);
+        if publish_track(cx, integration, dur, elapsed, state) {
+            last_state.replace(state);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn window_hwnd(window: &Window) -> Option<*mut std::ffi::c_void> {
     #[cfg(target_os = "windows")]
     {
@@ -233,6 +321,34 @@ async fn run_command_loop(
             break;
         }
     }
+}
+
+fn publish_track(
+    cx: &App,
+    integration: &Rc<dyn SystemMediaIntegration>,
+    duration_secs: f64,
+    elapsed_secs: f64,
+    state: MediaPlaybackState,
+) -> bool {
+    let services = cx.global::<Services>();
+    let queue = services.playback_queue.borrow();
+    let Some(track) = queue.current_track() else {
+        return false;
+    };
+    let artwork_path = track
+        .cover_art_id
+        .and_then(|id| services.library.get_cover_art_path_for_media(id));
+    let mut info = build_now_playing_info(track, artwork_path, duration_secs);
+    info.artist = services.library.track_artists(track.id).join(", ");
+    info.album = track
+        .album_id
+        .and_then(|id| services.library.album_title(id))
+        .unwrap_or_default();
+    info.elapsed_secs = Some(elapsed_secs);
+    integration.update_now_playing(info);
+    integration.set_playback_state(state);
+    integration.update_position(elapsed_secs, state);
+    true
 }
 
 fn build_now_playing_info(
