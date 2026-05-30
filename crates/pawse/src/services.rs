@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    io::Read,
     rc::Rc,
     sync::{
         Arc,
@@ -90,6 +91,12 @@ impl Services {
     pub fn play_track(&self, track: &Track) {
         self.load_track(track);
         self.engine_manager.play();
+    }
+
+    /// Like `play_track` but skips the 300ms fade-in for gapless transitions.
+    pub fn play_track_gapless(&self, track: &Track) {
+        self.load_track(track);
+        self.engine_manager.play_gapless();
     }
 
     /// Load a track into the engine without starting playback. Fires
@@ -188,11 +195,18 @@ pub async fn run_engine_events_bus(
     current_position_ms: Arc<AtomicU64>,
     is_playing: Arc<AtomicBool>,
 ) {
+    let mut current_duration: Option<Duration> = None;
+    let mut prefetched = false;
     let rx = engine_manager.events();
     while let Ok(event) = rx.recv_async().await {
         match &event {
+            EngineEvent::Loaded { duration, .. } => {
+                current_duration = Some(*duration);
+                prefetched = false;
+            }
             EngineEvent::PositionChanged(dur) => {
                 current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
+                maybe_prefetch_next_track(cx, dur, current_duration, &mut prefetched);
             }
             EngineEvent::Playing => is_playing.store(true, Ordering::Relaxed),
             EngineEvent::Paused | EngineEvent::TrackEnded => {
@@ -207,4 +221,47 @@ pub async fn run_engine_events_bus(
         cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)))
             .expect("run_engine_events_bus:cx.update")
     }
+}
+
+/// If the next track is known and we're within 5 seconds of the end of the
+/// current one, warm the OS page cache by reading the first 64 KiB of the next
+/// track's file. This eliminates decoder-open latency for gapless transitions,
+/// especially on spinning disks.
+fn maybe_prefetch_next_track(
+    cx: &AsyncApp,
+    position: &Duration,
+    track_duration: Option<Duration>,
+    prefetched: &mut bool,
+) {
+    if *prefetched {
+        return;
+    }
+    let near_end = track_duration
+        .map(|d| d.saturating_sub(*position) <= Duration::from_secs(5))
+        .unwrap_or(false);
+    if !near_end {
+        return;
+    }
+    *prefetched = true;
+
+    let Some(path) = cx
+        .update(|cx| {
+            cx.global::<Services>()
+                .playback_queue
+                .borrow()
+                .peek_next()
+                .map(|t| std::path::PathBuf::from(&t.path))
+        })
+        .ok()
+        .flatten()
+    else {
+        return;
+    };
+
+    std::thread::spawn(move || {
+        if let Ok(mut file) = std::fs::File::open(&path) {
+            let mut buf = [0u8; 65536];
+            let _ = file.read(&mut buf);
+        }
+    });
 }

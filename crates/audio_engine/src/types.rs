@@ -17,7 +17,9 @@ pub enum Command {
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
     },
-    Play,
+    Play {
+        fade_in: bool,
+    },
     Pause,
     Seek(f32),
     Stop,

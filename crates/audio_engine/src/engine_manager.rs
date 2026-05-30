@@ -52,6 +52,10 @@ impl EngineManager {
         self.audio_engine.play();
     }
 
+    pub fn play_gapless(&self) {
+        self.audio_engine.play_gapless();
+    }
+
     pub fn pause(&self) {
         self.audio_engine.pause();
     }

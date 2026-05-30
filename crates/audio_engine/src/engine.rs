@@ -71,7 +71,11 @@ impl AudioEngine {
     }
 
     pub fn play(&self) {
-        self.send_command(Command::Play)
+        self.send_command(Command::Play { fade_in: true })
+    }
+
+    pub fn play_gapless(&self) {
+        self.send_command(Command::Play { fade_in: false })
     }
 
     pub fn seek(&self, point: f32) {
@@ -287,7 +291,7 @@ impl AudioEngineLoop {
 
     fn handle_command(&mut self, command: Command) {
         match command {
-            Command::Play => self.handle_play(),
+            Command::Play { fade_in } => self.handle_play(fade_in),
             Command::Pause => self.handle_pause(),
             Command::Seek(position) => self.handle_seek(position),
             Command::SetLocalTrack {
@@ -465,7 +469,7 @@ impl AudioEngineLoop {
             .send(EngineEvent::PositionChanged(relative));
     }
 
-    fn handle_play(&mut self) {
+    fn handle_play(&mut self, fade_in: bool) {
         match self.state {
             AudioEngineState::Playing => {
                 // Reversal: a pause fade-out is in flight — fade back in instead.
@@ -479,8 +483,10 @@ impl AudioEngineLoop {
                 self.set_state(AudioEngineState::Playing);
                 _ = self.event_sender.send(EngineEvent::Playing);
                 self.output.resume();
-                self.output.begin_fade(Some(0.0), 1.0, FADE_PAUSE_MS);
-                self.fade_intent = FadeIntent::PlayIn;
+                if fade_in {
+                    self.output.begin_fade(Some(0.0), 1.0, FADE_PAUSE_MS);
+                    self.fade_intent = FadeIntent::PlayIn;
+                }
             }
         }
     }

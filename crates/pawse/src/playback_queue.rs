@@ -215,6 +215,25 @@ impl PlaybackQueue {
         self.current_index.is_some()
     }
 
+    /// Like `next_track` but does NOT advance the index — pure peek.
+    pub fn peek_next(&self) -> Option<&Rc<Track>> {
+        let current = self.current_index?;
+
+        if let RepeatMode::One = self.repeat {
+            return self.tracks.get(current);
+        }
+
+        let next = current + 1;
+        if next < self.tracks.len() {
+            return self.tracks.get(next);
+        }
+
+        match self.repeat {
+            RepeatMode::All if !self.tracks.is_empty() => self.tracks.first(),
+            _ => None,
+        }
+    }
+
     pub fn current_index(&self) -> Option<usize> {
         self.current_index
     }

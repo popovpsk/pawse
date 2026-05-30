@@ -58,7 +58,7 @@ impl Footer {
                 let mut queue = services.playback_queue.borrow_mut();
                 if let Some(track) = queue.next_track().cloned() {
                     drop(queue);
-                    services.play_track(&track);
+                    services.play_track_gapless(&track);
                     crate::services::save_playback(cx);
                 } else {
                     drop(queue);
