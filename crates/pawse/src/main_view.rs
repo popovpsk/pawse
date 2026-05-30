@@ -1,8 +1,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
+    AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, FocusHandle,
+    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseUpEvent,
+    ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window,
+    canvas, div, px, svg,
 };
 use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
@@ -13,6 +14,9 @@ use gpui_component::{
 
 use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
+use crate::keyboard_shortcuts::{
+    NextTrack, PreviousTrack, SeekBackward, SeekForward, VolumeDown, VolumeUp,
+};
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::localization::LangChanged;
 use crate::localization::tr;
@@ -70,6 +74,7 @@ pub struct MainView {
     _lang_picker_subscription: gpui::Subscription,
     _settings_observer: gpui::Subscription,
     _lang_subscription: Subscription,
+    focus_handle: FocusHandle,
 }
 
 impl MainView {
@@ -98,13 +103,25 @@ impl MainView {
         let search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr().search_placeholder.clone()));
 
-        let search_subscription = cx.subscribe(&search_input, {
+        let focus_handle = cx.focus_handle();
+        focus_handle.focus(window);
+
+        let search_subscription = cx.subscribe_in(&search_input, window, {
             let library_view = library_view.clone();
-            move |this: &mut MainView, _, ev: &InputEvent, cx| {
-                if let InputEvent::Change = ev {
+            move |this: &mut MainView, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::Change => {
                     let query = this.search_input.read(cx).value().to_string();
                     library_view.update(cx, |v, cx| v.apply_search(&query, cx));
                 }
+                InputEvent::Blur => {
+                    // Only reclaim focus for keyboard shortcuts when nothing
+                    // else took it; otherwise we'd steal focus from a popup or
+                    // picker opened while the search box was focused.
+                    if window.focused(cx).is_none() {
+                        this.focus_handle.focus(window);
+                    }
+                }
+                _ => {}
             }
         });
 
@@ -234,7 +251,25 @@ impl MainView {
             _lang_picker_subscription: lang_picker_subscription,
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
+            focus_handle,
         }
+    }
+
+    /// Returns a listener for a keyboard shortcut action. The handler only
+    /// fires when the main view itself has keyboard focus — if a child text
+    /// Input is focused, the shortcut is suppressed. This is needed because
+    /// GPUI dispatches key bindings on parent key contexts before sending the
+    /// keystroke as a character to the Input's IME handler.
+    fn shortcut_listener<A>(
+        fh: FocusHandle,
+        handler: impl Fn(&mut Self, &A, &mut Window, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&A, &mut Window, &mut gpui::App) + 'static {
+        cx.listener(move |this, action, window, cx| {
+            if fh.is_focused(window) {
+                handler(this, action, window, cx);
+            }
+        })
     }
 
     fn clear_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -242,6 +277,69 @@ impl MainView {
             .update(cx, |s, cx| s.set_value("", window, cx));
         let library_view = self.library_view.clone();
         library_view.update(cx, |v, cx| v.apply_search("", cx));
+        self.focus_handle.focus(window);
+    }
+
+    fn on_seek_forward(&mut self, _: &SeekForward, _: &mut Window, cx: &mut Context<Self>) {
+        self.footer.update(cx, |f, cx| {
+            f.progress().update(cx, |p, cx| p.seek_step(1, cx));
+        });
+    }
+
+    fn on_seek_backward(&mut self, _: &SeekBackward, _: &mut Window, cx: &mut Context<Self>) {
+        self.footer.update(cx, |f, cx| {
+            f.progress().update(cx, |p, cx| p.seek_step(-1, cx));
+        });
+    }
+
+    fn on_next_track(&mut self, _: &NextTrack, _: &mut Window, cx: &mut Context<Self>) {
+        let services = cx.global::<crate::services::Services>();
+        let mut queue = services.playback_queue.borrow_mut();
+        if let Some(track) = queue.next_track().cloned() {
+            drop(queue);
+            services.play_track(&track);
+            crate::services::save_playback(cx);
+        }
+    }
+
+    fn on_previous_track(&mut self, _: &PreviousTrack, _: &mut Window, cx: &mut Context<Self>) {
+        let services = cx.global::<crate::services::Services>();
+        let current_ms = services
+            .current_position_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let current_secs = current_ms as f32 / 1000.0;
+        let mut queue = services.playback_queue.borrow_mut();
+        let track_changed = match queue.previous(current_secs) {
+            crate::playback_queue::PreviousAction::SeekToStart => {
+                drop(queue);
+                services.engine_manager.seek(0.0);
+                services.engine_manager.play();
+                false
+            }
+            crate::playback_queue::PreviousAction::PreviousTrack(track) => {
+                let track = track.clone();
+                drop(queue);
+                services.play_track(&track);
+                true
+            }
+        };
+        if track_changed {
+            crate::services::save_playback(cx);
+        }
+    }
+
+    fn on_volume_up(&mut self, _: &VolumeUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.footer.update(cx, |f, cx| {
+            f.volume()
+                .update(cx, |v, cx| v.nudge(crate::volume::VOLUME_STEP, cx));
+        });
+    }
+
+    fn on_volume_down(&mut self, _: &VolumeDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.footer.update(cx, |f, cx| {
+            f.volume()
+                .update(cx, |v, cx| v.nudge(-crate::volume::VOLUME_STEP, cx));
+        });
     }
 }
 
@@ -342,6 +440,59 @@ impl Render for MainView {
             .size_full()
             .relative()
             .overflow_hidden()
+            .key_context(crate::keyboard_shortcuts::CONTEXT)
+            .track_focus(&self.focus_handle)
+            .on_action(Self::shortcut_listener(
+                self.focus_handle.clone(),
+                Self::on_seek_forward,
+                cx,
+            ))
+            .on_action(Self::shortcut_listener(
+                self.focus_handle.clone(),
+                Self::on_seek_backward,
+                cx,
+            ))
+            .on_action(Self::shortcut_listener(
+                self.focus_handle.clone(),
+                Self::on_next_track,
+                cx,
+            ))
+            .on_action(Self::shortcut_listener(
+                self.focus_handle.clone(),
+                Self::on_previous_track,
+                cx,
+            ))
+            .on_action(Self::shortcut_listener(
+                self.focus_handle.clone(),
+                Self::on_volume_up,
+                cx,
+            ))
+            .on_action(Self::shortcut_listener(
+                self.focus_handle.clone(),
+                Self::on_volume_down,
+                cx,
+            ))
+            .on_key_down({
+                let fh = self.focus_handle.clone();
+                move |ev: &KeyDownEvent, window, cx| {
+                    if ev.keystroke.key.as_str() == "space" && fh.is_focused(window) {
+                        let services = cx.global::<crate::services::Services>();
+                        // Don't flip the is_playing mirror with no track loaded:
+                        // play() would emit no event, leaving it stuck true.
+                        if services.playback_queue.borrow().current_track().is_none() {
+                            return;
+                        }
+                        let was_playing = services
+                            .is_playing
+                            .fetch_xor(true, std::sync::atomic::Ordering::Relaxed);
+                        if was_playing {
+                            services.engine_manager.pause();
+                        } else {
+                            services.engine_manager.play();
+                        }
+                    }
+                }
+            })
             .on_drag_move(
                 cx.listener(move |this, e: &DragMoveEvent<DragQueueResize>, _, cx| {
                     if e.drag(cx).0 != entity_id {

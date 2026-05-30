@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use audio_engine::EngineEvent;
 use gpui::SharedString;
 use gpui::{
@@ -11,6 +13,8 @@ use ui_components::slider::{Slider, SliderEvent};
 
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
+
+const SEEK_RESET: Duration = Duration::from_secs(3);
 
 const SLIDER_MIN_W: f32 = 250.0;
 const SLIDER_MAX_W: f32 = 400.0;
@@ -30,6 +34,10 @@ pub struct TrackProgressSlider {
     _engine_subscription: Subscription,
     _slider_subscription: Subscription,
     _settings_subscription: Subscription,
+    seek_count: u32,
+    last_seek_press: Option<Instant>,
+    last_seek_dir: i32,
+    seek_target_secs: f32,
 }
 
 impl Render for TrackProgressSlider {
@@ -99,6 +107,10 @@ impl TrackProgressSlider {
                         this.duration_str = Self::format_time(this.duration_secs).into();
                         this.current_position_secs = 0.0;
                         this.has_track = true;
+                        this.seek_count = 0;
+                        this.seek_target_secs = 0.0;
+                        this.last_seek_press = None;
+                        this.last_seek_dir = 0;
                         let duration_secs = this.duration_secs;
                         this.slider.update(cx, |slider, cx| {
                             slider.set_value_silent(0.0, cx);
@@ -163,6 +175,10 @@ impl TrackProgressSlider {
             _engine_subscription: subscription,
             _slider_subscription: slider_subscription,
             _settings_subscription: settings_subscription,
+            seek_count: 0,
+            last_seek_press: None,
+            last_seek_dir: 0,
+            seek_target_secs: 0.0,
         }
     }
 
@@ -170,5 +186,40 @@ impl TrackProgressSlider {
         let mins = (secs / 60.0) as u32;
         let secs = (secs % 60.0) as u32;
         format!("{:02}:{:02}", mins, secs)
+    }
+
+    pub fn seek_step(&mut self, dir: i32, cx: &mut Context<Self>) {
+        if !self.has_track || self.duration_secs <= 0.0 {
+            return;
+        }
+        let now = Instant::now();
+        let within = self
+            .last_seek_press
+            .is_some_and(|t| now.duration_since(t) < SEEK_RESET);
+        // base position: accumulated target while in-window, else live position
+        let base = if within {
+            self.seek_target_secs
+        } else {
+            self.current_position_secs
+        };
+        if within && dir == self.last_seek_dir {
+            self.seek_count += 1;
+        } else {
+            self.seek_count = 1;
+        }
+        let step = match self.seek_count {
+            1..=3 => 5.0,
+            4 => 10.0,
+            _ => 15.0,
+        };
+        let target = (base + dir as f32 * step).clamp(0.0, self.duration_secs);
+        self.seek_target_secs = target;
+        self.last_seek_press = Some(now);
+        self.last_seek_dir = dir;
+        let frac = (target / self.duration_secs).clamp(0.0, 1.0);
+        self.current_position_secs = target;
+        self.slider.update(cx, |s, cx| s.set_value_silent(frac, cx));
+        cx.global::<Services>().engine_manager.seek(frac);
+        cx.notify();
     }
 }

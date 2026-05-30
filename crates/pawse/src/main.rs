@@ -13,6 +13,7 @@ pub mod app_menu;
 pub mod audio_settings;
 pub mod cover_art_cache;
 pub mod footer;
+pub mod keyboard_shortcuts;
 pub mod library_service;
 pub mod library_views;
 pub mod localization;
@@ -80,6 +81,7 @@ fn main() {
     app.run(move |cx| {
         gpui_component::init(cx);
         crate::playlist_popup::init(cx);
+        crate::keyboard_shortcuts::init(cx);
 
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);

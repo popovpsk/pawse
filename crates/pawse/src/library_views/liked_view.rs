@@ -111,20 +111,17 @@ impl LikedView {
         let library_subscription = cx.subscribe(
             &library_event_bus,
             |this, _, event: &LibraryEvent, cx| match event {
-                LibraryEvent::ScanComplete { changed } => {
-                    if *changed {
-                        let services = cx.global::<Services>();
-                        this.tracks_all = services
-                            .library
-                            .liked_tracks()
-                            .into_iter()
-                            .map(Rc::new)
-                            .collect();
-                        this.artist_by_track =
-                            build_artist_map(&services.library, &this.tracks_all);
-                        this.recompute_visible(cx);
-                        cx.notify();
-                    }
+                LibraryEvent::ScanComplete { changed } if *changed => {
+                    let services = cx.global::<Services>();
+                    this.tracks_all = services
+                        .library
+                        .liked_tracks()
+                        .into_iter()
+                        .map(Rc::new)
+                        .collect();
+                    this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
+                    this.recompute_visible(cx);
+                    cx.notify();
                 }
                 LibraryEvent::TrackLikedChanged { track_id, liked } => {
                     if *liked {

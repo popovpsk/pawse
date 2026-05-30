@@ -10,6 +10,9 @@ use ui_components::slider::{Slider, SliderEvent};
 
 use crate::localization::tr;
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
+
+pub const VOLUME_STEP: f32 = 0.05;
 
 pub struct Volume {
     slider: Entity<Slider>,
@@ -133,6 +136,25 @@ impl Volume {
             .global_mut::<crate::settings_store::SettingsStore>()
             .set_volume(new_volume)
         {
+            crate::settings_store::notify_save_error(cx, e);
+        }
+        cx.notify();
+    }
+
+    pub fn nudge(&mut self, delta: f32, cx: &mut Context<Self>) {
+        if cx.global::<Services>().output.is_exclusive() {
+            return;
+        }
+        let new = (self.volume + delta).clamp(0.0, 1.0);
+        self.volume = new;
+        self.is_muted = new <= 0.0;
+        if new > 0.0 {
+            self.volume_before_mute = new;
+        }
+        cx.global::<Services>().output.set_volume(new);
+        self.slider
+            .update(cx, |slider, cx| slider.set_value_silent(new, cx));
+        if let Err(e) = cx.global_mut::<SettingsStore>().set_volume(new) {
             crate::settings_store::notify_save_error(cx, e);
         }
         cx.notify();

@@ -44,6 +44,16 @@ pub struct Footer {
     _np_artist_subscription: Subscription,
 }
 
+impl Footer {
+    pub fn volume(&self) -> &Entity<Volume> {
+        &self.volume_slider
+    }
+
+    pub fn progress(&self) -> &Entity<TrackProgressSlider> {
+        &self.track_progress_slider
+    }
+}
+
 impl EventEmitter<ToggleQueueEvent> for Footer {}
 impl EventEmitter<NavigateToAlbumRequested> for Footer {}
 impl EventEmitter<NavigateToArtistRequested> for Footer {}
