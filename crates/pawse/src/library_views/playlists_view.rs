@@ -62,10 +62,12 @@ impl PlaylistsView {
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if matches!(
-                    event,
-                    LibraryEvent::PlaylistsChanged | LibraryEvent::ScanComplete
-                ) {
+                let refresh = match event {
+                    LibraryEvent::PlaylistsChanged => true,
+                    LibraryEvent::ScanComplete { changed } => *changed,
+                    _ => false,
+                };
+                if refresh {
                     let services = cx.global::<Services>();
                     this.playlists_all = services.library.playlists();
                     this.recompute_visible();

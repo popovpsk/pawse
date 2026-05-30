@@ -100,11 +100,12 @@ impl PlaylistPopup {
         let popup_bus = services.playlist_popup_bus.clone();
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if matches!(
-                    event,
-                    LibraryEvent::PlaylistsChanged | LibraryEvent::ScanComplete
-                ) && this.open
-                {
+                let refresh = match event {
+                    LibraryEvent::PlaylistsChanged => true,
+                    LibraryEvent::ScanComplete { changed } => *changed,
+                    _ => false,
+                };
+                if refresh && this.open {
                     this.refresh_lists(cx);
                     cx.notify();
                 }

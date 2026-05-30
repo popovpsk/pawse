@@ -1,12 +1,14 @@
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
-    Context, ElementId, EventEmitter, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Render, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
-    px, size,
+    Context, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
+    StyledImage, Subscription, Window, div, img, px, size,
 };
 use gpui_component::{VirtualListScrollHandle, button::Button, h_flex, v_flex, v_virtual_list};
 
+use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -27,14 +29,55 @@ pub struct AlbumSelectedEvent {
 #[derive(Clone, Debug)]
 pub struct AddMusicFolderRequested;
 
+enum AlbumItem {
+    TopPadding,
+    Album(usize),
+}
+
+struct AlbumRowData {
+    albums_all_ix: usize,
+    id: i64,
+    display_text: SharedString,
+    cover: Option<Arc<Image>>,
+}
+
+impl AlbumRowData {
+    fn from_album(
+        album: &music_library::AlbumSummary,
+        albums_all_ix: usize,
+        cover_cache: &mut CoverArtCache,
+        library: &crate::library_service::LibraryService,
+    ) -> Self {
+        let year_str = album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
+        let display_text: SharedString =
+            format!("{}{} - {}", album.artist_name, year_str, album.title).into();
+        Self {
+            albums_all_ix,
+            id: album.id,
+            display_text,
+            cover: cover_cache.get_small(album.cover_art_id, library),
+        }
+    }
+}
+
+struct AlbumRowParams {
+    border: Hsla,
+    list_hover: Hsla,
+    muted: Hsla,
+    muted_fg: Hsla,
+}
+
 const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
+const COVER_SIZE: f32 = 32.;
+const COVER_RADIUS: f32 = 4.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 pub struct AlbumsView {
     albums_all: Vec<music_library::AlbumSummary>,
     search_entries: Vec<music_library::AlbumSearchEntry>,
-    albums: Vec<music_library::AlbumSummary>,
+    row_data: Vec<AlbumRowData>,
+    items: Vec<AlbumItem>,
     filter: String,
     matcher: Matcher,
     is_scanning: bool,
@@ -52,8 +95,15 @@ impl AlbumsView {
 
         let albums_all = library.albums();
         let search_entries = library.album_search_entries();
-        let albums = albums_all.clone();
-        let item_sizes = Self::make_item_sizes(&albums);
+        let (items, item_sizes) = Self::build_items(albums_all.len());
+        let row_data = {
+            let mut cover_cache = services.cover_art_cache.borrow_mut();
+            albums_all
+                .iter()
+                .enumerate()
+                .map(|(ix, album)| AlbumRowData::from_album(album, ix, &mut cover_cache, &library))
+                .collect()
+        };
         let is_scanning = false;
 
         let subscription =
@@ -64,19 +114,15 @@ impl AlbumsView {
                         this.is_scanning = true;
                         cx.notify();
                     }
-                    LibraryEvent::ScanComplete => {
+                    LibraryEvent::ScanComplete { changed } => {
                         this.is_scanning = false;
-                        let services = cx.global::<Services>();
-                        services.cover_art_cache.borrow_mut().clear();
-                        this.albums_all = services.library.albums();
-                        this.search_entries = services.library.album_search_entries();
-                        {
-                            let mut cache = services.cover_art_cache.borrow_mut();
-                            for album in &this.albums_all {
-                                cache.get_small(album.cover_art_id, &services.library);
-                            }
+                        if *changed {
+                            let services = cx.global::<Services>();
+                            services.cover_art_cache.borrow_mut().clear();
+                            this.albums_all = services.library.albums();
+                            this.search_entries = services.library.album_search_entries();
+                            this.recompute_visible(cx);
                         }
-                        this.recompute_visible();
                         cx.notify();
                     }
                     _ => {}
@@ -84,33 +130,32 @@ impl AlbumsView {
             );
 
         let settings_observer = cx.observe_global::<SettingsStore>(|_, cx| {
-            // Re-render when the music-folder list changes so the empty-state
-            // UI flips between "no folders configured" and the regular albums
-            // list as the user adds/removes folders in Settings.
             cx.notify();
         });
 
         Self {
             albums_all,
             search_entries,
-            albums,
+            row_data,
+            items,
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             is_scanning,
-            item_sizes,
+            item_sizes: Rc::new(item_sizes),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _settings_observer: settings_observer,
         }
     }
 
-    fn make_item_sizes(albums: &[music_library::AlbumSummary]) -> Rc<Vec<Size<Pixels>>> {
-        let mut sizes = vec![size(px(300.), px(TOP_PADDING))];
-        sizes.extend(vec![
-            size(px(300.), px(ALBUM_ROW_HEIGHT + 1.));
-            albums.len()
-        ]);
-        Rc::new(sizes)
+    fn build_items(count: usize) -> (Vec<AlbumItem>, Vec<Size<Pixels>>) {
+        let mut items = vec![AlbumItem::TopPadding];
+        let mut sizes = vec![size(px(0.), px(TOP_PADDING))];
+        for ix in 0..count {
+            items.push(AlbumItem::Album(ix));
+            sizes.push(size(px(0.), px(ALBUM_ROW_HEIGHT + 1.)));
+        }
+        (items, sizes)
     }
 
     pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
@@ -119,15 +164,24 @@ impl AlbumsView {
             return;
         }
         self.filter = trimmed;
-        self.recompute_visible();
+        self.recompute_visible(cx);
         self.scroll_handle
             .scroll_to_item(0, gpui::ScrollStrategy::Top);
         cx.notify();
     }
 
-    fn recompute_visible(&mut self) {
+    fn recompute_visible(&mut self, cx: &mut Context<Self>) {
+        let services = cx.global::<Services>();
+        let mut cover_cache = services.cover_art_cache.borrow_mut();
+        let library = &services.library;
+
         if self.filter.is_empty() {
-            self.albums = self.albums_all.clone();
+            self.row_data = self
+                .albums_all
+                .iter()
+                .enumerate()
+                .map(|(ix, album)| AlbumRowData::from_album(album, ix, &mut cover_cache, library))
+                .collect();
         } else {
             let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
             let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
@@ -145,14 +199,29 @@ impl AlbumsView {
                 .collect();
             scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
 
-            let by_id: std::collections::HashMap<i64, &music_library::AlbumSummary> =
-                self.albums_all.iter().map(|a| (a.id, a)).collect();
-            self.albums = scored
+            let id_to_ix: std::collections::HashMap<i64, usize> = self
+                .albums_all
+                .iter()
+                .enumerate()
+                .map(|(ix, a)| (a.id, ix))
+                .collect();
+
+            self.row_data = scored
                 .into_iter()
-                .filter_map(|(id, _)| by_id.get(&id).map(|a| (*a).clone()))
+                .filter_map(|(id, _)| {
+                    let ix = id_to_ix.get(&id)?;
+                    Some(AlbumRowData::from_album(
+                        &self.albums_all[*ix],
+                        *ix,
+                        &mut cover_cache,
+                        library,
+                    ))
+                })
                 .collect();
         }
-        self.item_sizes = Self::make_item_sizes(&self.albums);
+        let (items, sizes) = Self::build_items(self.row_data.len());
+        self.items = items;
+        self.item_sizes = Rc::new(sizes);
     }
 }
 
@@ -162,7 +231,7 @@ impl EventEmitter<AddMusicFolderRequested> for AlbumsView {}
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let border = Colors::panel_border(cx);
-        let secondary = Colors::cover_fallback_bg(cx);
+        let muted = Colors::cover_fallback_bg(cx);
         let list_hover = Colors::list_row_hover_bg(cx);
         let muted_fg = Colors::text_secondary(cx);
 
@@ -172,7 +241,7 @@ impl Render for AlbumsView {
                 .child(div().px_4().child(tr().scanning.clone()));
         }
 
-        if self.albums.is_empty() {
+        if self.row_data.is_empty() {
             let no_folders = cx.global::<SettingsStore>().music_folders().is_empty();
             if self.albums_all.is_empty() && no_folders {
                 return v_flex()
@@ -206,6 +275,12 @@ impl Render for AlbumsView {
                 .child(div().px_4().child(message));
         }
 
+        let params = AlbumRowParams {
+            border,
+            list_hover,
+            muted,
+            muted_fg,
+        };
         let item_sizes = self.item_sizes.clone();
         v_flex().size_full().child(
             v_virtual_list(
@@ -214,67 +289,11 @@ impl Render for AlbumsView {
                 item_sizes,
                 move |view, visible_range, _window, cx| {
                     visible_range
-                        .map(|ix| {
-                            if ix == 0 {
-                                return div().w_full().h(px(TOP_PADDING)).into_any_element();
+                        .map(|ix| match view.items[ix] {
+                            AlbumItem::TopPadding => {
+                                div().w_full().h(px(TOP_PADDING)).into_any_element()
                             }
-                            let album = &view.albums[ix - 1];
-                            let album = album.clone();
-                            let year_str =
-                                album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
-
-                            div()
-                                .w_full()
-                                .h(px(ALBUM_ROW_HEIGHT))
-                                .px_4()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .border_b(px(1.))
-                                .border_color(border)
-                                .hover(|style| style.bg(list_hover))
-                                .child({
-                                    let fallback_bg = secondary;
-                                    let fallback_fg = muted_fg;
-                                    let cover: gpui::AnyElement = {
-                                        let services = cx.global::<Services>();
-                                        let cover_img = services
-                                            .cover_art_cache
-                                            .borrow_mut()
-                                            .get_small(album.cover_art_id, &services.library);
-                                        if let Some(cover_img) = cover_img {
-                                            img(cover_img)
-                                                .w(px(32.))
-                                                .h(px(32.))
-                                                .rounded(px(4.))
-                                                .object_fit(gpui::ObjectFit::Cover)
-                                                .with_fallback({
-                                                    let bg = fallback_bg;
-                                                    let fg = fallback_fg;
-                                                    move || {
-                                                        cover_placeholder(32., 4., bg, fg)
-                                                            .into_any_element()
-                                                    }
-                                                })
-                                                .into_any_element()
-                                        } else {
-                                            cover_placeholder(32., 4., fallback_bg, fallback_fg)
-                                                .into_any_element()
-                                        }
-                                    };
-                                    cover
-                                })
-                                .child(div().flex_1().overflow_hidden().truncate().child(format!(
-                                    "{}{} - {}",
-                                    album.artist_name, year_str, album.title
-                                )))
-                                .id(ElementId::Integer(album.id as u64))
-                                .on_click(cx.listener(move |_this, _, _, _cx| {
-                                    _cx.emit(AlbumSelectedEvent {
-                                        album: album.clone(),
-                                    });
-                                }))
-                                .into_any_element()
+                            AlbumItem::Album(row_ix) => album_row(view, row_ix, &params, cx),
                         })
                         .collect::<Vec<_>>()
                 },
@@ -283,4 +302,57 @@ impl Render for AlbumsView {
             .flex_1(),
         )
     }
+}
+
+fn album_row(
+    view: &mut AlbumsView,
+    row_ix: usize,
+    p: &AlbumRowParams,
+    cx: &mut Context<AlbumsView>,
+) -> gpui::AnyElement {
+    let row = &view.row_data[row_ix];
+    let albums_all_ix = row.albums_all_ix;
+
+    let cover_el: gpui::AnyElement = if let Some(ref cover_img) = row.cover {
+        img(cover_img.clone())
+            .w(px(COVER_SIZE))
+            .h(px(COVER_SIZE))
+            .rounded(px(COVER_RADIUS))
+            .object_fit(ObjectFit::Cover)
+            .with_fallback({
+                let bg = p.muted;
+                let fg = p.muted_fg;
+                move || cover_placeholder(COVER_SIZE, COVER_RADIUS, bg, fg).into_any_element()
+            })
+            .into_any_element()
+    } else {
+        cover_placeholder(COVER_SIZE, COVER_RADIUS, p.muted, p.muted_fg).into_any_element()
+    };
+
+    div()
+        .w_full()
+        .h(px(ALBUM_ROW_HEIGHT))
+        .px_4()
+        .flex()
+        .items_center()
+        .gap_2()
+        .border_b(px(1.))
+        .border_color(p.border)
+        .hover(|style| style.bg(p.list_hover))
+        .child(cover_el)
+        .child(
+            div()
+                .flex_1()
+                .overflow_hidden()
+                .truncate()
+                .text_sm()
+                .child(row.display_text.clone()),
+        )
+        .id(ElementId::Integer(row.id as u64))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            cx.emit(AlbumSelectedEvent {
+                album: this.albums_all[albums_all_ix].clone(),
+            });
+        }))
+        .into_any_element()
 }

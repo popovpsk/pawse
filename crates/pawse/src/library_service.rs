@@ -8,11 +8,21 @@ use music_library::{LibraryRepository, PlaylistTrackRef, ScanTrack, SqliteLibrar
 #[derive(Clone, Debug)]
 pub enum LibraryEvent {
     ScanStarted,
-    ScanProgress { scanned: usize },
-    ScanComplete,
-    TrackLikedChanged { track_id: i64, liked: bool },
+    ScanProgress {
+        scanned: usize,
+    },
+    /// `changed` is false on the fast path (library unchanged, no DB work).
+    ScanComplete {
+        changed: bool,
+    },
+    TrackLikedChanged {
+        track_id: i64,
+        liked: bool,
+    },
     PlaylistsChanged,
-    PlaylistTracksChanged { playlist_id: i64 },
+    PlaylistTracksChanged {
+        playlist_id: i64,
+    },
     QueueChanged,
 }
 
@@ -193,7 +203,7 @@ impl LibraryService {
                 && matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
                 && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
             if unchanged {
-                let _ = event_tx.send(LibraryEvent::ScanComplete);
+                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
                 return;
             }
             let fingerprint = sources.fingerprint.clone();
@@ -218,13 +228,13 @@ impl LibraryService {
                 Ok(session) => session,
                 Err(e) => {
                     eprintln!("Failed to open scan session: {}", e);
-                    let _ = event_tx.send(LibraryEvent::ScanComplete);
+                    let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
                     return;
                 }
             };
             if let Err(e) = session.clear() {
                 eprintln!("Failed to clear library: {}", e);
-                let _ = event_tx.send(LibraryEvent::ScanComplete);
+                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
                 return;
             }
 
@@ -235,7 +245,7 @@ impl LibraryService {
                     }
                     Err(e) => eprintln!("Failed to finish scan session: {}", e),
                 }
-                let _ = event_tx.send(LibraryEvent::ScanComplete);
+                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
                 return;
             }
 
@@ -279,7 +289,7 @@ impl LibraryService {
                 }
                 Err(e) => eprintln!("Failed to finish scan session: {}", e),
             }
-            let _ = event_tx.send(LibraryEvent::ScanComplete);
+            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
         });
     }
 }

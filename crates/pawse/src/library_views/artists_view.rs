@@ -101,14 +101,16 @@ impl ArtistsView {
                         this.is_scanning = true;
                         cx.notify();
                     }
-                    LibraryEvent::ScanComplete => {
+                    LibraryEvent::ScanComplete { changed } => {
                         this.is_scanning = false;
-                        {
-                            let services = cx.global::<Services>();
-                            this.artists_all = services.library.artists();
-                            this.cover_ids = services.library.artist_album_covers();
+                        if *changed {
+                            {
+                                let services = cx.global::<Services>();
+                                this.artists_all = services.library.artists();
+                                this.cover_ids = services.library.artist_album_covers();
+                            }
+                            this.recompute_visible(cx);
                         }
-                        this.recompute_visible(cx);
                         cx.notify();
                     }
                     _ => {}

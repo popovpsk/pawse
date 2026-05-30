@@ -1,4 +1,5 @@
 use audio_engine::EngineEvent;
+use gpui::SharedString;
 use gpui::{
     AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div,
     prelude::FluentBuilder, px,
@@ -21,6 +22,7 @@ const LABELS_W: f32 = 104.0;
 
 pub struct TrackProgressSlider {
     duration_secs: f32,
+    duration_str: SharedString,
     current_position_secs: f32,
     has_track: bool,
     show_labels: bool,
@@ -36,6 +38,7 @@ impl Render for TrackProgressSlider {
         let viewport_w = f32::from(window.viewport_size().width);
         let labels_w = if show_labels { LABELS_W } else { 0.0 };
         let slider_w = (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W);
+        let text_secondary = Colors::text_secondary(cx);
         h_flex()
             .gap_3()
             .items_center()
@@ -46,7 +49,7 @@ impl Render for TrackProgressSlider {
                     div()
                         .w(px(40.))
                         .text_xs()
-                        .text_color(Colors::text_secondary(cx))
+                        .text_color(text_secondary)
                         .text_right()
                         .child(Self::format_time(self.current_position_secs)),
                 )
@@ -57,8 +60,8 @@ impl Render for TrackProgressSlider {
                     div()
                         .w(px(40.))
                         .text_xs()
-                        .text_color(Colors::text_secondary(cx))
-                        .child(Self::format_time(self.duration_secs)),
+                        .text_color(text_secondary)
+                        .child(self.duration_str.clone()),
                 )
             })
     }
@@ -93,6 +96,7 @@ impl TrackProgressSlider {
                 |this, _, event: &EngineEvent, cx| match event {
                     EngineEvent::Loaded { duration, .. } => {
                         this.duration_secs = duration.as_secs_f32();
+                        this.duration_str = Self::format_time(this.duration_secs).into();
                         this.current_position_secs = 0.0;
                         this.has_track = true;
                         let duration_secs = this.duration_secs;
@@ -128,6 +132,7 @@ impl TrackProgressSlider {
                         this.has_track = false;
                         this.current_position_secs = 0.0;
                         this.duration_secs = 0.0;
+                        this.duration_str = "".into();
                         this.slider.update(cx, |slider, cx| {
                             slider.set_value_silent(0.0, cx);
                             slider.set_disabled(true, cx);
@@ -150,6 +155,7 @@ impl TrackProgressSlider {
 
         Self {
             duration_secs: 0.0,
+            duration_str: "".into(),
             current_position_secs: 0.0,
             has_track: false,
             show_labels,

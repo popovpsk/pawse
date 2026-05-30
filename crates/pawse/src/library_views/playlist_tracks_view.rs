@@ -136,17 +136,20 @@ impl PlaylistTracksView {
                     this.recompute_visible(cx);
                     cx.notify();
                 }
-                LibraryEvent::ScanComplete => {
-                    let services = cx.global::<Services>();
-                    this.tracks_all = services
-                        .library
-                        .tracks_for_playlist(playlist_id)
-                        .into_iter()
-                        .map(Rc::new)
-                        .collect();
-                    this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
-                    this.recompute_visible(cx);
-                    cx.notify();
+                LibraryEvent::ScanComplete { changed } => {
+                    if *changed {
+                        let services = cx.global::<Services>();
+                        this.tracks_all = services
+                            .library
+                            .tracks_for_playlist(playlist_id)
+                            .into_iter()
+                            .map(Rc::new)
+                            .collect();
+                        this.artist_by_track =
+                            build_artist_map(&services.library, &this.tracks_all);
+                        this.recompute_visible(cx);
+                        cx.notify();
+                    }
                 }
                 LibraryEvent::TrackLikedChanged { track_id, liked } => {
                     let mut changed = false;
