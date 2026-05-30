@@ -6,6 +6,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex};
 
+use crate::library_service::LibraryEvent;
 use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 use ui_components::fade::{FadeEdge, fade_overlay};
@@ -29,6 +30,7 @@ pub struct NowPlaying {
     cover_art_id: Option<i64>,
     specs: SharedString,
     _subscription: Subscription,
+    _library_subscription: Subscription,
 }
 
 fn format_specs(sample_rate: Option<u32>, bit_depth: Option<u8>, bitrate: Option<u32>) -> String {
@@ -77,6 +79,19 @@ impl NowPlaying {
                 },
             );
 
+        let library_event_bus = cx.global::<Services>().library_event_bus.clone();
+        let library_subscription =
+            cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
+                if let LibraryEvent::ScanComplete { changed: true } = event {
+                    let (sample_rate, bit_depth) = cx
+                        .global::<Services>()
+                        .output
+                        .source_format()
+                        .map_or((None, None), |(sr, bd)| (Some(sr), Some(bd)));
+                    this.populate_current(sample_rate, bit_depth, cx);
+                }
+            });
+
         let mut this = Self {
             track_title: String::new(),
             artists: Vec::new(),
@@ -84,6 +99,7 @@ impl NowPlaying {
             cover_art_id: None,
             specs: SharedString::default(),
             _subscription: subscription,
+            _library_subscription: library_subscription,
         };
 
         let (sample_rate, bit_depth) = cx

@@ -795,6 +795,31 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Result<Vec<Track>> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut paths: Vec<&str> = keys.iter().map(|(p, _)| p.as_str()).collect();
+        paths.sort_unstable();
+        paths.dedup();
+        let mut out = Vec::new();
+        for chunk in paths.chunks(512) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!("SELECT {TRACK_COLUMNS} FROM tracks WHERE path IN ({placeholders})");
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::ToSql> =
+                chunk.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+            let rows = stmt.query_map(params.as_slice(), map_track_row)?;
+            for row in rows {
+                out.push(row.map_err(LibraryError::Database)?);
+            }
+        }
+        Ok(out)
+    }
+
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt =

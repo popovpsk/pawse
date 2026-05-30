@@ -58,6 +58,9 @@ impl Services {
                     if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
                         sync_queue_with_playlist(*playlist_id, cx);
                     }
+                    if let LibraryEvent::ScanComplete { changed: true } = &event {
+                        remap_queue_after_rescan(cx);
+                    }
                     if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
                         cx.global::<Services>()
                             .playback_queue
@@ -171,6 +174,42 @@ fn advance_on_track_end(cx: &mut App) {
         services.play_track_gapless(&track);
         save_playback(cx);
     }
+}
+
+fn remap_queue_after_rescan(cx: &mut App) {
+    let services = cx.global::<Services>().clone();
+    let keys: Vec<(String, i32)> = {
+        let queue = services.playback_queue.borrow();
+        if queue.is_empty() {
+            return;
+        }
+        let mut keys: Vec<(String, i32)> = queue
+            .tracks_vec()
+            .iter()
+            .map(|t| (t.path.clone(), t.start_offset_ms))
+            .collect();
+        if let Some(orig) = queue.original_order_vec() {
+            keys.extend(orig.iter().map(|t| (t.path.clone(), t.start_offset_ms)));
+        }
+        keys
+    };
+
+    let fresh: std::collections::HashMap<(String, i32), Rc<Track>> = services
+        .library
+        .tracks_by_keys(&keys)
+        .into_iter()
+        .map(|t| ((t.path.clone(), t.start_offset_ms), Rc::new(t)))
+        .collect();
+
+    if fresh.is_empty() {
+        return;
+    }
+
+    services
+        .playback_queue
+        .borrow_mut()
+        .remap_to_fresh_tracks(&fresh);
+    save_playback(cx);
 }
 
 pub fn save_playback(cx: &mut App) {

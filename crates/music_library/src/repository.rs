@@ -68,6 +68,8 @@ pub trait LibraryRepository: Send + Sync {
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>>;
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>>;
 
+    fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Result<Vec<Track>>;
+
     /// Capture every `playlist_tracks` row by content key (path +
     /// start_offset_ms) instead of by `track_id`. Survives a `clear()` where
     /// tracks get fresh ids on the next scan.

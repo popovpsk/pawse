@@ -138,6 +138,40 @@ impl PlaybackQueue {
         }
     }
 
+    pub fn remap_to_fresh_tracks(
+        &mut self,
+        fresh: &std::collections::HashMap<(String, i32), Rc<Track>>,
+    ) {
+        let current_key = self
+            .current_index
+            .and_then(|i| self.tracks.get(i))
+            .map(|t| (t.path.clone(), t.start_offset_ms));
+
+        let remap = |list: &[Rc<Track>]| -> Vec<Rc<Track>> {
+            list.iter()
+                .filter_map(|old| {
+                    let key = (old.path.clone(), old.start_offset_ms);
+                    match fresh.get(&key) {
+                        Some(new) => Some(new.clone()),
+                        None if Some(&key) == current_key.as_ref() => Some(old.clone()),
+                        None => None,
+                    }
+                })
+                .collect()
+        };
+
+        self.tracks = remap(&self.tracks);
+        if let Some(orig) = self.original_order.as_ref() {
+            self.original_order = Some(remap(orig));
+        }
+
+        self.current_index = current_key.and_then(|(path, off)| {
+            self.tracks
+                .iter()
+                .position(|t| t.path == path && t.start_offset_ms == off)
+        });
+    }
+
     pub fn len(&self) -> usize {
         self.tracks.len()
     }
@@ -433,6 +467,19 @@ mod tests {
         })
     }
 
+    fn track_off(id: i64, path: &str, start_offset_ms: i32) -> Rc<Track> {
+        let mut t = track(id, path);
+        Rc::make_mut(&mut t).start_offset_ms = start_offset_ms;
+        t
+    }
+
+    fn fresh_map(tracks: &[Rc<Track>]) -> std::collections::HashMap<(String, i32), Rc<Track>> {
+        tracks
+            .iter()
+            .map(|t| ((t.path.clone(), t.start_offset_ms), t.clone()))
+            .collect()
+    }
+
     fn sample_tracks(n: usize) -> Vec<Rc<Track>> {
         (0..n)
             .map(|i| track(i as i64, &format!("/p/{}.flac", i)))
@@ -532,6 +579,89 @@ mod tests {
         q.set_shuffle(false);
         let restored: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
         assert_eq!(restored, (10..20).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn remap_assigns_fresh_ids_and_preserves_order_and_current() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(4));
+        q.play_track_at(2);
+        let refreshed: Vec<Rc<Track>> = (0..4)
+            .map(|i| track(100 + i, &format!("/p/{}.flac", i)))
+            .collect();
+        q.remap_to_fresh_tracks(&fresh_map(&refreshed));
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![100, 101, 102, 103]);
+        assert_eq!(q.current_track().map(|t| t.id), Some(102));
+        assert_eq!(q.current_index(), Some(2));
+    }
+
+    #[test]
+    fn remap_drops_non_current_tracks_whose_folder_was_removed() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(4));
+        q.play_track_at(2);
+        let refreshed = vec![track(102, "/p/2.flac"), track(103, "/p/3.flac")];
+        q.remap_to_fresh_tracks(&fresh_map(&refreshed));
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![102, 103]);
+        assert_eq!(q.current_track().map(|t| t.id), Some(102));
+        assert_eq!(q.current_index(), Some(0));
+    }
+
+    #[test]
+    fn remap_keeps_current_track_when_its_folder_removed() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.play_track_at(1);
+        let refreshed = vec![track(100, "/p/0.flac"), track(102, "/p/2.flac")];
+        q.remap_to_fresh_tracks(&fresh_map(&refreshed));
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![100, 1, 102]);
+        assert_eq!(q.current_track().map(|t| t.id), Some(1));
+        assert_eq!(q.current_index(), Some(1));
+    }
+
+    #[test]
+    fn remap_with_shuffle_remaps_both_orders() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(6));
+        q.play_track_at(0);
+        q.set_shuffle(true);
+        let refreshed: Vec<Rc<Track>> = (0..6)
+            .map(|i| track(200 + i, &format!("/p/{}.flac", i)))
+            .collect();
+        q.remap_to_fresh_tracks(&fresh_map(&refreshed));
+        assert!(q.tracks_vec().iter().all(|t| t.id >= 200));
+        q.set_shuffle(false);
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, (200..206).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn remap_empty_queue_is_noop() {
+        let mut q = PlaybackQueue::new();
+        q.remap_to_fresh_tracks(&fresh_map(&[]));
+        assert!(q.is_empty());
+        assert_eq!(q.current_index(), None);
+    }
+
+    #[test]
+    fn remap_cue_tracks_sharing_path_match_by_offset() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(vec![
+            track_off(1, "/album.flac", 0),
+            track_off(2, "/album.flac", 5000),
+        ]);
+        q.play_track_at(1);
+        let refreshed = vec![
+            track_off(11, "/album.flac", 0),
+            track_off(12, "/album.flac", 5000),
+        ];
+        q.remap_to_fresh_tracks(&fresh_map(&refreshed));
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![11, 12]);
+        assert_eq!(q.current_track().map(|t| t.id), Some(12));
     }
 
     #[test]

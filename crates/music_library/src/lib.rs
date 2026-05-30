@@ -154,6 +154,93 @@ mod tests {
     }
 
     #[test]
+    fn test_tracks_by_keys_matches_path_and_offset() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+
+        let mut new_track = |path: &str, title: &str, offset: Option<u64>| {
+            let t = NewTrack {
+                path: path.into(),
+                title: Some(title.into()),
+                album_title: Some("Album".into()),
+                artist_names: vec!["Artist".into()],
+                album_artist_names: Vec::new(),
+                track_number: None,
+                disc_number: None,
+                year: None,
+                duration_ms: None,
+                cover_art_id: None,
+                start_offset_ms: offset,
+                bitrate: None,
+            };
+            lib.upsert_track(&t, Some(album_id), &[(artist_id, 0)])
+                .unwrap()
+        };
+
+        new_track("/music/a.flac", "A", None);
+        new_track("/album.flac", "Cue 1", Some(0));
+        new_track("/album.flac", "Cue 2", Some(5000));
+
+        let found = lib
+            .tracks_by_keys(&[
+                ("/music/a.flac".into(), 0),
+                ("/album.flac".into(), 5000),
+                ("/missing.flac".into(), 0),
+            ])
+            .unwrap();
+        let mut rows: Vec<(String, i32)> = found
+            .iter()
+            .map(|t| (t.title.clone(), t.start_offset_ms))
+            .collect();
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                ("A".to_string(), 0),
+                ("Cue 1".to_string(), 0),
+                ("Cue 2".to_string(), 5000),
+            ]
+        );
+
+        assert!(lib.tracks_by_keys(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_tracks_by_keys_chunks_beyond_parameter_limit() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Artist").unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+
+        let mut keys: Vec<(String, i32)> = Vec::new();
+        for i in 0..1100 {
+            let path = format!("/music/{i}.flac");
+            let track = NewTrack {
+                path: path.clone().into(),
+                title: Some(format!("T{i}")),
+                album_title: Some("Album".into()),
+                artist_names: vec!["Artist".into()],
+                album_artist_names: Vec::new(),
+                track_number: None,
+                disc_number: None,
+                year: None,
+                duration_ms: None,
+                cover_art_id: None,
+                start_offset_ms: None,
+                bitrate: None,
+            };
+            lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
+                .unwrap();
+            keys.push((path, 0));
+        }
+
+        let found = lib.tracks_by_keys(&keys).unwrap();
+        assert_eq!(found.len(), 1100);
+    }
+
+    #[test]
     fn test_clear() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();

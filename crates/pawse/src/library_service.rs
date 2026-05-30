@@ -114,6 +114,10 @@ impl LibraryService {
             .unwrap_or_default()
     }
 
+    pub fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Vec<music_library::Track> {
+        self.repo.tracks_by_keys(keys).unwrap_or_default()
+    }
+
     pub fn create_playlist(&self, name: &str) -> Option<i64> {
         match self.repo.create_playlist(name) {
             Ok(id) => {

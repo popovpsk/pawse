@@ -175,6 +175,9 @@ impl QueueView {
                     LibraryEvent::QueueChanged => {
                         this.refresh_tracks(cx);
                     }
+                    LibraryEvent::ScanComplete { changed: true } => {
+                        this.refresh_tracks(cx);
+                    }
                     _ => {}
                 }
             });
