@@ -165,11 +165,49 @@ impl TrackProgressSlider {
             }
         });
 
+        let (duration_secs, duration_str, current_position_secs, has_track): (
+            f32,
+            SharedString,
+            f32,
+            bool,
+        ) = {
+            let services = cx.global::<Services>();
+            let has_current = services.playback_queue.borrow().current_track().is_some();
+            let dur_ms = services
+                .current_duration_ms
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if has_current && dur_ms > 0 {
+                let d = dur_ms as f32 / 1000.0;
+                let pos = services
+                    .current_position_ms
+                    .load(std::sync::atomic::Ordering::Relaxed) as f32
+                    / 1000.0;
+                (d, Self::format_time(d).into(), pos, true)
+            } else {
+                (0.0, "".into(), 0.0, false)
+            }
+        };
+        if has_track {
+            let value = if duration_secs > 0.0 {
+                current_position_secs / duration_secs
+            } else {
+                0.0
+            };
+            slider.update(cx, |slider, cx| {
+                slider.set_value_silent(value, cx);
+                slider.set_disabled(false, cx);
+                slider.set_tooltip_formatter(
+                    Some(Box::new(move |v| Self::format_time(v * duration_secs))),
+                    cx,
+                );
+            });
+        }
+
         Self {
-            duration_secs: 0.0,
-            duration_str: "".into(),
-            current_position_secs: 0.0,
-            has_track: false,
+            duration_secs,
+            duration_str,
+            current_position_secs,
+            has_track,
             show_labels,
             slider,
             _engine_subscription: subscription,

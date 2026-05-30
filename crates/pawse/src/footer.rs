@@ -1,4 +1,3 @@
-use audio_engine::EngineEvent;
 use gpui::{
     AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
     Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder,
@@ -9,7 +8,6 @@ use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 use crate::theme_colors::Colors;
 
 use crate::localization::tr;
-use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::{
     next_button::NextButton,
@@ -38,7 +36,6 @@ pub struct Footer {
     now_playing: Entity<NowPlaying>,
     show_queue: bool,
     show_repeat_shuffle: bool,
-    _subscription: Subscription,
     _settings_subscription: Subscription,
     _np_album_subscription: Subscription,
     _np_artist_subscription: Subscription,
@@ -60,23 +57,6 @@ impl EventEmitter<NavigateToArtistRequested> for Footer {}
 
 impl Footer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
-
-        let subscription = cx.subscribe(&engine_event_bus, |_this, _, event: &EngineEvent, cx| {
-            if let EngineEvent::TrackEnded = event {
-                let services = cx.global::<Services>();
-                let mut queue = services.playback_queue.borrow_mut();
-                if let Some(track) = queue.next_track().cloned() {
-                    drop(queue);
-                    services.play_track_gapless(&track);
-                    crate::services::save_playback(cx);
-                } else {
-                    drop(queue);
-                    cx.notify();
-                }
-            }
-        });
-
         let show_repeat_shuffle = cx.global::<SettingsStore>().show_repeat_shuffle();
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
             let new_val = cx.global::<SettingsStore>().show_repeat_shuffle();
@@ -116,7 +96,6 @@ impl Footer {
             now_playing,
             show_queue: false,
             show_repeat_shuffle,
-            _subscription: subscription,
             _settings_subscription: settings_subscription,
             _np_album_subscription: np_album_subscription,
             _np_artist_subscription: np_artist_subscription,

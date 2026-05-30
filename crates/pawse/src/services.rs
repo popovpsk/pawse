@@ -27,9 +27,7 @@ pub struct Services {
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
     pub current_position_ms: Arc<AtomicU64>,
-    /// Engine playback state mirror. Updated by the engine-events forwarder so
-    /// any view constructed while a track is playing can initialize without
-    /// waiting for the next `Playing` event.
+    pub current_duration_ms: Arc<AtomicU64>,
     pub is_playing: Arc<AtomicBool>,
     pub playlist_popup_bus: Entity<crate::playlist_popup::PlaylistPopupBus>,
     pub lang_event_bus: Entity<crate::localization::LangEventBus>,
@@ -85,6 +83,7 @@ impl Services {
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
             cover_art_cache: Rc::new(RefCell::new(CoverArtCache::new())),
             current_position_ms: Arc::new(AtomicU64::new(0)),
+            current_duration_ms: Arc::new(AtomicU64::new(0)),
             is_playing: Arc::new(AtomicBool::new(false)),
             playlist_popup_bus,
             lang_event_bus,
@@ -165,6 +164,15 @@ fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
     save_playback(cx);
 }
 
+fn advance_on_track_end(cx: &mut App) {
+    let services = cx.global::<Services>();
+    let next = services.playback_queue.borrow_mut().next_track().cloned();
+    if let Some(track) = next {
+        services.play_track_gapless(&track);
+        save_playback(cx);
+    }
+}
+
 pub fn save_playback(cx: &mut App) {
     let state = cx.global::<Services>().snapshot_playback();
     if let Err(e) = cx
@@ -196,6 +204,7 @@ pub async fn run_engine_events_bus(
     engine_manager: Rc<EngineManager>,
     engine_event_bus: Entity<EngineEventsBus>,
     current_position_ms: Arc<AtomicU64>,
+    current_duration_ms: Arc<AtomicU64>,
     is_playing: Arc<AtomicBool>,
 ) {
     let mut current_duration: Option<Duration> = None;
@@ -205,6 +214,7 @@ pub async fn run_engine_events_bus(
         match &event {
             EngineEvent::Loaded { duration, .. } => {
                 current_duration = Some(*duration);
+                current_duration_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
                 prefetched = false;
             }
             EngineEvent::PositionChanged(dur) => {
@@ -212,12 +222,17 @@ pub async fn run_engine_events_bus(
                 maybe_prefetch_next_track(cx, dur, current_duration, &mut prefetched);
             }
             EngineEvent::Playing => is_playing.store(true, Ordering::Relaxed),
-            EngineEvent::Paused | EngineEvent::TrackEnded => {
+            EngineEvent::Paused => {
                 is_playing.store(false, Ordering::Relaxed);
+            }
+            EngineEvent::TrackEnded => {
+                is_playing.store(false, Ordering::Relaxed);
+                let _ = cx.update(advance_on_track_end);
             }
             EngineEvent::Stopped => {
                 is_playing.store(false, Ordering::Relaxed);
                 current_position_ms.store(0, Ordering::Relaxed);
+                current_duration_ms.store(0, Ordering::Relaxed);
             }
             _ => {}
         }

@@ -75,8 +75,52 @@ fn restore_engine_state(cx: &mut App) {
     }
 }
 
+fn build_window_options(cx: &mut App) -> WindowOptions {
+    let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_min_size: Some(size(px(800.0), px(400.0))),
+        titlebar: Some(TitleBar::title_bar_options()),
+        app_id: Some("pawse".into()),
+        #[cfg(target_os = "linux")]
+        window_background: WindowBackgroundAppearance::Transparent,
+        #[cfg(target_os = "linux")]
+        window_decorations: Some(WindowDecorations::Client),
+        ..Default::default()
+    }
+}
+
+fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
+    let options = build_window_options(cx);
+    cx.open_window(options, |window, cx| {
+        let view = cx.new(|cx| MainView::new(window, cx));
+        let root = cx.new(|cx| Root::new(view, window, cx));
+        if run_startup_tasks {
+            restore_engine_state(cx);
+            window.on_next_frame(|_window, cx| {
+                let folders = cx
+                    .global::<crate::settings_store::SettingsStore>()
+                    .music_folders()
+                    .to_vec();
+                if !folders.is_empty() {
+                    cx.global::<Services>().library.clear_and_rescan(folders);
+                }
+            });
+        }
+        root
+    })
+    .expect("Failed to open window");
+}
+
 fn main() {
     let app = Application::new().with_assets(ui_resources::assets::Assets);
+
+    #[cfg(target_os = "macos")]
+    app.on_reopen(|cx| {
+        if cx.windows().is_empty() {
+            open_main_window(cx, false);
+        }
+    });
 
     app.run(move |cx| {
         gpui_component::init(cx);
@@ -95,24 +139,12 @@ fn main() {
             }
         });
 
-        let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
-
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(800.0), px(400.0))),
-            titlebar: Some(TitleBar::title_bar_options()),
-            app_id: Some("pawse".into()),
-            #[cfg(target_os = "linux")]
-            window_background: WindowBackgroundAppearance::Transparent,
-            #[cfg(target_os = "linux")]
-            window_decorations: Some(WindowDecorations::Client),
-            ..Default::default()
-        };
         let services = Services::initialize(cx);
 
         let engine_manager = services.engine_manager.clone();
         let engine_event_bus = services.engine_event_bus.clone();
         let current_position_ms = services.current_position_ms.clone();
+        let current_duration_ms = services.current_duration_ms.clone();
         let is_playing = services.is_playing.clone();
         cx.set_global(services);
 
@@ -140,6 +172,7 @@ fn main() {
 
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
+                #[cfg(not(target_os = "macos"))]
                 cx.quit();
             }
         })
@@ -172,30 +205,7 @@ fn main() {
         cx.activate(true);
         crate::app_menu::set_menus(cx);
 
-        cx.spawn(async move |cx| {
-            cx.open_window(options, |window, cx| {
-                let view = cx.new(|cx| MainView::new(window, cx));
-                let root = cx.new(|cx| Root::new(view, window, cx));
-                restore_engine_state(cx);
-
-                // Trigger the launch rescan after the first frame so startup
-                // stays instant; clear_and_rescan offloads all work to its own
-                // thread and fast-paths an up-to-date library.
-                window.on_next_frame(|_window, cx| {
-                    let folders = cx
-                        .global::<crate::settings_store::SettingsStore>()
-                        .music_folders()
-                        .to_vec();
-                    if !folders.is_empty() {
-                        cx.global::<Services>().library.clear_and_rescan(folders);
-                    }
-                });
-
-                root
-            })
-            .expect("Failed to open window");
-        })
-        .detach();
+        open_main_window(cx, true);
 
         cx.spawn(async move |cx| {
             run_engine_events_bus(
@@ -203,6 +213,7 @@ fn main() {
                 engine_manager,
                 engine_event_bus,
                 current_position_ms,
+                current_duration_ms,
                 is_playing,
             )
             .await;

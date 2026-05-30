@@ -105,6 +105,13 @@ The two buses are `EngineEventsBus` (audio playback) and `LibraryEventsBus` (sca
 - Re-render triggered by `cx.notify()`
 - Child views created via `cx.new(|cx| ChildView::new(window, cx))`
 
+### Window Lifecycle (platform-specific)
+
+- `main.rs` factors window creation into `build_window_options` + `open_main_window(cx, run_startup_tasks)`. Startup calls it with `true` (restores engine state + schedules the launch rescan); reopen calls it with `false`
+- **Windows / Linux**: closing the last window quits the app (`on_window_closed` → `cx.quit()`)
+- **macOS**: closing the last window keeps the process and audio alive (the engine runs on its own thread and `Services` is an app-lived `Global`). The window's `MainView`/`Root` entity tree is genuinely destroyed (gpui 0.2.2 exposes no hide/order-out path), so transient navigation state (current view/album, search, scroll) resets to the default library view. `Application::on_reopen` (Dock-icon click with no visible window) calls `open_main_window(cx, false)` to rebuild a fresh window. `open_main_window` opens the window synchronously (no `cx.spawn`), so `cx.windows()` is non-empty before the next reopen event — a rapid double-click can't spawn two windows. Cmd-Q / menu Quit still fully exits via `cx.quit()`, firing the `on_app_quit` snapshot
+- **Mid-playback view construction**: because a window can be rebuilt while audio keeps playing (no fresh `EngineEvent::Loaded` will arrive), the footer components seed their state from live `Services` on `new()` instead of waiting for events: `NowPlaying` reads the current queue track + `Output::source_format()` for specs, `PlayButton` reads `Services::is_playing`, and `TrackProgressSlider` reads `Services::current_duration_ms` + `current_position_ms`. These mirrors (`is_playing`, `current_position_ms`, `current_duration_ms`) are kept current by the app-lived engine-events forwarder, not the window, so they survive a closed window. `current_duration_ms` holds the engine's *decoded* duration (set on `Loaded`), so the reopened slider matches the live path rather than the queue's metadata estimate. This same seeding also makes the footer show the restored track on normal startup
+
 ### Settings & Themes
 
 - `SettingsStore` (in `pawse::settings_store`) persists `UserSettings` as JSON via atomic temp-file rename to `dirs::config_dir()/pawse/settings.json`
@@ -165,7 +172,7 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 - `PlaybackQueue` lives in `Services` (interior-mutable via `Rc<RefCell<_>>`) and is decoupled from the library view
 - Any component can call `set_tracks(...)` to replace the queue (e.g., clicking a track in an album replaces the queue with that album)
 - **Previous track behavior**: If more than 3 seconds have elapsed in the current track, seek to its start. Otherwise, go to the previous track in the queue (or seek to start if already at the first track)
-- **Auto-advance**: When the engine emits `TrackEnded`, the footer loads and plays `queue.next_track()`
+- **Auto-advance**: When the engine emits `TrackEnded`, the app-lived engine-events forwarder (`run_engine_events_bus`) advances `queue.next_track()` and plays it gapless. It lives there rather than in a view so it keeps working on macOS while the window is closed; at end-of-queue `next_track()` returns `None`, clearing `current_index` so a reopened window shows a stopped state instead of a stale track
 - **Shuffle**: `set_shuffle(true)` stores the original order so it can be restored exactly when shuffle is disabled. The currently-playing track is pinned to index 0 after shuffling so playback continues seamlessly. New `set_tracks()` while shuffle is on reshuffles and replaces the saved original order
 - **Repeat**: `Off` / `All` / `One`. `cycle()` rotates through them in that order. `RepeatMode::One` makes `next_track()` return the current track again
 - **Persistence**: The full queue, original order, current index, position (ms), shuffle flag, and repeat mode are snapshotted into `SettingsStore` on app quit and on every track change. They are restored on startup, including resuming playback position via `EngineManager::seek(fraction)`
@@ -214,6 +221,8 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 | Audio buffer | `Arc<AudioRingBuffer>` | Shared between engine thread and callback |
 | Library DB | `Mutex<Connection>` | Single-threaded access to SQLite |
 | Current position | `Arc<AtomicU64>` (ms) | Updated by event forwarder, read by settings snapshot |
+| Current duration | `Arc<AtomicU64>` (ms) | Decoded duration set on `Loaded`; seeds a slider built mid-playback |
+| Playback state mirror | `Arc<AtomicBool>` | `is_playing`, updated by forwarder; seeds a play button built mid-playback |
 | Media commands | `OnceLock<Sender<MediaCommand>>` | AppKit callbacks → player command channel (macOS only) |
 
 ## Error Handling Strategy

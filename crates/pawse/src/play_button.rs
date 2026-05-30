@@ -45,17 +45,22 @@ impl PlayButton {
                 },
             );
 
+        let is_playing = cx
+            .global::<Services>()
+            .is_playing
+            .load(std::sync::atomic::Ordering::Relaxed);
+
         Self {
-            state: PlayButtonState { is_playing: false },
+            state: PlayButtonState { is_playing },
             _subscription: subscription,
         }
     }
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
-        // Flip the icon instantly to reflect intent. The engine fades over
-        // ~300ms and then emits the matching event (which just confirms this
-        // state). A second click while the fade is running reverses it.
+        if services.playback_queue.borrow().current_track().is_none() {
+            return;
+        }
         if self.state.is_playing {
             services.engine_manager.pause();
             self.state.is_playing = false;

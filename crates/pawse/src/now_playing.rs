@@ -60,35 +60,7 @@ impl NowPlaying {
                 &engine_event_bus,
                 |this, _, event: &EngineEvent, cx| match event {
                     EngineEvent::Loaded { params, .. } => {
-                        let services = cx.global::<Services>();
-                        let queue = services.playback_queue.borrow();
-                        if let Some(track) = queue.current_track() {
-                            let track_id = track.id;
-                            let title = track.title.clone();
-                            let cover = track.cover_art_id;
-                            let album_id = track.album_id;
-                            let bitrate = track.bitrate;
-                            drop(queue);
-                            this.track_title = title;
-                            this.cover_art_id = cover;
-                            this.album_id = album_id;
-                            this.specs = SharedString::from(format_specs(
-                                Some(params.sample_rate),
-                                Some(params.bit_depth),
-                                bitrate,
-                            ));
-                            let mut seen = std::collections::HashSet::new();
-                            this.artists = services
-                                .library
-                                .track_artists_with_ids(track_id)
-                                .into_iter()
-                                .filter(|(id, _)| seen.insert(*id))
-                                .collect();
-                        } else {
-                            drop(queue);
-                            this.clear();
-                        }
-                        cx.notify();
+                        this.populate_current(Some(params.sample_rate), Some(params.bit_depth), cx);
                     }
                     EngineEvent::TrackEnded | EngineEvent::Stopped => {
                         let services = cx.global::<Services>();
@@ -105,14 +77,55 @@ impl NowPlaying {
                 },
             );
 
-        Self {
+        let mut this = Self {
             track_title: String::new(),
             artists: Vec::new(),
             album_id: None,
             cover_art_id: None,
             specs: SharedString::default(),
             _subscription: subscription,
+        };
+
+        let (sample_rate, bit_depth) = cx
+            .global::<Services>()
+            .output
+            .source_format()
+            .map_or((None, None), |(sr, bd)| (Some(sr), Some(bd)));
+        this.populate_current(sample_rate, bit_depth, cx);
+        this
+    }
+
+    fn populate_current(
+        &mut self,
+        sample_rate: Option<u32>,
+        bit_depth: Option<u8>,
+        cx: &mut Context<Self>,
+    ) {
+        let services = cx.global::<Services>();
+        let queue = services.playback_queue.borrow();
+        if let Some(track) = queue.current_track() {
+            let track_id = track.id;
+            let title = track.title.clone();
+            let cover = track.cover_art_id;
+            let album_id = track.album_id;
+            let bitrate = track.bitrate;
+            drop(queue);
+            self.track_title = title;
+            self.cover_art_id = cover;
+            self.album_id = album_id;
+            self.specs = SharedString::from(format_specs(sample_rate, bit_depth, bitrate));
+            let mut seen = std::collections::HashSet::new();
+            self.artists = services
+                .library
+                .track_artists_with_ids(track_id)
+                .into_iter()
+                .filter(|(id, _)| seen.insert(*id))
+                .collect();
+        } else {
+            drop(queue);
+            self.clear();
         }
+        cx.notify();
     }
 
     fn clear(&mut self) {

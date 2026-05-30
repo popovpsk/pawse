@@ -154,6 +154,16 @@ The integration is split into two crates:
 - `&mut self` would require `Rc<RefCell<dyn SystemMediaIntegration>>`, adding an extra layer of borrow checking for no benefit — all implementations use interior mutability (`RefCell`, ObjC runtime) internally.
 - `dyn` instead of generics keeps `MediaBridge` simple: one field type regardless of platform.
 
+### 11. Idempotent remote-command registration (window reopen)
+
+**Context:** On macOS, closing the last window does not quit the app; clicking the Dock icon rebuilds a fresh window (see "Window Lifecycle" in `project.md`). Rebuilding `MainView` creates a new `MediaBridge`, which re-runs `register_remote_commands` against `MPRemoteCommandCenter`.
+
+**Decision:** `register_remote_commands` first calls `removeTarget(None)` on every command (play, pause, toggle, next, previous, changePlaybackPosition) before adding its handlers.
+
+**Why:**
+- `MPRemoteCommandCenter` is a process-wide singleton that retains handlers internally. Dropping the old `MacOsIntegration` releases our `RegisteredCommands` target references but does **not** unregister the handlers. Without clearing them, a second registration would stack handlers and fire each command twice (e.g. `Next` would skip two tracks).
+- `removeTarget(None)` wipes all existing handlers for a command, making registration idempotent. It also drops the old captured `flume::Sender`s, so the previous `run_command_loop` ends cleanly once its receiver sees the channel close.
+
 ## Threading Guarantees
 
 All `macos_integration` code runs on the **main thread only**:

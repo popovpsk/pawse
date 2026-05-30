@@ -434,6 +434,16 @@ impl Output {
         matches!(*self.current.read(), Some(OutputMode::Exclusive(_)))
     }
 
+    pub fn source_format(&self) -> Option<(u32, u8)> {
+        if !self.source_present.load(Ordering::Relaxed) {
+            return None;
+        }
+        Some((
+            self.source_sample_rate.load(Ordering::Relaxed),
+            self.source_bit_depth.load(Ordering::Relaxed),
+        ))
+    }
+
     pub fn selected_device_name(&self) -> String {
         self.device_manager
             .read()

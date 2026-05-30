@@ -23,6 +23,13 @@ pub fn register_remote_commands(sender: Sender<MediaCommand>) -> RegisteredComma
     unsafe {
         let center = MPRemoteCommandCenter::sharedCommandCenter();
 
+        center.playCommand().removeTarget(None);
+        center.pauseCommand().removeTarget(None);
+        center.togglePlayPauseCommand().removeTarget(None);
+        center.nextTrackCommand().removeTarget(None);
+        center.previousTrackCommand().removeTarget(None);
+        center.changePlaybackPositionCommand().removeTarget(None);
+
         // Play
         let play_tx = sender.clone();
         let play_block = RcBlock::new(
