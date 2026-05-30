@@ -100,6 +100,13 @@ pub static TR: Strings = lang! {
     shared_click_enable: "Paylaşımlı mod — özeli açmak için tıklayın",
     default_suffix: " (varsayılan)",
 
+    onboarding_title: "Pawse'a hoş geldin",
+    onboarding_subtitle: "Dinlemeye başlamadan önce birkaç ayar yapalım.",
+    onboarding_theme_prompt: "Bir renk teması seç",
+    onboarding_language_prompt: "Dilini seç",
+    onboarding_folder_prompt: "Müziğinin bulunduğu bir klasör ekle",
+    onboarding_finish: "Dinlemeye başla",
+
     quit_pawse: "Pawse'dan çık",
     rescan_library: "Kitaplığı yeniden tara...",
     menu_file: "Dosya",

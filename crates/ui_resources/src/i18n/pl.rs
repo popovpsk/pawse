@@ -100,6 +100,13 @@ pub static PL: Strings = lang! {
     shared_click_enable: "Tryb współdzielony — kliknij, aby włączyć wyłączny",
     default_suffix: " (domyślne)",
 
+    onboarding_title: "Witamy w Pawse",
+    onboarding_subtitle: "Skonfigurujmy kilka rzeczy, zanim zaczniesz słuchać.",
+    onboarding_theme_prompt: "Wybierz motyw kolorystyczny",
+    onboarding_language_prompt: "Wybierz swój język",
+    onboarding_folder_prompt: "Dodaj folder z muzyką",
+    onboarding_finish: "Zacznij słuchać",
+
     quit_pawse: "Zamknij Pawse",
     rescan_library: "Ponownie przeskanuj bibliotekę...",
     menu_file: "Plik",

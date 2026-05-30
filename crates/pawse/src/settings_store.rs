@@ -221,6 +221,8 @@ pub struct UserSettings {
     pub show_queue_actions: bool,
     #[serde(default = "default_true")]
     pub show_queue_artist: bool,
+    #[serde(default)]
+    pub onboarding_complete: bool,
 }
 
 impl Default for UserSettings {
@@ -239,6 +241,7 @@ impl Default for UserSettings {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            onboarding_complete: false,
         }
     }
 }
@@ -410,6 +413,15 @@ impl SettingsStore {
 
     pub fn set_show_queue_artist(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_queue_artist = show;
+        self.save()
+    }
+
+    pub fn onboarding_complete(&self) -> bool {
+        self.settings.onboarding_complete
+    }
+
+    pub fn set_onboarding_complete(&mut self, complete: bool) -> anyhow::Result<()> {
+        self.settings.onboarding_complete = complete;
         self.save()
     }
 }
@@ -653,6 +665,7 @@ mod tests {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            onboarding_complete: false,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();

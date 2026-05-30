@@ -160,7 +160,7 @@ mod tests {
         let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
-        let mut new_track = |path: &str, title: &str, offset: Option<u64>| {
+        let new_track = |path: &str, title: &str, offset: Option<u64>| {
             let t = NewTrack {
                 path: path.into(),
                 title: Some(title.into()),

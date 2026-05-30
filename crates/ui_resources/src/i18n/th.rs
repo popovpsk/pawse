@@ -100,6 +100,13 @@ pub static TH: Strings = lang! {
     shared_click_enable: "โหมดใช้ร่วม — คลิกเพื่อเปิดเอกสิทธิ์",
     default_suffix: " (ค่าเริ่มต้น)",
 
+    onboarding_title: "ยินดีต้อนรับสู่ Pawse",
+    onboarding_subtitle: "มาตั้งค่าบางอย่างกันก่อนที่คุณจะเริ่มฟัง",
+    onboarding_theme_prompt: "เลือกธีมสี",
+    onboarding_language_prompt: "เลือกภาษาของคุณ",
+    onboarding_folder_prompt: "เพิ่มโฟลเดอร์เพลงของคุณ",
+    onboarding_finish: "เริ่มฟัง",
+
     quit_pawse: "ออกจาก Pawse",
     rescan_library: "สแกนคลังใหม่...",
     menu_file: "ไฟล์",

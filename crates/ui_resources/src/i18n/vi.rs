@@ -100,6 +100,13 @@ pub static VI: Strings = lang! {
     shared_click_enable: "Chế độ dùng chung — nhấp để bật độc quyền",
     default_suffix: " (mặc định)",
 
+    onboarding_title: "Chào mừng đến với Pawse",
+    onboarding_subtitle: "Hãy thiết lập một vài thứ trước khi bạn bắt đầu nghe.",
+    onboarding_theme_prompt: "Chọn chủ đề màu sắc",
+    onboarding_language_prompt: "Chọn ngôn ngữ của bạn",
+    onboarding_folder_prompt: "Thêm thư mục chứa nhạc của bạn",
+    onboarding_finish: "Bắt đầu nghe",
+
     quit_pawse: "Thoát Pawse",
     rescan_library: "Quét lại thư viện...",
     menu_file: "Tệp",

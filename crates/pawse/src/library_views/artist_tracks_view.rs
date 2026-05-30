@@ -32,6 +32,7 @@ const ALBUM_COVER_SIZE: f32 = 60.;
 const ARTIST_HEADER_HEIGHT: f32 = 48.;
 const ALBUM_HEADER_HEIGHT: f32 = 84.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
+const DISC_HEADER_GAP: f32 = 24.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Debug)]
@@ -66,7 +67,7 @@ struct AlbumGroup {
 enum ItemKind {
     ArtistHeader,
     AlbumHeader(usize),
-    DiscHeader(SharedString),
+    DiscHeader(SharedString, bool),
     Track(usize, usize),
 }
 
@@ -238,11 +239,14 @@ impl ArtistTracksView {
             let mut current_disc = 0i32;
             for (t_ix, track) in g.tracks.iter().enumerate() {
                 if multi_disc && track.disc_number != current_disc {
+                    let gap = current_disc != 0;
                     current_disc = track.disc_number;
                     items.push(ItemKind::DiscHeader(
                         strings.disc(current_disc as u32).into(),
+                        gap,
                     ));
-                    sizes.push(size(px(300.), px(DISC_HEADER_HEIGHT + 1.)));
+                    let extra = if gap { DISC_HEADER_GAP } else { 0. };
+                    sizes.push(size(px(300.), px(DISC_HEADER_HEIGHT + extra + 1.)));
                 }
                 items.push(ItemKind::Track(g_ix, t_ix));
                 sizes.push(size(px(300.), px(TRACK_ROW_HEIGHT + 1.)));
@@ -364,8 +368,8 @@ impl Render for ArtistTracksView {
                             ItemKind::ArtistHeader => {
                                 artist_header_static(view.artist_name.clone()).into_any_element()
                             }
-                            ItemKind::DiscHeader(disc) => {
-                                artist_disc_header(disc.clone(), border, muted_fg)
+                            ItemKind::DiscHeader(disc, gap) => {
+                                artist_disc_header(disc.clone(), *gap, border, muted_fg)
                             }
                             ItemKind::AlbumHeader(g_ix) => {
                                 artist_album_header(view, *g_ix, border, fallback_bg, fallback_fg)
@@ -385,14 +389,17 @@ impl Render for ArtistTracksView {
 
 fn artist_disc_header(
     disc: SharedString,
+    gap: bool,
     border: gpui::Hsla,
     muted_fg: gpui::Hsla,
 ) -> gpui::AnyElement {
+    let extra = if gap { DISC_HEADER_GAP } else { 0. };
     h_flex()
         .w_full()
-        .h(px(DISC_HEADER_HEIGHT))
+        .h(px(DISC_HEADER_HEIGHT + extra))
         .px_4()
-        .items_center()
+        .pb_2()
+        .items_end()
         .border_b(px(1.))
         .border_color(border)
         .child(

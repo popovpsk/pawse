@@ -100,6 +100,13 @@ pub static UK: Strings = lang! {
     shared_click_enable: "Спільний режим — натисніть, щоб увімкнути ексклюзивний",
     default_suffix: " (за замовчуванням)",
 
+    onboarding_title: "Ласкаво просимо до Pawse",
+    onboarding_subtitle: "Налаштуймо кілька речей, перш ніж ви почнете слухати.",
+    onboarding_theme_prompt: "Виберіть кольорову тему",
+    onboarding_language_prompt: "Виберіть мову",
+    onboarding_folder_prompt: "Додайте папку з музикою",
+    onboarding_finish: "Почати слухати",
+
     quit_pawse: "Вийти з Pawse",
     rescan_library: "Пересканувати медіатеку...",
     menu_file: "Файл",

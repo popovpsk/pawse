@@ -150,6 +150,13 @@ pub struct Strings {
     pub shared_click_enable: SharedString,
     pub default_suffix: SharedString,
 
+    pub onboarding_title: SharedString,
+    pub onboarding_subtitle: SharedString,
+    pub onboarding_theme_prompt: SharedString,
+    pub onboarding_language_prompt: SharedString,
+    pub onboarding_folder_prompt: SharedString,
+    pub onboarding_finish: SharedString,
+
     // --- App menu ---
     pub quit_pawse: SharedString,
     pub rescan_library: SharedString,

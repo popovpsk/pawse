@@ -100,6 +100,13 @@ pub static HI: Strings = lang! {
     shared_click_enable: "साझा मोड — एक्सक्लूसिव चालू करने के लिए क्लिक करें",
     default_suffix: " (डिफ़ॉल्ट)",
 
+    onboarding_title: "Pawse में आपका स्वागत है",
+    onboarding_subtitle: "सुनना शुरू करने से पहले कुछ चीज़ें सेट कर लें।",
+    onboarding_theme_prompt: "रंग थीम चुनें",
+    onboarding_language_prompt: "अपनी भाषा चुनें",
+    onboarding_folder_prompt: "अपने संगीत वाला फ़ोल्डर जोड़ें",
+    onboarding_finish: "सुनना शुरू करें",
+
     quit_pawse: "Pawse से बाहर निकलें",
     rescan_library: "लाइब्रेरी फिर से स्कैन करें...",
     menu_file: "फ़ाइल",

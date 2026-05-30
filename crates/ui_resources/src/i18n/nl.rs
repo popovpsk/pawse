@@ -100,6 +100,13 @@ pub static NL: Strings = lang! {
     shared_click_enable: "Gedeelde modus — klik om exclusief in te schakelen",
     default_suffix: " (standaard)",
 
+    onboarding_title: "Welkom bij Pawse",
+    onboarding_subtitle: "Laten we een paar dingen instellen voordat je gaat luisteren.",
+    onboarding_theme_prompt: "Kies een kleurthema",
+    onboarding_language_prompt: "Kies je taal",
+    onboarding_folder_prompt: "Voeg een map met je muziek toe",
+    onboarding_finish: "Beginnen met luisteren",
+
     quit_pawse: "Pawse afsluiten",
     rescan_library: "Bibliotheek opnieuw scannen...",
     menu_file: "Bestand",

@@ -100,6 +100,13 @@ pub static ZH: Strings = lang! {
     shared_click_enable: "共享模式 — 点击启用独占",
     default_suffix: "（默认）",
 
+    onboarding_title: "欢迎使用 Pawse",
+    onboarding_subtitle: "在开始聆听之前，先做一些设置。",
+    onboarding_theme_prompt: "选择配色主题",
+    onboarding_language_prompt: "选择你的语言",
+    onboarding_folder_prompt: "添加一个音乐文件夹",
+    onboarding_finish: "开始聆听",
+
     quit_pawse: "退出 Pawse",
     rescan_library: "重新扫描音乐库...",
     menu_file: "文件",

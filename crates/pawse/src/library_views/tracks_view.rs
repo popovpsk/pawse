@@ -29,6 +29,7 @@ use crate::settings_store::SettingsStore;
 const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
+const DISC_HEADER_GAP: f32 = 24.;
 const ALBUM_INFO_HEIGHT: f32 = 170.;
 const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
@@ -36,7 +37,7 @@ const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 enum TrackItem {
     TopPadding,
     AlbumInfo,
-    DiscHeader(SharedString),
+    DiscHeader(SharedString, bool),
     Track(usize),
 }
 
@@ -222,11 +223,14 @@ impl TracksView {
             let mut current_disc = 0i32;
             for (ix, row) in rows.iter().enumerate() {
                 if row.disc_number != current_disc {
+                    let gap = current_disc != 0;
                     current_disc = row.disc_number;
                     items.push(TrackItem::DiscHeader(
                         strings.disc(current_disc as u32).into(),
+                        gap,
                     ));
-                    item_sizes_vec.push(size(px(0.), px(DISC_HEADER_HEIGHT + 1.)));
+                    let extra = if gap { DISC_HEADER_GAP } else { 0. };
+                    item_sizes_vec.push(size(px(0.), px(DISC_HEADER_HEIGHT + extra + 1.)));
                 }
                 items.push(TrackItem::Track(ix));
                 item_sizes_vec.push(size(px(0.), px(TRACK_ROW_HEIGHT + 1.)));
@@ -328,8 +332,8 @@ impl Render for TracksView {
                                 div().w_full().h(px(TOP_PADDING)).into_any_element()
                             }
                             TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
-                            TrackItem::DiscHeader(disc) => {
-                                track_disc_header(disc.clone(), p.border, p.muted_fg)
+                            TrackItem::DiscHeader(disc, gap) => {
+                                track_disc_header(disc.clone(), *gap, p.border, p.muted_fg)
                             }
                             TrackItem::Track(track_ix) => track_row(view, *track_ix, &p, cx),
                         })
@@ -344,14 +348,17 @@ impl Render for TracksView {
 
 fn track_disc_header(
     disc: SharedString,
+    gap: bool,
     border: gpui::Hsla,
     muted_fg: gpui::Hsla,
 ) -> gpui::AnyElement {
+    let extra = if gap { DISC_HEADER_GAP } else { 0. };
     h_flex()
         .w_full()
-        .h(px(DISC_HEADER_HEIGHT))
+        .h(px(DISC_HEADER_HEIGHT + extra))
         .px_4()
-        .items_center()
+        .pb_2()
+        .items_end()
         .border_b(px(1.))
         .border_color(border)
         .child(

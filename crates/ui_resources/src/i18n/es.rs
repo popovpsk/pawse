@@ -100,6 +100,13 @@ pub static ES: Strings = lang! {
     shared_click_enable: "Modo compartido — clic para activar el exclusivo",
     default_suffix: " (predeterminado)",
 
+    onboarding_title: "Te damos la bienvenida a Pawse",
+    onboarding_subtitle: "Configuremos algunas cosas antes de empezar a escuchar.",
+    onboarding_theme_prompt: "Elige un tema de color",
+    onboarding_language_prompt: "Elige tu idioma",
+    onboarding_folder_prompt: "Añade una carpeta con tu música",
+    onboarding_finish: "Empezar a escuchar",
+
     quit_pawse: "Salir de Pawse",
     rescan_library: "Reanalizar biblioteca...",
     menu_file: "Archivo",

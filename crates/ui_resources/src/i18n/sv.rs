@@ -100,6 +100,13 @@ pub static SV: Strings = lang! {
     shared_click_enable: "Delat läge — klicka för att aktivera exklusivt",
     default_suffix: " (standard)",
 
+    onboarding_title: "Välkommen till Pawse",
+    onboarding_subtitle: "Låt oss ställa in några saker innan du börjar lyssna.",
+    onboarding_theme_prompt: "Välj ett färgtema",
+    onboarding_language_prompt: "Välj ditt språk",
+    onboarding_folder_prompt: "Lägg till en mapp med din musik",
+    onboarding_finish: "Börja lyssna",
+
     quit_pawse: "Avsluta Pawse",
     rescan_library: "Skanna om biblioteket...",
     menu_file: "Arkiv",

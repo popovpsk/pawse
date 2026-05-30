@@ -100,6 +100,13 @@ pub static KO: Strings = lang! {
     shared_click_enable: "공유 모드 — 클릭하여 독점 활성화",
     default_suffix: " (기본값)",
 
+    onboarding_title: "Pawse에 오신 것을 환영합니다",
+    onboarding_subtitle: "듣기를 시작하기 전에 몇 가지를 설정해 보세요.",
+    onboarding_theme_prompt: "색상 테마 선택",
+    onboarding_language_prompt: "언어 선택",
+    onboarding_folder_prompt: "음악 폴더 추가",
+    onboarding_finish: "재생 시작",
+
     quit_pawse: "Pawse 종료",
     rescan_library: "라이브러리 다시 스캔...",
     menu_file: "파일",

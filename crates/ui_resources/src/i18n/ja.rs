@@ -100,6 +100,13 @@ pub static JA: Strings = lang! {
     shared_click_enable: "共有モード — クリックで排他を有効化",
     default_suffix: "（既定）",
 
+    onboarding_title: "Pawse へようこそ",
+    onboarding_subtitle: "聴き始める前に、いくつか設定しましょう。",
+    onboarding_theme_prompt: "カラーテーマを選択",
+    onboarding_language_prompt: "言語を選択",
+    onboarding_folder_prompt: "音楽フォルダを追加",
+    onboarding_finish: "再生を始める",
+
     quit_pawse: "Pawse を終了",
     rescan_library: "ライブラリを再スキャン...",
     menu_file: "ファイル",

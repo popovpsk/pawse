@@ -100,6 +100,13 @@ pub static RU: Strings = lang! {
     shared_click_enable: "Общий режим — нажмите, чтобы включить эксклюзивный",
     default_suffix: " (по умолчанию)",
 
+    onboarding_title: "Добро пожаловать в Pawse",
+    onboarding_subtitle: "Давайте кое-что настроим, прежде чем вы начнёте слушать.",
+    onboarding_theme_prompt: "Выберите цветовую тему",
+    onboarding_language_prompt: "Выберите язык",
+    onboarding_folder_prompt: "Добавьте папку с музыкой",
+    onboarding_finish: "Начать слушать",
+
     quit_pawse: "Выйти из Pawse",
     rescan_library: "Пересканировать медиатеку...",
     menu_file: "Файл",

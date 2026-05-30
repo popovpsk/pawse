@@ -100,6 +100,13 @@ pub static ID: Strings = lang! {
     shared_click_enable: "Mode berbagi — klik untuk mengaktifkan eksklusif",
     default_suffix: " (bawaan)",
 
+    onboarding_title: "Selamat datang di Pawse",
+    onboarding_subtitle: "Mari atur beberapa hal sebelum kamu mulai mendengarkan.",
+    onboarding_theme_prompt: "Pilih tema warna",
+    onboarding_language_prompt: "Pilih bahasamu",
+    onboarding_folder_prompt: "Tambahkan folder berisi musikmu",
+    onboarding_finish: "Mulai mendengarkan",
+
     quit_pawse: "Keluar dari Pawse",
     rescan_library: "Pindai ulang pustaka...",
     menu_file: "Berkas",

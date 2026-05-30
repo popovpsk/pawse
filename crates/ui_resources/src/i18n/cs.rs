@@ -100,6 +100,13 @@ pub static CS: Strings = lang! {
     shared_click_enable: "Sdílený režim — kliknutím zapnete exkluzivní",
     default_suffix: " (výchozí)",
 
+    onboarding_title: "Vítejte v Pawse",
+    onboarding_subtitle: "Než začnete poslouchat, pojďme něco nastavit.",
+    onboarding_theme_prompt: "Vyberte barevné téma",
+    onboarding_language_prompt: "Vyberte svůj jazyk",
+    onboarding_folder_prompt: "Přidejte složku s hudbou",
+    onboarding_finish: "Začít poslouchat",
+
     quit_pawse: "Ukončit Pawse",
     rescan_library: "Znovu prohledat knihovnu...",
     menu_file: "Soubor",

@@ -21,6 +21,7 @@ pub mod main_view;
 pub mod media_bridge;
 pub mod next_button;
 pub mod now_playing;
+pub mod onboarding_view;
 pub mod play_button;
 pub mod playback_queue;
 pub mod playlist_popup;
@@ -112,13 +113,33 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
     .expect("Failed to open window");
 }
 
+pub fn open_onboarding_window(cx: &mut App) {
+    let options = build_window_options(cx);
+    cx.open_window(options, |window, cx| {
+        let view = cx.new(|cx| crate::onboarding_view::OnboardingView::new(window, cx));
+        cx.new(|cx| Root::new(view, window, cx))
+    })
+    .expect("Failed to open onboarding window");
+}
+
+fn open_initial_window(cx: &mut App, run_startup_tasks: bool) {
+    if cx
+        .global::<crate::settings_store::SettingsStore>()
+        .onboarding_complete()
+    {
+        open_main_window(cx, run_startup_tasks);
+    } else {
+        open_onboarding_window(cx);
+    }
+}
+
 fn main() {
     let app = Application::new().with_assets(ui_resources::assets::Assets);
 
     #[cfg(target_os = "macos")]
     app.on_reopen(|cx| {
         if cx.windows().is_empty() {
-            open_main_window(cx, false);
+            open_initial_window(cx, false);
         }
     });
 
@@ -205,7 +226,7 @@ fn main() {
         cx.activate(true);
         crate::app_menu::set_menus(cx);
 
-        open_main_window(cx, true);
+        open_initial_window(cx, true);
 
         cx.spawn(async move |cx| {
             run_engine_events_bus(

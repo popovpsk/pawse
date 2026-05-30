@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use gpui::{
     AnyElement, App, Axis, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
     MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
-    anchored, deferred, div, point, prelude::FluentBuilder, px,
+    Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Icon, IconName, Sizable,
@@ -246,238 +246,7 @@ fn interface_group(
             tr().theme.clone(),
             SettingField::render({
                 let picker = picker.clone();
-                move |window, cx: &mut App| {
-                    let state = picker.read(cx);
-                    let open = state.open;
-                    let highlight_index = state.highlight_index;
-                    let options = state.options.clone();
-                    let current_label = state.current_label(cx);
-                    let focus_handle = state.focus_handle.clone();
-                    let scroll_handle = state.scroll_handle.clone();
-                    let _ = state;
-
-                    // Trigger button that opens/closes the popup
-                    let trigger = {
-                        let picker_t = picker.clone();
-                        div()
-                            .id("theme-picker-trigger")
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
-                            .px_3()
-                            .py_1p5()
-                            .rounded(px(6.))
-                            .bg(Colors::app_background(cx))
-                            .border_1()
-                            .border_color(Colors::panel_border(cx))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(Colors::text_primary(cx))
-                                    .child(current_label),
-                            )
-                            .child(
-                                Icon::new(IconName::ChevronDown)
-                                    .xsmall()
-                                    .text_color(Colors::text_secondary(cx)),
-                            )
-                            .on_click(move |_, window, cx| {
-                                // When popup is open, a backdrop (priority 0) sits above
-                                // the trigger. Clicking the trigger while open routes
-                                // through the backdrop, which closes the popup and
-                                // occludes the event — this on_click won't fire in that
-                                // case. So here open is always false when this fires.
-                                let focus_handle = picker_t.read(cx).focus_handle.clone();
-                                picker_t.update(cx, |state, cx| {
-                                    let saved = cx.global::<SettingsStore>().theme();
-                                    let current_ix = state.current_index(cx);
-                                    state.open = true;
-                                    state.snapshot = Some(saved);
-                                    state.highlight_index = current_ix;
-                                    if let Some(ix) = current_ix {
-                                        state.scroll_handle.scroll_to_item(ix);
-                                    }
-                                    cx.notify();
-                                });
-                                focus_handle.focus(window);
-                            })
-                    };
-
-                    // Overlay elements: backdrop (priority 0) + popup (priority 1).
-                    // Rendered only while the popup is open.
-                    let mut overlay: Vec<AnyElement> = Vec::new();
-
-                    if open {
-                        let viewport = window.viewport_size();
-
-                        // Full-window backdrop at priority 0. Sits above normal content
-                        // (including the trigger) but below the popup. Clicking anywhere
-                        // — including on the trigger — routes through here and closes the
-                        // popup; occlude() prevents the event from reaching the trigger,
-                        // so on_click on the trigger does NOT re-open the popup.
-                        let picker_b = picker.clone();
-                        overlay.push(
-                            deferred(
-                                anchored().position(point(px(0.), px(0.))).child(
-                                    div()
-                                        .w(viewport.width)
-                                        .h(viewport.height)
-                                        .occlude()
-                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                            picker_b.update(cx, |state, cx| {
-                                                close_with_revert(state, cx);
-                                                cx.notify();
-                                            });
-                                        }),
-                                ),
-                            )
-                            .with_priority(0)
-                            .into_any_element(),
-                        );
-
-                        // Popup panel at priority 1 (above backdrop).
-                        let items = options
-                            .iter()
-                            .enumerate()
-                            .map(|(i, (key, label))| {
-                                let is_highlighted = highlight_index == Some(i);
-                                let key_c = key.clone();
-                                let label_c = label.clone();
-
-                                div()
-                                    .id(("theme-item", i))
-                                    .px_2()
-                                    .py_1p5()
-                                    .rounded(px(4.))
-                                    .text_sm()
-                                    .cursor_pointer()
-                                    .when(is_highlighted, |d| {
-                                        d.bg(Colors::selection_bg(cx))
-                                            .text_color(Colors::text_on_selection(cx))
-                                    })
-                                    .when(!is_highlighted, |d| {
-                                        d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
-                                    })
-                                    .child(label_c)
-                                    .on_mouse_move({
-                                        let picker_m = picker.clone();
-                                        let key_m = key_c.clone();
-                                        move |_, _, cx| {
-                                            picker_m.update(cx, |state, cx| {
-                                                if state.highlight_index == Some(i) {
-                                                    return;
-                                                }
-                                                state.highlight_index = Some(i);
-                                                let choice = ThemeChoice::from_key(key_m.as_ref());
-                                                apply_theme(&choice, cx);
-                                                cx.notify();
-                                            });
-                                        }
-                                    })
-                                    .on_click({
-                                        let picker_c = picker.clone();
-                                        let key_click = key_c.clone();
-                                        move |_, _, cx| {
-                                            picker_c.update(cx, |state, cx| {
-                                                confirm_save(&key_click, state, cx);
-                                                cx.notify();
-                                            });
-                                        }
-                                    })
-                            })
-                            .collect::<Vec<_>>();
-
-                        let popup_content = v_flex()
-                            .id("theme-picker-popup")
-                            .bg(Colors::popover_background(cx))
-                            .border_1()
-                            .border_color(Colors::panel_border(cx))
-                            .rounded(px(6.))
-                            .shadow_md()
-                            .w(px(220.))
-                            .occlude()
-                            .relative()
-                            .track_focus(&focus_handle)
-                            .on_key_down({
-                                let picker_k = picker.clone();
-                                move |ev: &KeyDownEvent, _, cx| {
-                                    let key = ev.keystroke.key.as_str();
-                                    picker_k.update(cx, |state, cx| {
-                                        let len = state.options.len();
-                                        if len == 0 {
-                                            return;
-                                        }
-                                        match key {
-                                            "up" => {
-                                                let new_ix =
-                                                    state.highlight_index.map_or(len - 1, |i| {
-                                                        if i == 0 { len - 1 } else { i - 1 }
-                                                    });
-                                                state.highlight_index = Some(new_ix);
-                                                state.scroll_handle.scroll_to_item(new_ix);
-                                                let choice = ThemeChoice::from_key(
-                                                    state.options[new_ix].0.as_ref(),
-                                                );
-                                                apply_theme(&choice, cx);
-                                                cx.notify();
-                                            }
-                                            "down" => {
-                                                let new_ix = state
-                                                    .highlight_index
-                                                    .map_or(0, |i| (i + 1) % len);
-                                                state.highlight_index = Some(new_ix);
-                                                state.scroll_handle.scroll_to_item(new_ix);
-                                                let choice = ThemeChoice::from_key(
-                                                    state.options[new_ix].0.as_ref(),
-                                                );
-                                                apply_theme(&choice, cx);
-                                                cx.notify();
-                                            }
-                                            "escape" => {
-                                                close_with_revert(state, cx);
-                                                cx.notify();
-                                            }
-                                            "enter" => {
-                                                if let Some(ix) = state.highlight_index {
-                                                    let k = state.options[ix].0.clone();
-                                                    confirm_save(&k, state, cx);
-                                                } else {
-                                                    close_with_revert(state, cx);
-                                                }
-                                                cx.notify();
-                                            }
-                                            _ => {}
-                                        }
-                                    });
-                                }
-                            })
-                            .child(
-                                div()
-                                    .id("theme-picker-list")
-                                    .max_h(px(360.))
-                                    .overflow_y_scroll()
-                                    .track_scroll(&scroll_handle)
-                                    .p_1()
-                                    .children(items),
-                            )
-                            .vertical_scrollbar(&scroll_handle);
-
-                        overlay.push(
-                            deferred(
-                                anchored()
-                                    .snap_to_window_with_margin(px(8.))
-                                    .child(div().mt_1().occlude().child(popup_content)),
-                            )
-                            .with_priority(1)
-                            .into_any_element(),
-                        );
-                    }
-
-                    div().relative().child(trigger).children(overlay)
-                }
+                move |window, cx: &mut App| theme_picker_dropdown(picker.clone(), window, cx)
             }),
         )
         .description(tr().theme_desc.clone()),
@@ -754,210 +523,454 @@ fn language_field(picker: Entity<LangPickerState>) -> SettingItem {
         tr().language.clone(),
         SettingField::render({
             let picker = picker.clone();
-            move |window, cx: &mut App| {
-                let state = picker.read(cx);
-                let open = state.open;
-                let highlight_index = state.highlight_index;
-                let options = state.options.clone();
-                let current_label = state.current_label(cx);
-                let focus_handle = state.focus_handle.clone();
-                let scroll_handle = state.scroll_handle.clone();
-
-                let trigger = {
-                    let picker_t = picker.clone();
-                    div()
-                        .id("lang-picker-trigger")
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .px_3()
-                        .py_1p5()
-                        .rounded(px(6.))
-                        .bg(Colors::app_background(cx))
-                        .border_1()
-                        .border_color(Colors::panel_border(cx))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(Colors::control_hover_bg(cx)))
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(Colors::text_primary(cx))
-                                .child(current_label),
-                        )
-                        .child(
-                            Icon::new(IconName::ChevronDown)
-                                .xsmall()
-                                .text_color(Colors::text_secondary(cx)),
-                        )
-                        .on_click(move |_, window, cx| {
-                            let focus_handle = picker_t.read(cx).focus_handle.clone();
-                            picker_t.update(cx, |state, cx| {
-                                let current_ix = state.current_index(cx);
-                                state.open = true;
-                                state.highlight_index = current_ix;
-                                if let Some(ix) = current_ix {
-                                    state.scroll_handle.scroll_to_item(ix);
-                                }
-                                cx.notify();
-                            });
-                            focus_handle.focus(window);
-                        })
-                };
-
-                let mut overlay: Vec<AnyElement> = Vec::new();
-
-                if open {
-                    let viewport = window.viewport_size();
-
-                    let picker_b = picker.clone();
-                    overlay.push(
-                        deferred(
-                            anchored().position(point(px(0.), px(0.))).child(
-                                div()
-                                    .w(viewport.width)
-                                    .h(viewport.height)
-                                    .occlude()
-                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                        picker_b.update(cx, |state, cx| {
-                                            close_lang(state);
-                                            cx.notify();
-                                        });
-                                    }),
-                            ),
-                        )
-                        .with_priority(0)
-                        .into_any_element(),
-                    );
-
-                    let items = options
-                        .iter()
-                        .enumerate()
-                        .map(|(i, (key, label))| {
-                            let is_highlighted = highlight_index == Some(i);
-                            let key_c = key.clone();
-                            let label_c = label.clone();
-
-                            div()
-                                .id(("lang-item", i))
-                                .px_2()
-                                .py_1p5()
-                                .rounded(px(4.))
-                                .text_sm()
-                                .cursor_pointer()
-                                .when(is_highlighted, |d| {
-                                    d.bg(Colors::selection_bg(cx))
-                                        .text_color(Colors::text_on_selection(cx))
-                                })
-                                .when(!is_highlighted, |d| {
-                                    d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
-                                })
-                                .child(label_c)
-                                .on_mouse_move({
-                                    let picker_m = picker.clone();
-                                    move |_, _, cx| {
-                                        picker_m.update(cx, |state, cx| {
-                                            if state.highlight_index == Some(i) {
-                                                return;
-                                            }
-                                            state.highlight_index = Some(i);
-                                            cx.notify();
-                                        });
-                                    }
-                                })
-                                .on_click({
-                                    let picker_c = picker.clone();
-                                    let key_click = key_c.clone();
-                                    move |_, _, cx| {
-                                        picker_c.update(cx, |state, cx| {
-                                            confirm_lang(&key_click, state, cx);
-                                            cx.notify();
-                                        });
-                                    }
-                                })
-                        })
-                        .collect::<Vec<_>>();
-
-                    let popup_content = v_flex()
-                        .id("lang-picker-popup")
-                        .bg(Colors::popover_background(cx))
-                        .border_1()
-                        .border_color(Colors::panel_border(cx))
-                        .rounded(px(6.))
-                        .shadow_md()
-                        .w(px(220.))
-                        .occlude()
-                        .relative()
-                        .track_focus(&focus_handle)
-                        .on_key_down({
-                            let picker_k = picker.clone();
-                            move |ev: &KeyDownEvent, _, cx| {
-                                let key = ev.keystroke.key.as_str();
-                                picker_k.update(cx, |state, cx| {
-                                    let len = state.options.len();
-                                    if len == 0 {
-                                        return;
-                                    }
-                                    match key {
-                                        "up" => {
-                                            let new_ix =
-                                                state.highlight_index.map_or(len - 1, |i| {
-                                                    if i == 0 { len - 1 } else { i - 1 }
-                                                });
-                                            state.highlight_index = Some(new_ix);
-                                            state.scroll_handle.scroll_to_item(new_ix);
-                                            cx.notify();
-                                        }
-                                        "down" => {
-                                            let new_ix =
-                                                state.highlight_index.map_or(0, |i| (i + 1) % len);
-                                            state.highlight_index = Some(new_ix);
-                                            state.scroll_handle.scroll_to_item(new_ix);
-                                            cx.notify();
-                                        }
-                                        "escape" => {
-                                            close_lang(state);
-                                            cx.notify();
-                                        }
-                                        "enter" => {
-                                            if let Some(ix) = state.highlight_index {
-                                                let k = state.options[ix].0.clone();
-                                                confirm_lang(&k, state, cx);
-                                            } else {
-                                                close_lang(state);
-                                            }
-                                            cx.notify();
-                                        }
-                                        _ => {}
-                                    }
-                                });
-                            }
-                        })
-                        .child(
-                            div()
-                                .id("lang-picker-list")
-                                .max_h(px(360.))
-                                .overflow_y_scroll()
-                                .track_scroll(&scroll_handle)
-                                .p_1()
-                                .children(items),
-                        )
-                        .vertical_scrollbar(&scroll_handle);
-
-                    overlay.push(
-                        deferred(
-                            anchored()
-                                .snap_to_window_with_margin(px(8.))
-                                .child(div().mt_1().occlude().child(popup_content)),
-                        )
-                        .with_priority(1)
-                        .into_any_element(),
-                    );
-                }
-
-                div().relative().child(trigger).children(overlay)
-            }
+            move |window, cx: &mut App| lang_picker_dropdown(picker.clone(), window, cx)
         }),
     )
     .description(tr().language_desc.clone())
+}
+
+pub fn theme_picker_dropdown(
+    picker: Entity<ThemePickerState>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let state = picker.read(cx);
+    let open = state.open;
+    let highlight_index = state.highlight_index;
+    let options = state.options.clone();
+    let current_label = state.current_label(cx);
+    let focus_handle = state.focus_handle.clone();
+    let scroll_handle = state.scroll_handle.clone();
+    let _ = state;
+
+    // Trigger button that opens/closes the popup
+    let trigger = {
+        let picker_t = picker.clone();
+        div()
+            .id("theme-picker-trigger")
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .px_3()
+            .py_1p5()
+            .rounded(px(6.))
+            .bg(Colors::app_background(cx))
+            .border_1()
+            .border_color(Colors::panel_border(cx))
+            .cursor_pointer()
+            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(Colors::text_primary(cx))
+                    .child(current_label),
+            )
+            .child(
+                Icon::new(IconName::ChevronDown)
+                    .xsmall()
+                    .text_color(Colors::text_secondary(cx)),
+            )
+            .on_click(move |_, window, cx| {
+                // When popup is open, a backdrop (priority 0) sits above
+                // the trigger. Clicking the trigger while open routes
+                // through the backdrop, which closes the popup and
+                // occludes the event — this on_click won't fire in that
+                // case. So here open is always false when this fires.
+                let focus_handle = picker_t.read(cx).focus_handle.clone();
+                picker_t.update(cx, |state, cx| {
+                    let saved = cx.global::<SettingsStore>().theme();
+                    let current_ix = state.current_index(cx);
+                    state.open = true;
+                    state.snapshot = Some(saved);
+                    state.highlight_index = current_ix;
+                    if let Some(ix) = current_ix {
+                        state.scroll_handle.scroll_to_item(ix);
+                    }
+                    cx.notify();
+                });
+                focus_handle.focus(window);
+            })
+    };
+
+    // Overlay elements: backdrop (priority 0) + popup (priority 1).
+    // Rendered only while the popup is open.
+    let mut overlay: Vec<AnyElement> = Vec::new();
+
+    if open {
+        let viewport = window.viewport_size();
+
+        // Full-window backdrop at priority 0. Sits above normal content
+        // (including the trigger) but below the popup. Clicking anywhere
+        // — including on the trigger — routes through here and closes the
+        // popup; occlude() prevents the event from reaching the trigger,
+        // so on_click on the trigger does NOT re-open the popup.
+        let picker_b = picker.clone();
+        overlay.push(
+            deferred(
+                anchored().position(point(px(0.), px(0.))).child(
+                    div()
+                        .w(viewport.width)
+                        .h(viewport.height)
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            picker_b.update(cx, |state, cx| {
+                                close_with_revert(state, cx);
+                                cx.notify();
+                            });
+                        }),
+                ),
+            )
+            .with_priority(0)
+            .into_any_element(),
+        );
+
+        // Popup panel at priority 1 (above backdrop).
+        let items = options
+            .iter()
+            .enumerate()
+            .map(|(i, (key, label))| {
+                let is_highlighted = highlight_index == Some(i);
+                let key_c = key.clone();
+                let label_c = label.clone();
+
+                div()
+                    .id(("theme-item", i))
+                    .px_2()
+                    .py_1p5()
+                    .rounded(px(4.))
+                    .text_sm()
+                    .cursor_pointer()
+                    .when(is_highlighted, |d| {
+                        d.bg(Colors::selection_bg(cx))
+                            .text_color(Colors::text_on_selection(cx))
+                    })
+                    .when(!is_highlighted, |d| {
+                        d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
+                    })
+                    .child(label_c)
+                    .on_mouse_move({
+                        let picker_m = picker.clone();
+                        let key_m = key_c.clone();
+                        move |_, _, cx| {
+                            picker_m.update(cx, |state, cx| {
+                                if state.highlight_index == Some(i) {
+                                    return;
+                                }
+                                state.highlight_index = Some(i);
+                                let choice = ThemeChoice::from_key(key_m.as_ref());
+                                apply_theme(&choice, cx);
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .on_click({
+                        let picker_c = picker.clone();
+                        let key_click = key_c.clone();
+                        move |_, _, cx| {
+                            picker_c.update(cx, |state, cx| {
+                                confirm_save(&key_click, state, cx);
+                                cx.notify();
+                            });
+                        }
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        let popup_content = v_flex()
+            .id("theme-picker-popup")
+            .bg(Colors::popover_background(cx))
+            .border_1()
+            .border_color(Colors::panel_border(cx))
+            .rounded(px(6.))
+            .shadow_md()
+            .w(px(220.))
+            .occlude()
+            .relative()
+            .track_focus(&focus_handle)
+            .on_key_down({
+                let picker_k = picker.clone();
+                move |ev: &KeyDownEvent, _, cx| {
+                    let key = ev.keystroke.key.as_str();
+                    picker_k.update(cx, |state, cx| {
+                        let len = state.options.len();
+                        if len == 0 {
+                            return;
+                        }
+                        match key {
+                            "up" => {
+                                let new_ix = state
+                                    .highlight_index
+                                    .map_or(len - 1, |i| if i == 0 { len - 1 } else { i - 1 });
+                                state.highlight_index = Some(new_ix);
+                                state.scroll_handle.scroll_to_item(new_ix);
+                                let choice =
+                                    ThemeChoice::from_key(state.options[new_ix].0.as_ref());
+                                apply_theme(&choice, cx);
+                                cx.notify();
+                            }
+                            "down" => {
+                                let new_ix = state.highlight_index.map_or(0, |i| (i + 1) % len);
+                                state.highlight_index = Some(new_ix);
+                                state.scroll_handle.scroll_to_item(new_ix);
+                                let choice =
+                                    ThemeChoice::from_key(state.options[new_ix].0.as_ref());
+                                apply_theme(&choice, cx);
+                                cx.notify();
+                            }
+                            "escape" => {
+                                close_with_revert(state, cx);
+                                cx.notify();
+                            }
+                            "enter" => {
+                                if let Some(ix) = state.highlight_index {
+                                    let k = state.options[ix].0.clone();
+                                    confirm_save(&k, state, cx);
+                                } else {
+                                    close_with_revert(state, cx);
+                                }
+                                cx.notify();
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+            })
+            .child(
+                div()
+                    .id("theme-picker-list")
+                    .max_h(px(360.))
+                    .overflow_y_scroll()
+                    .track_scroll(&scroll_handle)
+                    .p_1()
+                    .children(items),
+            )
+            .vertical_scrollbar(&scroll_handle);
+
+        overlay.push(
+            deferred(
+                anchored()
+                    .snap_to_window_with_margin(px(8.))
+                    .child(div().mt_1().occlude().child(popup_content)),
+            )
+            .with_priority(1)
+            .into_any_element(),
+        );
+    }
+
+    div()
+        .relative()
+        .child(trigger)
+        .children(overlay)
+        .into_any_element()
+}
+
+pub fn lang_picker_dropdown(
+    picker: Entity<LangPickerState>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let state = picker.read(cx);
+    let open = state.open;
+    let highlight_index = state.highlight_index;
+    let options = state.options.clone();
+    let current_label = state.current_label(cx);
+    let focus_handle = state.focus_handle.clone();
+    let scroll_handle = state.scroll_handle.clone();
+
+    let trigger = {
+        let picker_t = picker.clone();
+        div()
+            .id("lang-picker-trigger")
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .px_3()
+            .py_1p5()
+            .rounded(px(6.))
+            .bg(Colors::app_background(cx))
+            .border_1()
+            .border_color(Colors::panel_border(cx))
+            .cursor_pointer()
+            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(Colors::text_primary(cx))
+                    .child(current_label),
+            )
+            .child(
+                Icon::new(IconName::ChevronDown)
+                    .xsmall()
+                    .text_color(Colors::text_secondary(cx)),
+            )
+            .on_click(move |_, window, cx| {
+                let focus_handle = picker_t.read(cx).focus_handle.clone();
+                picker_t.update(cx, |state, cx| {
+                    let current_ix = state.current_index(cx);
+                    state.open = true;
+                    state.highlight_index = current_ix;
+                    if let Some(ix) = current_ix {
+                        state.scroll_handle.scroll_to_item(ix);
+                    }
+                    cx.notify();
+                });
+                focus_handle.focus(window);
+            })
+    };
+
+    let mut overlay: Vec<AnyElement> = Vec::new();
+
+    if open {
+        let viewport = window.viewport_size();
+
+        let picker_b = picker.clone();
+        overlay.push(
+            deferred(
+                anchored().position(point(px(0.), px(0.))).child(
+                    div()
+                        .w(viewport.width)
+                        .h(viewport.height)
+                        .occlude()
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            picker_b.update(cx, |state, cx| {
+                                close_lang(state);
+                                cx.notify();
+                            });
+                        }),
+                ),
+            )
+            .with_priority(0)
+            .into_any_element(),
+        );
+
+        let items = options
+            .iter()
+            .enumerate()
+            .map(|(i, (key, label))| {
+                let is_highlighted = highlight_index == Some(i);
+                let key_c = key.clone();
+                let label_c = label.clone();
+
+                div()
+                    .id(("lang-item", i))
+                    .px_2()
+                    .py_1p5()
+                    .rounded(px(4.))
+                    .text_sm()
+                    .cursor_pointer()
+                    .when(is_highlighted, |d| {
+                        d.bg(Colors::selection_bg(cx))
+                            .text_color(Colors::text_on_selection(cx))
+                    })
+                    .when(!is_highlighted, |d| {
+                        d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
+                    })
+                    .child(label_c)
+                    .on_mouse_move({
+                        let picker_m = picker.clone();
+                        move |_, _, cx| {
+                            picker_m.update(cx, |state, cx| {
+                                if state.highlight_index == Some(i) {
+                                    return;
+                                }
+                                state.highlight_index = Some(i);
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .on_click({
+                        let picker_c = picker.clone();
+                        let key_click = key_c.clone();
+                        move |_, _, cx| {
+                            picker_c.update(cx, |state, cx| {
+                                confirm_lang(&key_click, state, cx);
+                                cx.notify();
+                            });
+                        }
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        let popup_content = v_flex()
+            .id("lang-picker-popup")
+            .bg(Colors::popover_background(cx))
+            .border_1()
+            .border_color(Colors::panel_border(cx))
+            .rounded(px(6.))
+            .shadow_md()
+            .w(px(220.))
+            .occlude()
+            .relative()
+            .track_focus(&focus_handle)
+            .on_key_down({
+                let picker_k = picker.clone();
+                move |ev: &KeyDownEvent, _, cx| {
+                    let key = ev.keystroke.key.as_str();
+                    picker_k.update(cx, |state, cx| {
+                        let len = state.options.len();
+                        if len == 0 {
+                            return;
+                        }
+                        match key {
+                            "up" => {
+                                let new_ix = state
+                                    .highlight_index
+                                    .map_or(len - 1, |i| if i == 0 { len - 1 } else { i - 1 });
+                                state.highlight_index = Some(new_ix);
+                                state.scroll_handle.scroll_to_item(new_ix);
+                                cx.notify();
+                            }
+                            "down" => {
+                                let new_ix = state.highlight_index.map_or(0, |i| (i + 1) % len);
+                                state.highlight_index = Some(new_ix);
+                                state.scroll_handle.scroll_to_item(new_ix);
+                                cx.notify();
+                            }
+                            "escape" => {
+                                close_lang(state);
+                                cx.notify();
+                            }
+                            "enter" => {
+                                if let Some(ix) = state.highlight_index {
+                                    let k = state.options[ix].0.clone();
+                                    confirm_lang(&k, state, cx);
+                                } else {
+                                    close_lang(state);
+                                }
+                                cx.notify();
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+            })
+            .child(
+                div()
+                    .id("lang-picker-list")
+                    .max_h(px(360.))
+                    .overflow_y_scroll()
+                    .track_scroll(&scroll_handle)
+                    .p_1()
+                    .children(items),
+            )
+            .vertical_scrollbar(&scroll_handle);
+
+        overlay.push(
+            deferred(
+                anchored()
+                    .snap_to_window_with_margin(px(8.))
+                    .child(div().mt_1().occlude().child(popup_content)),
+            )
+            .with_priority(1)
+            .into_any_element(),
+        );
+    }
+
+    div()
+        .relative()
+        .child(trigger)
+        .children(overlay)
+        .into_any_element()
 }
