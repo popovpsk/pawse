@@ -177,13 +177,23 @@ impl ArtistTracksView {
             cx.notify();
         });
 
+        let scroll_handle = VirtualListScrollHandle::new();
+        if let Some(track_id) = current_track_id
+            && let Some(item_ix) = items.iter().position(|item| {
+                matches!(item, ItemKind::Track(g_ix, t_ix)
+                    if groups[*g_ix].tracks[*t_ix].base.id == track_id)
+            })
+        {
+            scroll_handle.scroll_to_item(item_ix, gpui::ScrollStrategy::Center);
+        }
+
         Self {
             artist_name: artist.name.clone().into(),
             tracks_all,
             groups,
             items,
             item_sizes: Rc::new(sizes),
-            scroll_handle: VirtualListScrollHandle::new(),
+            scroll_handle,
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             current_track_id,

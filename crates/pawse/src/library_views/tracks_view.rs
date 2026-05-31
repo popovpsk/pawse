@@ -106,6 +106,15 @@ impl TracksView {
             .load(std::sync::atomic::Ordering::Relaxed);
         let album_info = cx.new(|_cx| AlbumInfo::new(album));
 
+        let scroll_handle = VirtualListScrollHandle::new();
+        if let Some(track_id) = current_track_id
+            && let Some(item_ix) = items.iter().position(|item| {
+                matches!(item, TrackItem::Track(ix) if row_data[*ix].base.id == track_id)
+            })
+        {
+            scroll_handle.scroll_to_item(item_ix, gpui::ScrollStrategy::Center);
+        }
+
         let subscription =
             cx.subscribe(
                 &engine_event_bus,
@@ -195,7 +204,7 @@ impl TracksView {
             matcher: Matcher::new(Config::DEFAULT),
             items,
             item_sizes,
-            scroll_handle: VirtualListScrollHandle::new(),
+            scroll_handle,
             album_info,
             current_track_id,
             is_playing,
