@@ -205,7 +205,7 @@ pub struct UserSettings {
     pub volume: f32,
     #[serde(default)]
     pub playback: PlaybackState,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub show_hog_button: bool,
     #[serde(default = "default_true")]
     pub show_repeat_shuffle: bool,
@@ -233,7 +233,7 @@ impl Default for UserSettings {
             music_folders: Vec::new(),
             volume: 1.0,
             playback: PlaybackState::default(),
-            show_hog_button: true,
+            show_hog_button: false,
             show_repeat_shuffle: true,
             show_time_labels: true,
             liked_enabled: true,
