@@ -189,7 +189,7 @@ mod tests {
         for i in 0..1100 {
             let path = format!("/music/{i}.flac");
             let track = NewTrack {
-                path: path.clone().into(),
+                path: path.clone(),
                 title: Some(format!("T{i}")),
                 album_title: Some("Album".into()),
                 artist_names: vec!["Artist".into()],

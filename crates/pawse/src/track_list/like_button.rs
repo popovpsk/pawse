@@ -1,11 +1,7 @@
-use super::RowButtonColors;
+use super::{RowButtonColors, row_icon_button};
 use crate::localization::tr;
 use crate::services::Services;
-use gpui::prelude::FluentBuilder;
-use gpui::{
-    ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, div, px, svg,
-};
+use gpui::{ElementId, IntoElement, StatefulInteractiveElement};
 use gpui_component::tooltip::Tooltip;
 
 /// Group name used by track rows so the like-button can reveal itself on row hover.
@@ -16,7 +12,6 @@ pub const LIKE_ROW_GROUP: &str = "pawse-track-row";
 pub const LIKE_BUTTON_SIZE: f32 = 26.;
 
 pub fn like_button(track_id: i64, liked: bool, colors: &RowButtonColors) -> impl IntoElement {
-    let hover_bg = colors.icon_hover;
     let icon_color = if liked { colors.accent } else { colors.icon };
     let icon_path = if liked {
         "icons/s1-heart-fill.svg"
@@ -29,24 +24,19 @@ pub fn like_button(track_id: i64, liked: bool, colors: &RowButtonColors) -> impl
         tr().add_to_liked.clone()
     };
 
-    div()
-        .id(ElementId::NamedInteger("like".into(), track_id as u64))
-        .size(px(LIKE_BUTTON_SIZE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .cursor_pointer()
-        .when(!liked, |d| {
-            d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-        })
-        .hover(|s| s.bg(hover_bg))
-        .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            let services = cx.global::<Services>();
-            services.library.set_liked(track_id, !liked);
-        })
-        .child(svg().path(icon_path).size(px(15.)).text_color(icon_color))
+    row_icon_button(
+        ElementId::NamedInteger("like".into(), track_id as u64),
+        LIKE_BUTTON_SIZE,
+        icon_path,
+        15.,
+        icon_color,
+        colors.icon_hover,
+        !liked,
+    )
+    .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
+    .on_click(move |_, _, cx| {
+        cx.stop_propagation();
+        let services = cx.global::<Services>();
+        services.library.set_liked(track_id, !liked);
+    })
 }

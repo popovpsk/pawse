@@ -4,9 +4,9 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, Image, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
-    StyledImage, Subscription, Window, div, img, px, size, svg,
+    Context, ElementId, FontWeight, Image, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    size, svg,
 };
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
@@ -16,13 +16,11 @@ use crate::track_list::{
     LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
     fmt_track_num, like_button, track_duration,
 };
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
-use ui_components::cover_placeholder::cover_placeholder;
+use nucleo_matcher::{Config, Matcher};
+use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::fuzzy::fuzzy_scored;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -33,7 +31,6 @@ const ARTIST_HEADER_HEIGHT: f32 = 48.;
 const ALBUM_HEADER_HEIGHT: f32 = 84.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
 const DISC_HEADER_GAP: f32 = 24.;
-const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Debug)]
 struct TrackRow {
@@ -284,29 +281,23 @@ impl ArtistTracksView {
         if self.filter.is_empty() {
             self.groups = Self::group_by_album(&self.tracks_all, &library, &mut cover_cache);
         } else {
-            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
-            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
-            let mut buf: Vec<char> = Vec::new();
-            let kept: Vec<(usize, Rc<music_library::Track>)> = self
-                .tracks_all
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| {
-                    let haystack = Utf32Str::new(&t.title, &mut buf);
-                    pattern
-                        .score(haystack, &mut self.matcher)
-                        .is_some_and(|s| s >= threshold)
-                })
-                .map(|(ix, t)| (ix, t.clone()))
-                .collect();
+            let matches = fuzzy_scored(
+                &mut self.matcher,
+                &self.filter,
+                self.tracks_all
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, t)| (ix, t.title.as_str())),
+            );
 
             let mut groups: Vec<AlbumGroup> = Vec::new();
-            for (global_ix, track) in kept {
+            for (global_ix, _) in matches {
+                let track = &self.tracks_all[global_ix];
                 let album_id = track.album_id;
                 if let Some(last) = groups.last_mut()
                     && last.album_id == album_id
                 {
-                    last.tracks.push(TrackRow::from_track(&track));
+                    last.tracks.push(TrackRow::from_track(track));
                     last.global_indices.push(global_ix);
                     continue;
                 }
@@ -319,7 +310,7 @@ impl ArtistTracksView {
                     album_title: album_title.into(),
                     year: track.year,
                     cover,
-                    tracks: vec![TrackRow::from_track(&track)],
+                    tracks: vec![TrackRow::from_track(track)],
                     global_indices: vec![global_ix],
                 });
             }
@@ -430,19 +421,13 @@ fn artist_album_header(
     fallback_fg: gpui::Hsla,
 ) -> gpui::AnyElement {
     let group = &view.groups[g_ix];
-    let cover_el: gpui::AnyElement = if let Some(ref cover_img) = group.cover {
-        img(cover_img.clone())
-            .w(px(ALBUM_COVER_SIZE))
-            .h(px(ALBUM_COVER_SIZE))
-            .rounded(px(4.))
-            .object_fit(ObjectFit::Cover)
-            .with_fallback(move || {
-                cover_placeholder(ALBUM_COVER_SIZE, 4., fallback_bg, fallback_fg).into_any_element()
-            })
-            .into_any_element()
-    } else {
-        cover_placeholder(ALBUM_COVER_SIZE, 4., fallback_bg, fallback_fg).into_any_element()
-    };
+    let cover_el = cover_thumb(
+        group.cover.as_ref(),
+        ALBUM_COVER_SIZE,
+        4.,
+        fallback_bg,
+        fallback_fg,
+    );
     let year_str = group.year.map(|y| format!(" · {}", y)).unwrap_or_default();
     h_flex()
         .w_full()

@@ -20,6 +20,7 @@ use crate::track_list::{
 use ui_components::cover_placeholder::cover_placeholder;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::track_row::build_artist_map;
 use crate::localization::tr;
 use crate::playback_queue::RemoveOutcome;
 use crate::services::Services;
@@ -519,16 +520,4 @@ fn album_cover_cell(params: &QueueRowParams, cover_img: Option<Arc<Image>>) -> A
     } else {
         cover_placeholder(cover_size, 3., params.muted, params.muted_fg).into_any_element()
     }
-}
-
-fn build_artist_map(
-    library: &crate::library_service::LibraryService,
-    tracks: &[Rc<music_library::Track>],
-) -> HashMap<i64, SharedString> {
-    let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-    library
-        .track_artists_map(&ids)
-        .into_iter()
-        .map(|(id, names)| (id, names.join(", ").into()))
-        .collect()
 }

@@ -1,11 +1,7 @@
-use gpui::{
-    ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, div, point, px, svg,
-};
+use gpui::{ElementId, IntoElement, StatefulInteractiveElement, point, px};
 use gpui_component::tooltip::Tooltip;
 
-use super::RowButtonColors;
-use super::like_button::LIKE_ROW_GROUP;
+use super::{RowButtonColors, row_icon_button};
 use crate::localization::tr;
 use crate::playback_queue::QueueSource;
 use crate::playlist_popup::OpenAddToPlaylist;
@@ -18,42 +14,27 @@ const ICON_SIZE: f32 = 14.;
 /// anchored under the click position. Hidden when the playlist feature is
 /// disabled — caller must check `playlists_enabled` first.
 pub fn add_to_playlist_button(track_id: i64, colors: &RowButtonColors) -> impl IntoElement {
-    let hover_bg = colors.icon_hover;
-    let icon_color = colors.icon;
-
-    div()
-        .id(ElementId::NamedInteger(
-            "add-to-playlist".into(),
-            track_id as u64,
-        ))
-        .size(px(BUTTON_SIZE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .cursor_pointer()
-        .opacity(0.)
-        .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-        .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| Tooltip::new(tr().add_to_playlist.clone()).build(window, cx))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(move |event, _, cx| {
-            cx.stop_propagation();
-            let click_pos = event.position();
-            // Anchor the popup just below the click point so the popup
-            // appears near the button but doesn't cover the row.
-            let anchor = point(click_pos.x - px(220.), click_pos.y + px(8.));
-            let bus = cx.global::<Services>().playlist_popup_bus.clone();
-            bus.update(cx, |_, cx| {
-                cx.emit(OpenAddToPlaylist { track_id, anchor });
-            });
-        })
-        .child(
-            svg()
-                .path("icons/s1-plus.svg")
-                .size(px(ICON_SIZE))
-                .text_color(icon_color),
-        )
+    row_icon_button(
+        ElementId::NamedInteger("add-to-playlist".into(), track_id as u64),
+        BUTTON_SIZE,
+        "icons/s1-plus.svg",
+        ICON_SIZE,
+        colors.icon,
+        colors.icon_hover,
+        true,
+    )
+    .tooltip(|window, cx| Tooltip::new(tr().add_to_playlist.clone()).build(window, cx))
+    .on_click(move |event, _, cx| {
+        cx.stop_propagation();
+        let click_pos = event.position();
+        // Anchor the popup just below the click point so the popup
+        // appears near the button but doesn't cover the row.
+        let anchor = point(click_pos.x - px(220.), click_pos.y + px(8.));
+        let bus = cx.global::<Services>().playlist_popup_bus.clone();
+        bus.update(cx, |_, cx| {
+            cx.emit(OpenAddToPlaylist { track_id, anchor });
+        });
+    })
 }
 
 /// "x" button shown when the row is part of a currently-playing playlist.
@@ -63,79 +44,64 @@ pub fn remove_from_playlist_button(
     playlist_id: i64,
     colors: &RowButtonColors,
 ) -> impl IntoElement {
-    let hover_bg = colors.icon_hover;
-    let icon_color = colors.icon;
+    row_icon_button(
+        ElementId::NamedInteger("remove-from-playlist".into(), track_id as u64),
+        BUTTON_SIZE,
+        "icons/s1-x.svg",
+        ICON_SIZE,
+        colors.icon,
+        colors.icon_hover,
+        true,
+    )
+    .tooltip(|window, cx| Tooltip::new(tr().remove_from_playlist.clone()).build(window, cx))
+    .on_click(move |_, _, cx| {
+        cx.stop_propagation();
+        let services = cx.global::<Services>();
 
-    div()
-        .id(ElementId::NamedInteger(
-            "remove-from-playlist".into(),
-            track_id as u64,
-        ))
-        .size(px(BUTTON_SIZE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .cursor_pointer()
-        .opacity(0.)
-        .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
-        .hover(|s| s.bg(hover_bg))
-        .tooltip(|window, cx| Tooltip::new(tr().remove_from_playlist.clone()).build(window, cx))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            let services = cx.global::<Services>();
+        // The `PlaylistTracksChanged` event will sync the queue contents
+        // via `sync_queue_with_playlist`. We only need to handle the case
+        // where the playing track itself was the one removed — advance
+        // before the DB mutation so we can pick the *next* track in the
+        // queue order, and only if the playing queue is backed by this
+        // playlist (otherwise we'd skip songs in an unrelated album/etc).
+        let queue_matches = matches!(
+            services.playback_queue.borrow().source(),
+            QueueSource::Playlist(id) if id == playlist_id,
+        );
+        let advance_needed = queue_matches
+            && services
+                .playback_queue
+                .borrow()
+                .current_track()
+                .map(|t| t.id)
+                == Some(track_id);
 
-            // The `PlaylistTracksChanged` event will sync the queue contents
-            // via `sync_queue_with_playlist`. We only need to handle the case
-            // where the playing track itself was the one removed — advance
-            // before the DB mutation so we can pick the *next* track in the
-            // queue order, and only if the playing queue is backed by this
-            // playlist (otherwise we'd skip songs in an unrelated album/etc).
-            let queue_matches = matches!(
-                services.playback_queue.borrow().source(),
-                QueueSource::Playlist(id) if id == playlist_id,
-            );
-            let advance_needed = queue_matches
-                && services
-                    .playback_queue
-                    .borrow()
-                    .current_track()
-                    .map(|t| t.id)
-                    == Some(track_id);
-
-            if advance_needed {
-                // Advance forward one position regardless of repeat mode —
-                // `next_track()` under `RepeatMode::One` would loop on the
-                // very track we're removing.
-                let next = {
-                    let mut queue = services.playback_queue.borrow_mut();
-                    let next_ix = queue.current_index().map(|i| i + 1).unwrap_or(0);
-                    if next_ix < queue.len() {
-                        queue.play_track_at(next_ix).cloned()
-                    } else {
-                        None
-                    }
-                };
-                if let Some(next) = next {
-                    services.play_track(&next);
+        if advance_needed {
+            // Advance forward one position regardless of repeat mode —
+            // `next_track()` under `RepeatMode::One` would loop on the
+            // very track we're removing.
+            let next = {
+                let mut queue = services.playback_queue.borrow_mut();
+                let next_ix = queue.current_index().map(|i| i + 1).unwrap_or(0);
+                if next_ix < queue.len() {
+                    queue.play_track_at(next_ix).cloned()
                 } else {
-                    services.engine_manager.pause();
+                    None
                 }
+            };
+            if let Some(next) = next {
+                services.play_track(&next);
+            } else {
+                services.engine_manager.pause();
             }
+        }
 
-            // `save_playback` runs centrally in `sync_queue_with_playlist`
-            // after the PlaylistTracksChanged event is processed; calling it
-            // here would snapshot the stale queue (still holding the removed
-            // track) into settings.json.
-            services
-                .library
-                .remove_track_from_playlist(playlist_id, track_id);
-        })
-        .child(
-            svg()
-                .path("icons/s1-x.svg")
-                .size(px(ICON_SIZE))
-                .text_color(icon_color),
-        )
+        // `save_playback` runs centrally in `sync_queue_with_playlist`
+        // after the PlaylistTracksChanged event is processed; calling it
+        // here would snapshot the stale queue (still holding the removed
+        // track) into settings.json.
+        services
+            .library
+            .remove_track_from_playlist(playlist_id, track_id);
+    })
 }

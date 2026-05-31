@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Window, div, img, px,
+    Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::{h_flex, v_flex};
 
 use crate::theme_colors::Colors;
-use ui_components::cover_placeholder::cover_placeholder;
+use ui_components::cover_thumb::cover_thumb;
 
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
@@ -17,18 +19,23 @@ pub struct AlbumInfo {
     artist_name: SharedString,
     artist_id: Option<i64>,
     year: Option<i32>,
-    cover_art_id: Option<i64>,
+    cover: Option<Arc<Image>>,
 }
 
 impl AlbumInfo {
-    pub fn new(album: &music_library::AlbumSummary) -> Self {
+    pub fn new(album: &music_library::AlbumSummary, cx: &mut Context<Self>) -> Self {
+        let services = cx.global::<Services>();
+        let cover = services
+            .cover_art_cache
+            .borrow_mut()
+            .get_large(album.cover_art_id, &services.library);
         Self {
             album_id: album.id,
             title: album.title.clone(),
             artist_name: album.artist_name.clone().into(),
             artist_id: album.artist_id,
             year: album.year,
-            cover_art_id: album.cover_art_id,
+            cover,
         }
     }
 }
@@ -46,30 +53,13 @@ impl Render for AlbumInfo {
             .px_4()
             .gap_4()
             .items_start()
-            .child({
-                let fallback_bg = Colors::cover_fallback_bg(cx);
-                let fallback_fg = muted_fg;
-                let services = cx.global::<Services>();
-                let cover_img = services
-                    .cover_art_cache
-                    .borrow_mut()
-                    .get_large(self.cover_art_id, &services.library);
-                if let Some(cover_img) = cover_img {
-                    img(cover_img)
-                        .w(px(150.))
-                        .h(px(150.))
-                        .rounded(px(6.))
-                        .object_fit(gpui::ObjectFit::Cover)
-                        .with_fallback({
-                            let bg = fallback_bg;
-                            let fg = fallback_fg;
-                            move || cover_placeholder(150., 6., bg, fg).into_any_element()
-                        })
-                        .into_any_element()
-                } else {
-                    cover_placeholder(150., 6., fallback_bg, fallback_fg).into_any_element()
-                }
-            })
+            .child(cover_thumb(
+                self.cover.as_ref(),
+                150.,
+                6.,
+                Colors::cover_fallback_bg(cx),
+                muted_fg,
+            ))
             .child(
                 v_flex()
                     .flex_1()

@@ -323,7 +323,7 @@ mod tests {
             .ok_or_else(|| AudioError::DeviceNotFound("default".to_string()))
             .unwrap();
 
-        return (Arc::new(host), Arc::new(device));
+        (Arc::new(host), Arc::new(device))
     }
 
     fn make_test_config() -> OutputConfig {

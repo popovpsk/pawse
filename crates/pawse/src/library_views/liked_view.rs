@@ -1,29 +1,25 @@
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, Image, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
-    StyledImage, Subscription, Window, div, img, px, size,
+    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
 };
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
-use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
-    LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
-    like_button, track_duration,
+    LIKE_ROW_GROUP, RowButtonColors, add_to_playlist_button, add_to_queue_button, like_button,
+    track_duration,
 };
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
-use ui_components::cover_placeholder::cover_placeholder;
+use nucleo_matcher::{Config, Matcher};
+use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::fuzzy::fuzzy_sorted;
+use crate::library_views::track_row::{CoverTrackRow, build_artist_map, build_haystacks};
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -31,7 +27,6 @@ use crate::settings_store::SettingsStore;
 const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 44.;
 const COVER_SIZE: f32 = 32.;
-const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Copy)]
 enum LikedItem {
@@ -39,34 +34,11 @@ enum LikedItem {
     Track(usize),
 }
 
-struct TrackRow {
-    base: TrackRowBase,
-    track_all_ix: usize,
-    artist: SharedString,
-    cover: Option<Arc<Image>>,
-}
-
-impl TrackRow {
-    fn from_track(
-        track: &music_library::Track,
-        track_all_ix: usize,
-        artist_by_track: &HashMap<i64, SharedString>,
-        cover_cache: &mut CoverArtCache,
-        library: &crate::library_service::LibraryService,
-    ) -> Self {
-        Self {
-            base: TrackRowBase::from_track(track),
-            track_all_ix,
-            artist: artist_by_track.get(&track.id).cloned().unwrap_or_default(),
-            cover: cover_cache.get_small(track.cover_art_id, library),
-        }
-    }
-}
-
 pub struct LikedView {
     tracks_all: Vec<Rc<music_library::Track>>,
-    row_data: Vec<TrackRow>,
+    row_data: Vec<CoverTrackRow>,
     artist_by_track: HashMap<i64, SharedString>,
+    haystacks: Vec<String>,
     items: Vec<LikedItem>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     filter: String,
@@ -87,6 +59,7 @@ impl LikedView {
 
         let tracks_all: Vec<Rc<_>> = library.liked_tracks().into_iter().map(Rc::new).collect();
         let artist_by_track = build_artist_map(&library, &tracks_all);
+        let haystacks = build_haystacks(&tracks_all, &artist_by_track);
         let (items, item_sizes) = Self::build_items(tracks_all.len());
         let row_data = {
             let mut cover_cache = services.cover_art_cache.borrow_mut();
@@ -94,7 +67,7 @@ impl LikedView {
                 .iter()
                 .enumerate()
                 .map(|(ix, t)| {
-                    TrackRow::from_track(t, ix, &artist_by_track, &mut cover_cache, &library)
+                    CoverTrackRow::from_track(t, ix, &artist_by_track, &mut cover_cache, &library)
                 })
                 .collect()
         };
@@ -120,6 +93,7 @@ impl LikedView {
                         .map(Rc::new)
                         .collect();
                     this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
+                    this.haystacks = build_haystacks(&this.tracks_all, &this.artist_by_track);
                     this.recompute_visible(cx);
                     cx.notify();
                 }
@@ -135,6 +109,8 @@ impl LikedView {
                                 .collect();
                             this.artist_by_track =
                                 build_artist_map(&services.library, &this.tracks_all);
+                            this.haystacks =
+                                build_haystacks(&this.tracks_all, &this.artist_by_track);
                             this.recompute_visible(cx);
                             cx.notify();
                         }
@@ -142,6 +118,8 @@ impl LikedView {
                         let before = this.tracks_all.len();
                         this.tracks_all.retain(|t| t.id != *track_id);
                         if this.tracks_all.len() != before {
+                            this.haystacks =
+                                build_haystacks(&this.tracks_all, &this.artist_by_track);
                             this.recompute_visible(cx);
                             cx.notify();
                         }
@@ -186,6 +164,7 @@ impl LikedView {
             tracks_all,
             row_data,
             artist_by_track,
+            haystacks,
             items,
             item_sizes: Rc::new(item_sizes),
             filter: String::new(),
@@ -230,61 +209,32 @@ impl LikedView {
                 .iter()
                 .enumerate()
                 .map(|(ix, t)| {
-                    TrackRow::from_track(t, ix, &self.artist_by_track, &mut cover_cache, library)
+                    CoverTrackRow::from_track(t, ix, &self.artist_by_track, &mut cover_cache, library)
                 })
                 .collect();
         } else {
-            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
-            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
-            let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(usize, u32)> = self
-                .tracks_all
-                .iter()
-                .enumerate()
-                .filter_map(|(ix, track)| {
-                    let artist = self
-                        .artist_by_track
-                        .get(&track.id)
-                        .map(SharedString::as_str)
-                        .unwrap_or("");
-                    let haystack_str = format!("{} {}", track.title, artist);
-                    let haystack = Utf32Str::new(&haystack_str, &mut buf);
-                    pattern
-                        .score(haystack, &mut self.matcher)
-                        .filter(|s| *s >= threshold)
-                        .map(|s| (ix, s))
-                })
-                .collect();
-            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-            self.row_data = scored
-                .iter()
-                .map(|(ix, _)| {
-                    TrackRow::from_track(
-                        &self.tracks_all[*ix],
-                        *ix,
+            let indices = fuzzy_sorted(
+                &mut self.matcher,
+                &self.filter,
+                self.haystacks.iter().enumerate().map(|(ix, h)| (ix, h.as_str())),
+            );
+            self.row_data = indices
+                .into_iter()
+                .map(|ix| {
+                    CoverTrackRow::from_track(
+                        &self.tracks_all[ix],
+                        ix,
                         &self.artist_by_track,
                         &mut cover_cache,
                         library,
                     )
                 })
-                .collect()
+                .collect();
         }
         let (items, sizes) = Self::build_items(self.row_data.len());
         self.items = items;
         self.item_sizes = Rc::new(sizes);
     }
-}
-
-fn build_artist_map(
-    library: &crate::library_service::LibraryService,
-    tracks: &[Rc<music_library::Track>],
-) -> HashMap<i64, SharedString> {
-    let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-    library
-        .track_artists_map(&ids)
-        .into_iter()
-        .map(|(id, names)| (id, names.join(", ").into()))
-        .collect()
 }
 
 impl Render for LikedView {
@@ -363,21 +313,7 @@ fn liked_track_row(
     let is_current = Some(track_id) == view.current_track_id;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
 
-    let cover_el: gpui::AnyElement = if let Some(ref cover_img) = row.cover {
-        img(cover_img.clone())
-            .w(px(COVER_SIZE))
-            .h(px(COVER_SIZE))
-            .rounded(px(3.))
-            .object_fit(ObjectFit::Cover)
-            .with_fallback({
-                let bg = p.muted;
-                let fg = p.muted_fg;
-                move || cover_placeholder(COVER_SIZE, 3., bg, fg).into_any_element()
-            })
-            .into_any_element()
-    } else {
-        cover_placeholder(COVER_SIZE, 3., p.muted, p.muted_fg).into_any_element()
-    };
+    let cover_el = cover_thumb(row.cover.as_ref(), COVER_SIZE, 3., p.muted, p.muted_fg);
 
     h_flex()
         .group(LIKE_ROW_GROUP)

@@ -11,18 +11,14 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     v_flex,
 };
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
+use nucleo_matcher::{Config, Matcher};
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::theme_colors::Colors;
 use crate::track_list::LIKE_ROW_GROUP;
-
-const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone, Debug)]
 pub struct PlaylistSelectedEvent {
@@ -103,22 +99,18 @@ impl PlaylistsView {
             self.playlists = self.playlists_all.clone();
             return;
         }
-        let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
-        let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
-        let mut buf: Vec<char> = Vec::new();
-        let mut scored: Vec<(music_library::PlaylistSummary, u32)> = self
-            .playlists_all
-            .iter()
-            .filter_map(|p| {
-                let hay = Utf32Str::new(&p.name, &mut buf);
-                pattern
-                    .score(hay, &mut self.matcher)
-                    .filter(|s| *s >= threshold)
-                    .map(|s| (p.clone(), s))
-            })
+        let indices = fuzzy_sorted(
+            &mut self.matcher,
+            &self.filter,
+            self.playlists_all
+                .iter()
+                .enumerate()
+                .map(|(ix, p)| (ix, p.name.as_str())),
+        );
+        self.playlists = indices
+            .into_iter()
+            .map(|ix| self.playlists_all[ix].clone())
             .collect();
-        scored.sort_by_key(|(_, s)| std::cmp::Reverse(*s));
-        self.playlists = scored.into_iter().map(|(p, _)| p).collect();
     }
 
     fn commit_create(&mut self, cx: &mut Context<Self>) {

@@ -1,22 +1,21 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    Context, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
-    StyledImage, Subscription, Window, div, img, px, size,
+    Context, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, size,
 };
 use gpui_component::{VirtualListScrollHandle, button::Button, h_flex, v_flex, v_virtual_list};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
-use ui_components::cover_placeholder::cover_placeholder;
+use nucleo_matcher::{Config, Matcher};
+use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -71,11 +70,11 @@ const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
 const COVER_SIZE: f32 = 32.;
 const COVER_RADIUS: f32 = 4.;
-const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 pub struct AlbumsView {
     albums_all: Vec<music_library::AlbumSummary>,
     search_entries: Vec<music_library::AlbumSearchEntry>,
+    id_to_ix: HashMap<i64, usize>,
     row_data: Vec<AlbumRowData>,
     items: Vec<AlbumItem>,
     filter: String,
@@ -95,6 +94,7 @@ impl AlbumsView {
 
         let albums_all = library.albums();
         let search_entries = library.album_search_entries();
+        let id_to_ix = Self::id_index(&albums_all);
         let (items, item_sizes) = Self::build_items(albums_all.len());
         let row_data = {
             let mut cover_cache = services.cover_art_cache.borrow_mut();
@@ -121,6 +121,7 @@ impl AlbumsView {
                             services.cover_art_cache.borrow_mut().clear();
                             this.albums_all = services.library.albums();
                             this.search_entries = services.library.album_search_entries();
+                            this.id_to_ix = Self::id_index(&this.albums_all);
                             this.recompute_visible(cx);
                         }
                         cx.notify();
@@ -136,6 +137,7 @@ impl AlbumsView {
         Self {
             albums_all,
             search_entries,
+            id_to_ix,
             row_data,
             items,
             filter: String::new(),
@@ -146,6 +148,10 @@ impl AlbumsView {
             _subscription: subscription,
             _settings_observer: settings_observer,
         }
+    }
+
+    fn id_index(albums: &[music_library::AlbumSummary]) -> HashMap<i64, usize> {
+        albums.iter().enumerate().map(|(ix, a)| (a.id, ix)).collect()
     }
 
     fn build_items(count: usize) -> (Vec<AlbumItem>, Vec<Size<Pixels>>) {
@@ -183,36 +189,21 @@ impl AlbumsView {
                 .map(|(ix, album)| AlbumRowData::from_album(album, ix, &mut cover_cache, library))
                 .collect();
         } else {
-            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
-            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
-            let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(i64, u32)> = self
-                .search_entries
-                .iter()
-                .filter_map(|entry| {
-                    let haystack = Utf32Str::new(&entry.haystack, &mut buf);
-                    pattern
-                        .score(haystack, &mut self.matcher)
-                        .filter(|s| *s >= threshold)
-                        .map(|s| (entry.album_id, s))
-                })
-                .collect();
-            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
+            let ids = fuzzy_sorted(
+                &mut self.matcher,
+                &self.filter,
+                self.search_entries
+                    .iter()
+                    .map(|e| (e.album_id, e.haystack.as_str())),
+            );
 
-            let id_to_ix: std::collections::HashMap<i64, usize> = self
-                .albums_all
-                .iter()
-                .enumerate()
-                .map(|(ix, a)| (a.id, ix))
-                .collect();
-
-            self.row_data = scored
+            self.row_data = ids
                 .into_iter()
-                .filter_map(|(id, _)| {
-                    let ix = id_to_ix.get(&id)?;
+                .filter_map(|id| {
+                    let ix = *self.id_to_ix.get(&id)?;
                     Some(AlbumRowData::from_album(
-                        &self.albums_all[*ix],
-                        *ix,
+                        &self.albums_all[ix],
+                        ix,
                         &mut cover_cache,
                         library,
                     ))
@@ -313,21 +304,7 @@ fn album_row(
     let row = &view.row_data[row_ix];
     let albums_all_ix = row.albums_all_ix;
 
-    let cover_el: gpui::AnyElement = if let Some(ref cover_img) = row.cover {
-        img(cover_img.clone())
-            .w(px(COVER_SIZE))
-            .h(px(COVER_SIZE))
-            .rounded(px(COVER_RADIUS))
-            .object_fit(ObjectFit::Cover)
-            .with_fallback({
-                let bg = p.muted;
-                let fg = p.muted_fg;
-                move || cover_placeholder(COVER_SIZE, COVER_RADIUS, bg, fg).into_any_element()
-            })
-            .into_any_element()
-    } else {
-        cover_placeholder(COVER_SIZE, COVER_RADIUS, p.muted, p.muted_fg).into_any_element()
-    };
+    let cover_el = cover_thumb(row.cover.as_ref(), COVER_SIZE, COVER_RADIUS, p.muted, p.muted_fg);
 
     div()
         .w_full()

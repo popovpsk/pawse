@@ -14,13 +14,11 @@ use crate::track_list::{
     LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
     fmt_track_num, like_button, track_duration,
 };
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
+use nucleo_matcher::{Config, Matcher};
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
+use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
@@ -31,7 +29,6 @@ const TRACK_ROW_HEIGHT: f32 = 36.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
 const DISC_HEADER_GAP: f32 = 24.;
 const ALBUM_INFO_HEIGHT: f32 = 170.;
-const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 #[derive(Clone)]
 enum TrackItem {
@@ -104,7 +101,7 @@ impl TracksView {
         let is_playing = services
             .is_playing
             .load(std::sync::atomic::Ordering::Relaxed);
-        let album_info = cx.new(|_cx| AlbumInfo::new(album));
+        let album_info = cx.new(|cx| AlbumInfo::new(album, cx));
 
         let scroll_handle = VirtualListScrollHandle::new();
         if let Some(track_id) = current_track_id
@@ -275,25 +272,17 @@ impl TracksView {
                 .map(|(ix, t)| TrackRow::from_track(t, ix))
                 .collect();
         } else {
-            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
-            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
-            let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(usize, u32)> = self
-                .tracks_all
-                .iter()
-                .enumerate()
-                .filter_map(|(ix, track)| {
-                    let haystack = Utf32Str::new(&track.title, &mut buf);
-                    pattern
-                        .score(haystack, &mut self.matcher)
-                        .filter(|s| *s >= threshold)
-                        .map(|s| (ix, s))
-                })
-                .collect();
-            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-            self.row_data = scored
-                .iter()
-                .map(|(ix, _)| TrackRow::from_track(&self.tracks_all[*ix], *ix))
+            let indices = fuzzy_sorted(
+                &mut self.matcher,
+                &self.filter,
+                self.tracks_all
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, t)| (ix, t.title.as_str())),
+            );
+            self.row_data = indices
+                .into_iter()
+                .map(|ix| TrackRow::from_track(&self.tracks_all[ix], ix))
                 .collect();
         }
         let strings = tr();

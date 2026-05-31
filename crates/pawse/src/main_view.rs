@@ -115,14 +115,13 @@ impl MainView {
                     let query = this.search_input.read(cx).value().to_string();
                     library_view.update(cx, |v, cx| v.apply_search(&query, cx));
                 }
-                InputEvent::Blur => {
+                InputEvent::Blur
                     // Only reclaim focus for keyboard shortcuts when nothing
                     // else took it; otherwise we'd steal focus from a popup or
                     // picker opened while the search box was focused.
-                    if window.focused(cx).is_none() {
+                    if window.focused(cx).is_none() => {
                         this.focus_handle.focus(window);
                     }
-                }
                 _ => {}
             }
         });

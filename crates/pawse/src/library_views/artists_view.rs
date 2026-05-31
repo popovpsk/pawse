@@ -10,13 +10,11 @@ use gpui::{
 use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 
 use crate::theme_colors::Colors;
-use nucleo_matcher::{
-    Config, Matcher, Utf32Str,
-    pattern::{CaseMatching, Normalization, Pattern},
-};
+use nucleo_matcher::{Config, Matcher};
 use ui_components::artist_avatar::artist_avatar;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 
@@ -63,7 +61,6 @@ impl ArtistRow {
 const TOP_PADDING: f32 = 12.;
 const ARTIST_ROW_HEIGHT: f32 = 56.;
 const AVATAR_SIZE: f32 = 40.;
-const MIN_FUZZY_SCORE_PER_CHAR: u32 = 14;
 
 pub struct ArtistsView {
     artists_all: Vec<music_library::ArtistSummary>,
@@ -173,22 +170,18 @@ impl ArtistsView {
         let filtered: Vec<music_library::ArtistSummary> = if self.filter.is_empty() {
             self.artists_all.clone()
         } else {
-            let pattern = Pattern::parse(&self.filter, CaseMatching::Ignore, Normalization::Smart);
-            let threshold = self.filter.chars().count() as u32 * MIN_FUZZY_SCORE_PER_CHAR;
-            let mut buf: Vec<char> = Vec::new();
-            let mut scored: Vec<(music_library::ArtistSummary, u32)> = self
-                .artists_all
-                .iter()
-                .filter_map(|a| {
-                    let haystack = Utf32Str::new(&a.name, &mut buf);
-                    pattern
-                        .score(haystack, &mut self.matcher)
-                        .filter(|s| *s >= threshold)
-                        .map(|s| (a.clone(), s))
-                })
-                .collect();
-            scored.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
-            scored.into_iter().map(|(a, _)| a).collect()
+            let indices = fuzzy_sorted(
+                &mut self.matcher,
+                &self.filter,
+                self.artists_all
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, a)| (ix, a.name.as_str())),
+            );
+            indices
+                .into_iter()
+                .map(|ix| self.artists_all[ix].clone())
+                .collect()
         };
 
         let services = cx.global::<Services>();

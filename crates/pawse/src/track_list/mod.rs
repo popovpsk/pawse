@@ -17,7 +17,11 @@ pub use playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};
 pub use queue_button::{add_album_to_queue_button, add_to_queue_button};
 pub use row_style::current_row;
 
-use gpui::{App, Div, Hsla, ParentElement, SharedString, Styled, div, px};
+use gpui::prelude::FluentBuilder;
+use gpui::{
+    App, Div, ElementId, Hsla, InteractiveElement, MouseButton, ParentElement, SharedString,
+    Stateful, Styled, div, px, svg,
+};
 
 use crate::theme_colors::Colors;
 
@@ -40,6 +44,31 @@ impl RowButtonColors {
             accent: Colors::text_accent(cx),
         }
     }
+}
+
+pub(super) fn row_icon_button(
+    id: ElementId,
+    button_size: f32,
+    icon_path: &'static str,
+    icon_size: f32,
+    icon_color: Hsla,
+    hover_bg: Hsla,
+    reveal_on_hover: bool,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .size(px(button_size))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .cursor_pointer()
+        .when(reveal_on_hover, |d| {
+            d.opacity(0.).group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
+        })
+        .hover(move |s| s.bg(hover_bg))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(svg().path(icon_path).size(px(icon_size)).text_color(icon_color))
 }
 
 /// Fields common to every track row. Embed this in a view's row struct via
@@ -93,4 +122,23 @@ pub fn track_duration(cx: &App, duration: SharedString) -> Div {
         .text_sm()
         .text_color(Colors::text_secondary(cx))
         .child(duration)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fmt_duration, fmt_track_num};
+
+    #[test]
+    fn duration_formats_mm_ss() {
+        assert_eq!(fmt_duration(Some(0)).to_string(), "00:00");
+        assert_eq!(fmt_duration(Some(65_000)).to_string(), "01:05");
+        assert_eq!(fmt_duration(Some(3_599_000)).to_string(), "59:59");
+        assert_eq!(fmt_duration(None).to_string(), "");
+    }
+
+    #[test]
+    fn track_num_formats() {
+        assert_eq!(fmt_track_num(Some(3)).to_string(), "3.");
+        assert_eq!(fmt_track_num(None).to_string(), "");
+    }
 }
