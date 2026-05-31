@@ -357,4 +357,7 @@ fn finalize_rescan(
     if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
         eprintln!("Failed to store scan fingerprint: {}", e);
     }
+    if let Err(e) = repo.vacuum() {
+        eprintln!("Failed to vacuum library: {}", e);
+    }
 }

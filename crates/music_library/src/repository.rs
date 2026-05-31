@@ -45,7 +45,6 @@ pub trait LibraryRepository: Send + Sync {
     fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>>;
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
     fn album_title(&self, album_id: i64) -> Result<Option<String>>;
-    fn search(&self, query: &str) -> Result<Vec<Track>>;
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;
     fn delete_orphaned_albums_and_artists(&self) -> Result<()>;
@@ -95,4 +94,6 @@ pub trait LibraryRepository: Send + Sync {
     fn scan_folders(&self) -> Result<Option<String>>;
     /// Persist the fingerprint + folder set after a successful scan.
     fn set_scan_meta(&self, fingerprint: &str, folders: &str) -> Result<()>;
+
+    fn vacuum(&self) -> Result<()>;
 }

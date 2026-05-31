@@ -40,7 +40,7 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE TABLE tracks (
             id INTEGER PRIMARY KEY,
             path TEXT NOT NULL,
-            title TEXT,
+            title TEXT NOT NULL,
             album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
             track_number INTEGER,
             disc_number INTEGER NOT NULL DEFAULT 1,
@@ -48,15 +48,15 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             year INTEGER,
             cover_art_id INTEGER REFERENCES cover_art(id) ON DELETE SET NULL,
             start_offset_ms INTEGER NOT NULL DEFAULT 0,
-            liked INTEGER NOT NULL DEFAULT 0
+            liked INTEGER NOT NULL DEFAULT 0,
+            bitrate INTEGER
         );
 
-        CREATE INDEX idx_tracks_liked ON tracks(liked);
+        CREATE INDEX idx_tracks_liked ON tracks(liked) WHERE liked = 1;
 
         CREATE UNIQUE INDEX idx_tracks_path_offset ON tracks(path, start_offset_ms);
 
-        CREATE INDEX idx_tracks_album_id ON tracks(album_id);
-        CREATE INDEX idx_tracks_track_number ON tracks(track_number);
+        CREATE INDEX idx_tracks_album_sort ON tracks(album_id, disc_number, track_number);
 
         CREATE TABLE track_artists (
             track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
@@ -67,12 +67,8 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             PRIMARY KEY (track_id, artist_id, role, position)
         );
 
-        CREATE INDEX idx_track_artists_artist_id ON track_artists(artist_id);
-        "#,
-    ),
-    (
-        2,
-        r#"
+        CREATE INDEX idx_track_artists_artist_id ON track_artists(artist_id, track_id);
+
         CREATE TABLE playlists (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -91,21 +87,11 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_playlist_tracks_track_id ON playlist_tracks(track_id);
         CREATE UNIQUE INDEX idx_playlist_tracks_pair
             ON playlist_tracks(playlist_id, track_id);
-        "#,
-    ),
-    (
-        3,
-        r#"
+
         CREATE TABLE scan_meta (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        "#,
-    ),
-    (
-        4,
-        r#"
-        ALTER TABLE tracks ADD COLUMN bitrate INTEGER;
         "#,
     ),
 ];

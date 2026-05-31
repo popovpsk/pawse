@@ -125,35 +125,6 @@ mod tests {
     }
 
     #[test]
-    fn test_search_tracks() {
-        let (lib, _path) = create_test_db();
-        let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib.upsert_album("Album", None, None).unwrap();
-        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
-
-        let track = NewTrack {
-            path: "/music/song.flac".into(),
-            title: Some("My Song".into()),
-            album_title: Some("Album".into()),
-            artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
-            track_number: None,
-            disc_number: None,
-            year: None,
-            duration_ms: None,
-            cover_art_id: None,
-            start_offset_ms: None,
-            bitrate: None,
-        };
-        lib.upsert_track(&track, Some(album_id), &[(artist_id, 0)])
-            .unwrap();
-
-        let results = lib.search("Song").unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].title, "My Song");
-    }
-
-    #[test]
     fn test_tracks_by_keys_matches_path_and_offset() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
@@ -400,6 +371,21 @@ mod tests {
     }
 
     #[test]
+    fn test_vacuum_preserves_data() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+
+        lib.vacuum().unwrap();
+
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        let tracks = lib.tracks_for_album(albums[0].id).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, track_id);
+        assert_eq!(tracks[0].title, "Song");
+    }
+
+    #[test]
     fn test_album_has_artists_false() {
         let (lib, _path) = create_test_db();
         let album_id = lib.upsert_album("Solo Album", None, None).unwrap();
@@ -438,13 +424,6 @@ mod tests {
         let cover = lib.get_cover_art(id).unwrap().unwrap();
         assert!(!cover.small.is_empty());
         assert!(!cover.large.is_empty());
-    }
-
-    #[test]
-    fn test_search_no_results() {
-        let (lib, _path) = create_test_db();
-        let results = lib.search("nonexistent").unwrap();
-        assert!(results.is_empty());
     }
 
     #[test]

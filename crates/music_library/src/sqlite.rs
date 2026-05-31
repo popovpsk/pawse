@@ -19,6 +19,9 @@ const SCAN_BATCH_SIZE: usize = 256;
 const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
     duration_ms, year, cover_art_id, start_offset_ms, liked, bitrate";
 
+const TRACK_COLUMNS_T: &str = "t.id, t.path, t.title, t.album_id, t.track_number, \
+    t.disc_number, t.duration_ms, t.year, t.cover_art_id, t.start_offset_ms, t.liked, t.bitrate";
+
 fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
     Ok(Track {
         id: row.get(0)?,
@@ -59,6 +62,8 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     // checkpoint — the single biggest reindex speedup, especially on Windows.
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "cache_size", -16384)?;
+    conn.pragma_update(None, "temp_store", "MEMORY")?;
     // The scan writer holds a transaction open across each batch; without a
     // busy timeout a concurrent UI write (e.g. liking a track mid-scan) would
     // fail with SQLITE_BUSY instead of waiting for the batch to commit.
@@ -79,7 +84,7 @@ impl SqliteLibrary {
             if let Ok(check_conn) = check {
                 let has_cover_art: bool = check_conn
                     .query_row(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cover_art'",
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='cover_art')",
                         [],
                         |row| row.get::<_, i64>(0),
                     )
@@ -87,7 +92,7 @@ impl SqliteLibrary {
                     .unwrap_or(false);
                 let has_liked: bool = check_conn
                     .query_row(
-                        "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name='liked'",
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tracks') WHERE name='liked')",
                         [],
                         |row| row.get::<_, i64>(0),
                     )
@@ -95,7 +100,7 @@ impl SqliteLibrary {
                     .unwrap_or(false);
                 let has_playlists: bool = check_conn
                     .query_row(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='playlists'",
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='playlists')",
                         [],
                         |row| row.get::<_, i64>(0),
                     )
@@ -103,7 +108,7 @@ impl SqliteLibrary {
                     .unwrap_or(false);
                 let has_playlist_unique: bool = check_conn
                     .query_row(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_playlist_tracks_pair'",
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_playlist_tracks_pair')",
                         [],
                         |row| row.get::<_, i64>(0),
                     )
@@ -111,7 +116,15 @@ impl SqliteLibrary {
                     .unwrap_or(false);
                 let has_scan_meta: bool = check_conn
                     .query_row(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='scan_meta'",
+                        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_meta')",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map(|c| c > 0)
+                    .unwrap_or(false);
+                let has_bitrate: bool = check_conn
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tracks') WHERE name='bitrate')",
                         [],
                         |row| row.get::<_, i64>(0),
                     )
@@ -123,6 +136,7 @@ impl SqliteLibrary {
                     || !has_playlists
                     || !has_playlist_unique
                     || !has_scan_meta
+                    || !has_bitrate
                 {
                     remove_db_files(&db_path);
                 }
@@ -334,7 +348,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn albums(&self) -> Result<Vec<AlbumSummary>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             r#"
             SELECT
                 a.id,
@@ -412,7 +426,7 @@ impl LibraryRepository for SqliteLibrary {
             "SELECT {TRACK_COLUMNS} FROM tracks WHERE album_id = ?1 \
              ORDER BY disc_number, track_number, title",
         );
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map([album_id], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
@@ -420,7 +434,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn track_artists(&self, track_id: i64) -> Result<Vec<String>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             r#"
             SELECT a.name
             FROM artists a
@@ -436,7 +450,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             r#"
             SELECT a.id, a.name
             FROM artists a
@@ -454,32 +468,12 @@ impl LibraryRepository for SqliteLibrary {
 
     fn album_title(&self, album_id: i64) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT title FROM albums WHERE id = ?1")?;
+        let mut stmt = conn.prepare_cached("SELECT title FROM albums WHERE id = ?1")?;
         let title = stmt
             .query_row([album_id], |row| row.get::<_, Option<String>>(0))
             .optional()?
             .flatten();
         Ok(title)
-    }
-
-    fn search(&self, query: &str) -> Result<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
-        let pattern = format!("%{}%", query);
-        let sql = format!(
-            "SELECT {} FROM tracks t \
-             LEFT JOIN albums al ON al.id = t.album_id \
-             WHERE t.title LIKE ?1 OR al.title LIKE ?1 \
-             ORDER BY t.title",
-            TRACK_COLUMNS
-                .split(", ")
-                .map(|c| format!("t.{c}"))
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map([&pattern], map_track_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(LibraryError::Database)
     }
 
     fn clear(&self) -> Result<()> {
@@ -503,25 +497,26 @@ impl LibraryRepository for SqliteLibrary {
 
     fn has_tracks(&self) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))?;
-        Ok(count > 0)
+        let exists: bool =
+            conn.query_row("SELECT EXISTS(SELECT 1 FROM tracks)", [], |row| row.get(0))?;
+        Ok(exists)
     }
 
     fn delete_orphaned_albums_and_artists(&self) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
-            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL)",
+            "DELETE FROM albums WHERE NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id)",
             [],
         )?;
         tx.execute(
-            "DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM album_artists)
-             AND id NOT IN (SELECT DISTINCT artist_id FROM track_artists)",
+            "DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM album_artists WHERE album_artists.artist_id = artists.id)
+             AND NOT EXISTS (SELECT 1 FROM track_artists WHERE track_artists.artist_id = artists.id)",
             [],
         )?;
         tx.execute(
-            "DELETE FROM cover_art WHERE id NOT IN (SELECT DISTINCT cover_art_id FROM albums WHERE cover_art_id IS NOT NULL)
-             AND id NOT IN (SELECT DISTINCT cover_art_id FROM tracks WHERE cover_art_id IS NOT NULL)",
+            "DELETE FROM cover_art WHERE NOT EXISTS (SELECT 1 FROM albums WHERE albums.cover_art_id = cover_art.id)
+             AND NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.cover_art_id = cover_art.id)",
             [],
         )?;
         tx.commit()?;
@@ -596,17 +591,17 @@ impl LibraryRepository for SqliteLibrary {
 
     fn album_has_artists(&self, album_id: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM album_artists WHERE album_id = ?1",
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM album_artists WHERE album_id = ?1)",
             [album_id],
             |row| row.get(0),
         )?;
-        Ok(count > 0)
+        Ok(exists)
     }
 
     fn artists(&self) -> Result<Vec<ArtistSummary>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             r#"
             SELECT a.id, a.name, a.sort_name, COUNT(DISTINCT ta.track_id) AS track_count
             FROM artists a
@@ -631,18 +626,13 @@ impl LibraryRepository for SqliteLibrary {
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "SELECT DISTINCT {} FROM tracks t \
+            "SELECT DISTINCT {TRACK_COLUMNS_T} FROM tracks t \
              JOIN track_artists ta ON ta.track_id = t.id \
              LEFT JOIN albums al ON al.id = t.album_id \
              WHERE ta.artist_id = ?1 \
              ORDER BY COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
-            TRACK_COLUMNS
-                .split(", ")
-                .map(|c| format!("t.{c}"))
-                .collect::<Vec<_>>()
-                .join(", "),
         );
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map([artist_id], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
@@ -651,19 +641,14 @@ impl LibraryRepository for SqliteLibrary {
     fn liked_tracks(&self) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "SELECT {} FROM tracks t \
+            "SELECT {TRACK_COLUMNS_T} FROM tracks t \
              LEFT JOIN albums al ON al.id = t.album_id \
              LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0 \
              LEFT JOIN artists art ON art.id = aa.artist_id \
              WHERE t.liked = 1 \
              ORDER BY art.sort_name COLLATE NOCASE, COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
-            TRACK_COLUMNS
-                .split(", ")
-                .map(|c| format!("t.{c}"))
-                .collect::<Vec<_>>()
-                .join(", "),
         );
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map([], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
@@ -699,7 +684,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn playlists(&self) -> Result<Vec<PlaylistSummary>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             r#"
             SELECT
                 p.id,
@@ -779,17 +764,12 @@ impl LibraryRepository for SqliteLibrary {
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "SELECT {} FROM playlist_tracks pt \
+            "SELECT {TRACK_COLUMNS_T} FROM playlist_tracks pt \
              JOIN tracks t ON t.id = pt.track_id \
              WHERE pt.playlist_id = ?1 \
              ORDER BY pt.position",
-            TRACK_COLUMNS
-                .split(", ")
-                .map(|c| format!("t.{c}"))
-                .collect::<Vec<_>>()
-                .join(", "),
         );
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map([playlist_id], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
@@ -823,7 +803,7 @@ impl LibraryRepository for SqliteLibrary {
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt =
-            conn.prepare("SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1")?;
+            conn.prepare_cached("SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1")?;
         let rows = stmt.query_map([track_id], |row| row.get::<_, i64>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
@@ -922,7 +902,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare_cached(
             r#"
             SELECT ta.artist_id, al.cover_art_id, COALESCE(al.year, 9999999999) AS sort_year
             FROM track_artists ta
@@ -981,6 +961,12 @@ impl LibraryRepository for SqliteLibrary {
             [folders],
         )?;
         tx.commit()?;
+        Ok(())
+    }
+
+    fn vacuum(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("VACUUM; ANALYZE;")?;
         Ok(())
     }
 }
