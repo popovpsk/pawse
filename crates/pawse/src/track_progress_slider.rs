@@ -28,6 +28,7 @@ pub struct TrackProgressSlider {
     duration_secs: f32,
     duration_str: SharedString,
     current_position_secs: f32,
+    position_str: SharedString,
     has_track: bool,
     show_labels: bool,
     slider: Entity<Slider>,
@@ -59,7 +60,7 @@ impl Render for TrackProgressSlider {
                         .text_xs()
                         .text_color(text_secondary)
                         .text_right()
-                        .child(Self::format_time(self.current_position_secs)),
+                        .child(self.position_str.clone()),
                 )
             })
             .child(div().w(px(slider_w)).child(self.slider.clone()))
@@ -91,7 +92,8 @@ impl TrackProgressSlider {
         let slider_subscription =
             cx.subscribe(&slider, |this, _, event: &SliderEvent, cx| match event {
                 SliderEvent::Change(value) => {
-                    this.current_position_secs = *value * this.duration_secs;
+                    let pos = *value * this.duration_secs;
+                    this.set_position(pos);
                     let services = cx.global::<Services>();
                     services.engine_manager.seek(*value);
                     cx.notify();
@@ -105,7 +107,7 @@ impl TrackProgressSlider {
                     EngineEvent::Loaded { duration, .. } => {
                         this.duration_secs = duration.as_secs_f32();
                         this.duration_str = Self::format_time(this.duration_secs).into();
-                        this.current_position_secs = 0.0;
+                        this.set_position(0.0);
                         this.has_track = true;
                         this.seek_count = 0;
                         this.seek_target_secs = 0.0;
@@ -129,7 +131,7 @@ impl TrackProgressSlider {
                             return;
                         }
                         let new_position = position.as_secs_f32();
-                        this.current_position_secs = new_position;
+                        this.set_position(new_position);
                         let value = if this.duration_secs > 0.0 {
                             new_position / this.duration_secs
                         } else {
@@ -142,7 +144,7 @@ impl TrackProgressSlider {
                     }
                     EngineEvent::TrackEnded | EngineEvent::Stopped | EngineEvent::Error(_) => {
                         this.has_track = false;
-                        this.current_position_secs = 0.0;
+                        this.set_position(0.0);
                         this.duration_secs = 0.0;
                         this.duration_str = "".into();
                         this.slider.update(cx, |slider, cx| {
@@ -207,6 +209,7 @@ impl TrackProgressSlider {
             duration_secs,
             duration_str,
             current_position_secs,
+            position_str: Self::format_time(current_position_secs).into(),
             has_track,
             show_labels,
             slider,
@@ -224,6 +227,11 @@ impl TrackProgressSlider {
         let mins = (secs / 60.0) as u32;
         let secs = (secs % 60.0) as u32;
         format!("{:02}:{:02}", mins, secs)
+    }
+
+    fn set_position(&mut self, secs: f32) {
+        self.current_position_secs = secs;
+        self.position_str = Self::format_time(secs).into();
     }
 
     pub fn seek_step(&mut self, dir: i32, cx: &mut Context<Self>) {
@@ -255,9 +263,33 @@ impl TrackProgressSlider {
         self.last_seek_press = Some(now);
         self.last_seek_dir = dir;
         let frac = (target / self.duration_secs).clamp(0.0, 1.0);
-        self.current_position_secs = target;
+        self.set_position(target);
         self.slider.update(cx, |s, cx| s.set_value_silent(frac, cx));
         cx.global::<Services>().engine_manager.seek(frac);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TrackProgressSlider;
+
+    #[test]
+    fn format_time_minutes_and_seconds() {
+        assert_eq!(TrackProgressSlider::format_time(0.0), "00:00");
+        assert_eq!(TrackProgressSlider::format_time(59.0), "00:59");
+        assert_eq!(TrackProgressSlider::format_time(60.0), "01:00");
+        assert_eq!(TrackProgressSlider::format_time(90.0), "01:30");
+    }
+
+    #[test]
+    fn format_time_truncates_subsecond() {
+        assert_eq!(TrackProgressSlider::format_time(59.9), "00:59");
+    }
+
+    #[test]
+    fn format_time_minutes_exceed_sixty_without_hours() {
+        assert_eq!(TrackProgressSlider::format_time(3599.0), "59:59");
+        assert_eq!(TrackProgressSlider::format_time(3661.0), "61:01");
     }
 }

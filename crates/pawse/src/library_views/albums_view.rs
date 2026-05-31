@@ -151,7 +151,11 @@ impl AlbumsView {
     }
 
     fn id_index(albums: &[music_library::AlbumSummary]) -> HashMap<i64, usize> {
-        albums.iter().enumerate().map(|(ix, a)| (a.id, ix)).collect()
+        albums
+            .iter()
+            .enumerate()
+            .map(|(ix, a)| (a.id, ix))
+            .collect()
     }
 
     fn build_items(count: usize) -> (Vec<AlbumItem>, Vec<Size<Pixels>>) {
@@ -304,7 +308,13 @@ fn album_row(
     let row = &view.row_data[row_ix];
     let albums_all_ix = row.albums_all_ix;
 
-    let cover_el = cover_thumb(row.cover.as_ref(), COVER_SIZE, COVER_RADIUS, p.muted, p.muted_fg);
+    let cover_el = cover_thumb(
+        row.cover.as_ref(),
+        COVER_SIZE,
+        COVER_RADIUS,
+        p.muted,
+        p.muted_fg,
+    );
 
     div()
         .w_full()

@@ -9,9 +9,9 @@ use gpui::{App, AsyncApp};
 use gpui::{Context, Entity, Subscription, Window};
 use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
+use crate::playback_queue::{PlaybackQueue, PreviousAction};
 #[cfg(not(target_os = "macos"))]
 use crate::services::EngineEventsBus;
-use crate::playback_queue::{PlaybackQueue, PreviousAction};
 use crate::services::Services;
 
 #[cfg(target_os = "macos")]
@@ -94,19 +94,16 @@ impl MediaBridge {
             &current_duration,
         );
 
-        let subscription = cx.subscribe(
-            engine_event_bus,
-            move |_, _, event: &EngineEvent, cx| {
-                apply_engine_event(
-                    cx,
-                    event,
-                    &integration,
-                    &last_state,
-                    &current_position,
-                    &current_duration,
-                );
-            },
-        );
+        let subscription = cx.subscribe(engine_event_bus, move |_, _, event: &EngineEvent, cx| {
+            apply_engine_event(
+                cx,
+                event,
+                &integration,
+                &last_state,
+                &current_position,
+                &current_duration,
+            );
+        });
         Some(subscription)
     }
 }

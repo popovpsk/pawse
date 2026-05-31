@@ -105,9 +105,9 @@ impl TracksView {
 
         let scroll_handle = VirtualListScrollHandle::new();
         if let Some(track_id) = current_track_id
-            && let Some(item_ix) = items.iter().position(|item| {
-                matches!(item, TrackItem::Track(ix) if row_data[*ix].base.id == track_id)
-            })
+            && let Some(item_ix) = items.iter().position(
+                |item| matches!(item, TrackItem::Track(ix) if row_data[*ix].base.id == track_id),
+            )
         {
             scroll_handle.scroll_to_item(item_ix, gpui::ScrollStrategy::Center);
         }

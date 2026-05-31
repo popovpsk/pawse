@@ -81,17 +81,16 @@ impl Render for AudioSettings {
         }
 
         let (events, is_exclusive, bit_perfect) = {
-            let services = cx.global::<Services>();
-            (
-                services.output.drain_events(),
-                services.output.is_exclusive(),
-                services.output.bit_perfect_status(),
-            )
+            let output = &cx.global::<Services>().output;
+            let is_exclusive = output.is_exclusive();
+            let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
+            (output.drain_events(), is_exclusive, bit_perfect)
         };
-        let has_hw_volume_issue = bit_perfect
-            .issues
-            .iter()
-            .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }));
+        let has_hw_volume_issue = bit_perfect.as_ref().is_some_and(|bp| {
+            bp.issues
+                .iter()
+                .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }))
+        });
         let show_hog = !cfg!(target_os = "linux") && cx.global::<SettingsStore>().show_hog_button();
         for evt in events {
             match evt {
@@ -119,7 +118,7 @@ impl Render for AudioSettings {
         h_flex()
             .gap_2()
             .items_center()
-            .when(self.is_exclusive, |el| {
+            .when_some(bit_perfect, |el, bit_perfect| {
                 let is_perfect = bit_perfect.is_bit_perfect();
                 let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
                 let icon_name = if is_perfect {

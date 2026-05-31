@@ -802,8 +802,9 @@ impl LibraryRepository for SqliteLibrary {
 
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare_cached("SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1")?;
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1",
+        )?;
         let rows = stmt.query_map([track_id], |row| row.get::<_, i64>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)

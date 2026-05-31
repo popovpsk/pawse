@@ -57,7 +57,6 @@ impl Render for Volume {
                     )
             });
 
-        let is_exclusive = services.output.is_exclusive();
         self.slider
             .update(cx, |slider, cx| slider.set_disabled(is_exclusive, cx));
         container = container.child(div().w(px(100.)).child(self.slider.clone()));

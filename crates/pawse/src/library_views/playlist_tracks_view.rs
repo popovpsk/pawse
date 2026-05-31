@@ -229,14 +229,23 @@ impl PlaylistTracksView {
                 .iter()
                 .enumerate()
                 .map(|(ix, t)| {
-                    CoverTrackRow::from_track(t, ix, &self.artist_by_track, &mut cover_cache, library)
+                    CoverTrackRow::from_track(
+                        t,
+                        ix,
+                        &self.artist_by_track,
+                        &mut cover_cache,
+                        library,
+                    )
                 })
                 .collect();
         } else {
             let indices = fuzzy_sorted(
                 &mut self.matcher,
                 &self.filter,
-                self.haystacks.iter().enumerate().map(|(ix, h)| (ix, h.as_str())),
+                self.haystacks
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, h)| (ix, h.as_str())),
             );
             self.row_data = indices
                 .into_iter()

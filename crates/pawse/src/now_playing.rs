@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, rems,
+    Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
+    px, rems,
 };
 use gpui_component::{h_flex, v_flex};
 
@@ -24,31 +27,34 @@ pub struct NavigateToArtistRequested {
 }
 
 pub struct NowPlaying {
-    track_title: String,
-    artists: Vec<(i64, String)>,
+    track_title: SharedString,
+    artists: Vec<(i64, SharedString)>,
     album_id: Option<i64>,
     cover_art_id: Option<i64>,
+    cover_image: Option<Arc<Image>>,
+    shaped_title_w: Option<Pixels>,
+    shaped_at_rem: Pixels,
     specs: SharedString,
     _subscription: Subscription,
     _library_subscription: Subscription,
 }
 
 fn format_specs(sample_rate: Option<u32>, bit_depth: Option<u8>, bitrate: Option<u32>) -> String {
+    use std::fmt::Write;
     let mut specs = String::new();
     if let (Some(sr), Some(bd)) = (sample_rate, bit_depth) {
         let khz = sr as f32 / 1000.0;
-        let khz_str = if (khz.fract()).abs() < f32::EPSILON {
-            format!("{}", khz as u32)
+        if khz.fract().abs() < f32::EPSILON {
+            let _ = write!(specs, "{} kHz \u{b7} {}-bit", khz as u32, bd);
         } else {
-            format!("{:.1}", khz)
-        };
-        specs.push_str(&format!("{} kHz \u{b7} {}-bit", khz_str, bd));
+            let _ = write!(specs, "{:.1} kHz \u{b7} {}-bit", khz, bd);
+        }
     }
     if let Some(kbps) = bitrate {
         if !specs.is_empty() {
             specs.push_str(" \u{b7} ");
         }
-        specs.push_str(&format!("{} kbps", kbps));
+        let _ = write!(specs, "{} kbps", kbps);
     }
     specs
 }
@@ -93,10 +99,13 @@ impl NowPlaying {
             });
 
         let mut this = Self {
-            track_title: String::new(),
+            track_title: SharedString::default(),
             artists: Vec::new(),
             album_id: None,
             cover_art_id: None,
+            cover_image: None,
+            shaped_title_w: None,
+            shaped_at_rem: px(0.),
             specs: SharedString::default(),
             _subscription: subscription,
             _library_subscription: library_subscription,
@@ -126,7 +135,8 @@ impl NowPlaying {
             let album_id = track.album_id;
             let bitrate = track.bitrate;
             drop(queue);
-            self.track_title = title;
+            self.track_title = title.into();
+            self.shaped_title_w = None;
             self.cover_art_id = cover;
             self.album_id = album_id;
             self.specs = SharedString::from(format_specs(sample_rate, bit_depth, bitrate));
@@ -136,7 +146,12 @@ impl NowPlaying {
                 .track_artists_with_ids(track_id)
                 .into_iter()
                 .filter(|(id, _)| seen.insert(*id))
+                .map(|(id, name)| (id, SharedString::from(name)))
                 .collect();
+            self.cover_image = services
+                .cover_art_cache
+                .borrow_mut()
+                .get_small(cover, &services.library);
         } else {
             drop(queue);
             self.clear();
@@ -145,10 +160,12 @@ impl NowPlaying {
     }
 
     fn clear(&mut self) {
-        self.track_title.clear();
+        self.track_title = SharedString::default();
+        self.shaped_title_w = None;
         self.artists.clear();
         self.album_id = None;
         self.cover_art_id = None;
+        self.cover_image = None;
         self.specs = SharedString::default();
     }
 }
@@ -161,25 +178,33 @@ impl Render for NowPlaying {
         let viewport_w = f32::from(window.viewport_size().width);
         let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
 
-        let title_overflows = if !self.track_title.is_empty() {
-            let font_size = rems(0.875).to_pixels(window.rem_size());
-            let mut text_style = window.text_style();
-            text_style.font_weight = gpui::FontWeight::SEMIBOLD;
-            let run = text_style.to_run(self.track_title.len());
-            let shaped = window.text_system().shape_line(
-                self.track_title.clone().into(),
-                font_size,
-                &[run],
-                None,
-            );
-            shaped.width > px(title_max_w)
-        } else {
+        let title_overflows = if self.track_title.is_empty() {
             false
+        } else {
+            let rem_size = window.rem_size();
+            let shaped_w = match self.shaped_title_w {
+                Some(w) if self.shaped_at_rem == rem_size => w,
+                _ => {
+                    let font_size = rems(0.875).to_pixels(rem_size);
+                    let mut text_style = window.text_style();
+                    text_style.font_weight = gpui::FontWeight::SEMIBOLD;
+                    let run = text_style.to_run(self.track_title.len());
+                    let shaped = window.text_system().shape_line(
+                        self.track_title.clone(),
+                        font_size,
+                        &[run],
+                        None,
+                    );
+                    self.shaped_title_w = Some(shaped.width);
+                    self.shaped_at_rem = rem_size;
+                    shaped.width
+                }
+            };
+            shaped_w > px(title_max_w)
         };
 
         let album_id = self.album_id;
         let track_title = self.track_title.clone();
-        let artists = self.artists.clone();
         let foreground = Colors::text_primary(cx);
 
         h_flex()
@@ -187,14 +212,7 @@ impl Render for NowPlaying {
             .items_center()
             .w(px(200.))
             .child({
-                let cover_img = {
-                    let services = cx.global::<Services>();
-                    services
-                        .cover_art_cache
-                        .borrow_mut()
-                        .get_small(self.cover_art_id, &services.library)
-                };
-                if let Some(cover_img) = cover_img {
+                if let Some(cover_img) = self.cover_image.clone() {
                     img(cover_img)
                         .w(px(56.))
                         .h(px(56.))
@@ -258,51 +276,35 @@ impl Render for NowPlaying {
                     })
                     .child({
                         let muted_fg = Colors::text_secondary(cx);
-                        if artists.is_empty() {
+                        if self.artists.is_empty() {
                             div()
                                 .text_xs()
                                 .text_color(muted_fg)
                                 .truncate()
                                 .into_any_element()
                         } else {
-                            h_flex()
-                                .overflow_hidden()
-                                .flex_wrap()
-                                .children(
-                                    artists
-                                        .into_iter()
-                                        .enumerate()
-                                        .flat_map(|(i, (artist_id, name))| {
-                                            let separator = if i > 0 {
-                                                Some(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(muted_fg)
-                                                        .child(", ")
-                                                        .into_any_element(),
-                                                )
-                                            } else {
-                                                None
-                                            };
-                                            let link = div()
-                                                .id(("np_artist", artist_id as u64))
-                                                .text_xs()
-                                                .text_color(muted_fg)
-                                                .cursor_pointer()
-                                                .border_b(px(1.))
-                                                .hover(|s| s.border_color(muted_fg))
-                                                .on_click(cx.listener(move |_, _, _, cx| {
-                                                    cx.emit(NavigateToArtistRequested {
-                                                        artist_id,
-                                                    });
-                                                }))
-                                                .child(name)
-                                                .into_any_element();
-                                            [separator, Some(link)]
-                                        })
-                                        .flatten(),
-                                )
-                                .into_any_element()
+                            let mut row = h_flex().overflow_hidden().flex_wrap();
+                            for (i, (artist_id, name)) in self.artists.iter().enumerate() {
+                                if i > 0 {
+                                    row =
+                                        row.child(div().text_xs().text_color(muted_fg).child(", "));
+                                }
+                                let artist_id = *artist_id;
+                                row = row.child(
+                                    div()
+                                        .id(("np_artist", artist_id as u64))
+                                        .text_xs()
+                                        .text_color(muted_fg)
+                                        .cursor_pointer()
+                                        .border_b(px(1.))
+                                        .hover(|s| s.border_color(muted_fg))
+                                        .on_click(cx.listener(move |_, _, _, cx| {
+                                            cx.emit(NavigateToArtistRequested { artist_id });
+                                        }))
+                                        .child(name.clone()),
+                                );
+                            }
+                            row.into_any_element()
                         }
                     })
                     .when(!self.specs.is_empty(), |this| {
@@ -315,5 +317,50 @@ impl Render for NowPlaying {
                         )
                     }),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_specs;
+
+    #[test]
+    fn integer_khz() {
+        assert_eq!(
+            format_specs(Some(48000), Some(24), None),
+            "48 kHz \u{b7} 24-bit"
+        );
+    }
+
+    #[test]
+    fn fractional_khz() {
+        assert_eq!(
+            format_specs(Some(44100), Some(16), None),
+            "44.1 kHz \u{b7} 16-bit"
+        );
+    }
+
+    #[test]
+    fn bitrate_only() {
+        assert_eq!(format_specs(None, None, Some(320)), "320 kbps");
+    }
+
+    #[test]
+    fn sample_rate_and_bitrate_combined() {
+        assert_eq!(
+            format_specs(Some(96000), Some(24), Some(1411)),
+            "96 kHz \u{b7} 24-bit \u{b7} 1411 kbps"
+        );
+    }
+
+    #[test]
+    fn empty_when_nothing_known() {
+        assert_eq!(format_specs(None, None, None), "");
+    }
+
+    #[test]
+    fn needs_both_rate_and_depth() {
+        assert_eq!(format_specs(Some(48000), None, None), "");
+        assert_eq!(format_specs(None, Some(24), None), "");
     }
 }

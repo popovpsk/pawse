@@ -466,7 +466,8 @@ mod tests {
         #[case] channels: ChannelCount,
     ) {
         let path = fixture_path(filename);
-        let decoder = Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
+        let decoder =
+            Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
 
         let params = decoder.params();
         assert_eq!(
@@ -497,7 +498,8 @@ mod tests {
     #[case::original_1khz("1khz_16_44_1.wav")]
     fn test_decode_buffer_not_empty(#[case] filename: &str) {
         let path = fixture_path(filename);
-        let mut decoder = Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
+        let mut decoder =
+            Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
 
         let buffer = decoder
             .next_buffer()
@@ -528,7 +530,8 @@ mod tests {
     #[case::original_1khz("1khz_16_44_1.wav")]
     fn test_samples_in_valid_range(#[case] filename: &str) {
         let path = fixture_path(filename);
-        let mut decoder = Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
+        let mut decoder =
+            Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
 
         let buffer = decoder
             .next_buffer()
@@ -577,7 +580,8 @@ mod tests {
     #[case::original_1khz("1khz_16_44_1.wav")]
     fn test_seek_to_beginning(#[case] filename: &str) {
         let path = fixture_path(filename);
-        let mut decoder = Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
+        let mut decoder =
+            Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
 
         let result = decoder
             .seek(0.0)
@@ -600,7 +604,8 @@ mod tests {
     #[case::original_1khz("1khz_16_44_1.wav")]
     fn test_multiple_buffers(#[case] filename: &str) {
         let path = fixture_path(filename);
-        let mut decoder = Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
+        let mut decoder =
+            Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
 
         let mut buffer_count = 0;
         while let Ok(Some(_buffer)) = decoder.next_buffer() {
@@ -625,7 +630,8 @@ mod tests {
     #[case::sine_440_16_96_mono("sine_440_16_96_mono.wav", 0.5)]
     fn test_duration_exact(#[case] filename: &str, #[case] expected_secs: f64) {
         let path = fixture_path(filename);
-        let decoder = Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
+        let decoder =
+            Decoder::open(&path).unwrap_or_else(|_| panic!("Failed to open {}", filename));
 
         let duration = decoder
             .duration()

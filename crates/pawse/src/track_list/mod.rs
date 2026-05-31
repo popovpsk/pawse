@@ -68,7 +68,12 @@ pub(super) fn row_icon_button(
         })
         .hover(move |s| s.bg(hover_bg))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(svg().path(icon_path).size(px(icon_size)).text_color(icon_color))
+        .child(
+            svg()
+                .path(icon_path)
+                .size(px(icon_size))
+                .text_color(icon_color),
+        )
 }
 
 /// Fields common to every track row. Embed this in a view's row struct via

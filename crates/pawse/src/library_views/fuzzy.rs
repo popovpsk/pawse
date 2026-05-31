@@ -68,14 +68,22 @@ mod tests {
     #[test]
     fn equal_scores_keep_input_order() {
         let mut m = matcher();
-        let out = fuzzy_sorted(&mut m, "alpha", vec![(10usize, "alpha"), (20, "alpha"), (30, "alpha")]);
+        let out = fuzzy_sorted(
+            &mut m,
+            "alpha",
+            vec![(10usize, "alpha"), (20, "alpha"), (30, "alpha")],
+        );
         assert_eq!(out, vec![10, 20, 30]);
     }
 
     #[test]
     fn scored_preserves_input_order() {
         let mut m = matcher();
-        let out = fuzzy_scored(&mut m, "alpha", vec![(0usize, "alpha"), (1, "alpha"), (2, "alpha")]);
+        let out = fuzzy_scored(
+            &mut m,
+            "alpha",
+            vec![(0usize, "alpha"), (1, "alpha"), (2, "alpha")],
+        );
         let keys: Vec<usize> = out.iter().map(|(k, _)| *k).collect();
         assert_eq!(keys, vec![0, 1, 2]);
     }
