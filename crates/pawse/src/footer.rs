@@ -112,7 +112,7 @@ impl Render for Footer {
             .h_full()
             .items_center()
             .px_4()
-            .bg(Colors::app_background(cx))
+            .bg(Colors::background(cx))
             .child(self.now_playing.clone())
             .child(
                 v_flex()
@@ -141,9 +141,9 @@ impl Render for Footer {
             )
             .child({
                 let queue_color = if self.show_queue {
-                    Colors::text_accent(cx)
+                    Colors::primary(cx)
                 } else {
-                    Colors::text_secondary(cx)
+                    Colors::muted_foreground(cx)
                 };
                 v_flex()
                     .w(px(200.))
@@ -155,7 +155,7 @@ impl Render for Footer {
                             .id("queue_toggle")
                             .cursor_pointer()
                             .rounded(px(4.))
-                            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
+                            .hover(|s| s.bg(Colors::muted(cx)))
                             .tooltip(|window, cx| {
                                 Tooltip::new(tr().queue.clone()).build(window, cx)
                             })

@@ -360,7 +360,7 @@ impl Render for MainView {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
+            .hover(|style| style.bg(Colors::muted(cx)))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.clear_search(window, cx);
                 if this.show_settings {
@@ -374,7 +374,7 @@ impl Render for MainView {
                 svg()
                     .path("icons/back.svg")
                     .size(px(22.))
-                    .text_color(Colors::text_primary(cx)),
+                    .text_color(Colors::foreground(cx)),
             );
 
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
@@ -521,7 +521,7 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .bg(Colors::header_background(cx))
+                    .bg(Colors::title_bar(cx))
                     .child(left_group)
                     .when(!show_settings, |d| {
                         d.child(
@@ -530,7 +530,7 @@ impl Render for MainView {
                                     .with_size(Size::Medium)
                                     .focus_bordered(false)
                                     .rounded_full()
-                                    .bg(Colors::header_background(cx)),
+                                    .bg(Colors::title_bar(cx)),
                             ),
                         )
                     })
@@ -541,7 +541,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .bg(Colors::header_background(cx))
+                    .bg(Colors::title_bar(cx))
                     .child(
                         div()
                             .flex_1()
@@ -569,7 +569,7 @@ impl Render for MainView {
                                 .w(px(queue_width))
                                 .flex_shrink_0()
                                 .border_l(px(1.))
-                                .border_color(Colors::panel_border(cx))
+                                .border_color(Colors::border(cx))
                                 .relative()
                                 .child(
                                     div()
@@ -610,13 +610,13 @@ impl Render for MainView {
             .when(!show_settings, |d| {
                 d.child(fade_overlay(
                     FadeEdge::Top,
-                    Colors::header_background(cx),
+                    Colors::title_bar(cx),
                     FADE_HEIGHT,
                     34.0 + HEADER_HEIGHT,
                 ))
                 .child(fade_overlay(
                     FadeEdge::Bottom,
-                    Colors::app_background(cx),
+                    Colors::background(cx),
                     FADE_HEIGHT,
                     FOOTER_HEIGHT,
                 ))
@@ -672,12 +672,12 @@ fn tab_icon_button(
     tab: LibraryRootTab,
     cx: &mut Context<MainView>,
 ) -> impl IntoElement {
-    let active_bg = Colors::tab_active_bg(cx);
-    let hover_bg = Colors::control_hover_bg(cx);
+    let active_bg = Colors::secondary(cx);
+    let hover_bg = Colors::muted(cx);
     let fg = if active {
-        Colors::text_accent(cx)
+        Colors::primary(cx)
     } else {
-        Colors::text_primary(cx)
+        Colors::foreground(cx)
     };
 
     div()

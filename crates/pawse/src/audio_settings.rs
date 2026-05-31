@@ -231,7 +231,7 @@ impl Render for AudioSettings {
                             let services = pop_cx.global::<Services>();
                             let devices = services.output.devices();
                             let selected = services.output.selected_device_index();
-                            let muted_color = Colors::control_hover_bg(pop_cx);
+                            let muted_color = Colors::muted(pop_cx);
                             let mut children: Vec<AnyElement> = Vec::new();
                             for (i, d) in devices.into_iter().enumerate() {
                                 let view_row = view.clone();

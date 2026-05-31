@@ -128,11 +128,11 @@ impl EventEmitter<PlaylistSelectedEvent> for PlaylistsView {}
 
 impl Render for PlaylistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let border = Colors::panel_border(cx);
-        let list_hover = Colors::list_row_hover_bg(cx);
-        let muted_fg = Colors::text_secondary(cx);
-        let danger_fg = Colors::text_primary(cx);
-        let icon_btn_hover = Colors::icon_button_hover_bg(cx);
+        let border = Colors::border(cx);
+        let list_hover = Colors::list_hover(cx);
+        let muted_fg = Colors::muted_foreground(cx);
+        let danger_fg = Colors::foreground(cx);
+        let icon_btn_hover = Colors::accent(cx);
 
         let create_section = if self.creating {
             v_flex().px_4().py_3().child(

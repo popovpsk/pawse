@@ -36,14 +36,14 @@ impl Render for NextButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
+            .hover(|style| style.bg(Colors::muted(cx)))
             .tooltip(|window, cx| Tooltip::new(tr().next.clone()).build(window, cx))
             .on_click(cx.listener(NextButton::on_click))
             .child(
                 svg()
                     .path("icons/next.svg")
                     .size(px(22.))
-                    .text_color(Colors::text_primary(cx)),
+                    .text_color(Colors::foreground(cx)),
             )
     }
 }

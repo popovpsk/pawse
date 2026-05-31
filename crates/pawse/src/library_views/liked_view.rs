@@ -248,10 +248,10 @@ impl LikedView {
 
 impl Render for LikedView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let border = Colors::panel_border(cx);
-        let list_hover = Colors::list_row_hover_bg(cx);
-        let muted = Colors::control_hover_bg(cx);
-        let muted_fg = Colors::text_secondary(cx);
+        let border = Colors::border(cx);
+        let list_hover = Colors::list_hover(cx);
+        let muted = Colors::muted(cx);
+        let muted_fg = Colors::muted_foreground(cx);
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
 

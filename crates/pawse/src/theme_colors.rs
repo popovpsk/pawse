@@ -4,97 +4,80 @@ use gpui_component::ActiveTheme;
 pub struct Colors;
 
 impl Colors {
-    // ── Text / icon roles ──────────────────────────────────────────────────
-    pub fn text_primary(cx: &App) -> Hsla {
+    /// Default text/icon color: track & album titles, primary labels, prev/next icons, inactive tab icon.
+    pub fn foreground(cx: &App) -> Hsla {
         cx.theme().foreground
     }
-    pub fn text_secondary(cx: &App) -> Hsla {
+    /// Muted/secondary text: artist names, durations, hints, year, inactive repeat icon, queue-button icon.
+    pub fn muted_foreground(cx: &App) -> Hsla {
         cx.theme().muted_foreground
     }
-    /// Active / highlighted state: shuffle on, repeat on, like filled, active tab icon.
-    pub fn text_accent(cx: &App) -> Hsla {
+    /// Accent/active highlight (shuffle-on, repeat-on, active tab icon) and the play-button fill.
+    pub fn primary(cx: &App) -> Hsla {
         cx.theme().primary
     }
-    /// Label on the play button (primary-colored background).
-    pub fn text_on_play_button(cx: &App) -> Hsla {
-        cx.theme().primary_foreground
-    }
-    /// Label on a selected/accent-colored row (e.g. selected theme in settings).
-    pub fn text_on_selection(cx: &App) -> Hsla {
-        cx.theme().accent_foreground
-    }
-    /// Text inside a popover / floating panel.
-    pub fn popover_text(cx: &App) -> Hsla {
-        cx.theme().popover_foreground
-    }
-
-    // ── Surfaces & backgrounds ─────────────────────────────────────────────
-    /// Header bar, settings sidebar, settings section header.
-    pub fn header_background(cx: &App) -> Hsla {
-        cx.theme().title_bar
-    }
-    /// Main content area, footer, fade overlays.
-    pub fn app_background(cx: &App) -> Hsla {
-        cx.theme().background
-    }
-    /// Floating panel / popover background (queue panel, settings popover, playlist popup).
-    pub fn popover_background(cx: &App) -> Hsla {
-        cx.theme().popover
-    }
-
-    // ── Buttons & interactive surfaces ────────────────────────────────────
-    /// Play button fill.
-    pub fn play_button_bg(cx: &App) -> Hsla {
-        cx.theme().primary
-    }
-    /// Play button fill on hover.
-    pub fn play_button_bg_hover(cx: &App) -> Hsla {
+    /// Play-button fill on hover.
+    pub fn primary_hover(cx: &App) -> Hsla {
         cx.theme().primary_hover
     }
-    /// Hover background for transport controls (prev/next/shuffle/repeat) and settings rows.
-    pub fn control_hover_bg(cx: &App) -> Hsla {
-        cx.theme().muted
+    /// Icon/label sitting on the play button (drawn over the primary-colored fill).
+    pub fn primary_foreground(cx: &App) -> Hsla {
+        cx.theme().primary_foreground
     }
-    /// Hover / active background for icon-only action buttons (like, add-to-playlist, queue).
-    pub fn icon_button_hover_bg(cx: &App) -> Hsla {
-        cx.theme().accent
-    }
-    /// Active tab background in the main header.
-    pub fn tab_active_bg(cx: &App) -> Hsla {
+    /// Active tab background and cover-art placeholder background.
+    pub fn secondary(cx: &App) -> Hsla {
         cx.theme().secondary
     }
-    /// Selected-row background (e.g. currently selected theme in settings).
-    pub fn selection_bg(cx: &App) -> Hsla {
+    /// Hover/active bg for icon-only action buttons (like, add-to-playlist, queue) and selected-row bg.
+    pub fn accent(cx: &App) -> Hsla {
         cx.theme().accent
     }
-
-    // ── Lists ─────────────────────────────────────────────────────────────
-    /// Row hover background in all track/album/artist/queue lists.
-    pub fn list_row_hover_bg(cx: &App) -> Hsla {
+    /// Text/icon on a selected (accent-colored) row, e.g. the selected theme in settings.
+    pub fn accent_foreground(cx: &App) -> Hsla {
+        cx.theme().accent_foreground
+    }
+    /// Hover bg for transport controls (prev/next/shuffle/repeat) and settings rows.
+    pub fn muted(cx: &App) -> Hsla {
+        cx.theme().muted
+    }
+    /// Main content area, footer, fade overlays, and window title-bar background.
+    pub fn background(cx: &App) -> Hsla {
+        cx.theme().background
+    }
+    /// Header bar, settings sidebar, and settings section-header background.
+    pub fn title_bar(cx: &App) -> Hsla {
+        cx.theme().title_bar
+    }
+    /// Floating-panel / popover background (queue panel, settings popover, playlist popup).
+    pub fn popover(cx: &App) -> Hsla {
+        cx.theme().popover
+    }
+    /// Text inside a popover / floating panel.
+    pub fn popover_foreground(cx: &App) -> Hsla {
+        cx.theme().popover_foreground
+    }
+    /// Row hover background across all track/album/artist/queue lists.
+    pub fn list_hover(cx: &App) -> Hsla {
         cx.theme().list_hover
     }
     /// Background of the currently-playing row.
-    pub fn row_current_bg(cx: &App) -> Hsla {
+    pub fn list_active(cx: &App) -> Hsla {
         cx.theme().list_active
     }
     /// Left accent border of the currently-playing row.
-    pub fn row_current_border(cx: &App) -> Hsla {
+    pub fn list_active_border(cx: &App) -> Hsla {
         cx.theme().list_active_border
     }
-
-    // ── Cover art placeholder ─────────────────────────────────────────────
-    /// Background of the cover-art placeholder when no image is available.
-    pub fn cover_fallback_bg(cx: &App) -> Hsla {
-        cx.theme().secondary
-    }
-
-    // ── Borders ───────────────────────────────────────────────────────────
-    /// General panel/section border (lists, popovers, settings, dividers).
-    pub fn panel_border(cx: &App) -> Hsla {
+    /// General panel/section border: lists, popovers, settings, dividers.
+    pub fn border(cx: &App) -> Hsla {
         cx.theme().border
     }
-    /// Border shown on the drag-over target row in the queue.
-    pub fn drag_over_border(cx: &App) -> Hsla {
+    /// Border on the drag-over target row in the queue.
+    pub fn drag_border(cx: &App) -> Hsla {
         cx.theme().drag_border
+    }
+    /// Danger color: the window close button's hover state in the title bar (Linux).
+    pub fn danger(cx: &App) -> Hsla {
+        cx.theme().danger
     }
 }

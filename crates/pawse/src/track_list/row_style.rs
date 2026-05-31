@@ -11,10 +11,10 @@ use crate::theme_colors::Colors;
 /// so left padding is trimmed to 15px (1px border + 15px = 16px) and 1px is
 /// added back to the bottom — content stays aligned with non-current rows.
 pub fn current_row<E: Styled>(el: E, cx: &App) -> E {
-    el.bg(Colors::row_current_bg(cx))
+    el.bg(Colors::list_active(cx))
         .border_b(px(0.))
         .pb(px(1.))
         .border_l(px(1.))
         .pl(px(15.))
-        .border_color(Colors::row_current_border(cx))
+        .border_color(Colors::list_active_border(cx))
 }

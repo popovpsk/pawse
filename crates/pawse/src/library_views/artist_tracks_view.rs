@@ -325,12 +325,12 @@ impl ArtistTracksView {
 
 impl Render for ArtistTracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let border = Colors::panel_border(cx);
-        let list_hover = Colors::list_row_hover_bg(cx);
-        let muted_fg = Colors::text_secondary(cx);
-        let foreground = Colors::text_primary(cx);
-        let fallback_bg = Colors::cover_fallback_bg(cx);
-        let fallback_fg = Colors::text_secondary(cx);
+        let border = Colors::border(cx);
+        let list_hover = Colors::list_hover(cx);
+        let muted_fg = Colors::muted_foreground(cx);
+        let foreground = Colors::foreground(cx);
+        let fallback_bg = Colors::secondary(cx);
+        let fallback_fg = Colors::muted_foreground(cx);
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
 

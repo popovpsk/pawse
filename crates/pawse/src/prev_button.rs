@@ -73,7 +73,7 @@ impl Render for PrevButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
+            .hover(|style| style.bg(Colors::muted(cx)))
             .tooltip(|window, cx| Tooltip::new(tr().previous.clone()).build(window, cx))
             .on_click(cx.listener(PrevButton::on_click))
             .child(
@@ -81,7 +81,7 @@ impl Render for PrevButton {
                     .path("icons/next.svg")
                     .size(px(22.))
                     .with_transformation(Transformation::scale(size(-1.0, 1.0)))
-                    .text_color(Colors::text_primary(cx)),
+                    .text_color(Colors::foreground(cx)),
             )
     }
 }

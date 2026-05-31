@@ -7,7 +7,7 @@ use gpui::{
 };
 
 #[cfg(target_os = "linux")]
-use gpui_component::{ActiveTheme, InteractiveElementExt as _, h_flex};
+use gpui_component::{InteractiveElementExt as _, h_flex};
 
 use crate::theme_colors::Colors;
 
@@ -24,8 +24,8 @@ impl WindowTitleBar {
 impl RenderOnce for WindowTitleBar {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         gpui_component::TitleBar::new()
-            .bg(Colors::app_background(cx))
-            .border_color(Colors::app_background(cx))
+            .bg(Colors::background(cx))
+            .border_color(Colors::background(cx))
     }
 }
 
@@ -46,10 +46,10 @@ impl RenderOnce for WindowTitleBar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let is_client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
         let state = window.use_state(cx, |_, _| DragState { should_move: false });
-        let bg = Colors::app_background(cx);
-        let text_secondary = Colors::text_secondary(cx);
-        let text_primary = Colors::text_primary(cx);
-        let danger = cx.theme().danger;
+        let bg = Colors::background(cx);
+        let text_secondary = Colors::muted_foreground(cx);
+        let text_primary = Colors::foreground(cx);
+        let danger = Colors::danger(cx);
 
         let minimize_btn = div()
             .id("minimize")

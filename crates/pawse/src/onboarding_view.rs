@@ -81,7 +81,7 @@ fn section(label: SharedString, field: impl IntoElement, cx: &App) -> impl IntoE
             div()
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(Colors::text_primary(cx))
+                .text_color(Colors::foreground(cx))
                 .child(label),
         )
         .child(field)
@@ -100,7 +100,7 @@ impl Render for OnboardingView {
                     .px_3()
                     .py_2()
                     .text_sm()
-                    .text_color(Colors::text_secondary(cx))
+                    .text_color(Colors::muted_foreground(cx))
                     .child(s.no_folders_added.clone()),
             );
         } else {
@@ -115,14 +115,14 @@ impl Render for OnboardingView {
                         .px_3()
                         .py_2()
                         .rounded(px(6.))
-                        .bg(Colors::control_hover_bg(cx))
-                        .child(Icon::new(IconName::Folder).text_color(Colors::text_secondary(cx)))
+                        .bg(Colors::muted(cx))
+                        .child(Icon::new(IconName::Folder).text_color(Colors::muted_foreground(cx)))
                         .child(
                             div()
                                 .flex_1()
                                 .text_sm()
                                 .truncate()
-                                .text_color(Colors::text_primary(cx))
+                                .text_color(Colors::foreground(cx))
                                 .child(path_text),
                         )
                         .child(
@@ -147,7 +147,7 @@ impl Render for OnboardingView {
             .id("onboarding")
             .size_full()
             .overflow_hidden()
-            .bg(Colors::header_background(cx))
+            .bg(Colors::title_bar(cx))
             .flex()
             .items_center()
             .justify_center()
@@ -158,9 +158,9 @@ impl Render for OnboardingView {
                     .gap_5()
                     .p_8()
                     .rounded(px(12.))
-                    .bg(Colors::app_background(cx))
+                    .bg(Colors::background(cx))
                     .border_1()
-                    .border_color(Colors::panel_border(cx))
+                    .border_color(Colors::border(cx))
                     .child(
                         v_flex()
                             .gap_1()
@@ -168,13 +168,13 @@ impl Render for OnboardingView {
                                 div()
                                     .text_xl()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(Colors::text_primary(cx))
+                                    .text_color(Colors::foreground(cx))
                                     .child(s.onboarding_title.clone()),
                             )
                             .child(
                                 div()
                                     .text_sm()
-                                    .text_color(Colors::text_secondary(cx))
+                                    .text_color(Colors::muted_foreground(cx))
                                     .child(s.onboarding_subtitle.clone()),
                             ),
                     )

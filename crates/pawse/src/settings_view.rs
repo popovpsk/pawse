@@ -450,7 +450,7 @@ fn library_group() -> SettingGroup {
                             .px_3()
                             .py_2()
                             .text_sm()
-                            .text_color(Colors::text_secondary(cx))
+                            .text_color(Colors::muted_foreground(cx))
                             .child(tr().no_folders_added.clone()),
                     );
                 } else {
@@ -468,17 +468,17 @@ fn library_group() -> SettingGroup {
                                 .px_3()
                                 .py_2()
                                 .rounded(px(6.))
-                                .bg(Colors::control_hover_bg(cx))
+                                .bg(Colors::muted(cx))
                                 .child(
                                     Icon::new(IconName::Folder)
-                                        .text_color(Colors::text_secondary(cx)),
+                                        .text_color(Colors::muted_foreground(cx)),
                                 )
                                 .child(
                                     div()
                                         .flex_1()
                                         .text_sm()
                                         .truncate()
-                                        .text_color(Colors::text_primary(cx))
+                                        .text_color(Colors::foreground(cx))
                                         .child(path_text),
                                 )
                                 .child(
@@ -555,21 +555,21 @@ pub fn theme_picker_dropdown(
             .px_3()
             .py_1p5()
             .rounded(px(6.))
-            .bg(Colors::app_background(cx))
+            .bg(Colors::background(cx))
             .border_1()
-            .border_color(Colors::panel_border(cx))
+            .border_color(Colors::border(cx))
             .cursor_pointer()
-            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
+            .hover(|s| s.bg(Colors::muted(cx)))
             .child(
                 div()
                     .text_sm()
-                    .text_color(Colors::text_primary(cx))
+                    .text_color(Colors::foreground(cx))
                     .child(current_label),
             )
             .child(
                 Icon::new(IconName::ChevronDown)
                     .xsmall()
-                    .text_color(Colors::text_secondary(cx)),
+                    .text_color(Colors::muted_foreground(cx)),
             )
             .on_click(move |_, window, cx| {
                 // When popup is open, a backdrop (priority 0) sits above
@@ -642,11 +642,11 @@ pub fn theme_picker_dropdown(
                     .text_sm()
                     .cursor_pointer()
                     .when(is_highlighted, |d| {
-                        d.bg(Colors::selection_bg(cx))
-                            .text_color(Colors::text_on_selection(cx))
+                        d.bg(Colors::accent(cx))
+                            .text_color(Colors::accent_foreground(cx))
                     })
                     .when(!is_highlighted, |d| {
-                        d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
+                        d.hover(|s| s.bg(Colors::secondary(cx)))
                     })
                     .child(label_c)
                     .on_mouse_move({
@@ -679,9 +679,9 @@ pub fn theme_picker_dropdown(
 
         let popup_content = v_flex()
             .id("theme-picker-popup")
-            .bg(Colors::popover_background(cx))
+            .bg(Colors::popover(cx))
             .border_1()
-            .border_color(Colors::panel_border(cx))
+            .border_color(Colors::border(cx))
             .rounded(px(6.))
             .shadow_md()
             .w(px(220.))
@@ -789,21 +789,21 @@ pub fn lang_picker_dropdown(
             .px_3()
             .py_1p5()
             .rounded(px(6.))
-            .bg(Colors::app_background(cx))
+            .bg(Colors::background(cx))
             .border_1()
-            .border_color(Colors::panel_border(cx))
+            .border_color(Colors::border(cx))
             .cursor_pointer()
-            .hover(|s| s.bg(Colors::control_hover_bg(cx)))
+            .hover(|s| s.bg(Colors::muted(cx)))
             .child(
                 div()
                     .text_sm()
-                    .text_color(Colors::text_primary(cx))
+                    .text_color(Colors::foreground(cx))
                     .child(current_label),
             )
             .child(
                 Icon::new(IconName::ChevronDown)
                     .xsmall()
-                    .text_color(Colors::text_secondary(cx)),
+                    .text_color(Colors::muted_foreground(cx)),
             )
             .on_click(move |_, window, cx| {
                 let focus_handle = picker_t.read(cx).focus_handle.clone();
@@ -861,11 +861,11 @@ pub fn lang_picker_dropdown(
                     .text_sm()
                     .cursor_pointer()
                     .when(is_highlighted, |d| {
-                        d.bg(Colors::selection_bg(cx))
-                            .text_color(Colors::text_on_selection(cx))
+                        d.bg(Colors::accent(cx))
+                            .text_color(Colors::accent_foreground(cx))
                     })
                     .when(!is_highlighted, |d| {
-                        d.hover(|s| s.bg(Colors::tab_active_bg(cx)))
+                        d.hover(|s| s.bg(Colors::secondary(cx)))
                     })
                     .child(label_c)
                     .on_mouse_move({
@@ -895,9 +895,9 @@ pub fn lang_picker_dropdown(
 
         let popup_content = v_flex()
             .id("lang-picker-popup")
-            .bg(Colors::popover_background(cx))
+            .bg(Colors::popover(cx))
             .border_1()
-            .border_color(Colors::panel_border(cx))
+            .border_color(Colors::border(cx))
             .rounded(px(6.))
             .shadow_md()
             .w(px(220.))

@@ -205,7 +205,7 @@ impl Render for NowPlaying {
 
         let album_id = self.album_id;
         let track_title = self.track_title.clone();
-        let foreground = Colors::text_primary(cx);
+        let foreground = Colors::foreground(cx);
 
         h_flex()
             .gap_3()
@@ -219,19 +219,14 @@ impl Render for NowPlaying {
                         .rounded(px(6.))
                         .object_fit(gpui::ObjectFit::Cover)
                         .with_fallback({
-                            let bg = Colors::cover_fallback_bg(cx);
-                            let fg = Colors::text_secondary(cx);
+                            let bg = Colors::secondary(cx);
+                            let fg = Colors::muted_foreground(cx);
                             move || cover_placeholder(56., 6., bg, fg).into_any_element()
                         })
                         .into_any_element()
                 } else {
-                    cover_placeholder(
-                        56.,
-                        6.,
-                        Colors::cover_fallback_bg(cx),
-                        Colors::text_secondary(cx),
-                    )
-                    .into_any_element()
+                    cover_placeholder(56., 6., Colors::secondary(cx), Colors::muted_foreground(cx))
+                        .into_any_element()
                 }
             })
             .child(
@@ -253,7 +248,7 @@ impl Render for NowPlaying {
                             .when(title_overflows, |this| {
                                 this.child(fade_overlay(
                                     FadeEdge::Right,
-                                    Colors::app_background(cx),
+                                    Colors::background(cx),
                                     20.0,
                                     0.0,
                                 ))
@@ -275,7 +270,7 @@ impl Render for NowPlaying {
                         }
                     })
                     .child({
-                        let muted_fg = Colors::text_secondary(cx);
+                        let muted_fg = Colors::muted_foreground(cx);
                         if self.artists.is_empty() {
                             div()
                                 .text_xs()
@@ -311,7 +306,7 @@ impl Render for NowPlaying {
                         this.child(
                             div()
                                 .text_xs()
-                                .text_color(Colors::text_secondary(cx))
+                                .text_color(Colors::muted_foreground(cx))
                                 .truncate()
                                 .child(self.specs.clone()),
                         )

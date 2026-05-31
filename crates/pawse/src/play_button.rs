@@ -94,15 +94,15 @@ impl Render for PlayButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .bg(Colors::play_button_bg(cx))
-            .hover(|style| style.bg(Colors::play_button_bg_hover(cx)))
+            .bg(Colors::primary(cx))
+            .hover(|style| style.bg(Colors::primary_hover(cx)))
             .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
             .on_click(cx.listener(PlayButton::on_click))
             .child(
                 svg()
                     .path(icon_path)
                     .size(px(30.))
-                    .text_color(Colors::text_on_play_button(cx)),
+                    .text_color(Colors::primary_foreground(cx)),
             )
     }
 }

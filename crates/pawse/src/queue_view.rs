@@ -38,10 +38,10 @@ impl Render for DraggedQueueTrack {
             .px_3()
             .py_1()
             .rounded_md()
-            .bg(Colors::popover_background(cx))
-            .text_color(Colors::popover_text(cx))
+            .bg(Colors::popover(cx))
+            .text_color(Colors::popover_foreground(cx))
             .border_1()
-            .border_color(Colors::panel_border(cx))
+            .border_color(Colors::border(cx))
             .text_sm()
             .opacity(0.9)
             .child(self.title.clone())
@@ -69,11 +69,11 @@ impl QueueRowParams {
         let settings = cx.global::<SettingsStore>();
         let show_queue_artist = settings.show_queue_artist();
         Self {
-            muted: Colors::control_hover_bg(cx),
-            muted_fg: Colors::text_secondary(cx),
-            border: Colors::panel_border(cx),
-            accent: Colors::icon_button_hover_bg(cx),
-            list_hover: Colors::list_row_hover_bg(cx),
+            muted: Colors::muted(cx),
+            muted_fg: Colors::muted_foreground(cx),
+            border: Colors::border(cx),
+            accent: Colors::accent(cx),
+            list_hover: Colors::list_hover(cx),
             liked_enabled: settings.liked_enabled(),
             playlists_enabled: settings.playlists_enabled(),
             show_track_duration: settings.show_track_duration(),
@@ -248,7 +248,7 @@ impl QueueView {
 
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let foreground = Colors::text_primary(cx);
+        let foreground = Colors::foreground(cx);
         let header = queue_header(foreground);
 
         if self.tracks.is_empty() {
@@ -458,7 +458,7 @@ fn queue_visible_range_row(
             } else {
                 style.border_t_2().border_b(px(0.))
             };
-            style.border_color(Colors::drag_over_border(cx))
+            style.border_color(Colors::drag_border(cx))
         })
         .on_drop(cx.listener(move |this, drag: &DraggedQueueTrack, _, cx| {
             if drag.from_ix == track_ix {
@@ -480,7 +480,7 @@ fn queue_empty_state(cx: &Context<QueueView>, header: Div) -> Div {
             .px_4()
             .pt_2()
             .text_sm()
-            .text_color(Colors::text_secondary(cx))
+            .text_color(Colors::muted_foreground(cx))
             .child(tr().queue_is_empty.clone()),
     )
 }

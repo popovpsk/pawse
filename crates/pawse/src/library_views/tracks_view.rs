@@ -309,10 +309,10 @@ impl Render for TracksView {
         }
 
         let p = TrackRowParams {
-            border: Colors::panel_border(cx),
-            list_hover: Colors::list_row_hover_bg(cx),
-            muted_fg: Colors::text_secondary(cx),
-            foreground: Colors::text_primary(cx),
+            border: Colors::border(cx),
+            list_hover: Colors::list_hover(cx),
+            muted_fg: Colors::muted_foreground(cx),
+            foreground: Colors::foreground(cx),
             liked_enabled: cx.global::<SettingsStore>().liked_enabled(),
             playlists_enabled: cx.global::<SettingsStore>().playlists_enabled(),
             buttons: RowButtonColors::from_cx(cx),

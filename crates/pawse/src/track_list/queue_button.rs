@@ -50,8 +50,8 @@ pub fn add_album_to_queue_button(
         button_size,
         "icons/add-queue.svg",
         icon_size,
-        Colors::text_secondary(cx),
-        Colors::control_hover_bg(cx),
+        Colors::muted_foreground(cx),
+        Colors::muted(cx),
         false,
     )
     .tooltip(|window, cx| Tooltip::new(tr().add_album_to_queue.clone()).build(window, cx))

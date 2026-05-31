@@ -47,7 +47,7 @@ impl Render for TrackProgressSlider {
         let viewport_w = f32::from(window.viewport_size().width);
         let labels_w = if show_labels { LABELS_W } else { 0.0 };
         let slider_w = (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W);
-        let text_secondary = Colors::text_secondary(cx);
+        let text_secondary = Colors::muted_foreground(cx);
         h_flex()
             .gap_3()
             .items_center()

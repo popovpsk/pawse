@@ -32,9 +32,9 @@ impl Render for RepeatButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mode = cx.global::<Services>().playback_queue.borrow().repeat();
         let (icon, color) = match mode {
-            RepeatMode::Off => ("icons/repeat.svg", Colors::text_secondary(cx)),
-            RepeatMode::All => ("icons/repeat.svg", Colors::text_accent(cx)),
-            RepeatMode::One => ("icons/repeat-one.svg", Colors::text_accent(cx)),
+            RepeatMode::Off => ("icons/repeat.svg", Colors::muted_foreground(cx)),
+            RepeatMode::All => ("icons/repeat.svg", Colors::primary(cx)),
+            RepeatMode::One => ("icons/repeat-one.svg", Colors::primary(cx)),
         };
         let tooltip_text = tr().repeat_mode.clone();
 
@@ -46,7 +46,7 @@ impl Render for RepeatButton {
             .items_center()
             .justify_center()
             .rounded_full()
-            .hover(|style| style.bg(Colors::control_hover_bg(cx)))
+            .hover(|style| style.bg(Colors::muted(cx)))
             .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
             .on_click(cx.listener(RepeatButton::on_click))
             .child(svg().path(icon).size(px(18.)).text_color(color))

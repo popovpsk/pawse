@@ -53,7 +53,7 @@ impl Render for Volume {
                         svg()
                             .path(icon_path)
                             .size(px(22.))
-                            .text_color(Colors::text_primary(cx)),
+                            .text_color(Colors::foreground(cx)),
                     )
             });
 

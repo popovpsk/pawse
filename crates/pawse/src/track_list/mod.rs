@@ -39,9 +39,9 @@ pub struct RowButtonColors {
 impl RowButtonColors {
     pub fn from_cx(cx: &App) -> Self {
         Self {
-            icon_hover: Colors::icon_button_hover_bg(cx),
-            icon: Colors::text_secondary(cx),
-            accent: Colors::text_accent(cx),
+            icon_hover: Colors::accent(cx),
+            icon: Colors::muted_foreground(cx),
+            accent: Colors::primary(cx),
         }
     }
 }
@@ -125,7 +125,7 @@ pub fn track_duration(cx: &App, duration: SharedString) -> Div {
         .items_center()
         .justify_center()
         .text_sm()
-        .text_color(Colors::text_secondary(cx))
+        .text_color(Colors::muted_foreground(cx))
         .child(duration)
 }
 

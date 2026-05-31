@@ -197,10 +197,10 @@ impl EventEmitter<ArtistSelectedEvent> for ArtistsView {}
 
 impl Render for ArtistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let border = Colors::panel_border(cx);
-        let secondary = Colors::cover_fallback_bg(cx);
-        let list_hover = Colors::list_row_hover_bg(cx);
-        let muted_fg = Colors::text_secondary(cx);
+        let border = Colors::border(cx);
+        let secondary = Colors::secondary(cx);
+        let list_hover = Colors::list_hover(cx);
+        let muted_fg = Colors::muted_foreground(cx);
 
         if self.is_scanning && self.artists_all.is_empty() {
             return v_flex()

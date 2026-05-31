@@ -44,7 +44,7 @@ impl EventEmitter<NavigateToArtistRequested> for AlbumInfo {}
 
 impl Render for AlbumInfo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let muted_fg = Colors::text_secondary(cx);
+        let muted_fg = Colors::muted_foreground(cx);
         let album_id = self.album_id;
         let artist_id = self.artist_id;
 
@@ -57,7 +57,7 @@ impl Render for AlbumInfo {
                 self.cover.as_ref(),
                 150.,
                 6.,
-                Colors::cover_fallback_bg(cx),
+                Colors::secondary(cx),
                 muted_fg,
             ))
             .child(

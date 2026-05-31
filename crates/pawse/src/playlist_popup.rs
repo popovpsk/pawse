@@ -231,14 +231,14 @@ impl gpui::Render for PlaylistPopup {
             return div().into_any_element();
         }
 
-        let popover_bg = Colors::popover_background(cx);
-        let border_color = Colors::panel_border(cx);
-        let accent = Colors::selection_bg(cx);
-        let accent_fg = Colors::text_on_selection(cx);
-        let secondary = Colors::tab_active_bg(cx);
-        let muted_fg = Colors::text_secondary(cx);
-        let foreground = Colors::text_primary(cx);
-        let primary = Colors::text_accent(cx);
+        let popover_bg = Colors::popover(cx);
+        let border_color = Colors::border(cx);
+        let accent = Colors::accent(cx);
+        let accent_fg = Colors::accent_foreground(cx);
+        let secondary = Colors::secondary(cx);
+        let muted_fg = Colors::muted_foreground(cx);
+        let foreground = Colors::foreground(cx);
+        let primary = Colors::primary(cx);
 
         let viewport = window.viewport_size();
         let entity_handle = cx.entity();
