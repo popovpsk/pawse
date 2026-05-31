@@ -95,6 +95,8 @@ pub static HI: Strings = lang! {
     bp_no_source: "• कोई स्रोत लोड नहीं हुआ",
     fix_volume: "वॉल्यूम ठीक करें",
     fix_volume_tooltip: "बिट-परफ़ेक्ट प्लेबैक के लिए डिवाइस वॉल्यूम 100% पर सेट करें",
+    fix_volume_confirm_title: "वॉल्यूम 100% पर सेट करें?",
+    fix_volume_confirm_message: "बिट-परफ़ेक्ट प्लेबैक के लिए डिवाइस वॉल्यूम 100% पर सेट हो जाएगा। सावधान रहें — प्लेबैक तेज़ हो सकता है।",
     select_audio_device: "ऑडियो डिवाइस चुनें",
     exclusive_click_disable: "एक्सक्लूसिव मोड — बंद करने के लिए क्लिक करें",
     shared_click_enable: "साझा मोड — एक्सक्लूसिव चालू करने के लिए क्लिक करें",

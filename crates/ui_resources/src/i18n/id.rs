@@ -95,6 +95,8 @@ pub static ID: Strings = lang! {
     bp_no_source: "• Tidak ada sumber dimuat",
     fix_volume: "Perbaiki volume",
     fix_volume_tooltip: "Setel volume perangkat ke 100% untuk pemutaran bit-perfect",
+    fix_volume_confirm_title: "Setel volume ke 100%?",
+    fix_volume_confirm_message: "Volume perangkat akan disetel ke 100% untuk pemutaran bit-perfect. Hati-hati — pemutaran bisa menjadi keras.",
     select_audio_device: "Pilih perangkat audio",
     exclusive_click_disable: "Mode eksklusif — klik untuk menonaktifkan",
     shared_click_enable: "Mode berbagi — klik untuk mengaktifkan eksklusif",

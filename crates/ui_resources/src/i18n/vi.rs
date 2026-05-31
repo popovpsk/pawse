@@ -95,6 +95,8 @@ pub static VI: Strings = lang! {
     bp_no_source: "• Chưa tải nguồn",
     fix_volume: "Sửa âm lượng",
     fix_volume_tooltip: "Đặt âm lượng thiết bị về 100% để phát bit-perfect",
+    fix_volume_confirm_title: "Đặt âm lượng về 100%?",
+    fix_volume_confirm_message: "Âm lượng thiết bị sẽ được đặt về 100% để phát bit-perfect. Hãy cẩn thận — âm thanh có thể rất to.",
     select_audio_device: "Chọn thiết bị âm thanh",
     exclusive_click_disable: "Chế độ độc quyền — nhấp để tắt",
     shared_click_enable: "Chế độ dùng chung — nhấp để bật độc quyền",

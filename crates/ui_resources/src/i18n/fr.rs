@@ -95,6 +95,8 @@ pub static FR: Strings = lang! {
     bp_no_source: "• Aucune source chargée",
     fix_volume: "Corriger le volume",
     fix_volume_tooltip: "Réglez le volume du périphérique à 100% pour une lecture bit-perfect",
+    fix_volume_confirm_title: "Régler le volume à 100% ?",
+    fix_volume_confirm_message: "Le volume du périphérique sera réglé à 100% pour une lecture bit-perfect. Attention — la lecture peut devenir forte.",
     select_audio_device: "Sélectionner le périphérique audio",
     exclusive_click_disable: "Mode exclusif — cliquez pour désactiver",
     shared_click_enable: "Mode partagé — cliquez pour activer l'exclusif",

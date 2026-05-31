@@ -95,6 +95,8 @@ pub static CS: Strings = lang! {
     bp_no_source: "• Není načten žádný zdroj",
     fix_volume: "Opravit hlasitost",
     fix_volume_tooltip: "Nastavte hlasitost zařízení na 100% pro bit-perfect přehrávání",
+    fix_volume_confirm_title: "Nastavit hlasitost na 100%?",
+    fix_volume_confirm_message: "Hlasitost zařízení bude nastavena na 100% pro bit-perfect přehrávání. Buďte opatrní — přehrávání může být hlasité.",
     select_audio_device: "Vybrat zvukové zařízení",
     exclusive_click_disable: "Exkluzivní režim — kliknutím vypnete",
     shared_click_enable: "Sdílený režim — kliknutím zapnete exkluzivní",

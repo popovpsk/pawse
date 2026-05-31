@@ -95,6 +95,8 @@ pub static KO: Strings = lang! {
     bp_no_source: "• 로드된 소스 없음",
     fix_volume: "볼륨 수정",
     fix_volume_tooltip: "비트 퍼펙트 재생을 위해 장치 볼륨을 100%로 설정하세요",
+    fix_volume_confirm_title: "볼륨을 100%로 설정할까요?",
+    fix_volume_confirm_message: "비트 퍼펙트 재생을 위해 장치 볼륨을 100%로 설정합니다. 주의하세요 — 재생음이 커질 수 있습니다.",
     select_audio_device: "오디오 장치 선택",
     exclusive_click_disable: "독점 모드 — 클릭하여 해제",
     shared_click_enable: "공유 모드 — 클릭하여 독점 활성화",

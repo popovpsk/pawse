@@ -95,6 +95,8 @@ pub static ES: Strings = lang! {
     bp_no_source: "• No hay fuente cargada",
     fix_volume: "Ajustar volumen",
     fix_volume_tooltip: "Pon el volumen del dispositivo al 100% para reproducción bit-perfect",
+    fix_volume_confirm_title: "¿Poner el volumen al 100%?",
+    fix_volume_confirm_message: "El volumen del dispositivo se ajustará al 100% para reproducción bit-perfect. Ten cuidado: la reproducción puede ser fuerte.",
     select_audio_device: "Seleccionar dispositivo de audio",
     exclusive_click_disable: "Modo exclusivo — clic para desactivar",
     shared_click_enable: "Modo compartido — clic para activar el exclusivo",

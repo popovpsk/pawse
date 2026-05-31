@@ -95,6 +95,8 @@ pub static RU: Strings = lang! {
     bp_no_source: "• Источник не загружен",
     fix_volume: "Исправить громкость",
     fix_volume_tooltip: "Установите громкость устройства на 100% для bit-perfect воспроизведения",
+    fix_volume_confirm_title: "Установить громкость на 100%?",
+    fix_volume_confirm_message: "Громкость устройства будет выставлена на 100% для bit-perfect воспроизведения. Будьте осторожны — звук может стать громким.",
     select_audio_device: "Выбрать аудиоустройство",
     exclusive_click_disable: "Эксклюзивный режим — нажмите, чтобы отключить",
     shared_click_enable: "Общий режим — нажмите, чтобы включить эксклюзивный",

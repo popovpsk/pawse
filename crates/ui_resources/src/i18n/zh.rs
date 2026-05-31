@@ -95,6 +95,8 @@ pub static ZH: Strings = lang! {
     bp_no_source: "• 未加载音源",
     fix_volume: "修正音量",
     fix_volume_tooltip: "将设备音量设为 100% 以实现比特完美播放",
+    fix_volume_confirm_title: "将音量设为 100%？",
+    fix_volume_confirm_message: "设备音量将设为 100% 以实现比特完美播放。请注意——播放可能会很响。",
     select_audio_device: "选择音频设备",
     exclusive_click_disable: "独占模式 — 点击关闭",
     shared_click_enable: "共享模式 — 点击启用独占",

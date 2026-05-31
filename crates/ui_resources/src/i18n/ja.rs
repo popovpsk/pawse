@@ -95,6 +95,8 @@ pub static JA: Strings = lang! {
     bp_no_source: "• ソースが読み込まれていません",
     fix_volume: "音量を修正",
     fix_volume_tooltip: "ビットパーフェクト再生のためデバイス音量を100%にします",
+    fix_volume_confirm_title: "音量を100%にしますか？",
+    fix_volume_confirm_message: "ビットパーフェクト再生のためデバイス音量を100%に設定します。ご注意ください — 再生音が大きくなる場合があります。",
     select_audio_device: "オーディオデバイスを選択",
     exclusive_click_disable: "排他モード — クリックで無効化",
     shared_click_enable: "共有モード — クリックで排他を有効化",

@@ -95,6 +95,8 @@ pub static DE: Strings = lang! {
     bp_no_source: "• Keine Quelle geladen",
     fix_volume: "Lautstärke korrigieren",
     fix_volume_tooltip: "Gerätelautstärke für bit-perfekte Wiedergabe auf 100% setzen",
+    fix_volume_confirm_title: "Lautstärke auf 100% setzen?",
+    fix_volume_confirm_message: "Die Gerätelautstärke wird für bit-perfekte Wiedergabe auf 100% gesetzt. Vorsicht — die Wiedergabe kann laut werden.",
     select_audio_device: "Audiogerät auswählen",
     exclusive_click_disable: "Exklusivmodus — zum Deaktivieren klicken",
     shared_click_enable: "Geteilter Modus — klicken, um Exklusivmodus zu aktivieren",

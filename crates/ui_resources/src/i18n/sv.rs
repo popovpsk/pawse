@@ -95,6 +95,8 @@ pub static SV: Strings = lang! {
     bp_no_source: "• Ingen källa laddad",
     fix_volume: "Korrigera volym",
     fix_volume_tooltip: "Ställ in enhetens volym på 100% för bit-perfect uppspelning",
+    fix_volume_confirm_title: "Ställ in volymen på 100%?",
+    fix_volume_confirm_message: "Enhetens volym ställs in på 100% för bit-perfect uppspelning. Var försiktig — uppspelningen kan bli hög.",
     select_audio_device: "Välj ljudenhet",
     exclusive_click_disable: "Exklusivt läge — klicka för att inaktivera",
     shared_click_enable: "Delat läge — klicka för att aktivera exklusivt",

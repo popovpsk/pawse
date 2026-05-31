@@ -7,6 +7,7 @@ use gpui::{
 use gpui_component::{
     Icon, IconName, WindowExt,
     button::{Button, ButtonVariants},
+    dialog::DialogButtonProps,
     h_flex,
     notification::Notification,
     popover::Popover,
@@ -121,11 +122,6 @@ impl Render for AudioSettings {
             .when(self.is_exclusive, |el| {
                 let is_perfect = bit_perfect.is_bit_perfect();
                 let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
-                let icon_color = if is_perfect {
-                    Colors::status_ok(cx)
-                } else {
-                    Colors::status_warning(cx)
-                };
                 let icon_name = if is_perfect {
                     IconName::Check
                 } else {
@@ -138,23 +134,32 @@ impl Render for AudioSettings {
                         .rounded_full()
                         .w(px(40.))
                         .h(px(40.))
-                        .icon(Icon::new(icon_name).text_color(icon_color).size(px(20.)))
+                        .icon(Icon::new(icon_name).size(px(20.)))
                         .tooltip(tooltip_text),
                 )
             })
             .when(self.is_exclusive && has_hw_volume_issue, |el| {
-                let view = cx.entity().clone();
                 el.child(
                     Button::new("fix-hw-volume")
                         .ghost()
                         .compact()
                         .label(tr().fix_volume.clone())
                         .tooltip(tr().fix_volume_tooltip.clone())
-                        .on_click(move |_, _, app_cx| {
-                            view.update(app_cx, |_, cx| {
-                                let services = cx.global::<Services>();
-                                services.output.set_hw_volume(1.0);
-                                cx.notify();
+                        .on_click(move |_, window: &mut Window, app_cx: &mut App| {
+                            window.open_dialog(app_cx, move |dialog, _window, _cx| {
+                                dialog
+                                    .confirm()
+                                    .title(tr().fix_volume_confirm_title.clone())
+                                    .child(div().child(tr().fix_volume_confirm_message.clone()))
+                                    .button_props(
+                                        DialogButtonProps::default()
+                                            .ok_text(tr().fix_volume.clone())
+                                            .cancel_text(tr().cancel.clone()),
+                                    )
+                                    .on_ok(|_, _, cx| {
+                                        cx.global::<Services>().output.set_hw_volume(1.0);
+                                        true
+                                    })
                             });
                         }),
                 )

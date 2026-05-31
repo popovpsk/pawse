@@ -95,6 +95,8 @@ pub static TR: Strings = lang! {
     bp_no_source: "• Kaynak yüklü değil",
     fix_volume: "Sesi düzelt",
     fix_volume_tooltip: "Bit-perfect oynatma için aygıt sesini %100 yapın",
+    fix_volume_confirm_title: "Ses %100 yapılsın mı?",
+    fix_volume_confirm_message: "Bit-perfect oynatma için aygıt sesi %100 yapılacak. Dikkatli olun — oynatma sesi yüksek olabilir.",
     select_audio_device: "Ses aygıtı seç",
     exclusive_click_disable: "Özel mod — kapatmak için tıklayın",
     shared_click_enable: "Paylaşımlı mod — özeli açmak için tıklayın",

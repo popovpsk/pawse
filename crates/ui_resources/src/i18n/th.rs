@@ -95,6 +95,8 @@ pub static TH: Strings = lang! {
     bp_no_source: "• ไม่มีแหล่งที่โหลด",
     fix_volume: "แก้ไขระดับเสียง",
     fix_volume_tooltip: "ตั้งระดับเสียงอุปกรณ์เป็น 100% สำหรับการเล่นแบบ bit-perfect",
+    fix_volume_confirm_title: "ตั้งระดับเสียงเป็น 100%?",
+    fix_volume_confirm_message: "ระดับเสียงอุปกรณ์จะถูกตั้งเป็น 100% สำหรับการเล่นแบบ bit-perfect โปรดระวัง — เสียงอาจดังมาก",
     select_audio_device: "เลือกอุปกรณ์เสียง",
     exclusive_click_disable: "โหมดเอกสิทธิ์ — คลิกเพื่อปิด",
     shared_click_enable: "โหมดใช้ร่วม — คลิกเพื่อเปิดเอกสิทธิ์",

@@ -145,6 +145,8 @@ pub struct Strings {
     pub bp_no_source: SharedString,
     pub fix_volume: SharedString,
     pub fix_volume_tooltip: SharedString,
+    pub fix_volume_confirm_title: SharedString,
+    pub fix_volume_confirm_message: SharedString,
     pub select_audio_device: SharedString,
     pub exclusive_click_disable: SharedString,
     pub shared_click_enable: SharedString,

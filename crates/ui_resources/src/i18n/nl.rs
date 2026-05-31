@@ -95,6 +95,8 @@ pub static NL: Strings = lang! {
     bp_no_source: "• Geen bron geladen",
     fix_volume: "Volume herstellen",
     fix_volume_tooltip: "Zet het apparaatvolume op 100% voor bit-perfect afspelen",
+    fix_volume_confirm_title: "Volume op 100% zetten?",
+    fix_volume_confirm_message: "Het apparaatvolume wordt op 100% gezet voor bit-perfect afspelen. Wees voorzichtig — het afspelen kan luid worden.",
     select_audio_device: "Audioapparaat selecteren",
     exclusive_click_disable: "Exclusieve modus — klik om uit te schakelen",
     shared_click_enable: "Gedeelde modus — klik om exclusief in te schakelen",

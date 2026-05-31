@@ -95,6 +95,8 @@ pub static UK: Strings = lang! {
     bp_no_source: "• Джерело не завантажено",
     fix_volume: "Виправити гучність",
     fix_volume_tooltip: "Встановіть гучність пристрою на 100% для bit-perfect відтворення",
+    fix_volume_confirm_title: "Встановити гучність на 100%?",
+    fix_volume_confirm_message: "Гучність пристрою буде встановлено на 100% для bit-perfect відтворення. Будьте обережні — звук може стати гучним.",
     select_audio_device: "Вибрати аудіопристрій",
     exclusive_click_disable: "Ексклюзивний режим — натисніть, щоб вимкнути",
     shared_click_enable: "Спільний режим — натисніть, щоб увімкнути ексклюзивний",

@@ -97,12 +97,4 @@ impl Colors {
     pub fn drag_over_border(cx: &App) -> Hsla {
         cx.theme().drag_border
     }
-
-    // ── Status indicators ─────────────────────────────────────────────────
-    pub fn status_ok(cx: &App) -> Hsla {
-        cx.theme().success
-    }
-    pub fn status_warning(cx: &App) -> Hsla {
-        cx.theme().warning
-    }
 }

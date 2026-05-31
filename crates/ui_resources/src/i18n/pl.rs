@@ -95,6 +95,8 @@ pub static PL: Strings = lang! {
     bp_no_source: "• Brak załadowanego źródła",
     fix_volume: "Popraw głośność",
     fix_volume_tooltip: "Ustaw głośność urządzenia na 100% dla odtwarzania bit-perfect",
+    fix_volume_confirm_title: "Ustawić głośność na 100%?",
+    fix_volume_confirm_message: "Głośność urządzenia zostanie ustawiona na 100% dla odtwarzania bit-perfect. Uwaga — odtwarzanie może być głośne.",
     select_audio_device: "Wybierz urządzenie audio",
     exclusive_click_disable: "Tryb wyłączny — kliknij, aby wyłączyć",
     shared_click_enable: "Tryb współdzielony — kliknij, aby włączyć wyłączny",
