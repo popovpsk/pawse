@@ -246,7 +246,7 @@ fn emit_track(
                             }
                         }
                         Err(e) => {
-                            eprintln!(
+                            log::warn!(
                                 "Failed to generate cover thumbnail for {:?}: {e}",
                                 track.path
                             );

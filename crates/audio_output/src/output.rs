@@ -74,25 +74,31 @@ const DEFAULT_CONFIG: OutputConfig = OutputConfig {
 impl Output {
     pub fn new() -> Self {
         let host = Arc::new(cpal::default_host());
-        let mut device_manager =
-            DeviceManager::from_host(&host).expect("Failed to initialize device manager");
-        let device = device_manager
-            .resolve_device()
-            .expect("Failed to resolve initial output device");
-
         let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&DEFAULT_CONFIG)));
-        let selected = SelectedOutputDevice {
-            host: host.clone(),
-            device,
+
+        let mut device_manager =
+            DeviceManager::from_host(&host).unwrap_or_else(|_| DeviceManager::headless(&host));
+
+        let (current, events) = match device_manager.resolve_device().and_then(|device| {
+            let selected = SelectedOutputDevice {
+                host: host.clone(),
+                device,
+            };
+            CpalOutputStream::new(buffer, DEFAULT_CONFIG, selected)
+        }) {
+            Ok(stream) => (Some(OutputMode::Shared(stream)), Vec::new()),
+            Err(e) => {
+                let message = format!("No audio output device available: {e}");
+                log::error!("audio output: {message}");
+                (None, vec![OutputEvent::Failure { message }])
+            }
         };
-        let stream = CpalOutputStream::new(buffer, DEFAULT_CONFIG, selected)
-            .expect("Failed to create audio output stream");
 
         Self {
             host,
             device_manager: RwLock::new(device_manager),
-            current: RwLock::new(Some(OutputMode::Shared(stream))),
-            events: Mutex::new(Vec::new()),
+            current: RwLock::new(current),
+            events: Mutex::new(events),
             source_sample_rate: AtomicU32::new(0),
             source_bit_depth: AtomicU8::new(0),
             source_present: AtomicBool::new(false),
@@ -116,6 +122,10 @@ impl Output {
     }
 
     fn push_event(&self, evt: OutputEvent) {
+        match &evt {
+            OutputEvent::Recovered { message } => log::warn!("audio output recovered: {message}"),
+            OutputEvent::Failure { message } => log::error!("audio output failure: {message}"),
+        }
         self.events.lock().push(evt);
     }
 

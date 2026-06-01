@@ -208,7 +208,7 @@ impl CpalOutputStream {
             }
         };
 
-        let error_callback = |err| eprintln!("Audio stream error: {}", err);
+        let error_callback = |err| log::error!("Audio stream error: {}", err);
 
         let stream_config = StreamConfig {
             channels: output_config.channels as u16,
@@ -270,7 +270,9 @@ impl AudioOutput for CpalOutputStream {
         if inner.state != PlaybackState::Playing {
             return;
         }
-        inner.stream.pause().unwrap();
+        if let Err(e) = inner.stream.pause() {
+            log::error!("audio output: failed to pause stream: {}", e);
+        }
         inner.state = PlaybackState::Paused;
     }
 
@@ -279,7 +281,9 @@ impl AudioOutput for CpalOutputStream {
         if inner.state == PlaybackState::Playing {
             return;
         }
-        inner.stream.play().unwrap();
+        if let Err(e) = inner.stream.play() {
+            log::error!("audio output: failed to resume stream: {}", e);
+        }
         inner.state = PlaybackState::Playing;
     }
 

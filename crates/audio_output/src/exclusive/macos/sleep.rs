@@ -42,7 +42,7 @@ impl SleepPreventer {
 
     pub(super) fn prevent(&mut self) {
         if self.active {
-            eprintln!(
+            log::warn!(
                 "coreaudio: SleepPreventer::prevent called while already active — assertion leak?"
             );
             return;
@@ -56,7 +56,7 @@ impl SleepPreventer {
             if !name.is_null() {
                 unsafe { CFRelease(name) };
             }
-            eprintln!("coreaudio: failed to wrap sleep-assertion strings");
+            log::warn!("coreaudio: failed to wrap sleep-assertion strings");
             return;
         }
         let mut assertion_id: IOPMAssertionID = 0;
@@ -80,7 +80,7 @@ impl SleepPreventer {
             self.assertion_id = assertion_id;
             self.active = true;
         } else {
-            eprintln!(
+            log::warn!(
                 "coreaudio: IOPMAssertionCreateWithDescription failed: {:#x}",
                 ret
             );
@@ -91,7 +91,7 @@ impl SleepPreventer {
         if self.active {
             let ret = unsafe { IOPMAssertionRelease(self.assertion_id) };
             if ret != K_IORETURN_SUCCESS {
-                eprintln!("coreaudio: IOPMAssertionRelease failed: {:#x}", ret);
+                log::warn!("coreaudio: IOPMAssertionRelease failed: {:#x}", ret);
             }
             self.assertion_id = 0;
             self.active = false;

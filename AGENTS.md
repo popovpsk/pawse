@@ -60,8 +60,9 @@ All tests must pass.
 ### Error Handling
 
 - **`anyhow` + `thiserror`**: `thiserror` for library error types, `anyhow` for applications
-- **Graceful degradation**: Continue on non-fatal errors (e.g., `DecodeError` in decoder loop)
-- **Panic on critical failures**: `unwrap()` on stream creation, `panic!()` on unexpected ring buffer errors
+- **Graceful degradation**: Continue on non-fatal errors (e.g., `DecodeError` in decoder loop). Output init failures (no device / stream) don't panic — the app launches silent, logs, and surfaces an `OutputEvent::Failure`; unexpected ring-buffer write errors are logged and the chunk is dropped
+- **Fail-fast on invariants**: `panic!()` / `unwrap()` only where failure means a real bug (a decoder guaranteed `Some` by local flow, a poisoned mutex, DB / window open). The `diagnostics` crate installs a panic hook so even these leave a log-file artifact
+- **Diagnostics sink**: all crates log via the `log` facade into the `diagnostics` crate (rolling log file + optional user notification); no scattered `eprintln!` / `println!`
 
 ### GPUI Patterns
 

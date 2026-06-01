@@ -1,4 +1,3 @@
-use std::io::{self, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -31,11 +30,11 @@ impl EngineManager {
             while let Ok(event) = rx.recv_async().await {
                 match event.clone() {
                     EngineEvent::Error(err) => {
-                        io::stderr().write_all(err.as_bytes()).unwrap();
+                        log::error!("{err}");
                     }
                     EngineEvent::PositionChanged(_) => {}
                     _ => {
-                        println!("EngineManager recevied event: {:?}", event)
+                        log::trace!("EngineManager received event: {:?}", event)
                     }
                 };
 

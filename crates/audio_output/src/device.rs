@@ -46,6 +46,14 @@ impl DeviceManager {
         })
     }
 
+    pub fn headless(host: &Arc<cpal::Host>) -> Self {
+        Self {
+            host: host.clone(),
+            selected_uid: None,
+            cached_name: "(no output device)".to_string(),
+        }
+    }
+
     /// Live enumeration. Always re-queries the host so newly attached devices
     /// appear immediately without a manual refresh step.
     pub fn output_devices(&self) -> Result<Vec<OutputDeviceInfo>, AudioError> {

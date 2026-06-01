@@ -8,6 +8,7 @@ publish = false
 music_library = { path = "../music_library" }
 cue_parser = { path = "../cue_parser" }
 anyhow = { workspace = true }
+log = { workspace = true }
 lofty = "0.22.0"
 jwalk = "0.8"
 flume = "0.12.0"

@@ -54,9 +54,9 @@ pub fn register_bundled_themes<F: Fn(&mut App) + 'static>(cx: &mut App, on_loade
     match stage_bundled_themes() {
         Ok(dir) => {
             if let Err(e) = ThemeRegistry::watch_dir(dir, cx, on_loaded) {
-                eprintln!("failed to register bundled themes: {e}");
+                log::warn!("failed to register bundled themes: {e}");
             }
         }
-        Err(e) => eprintln!("failed to stage bundled themes: {e}"),
+        Err(e) => log::warn!("failed to stage bundled themes: {e}"),
     }
 }

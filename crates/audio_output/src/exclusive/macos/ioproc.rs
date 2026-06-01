@@ -86,7 +86,7 @@ pub(super) fn start_ioproc(device_id: u32, proc_id: AudioDeviceIOProcID) -> Resu
 pub(super) fn stop_ioproc(device_id: u32, proc_id: AudioDeviceIOProcID) {
     let status = unsafe { AudioDeviceStop(device_id, proc_id) };
     if status != 0 {
-        eprintln!("coreaudio: AudioDeviceStop: {:#x}", status);
+        log::warn!("coreaudio: AudioDeviceStop: {:#x}", status);
     }
 }
 
@@ -94,7 +94,7 @@ pub(super) fn stop_ioproc(device_id: u32, proc_id: AudioDeviceIOProcID) {
 pub(super) fn destroy_ioproc(device_id: u32, proc_id: AudioDeviceIOProcID, ctx_raw: usize) {
     let status = unsafe { AudioDeviceDestroyIOProcID(device_id, proc_id) };
     if status != 0 {
-        eprintln!("coreaudio: AudioDeviceDestroyIOProcID: {:#x}", status);
+        log::warn!("coreaudio: AudioDeviceDestroyIOProcID: {:#x}", status);
     }
     // Recover the leaked Arc refcount
     unsafe { drop(Arc::from_raw(ctx_raw as *const RenderCtx)) };

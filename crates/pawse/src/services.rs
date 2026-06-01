@@ -50,26 +50,30 @@ impl Services {
 
         cx.spawn(async move |cx| {
             while let Ok(event) = library_event_rx.recv_async().await {
-                cx.update(|cx| {
-                    // If a playlist that's currently backing the playback
-                    // queue has its track list changed, sync the queue first
-                    // so subscribers (queue_view, etc.) see fresh state when
-                    // they receive the emitted event below.
-                    if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
-                        sync_queue_with_playlist(*playlist_id, cx);
-                    }
-                    if let LibraryEvent::ScanComplete { changed: true } = &event {
-                        remap_queue_after_rescan(cx);
-                    }
-                    if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
-                        cx.global::<Services>()
-                            .playback_queue
-                            .borrow_mut()
-                            .set_track_liked(*track_id, *liked);
-                    }
-                    library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
-                })
-                .expect("run_library_events_bus:cx.update");
+                if cx
+                    .update(|cx| {
+                        // If a playlist that's currently backing the playback
+                        // queue has its track list changed, sync the queue first
+                        // so subscribers (queue_view, etc.) see fresh state when
+                        // they receive the emitted event below.
+                        if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
+                            sync_queue_with_playlist(*playlist_id, cx);
+                        }
+                        if let LibraryEvent::ScanComplete { changed: true } = &event {
+                            remap_queue_after_rescan(cx);
+                        }
+                        if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
+                            cx.global::<Services>()
+                                .playback_queue
+                                .borrow_mut()
+                                .set_track_liked(*track_id, *liked);
+                        }
+                        library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
+                    })
+                    .is_err()
+                {
+                    break;
+                }
             }
         })
         .detach();
@@ -275,8 +279,12 @@ pub async fn run_engine_events_bus(
             }
             _ => {}
         }
-        cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)))
-            .expect("run_engine_events_bus:cx.update")
+        if cx
+            .update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)))
+            .is_err()
+        {
+            break;
+        }
     }
 }
 

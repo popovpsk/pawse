@@ -1,14 +1,20 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use rb::{RB, RbConsumer, RbError, RbInspector, RbProducer, SpscRb};
 
 /// Lock-free SPSC ring buffer for audio samples
 pub struct AudioRingBuffer {
     rb: SpscRb<f32>,
+    unexpected_error_logged: AtomicBool,
 }
 
 impl AudioRingBuffer {
     pub fn new(capacity: usize) -> Self {
         let rb = SpscRb::new(capacity);
-        Self { rb }
+        Self {
+            rb,
+            unexpected_error_logged: AtomicBool::new(false),
+        }
     }
 
     /// Push samples into the buffer (producer side)
@@ -25,7 +31,14 @@ impl AudioRingBuffer {
         match result {
             Ok(count) => count.unwrap_or_default(),
             Err(RbError::TimedOut) => 0,
-            Err(_) => panic!("Unexpected error while writing to audio ring buffer"),
+            Err(_) => {
+                if !self.unexpected_error_logged.swap(true, Ordering::Relaxed) {
+                    log::error!(
+                        "audio output: unexpected ring buffer write error; dropping samples"
+                    );
+                }
+                0
+            }
         }
     }
 

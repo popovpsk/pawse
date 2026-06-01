@@ -50,7 +50,7 @@ pub(super) fn register_format_listener(device_id: u32, shared: Arc<MacosShared>)
             raw as *mut c_void,
         );
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectAddPropertyListener (stream format): {:#x}",
                 status
             );
@@ -70,7 +70,7 @@ pub(super) fn unregister_format_listener(device_id: u32, raw: usize) {
             raw as *mut c_void,
         );
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectRemovePropertyListener (stream format): {:#x}",
                 status
             );
@@ -115,7 +115,7 @@ pub(super) fn register_is_alive_listener(device_id: u32, shared: Arc<MacosShared
             raw as *mut c_void,
         );
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectAddPropertyListener (device is alive): {:#x}",
                 status
             );
@@ -134,7 +134,7 @@ pub(super) fn unregister_is_alive_listener(device_id: u32, raw: usize) {
             raw as *mut c_void,
         );
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectRemovePropertyListener (device is alive): {:#x}",
                 status
             );
@@ -308,7 +308,7 @@ pub(super) fn register_volume_listener(
             )
         };
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectAddPropertyListener (volume): {:#x}",
                 status
             );
@@ -341,7 +341,7 @@ pub(super) fn unregister_volume_listener(device_id: u32, raw: usize) {
             raw as *mut c_void,
         );
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectRemovePropertyListener (volume): {:#x}",
                 status
             );
@@ -437,7 +437,7 @@ pub(super) fn register_mute_listener(
             )
         };
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectAddPropertyListener (mute): {:#x}",
                 status
             );
@@ -463,7 +463,7 @@ pub(super) fn unregister_mute_listener(device_id: u32, raw: usize) {
             raw as *mut c_void,
         );
         if status != 0 {
-            eprintln!(
+            log::warn!(
                 "coreaudio: AudioObjectRemovePropertyListener (mute): {:#x}",
                 status
             );

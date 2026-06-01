@@ -267,7 +267,7 @@ pub(super) fn release_hog_mode(device_id: u32) {
             NonNull::from(&pid).cast(),
         );
         if status != 0 {
-            eprintln!("coreaudio: release_hog_mode failed: {:#x}", status);
+            log::warn!("coreaudio: release_hog_mode failed: {:#x}", status);
         }
     }
 }

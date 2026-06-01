@@ -90,7 +90,7 @@ impl LibraryService {
 
     pub fn set_liked(&self, track_id: i64, liked: bool) {
         if let Err(e) = self.repo.set_liked(track_id, liked) {
-            eprintln!("Failed to set liked for track {}: {}", track_id, e);
+            log::error!("Failed to set liked for track {}: {}", track_id, e);
             return;
         }
         let _ = self
@@ -125,7 +125,7 @@ impl LibraryService {
                 Some(id)
             }
             Err(e) => {
-                eprintln!("Failed to create playlist: {}", e);
+                log::error!("Failed to create playlist: {}", e);
                 None
             }
         }
@@ -133,7 +133,7 @@ impl LibraryService {
 
     pub fn delete_playlist(&self, playlist_id: i64) {
         if let Err(e) = self.repo.delete_playlist(playlist_id) {
-            eprintln!("Failed to delete playlist {}: {}", playlist_id, e);
+            log::error!("Failed to delete playlist {}: {}", playlist_id, e);
             return;
         }
         let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
@@ -141,9 +141,11 @@ impl LibraryService {
 
     pub fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) {
         if let Err(e) = self.repo.add_track_to_playlist(playlist_id, track_id) {
-            eprintln!(
+            log::error!(
                 "Failed to add track {} to playlist {}: {}",
-                track_id, playlist_id, e
+                track_id,
+                playlist_id,
+                e
             );
             return;
         }
@@ -155,9 +157,11 @@ impl LibraryService {
 
     pub fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) {
         if let Err(e) = self.repo.remove_track_from_playlist(playlist_id, track_id) {
-            eprintln!(
+            log::error!(
                 "Failed to remove track {} from playlist {}: {}",
-                track_id, playlist_id, e
+                track_id,
+                playlist_id,
+                e
             );
             return;
         }
@@ -225,7 +229,7 @@ impl LibraryService {
                 // ids, so without this the playlist contents would silently
                 // disappear from the user's library.
                 let playlist_refs = repo.playlist_track_refs().unwrap_or_else(|e| {
-                    eprintln!("Failed to snapshot playlist tracks: {}", e);
+                    log::error!("Failed to snapshot playlist tracks: {}", e);
                     Vec::new()
                 });
 
@@ -239,13 +243,13 @@ impl LibraryService {
                 let mut session = match repo.open_scan_session() {
                     Ok(session) => session,
                     Err(e) => {
-                        eprintln!("Failed to open scan session: {}", e);
+                        log::error!("Failed to open scan session: {}", e);
                         let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
                         return;
                     }
                 };
                 if let Err(e) = session.clear() {
-                    eprintln!("Failed to clear library: {}", e);
+                    log::error!("Failed to clear library: {}", e);
                     let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
                     return;
                 }
@@ -255,7 +259,7 @@ impl LibraryService {
                         Ok(()) => {
                             finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
                         }
-                        Err(e) => eprintln!("Failed to finish scan session: {}", e),
+                        Err(e) => log::error!("Failed to finish scan session: {}", e),
                     }
                     let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
                     return;
@@ -277,19 +281,19 @@ impl LibraryService {
                     match scan_rx.recv_async().await {
                         Ok(ScanEvent::Cover { hash, small, large }) => {
                             if let Err(e) = session.add_cover(&hash, small, large) {
-                                eprintln!("Failed to insert cover art: {}", e);
+                                log::error!("Failed to insert cover art: {}", e);
                             }
                         }
                         Ok(ScanEvent::Track(track)) => {
                             if let Err(e) = session.add_track(to_scan_track(track)) {
-                                eprintln!("Failed to insert track: {}", e);
+                                log::error!("Failed to insert track: {}", e);
                             }
                         }
                         Ok(ScanEvent::Progress { scanned }) => {
                             let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
                         }
                         Ok(ScanEvent::Error { path, error }) => {
-                            eprintln!("Scan error for {}: {}", path.display(), error);
+                            log::error!("Scan error for {}: {}", path.display(), error);
                         }
                         Ok(ScanEvent::Complete) => break,
                         Err(_) => break, // pipeline gone
@@ -303,7 +307,7 @@ impl LibraryService {
                     Ok(()) => {
                         finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
                     }
-                    Err(e) => eprintln!("Failed to finish scan session: {}", e),
+                    Err(e) => log::error!("Failed to finish scan session: {}", e),
                 }
                 let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
             })
@@ -349,15 +353,15 @@ fn finalize_rescan(
     folders_key: &str,
 ) {
     if let Err(e) = repo.restore_playlist_track_refs(playlist_refs) {
-        eprintln!("Failed to restore playlist tracks: {}", e);
+        log::error!("Failed to restore playlist tracks: {}", e);
     }
     if let Err(e) = repo.delete_orphaned_albums_and_artists() {
-        eprintln!("Failed to clean up orphaned cover art: {}", e);
+        log::error!("Failed to clean up orphaned cover art: {}", e);
     }
     if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
-        eprintln!("Failed to store scan fingerprint: {}", e);
+        log::error!("Failed to store scan fingerprint: {}", e);
     }
     if let Err(e) = repo.vacuum() {
-        eprintln!("Failed to vacuum library: {}", e);
+        log::error!("Failed to vacuum library: {}", e);
     }
 }

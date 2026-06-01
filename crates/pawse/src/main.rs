@@ -12,6 +12,7 @@ use crate::{
 pub mod app_menu;
 pub mod audio_settings;
 pub mod cover_art_cache;
+pub mod error_bridge;
 pub mod footer;
 pub mod keyboard_shortcuts;
 pub mod library_service;
@@ -144,9 +145,19 @@ fn main() {
     });
 
     app.run(move |cx| {
+        let log_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("pawse")
+            .join("logs");
+        let notices = diagnostics::init(diagnostics::Config {
+            log_dir,
+            ..Default::default()
+        });
+
         gpui_component::init(cx);
         crate::playlist_popup::init(cx);
         crate::keyboard_shortcuts::init(cx);
+        crate::error_bridge::spawn_notice_forwarder(cx, notices);
 
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);
@@ -205,6 +216,7 @@ fn main() {
                 .global_mut::<crate::settings_store::SettingsStore>()
                 .set_playback(state);
             cx.global::<Services>().shutdown();
+            diagnostics::flush();
             async {}
         })
         .detach();

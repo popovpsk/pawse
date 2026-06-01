@@ -108,9 +108,9 @@ impl AudioEngine {
     }
 
     pub fn send_command(&self, command: Command) {
-        self.command_sender
-            .send(command)
-            .expect("Failed to send command to audio-engine thread")
+        if self.command_sender.send(command).is_err() {
+            log::error!("audio engine: command channel closed; dropping command");
+        }
     }
 
     pub fn shutdown(&self) {
@@ -379,17 +379,21 @@ impl AudioEngineLoop {
             if let Some(decoder) = self.decoder.as_mut()
                 && let Err(e) = decoder.seek(seek_point.clamp(0.0, 1.0))
             {
-                eprintln!("Seek to offset error: {}", e);
+                log::error!("Seek to offset error: {}", e);
             }
             self.current_position = track_start;
         }
 
-        self.event_sender
+        if self
+            .event_sender
             .send(EngineEvent::Loaded {
                 params: self.decoder.as_ref().unwrap().params(),
                 duration: duration_for_ui,
             })
-            .unwrap();
+            .is_err()
+        {
+            log::error!("audio engine: failed to emit Loaded event");
+        }
 
         match self.state {
             AudioEngineState::TrackNotSet => self.set_state(AudioEngineState::Paused),
@@ -458,7 +462,7 @@ impl AudioEngineLoop {
 
         let seek_point = new_position.as_secs_f64() / file_duration.as_secs_f64();
         if let Err(e) = decoder.seek(seek_point as f32) {
-            eprintln!("Seek error: {}", e);
+            log::error!("Seek error: {}", e);
             return;
         }
         self.current_position = new_position;
@@ -550,7 +554,7 @@ impl AudioEngineLoop {
     }
 
     fn set_state(&mut self, state: AudioEngineState) {
-        println!("audio_engine: new state:{:?}", state);
+        log::trace!("audio_engine: new state: {:?}", state);
         self.state = state
     }
 }

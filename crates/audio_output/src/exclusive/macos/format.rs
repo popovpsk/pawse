@@ -169,9 +169,10 @@ pub(super) fn apply_format(
     asbd.mSampleRate = best_rate as f64;
 
     if best_rate != target_rate {
-        eprintln!(
+        log::debug!(
             "coreaudio: sample rate adjusted {} → {} Hz (closest device rate)",
-            target_rate, best_rate
+            target_rate,
+            best_rate
         );
     }
 

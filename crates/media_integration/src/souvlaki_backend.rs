@@ -28,7 +28,7 @@ impl SouvlakiIntegration {
         let mut controls = match MediaControls::new(config) {
             Ok(controls) => controls,
             Err(err) => {
-                eprintln!("media_integration: failed to create media controls: {err:?}");
+                log::warn!("media_integration: failed to create media controls: {err:?}");
                 return None;
             }
         };
@@ -39,7 +39,7 @@ impl SouvlakiIntegration {
             }
         });
         if let Err(err) = attach_result {
-            eprintln!("media_integration: failed to attach media control handler: {err:?}");
+            log::warn!("media_integration: failed to attach media control handler: {err:?}");
             return None;
         }
 
@@ -92,7 +92,7 @@ impl SystemMediaIntegration for SouvlakiIntegration {
         };
 
         if let Err(err) = self.controls.borrow_mut().set_metadata(metadata) {
-            eprintln!("media_integration: failed to set metadata: {err:?}");
+            log::warn!("media_integration: failed to set metadata: {err:?}");
         }
     }
 
@@ -102,7 +102,7 @@ impl SystemMediaIntegration for SouvlakiIntegration {
             .borrow_mut()
             .set_playback(playback(state, None))
         {
-            eprintln!("media_integration: failed to set playback state: {err:?}");
+            log::warn!("media_integration: failed to set playback state: {err:?}");
         }
     }
 
@@ -112,7 +112,7 @@ impl SystemMediaIntegration for SouvlakiIntegration {
             .borrow_mut()
             .set_playback(playback(state, Some(elapsed_secs)))
         {
-            eprintln!("media_integration: failed to update position: {err:?}");
+            log::warn!("media_integration: failed to update position: {err:?}");
         }
     }
 }

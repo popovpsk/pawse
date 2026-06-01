@@ -314,7 +314,7 @@ impl Backend for MacosBackend {
                     true
                 }
                 Err(e) => {
-                    eprintln!("coreaudio: resume failed: {}", e);
+                    log::warn!("coreaudio: resume failed: {}", e);
                     false
                 }
             }

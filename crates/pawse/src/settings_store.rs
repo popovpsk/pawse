@@ -269,7 +269,7 @@ impl SettingsStore {
     fn default_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| {
-                eprintln!("settings: config dir unavailable, using current directory");
+                log::warn!("settings: config dir unavailable, using current directory");
                 PathBuf::from(".")
             })
             .join("pawse")
@@ -459,7 +459,7 @@ pub fn apply_named_theme(name: &str, cx: &mut App) {
 /// Looks up the active window via `cx.active_window()` — settings writes
 /// always happen in response to UI actions, so a window is present.
 pub fn notify_save_error(cx: &mut App, err: anyhow::Error) {
-    eprintln!("settings: save failed: {err}");
+    log::error!("settings: save failed: {err}");
     if let Some(handle) = cx.active_window() {
         let _ = handle.update(cx, |_, window, cx| {
             let s = tr();

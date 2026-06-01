@@ -576,6 +576,7 @@ dependencies = [
  "audio_output",
  "flume 0.12.0",
  "gpui",
+ "log",
  "parking_lot",
  "ringbuf",
 ]
@@ -589,6 +590,7 @@ dependencies = [
  "atomic_float",
  "audio_common",
  "cpal",
+ "log",
  "objc2-core-audio",
  "objc2-core-audio-types",
  "parking_lot",
@@ -1590,6 +1592,15 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "diagnostics"
+version = "0.1.0"
+dependencies = [
+ "flume 0.12.0",
+ "humantime",
+ "log",
 ]
 
 [[package]]
@@ -3017,6 +3028,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "humantime"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
+
+[[package]]
 name = "hyper"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3857,6 +3874,7 @@ version = "0.1.0"
 dependencies = [
  "block2",
  "flume 0.12.0",
+ "log",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",
@@ -3983,6 +4001,7 @@ dependencies = [
  "flume 0.12.0",
  "jwalk",
  "lofty",
+ "log",
  "music_library",
 ]
 
@@ -4779,10 +4798,12 @@ dependencies = [
  "anyhow",
  "audio_engine",
  "audio_output",
+ "diagnostics",
  "dirs 5.0.1",
  "flume 0.12.0",
  "gpui",
  "gpui-component",
+ "log",
  "media_integration",
  "music_indexer",
  "music_library",
@@ -7387,6 +7408,7 @@ dependencies = [
  "dirs 5.0.1",
  "gpui",
  "gpui-component",
+ "log",
  "rust-embed",
  "sys-locale",
 ]
