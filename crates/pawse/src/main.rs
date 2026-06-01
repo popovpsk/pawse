@@ -83,7 +83,7 @@ fn build_window_options(cx: &mut App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        window_min_size: Some(size(px(800.0), px(400.0))),
+        window_min_size: Some(size(px(900.0), px(400.0))),
         titlebar: Some(TitleBar::title_bar_options()),
         app_id: Some("pawse".into()),
         #[cfg(target_os = "linux")]
@@ -244,6 +244,29 @@ fn main() {
 
         cx.on_action(|_: &crate::app_menu::Quit, cx| {
             cx.quit();
+        });
+
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &crate::app_menu::Hide, cx| cx.hide());
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &crate::app_menu::HideOthers, cx| cx.hide_other_apps());
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &crate::app_menu::ShowAll, cx| cx.unhide_other_apps());
+
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &crate::app_menu::Minimize, cx| {
+            if let Some(w) = cx.active_window() {
+                let _ = w.update(cx, |_, window, _| window.minimize_window());
+            }
+        });
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &crate::app_menu::Zoom, cx| {
+            if let Some(w) = cx.active_window() {
+                let _ = w.update(cx, |_, window, _| window.zoom_window());
+            }
+        });
+        cx.on_action(|_: &crate::app_menu::OpenRepository, cx| {
+            cx.open_url(crate::app_menu::REPOSITORY_URL);
         });
 
         cx.activate(true);

@@ -118,7 +118,13 @@ pub static UK: Strings = lang! {
 
     quit_pawse: "Вийти з Pawse",
     rescan_library: "Пересканувати медіатеку...",
-    menu_file: "Файл",
+    hide_pawse: "Сховати Pawse",
+    hide_others: "Сховати інші",
+    show_all: "Показати всі",
+    minimize: "Згорнути",
+    zoom: "Масштаб",
+    menu_help: "Довідка",
+    repository: "Репозиторій",
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",

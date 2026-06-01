@@ -118,7 +118,13 @@ pub static JA: Strings = lang! {
 
     quit_pawse: "Pawse を終了",
     rescan_library: "ライブラリを再スキャン...",
-    menu_file: "ファイル",
+    hide_pawse: "Pawseを隠す",
+    hide_others: "ほかを隠す",
+    show_all: "すべてを表示",
+    minimize: "しまう",
+    zoom: "拡大/縮小",
+    menu_help: "ヘルプ",
+    repository: "リポジトリ",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",

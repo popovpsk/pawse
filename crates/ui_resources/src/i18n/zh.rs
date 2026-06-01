@@ -118,7 +118,13 @@ pub static ZH: Strings = lang! {
 
     quit_pawse: "退出 Pawse",
     rescan_library: "重新扫描音乐库...",
-    menu_file: "文件",
+    hide_pawse: "隐藏 Pawse",
+    hide_others: "隐藏其他",
+    show_all: "全部显示",
+    minimize: "最小化",
+    zoom: "缩放",
+    menu_help: "帮助",
+    repository: "代码仓库",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",

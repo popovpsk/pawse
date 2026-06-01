@@ -118,7 +118,13 @@ pub static CS: Strings = lang! {
 
     quit_pawse: "Ukončit Pawse",
     rescan_library: "Znovu prohledat knihovnu...",
-    menu_file: "Soubor",
+    hide_pawse: "Skrýt Pawse",
+    hide_others: "Skrýt ostatní",
+    show_all: "Zobrazit vše",
+    minimize: "Minimalizovat",
+    zoom: "Zoom",
+    menu_help: "Nápověda",
+    repository: "Repozitář",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",

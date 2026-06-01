@@ -118,7 +118,13 @@ pub static IT: Strings = lang! {
 
     quit_pawse: "Esci da Pawse",
     rescan_library: "Riscansiona libreria...",
-    menu_file: "File",
+    hide_pawse: "Nascondi Pawse",
+    hide_others: "Nascondi gli altri",
+    show_all: "Mostra tutti",
+    minimize: "Riduci a icona",
+    zoom: "Zoom",
+    menu_help: "Aiuto",
+    repository: "Repository",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} brano",

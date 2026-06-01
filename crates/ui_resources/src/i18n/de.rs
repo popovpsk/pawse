@@ -118,7 +118,13 @@ pub static DE: Strings = lang! {
 
     quit_pawse: "Pawse beenden",
     rescan_library: "Bibliothek neu scannen...",
-    menu_file: "Datei",
+    hide_pawse: "Pawse ausblenden",
+    hide_others: "Andere ausblenden",
+    show_all: "Alle einblenden",
+    minimize: "Im Dock ablegen",
+    zoom: "Zoomen",
+    menu_help: "Hilfe",
+    repository: "Repository",
 
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",

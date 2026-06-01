@@ -118,7 +118,13 @@ pub static ID: Strings = lang! {
 
     quit_pawse: "Keluar dari Pawse",
     rescan_library: "Pindai ulang pustaka...",
-    menu_file: "Berkas",
+    hide_pawse: "Sembunyikan Pawse",
+    hide_others: "Sembunyikan Lainnya",
+    show_all: "Tampilkan Semua",
+    minimize: "Perkecil",
+    zoom: "Zum",
+    menu_help: "Bantuan",
+    repository: "Repositori",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",

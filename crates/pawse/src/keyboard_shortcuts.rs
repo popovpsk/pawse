@@ -28,4 +28,15 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("up", VolumeUp, Some(CONTEXT)),
         KeyBinding::new("down", VolumeDown, Some(CONTEXT)),
     ]);
+
+    #[cfg(target_os = "macos")]
+    {
+        use crate::app_menu::{Hide, HideOthers, Minimize, Quit};
+        cx.bind_keys([
+            KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("cmd-h", Hide, None),
+            KeyBinding::new("cmd-alt-h", HideOthers, None),
+            KeyBinding::new("cmd-m", Minimize, None),
+        ]);
+    }
 }

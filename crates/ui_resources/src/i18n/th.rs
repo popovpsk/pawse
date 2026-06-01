@@ -118,7 +118,13 @@ pub static TH: Strings = lang! {
 
     quit_pawse: "ออกจาก Pawse",
     rescan_library: "สแกนคลังใหม่...",
-    menu_file: "ไฟล์",
+    hide_pawse: "ซ่อน Pawse",
+    hide_others: "ซ่อนหน้าต่างอื่น",
+    show_all: "แสดงทั้งหมด",
+    minimize: "ย่อขนาด",
+    zoom: "ย่อ/ขยาย",
+    menu_help: "ความช่วยเหลือ",
+    repository: "ที่เก็บโค้ด",
 
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",

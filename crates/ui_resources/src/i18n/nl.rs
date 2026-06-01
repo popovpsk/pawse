@@ -118,7 +118,13 @@ pub static NL: Strings = lang! {
 
     quit_pawse: "Pawse afsluiten",
     rescan_library: "Bibliotheek opnieuw scannen...",
-    menu_file: "Bestand",
+    hide_pawse: "Verberg Pawse",
+    hide_others: "Verberg overige",
+    show_all: "Toon alles",
+    minimize: "Verklein",
+    zoom: "Zoom",
+    menu_help: "Help",
+    repository: "Repository",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",

@@ -118,7 +118,13 @@ pub static VI: Strings = lang! {
 
     quit_pawse: "Thoát Pawse",
     rescan_library: "Quét lại thư viện...",
-    menu_file: "Tệp",
+    hide_pawse: "Ẩn Pawse",
+    hide_others: "Ẩn các mục khác",
+    show_all: "Hiện tất cả",
+    minimize: "Thu nhỏ",
+    zoom: "Thu phóng",
+    menu_help: "Trợ giúp",
+    repository: "Kho mã nguồn",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",

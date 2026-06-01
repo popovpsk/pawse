@@ -118,7 +118,13 @@ pub static TR: Strings = lang! {
 
     quit_pawse: "Pawse'dan çık",
     rescan_library: "Kitaplığı yeniden tara...",
-    menu_file: "Dosya",
+    hide_pawse: "Pawse'yi Gizle",
+    hide_others: "Diğerlerini Gizle",
+    show_all: "Tümünü Göster",
+    minimize: "Simge Durumuna Küçült",
+    zoom: "Yakınlaştır",
+    menu_help: "Yardım",
+    repository: "Depo",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",

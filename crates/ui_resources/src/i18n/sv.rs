@@ -118,7 +118,13 @@ pub static SV: Strings = lang! {
 
     quit_pawse: "Avsluta Pawse",
     rescan_library: "Skanna om biblioteket...",
-    menu_file: "Arkiv",
+    hide_pawse: "Göm Pawse",
+    hide_others: "Göm övriga",
+    show_all: "Visa alla",
+    minimize: "Minimera",
+    zoom: "Zooma",
+    menu_help: "Hjälp",
+    repository: "Repository",
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",

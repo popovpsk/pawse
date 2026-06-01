@@ -169,7 +169,13 @@ pub struct Strings {
     // --- App menu ---
     pub quit_pawse: SharedString,
     pub rescan_library: SharedString,
-    pub menu_file: SharedString,
+    pub hide_pawse: SharedString,
+    pub hide_others: SharedString,
+    pub show_all: SharedString,
+    pub minimize: SharedString,
+    pub zoom: SharedString,
+    pub menu_help: SharedString,
+    pub repository: SharedString,
 
     // --- Templated (read via the accessor methods below) ---
     pub disc_t: SharedString,

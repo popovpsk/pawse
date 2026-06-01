@@ -118,7 +118,13 @@ pub static HI: Strings = lang! {
 
     quit_pawse: "Pawse से बाहर निकलें",
     rescan_library: "लाइब्रेरी फिर से स्कैन करें...",
-    menu_file: "फ़ाइल",
+    hide_pawse: "Pawse छिपाएँ",
+    hide_others: "अन्य छिपाएँ",
+    show_all: "सभी दिखाएँ",
+    minimize: "छोटा करें",
+    zoom: "ज़ूम",
+    menu_help: "मदद",
+    repository: "रिपॉज़िटरी",
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",

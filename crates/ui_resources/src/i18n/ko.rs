@@ -118,7 +118,13 @@ pub static KO: Strings = lang! {
 
     quit_pawse: "Pawse 종료",
     rescan_library: "라이브러리 다시 스캔...",
-    menu_file: "파일",
+    hide_pawse: "Pawse 가리기",
+    hide_others: "기타 가리기",
+    show_all: "모두 보기",
+    minimize: "최소화",
+    zoom: "확대/축소",
+    menu_help: "도움말",
+    repository: "저장소",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",

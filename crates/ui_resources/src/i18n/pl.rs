@@ -118,7 +118,13 @@ pub static PL: Strings = lang! {
 
     quit_pawse: "Zamknij Pawse",
     rescan_library: "Ponownie przeskanuj bibliotekę...",
-    menu_file: "Plik",
+    hide_pawse: "Ukryj Pawse",
+    hide_others: "Ukryj pozostałe",
+    show_all: "Pokaż wszystko",
+    minimize: "Zminimalizuj",
+    zoom: "Powiększ",
+    menu_help: "Pomoc",
+    repository: "Repozytorium",
 
     disc_t: "Płyta {}",
     n_tracks_one: "{} utwór",
