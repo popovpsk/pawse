@@ -7,7 +7,13 @@ use gpui::{
     Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
     div, px, size,
 };
-use gpui_component::{VirtualListScrollHandle, button::Button, h_flex, v_flex, v_virtual_list};
+use gpui_component::{
+    VirtualListScrollHandle,
+    button::Button,
+    h_flex,
+    scroll::{ScrollableElement, ScrollbarAxis},
+    v_flex, v_virtual_list,
+};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
@@ -277,25 +283,29 @@ impl Render for AlbumsView {
             muted_fg,
         };
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(
-            v_virtual_list(
-                cx.entity().clone(),
-                "albums_list",
-                item_sizes,
-                move |view, visible_range, _window, cx| {
-                    visible_range
-                        .map(|ix| match view.items[ix] {
-                            AlbumItem::TopPadding => {
-                                div().w_full().h(px(TOP_PADDING)).into_any_element()
-                            }
-                            AlbumItem::Album(row_ix) => album_row(view, row_ix, &params, cx),
-                        })
-                        .collect::<Vec<_>>()
-                },
+        v_flex()
+            .size_full()
+            .relative()
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "albums_list",
+                    item_sizes,
+                    move |view, visible_range, _window, cx| {
+                        visible_range
+                            .map(|ix| match view.items[ix] {
+                                AlbumItem::TopPadding => {
+                                    div().w_full().h(px(TOP_PADDING)).into_any_element()
+                                }
+                                AlbumItem::Album(row_ix) => album_row(view, row_ix, &params, cx),
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&self.scroll_handle)
+                .flex_1(),
             )
-            .track_scroll(&self.scroll_handle)
-            .flex_1(),
-        )
+            .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
     }
 }
 

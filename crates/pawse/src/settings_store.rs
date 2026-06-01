@@ -4,6 +4,7 @@ use gpui::{App, Global};
 use gpui_component::{
     WindowExt,
     notification::Notification,
+    scroll::ScrollbarShow,
     theme::{Theme, ThemeRegistry},
 };
 use music_library::Track;
@@ -432,6 +433,7 @@ pub fn apply_theme(choice: &ThemeChoice, cx: &mut App) {
         ThemeChoice::System => Theme::sync_system_appearance(None, cx),
         ThemeChoice::Named(name) => apply_named_theme(name, cx),
     }
+    Theme::global_mut(cx).scrollbar_show = ScrollbarShow::Scrolling;
 }
 
 pub fn apply_startup_theme(store: &SettingsStore, cx: &mut App) {

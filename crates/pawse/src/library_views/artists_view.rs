@@ -7,7 +7,11 @@ use gpui::{
     Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
     div, px, size,
 };
-use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{
+    VirtualListScrollHandle, h_flex,
+    scroll::{ScrollableElement, ScrollbarAxis},
+    v_flex, v_virtual_list,
+};
 
 use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
@@ -221,58 +225,67 @@ impl Render for ArtistsView {
         }
 
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(
-            v_virtual_list(
-                cx.entity().clone(),
-                "artists_list",
-                item_sizes,
-                move |view, visible_range, _window, cx| {
-                    visible_range
-                        .map(|ix| {
-                            if ix == 0 {
-                                return div().w_full().h(px(TOP_PADDING)).into_any_element();
-                            }
-                            let row_ix = ix - 1;
-                            let row = &view.rows[row_ix];
+        v_flex()
+            .size_full()
+            .relative()
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "artists_list",
+                    item_sizes,
+                    move |view, visible_range, _window, cx| {
+                        visible_range
+                            .map(|ix| {
+                                if ix == 0 {
+                                    return div().w_full().h(px(TOP_PADDING)).into_any_element();
+                                }
+                                let row_ix = ix - 1;
+                                let row = &view.rows[row_ix];
 
-                            h_flex()
-                                .w_full()
-                                .h(px(ARTIST_ROW_HEIGHT))
-                                .px_4()
-                                .items_center()
-                                .gap_3()
-                                .border_b(px(1.))
-                                .border_color(border)
-                                .hover(|style| style.bg(list_hover))
-                                .child(artist_avatar(&row.covers, AVATAR_SIZE, secondary, muted_fg))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .overflow_hidden()
-                                        .truncate()
-                                        .child(row.name.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(muted_fg)
-                                        .child(row.count_label.clone()),
-                                )
-                                .id(ElementId::Integer(row.summary.id as u64))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if let Some(row) = this.rows.get(row_ix) {
-                                        cx.emit(ArtistSelectedEvent {
-                                            artist: row.summary.clone(),
-                                        });
-                                    }
-                                }))
-                                .into_any_element()
-                        })
-                        .collect::<Vec<_>>()
-                },
+                                h_flex()
+                                    .w_full()
+                                    .h(px(ARTIST_ROW_HEIGHT))
+                                    .px_4()
+                                    .items_center()
+                                    .gap_3()
+                                    .border_b(px(1.))
+                                    .border_color(border)
+                                    .hover(|style| style.bg(list_hover))
+                                    .child(artist_avatar(
+                                        &row.covers,
+                                        AVATAR_SIZE,
+                                        secondary,
+                                        muted_fg,
+                                    ))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .overflow_hidden()
+                                            .truncate()
+                                            .child(row.name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(muted_fg)
+                                            .child(row.count_label.clone()),
+                                    )
+                                    .id(ElementId::Integer(row.summary.id as u64))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if let Some(row) = this.rows.get(row_ix) {
+                                            cx.emit(ArtistSelectedEvent {
+                                                artist: row.summary.clone(),
+                                            });
+                                        }
+                                    }))
+                                    .into_any_element()
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&self.scroll_handle)
+                .flex_1(),
             )
-            .track_scroll(&self.scroll_handle)
-            .flex_1(),
-        )
+            .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
     }
 }

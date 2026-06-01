@@ -8,7 +8,11 @@ use gpui::{
     SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
     svg,
 };
-use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{
+    VirtualListScrollHandle, h_flex,
+    scroll::{ScrollableElement, ScrollbarAxis},
+    v_flex, v_virtual_list,
+};
 
 use crate::theme_colors::Colors;
 use crate::track_list::{
@@ -307,38 +311,42 @@ impl Render for PlaylistTracksView {
             buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(
-            v_virtual_list(
-                cx.entity().clone(),
-                "playlist_tracks_list",
-                item_sizes,
-                move |view, visible_range, _window, cx| {
-                    visible_range
-                        .map(|ix| match view.items[ix] {
-                            Item::TopPadding => {
-                                div().w_full().h(px(TOP_PADDING)).into_any_element()
-                            }
-                            Item::Header => div()
-                                .w_full()
-                                .h(px(HEADER_HEIGHT))
-                                .px_4()
-                                .flex()
-                                .items_center()
-                                .child(
-                                    div()
-                                        .text_xl()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(view.playlist.name.clone()),
-                                )
-                                .into_any_element(),
-                            Item::Track(track_ix) => playlist_track_row(view, track_ix, &p, cx),
-                        })
-                        .collect::<Vec<_>>()
-                },
+        v_flex()
+            .size_full()
+            .relative()
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "playlist_tracks_list",
+                    item_sizes,
+                    move |view, visible_range, _window, cx| {
+                        visible_range
+                            .map(|ix| match view.items[ix] {
+                                Item::TopPadding => {
+                                    div().w_full().h(px(TOP_PADDING)).into_any_element()
+                                }
+                                Item::Header => div()
+                                    .w_full()
+                                    .h(px(HEADER_HEIGHT))
+                                    .px_4()
+                                    .flex()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_xl()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(view.playlist.name.clone()),
+                                    )
+                                    .into_any_element(),
+                                Item::Track(track_ix) => playlist_track_row(view, track_ix, &p, cx),
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&self.scroll_handle)
+                .flex_1(),
             )
-            .track_scroll(&self.scroll_handle)
-            .flex_1(),
-        )
+            .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
     }
 }
 

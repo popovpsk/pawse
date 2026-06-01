@@ -9,7 +9,11 @@ use gpui::{
     IntoElement, ObjectFit, ParentElement, Pixels, Render, SharedString, Size,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px,
 };
-use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{
+    VirtualListScrollHandle, h_flex,
+    scroll::{ScrollableElement, ScrollbarAxis},
+    v_flex, v_virtual_list,
+};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
@@ -257,21 +261,32 @@ impl Render for QueueView {
 
         let params = QueueRowParams::from_cx(cx);
 
-        v_flex().size_full().child(header).child(
-            v_virtual_list(
-                cx.entity().clone(),
-                "queue_list",
-                self.virtual_list_item_sizes(params.item_height),
-                move |view, visible_range, _window, cx| {
-                    visible_range
-                        .map(|track_ix| {
-                            queue_visible_range_row(cx, view, &params, track_ix).into_any_element()
-                        })
-                        .collect::<Vec<_>>()
-                },
+        v_flex()
+            .size_full()
+            .child(header)
+            .child(
+                v_flex()
+                    .relative()
+                    .flex_1()
+                    .child(
+                        v_virtual_list(
+                            cx.entity().clone(),
+                            "queue_list",
+                            self.virtual_list_item_sizes(params.item_height),
+                            move |view, visible_range, _window, cx| {
+                                visible_range
+                                    .map(|track_ix| {
+                                        queue_visible_range_row(cx, view, &params, track_ix)
+                                            .into_any_element()
+                                    })
+                                    .collect::<Vec<_>>()
+                            },
+                        )
+                        .track_scroll(&self.scroll_handle)
+                        .flex_1(),
+                    )
+                    .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
             )
-            .track_scroll(&self.scroll_handle),
-        )
     }
 }
 

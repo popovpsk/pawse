@@ -7,7 +7,11 @@ use gpui::{
     IntoElement, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
     Styled, Subscription, Window, div, px, size, svg,
 };
-use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{
+    VirtualListScrollHandle, h_flex,
+    scroll::{ScrollableElement, ScrollbarAxis},
+    v_flex, v_virtual_list,
+};
 
 use crate::theme_colors::Colors;
 use crate::track_list::{
@@ -318,29 +322,33 @@ impl Render for TracksView {
             buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(
-            v_virtual_list(
-                cx.entity().clone(),
-                "tracks_list",
-                item_sizes,
-                move |view, visible_range, _window, cx| {
-                    visible_range
-                        .map(|ix| match &view.items[ix] {
-                            TrackItem::TopPadding => {
-                                div().w_full().h(px(TOP_PADDING)).into_any_element()
-                            }
-                            TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
-                            TrackItem::DiscHeader(disc, gap) => {
-                                track_disc_header(disc.clone(), *gap, p.border, p.muted_fg)
-                            }
-                            TrackItem::Track(track_ix) => track_row(view, *track_ix, &p, cx),
-                        })
-                        .collect::<Vec<_>>()
-                },
+        v_flex()
+            .size_full()
+            .relative()
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "tracks_list",
+                    item_sizes,
+                    move |view, visible_range, _window, cx| {
+                        visible_range
+                            .map(|ix| match &view.items[ix] {
+                                TrackItem::TopPadding => {
+                                    div().w_full().h(px(TOP_PADDING)).into_any_element()
+                                }
+                                TrackItem::AlbumInfo => view.album_info.clone().into_any_element(),
+                                TrackItem::DiscHeader(disc, gap) => {
+                                    track_disc_header(disc.clone(), *gap, p.border, p.muted_fg)
+                                }
+                                TrackItem::Track(track_ix) => track_row(view, *track_ix, &p, cx),
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&self.scroll_handle)
+                .flex_1(),
             )
-            .track_scroll(&self.scroll_handle)
-            .flex_1(),
-        )
+            .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
     }
 }
 

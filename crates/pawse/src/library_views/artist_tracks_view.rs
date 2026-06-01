@@ -8,7 +8,11 @@ use gpui::{
     Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
     size, svg,
 };
-use gpui_component::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
+use gpui_component::{
+    VirtualListScrollHandle, h_flex,
+    scroll::{ScrollableElement, ScrollbarAxis},
+    v_flex, v_virtual_list,
+};
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
@@ -358,33 +362,42 @@ impl Render for ArtistTracksView {
             buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(
-            v_virtual_list(
-                cx.entity().clone(),
-                "artist_tracks_list",
-                item_sizes,
-                move |view, visible_range, _window, cx| {
-                    visible_range
-                        .map(|ix| match &view.items[ix] {
-                            ItemKind::ArtistHeader => {
-                                artist_header_static(view.artist_name.clone()).into_any_element()
-                            }
-                            ItemKind::DiscHeader(disc, gap) => {
-                                artist_disc_header(disc.clone(), *gap, border, muted_fg)
-                            }
-                            ItemKind::AlbumHeader(g_ix) => {
-                                artist_album_header(view, *g_ix, border, fallback_bg, fallback_fg)
-                            }
-                            ItemKind::Track(g_ix, t_ix) => {
-                                artist_track_row(view, *g_ix, *t_ix, &p, cx)
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                },
+        v_flex()
+            .size_full()
+            .relative()
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "artist_tracks_list",
+                    item_sizes,
+                    move |view, visible_range, _window, cx| {
+                        visible_range
+                            .map(|ix| match &view.items[ix] {
+                                ItemKind::ArtistHeader => {
+                                    artist_header_static(view.artist_name.clone())
+                                        .into_any_element()
+                                }
+                                ItemKind::DiscHeader(disc, gap) => {
+                                    artist_disc_header(disc.clone(), *gap, border, muted_fg)
+                                }
+                                ItemKind::AlbumHeader(g_ix) => artist_album_header(
+                                    view,
+                                    *g_ix,
+                                    border,
+                                    fallback_bg,
+                                    fallback_fg,
+                                ),
+                                ItemKind::Track(g_ix, t_ix) => {
+                                    artist_track_row(view, *g_ix, *t_ix, &p, cx)
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&self.scroll_handle)
+                .flex_1(),
             )
-            .track_scroll(&self.scroll_handle)
-            .flex_1(),
-        )
+            .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
     }
 }
 
