@@ -20,7 +20,7 @@ pub use row_style::current_row;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Div, ElementId, Hsla, InteractiveElement, MouseButton, ParentElement, SharedString,
-    Stateful, Styled, div, px, svg,
+    Stateful, Styled, div, rems, svg,
 };
 
 use crate::theme_colors::Colors;
@@ -57,7 +57,7 @@ pub(super) fn row_icon_button(
 ) -> Stateful<Div> {
     div()
         .id(id)
-        .size(px(button_size))
+        .size(rems(button_size / 16.))
         .flex()
         .items_center()
         .justify_center()
@@ -71,7 +71,7 @@ pub(super) fn row_icon_button(
         .child(
             svg()
                 .path(icon_path)
-                .size(px(icon_size))
+                .size(rems(icon_size / 16.))
                 .text_color(icon_color),
         )
 }
@@ -120,7 +120,7 @@ pub fn fmt_track_num(track_number: Option<i32>) -> SharedString {
 pub fn track_duration(cx: &App, duration: SharedString) -> Div {
     div()
         .flex_shrink_0()
-        .size(px(40.))
+        .w(rems(2.5))
         .flex()
         .items_center()
         .justify_center()

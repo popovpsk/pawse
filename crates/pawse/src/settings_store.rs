@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gpui::{App, BackgroundExecutor, Global};
+use gpui::{App, BackgroundExecutor, Global, Pixels, px};
 use gpui_component::{
     WindowExt,
     notification::Notification,
@@ -151,6 +151,25 @@ impl From<RepeatModePersist> for crate::playback_queue::RepeatMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FontScale {
+    #[default]
+    Small,
+    Medium,
+    Large,
+}
+
+impl FontScale {
+    pub fn px(self) -> Pixels {
+        match self {
+            FontScale::Small => px(16.),
+            FontScale::Medium => px(19.),
+            FontScale::Large => px(22.),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum QueueSourcePersist {
     #[default]
@@ -226,6 +245,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub show_queue_artist: bool,
     #[serde(default)]
+    pub font_scale: FontScale,
+    #[serde(default)]
     pub onboarding_complete: bool,
 }
 
@@ -245,6 +266,7 @@ impl Default for UserSettings {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            font_scale: FontScale::default(),
             onboarding_complete: false,
         }
     }
@@ -459,6 +481,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn font_scale(&self) -> FontScale {
+        self.settings.font_scale
+    }
+
+    pub fn set_font_scale(&mut self, scale: FontScale) -> anyhow::Result<()> {
+        self.settings.font_scale = scale;
+        self.save()
+    }
+
     pub fn onboarding_complete(&self) -> bool {
         self.settings.onboarding_complete
     }
@@ -469,6 +500,21 @@ impl SettingsStore {
     }
 }
 
+/// Set the UI base font size (the rem unit) from a [`FontScale`]. `Root::render`
+/// reapplies `cx.theme().font_size` as the window rem size every frame, so this
+/// rescales every rem-relative text size across the app.
+pub fn apply_font_scale(scale: FontScale, cx: &mut App) {
+    Theme::global_mut(cx).font_size = scale.px();
+}
+
+// why: Theme::change -> apply_config resets font_size on every theme switch, so
+// the chosen scale must be reasserted right after any theme application.
+fn reassert_font_scale(cx: &mut App) {
+    if cx.has_global::<SettingsStore>() {
+        apply_font_scale(cx.global::<SettingsStore>().font_scale(), cx);
+    }
+}
+
 /// Apply a theme choice to the UI without saving to disk. Used for live preview.
 pub fn apply_theme(choice: &ThemeChoice, cx: &mut App) {
     match choice {
@@ -476,11 +522,13 @@ pub fn apply_theme(choice: &ThemeChoice, cx: &mut App) {
         ThemeChoice::Named(name) => apply_named_theme(name, cx),
     }
     Theme::global_mut(cx).scrollbar_show = ScrollbarShow::Scrolling;
+    reassert_font_scale(cx);
 }
 
 pub fn apply_startup_theme(store: &SettingsStore, cx: &mut App) {
     let t = store.theme();
     apply_theme(&t, cx);
+    apply_font_scale(store.font_scale(), cx);
 }
 
 /// Apply a theme by name from `ThemeRegistry`. No-op if the name is not yet registered
@@ -497,6 +545,7 @@ pub fn apply_named_theme(name: &str, cx: &mut App) {
         theme.light_theme = config;
     }
     Theme::change(mode, None, cx);
+    reassert_font_scale(cx);
 }
 
 /// Push a user-visible notification (and log) when saving settings fails.
@@ -709,11 +758,13 @@ mod tests {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            font_scale: FontScale::Large,
             onboarding_complete: false,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
+        assert_eq!(back.font_scale, FontScale::Large);
         assert_eq!(back.playback.queue.len(), 1);
         assert_eq!(back.playback.queue[0], track);
         assert_eq!(back.playback.current_index, Some(0));
@@ -743,6 +794,7 @@ mod tests {
         assert!(settings.playback.queue.is_empty());
         assert_eq!(settings.playback.current_index, None);
         assert_eq!(settings.playback.position_ms, 0);
+        assert_eq!(settings.font_scale, FontScale::Small);
     }
 
     #[test]

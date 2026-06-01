@@ -7,7 +7,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, AppContext, Context, Div, ElementId, FontWeight, Hsla, Image, InteractiveElement,
     IntoElement, ObjectFit, ParentElement, Pixels, Render, SharedString, Size,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, rems,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -65,6 +65,7 @@ struct QueueRowParams {
     show_queue_actions: bool,
     show_queue_artist: bool,
     item_height: f32,
+    cover_size: f32,
     buttons: RowButtonColors,
 }
 
@@ -72,6 +73,7 @@ impl QueueRowParams {
     fn from_cx(cx: &mut Context<QueueView>) -> Self {
         let settings = cx.global::<SettingsStore>();
         let show_queue_artist = settings.show_queue_artist();
+        let rem = f32::from(settings.font_scale().px());
         Self {
             muted: Colors::muted(cx),
             muted_fg: Colors::muted_foreground(cx),
@@ -83,7 +85,16 @@ impl QueueRowParams {
             show_track_duration: settings.show_track_duration(),
             show_queue_actions: settings.show_queue_actions(),
             show_queue_artist,
-            item_height: if show_queue_artist { 48. } else { 36. } + 1.,
+            item_height: if show_queue_artist {
+                rem * 3.0
+            } else {
+                rem * 2.25
+            } + 1.,
+            cover_size: if show_queue_artist {
+                rem * 2.0
+            } else {
+                rem * 1.5
+            },
             buttons: RowButtonColors::from_cx(cx),
         }
     }
@@ -318,6 +329,7 @@ fn queue_visible_range_row(
                     v_flex()
                         .ml_2()
                         .flex_1()
+                        .justify_center()
                         .overflow_hidden()
                         .truncate()
                         .child(
@@ -384,7 +396,7 @@ fn queue_visible_range_row(
                     track_ix as u64,
                 ))
                 .flex_shrink_0()
-                .size(px(26.))
+                .size(rems(26. / 16.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -435,7 +447,7 @@ fn queue_visible_range_row(
                 .child(
                     gpui::svg()
                         .path("icons/s1-x.svg")
-                        .size(px(14.))
+                        .size(rems(14. / 16.))
                         .text_color(params.muted_fg),
                 ),
         )
@@ -514,7 +526,7 @@ fn queue_header(foreground: Hsla) -> Div {
 }
 
 fn album_cover_cell(params: &QueueRowParams, cover_img: Option<Arc<Image>>) -> AnyElement {
-    let cover_size = if params.show_queue_artist { 32. } else { 24. };
+    let cover_size = params.cover_size;
 
     if let Some(cover_img) = cover_img {
         img(cover_img)

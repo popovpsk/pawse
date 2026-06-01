@@ -6,8 +6,8 @@ use gpui::{
     Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
-    Icon, IconName, Sizable,
-    button::{Button, ButtonVariants},
+    Icon, IconName, Selectable, Sizable,
+    button::{Button, ButtonGroup, ButtonVariants},
     h_flex,
     scroll::ScrollableElement,
     switch::Switch,
@@ -21,7 +21,8 @@ use ui_resources::i18n::Lang;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::{
-    LangChoice, SettingsStore, ThemeChoice, apply_theme, notify_save_error,
+    FontScale, LangChoice, SettingsStore, ThemeChoice, apply_font_scale, apply_theme,
+    notify_save_error,
 };
 use crate::theme_colors::Colors;
 
@@ -253,6 +254,50 @@ fn interface_group(
     );
 
     group = group.item(language_field(lang_picker));
+
+    group = group.item(
+        SettingItem::new(
+            tr().font_size.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let current = cx.global::<SettingsStore>().font_scale();
+                h_flex().items_center().justify_end().child(
+                    ButtonGroup::new("font-size-group")
+                        .small()
+                        .child(
+                            Button::new("font-small")
+                                .label(tr().font_size_small.clone())
+                                .selected(current == FontScale::Small),
+                        )
+                        .child(
+                            Button::new("font-medium")
+                                .label(tr().font_size_medium.clone())
+                                .selected(current == FontScale::Medium),
+                        )
+                        .child(
+                            Button::new("font-large")
+                                .label(tr().font_size_large.clone())
+                                .selected(current == FontScale::Large),
+                        )
+                        .on_click(|clicks: &Vec<usize>, _, cx| {
+                            let Some(&ix) = clicks.first() else {
+                                return;
+                            };
+                            let scale = match ix {
+                                0 => FontScale::Small,
+                                2 => FontScale::Large,
+                                _ => FontScale::Medium,
+                            };
+                            if let Err(e) = cx.global_mut::<SettingsStore>().set_font_scale(scale) {
+                                notify_save_error(cx, e);
+                            }
+                            apply_font_scale(scale, cx);
+                            cx.refresh_windows();
+                        }),
+                )
+            }),
+        )
+        .description(tr().font_size_desc.clone()),
+    );
 
     // Exclusive (hog) mode is macOS/Windows-only; hide the toggle on Linux so it
     // can't be enabled there (Linux exclusive output is unimplemented for now).

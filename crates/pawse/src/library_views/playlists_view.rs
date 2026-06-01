@@ -295,33 +295,37 @@ impl Render for PlaylistsView {
             icon_btn_hover,
         };
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(create_section).children(all_tracks).child(
-            v_flex()
-                .relative()
-                .flex_1()
-                .child(
-                    v_virtual_list(
-                        cx.entity().clone(),
-                        "playlists_list",
-                        item_sizes,
-                        move |view, visible_range, _window, cx| {
-                            visible_range
-                                .map(|ix| match view.items[ix] {
-                                    PlaylistItem::TopPadding => {
-                                        div().w_full().h(px(TOP_PADDING)).into_any_element()
-                                    }
-                                    PlaylistItem::Playlist(row_ix) => {
-                                        playlist_row(view, row_ix, &params, cx)
-                                    }
-                                })
-                                .collect::<Vec<_>>()
-                        },
+        v_flex()
+            .size_full()
+            .child(create_section)
+            .children(all_tracks)
+            .child(
+                v_flex()
+                    .relative()
+                    .flex_1()
+                    .child(
+                        v_virtual_list(
+                            cx.entity().clone(),
+                            "playlists_list",
+                            item_sizes,
+                            move |view, visible_range, _window, cx| {
+                                visible_range
+                                    .map(|ix| match view.items[ix] {
+                                        PlaylistItem::TopPadding => {
+                                            div().w_full().h(px(TOP_PADDING)).into_any_element()
+                                        }
+                                        PlaylistItem::Playlist(row_ix) => {
+                                            playlist_row(view, row_ix, &params, cx)
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                            },
+                        )
+                        .track_scroll(&self.scroll_handle)
+                        .flex_1(),
                     )
-                    .track_scroll(&self.scroll_handle)
-                    .flex_1(),
-                )
-                .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
-        )
+                    .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
+            )
     }
 }
 

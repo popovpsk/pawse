@@ -21,8 +21,6 @@ const SLIDER_MAX_W: f32 = 400.0;
 // Fixed-width elements outside slider in footer layout:
 // now_playing(200) + queue+vol(200) + footer px_4(32) + gaps(32) + slider row px_4(32)
 const FOOTER_FIXED_W: f32 = 496.0;
-// Time labels (40px each) + gap_3 (12px) on both sides when visible
-const LABELS_W: f32 = 104.0;
 
 pub struct TrackProgressSlider {
     duration_secs: f32,
@@ -45,7 +43,13 @@ impl Render for TrackProgressSlider {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let show_labels = self.show_labels;
         let viewport_w = f32::from(window.viewport_size().width);
-        let labels_w = if show_labels { LABELS_W } else { 0.0 };
+        let rem = f32::from(window.rem_size());
+        let label_w = rem * 2.6;
+        let labels_w = if show_labels {
+            2.0 * label_w + 2.0 * (rem * 0.75)
+        } else {
+            0.0
+        };
         let slider_w = (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W);
         let text_secondary = Colors::muted_foreground(cx);
         h_flex()
@@ -56,7 +60,9 @@ impl Render for TrackProgressSlider {
             .when(show_labels, |b| {
                 b.child(
                     div()
-                        .w(px(40.))
+                        .w(px(label_w))
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
                         .text_xs()
                         .text_color(text_secondary)
                         .text_right()
@@ -67,7 +73,9 @@ impl Render for TrackProgressSlider {
             .when(show_labels, |b| {
                 b.child(
                     div()
-                        .w(px(40.))
+                        .w(px(label_w))
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
                         .text_xs()
                         .text_color(text_secondary)
                         .child(self.duration_str.clone()),

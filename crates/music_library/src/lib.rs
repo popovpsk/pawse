@@ -206,12 +206,37 @@ mod tests {
                 start_offset_ms: None,
                 bitrate: None,
             };
-            lib.upsert_track(&t, Some(album_id), &[(artist_id, 0)]).unwrap();
+            lib.upsert_track(&t, Some(album_id), &[(artist_id, 0)])
+                .unwrap();
         };
 
-        add("/r/2.flac", "Paranoid Android", "OK Computer", "Radiohead", ok, radiohead, 2);
-        add("/r/1.flac", "Airbag", "OK Computer", "Radiohead", ok, radiohead, 1);
-        add("/b/1.flac", "Come Together", "Abbey Road", "The Beatles", abbey, beatles, 1);
+        add(
+            "/r/2.flac",
+            "Paranoid Android",
+            "OK Computer",
+            "Radiohead",
+            ok,
+            radiohead,
+            2,
+        );
+        add(
+            "/r/1.flac",
+            "Airbag",
+            "OK Computer",
+            "Radiohead",
+            ok,
+            radiohead,
+            1,
+        );
+        add(
+            "/b/1.flac",
+            "Come Together",
+            "Abbey Road",
+            "The Beatles",
+            abbey,
+            beatles,
+            1,
+        );
 
         assert_eq!(lib.track_count().unwrap(), 3);
 
