@@ -33,6 +33,8 @@ pub mod services;
 pub mod settings_store;
 pub mod settings_view;
 pub mod shuffle_button;
+#[cfg(not(target_os = "macos"))]
+pub mod single_instance;
 pub mod theme_colors;
 pub mod track_list;
 pub mod track_progress_slider;
@@ -135,6 +137,12 @@ fn open_initial_window(cx: &mut App, run_startup_tasks: bool) {
 }
 
 fn main() {
+    #[cfg(not(target_os = "macos"))]
+    let single_instance = match single_instance::acquire() {
+        single_instance::Acquire::Duplicate => return,
+        single_instance::Acquire::First(listener) => listener,
+    };
+
     let app = Application::new().with_assets(ui_resources::assets::Assets);
 
     #[cfg(target_os = "macos")]
@@ -239,6 +247,9 @@ fn main() {
         crate::app_menu::set_menus(cx);
 
         open_initial_window(cx, true);
+
+        #[cfg(not(target_os = "macos"))]
+        single_instance::install(cx, single_instance);
 
         #[cfg(target_os = "macos")]
         crate::media_bridge::setup(cx);
