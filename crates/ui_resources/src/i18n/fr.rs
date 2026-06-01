@@ -31,6 +31,7 @@ pub static FR: Strings = lang! {
     tab_liked: "Favoris",
     tab_playlists: "Playlists",
     all_tracks: "Tous les titres",
+    no_metadata: "Sans métadonnées",
 
     scanning: "Analyse...",
     no_music_folders_configured: "Aucun dossier de musique configuré.",

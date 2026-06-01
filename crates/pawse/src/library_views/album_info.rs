@@ -47,6 +47,11 @@ impl Render for AlbumInfo {
         let muted_fg = Colors::muted_foreground(cx);
         let album_id = self.album_id;
         let artist_id = self.artist_id;
+        let title: SharedString = if self.album_id == music_library::NO_METADATA_ALBUM_ID {
+            crate::localization::tr().no_metadata.clone()
+        } else {
+            self.title.clone().into()
+        };
 
         h_flex()
             .w_full()
@@ -70,7 +75,7 @@ impl Render for AlbumInfo {
                         div()
                             .text_lg()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(self.title.clone()),
+                            .child(title),
                     )
                     .child(if let Some(aid) = artist_id {
                         h_flex()

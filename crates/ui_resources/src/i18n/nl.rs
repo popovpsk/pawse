@@ -31,6 +31,7 @@ pub static NL: Strings = lang! {
     tab_liked: "Vind-ik-leuks",
     tab_playlists: "Afspeellijsten",
     all_tracks: "Alle nummers",
+    no_metadata: "Geen metadata",
 
     scanning: "Scannen...",
     no_music_folders_configured: "Geen muziekmappen geconfigureerd.",

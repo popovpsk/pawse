@@ -31,6 +31,7 @@ pub static CS: Strings = lang! {
     tab_liked: "Oblíbené",
     tab_playlists: "Playlisty",
     all_tracks: "Všechny skladby",
+    no_metadata: "Bez metadat",
 
     scanning: "Prohledávání...",
     no_music_folders_configured: "Nejsou nastaveny žádné hudební složky.",

@@ -76,6 +76,7 @@ pub struct Strings {
     pub tab_liked: SharedString,
     pub tab_playlists: SharedString,
     pub all_tracks: SharedString,
+    pub no_metadata: SharedString,
 
     // --- Library empty / loading states ---
     pub scanning: SharedString,

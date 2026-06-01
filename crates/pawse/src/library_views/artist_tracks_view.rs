@@ -73,6 +73,7 @@ enum ItemKind {
 }
 
 pub struct ArtistTracksView {
+    artist_id: i64,
     artist_name: SharedString,
     tracks_all: Vec<Rc<music_library::Track>>,
     groups: Vec<AlbumGroup>,
@@ -189,6 +190,7 @@ impl ArtistTracksView {
         }
 
         Self {
+            artist_id: artist.id,
             artist_name: artist.name.clone().into(),
             tracks_all,
             groups,
@@ -325,6 +327,14 @@ impl ArtistTracksView {
         self.items = items;
         self.item_sizes = Rc::new(sizes);
     }
+
+    fn header_name(&self) -> SharedString {
+        if self.artist_id == music_library::NO_METADATA_ARTIST_ID {
+            tr().no_metadata.clone()
+        } else {
+            self.artist_name.clone()
+        }
+    }
 }
 
 impl Render for ArtistTracksView {
@@ -341,14 +351,14 @@ impl Render for ArtistTracksView {
         if self.tracks_all.is_empty() {
             return v_flex()
                 .size_full()
-                .child(artist_header_static(self.artist_name.clone()))
+                .child(artist_header_static(self.header_name()))
                 .child(div().px_4().child(tr().no_tracks_for_artist.clone()));
         }
 
         if self.groups.is_empty() {
             return v_flex()
                 .size_full()
-                .child(artist_header_static(self.artist_name.clone()))
+                .child(artist_header_static(self.header_name()))
                 .child(div().px_4().child(tr().no_tracks_match.clone()));
         }
 
@@ -374,8 +384,7 @@ impl Render for ArtistTracksView {
                         visible_range
                             .map(|ix| match &view.items[ix] {
                                 ItemKind::ArtistHeader => {
-                                    artist_header_static(view.artist_name.clone())
-                                        .into_any_element()
+                                    artist_header_static(view.header_name()).into_any_element()
                                 }
                                 ItemKind::DiscHeader(disc, gap) => {
                                     artist_disc_header(disc.clone(), *gap, border, muted_fg)
@@ -442,6 +451,11 @@ fn artist_album_header(
         fallback_fg,
     );
     let year_str = group.year.map(|y| format!(" · {}", y)).unwrap_or_default();
+    let title = if group.album_id.is_none() {
+        tr().no_metadata.clone()
+    } else {
+        group.album_title.clone()
+    };
     h_flex()
         .w_full()
         .h(px(ALBUM_HEADER_HEIGHT))
@@ -455,7 +469,7 @@ fn artist_album_header(
             div().flex_1().overflow_hidden().child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(format!("{}{}", group.album_title, year_str)),
+                    .child(format!("{}{}", title, year_str)),
             ),
         )
         .into_any_element()

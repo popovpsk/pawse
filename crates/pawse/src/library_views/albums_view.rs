@@ -22,7 +22,7 @@ use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
-use crate::localization::tr;
+use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -53,9 +53,12 @@ impl AlbumRowData {
         cover_cache: &mut CoverArtCache,
         library: &crate::library_service::LibraryService,
     ) -> Self {
-        let year_str = album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
-        let display_text: SharedString =
-            format!("{}{} - {}", album.artist_name, year_str, album.title).into();
+        let display_text: SharedString = if album.id == music_library::NO_METADATA_ALBUM_ID {
+            tr().no_metadata.clone()
+        } else {
+            let year_str = album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
+            format!("{}{} - {}", album.artist_name, year_str, album.title).into()
+        };
         Self {
             albums_all_ix,
             id: album.id,
@@ -90,12 +93,14 @@ pub struct AlbumsView {
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
     _settings_observer: Subscription,
+    _lang_subscription: Subscription,
 }
 
 impl AlbumsView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
         let library_event_bus = services.library_event_bus.clone();
+        let lang_event_bus = services.lang_event_bus.clone();
         let library = services.library.clone();
 
         let albums_all = library.albums();
@@ -140,6 +145,11 @@ impl AlbumsView {
             cx.notify();
         });
 
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            this.recompute_visible(cx);
+            cx.notify();
+        });
+
         Self {
             albums_all,
             search_entries,
@@ -153,6 +163,7 @@ impl AlbumsView {
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _settings_observer: settings_observer,
+            _lang_subscription: lang_subscription,
         }
     }
 

@@ -31,6 +31,7 @@ pub static TR: Strings = lang! {
     tab_liked: "Beğenilenler",
     tab_playlists: "Çalma listeleri",
     all_tracks: "Tüm parçalar",
+    no_metadata: "Meta veri yok",
 
     scanning: "Taranıyor...",
     no_music_folders_configured: "Yapılandırılmış müzik klasörü yok.",

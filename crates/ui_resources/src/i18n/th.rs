@@ -31,6 +31,7 @@ pub static TH: Strings = lang! {
     tab_liked: "ที่ถูกใจ",
     tab_playlists: "เพลย์ลิสต์",
     all_tracks: "เพลงทั้งหมด",
+    no_metadata: "ไม่มีข้อมูลเมตา",
 
     scanning: "กำลังสแกน...",
     no_music_folders_configured: "ยังไม่ได้ตั้งค่าโฟลเดอร์เพลง",

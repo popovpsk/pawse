@@ -31,6 +31,7 @@ pub static VI: Strings = lang! {
     tab_liked: "Yêu thích",
     tab_playlists: "Danh sách phát",
     all_tracks: "Tất cả bài hát",
+    no_metadata: "Không có siêu dữ liệu",
 
     scanning: "Đang quét...",
     no_music_folders_configured: "Chưa cấu hình thư mục nhạc.",

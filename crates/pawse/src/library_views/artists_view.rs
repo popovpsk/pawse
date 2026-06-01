@@ -52,7 +52,11 @@ impl ArtistRow {
             .filter_map(|&id| cache.get_small(Some(id), library))
             .collect();
         let count_label = tr().n_tracks(summary.track_count).into();
-        let name = summary.name.clone().into();
+        let name = if summary.id == music_library::NO_METADATA_ARTIST_ID {
+            tr().no_metadata.clone()
+        } else {
+            summary.name.clone().into()
+        };
         Self {
             summary,
             name,

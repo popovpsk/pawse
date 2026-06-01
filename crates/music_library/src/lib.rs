@@ -13,6 +13,9 @@ pub use models::{
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
 
+pub const NO_METADATA_ALBUM_ID: i64 = -1;
+pub const NO_METADATA_ARTIST_ID: i64 = -2;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,6 +250,73 @@ mod tests {
             .map(|t| t.title)
             .collect();
         assert_eq!(titles, vec!["Come Together", "Airbag", "Paranoid Android"]);
+    }
+
+    #[test]
+    fn test_no_metadata_bucket() {
+        let (lib, _path) = create_test_db();
+        let beatles = lib.upsert_artist("The Beatles").unwrap();
+        let abbey = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
+        lib.set_album_artists(abbey, &[(beatles, 0)]).unwrap();
+
+        let tagged = NewTrack {
+            path: "/b/1.flac".into(),
+            title: Some("Come Together".into()),
+            album_title: Some("Abbey Road".into()),
+            artist_names: vec!["The Beatles".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: None,
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        lib.upsert_track(&tagged, Some(abbey), &[(beatles, 0)])
+            .unwrap();
+
+        assert!(
+            !lib.albums()
+                .unwrap()
+                .iter()
+                .any(|a| a.id == NO_METADATA_ALBUM_ID)
+        );
+        assert!(
+            !lib.artists()
+                .unwrap()
+                .iter()
+                .any(|a| a.id == NO_METADATA_ARTIST_ID)
+        );
+
+        let bare = NewTrack {
+            path: "/loose/track.flac".into(),
+            title: Some("track".into()),
+            album_title: None,
+            artist_names: Vec::new(),
+            album_artist_names: Vec::new(),
+            track_number: None,
+            disc_number: None,
+            year: None,
+            duration_ms: None,
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        lib.upsert_track(&bare, None, &[]).unwrap();
+
+        let albums = lib.albums().unwrap();
+        assert_eq!(albums.last().map(|a| a.id), Some(NO_METADATA_ALBUM_ID));
+        let album_tracks = lib.tracks_for_album(NO_METADATA_ALBUM_ID).unwrap();
+        assert_eq!(album_tracks.len(), 1);
+        assert_eq!(album_tracks[0].path, "/loose/track.flac");
+
+        let artists = lib.artists().unwrap();
+        let no_meta_artist = artists.iter().find(|a| a.id == NO_METADATA_ARTIST_ID);
+        assert_eq!(no_meta_artist.map(|a| a.track_count), Some(1));
+        let artist_tracks = lib.tracks_by_artist(NO_METADATA_ARTIST_ID).unwrap();
+        assert_eq!(artist_tracks.len(), 1);
+        assert_eq!(artist_tracks[0].path, "/loose/track.flac");
     }
 
     #[test]

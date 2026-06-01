@@ -388,8 +388,25 @@ impl LibraryRepository for SqliteLibrary {
                 artist_id: row.get::<_, Option<i64>>(5)?,
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(LibraryError::Database)
+        let mut albums = rows
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)?;
+        let has_orphans: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tracks WHERE album_id IS NULL)",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_orphans {
+            albums.push(AlbumSummary {
+                id: crate::NO_METADATA_ALBUM_ID,
+                title: String::new(),
+                year: None,
+                cover_art_id: None,
+                artist_name: String::new(),
+                artist_id: None,
+            });
+        }
+        Ok(albums)
     }
 
     fn album_search_entries(&self) -> Result<Vec<AlbumSearchEntry>> {
@@ -431,12 +448,36 @@ impl LibraryRepository for SqliteLibrary {
                 haystack: row.get(1)?,
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(LibraryError::Database)
+        let mut entries = rows
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)?;
+        let orphan_titles: Option<String> = conn.query_row(
+            "SELECT GROUP_CONCAT(title, ' ') FROM tracks WHERE album_id IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        if let Some(haystack) = orphan_titles {
+            entries.push(AlbumSearchEntry {
+                album_id: crate::NO_METADATA_ALBUM_ID,
+                haystack,
+            });
+        }
+        Ok(entries)
     }
 
     fn tracks_for_album(&self, album_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
+        if album_id == crate::NO_METADATA_ALBUM_ID {
+            let sql = format!(
+                "SELECT {TRACK_COLUMNS} FROM tracks WHERE album_id IS NULL \
+                 ORDER BY disc_number, track_number, title",
+            );
+            let mut stmt = conn.prepare_cached(&sql)?;
+            let rows = stmt.query_map([], map_track_row)?;
+            return rows
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(LibraryError::Database);
+        }
         let sql = format!(
             "SELECT {TRACK_COLUMNS} FROM tracks WHERE album_id = ?1 \
              ORDER BY disc_number, track_number, title",
@@ -634,12 +675,41 @@ impl LibraryRepository for SqliteLibrary {
                 track_count: row.get(3)?,
             })
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(LibraryError::Database)
+        let mut artists = rows
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)?;
+        let orphan_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tracks t \
+             WHERE NOT EXISTS (SELECT 1 FROM track_artists ta WHERE ta.track_id = t.id)",
+            [],
+            |row| row.get(0),
+        )?;
+        if orphan_count > 0 {
+            artists.push(ArtistSummary {
+                id: crate::NO_METADATA_ARTIST_ID,
+                name: String::new(),
+                sort_name: String::new(),
+                track_count: orphan_count,
+            });
+        }
+        Ok(artists)
     }
 
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
+        if artist_id == crate::NO_METADATA_ARTIST_ID {
+            let sql = format!(
+                "SELECT {TRACK_COLUMNS_T} FROM tracks t \
+                 LEFT JOIN albums al ON al.id = t.album_id \
+                 WHERE NOT EXISTS (SELECT 1 FROM track_artists ta WHERE ta.track_id = t.id) \
+                 ORDER BY COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
+            );
+            let mut stmt = conn.prepare_cached(&sql)?;
+            let rows = stmt.query_map([], map_track_row)?;
+            return rows
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(LibraryError::Database);
+        }
         let sql = format!(
             "SELECT DISTINCT {TRACK_COLUMNS_T} FROM tracks t \
              JOIN track_artists ta ON ta.track_id = t.id \
