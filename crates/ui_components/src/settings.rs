@@ -23,7 +23,12 @@ use gpui::{
     RenderOnce, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window, div, point,
     prelude::FluentBuilder, px,
 };
-use gpui_component::{ActiveTheme, StyledExt, h_flex, scroll::ScrollableElement, v_flex};
+use gpui_component::{
+    ActiveTheme, StyledExt,
+    scroll::ScrollableElement,
+    tab::{Tab, TabBar},
+    v_flex,
+};
 
 /// Boxed render closure for a [`SettingField`].
 type FieldRenderer = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
@@ -241,44 +246,31 @@ impl RenderOnce for Settings {
             .min(self.pages.len().saturating_sub(1));
         let scroll = state.read(cx).scroll.clone();
 
-        let tabs = self
-            .pages
-            .iter()
-            .enumerate()
-            .map(|(i, page)| {
-                let is_active = i == active;
-                let title = page.title.clone();
+        let tab_bar = TabBar::new("settings-tabs")
+            .underline()
+            .w_full()
+            .flex_shrink_0()
+            .px_3()
+            .selected_index(active)
+            .children(
+                self.pages
+                    .iter()
+                    .map(|page| Tab::new().label(page.title.clone())),
+            )
+            .on_click({
                 let state = state.clone();
-                div()
-                    .id(("settings-tab", i))
-                    .px_4()
-                    .py_2()
-                    .rounded_md()
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(is_active, |d| {
-                        d.bg(cx.theme().secondary).text_color(cx.theme().primary)
-                    })
-                    .when(!is_active, |d| {
-                        d.text_color(cx.theme().muted_foreground)
-                            .hover(|s| s.bg(cx.theme().secondary_hover))
-                    })
-                    .child(title)
-                    .on_click(move |_, _, cx| {
-                        state.update(cx, |s, cx| {
-                            if s.active == i {
-                                return;
-                            }
-                            s.active = i;
-                            // One scroll handle is shared across tabs, so reset to the
-                            // top on switch — otherwise a shorter page renders scrolled
-                            // past its content.
-                            s.scroll.set_offset(point(px(0.), px(0.)));
-                            cx.notify();
-                        });
-                    })
-            })
-            .collect::<Vec<_>>();
+                move |index, _, cx| {
+                    let i = *index;
+                    state.update(cx, |s, cx| {
+                        if s.active == i {
+                            return;
+                        }
+                        s.active = i;
+                        s.scroll.set_offset(point(px(0.), px(0.)));
+                        cx.notify();
+                    });
+                }
+            });
 
         let groups = self
             .pages
@@ -294,15 +286,7 @@ impl RenderOnce for Settings {
         v_flex()
             .id(self.id.clone())
             .size_full()
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_1()
-                    .p_3()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .children(tabs),
-            )
+            .child(tab_bar)
             .child(
                 // `vertical_scrollbar` is only implemented for `Div`, so it goes on
                 // this plain (non-stateful) outer container; the inner stateful child
