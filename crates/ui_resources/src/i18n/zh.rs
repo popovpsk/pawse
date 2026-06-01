@@ -30,6 +30,7 @@ pub static ZH: Strings = lang! {
     tab_artists: "艺术家",
     tab_liked: "喜欢",
     tab_playlists: "播放列表",
+    all_tracks: "所有曲目",
 
     scanning: "扫描中...",
     no_music_folders_configured: "尚未配置音乐文件夹。",

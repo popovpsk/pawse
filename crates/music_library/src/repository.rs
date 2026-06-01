@@ -57,6 +57,8 @@ pub trait LibraryRepository: Send + Sync {
     fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
+    fn all_tracks(&self) -> Result<Vec<Track>>;
+    fn track_count(&self) -> Result<i64>;
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()>;
 
     fn create_playlist(&self, name: &str) -> Result<i64>;

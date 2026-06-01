@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gpui::{App, Global};
+use gpui::{App, BackgroundExecutor, Global};
 use gpui_component::{
     WindowExt,
     notification::Notification,
@@ -156,6 +156,7 @@ pub enum QueueSourcePersist {
     #[default]
     Unknown,
     Playlist(i64),
+    AllTracks,
 }
 
 impl From<crate::playback_queue::QueueSource> for QueueSourcePersist {
@@ -163,6 +164,7 @@ impl From<crate::playback_queue::QueueSource> for QueueSourcePersist {
         match s {
             crate::playback_queue::QueueSource::Unknown => Self::Unknown,
             crate::playback_queue::QueueSource::Playlist(id) => Self::Playlist(id),
+            crate::playback_queue::QueueSource::AllTracks => Self::AllTracks,
         }
     }
 }
@@ -172,6 +174,7 @@ impl From<QueueSourcePersist> for crate::playback_queue::QueueSource {
         match s {
             QueueSourcePersist::Unknown => Self::Unknown,
             QueueSourcePersist::Playlist(id) => Self::Playlist(id),
+            QueueSourcePersist::AllTracks => Self::AllTracks,
         }
     }
 }
@@ -250,9 +253,21 @@ impl Default for UserSettings {
 pub struct SettingsStore {
     pub settings: UserSettings,
     path: PathBuf,
+    save_tx: Option<flume::Sender<UserSettings>>,
 }
 
 impl Global for SettingsStore {}
+
+fn write_settings(path: &Path, settings: &UserSettings) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(settings)?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
 
 impl SettingsStore {
     pub fn load() -> Self {
@@ -264,7 +279,29 @@ impl SettingsStore {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        Self { settings, path }
+        Self {
+            settings,
+            path,
+            save_tx: None,
+        }
+    }
+
+    pub fn start_background_writer(&mut self, executor: BackgroundExecutor) {
+        let (tx, rx) = flume::unbounded::<UserSettings>();
+        self.save_tx = Some(tx);
+        let path = self.path.clone();
+        executor
+            .spawn(async move {
+                while let Ok(mut latest) = rx.recv_async().await {
+                    while let Ok(newer) = rx.try_recv() {
+                        latest = newer;
+                    }
+                    if let Err(e) = write_settings(&path, &latest) {
+                        log::error!("settings: background save failed: {e}");
+                    }
+                }
+            })
+            .detach();
     }
 
     fn default_path() -> PathBuf {
@@ -278,14 +315,19 @@ impl SettingsStore {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
+        match &self.save_tx {
+            Some(tx) => {
+                let _ = tx.send(self.settings.clone());
+                Ok(())
+            }
+            None => write_settings(&self.path, &self.settings),
         }
-        let json = serde_json::to_string_pretty(&self.settings)?;
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, &json)?;
-        std::fs::rename(&tmp, &self.path)?;
-        Ok(())
+    }
+
+    pub fn save_playback_blocking(&mut self, playback: PlaybackState) -> anyhow::Result<()> {
+        self.settings.playback = playback;
+        self.save_tx = None;
+        write_settings(&self.path, &self.settings)
     }
 
     pub fn theme(&self) -> ThemeChoice {
@@ -679,6 +721,18 @@ mod tests {
         assert!(back.playback.shuffle);
         assert_eq!(back.playback.repeat, RepeatModePersist::All);
         assert_eq!(back.playback.source, QueueSourcePersist::Playlist(7));
+    }
+
+    #[test]
+    fn queue_source_all_tracks_roundtrip() {
+        use crate::playback_queue::QueueSource;
+        let persisted: QueueSourcePersist = QueueSource::AllTracks.into();
+        assert_eq!(persisted, QueueSourcePersist::AllTracks);
+        let back: QueueSource = persisted.into();
+        assert_eq!(back, QueueSource::AllTracks);
+        let json = serde_json::to_string(&persisted).unwrap();
+        let de: QueueSourcePersist = serde_json::from_str(&json).unwrap();
+        assert_eq!(de, QueueSourcePersist::AllTracks);
     }
 
     #[test]

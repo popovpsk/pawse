@@ -30,6 +30,7 @@ pub static CS: Strings = lang! {
     tab_artists: "Interpreti",
     tab_liked: "Oblíbené",
     tab_playlists: "Playlisty",
+    all_tracks: "Všechny skladby",
 
     scanning: "Prohledávání...",
     no_music_folders_configured: "Nejsou nastaveny žádné hudební složky.",

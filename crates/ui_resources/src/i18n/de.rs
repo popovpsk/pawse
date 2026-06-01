@@ -30,6 +30,7 @@ pub static DE: Strings = lang! {
     tab_artists: "Künstler",
     tab_liked: "Favoriten",
     tab_playlists: "Playlists",
+    all_tracks: "Alle Titel",
 
     scanning: "Wird gescannt...",
     no_music_folders_configured: "Keine Musikordner konfiguriert.",

@@ -22,7 +22,7 @@ use crate::track_list::{
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
-use crate::library_service::LibraryEvent;
+use crate::library_service::{LibraryEvent, LibraryService};
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::track_row::{CoverTrackRow, build_artist_map, build_haystacks};
 use crate::localization::tr;
@@ -43,7 +43,8 @@ enum Item {
 }
 
 pub struct PlaylistTracksView {
-    playlist: music_library::PlaylistSummary,
+    name: SharedString,
+    source: QueueSource,
     tracks_all: Vec<Rc<music_library::Track>>,
     row_data: Vec<CoverTrackRow>,
     artist_by_track: HashMap<i64, SharedString>,
@@ -61,7 +62,8 @@ pub struct PlaylistTracksView {
 
 impl PlaylistTracksView {
     pub fn new(
-        playlist: &music_library::PlaylistSummary,
+        name: SharedString,
+        source: QueueSource,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -70,11 +72,7 @@ impl PlaylistTracksView {
         let library_event_bus = services.library_event_bus.clone();
         let engine_event_bus = services.engine_event_bus.clone();
 
-        let tracks_all: Vec<Rc<_>> = library
-            .tracks_for_playlist(playlist.id)
-            .into_iter()
-            .map(Rc::new)
-            .collect();
+        let tracks_all = load_tracks(source, &library);
         let artist_by_track = build_artist_map(&library, &tracks_all);
         let haystacks = build_haystacks(&tracks_all, &artist_by_track);
         let (items, sizes) = Self::build_items(tracks_all.len());
@@ -98,35 +96,16 @@ impl PlaylistTracksView {
             .is_playing
             .load(std::sync::atomic::Ordering::Relaxed);
 
-        let playlist_id = playlist.id;
         let library_subscription = cx.subscribe(
             &library_event_bus,
             move |this, _, event: &LibraryEvent, cx| match event {
-                LibraryEvent::PlaylistTracksChanged { playlist_id: pid } if *pid == playlist_id => {
-                    let services = cx.global::<Services>();
-                    this.tracks_all = services
-                        .library
-                        .tracks_for_playlist(playlist_id)
-                        .into_iter()
-                        .map(Rc::new)
-                        .collect();
-                    this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
-                    this.haystacks = build_haystacks(&this.tracks_all, &this.artist_by_track);
-                    this.recompute_visible(cx);
-                    cx.notify();
+                LibraryEvent::PlaylistTracksChanged { playlist_id: pid }
+                    if source == QueueSource::Playlist(*pid) =>
+                {
+                    this.reload_tracks(cx);
                 }
                 LibraryEvent::ScanComplete { changed } if *changed => {
-                    let services = cx.global::<Services>();
-                    this.tracks_all = services
-                        .library
-                        .tracks_for_playlist(playlist_id)
-                        .into_iter()
-                        .map(Rc::new)
-                        .collect();
-                    this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
-                    this.haystacks = build_haystacks(&this.tracks_all, &this.artist_by_track);
-                    this.recompute_visible(cx);
-                    cx.notify();
+                    this.reload_tracks(cx);
                 }
                 LibraryEvent::TrackLikedChanged { track_id, liked } => {
                     let mut changed = false;
@@ -181,7 +160,8 @@ impl PlaylistTracksView {
         );
 
         Self {
-            playlist: playlist.clone(),
+            name,
+            source,
             tracks_all,
             row_data,
             artist_by_track,
@@ -196,6 +176,15 @@ impl PlaylistTracksView {
             _library_subscription: library_subscription,
             _engine_subscription: engine_subscription,
         }
+    }
+
+    fn reload_tracks(&mut self, cx: &mut Context<Self>) {
+        let library = cx.global::<Services>().library.clone();
+        self.tracks_all = load_tracks(self.source, &library);
+        self.artist_by_track = build_artist_map(&library, &self.tracks_all);
+        self.haystacks = build_haystacks(&self.tracks_all, &self.artist_by_track);
+        self.recompute_visible(cx);
+        cx.notify();
     }
 
     fn build_items(count: usize) -> (Vec<Item>, Vec<Size<Pixels>>) {
@@ -284,7 +273,7 @@ impl Render for PlaylistTracksView {
             div()
                 .text_xl()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(self.playlist.name.clone()),
+                .child(self.name.clone()),
         );
 
         if self.row_data.is_empty() {
@@ -300,7 +289,7 @@ impl Render for PlaylistTracksView {
         }
 
         let p = PlaylistTrackRowParams {
-            playlist_id: self.playlist.id,
+            source: self.source,
             border,
             list_hover,
             muted,
@@ -335,7 +324,7 @@ impl Render for PlaylistTracksView {
                                         div()
                                             .text_xl()
                                             .font_weight(FontWeight::SEMIBOLD)
-                                            .child(view.playlist.name.clone()),
+                                            .child(view.name.clone()),
                                     )
                                     .into_any_element(),
                                 Item::Track(track_ix) => playlist_track_row(view, track_ix, &p, cx),
@@ -350,8 +339,17 @@ impl Render for PlaylistTracksView {
     }
 }
 
+fn load_tracks(source: QueueSource, library: &LibraryService) -> Vec<Rc<music_library::Track>> {
+    let tracks = match source {
+        QueueSource::AllTracks => library.all_tracks(),
+        QueueSource::Playlist(id) => library.tracks_for_playlist(id),
+        QueueSource::Unknown => Vec::new(),
+    };
+    tracks.into_iter().map(Rc::new).collect()
+}
+
 struct PlaylistTrackRowParams {
-    playlist_id: i64,
+    source: QueueSource,
     border: gpui::Hsla,
     list_hover: gpui::Hsla,
     muted: gpui::Hsla,
@@ -374,7 +372,10 @@ fn playlist_track_row(
     let is_current = Some(track_id) == view.current_track_id;
     let is_playing = view.is_playing;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
-    let playlist_id = p.playlist_id;
+    let remove_playlist_id = match p.source {
+        QueueSource::Playlist(id) => Some(id),
+        _ => None,
+    };
 
     let cover_el = cover_thumb(row.cover.as_ref(), COVER_SIZE, 3., p.muted, p.muted_fg);
 
@@ -434,11 +435,9 @@ fn playlist_track_row(
         .when(p.liked_enabled, |el| {
             el.child(like_button(track_id, row.base.liked, &p.buttons))
         })
-        .child(remove_from_playlist_button(
-            track_id,
-            playlist_id,
-            &p.buttons,
-        ))
+        .when_some(remove_playlist_id, |el, pid| {
+            el.child(remove_from_playlist_button(track_id, pid, &p.buttons))
+        })
         .child(track_duration(cx, row.base.duration.clone()))
         .child(add_to_queue_button(track_for_queue, 26., 16., &p.buttons))
         .id(ElementId::Integer(track_id as u64))
@@ -446,11 +445,7 @@ fn playlist_track_row(
             let services = cx.global::<Services>();
             let mut queue = services.playback_queue.borrow_mut();
             let track = queue
-                .set_tracks_and_play_at(
-                    this.tracks_all.clone(),
-                    track_all_ix,
-                    QueueSource::Playlist(playlist_id),
-                )
+                .set_tracks_and_play_at(this.tracks_all.clone(), track_all_ix, this.source)
                 .cloned();
             drop(queue);
             if let Some(track) = track {

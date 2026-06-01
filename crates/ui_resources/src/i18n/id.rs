@@ -30,6 +30,7 @@ pub static ID: Strings = lang! {
     tab_artists: "Artis",
     tab_liked: "Disukai",
     tab_playlists: "Playlist",
+    all_tracks: "Semua lagu",
 
     scanning: "Memindai...",
     no_music_folders_configured: "Belum ada folder musik yang dikonfigurasi.",

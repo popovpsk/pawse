@@ -30,6 +30,7 @@ pub static RU: Strings = lang! {
     tab_artists: "Исполнители",
     tab_liked: "Понравившиеся",
     tab_playlists: "Плейлисты",
+    all_tracks: "Все треки",
 
     scanning: "Сканирование...",
     no_music_folders_configured: "Папки с музыкой не настроены.",

@@ -28,6 +28,9 @@ pub struct PlaylistSelectedEvent {
     pub playlist: music_library::PlaylistSummary,
 }
 
+#[derive(Clone, Debug)]
+pub struct AllTracksSelectedEvent;
+
 enum PlaylistItem {
     TopPadding,
     Playlist(usize),
@@ -62,6 +65,8 @@ const PLAYLIST_ROW_HEIGHT: f32 = 48.;
 
 pub struct PlaylistsView {
     playlists_all: Vec<music_library::PlaylistSummary>,
+    all_tracks_count: i64,
+    all_tracks_count_label: SharedString,
     row_data: Vec<PlaylistRowData>,
     items: Vec<PlaylistItem>,
     filter: String,
@@ -92,6 +97,8 @@ impl PlaylistsView {
         });
 
         let playlists_all = cx.global::<Services>().library.playlists();
+        let all_tracks_count = cx.global::<Services>().library.track_count();
+        let all_tracks_count_label: SharedString = tr().n_tracks(all_tracks_count).into();
         let row_data: Vec<PlaylistRowData> =
             playlists_all.iter().map(PlaylistRowData::new).collect();
         let (items, item_sizes) = Self::build_items(row_data.len());
@@ -105,6 +112,8 @@ impl PlaylistsView {
             if refresh {
                 let services = cx.global::<Services>();
                 this.playlists_all = services.library.playlists();
+                this.all_tracks_count = services.library.track_count();
+                this.all_tracks_count_label = tr().n_tracks(this.all_tracks_count).into();
                 this.recompute_visible();
                 cx.notify();
             }
@@ -112,6 +121,8 @@ impl PlaylistsView {
 
         Self {
             playlists_all,
+            all_tracks_count,
+            all_tracks_count_label,
             row_data,
             items,
             filter: String::new(),
@@ -186,6 +197,7 @@ impl PlaylistsView {
 }
 
 impl EventEmitter<PlaylistSelectedEvent> for PlaylistsView {}
+impl EventEmitter<AllTracksSelectedEvent> for PlaylistsView {}
 
 impl Render for PlaylistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -244,20 +256,35 @@ impl Render for PlaylistsView {
             )
         };
 
+        let all_tracks = (self.all_tracks_count > 0).then(|| {
+            all_tracks_row(
+                self.all_tracks_count_label.clone(),
+                border,
+                list_hover,
+                muted_fg,
+                danger_fg,
+                cx,
+            )
+        });
+
         if self.row_data.is_empty() {
             let message = if self.playlists_all.is_empty() {
                 tr().no_playlists_yet.clone()
             } else {
                 tr().no_playlists_match.clone()
             };
-            return v_flex().size_full().child(create_section).child(
-                div()
-                    .px_4()
-                    .py_2()
-                    .text_sm()
-                    .text_color(muted_fg)
-                    .child(message),
-            );
+            return v_flex()
+                .size_full()
+                .child(create_section)
+                .children(all_tracks)
+                .child(
+                    div()
+                        .px_4()
+                        .py_2()
+                        .text_sm()
+                        .text_color(muted_fg)
+                        .child(message),
+                );
         }
 
         let params = PlaylistRowParams {
@@ -268,7 +295,7 @@ impl Render for PlaylistsView {
             icon_btn_hover,
         };
         let item_sizes = self.item_sizes.clone();
-        v_flex().size_full().child(create_section).child(
+        v_flex().size_full().child(create_section).children(all_tracks).child(
             v_flex()
                 .relative()
                 .flex_1()
@@ -296,6 +323,45 @@ impl Render for PlaylistsView {
                 .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
         )
     }
+}
+
+fn all_tracks_row(
+    count_label: SharedString,
+    border: Hsla,
+    list_hover: Hsla,
+    muted_fg: Hsla,
+    icon_fg: Hsla,
+    cx: &mut Context<PlaylistsView>,
+) -> gpui::AnyElement {
+    h_flex()
+        .w_full()
+        .h(px(PLAYLIST_ROW_HEIGHT))
+        .px_4()
+        .gap_3()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(border)
+        .cursor_pointer()
+        .hover(|s| s.bg(list_hover))
+        .child(
+            svg()
+                .path("icons/placeholder-notes.svg")
+                .size(px(20.))
+                .text_color(icon_fg),
+        )
+        .child(
+            div()
+                .flex_1()
+                .overflow_hidden()
+                .truncate()
+                .child(tr().all_tracks.clone()),
+        )
+        .child(div().text_sm().text_color(muted_fg).child(count_label))
+        .id("playlists-all-tracks")
+        .on_click(cx.listener(|_, _, _, cx| {
+            cx.emit(AllTracksSelectedEvent);
+        }))
+        .into_any_element()
 }
 
 fn playlist_row(

@@ -88,6 +88,14 @@ impl LibraryService {
         self.repo.liked_tracks().unwrap_or_default()
     }
 
+    pub fn all_tracks(&self) -> Vec<music_library::Track> {
+        self.repo.all_tracks().unwrap_or_default()
+    }
+
+    pub fn track_count(&self) -> i64 {
+        self.repo.track_count().unwrap_or(0)
+    }
+
     pub fn set_liked(&self, track_id: i64, liked: bool) {
         if let Err(e) = self.repo.set_liked(track_id, liked) {
             log::error!("Failed to set liked for track {}: {}", track_id, e);

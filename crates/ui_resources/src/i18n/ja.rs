@@ -30,6 +30,7 @@ pub static JA: Strings = lang! {
     tab_artists: "アーティスト",
     tab_liked: "お気に入り",
     tab_playlists: "プレイリスト",
+    all_tracks: "すべてのトラック",
 
     scanning: "スキャン中...",
     no_music_folders_configured: "音楽フォルダが設定されていません。",

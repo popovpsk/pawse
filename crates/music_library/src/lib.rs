@@ -179,6 +179,52 @@ mod tests {
     }
 
     #[test]
+    fn test_all_tracks_ordered_and_counted() {
+        let (lib, _path) = create_test_db();
+        assert_eq!(lib.track_count().unwrap(), 0);
+        assert!(lib.all_tracks().unwrap().is_empty());
+
+        let beatles = lib.upsert_artist("The Beatles").unwrap();
+        let radiohead = lib.upsert_artist("Radiohead").unwrap();
+        let abbey = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
+        let ok = lib.upsert_album("OK Computer", Some(1997), None).unwrap();
+        lib.set_album_artists(abbey, &[(beatles, 0)]).unwrap();
+        lib.set_album_artists(ok, &[(radiohead, 0)]).unwrap();
+
+        let add = |path: &str, title: &str, album: &str, artist: &str, album_id, artist_id, no| {
+            let t = NewTrack {
+                path: path.into(),
+                title: Some(title.into()),
+                album_title: Some(album.into()),
+                artist_names: vec![artist.into()],
+                album_artist_names: Vec::new(),
+                track_number: Some(no),
+                disc_number: Some(1),
+                year: None,
+                duration_ms: None,
+                cover_art_id: None,
+                start_offset_ms: None,
+                bitrate: None,
+            };
+            lib.upsert_track(&t, Some(album_id), &[(artist_id, 0)]).unwrap();
+        };
+
+        add("/r/2.flac", "Paranoid Android", "OK Computer", "Radiohead", ok, radiohead, 2);
+        add("/r/1.flac", "Airbag", "OK Computer", "Radiohead", ok, radiohead, 1);
+        add("/b/1.flac", "Come Together", "Abbey Road", "The Beatles", abbey, beatles, 1);
+
+        assert_eq!(lib.track_count().unwrap(), 3);
+
+        let titles: Vec<String> = lib
+            .all_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect();
+        assert_eq!(titles, vec!["Come Together", "Airbag", "Paranoid Android"]);
+    }
+
+    #[test]
     fn test_tracks_by_keys_chunks_beyond_parameter_limit() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();

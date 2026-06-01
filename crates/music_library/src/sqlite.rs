@@ -39,6 +39,21 @@ fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
     })
 }
 
+fn display_ordered_tracks(conn: &Connection, where_clause: &str) -> Result<Vec<Track>> {
+    let sql = format!(
+        "SELECT {TRACK_COLUMNS_T} FROM tracks t \
+         LEFT JOIN albums al ON al.id = t.album_id \
+         LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0 \
+         LEFT JOIN artists art ON art.id = aa.artist_id \
+         {where_clause} \
+         ORDER BY art.sort_name COLLATE NOCASE, COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map([], map_track_row)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(LibraryError::Database)
+}
+
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
     db_path: PathBuf,
@@ -640,18 +655,19 @@ impl LibraryRepository for SqliteLibrary {
 
     fn liked_tracks(&self) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let sql = format!(
-            "SELECT {TRACK_COLUMNS_T} FROM tracks t \
-             LEFT JOIN albums al ON al.id = t.album_id \
-             LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0 \
-             LEFT JOIN artists art ON art.id = aa.artist_id \
-             WHERE t.liked = 1 \
-             ORDER BY art.sort_name COLLATE NOCASE, COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
-        );
-        let mut stmt = conn.prepare_cached(&sql)?;
-        let rows = stmt.query_map([], map_track_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(LibraryError::Database)
+        display_ordered_tracks(&conn, "WHERE t.liked = 1")
+    }
+
+    fn all_tracks(&self) -> Result<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        display_ordered_tracks(&conn, "")
+    }
+
+    fn track_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached("SELECT COUNT(*) FROM tracks")?;
+        let count = stmt.query_row([], |row| row.get(0))?;
+        Ok(count)
     }
 
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()> {

@@ -9,9 +9,13 @@ use crate::library_views::artist_tracks_view::ArtistTracksView;
 use crate::library_views::artists_view::{ArtistSelectedEvent, ArtistsView};
 use crate::library_views::liked_view::LikedView;
 use crate::library_views::playlist_tracks_view::PlaylistTracksView;
-use crate::library_views::playlists_view::{PlaylistSelectedEvent, PlaylistsView};
+use crate::library_views::playlists_view::{
+    AllTracksSelectedEvent, PlaylistSelectedEvent, PlaylistsView,
+};
 use crate::library_views::tracks_view::TracksView;
+use crate::localization::tr;
 use crate::now_playing::NavigateToArtistRequested;
+use crate::playback_queue::QueueSource;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -48,6 +52,7 @@ pub struct LibraryView {
     _album_subscription: Subscription,
     _artist_subscription: Subscription,
     _playlist_subscription: Subscription,
+    _all_tracks_subscription: Subscription,
     _settings_subscription: Subscription,
     _settings_observer: Subscription,
     _tracks_artist_subscription: Option<Subscription>,
@@ -78,6 +83,14 @@ impl LibraryView {
             window,
             |this, _, event: &PlaylistSelectedEvent, window, cx| {
                 this.show_playlist_tracks(event.playlist.clone(), window, cx);
+            },
+        );
+
+        let all_tracks_subscription = cx.subscribe_in(
+            &playlists_view,
+            window,
+            |this, _, _: &AllTracksSelectedEvent, window, cx| {
+                this.show_all_tracks(window, cx);
             },
         );
 
@@ -120,6 +133,7 @@ impl LibraryView {
             _album_subscription: album_subscription,
             _artist_subscription: artist_subscription,
             _playlist_subscription: playlist_subscription,
+            _all_tracks_subscription: all_tracks_subscription,
             _settings_subscription: settings_subscription,
             _settings_observer: settings_observer,
             _tracks_artist_subscription: None,
@@ -274,7 +288,27 @@ impl LibraryView {
         cx: &mut Context<Self>,
     ) {
         self.state = LibraryViewState::PlaylistTracks;
-        let view = cx.new(|cx| PlaylistTracksView::new(&playlist, window, cx));
+        let view = cx.new(|cx| {
+            PlaylistTracksView::new(
+                playlist.name.clone().into(),
+                QueueSource::Playlist(playlist.id),
+                window,
+                cx,
+            )
+        });
+        self.playlist_tracks_view = Some(view);
+        self.tracks_view = None;
+        self.artist_tracks_view = None;
+        self._tracks_artist_subscription = None;
+        cx.emit(LibraryViewEvent::StateChanged);
+        cx.notify();
+    }
+
+    fn show_all_tracks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.state = LibraryViewState::PlaylistTracks;
+        let view = cx.new(|cx| {
+            PlaylistTracksView::new(tr().all_tracks.clone(), QueueSource::AllTracks, window, cx)
+        });
         self.playlist_tracks_view = Some(view);
         self.tracks_view = None;
         self.artist_tracks_view = None;

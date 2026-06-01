@@ -30,6 +30,7 @@ pub static TR: Strings = lang! {
     tab_artists: "Sanatçılar",
     tab_liked: "Beğenilenler",
     tab_playlists: "Çalma listeleri",
+    all_tracks: "Tüm parçalar",
 
     scanning: "Taranıyor...",
     no_music_folders_configured: "Yapılandırılmış müzik klasörü yok.",

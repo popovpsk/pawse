@@ -170,6 +170,9 @@ fn main() {
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);
         cx.set_global(settings_store);
+        let save_executor = cx.background_executor().clone();
+        cx.global_mut::<crate::settings_store::SettingsStore>()
+            .start_background_writer(save_executor);
         crate::localization::sync_active_lang(cx);
 
         ui_resources::themes::register_bundled_themes(cx, |cx| {
@@ -222,7 +225,7 @@ fn main() {
             let state = cx.global::<Services>().snapshot_playback();
             let _ = cx
                 .global_mut::<crate::settings_store::SettingsStore>()
-                .set_playback(state);
+                .save_playback_blocking(state);
             cx.global::<Services>().shutdown();
             diagnostics::flush();
             async {}

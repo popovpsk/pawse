@@ -30,6 +30,7 @@ pub static UK: Strings = lang! {
     tab_artists: "Виконавці",
     tab_liked: "Вподобані",
     tab_playlists: "Плейлисти",
+    all_tracks: "Всі треки",
 
     scanning: "Сканування...",
     no_music_folders_configured: "Папки з музикою не налаштовані.",

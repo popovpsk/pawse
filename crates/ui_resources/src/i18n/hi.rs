@@ -30,6 +30,7 @@ pub static HI: Strings = lang! {
     tab_artists: "कलाकार",
     tab_liked: "पसंदीदा",
     tab_playlists: "प्लेलिस्ट",
+    all_tracks: "सभी ट्रैक",
 
     scanning: "स्कैन हो रहा है...",
     no_music_folders_configured: "कोई संगीत फ़ोल्डर कॉन्फ़िगर नहीं किया गया।",

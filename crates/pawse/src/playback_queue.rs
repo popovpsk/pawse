@@ -18,6 +18,7 @@ pub enum QueueSource {
     #[default]
     Unknown,
     Playlist(i64),
+    AllTracks,
 }
 
 impl RepeatMode {

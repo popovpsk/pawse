@@ -30,6 +30,7 @@ pub static KO: Strings = lang! {
     tab_artists: "아티스트",
     tab_liked: "좋아요",
     tab_playlists: "재생목록",
+    all_tracks: "모든 트랙",
 
     scanning: "스캔 중...",
     no_music_folders_configured: "구성된 음악 폴더가 없습니다.",
