@@ -17,6 +17,7 @@ pub mod footer;
 pub mod keyboard_shortcuts;
 pub mod library_service;
 pub mod library_views;
+pub mod library_watcher;
 pub mod localization;
 pub mod main_view;
 pub mod media_bridge;
@@ -109,6 +110,7 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
                 if !folders.is_empty() {
                     cx.global::<Services>().library.clear_and_rescan(folders);
                 }
+                crate::library_watcher::rebuild(cx);
             });
         }
         root

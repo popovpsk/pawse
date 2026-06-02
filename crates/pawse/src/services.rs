@@ -31,6 +31,8 @@ pub struct Services {
     pub is_playing: Arc<AtomicBool>,
     pub playlist_popup_bus: Entity<crate::playlist_popup::PlaylistPopupBus>,
     pub lang_event_bus: Entity<crate::localization::LangEventBus>,
+    pub library_watcher: Rc<RefCell<Option<crate::library_watcher::LibraryWatcher>>>,
+    pub watcher_ping_tx: flume::Sender<()>,
 }
 
 impl Services {
@@ -78,6 +80,26 @@ impl Services {
         })
         .detach();
 
+        let (watcher_ping_tx, watcher_ping_rx) = flume::bounded::<()>(1);
+        let watcher_library = library.clone();
+        cx.spawn(async move |cx| {
+            while watcher_ping_rx.recv_async().await.is_ok() {
+                if cx
+                    .update(|cx| {
+                        let folders = cx
+                            .global::<crate::settings_store::SettingsStore>()
+                            .music_folders()
+                            .to_vec();
+                        watcher_library.request_rescan(folders, false);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+
         let playlist_popup_bus = cx.new(|_| crate::playlist_popup::PlaylistPopupBus);
         let lang_event_bus = cx.new(|_| crate::localization::LangEventBus);
 
@@ -94,6 +116,8 @@ impl Services {
             is_playing: Arc::new(AtomicBool::new(false)),
             playlist_popup_bus,
             lang_event_bus,
+            library_watcher: Rc::new(RefCell::new(None)),
+            watcher_ping_tx,
         }
     }
 

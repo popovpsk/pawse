@@ -76,6 +76,7 @@ pub struct MainView {
     _lang_picker_subscription: gpui::Subscription,
     _settings_observer: gpui::Subscription,
     _lang_subscription: Subscription,
+    _activation_subscription: gpui::Subscription,
     focus_handle: FocusHandle,
 }
 
@@ -224,6 +225,20 @@ impl MainView {
             }
         });
 
+        let activation_subscription = cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                let folders = cx
+                    .global::<crate::settings_store::SettingsStore>()
+                    .music_folders()
+                    .to_vec();
+                if !folders.is_empty() {
+                    cx.global::<crate::services::Services>()
+                        .library
+                        .request_rescan(folders, false);
+                }
+            }
+        });
+
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
             library_view,
@@ -253,6 +268,7 @@ impl MainView {
             _lang_picker_subscription: lang_picker_subscription,
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
+            _activation_subscription: activation_subscription,
             focus_handle,
         }
     }

@@ -226,6 +226,14 @@ pub fn add_folder_and_rescan(path: PathBuf, cx: &mut App) {
     }
     let folders = cx.global::<SettingsStore>().music_folders().to_vec();
     cx.global::<Services>().library.clear_and_rescan(folders);
+    crate::library_watcher::rebuild(cx);
+}
+
+pub fn force_rescan(cx: &mut App) {
+    let folders = cx.global::<SettingsStore>().music_folders().to_vec();
+    cx.global::<Services>()
+        .library
+        .request_rescan(folders, true);
 }
 
 /// Remove a folder from settings and rescan whatever remains (a clear+rescan
@@ -237,6 +245,7 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
     }
     let folders = cx.global::<SettingsStore>().music_folders().to_vec();
     cx.global::<Services>().library.clear_and_rescan(folders);
+    crate::library_watcher::rebuild(cx);
 }
 
 fn interface_group(
@@ -539,11 +548,14 @@ fn library_group() -> SettingGroup {
                                     Button::new(SharedString::from(remove_id))
                                         .ghost()
                                         .label(tr().remove.clone())
-                                        .on_click(move |_, window: &mut Window, app_cx: &mut App| {
-                                            let path = path_for_remove.clone();
-                                            window.open_dialog(app_cx, move |dialog, _window, _cx| {
-                                                let path = path.clone();
-                                                dialog
+                                        .on_click(
+                                            move |_, window: &mut Window, app_cx: &mut App| {
+                                                let path = path_for_remove.clone();
+                                                window.open_dialog(
+                                                    app_cx,
+                                                    move |dialog, _window, _cx| {
+                                                        let path = path.clone();
+                                                        dialog
                                                     .confirm()
                                                     .title(tr().remove_folder_confirm_title.clone())
                                                     .child(div().child(
@@ -558,19 +570,29 @@ fn library_group() -> SettingGroup {
                                                         remove_folder_and_rescan(path.clone(), cx);
                                                         true
                                                     })
-                                            });
-                                        }),
+                                                    },
+                                                );
+                                            },
+                                        ),
                                 ),
                         );
                     }
                 }
 
                 v_flex().gap_3().w_full().child(list).child(
-                    h_flex().gap_2().child(
-                        Button::new("add-folder")
-                            .label(tr().add_folder.clone())
-                            .on_click(|_, _, cx| pick_and_add_folder(cx)),
-                    ),
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("add-folder")
+                                .label(tr().add_folder.clone())
+                                .on_click(|_, _, cx| pick_and_add_folder(cx)),
+                        )
+                        .child(
+                            Button::new("rescan-library")
+                                .ghost()
+                                .label(tr().rescan_library.clone())
+                                .on_click(|_, _, cx| force_rescan(cx)),
+                        ),
                 )
             }),
         )
