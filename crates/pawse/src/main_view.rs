@@ -1,6 +1,6 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, FocusHandle,
+    AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, Hsla,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseUpEvent,
     ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window,
     canvas, div, px, svg,
@@ -37,6 +37,14 @@ const FADE_HEIGHT: f32 = 16.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;
+
+#[derive(Clone, Copy)]
+struct TabColors {
+    active_bg: Hsla,
+    hover_bg: Hsla,
+    primary: Hsla,
+    foreground: Hsla,
+}
 
 #[derive(Clone)]
 struct DragQueueResize(EntityId);
@@ -364,37 +372,23 @@ impl MainView {
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity_id = cx.entity_id();
-        let library_view = self.library_view.clone();
         let show_settings = self.show_settings;
         let has_back = show_settings || self.is_drilled_in;
         let current_tab = self.current_tab;
 
-        let back_button = div()
-            .id("back_button")
-            .size(px(36.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .hover(|style| style.bg(Colors::muted(cx)))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.clear_search(window, cx);
-                if this.show_settings {
-                    this.show_settings = false;
-                    cx.notify();
-                } else {
-                    library_view.update(cx, |view, cx| view.go_back(cx));
-                }
-            }))
-            .child(
-                svg()
-                    .path("icons/back.svg")
-                    .size(px(22.))
-                    .text_color(Colors::foreground(cx)),
-            );
+        let title_bar = Colors::title_bar(cx);
+        let muted = Colors::muted(cx);
+        let foreground = Colors::foreground(cx);
+        let tab_colors = TabColors {
+            active_bg: Colors::secondary(cx),
+            hover_bg: muted,
+            primary: Colors::primary(cx),
+            foreground,
+        };
 
-        let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
-        let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+        let settings = cx.global::<SettingsStore>();
+        let liked_enabled = settings.liked_enabled();
+        let playlists_enabled = settings.playlists_enabled();
 
         let left_group = div()
             .flex_1()
@@ -402,31 +396,31 @@ impl Render for MainView {
             .items_center()
             .h_full()
             .gap_1()
-            .when(has_back, |d| d.child(back_button))
+            .when(has_back, |d| d.child(back_button(foreground, muted, cx)))
             .when(!has_back, |d| {
                 d.child(tab_icon_button(
                     "tab_albums",
                     "icons/s1-albums.svg",
-                    "Albums",
                     current_tab == LibraryRootTab::Albums,
                     LibraryRootTab::Albums,
+                    tab_colors,
                     cx,
                 ))
                 .child(tab_icon_button(
                     "tab_artists",
                     "icons/s1-artists.svg",
-                    "Artists",
                     current_tab == LibraryRootTab::Artists,
                     LibraryRootTab::Artists,
+                    tab_colors,
                     cx,
                 ))
                 .when(liked_enabled, |d| {
                     d.child(tab_icon_button(
                         "tab_liked",
                         "icons/s1-heart.svg",
-                        "Liked",
                         current_tab == LibraryRootTab::Liked,
                         LibraryRootTab::Liked,
+                        tab_colors,
                         cx,
                     ))
                 })
@@ -434,9 +428,9 @@ impl Render for MainView {
                     d.child(tab_icon_button(
                         "tab_playlists",
                         "icons/s1-playlists.svg",
-                        "Playlists",
                         current_tab == LibraryRootTab::Playlists,
                         LibraryRootTab::Playlists,
+                        tab_colors,
                         cx,
                     ))
                 })
@@ -537,7 +531,7 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .bg(Colors::title_bar(cx))
+                    .bg(title_bar)
                     .child(left_group)
                     .when(!show_settings, |d| {
                         d.child(
@@ -546,7 +540,7 @@ impl Render for MainView {
                                     .with_size(Size::Medium)
                                     .focus_bordered(false)
                                     .rounded_full()
-                                    .bg(Colors::title_bar(cx)),
+                                    .bg(title_bar),
                             ),
                         )
                     })
@@ -557,7 +551,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .bg(Colors::title_bar(cx))
+                    .bg(title_bar)
                     .child(
                         div()
                             .flex_1()
@@ -626,7 +620,7 @@ impl Render for MainView {
             .when(!show_settings, |d| {
                 d.child(fade_overlay(
                     FadeEdge::Top,
-                    Colors::title_bar(cx),
+                    title_bar,
                     FADE_HEIGHT,
                     34.0 + HEADER_HEIGHT,
                 ))
@@ -680,21 +674,47 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         }))
 }
 
+fn back_button(fg: Hsla, hover_bg: Hsla, cx: &mut Context<MainView>) -> impl IntoElement {
+    div()
+        .id("back_button")
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .hover(move |style| style.bg(hover_bg))
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.clear_search(window, cx);
+            if this.show_settings {
+                this.show_settings = false;
+                cx.notify();
+            } else {
+                this.library_view.update(cx, |view, cx| view.go_back(cx));
+            }
+        }))
+        .child(
+            svg()
+                .path("icons/back.svg")
+                .size(px(22.))
+                .text_color(fg),
+        )
+}
+
 fn tab_icon_button(
     id: &'static str,
     icon_path: &'static str,
-    _tooltip: &'static str,
     active: bool,
     tab: LibraryRootTab,
+    colors: TabColors,
     cx: &mut Context<MainView>,
 ) -> impl IntoElement {
-    let active_bg = Colors::secondary(cx);
-    let hover_bg = Colors::muted(cx);
     let fg = if active {
-        Colors::primary(cx)
+        colors.primary
     } else {
-        Colors::foreground(cx)
+        colors.foreground
     };
+    let active_bg = colors.active_bg;
+    let hover_bg = colors.hover_bg;
 
     div()
         .id(id)
@@ -703,8 +723,8 @@ fn tab_icon_button(
         .items_center()
         .justify_center()
         .rounded_full()
-        .when(active, |d| d.bg(active_bg))
-        .hover(|s| s.bg(hover_bg))
+        .when(active, move |d| d.bg(active_bg))
+        .hover(move |s| s.bg(hover_bg))
         .on_click(cx.listener(move |this, _, window, cx| {
             this.clear_search(window, cx);
             this.library_view
