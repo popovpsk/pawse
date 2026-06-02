@@ -1,7 +1,26 @@
 use std::path::PathBuf;
 
+/// A track's cover before it reaches the DB writer. `Bytes` is raw image data
+/// the pipeline must hash + thumbnail; `Cached` is a hash already resolved by an
+/// earlier track sharing the same directory's external cover, so the pipeline
+/// references it without re-reading, re-hashing, or re-thumbnailing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CoverArt {
+    Bytes(Vec<u8>),
+    Cached(String),
+}
+
+impl CoverArt {
+    pub fn bytes(&self) -> Option<&[u8]> {
+        match self {
+            CoverArt::Bytes(b) => Some(b),
+            CoverArt::Cached(_) => None,
+        }
+    }
+}
+
 /// Raw output of the parsing business logic for one logical track. Carries the
-/// embedded/external cover art as raw bytes — the pipeline turns these into
+/// embedded/external cover as [`CoverArt`] — the pipeline turns these into
 /// deduped, pre-thumbnailed [`ScanEvent::Cover`] events plus a hash reference.
 #[derive(Debug, Clone)]
 pub struct ScannedTrack {
@@ -14,9 +33,28 @@ pub struct ScannedTrack {
     pub disc_number: Option<u32>,
     pub year: Option<i32>,
     pub duration_ms: Option<u64>,
-    pub cover_art: Option<Vec<u8>>,
+    pub cover_art: Option<CoverArt>,
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
+}
+
+impl ScannedTrack {
+    pub fn into_prepared(self, cover_hash: Option<String>) -> PreparedTrack {
+        PreparedTrack {
+            path: self.path,
+            title: self.title,
+            artist_names: self.artist_names,
+            album_artist_names: self.album_artist_names,
+            album_title: self.album_title,
+            track_number: self.track_number,
+            disc_number: self.disc_number,
+            year: self.year,
+            duration_ms: self.duration_ms,
+            cover_hash,
+            start_offset_ms: self.start_offset_ms,
+            bitrate: self.bitrate,
+        }
+    }
 }
 
 /// A parsed track ready for the DB writer. Identical to [`ScannedTrack`] minus
@@ -40,7 +78,9 @@ pub struct PreparedTrack {
 
 /// The filesystem state to index, captured cheaply by [`collect_sources`](crate::collect_sources).
 /// `fingerprint` is a hash over every relevant file's `(path, mtime, size)`; an
-/// unchanged fingerprint means a rescan can be skipped entirely.
+/// unchanged fingerprint means a rescan can be skipped entirely. `audio_files`
+/// is the raw walk result — audio referenced by a `.cue` is still present and is
+/// dropped only inside [`run`](crate::run), so the fast path stays stat-only.
 #[derive(Debug, Clone)]
 pub struct SourceSet {
     pub cue_files: Vec<PathBuf>,

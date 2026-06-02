@@ -1,14 +1,50 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use lofty::file::AudioFile;
 use lofty::picture::PictureType;
 use lofty::prelude::{Accessor, TaggedFileExt};
-use lofty::tag::ItemKey;
+use lofty::tag::{ItemKey, Tag};
+use music_library::sha256_hex;
 
-use crate::types::ScannedTrack;
+use crate::types::{CoverArt, ScannedTrack};
+
+/// Resolves a directory's external cover at most once per scan. Keyed by the
+/// track's parent dir, since [`find_external_cover_art`] depends only on it.
+/// Stores hashes (never bytes), so memory stays bounded over a large library:
+/// the first track in a dir reads + hashes the cover, siblings reference the
+/// hash and touch no disk.
+#[derive(Default)]
+pub(crate) struct CoverCache {
+    resolved: Mutex<HashMap<PathBuf, Option<String>>>,
+}
+
+impl CoverCache {
+    pub(crate) fn external_cover(&self, path: &Path) -> Option<CoverArt> {
+        let dir = path.parent()?.to_path_buf();
+        {
+            let map = self.resolved.lock().unwrap();
+            if let Some(cached) = map.get(&dir) {
+                return cached.clone().map(CoverArt::Cached);
+            }
+        }
+        let bytes = find_external_cover_art(path);
+        let hash = bytes.as_ref().map(|b| sha256_hex(b));
+        self.resolved.lock().unwrap().insert(dir, hash);
+        bytes.map(CoverArt::Bytes)
+    }
+}
 
 pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
-    let path = path.as_ref();
+    read_metadata_inner(path.as_ref(), None)
+}
+
+pub(crate) fn read_metadata_cached(path: &Path, cache: &CoverCache) -> anyhow::Result<ScannedTrack> {
+    read_metadata_inner(path, Some(cache))
+}
+
+fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Result<ScannedTrack> {
     let tagged_file = lofty::read_from_path(path)?;
 
     let properties = tagged_file.properties();
@@ -26,7 +62,7 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
     let mut track_number = None;
     let mut disc_number = None;
     let mut year = None;
-    let mut cover_art = None;
+    let mut embedded = None;
 
     if let Some(tag) = tag {
         title = tag.title().map(|s| s.to_string());
@@ -73,20 +109,16 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
             year = val.parse().ok();
         }
 
-        // Cover art
-        if let Some(pic) = tag
-            .pictures()
-            .iter()
-            .find(|p| p.pic_type() == PictureType::CoverFront)
-            .or_else(|| tag.pictures().first())
-        {
-            cover_art = Some(pic.data().to_vec());
-        }
+        embedded = embedded_cover(tag);
     }
 
-    if cover_art.is_none() {
-        cover_art = find_external_cover_art(path);
-    }
+    let cover_art = match embedded {
+        Some(bytes) => Some(CoverArt::Bytes(bytes)),
+        None => match cache {
+            Some(cache) => cache.external_cover(path),
+            None => find_external_cover_art(path).map(CoverArt::Bytes),
+        },
+    };
 
     Ok(ScannedTrack {
         path: path.to_path_buf(),
@@ -102,6 +134,14 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
         start_offset_ms: None,
         bitrate,
     })
+}
+
+pub(crate) fn embedded_cover(tag: &Tag) -> Option<Vec<u8>> {
+    tag.pictures()
+        .iter()
+        .find(|p| p.pic_type() == PictureType::CoverFront)
+        .or_else(|| tag.pictures().first())
+        .map(|pic| pic.data().to_vec())
 }
 
 pub fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {

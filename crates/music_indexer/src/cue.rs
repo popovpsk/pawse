@@ -7,12 +7,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use lofty::file::AudioFile;
-use lofty::picture::PictureType;
 use lofty::prelude::TaggedFileExt;
 
-use crate::metadata::find_external_cover_art;
+use crate::metadata::{embedded_cover, find_external_cover_art};
 use crate::pipeline::AUDIO_EXTENSIONS;
-use crate::types::ScannedTrack;
+use crate::types::{CoverArt, ScannedTrack};
 
 /// Read a `.cue` file as text, tolerating the legacy encodings rippers emit.
 /// EAC and friends still write Windows-1252 (e.g. a `0x92` curly apostrophe in
@@ -46,13 +45,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
     let cover_art = tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag())
-        .and_then(|tag| {
-            tag.pictures()
-                .iter()
-                .find(|p| p.pic_type() == PictureType::CoverFront)
-                .or_else(|| tag.pictures().first())
-                .map(|pic| pic.data().to_vec())
-        })
+        .and_then(embedded_cover)
         .or_else(|| find_external_cover_art(&audio_path));
 
     // Multi-disc rips lay each disc out in a `CD1`/`CD2` (or `Disc N`) subfolder. The
@@ -124,7 +117,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             disc_number,
             year,
             duration_ms: Some(duration_ms),
-            cover_art: cover_art.clone(),
+            cover_art: cover_art.clone().map(CoverArt::Bytes),
             start_offset_ms: Some(start_offset_ms),
             bitrate,
         });
@@ -158,8 +151,7 @@ pub fn resolve_audio_file(cue_dir: &Path, referenced: &str) -> Option<PathBuf> {
         .filter(|p| {
             p.extension()
                 .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.as_str()))
+                .is_some_and(|e| AUDIO_EXTENSIONS.iter().any(|a| a.eq_ignore_ascii_case(e)))
         })
         .collect();
 
@@ -231,6 +223,24 @@ mod tests {
         std::fs::remove_file(&path).ok();
 
         assert_eq!(text, "TITLE \"I\u{2019}m Alive\"\r\n");
+    }
+
+    #[test]
+    fn test_read_cue_text_passes_through_utf8() {
+        let path = std::env::temp_dir().join(format!(
+            "pawse_cue_utf8_{}_{}.cue",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "TITLE \"Café Déjà\"\r\n".as_bytes()).unwrap();
+
+        let text = read_cue_text(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(text, "TITLE \"Café Déjà\"\r\n");
     }
 
     #[test]

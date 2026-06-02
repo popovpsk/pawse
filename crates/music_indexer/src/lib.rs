@@ -6,19 +6,24 @@ pub mod types;
 
 pub use pipeline::{collect_sources, run};
 pub use scanner::DirectoryScanner;
-pub use types::{PreparedTrack, ScanEvent, ScannedTrack, SourceSet};
+pub use types::{CoverArt, PreparedTrack, ScanEvent, ScannedTrack, SourceSet};
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::{Path, PathBuf};
 
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::metadata::read_metadata;
     use super::scanner::DirectoryScanner;
-    use super::types::ScanEvent;
+    use super::types::{CoverArt, ScanEvent, ScannedTrack};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn cover_bytes(track: &ScannedTrack) -> Option<&[u8]> {
+        track.cover_art.as_ref().and_then(CoverArt::bytes)
+    }
 
     struct TempDir {
         path: PathBuf,
@@ -82,6 +87,32 @@ mod tests {
         rx.into_iter().collect()
     }
 
+    fn run_scan_events(dir: &Path, known: HashSet<String>) -> Vec<ScanEvent> {
+        let sources = crate::collect_sources(&[dir.to_path_buf()]);
+        let (tx, rx) = flume::unbounded();
+        std::thread::spawn(move || {
+            crate::run(sources, known, tx);
+        });
+        rx.into_iter().collect()
+    }
+
+    fn count_covers(events: &[ScanEvent]) -> usize {
+        events
+            .iter()
+            .filter(|e| matches!(e, ScanEvent::Cover { .. }))
+            .count()
+    }
+
+    fn track_cover_hashes(events: &[ScanEvent]) -> Vec<Option<String>> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.cover_hash.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     // ── read_metadata: basic tag parsing ──────────────────────────────
 
     #[test]
@@ -143,7 +174,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_ne!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"external_cover" as &[u8]),
             "embedded cover art should take priority over external"
         );
@@ -247,7 +278,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"artwork_front" as &[u8]),
             "cover art in Artwork/ subdirectory of track's own dir should be found"
         );
@@ -269,7 +300,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"red_ops_front" as &[u8]),
             "RED/OPS _01 naming should be recognized as front cover"
         );
@@ -288,7 +319,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"catalog" as &[u8]),
             "cd as a word boundary should NOT match inside catalog numbers like WIGCD188J"
         );
@@ -310,7 +341,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"direct" as &[u8]),
             "direct directory cover art should take priority over artwork subdirectory"
         );
@@ -333,7 +364,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"parent_artwork" as &[u8]),
             "cover art in parent's Artwork/ subdir should be found for multi-disc tracks"
         );
@@ -384,7 +415,7 @@ mod tests {
         copy_fixture_wav(&audio_path);
 
         let track = read_metadata(&audio_path).expect("should read metadata");
-        assert_eq!(track.cover_art.as_deref(), Some(b"own_cover" as &[u8]));
+        assert_eq!(cover_bytes(&track), Some(b"own_cover" as &[u8]));
     }
 
     #[test]
@@ -403,7 +434,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"real_front" as &[u8]),
             "front cover should be selected despite negative-keyword files present"
         );
@@ -442,7 +473,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"larger_content" as &[u8]),
             "when no prefix-matched files, the largest file should be selected as cover art"
         );
@@ -462,7 +493,7 @@ mod tests {
 
         let track = read_metadata(&audio_path).expect("should read metadata");
         assert_eq!(
-            track.cover_art.as_deref(),
+            cover_bytes(&track),
             Some(b"cover_wins" as &[u8]),
             "prefix 'cover' should have highest priority (index 0)"
         );
@@ -991,8 +1022,11 @@ FILE \"foo.wav\" WAVE
         assert_eq!(s3.audio_files.len(), 2);
     }
 
+    // collect_sources is stat-only: it returns the raw walk (cue-referenced
+    // audio still present). The exclusion now happens in `run`, covered
+    // end-to-end by test_scanner_cue_skips_referenced_audio.
     #[test]
-    fn test_collect_sources_excludes_cue_referenced_audio() {
+    fn test_collect_sources_returns_raw_lists() {
         let tmp = TempDir::new();
         let dir = tmp.path();
         copy_fixture_wav(&dir.join("audio.wav"));
@@ -1004,9 +1038,10 @@ FILE \"foo.wav\" WAVE
 
         let sources = crate::collect_sources(&[dir.to_path_buf()]);
         assert_eq!(sources.cue_files.len(), 1);
-        assert!(
-            sources.audio_files.is_empty(),
-            "cue-referenced audio must not be indexed as a standalone file"
+        assert_eq!(
+            sources.audio_files.len(),
+            1,
+            "collect_sources is stat-only; cue-referenced audio is dropped in run"
         );
     }
 
@@ -1047,6 +1082,359 @@ FILE \"disc2.flac\" WAVE
             tracks[0].album_title.as_deref(),
             Some("Test Album"),
             "album title must come from the cleaned parent folder so discs merge"
+        );
+    }
+
+    // ── pipeline: cover dedup / known hashes ──────────────────────────
+
+    #[test]
+    fn test_pipeline_dedupes_shared_external_cover() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("cover_front.png", &dir.join("cover.png"));
+        copy_fixture_wav(&dir.join("a.wav"));
+        copy_fixture_wav(&dir.join("b.wav"));
+
+        let events = collect_scan_events(dir);
+        assert_eq!(
+            count_covers(&events),
+            1,
+            "one external cover shared by two tracks must emit a single Cover"
+        );
+
+        let hashes = track_cover_hashes(&events);
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes[0].is_some(), "tracks should carry the cover hash");
+        assert_eq!(
+            hashes[0], hashes[1],
+            "both tracks must reference the same cover hash"
+        );
+    }
+
+    #[test]
+    fn test_pipeline_dedupes_shared_embedded_cover() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_with_cover.flac", &dir.join("a.flac"));
+        copy_fixture("tagged_with_cover.flac", &dir.join("b.flac"));
+
+        let events = collect_scan_events(dir);
+        assert_eq!(
+            count_covers(&events),
+            1,
+            "identical embedded covers must be thumbnailed once"
+        );
+        let hashes = track_cover_hashes(&events);
+        assert_eq!(hashes.len(), 2);
+        assert_eq!(hashes[0], hashes[1]);
+    }
+
+    // Tracks in CD1/ and CD2/ have different parent dirs, so the per-dir cover
+    // cache keys them separately and both take the Bytes path. Dedup of the
+    // shared parent-level Artwork cover therefore rests entirely on the
+    // cross-worker `claimed` set — this guards that interaction.
+    #[test]
+    fn test_pipeline_dedupes_parent_cover_across_disc_subdirs() {
+        let tmp = TempDir::new();
+        let album = tmp.path();
+        let artwork = album.join("Artwork");
+        let cd1 = album.join("CD1");
+        let cd2 = album.join("CD2");
+        std::fs::create_dir(&artwork).unwrap();
+        std::fs::create_dir(&cd1).unwrap();
+        std::fs::create_dir(&cd2).unwrap();
+
+        copy_fixture("cover_front.png", &artwork.join("front.png"));
+        copy_fixture_wav(&cd1.join("a.wav"));
+        copy_fixture_wav(&cd2.join("b.wav"));
+
+        let events = collect_scan_events(album);
+        assert_eq!(
+            count_covers(&events),
+            1,
+            "one parent-level cover shared by two disc subdirs must emit a single Cover"
+        );
+        let hashes = track_cover_hashes(&events);
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes[0].is_some());
+        assert_eq!(
+            hashes[0], hashes[1],
+            "both discs must reference the same cover hash"
+        );
+    }
+
+    #[test]
+    fn test_pipeline_known_hash_skips_cover_emission() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_with_cover.flac", &dir.join("a.flac"));
+
+        let first = run_scan_events(dir, HashSet::new());
+        let hash = first
+            .iter()
+            .find_map(|e| match e {
+                ScanEvent::Cover { hash, .. } => Some(hash.clone()),
+                _ => None,
+            })
+            .expect("first scan should emit a cover");
+
+        let known = HashSet::from([hash.clone()]);
+        let second = run_scan_events(dir, known);
+
+        assert_eq!(
+            count_covers(&second),
+            0,
+            "a known cover hash must skip thumbnail generation and emission"
+        );
+        assert_eq!(
+            track_cover_hashes(&second),
+            vec![Some(hash)],
+            "the track must still reference the known cover hash"
+        );
+    }
+
+    // ── collect_sources: fingerprint sensitivity ─────────────────────
+
+    #[test]
+    fn test_fingerprint_tracks_image_changes() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("a.wav"));
+        let folders = vec![dir.to_path_buf()];
+
+        let base = crate::collect_sources(&folders).fingerprint;
+
+        std::fs::write(dir.join("front.jpg"), b"small").unwrap();
+        let added = crate::collect_sources(&folders).fingerprint;
+        assert_ne!(base, added, "adding a cover image must change the fingerprint");
+
+        std::fs::write(dir.join("front.jpg"), b"a much larger cover payload").unwrap();
+        let swapped = crate::collect_sources(&folders).fingerprint;
+        assert_ne!(
+            added, swapped,
+            "swapping cover image content must change the fingerprint"
+        );
+    }
+
+    #[test]
+    fn test_fingerprint_ignores_non_media_files() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("a.wav"));
+        let folders = vec![dir.to_path_buf()];
+
+        let base = crate::collect_sources(&folders).fingerprint;
+        std::fs::write(dir.join("notes.txt"), b"hello").unwrap();
+        let after = crate::collect_sources(&folders).fingerprint;
+        assert_eq!(
+            base, after,
+            "stray non-media files must not affect the fingerprint"
+        );
+    }
+
+    // mtime is a distinct fingerprint input from path and size: re-tagging a
+    // file that keeps the same size must still be detected. set_modified gives a
+    // deterministic mtime change with no sleep.
+    #[test]
+    fn test_fingerprint_tracks_mtime_change() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        let path = dir.join("a.wav");
+        copy_fixture_wav(&path);
+        let folders = vec![dir.to_path_buf()];
+
+        let base = crate::collect_sources(&folders).fingerprint;
+
+        let file = std::fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000))
+            .unwrap();
+        drop(file);
+
+        let touched = crate::collect_sources(&folders).fingerprint;
+        assert_ne!(
+            base, touched,
+            "an mtime change alone (same path, same size) must flip the fingerprint"
+        );
+    }
+
+    #[test]
+    fn test_collect_sources_walks_multiple_folders_order_independent() {
+        let a = TempDir::new();
+        let b = TempDir::new();
+        copy_fixture_wav(&a.path().join("a.wav"));
+        copy_fixture_wav(&b.path().join("b.wav"));
+        let ap = a.path().to_path_buf();
+        let bp = b.path().to_path_buf();
+
+        let forward = crate::collect_sources(&[ap.clone(), bp.clone()]);
+        assert_eq!(
+            forward.audio_files.len(),
+            2,
+            "audio from every passed folder must be collected"
+        );
+
+        let reverse = crate::collect_sources(&[bp, ap]);
+        assert_eq!(
+            forward.fingerprint, reverse.fingerprint,
+            "fingerprint must not depend on the order folders are passed in (no spurious reindex on reorder)"
+        );
+    }
+
+    #[test]
+    fn test_collect_sources_missing_folder_does_not_panic() {
+        let tmp = TempDir::new();
+        let missing = tmp.path().join("was_deleted");
+
+        let sources = crate::collect_sources(&[missing]);
+        assert!(
+            sources.audio_files.is_empty() && sources.cue_files.is_empty(),
+            "a deleted/missing watched folder must yield nothing, not panic"
+        );
+    }
+
+    // ── cue::resolve_audio_file ───────────────────────────────────────
+
+    #[test]
+    fn test_resolve_audio_file_exact_match() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        std::fs::write(dir.join("foo.flac"), b"x").unwrap();
+
+        let resolved = crate::cue::resolve_audio_file(dir, "foo.flac");
+        assert!(resolved.unwrap().ends_with("foo.flac"));
+    }
+
+    #[test]
+    fn test_resolve_audio_file_stem_fallback_on_extension_mismatch() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        std::fs::write(dir.join("foo.flac"), b"x").unwrap();
+
+        let resolved = crate::cue::resolve_audio_file(dir, "foo.wav");
+        assert!(
+            resolved.unwrap().ends_with("foo.flac"),
+            "missing exact name should fall back to the same stem"
+        );
+    }
+
+    #[test]
+    fn test_resolve_audio_file_case_insensitive_stem_and_ext() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        std::fs::write(dir.join("FOO.FLAC"), b"x").unwrap();
+
+        let resolved = crate::cue::resolve_audio_file(dir, "foo.wav");
+        assert!(resolved.is_some(), "stem/ext matching must ignore case");
+    }
+
+    #[test]
+    fn test_resolve_audio_file_unicode_case_insensitive_stem() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        std::fs::write(dir.join("CAFÉ.flac"), b"x").unwrap();
+
+        let resolved = crate::cue::resolve_audio_file(dir, "Café.wav");
+        assert!(
+            resolved.is_some(),
+            "stem matching must fold non-ASCII case (Café vs CAFÉ), not just ASCII"
+        );
+    }
+
+    #[test]
+    fn test_resolve_audio_file_no_match() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        std::fs::write(dir.join("other.flac"), b"x").unwrap();
+
+        assert!(crate::cue::resolve_audio_file(dir, "foo.wav").is_none());
+    }
+
+    #[test]
+    fn test_resolve_audio_file_multiple_candidates_deterministic() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        std::fs::write(dir.join("foo.flac"), b"x").unwrap();
+        std::fs::write(dir.join("foo.ape"), b"x").unwrap();
+
+        let resolved = crate::cue::resolve_audio_file(dir, "foo.wav");
+        assert!(
+            resolved.unwrap().ends_with("foo.ape"),
+            "with multiple same-stem candidates the sorted-first one is chosen"
+        );
+    }
+
+    // ── cue::process_cue_file (direct) ────────────────────────────────
+
+    #[test]
+    fn test_process_cue_file_offsets_and_durations() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("audio.flac"));
+        let cue = dir.join("album.cue");
+        std::fs::write(
+            &cue,
+            "FILE \"audio.flac\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"One\"\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE \"Two\"\n    INDEX 01 00:00:15\n",
+        )
+        .unwrap();
+
+        let tracks = crate::cue::process_cue_file(&cue).expect("cue should parse");
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].title.as_deref(), Some("One"));
+        assert_eq!(tracks[0].start_offset_ms, Some(0));
+        assert_eq!(tracks[1].start_offset_ms, Some(200));
+        assert_eq!(
+            tracks[0].duration_ms,
+            Some(200),
+            "first track runs to the next index"
+        );
+        assert!(
+            tracks[1].duration_ms.unwrap() > 0,
+            "last track runs to the file's end"
+        );
+        assert_eq!(tracks[0].disc_number, Some(1));
+    }
+
+    // Regression: stem resolution must fold non-ASCII case. A cue referencing
+    // `Café.wav` while only `CAFÉ.flac` exists (EAC extension mismatch + an
+    // accented letter cased differently) must still resolve end-to-end: the cue
+    // expands to its tracks (no Error), and the audio file is dropped from the
+    // standalone set (no extra raw track). ASCII-only folding broke both.
+    #[test]
+    fn test_scanner_cue_resolves_audio_by_unicode_case_folded_stem() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("CAFÉ.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "FILE \"Café.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"One\"\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE \"Two\"\n    INDEX 01 00:00:15\n",
+        )
+        .unwrap();
+
+        let events = collect_scan_events(dir);
+
+        let errors: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Error { path, .. } => Some(path.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "cue must resolve the renamed audio, not error out: {errors:?}"
+        );
+
+        let titles: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t.title.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            titles,
+            vec![Some("One".to_string()), Some("Two".to_string())],
+            "exactly the two cue tracks — not a raw standalone track, not a double index"
         );
     }
 }

@@ -19,8 +19,9 @@ own *parsing rules*. Either can change without touching the other.
   bytes replaced by a content *hash*), `SourceSet` (walk result + fingerprint),
   and the `ScanEvent` enum.
 - `pipeline.rs` — the only place with threading. `collect_sources` (cheap
-  stat-only walk + fingerprint) and `run` (worker pool → events). Contains the
-  `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS` lists and `INDEXER_FORMAT_VERSION`.
+  stat-only walk + fingerprint) and `run` (cue-dedup + worker pool → events).
+  Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS` lists and
+  `INDEXER_FORMAT_VERSION`.
 - `metadata.rs` — `read_metadata` (tags → `ScannedTrack` for one standalone audio
   file) and external cover-art discovery (`find_external_cover_art` + helpers).
 - `cue.rs` — CUE-sheet business logic: `process_cue_file` (one `.cue` → many
@@ -34,25 +35,30 @@ own *parsing rules*. Either can change without touching the other.
 ## Non-obvious behavior
 
 - **Fingerprint is filesystem-state only, salted by version.** `collect_sources`
-  hashes every audio/cue/image file's `(path, mtime, size)`. The caller skips all
-  DB work when the stored fingerprint matches (the "fast path"). Because the hash
-  reflects on-disk bytes — not how the indexer interprets them — a behavior change
-  on unchanged files would otherwise be invisible. `INDEXER_FORMAT_VERSION` is
-  mixed into the hash input for exactly this reason: **bump it whenever a fix
-  changes the tracks produced from the same files**, and every existing library
-  reindexes once. (Image files are in the fingerprint so swapping cover art alone
-  still triggers a rescan; stray non-media files are not, to avoid noise.)
+  hashes every audio/cue/image file's `(path, mtime, size)`. It is *truly*
+  stat-only — no decoding, no cue parsing — so the fast path stays cheap; the
+  per-file stat runs on the walk's worker threads (`process_read_dir`) and only
+  for files that feed the fingerprint. The caller skips all DB work when the
+  stored fingerprint matches (the "fast path"). Because the hash reflects on-disk
+  bytes — not how the indexer interprets them — a behavior change on unchanged
+  files would otherwise be invisible. `INDEXER_FORMAT_VERSION` is mixed into the
+  hash input for exactly this reason: **bump it whenever a fix changes the tracks
+  produced from the same files**, and every existing library reindexes once.
+  (Image files are in the fingerprint so swapping cover art alone still triggers a
+  rescan; stray non-media files are not, to avoid noise.)
 
 - **CUE files may not be UTF-8.** EAC and similar rippers write Windows-1252
   (e.g. a `0x92` curly apostrophe in "I'm Alive"), which `std::fs::read_to_string`
   rejects. Always read CUE text via `cue::read_cue_text` (UTF-8 first, then a
   Windows-1252 fallback that never fails). It is used in **both** `process_cue_file`
-  and `collect_sources` — they must agree, or the CUE's audio file is dropped from
-  the skip set and gets double-indexed.
+  and `run`'s de-dup pass — they must agree, or the CUE's audio file is dropped
+  from the skip set and gets double-indexed.
 
 - **CUE de-duplication.** Audio referenced by a `.cue` is expanded via the cue, so
-  `collect_sources` removes it from the standalone audio set (compared by
-  `canonicalize`d path) to avoid indexing the whole-album file twice.
+  `run` (not the stat-only `collect_sources`) removes it from the standalone audio
+  set (compared by `canonicalize`d path) to avoid indexing the whole-album file
+  twice. Keeping this in `run` means the fast path never parses cues or
+  canonicalizes; only a real scan pays for it.
 
 - **CUE track durations / offsets.** Each track's start is its `INDEX 01`; its
   duration is the next track's `INDEX 01` minus its own, and the last track runs to
@@ -77,10 +83,15 @@ own *parsing rules*. Either can change without touching the other.
   parent and its artwork subdirs. File ranking prefers `cover`/`folder`/`front`/…
   prefixes, demotes `back`/`disc`/… via **word-boundary** matching (so "cd" inside a
   catalog number like `WIGCD188J` is not a false positive — see `contains_word`),
-  and treats RED/OPS `*_01.jpg` as the front cover. In `pipeline::emit_track`, each
-  unique cover (by SHA-256) is thumbnailed exactly once across all workers; peers
-  reference the hash and let the writer resolve the id. Hashes already in the DB
-  (`known_hashes`) skip thumbnail generation entirely.
+  and treats RED/OPS `*_01.jpg` as the front cover. A track carries its cover as
+  `CoverArt::Bytes` (embedded, or an external cover read for the first time) or
+  `CoverArt::Cached(hash)` (an external cover an earlier track in the same dir
+  already resolved). The per-scan `CoverCache` (keyed by parent dir, storing only
+  hashes — never bytes, so memory stays bounded) means each album's external cover
+  is enumerated/read/hashed **once**, not once per track. In `pipeline::emit_track`,
+  each unique `Bytes` cover (by SHA-256) is thumbnailed exactly once across all
+  workers; peers reference the hash and let the writer resolve the id. Hashes
+  already in the DB (`known_hashes`) skip thumbnail generation entirely.
 
 - **Graceful degradation.** A failed file (bad tags, unreadable cue) emits a
   `ScanEvent::Error` and the scan continues. Every `tx.send` is checked: a dropped
