@@ -92,6 +92,8 @@ pub static HI: Strings = lang! {
     no_folders_added: "कोई फ़ोल्डर नहीं जोड़ा गया",
     remove: "हटाएँ",
     add_folder: "फ़ोल्डर जोड़ें…",
+    remove_folder_confirm_title: "फ़ोल्डर हटाएँ?",
+    remove_folder_confirm_message: "इस फ़ोल्डर के ट्रैक आपकी लाइब्रेरी से हटा दिए जाएँगे, जिनमें प्लेलिस्ट और पसंदीदा भी शामिल हैं।",
 
     audio_device: "ऑडियो डिवाइस",
     exclusive_mode_title: "एक्सक्लूसिव मोड",

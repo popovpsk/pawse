@@ -92,6 +92,8 @@ pub static PT: Strings = lang! {
     no_folders_added: "Nenhuma pasta adicionada",
     remove: "Remover",
     add_folder: "Adicionar pasta…",
+    remove_folder_confirm_title: "Remover pasta?",
+    remove_folder_confirm_message: "As faixas desta pasta serão removidas da sua biblioteca, inclusive de playlists e curtidas.",
 
     audio_device: "Dispositivo de áudio",
     exclusive_mode_title: "Modo exclusivo",

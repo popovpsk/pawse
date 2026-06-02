@@ -92,6 +92,8 @@ pub static UK: Strings = lang! {
     no_folders_added: "Папки не додані",
     remove: "Видалити",
     add_folder: "Додати папку…",
+    remove_folder_confirm_title: "Видалити папку?",
+    remove_folder_confirm_message: "Треки з цієї папки буде видалено з медіатеки, зокрема з плейлистів і вподобань.",
 
     audio_device: "Аудіопристрій",
     exclusive_mode_title: "Ексклюзивний режим",

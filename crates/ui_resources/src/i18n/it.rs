@@ -92,6 +92,8 @@ pub static IT: Strings = lang! {
     no_folders_added: "Nessuna cartella aggiunta",
     remove: "Rimuovi",
     add_folder: "Aggiungi cartella…",
+    remove_folder_confirm_title: "Rimuovere la cartella?",
+    remove_folder_confirm_message: "I brani di questa cartella verranno rimossi dalla libreria, comprese playlist e preferiti.",
 
     audio_device: "Dispositivo audio",
     exclusive_mode_title: "Modalità esclusiva",

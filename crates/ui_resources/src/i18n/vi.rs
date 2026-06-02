@@ -92,6 +92,8 @@ pub static VI: Strings = lang! {
     no_folders_added: "Chưa thêm thư mục",
     remove: "Xóa",
     add_folder: "Thêm thư mục…",
+    remove_folder_confirm_title: "Xóa thư mục?",
+    remove_folder_confirm_message: "Các bản nhạc trong thư mục này sẽ bị xóa khỏi thư viện của bạn, kể cả trong danh sách phát và mục yêu thích.",
 
     audio_device: "Thiết bị âm thanh",
     exclusive_mode_title: "Chế độ độc quyền",

@@ -92,6 +92,8 @@ pub static TR: Strings = lang! {
     no_folders_added: "Klasör eklenmedi",
     remove: "Kaldır",
     add_folder: "Klasör ekle…",
+    remove_folder_confirm_title: "Klasör kaldırılsın mı?",
+    remove_folder_confirm_message: "Bu klasördeki parçalar kitaplığınızdan kaldırılacak, çalma listeleri ve beğeniler dahil.",
 
     audio_device: "Ses aygıtı",
     exclusive_mode_title: "Özel mod",

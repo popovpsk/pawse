@@ -92,6 +92,8 @@ pub static ES: Strings = lang! {
     no_folders_added: "No se han añadido carpetas",
     remove: "Quitar",
     add_folder: "Añadir carpeta…",
+    remove_folder_confirm_title: "¿Quitar carpeta?",
+    remove_folder_confirm_message: "Las pistas de esta carpeta se quitarán de tu biblioteca, incluidas las listas de reproducción y los me gusta.",
 
     audio_device: "Dispositivo de audio",
     exclusive_mode_title: "Modo exclusivo",

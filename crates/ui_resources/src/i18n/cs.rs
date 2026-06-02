@@ -92,6 +92,8 @@ pub static CS: Strings = lang! {
     no_folders_added: "Nebyly přidány žádné složky",
     remove: "Odebrat",
     add_folder: "Přidat složku…",
+    remove_folder_confirm_title: "Odebrat složku?",
+    remove_folder_confirm_message: "Skladby z této složky budou odstraněny z knihovny, včetně playlistů a oblíbených.",
 
     audio_device: "Zvukové zařízení",
     exclusive_mode_title: "Exkluzivní režim",

@@ -141,6 +141,8 @@ pub struct Strings {
     pub reveal_folder: SharedString,
     pub remove: SharedString,
     pub add_folder: SharedString,
+    pub remove_folder_confirm_title: SharedString,
+    pub remove_folder_confirm_message: SharedString,
 
     // --- Audio settings ---
     pub audio_device: SharedString,

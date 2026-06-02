@@ -92,6 +92,8 @@ pub static SV: Strings = lang! {
     no_folders_added: "Inga mappar tillagda",
     remove: "Ta bort",
     add_folder: "Lägg till mapp…",
+    remove_folder_confirm_title: "Ta bort mapp?",
+    remove_folder_confirm_message: "Spåren i den här mappen tas bort från ditt bibliotek, även från spellistor och gillade.",
 
     audio_device: "Ljudenhet",
     exclusive_mode_title: "Exklusivt läge",

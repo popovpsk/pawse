@@ -92,6 +92,8 @@ pub static ID: Strings = lang! {
     no_folders_added: "Belum ada folder ditambahkan",
     remove: "Hapus",
     add_folder: "Tambahkan folder…",
+    remove_folder_confirm_title: "Hapus folder?",
+    remove_folder_confirm_message: "Trek dari folder ini akan dihapus dari pustaka Anda, termasuk dari playlist dan suka.",
 
     audio_device: "Perangkat audio",
     exclusive_mode_title: "Mode eksklusif",

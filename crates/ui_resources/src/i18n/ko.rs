@@ -92,6 +92,8 @@ pub static KO: Strings = lang! {
     no_folders_added: "추가된 폴더 없음",
     remove: "제거",
     add_folder: "폴더 추가…",
+    remove_folder_confirm_title: "폴더를 제거할까요?",
+    remove_folder_confirm_message: "이 폴더의 트랙이 보관함에서 제거되며 재생목록과 좋아요에서도 사라집니다.",
 
     audio_device: "오디오 장치",
     exclusive_mode_title: "독점 모드",

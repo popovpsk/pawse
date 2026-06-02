@@ -92,6 +92,8 @@ pub static FR: Strings = lang! {
     no_folders_added: "Aucun dossier ajouté",
     remove: "Retirer",
     add_folder: "Ajouter un dossier…",
+    remove_folder_confirm_title: "Supprimer le dossier ?",
+    remove_folder_confirm_message: "Les titres de ce dossier seront retirés de votre bibliothèque, y compris des playlists et des favoris.",
 
     audio_device: "Périphérique audio",
     exclusive_mode_title: "Mode exclusif",

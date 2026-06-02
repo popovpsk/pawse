@@ -6,8 +6,9 @@ use gpui::{
     Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
-    Icon, IconName, Selectable, Sizable,
+    Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
+    dialog::DialogButtonProps,
     h_flex,
     scroll::ScrollableElement,
     switch::Switch,
@@ -538,8 +539,26 @@ fn library_group() -> SettingGroup {
                                     Button::new(SharedString::from(remove_id))
                                         .ghost()
                                         .label(tr().remove.clone())
-                                        .on_click(move |_, _, cx| {
-                                            remove_folder_and_rescan(path_for_remove.clone(), cx);
+                                        .on_click(move |_, window: &mut Window, app_cx: &mut App| {
+                                            let path = path_for_remove.clone();
+                                            window.open_dialog(app_cx, move |dialog, _window, _cx| {
+                                                let path = path.clone();
+                                                dialog
+                                                    .confirm()
+                                                    .title(tr().remove_folder_confirm_title.clone())
+                                                    .child(div().child(
+                                                        tr().remove_folder_confirm_message.clone(),
+                                                    ))
+                                                    .button_props(
+                                                        DialogButtonProps::default()
+                                                            .ok_text(tr().remove.clone())
+                                                            .cancel_text(tr().cancel.clone()),
+                                                    )
+                                                    .on_ok(move |_, _, cx| {
+                                                        remove_folder_and_rescan(path.clone(), cx);
+                                                        true
+                                                    })
+                                            });
                                         }),
                                 ),
                         );

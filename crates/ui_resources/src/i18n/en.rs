@@ -92,6 +92,8 @@ pub static EN: Strings = lang! {
     no_folders_added: "No folders added",
     remove: "Remove",
     add_folder: "Add folder…",
+    remove_folder_confirm_title: "Remove folder?",
+    remove_folder_confirm_message: "This folder's tracks will be removed from your library, including from any playlists and likes.",
 
     audio_device: "Audio Device",
     exclusive_mode_title: "Exclusive Mode",

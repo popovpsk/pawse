@@ -92,6 +92,8 @@ pub static NL: Strings = lang! {
     no_folders_added: "Geen mappen toegevoegd",
     remove: "Verwijderen",
     add_folder: "Map toevoegen…",
+    remove_folder_confirm_title: "Map verwijderen?",
+    remove_folder_confirm_message: "De nummers uit deze map worden uit je bibliotheek verwijderd, ook uit afspeellijsten en likes.",
 
     audio_device: "Audioapparaat",
     exclusive_mode_title: "Exclusieve modus",

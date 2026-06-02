@@ -92,6 +92,8 @@ pub static RU: Strings = lang! {
     no_folders_added: "Папки не добавлены",
     remove: "Удалить",
     add_folder: "Добавить папку…",
+    remove_folder_confirm_title: "Удалить папку?",
+    remove_folder_confirm_message: "Треки из этой папки будут удалены из медиатеки, в том числе из плейлистов и лайков.",
 
     audio_device: "Аудиоустройство",
     exclusive_mode_title: "Эксклюзивный режим",

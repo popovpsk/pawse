@@ -92,6 +92,8 @@ pub static ZH: Strings = lang! {
     no_folders_added: "未添加文件夹",
     remove: "移除",
     add_folder: "添加文件夹…",
+    remove_folder_confirm_title: "移除文件夹？",
+    remove_folder_confirm_message: "此文件夹中的曲目将从你的音乐库中移除，包括播放列表和喜欢的内容。",
 
     audio_device: "音频设备",
     exclusive_mode_title: "独占模式",

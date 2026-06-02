@@ -92,6 +92,8 @@ pub static DE: Strings = lang! {
     no_folders_added: "Keine Ordner hinzugefügt",
     remove: "Entfernen",
     add_folder: "Ordner hinzufügen…",
+    remove_folder_confirm_title: "Ordner entfernen?",
+    remove_folder_confirm_message: "Die Titel aus diesem Ordner werden aus deiner Mediathek entfernt, auch aus Playlists und Favoriten.",
 
     audio_device: "Audiogerät",
     exclusive_mode_title: "Exklusivmodus",

@@ -92,6 +92,8 @@ pub static JA: Strings = lang! {
     no_folders_added: "フォルダが追加されていません",
     remove: "削除",
     add_folder: "フォルダを追加…",
+    remove_folder_confirm_title: "フォルダを削除しますか？",
+    remove_folder_confirm_message: "このフォルダの曲はライブラリから削除され、プレイリストやお気に入りからも消えます。",
 
     audio_device: "オーディオデバイス",
     exclusive_mode_title: "排他モード",

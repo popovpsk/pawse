@@ -92,6 +92,8 @@ pub static TH: Strings = lang! {
     no_folders_added: "ยังไม่ได้เพิ่มโฟลเดอร์",
     remove: "นำออก",
     add_folder: "เพิ่มโฟลเดอร์…",
+    remove_folder_confirm_title: "ลบโฟลเดอร์?",
+    remove_folder_confirm_message: "เพลงในโฟลเดอร์นี้จะถูกลบออกจากคลังของคุณ รวมถึงจากเพลย์ลิสต์และรายการที่ถูกใจด้วย",
 
     audio_device: "อุปกรณ์เสียง",
     exclusive_mode_title: "โหมดเอกสิทธิ์",
