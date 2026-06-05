@@ -285,6 +285,13 @@ impl Output {
     }
 
     fn try_install_shared_on_default(&self, config: &OutputConfig, resume_after: bool) -> bool {
+        // This path opens the host default device directly (bypassing
+        // `resolve_device`), so target the current default sink explicitly —
+        // the last-resort fallback must reach the system default device and not
+        // be silently rerouted by PipeWire's stream-restore.
+        #[cfg(target_os = "linux")]
+        crate::device::set_pipewire_node(crate::device::pulse_default_sink().as_deref());
+
         let Some(device) = self.host.default_output_device() else {
             return false;
         };
@@ -467,6 +474,13 @@ impl Output {
         self.device_manager.read().selected_device_index()
     }
 
+    /// The pinned device UID (`None` = follow system default). Lets the UI mark
+    /// the selected row from an already-fetched `devices()` list without a second
+    /// enumeration (which, on Linux, would re-spawn `pactl`).
+    pub fn selected_device_uid(&self) -> Option<String> {
+        self.device_manager.read().selected_uid().map(String::from)
+    }
+
     pub fn devices(&self) -> Vec<device::OutputDeviceInfo> {
         self.device_manager
             .read()
@@ -512,13 +526,24 @@ impl Output {
                 device,
             };
             let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
-            let stream = CpalOutputStream::new(buffer, config, selected)?;
-            if was_playing {
-                stream.resume();
+            match CpalOutputStream::new(buffer, config, selected) {
+                Ok(stream) => {
+                    if was_playing {
+                        stream.resume();
+                    }
+                    *self.current.write() = Some(OutputMode::Shared(stream));
+                    self.apply_current_volume();
+                    Ok(())
+                }
+                // The chosen device couldn't open (e.g. busy, or an unsupported
+                // format). The old stream is already torn down, so install a
+                // fallback rather than leaving the output dead, and surface the
+                // error so the UI can notify the user.
+                Err(e) => {
+                    self.install_shared_fallback(&config, was_playing);
+                    Err(e)
+                }
             }
-            *self.current.write() = Some(OutputMode::Shared(stream));
-            self.apply_current_volume();
-            Ok(())
         }
     }
 

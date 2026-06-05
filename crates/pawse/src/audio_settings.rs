@@ -212,74 +212,75 @@ impl Render for AudioSettings {
                         })
                 })
             })
-            .when(!cfg!(target_os = "linux"), |el| {
-                el.child({
-                    let view = cx.entity().clone();
-                    Popover::new("audio-device-popover")
-                        .anchor(Corner::TopRight)
-                        .trigger(
-                            Button::new("audio-device-trigger")
-                                .ghost()
-                                .compact()
-                                .rounded_full()
-                                .w(px(40.))
-                                .h(px(40.))
-                                .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
-                                .tooltip(tr().select_audio_device.clone()),
-                        )
-                        .content(move |_state, _window, pop_cx| {
-                            let services = pop_cx.global::<Services>();
-                            let devices = services.output.devices();
-                            let selected = services.output.selected_device_index();
-                            let muted_color = Colors::muted(pop_cx);
-                            let mut children: Vec<AnyElement> = Vec::new();
-                            for (i, d) in devices.into_iter().enumerate() {
-                                let view_row = view.clone();
-                                let is_selected =
-                                    selected == Some(i) || (selected.is_none() && d.is_default);
-                                let device_label = format!(
-                                    "{}{}",
-                                    d.name,
-                                    if d.is_default {
-                                        tr().default_suffix.as_str()
-                                    } else {
-                                        ""
-                                    }
-                                );
-                                children.push(
-                                    h_flex()
-                                        .id(("device-row", i))
-                                        .cursor_pointer()
-                                        .px_1()
-                                        .py_1()
-                                        .rounded(px(4.))
-                                        .hover(move |style| style.bg(muted_color))
-                                        .gap_1()
-                                        .when(is_selected, |el| {
-                                            el.child(
-                                                Icon::default()
-                                                    .path("icons/check.svg")
-                                                    .size(px(14.)),
-                                            )
-                                        })
-                                        .child(div().text_sm().child(device_label))
-                                        .on_click(move |_, _, app_cx| {
-                                            view_row.update(app_cx, |this, cx| {
-                                                let services = cx.global::<Services>();
-                                                if let Err(e) = services.output.select_device(i) {
-                                                    this.pending_notification = Some(
-                                                        tr().failed_switch_device(&e.to_string()),
-                                                    );
-                                                }
-                                                cx.notify();
-                                            });
-                                        })
-                                        .into_any_element(),
-                                );
-                            }
-                            v_flex().gap_1().min_w(px(220.)).children(children)
-                        })
-                })
+            .child({
+                let view = cx.entity().clone();
+                Popover::new("audio-device-popover")
+                    .anchor(Corner::TopRight)
+                    .trigger(
+                        Button::new("audio-device-trigger")
+                            .ghost()
+                            .compact()
+                            .rounded_full()
+                            .w(px(40.))
+                            .h(px(40.))
+                            .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
+                            .tooltip(tr().select_audio_device.clone()),
+                    )
+                    .content(move |_state, _window, pop_cx| {
+                        let services = pop_cx.global::<Services>();
+                        // Enumerate devices once (this may shell out to `pactl`
+                        // on Linux) and derive the selected row from the pinned
+                        // UID instead of calling `selected_device_index()`, which
+                        // would enumerate a second time.
+                        let devices = services.output.devices();
+                        let selected_uid = services.output.selected_device_uid();
+                        let muted_color = Colors::muted(pop_cx);
+                        let mut children: Vec<AnyElement> = Vec::new();
+                        for (i, d) in devices.into_iter().enumerate() {
+                            let view_row = view.clone();
+                            let is_selected = match &selected_uid {
+                                Some(uid) => *uid == d.uid,
+                                None => d.is_default,
+                            };
+                            let device_label = format!(
+                                "{}{}",
+                                d.name,
+                                if d.is_default {
+                                    tr().default_suffix.as_str()
+                                } else {
+                                    ""
+                                }
+                            );
+                            children.push(
+                                h_flex()
+                                    .id(("device-row", i))
+                                    .cursor_pointer()
+                                    .px_1()
+                                    .py_1()
+                                    .rounded(px(4.))
+                                    .hover(move |style| style.bg(muted_color))
+                                    .gap_1()
+                                    .when(is_selected, |el| {
+                                        el.child(
+                                            Icon::default().path("icons/check.svg").size(px(14.)),
+                                        )
+                                    })
+                                    .child(div().text_sm().child(device_label))
+                                    .on_click(move |_, _, app_cx| {
+                                        view_row.update(app_cx, |this, cx| {
+                                            let services = cx.global::<Services>();
+                                            if let Err(e) = services.output.select_device(i) {
+                                                this.pending_notification =
+                                                    Some(tr().failed_switch_device(&e.to_string()));
+                                            }
+                                            cx.notify();
+                                        });
+                                    })
+                                    .into_any_element(),
+                            );
+                        }
+                        v_flex().gap_1().min_w(px(220.)).children(children)
+                    })
             })
     }
 }

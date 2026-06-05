@@ -3,7 +3,7 @@ pub use crate::ring_buffer::AudioRingBuffer;
 use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError};
 use cpal::traits::{DeviceTrait, StreamTrait};
-use cpal::{OutputCallbackInfo, Stream, StreamConfig};
+use cpal::{FromSample, OutputCallbackInfo, SampleFormat, SizedSample, Stream, StreamConfig};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -172,43 +172,92 @@ pub(crate) fn apply_fade_gain(
     }
 }
 
+/// Renders one callback's worth of audio into an interleaved f32 `data` slice:
+/// emits silence while frozen mid-fade, otherwise drains the ring buffer,
+/// applies volume + fade gain, and zero-pads any underrun tail. Shared by the
+/// native-f32 callback and the format-converting callbacks below.
+fn fill_f32(
+    fade: &FadeState,
+    buffer: &AudioRingBuffer,
+    volume: &AtomicF32,
+    channels: usize,
+    data: &mut [f32],
+) {
+    // Frozen after a fade-out: emit silence but leave the buffer intact so
+    // resume can fade those same samples back in seamlessly.
+    if fade.is_frozen() {
+        for sample in data.iter_mut() {
+            *sample = 0.0;
+        }
+        return;
+    }
+
+    let samples_read = buffer.pop_slice(data);
+    let vol = volume.load(Ordering::Relaxed);
+    apply_fade_gain(fade, vol, channels, &mut data[..samples_read]);
+    for sample in &mut data[samples_read..] {
+        *sample = 0.0;
+    }
+}
+
+/// Picks the sample format to open the device with. Prefers the device's own
+/// default format: it's F32 on the common shared path (no conversion, keeps the
+/// signal intact) but is an integer format (e.g. I32/I16) on digital outputs
+/// like S/PDIF and HDMI that reject F32. We then convert our internal f32
+/// samples to that format in the callback.
+fn negotiate_sample_format(device: &cpal::Device) -> SampleFormat {
+    device
+        .default_output_config()
+        .map(|c| c.sample_format())
+        .unwrap_or(SampleFormat::F32)
+}
+
+/// Builds an output stream whose hardware sample type is `T`, converting each
+/// rendered f32 sample to `T`. A reusable scratch buffer holds the f32 frame so
+/// the shared `fill_f32` logic stays format-agnostic.
+fn build_converting_stream<T>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    buffer: Arc<AudioRingBuffer>,
+    volume: Arc<AtomicF32>,
+    fade: Arc<FadeState>,
+    channels: usize,
+) -> Result<Stream, cpal::BuildStreamError>
+where
+    T: SizedSample + FromSample<f32>,
+{
+    // Pre-allocate the f32 scratch buffer outside the realtime callback so the
+    // hot path stays allocation-free: `resize` only reallocs if it has to grow
+    // past capacity, so reserve a generous worst-case period up front. (cpal can
+    // still hand a larger buffer than this in rare configs, costing one realloc;
+    // that's the only remaining allocation and it doesn't repeat.)
+    const SCRATCH_PREALLOC: usize = 1 << 15; // 32768 f32 samples (16384 stereo frames)
+    let mut scratch: Vec<f32> = Vec::with_capacity(SCRATCH_PREALLOC);
+    device.build_output_stream(
+        config,
+        move |data: &mut [T], _: &OutputCallbackInfo| {
+            if scratch.len() != data.len() {
+                scratch.resize(data.len(), 0.0);
+            }
+            fill_f32(&fade, &buffer, &volume, channels, &mut scratch);
+            for (out, sample) in data.iter_mut().zip(scratch.iter()) {
+                *out = T::from_sample(*sample);
+            }
+        },
+        |err| log::error!("Audio stream error: {}", err),
+        None,
+    )
+}
+
 impl CpalOutputStream {
     pub fn new(
         buffer: Arc<AudioRingBuffer>,
         output_config: OutputConfig,
         device: SelectedOutputDevice,
     ) -> Result<Self, AudioError> {
-        let buffer_for_callback = buffer.clone();
-
         let volume = Arc::new(AtomicF32::new(1.0));
-        let volume_for_callback = volume.clone();
-
         let fade = Arc::new(FadeState::new());
-        let fade_for_callback = fade.clone();
         let channels = output_config.channels as usize;
-
-        let cpal_callback = move |data: &mut [f32], _: &OutputCallbackInfo| {
-            // Frozen after a fade-out: emit silence but leave the buffer intact
-            // so resume can fade those same samples back in seamlessly.
-            if fade_for_callback.is_frozen() {
-                for sample in data.iter_mut() {
-                    *sample = 0.0;
-                }
-                return;
-            }
-
-            let samples_read = buffer_for_callback.pop_slice(data);
-
-            let vol = volume_for_callback.load(Ordering::Relaxed);
-            apply_fade_gain(&fade_for_callback, vol, channels, &mut data[..samples_read]);
-
-            //ToDo: notification warning
-            for sample in &mut data[samples_read..] {
-                *sample = 0.0;
-            }
-        };
-
-        let error_callback = |err| log::error!("Audio stream error: {}", err);
 
         let stream_config = StreamConfig {
             channels: output_config.channels as u16,
@@ -216,10 +265,64 @@ impl CpalOutputStream {
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let output_stream = device
-            .device
-            .build_output_stream(&stream_config, cpal_callback, error_callback, None)
-            .map_err(|e| AudioError::Output(e.to_string()))?;
+        let dev = &device.device;
+        let format = negotiate_sample_format(dev);
+
+        // F32 takes a direct path (no per-sample conversion); integer formats
+        // go through the converting builder.
+        let build = || -> Result<Stream, cpal::BuildStreamError> {
+            match format {
+                SampleFormat::F32 => {
+                    let (buffer, volume, fade) = (buffer.clone(), volume.clone(), fade.clone());
+                    dev.build_output_stream(
+                        &stream_config,
+                        move |data: &mut [f32], _: &OutputCallbackInfo| {
+                            fill_f32(&fade, &buffer, &volume, channels, data);
+                        },
+                        |err| log::error!("Audio stream error: {}", err),
+                        None,
+                    )
+                }
+                SampleFormat::I32 => build_converting_stream::<i32>(
+                    dev,
+                    &stream_config,
+                    buffer.clone(),
+                    volume.clone(),
+                    fade.clone(),
+                    channels,
+                ),
+                SampleFormat::I16 => build_converting_stream::<i16>(
+                    dev,
+                    &stream_config,
+                    buffer.clone(),
+                    volume.clone(),
+                    fade.clone(),
+                    channels,
+                ),
+                SampleFormat::U16 => build_converting_stream::<u16>(
+                    dev,
+                    &stream_config,
+                    buffer.clone(),
+                    volume.clone(),
+                    fade.clone(),
+                    channels,
+                ),
+                SampleFormat::U8 => build_converting_stream::<u8>(
+                    dev,
+                    &stream_config,
+                    buffer.clone(),
+                    volume.clone(),
+                    fade.clone(),
+                    channels,
+                ),
+                // Formats we don't convert to (I24, I64, F64, …). Surface as an
+                // error; the caller installs a fallback rather than dying.
+                _ => Err(cpal::BuildStreamError::StreamConfigNotSupported),
+            }
+        };
+
+        let output_stream =
+            build().map_err(|e| AudioError::Output(format!("{e} (sample format {format:?})")))?;
 
         Ok(Self {
             inner: RwLock::new(CpalOutputStreamInner {

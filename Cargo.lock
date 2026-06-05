@@ -595,6 +595,8 @@ dependencies = [
  "objc2-core-audio-types",
  "parking_lot",
  "rb",
+ "serde",
+ "serde_json",
  "windows 0.58.0",
 ]
 

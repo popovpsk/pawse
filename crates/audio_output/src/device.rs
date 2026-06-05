@@ -5,6 +5,11 @@ use cpal::traits::{DeviceTrait, HostTrait};
 
 #[cfg(target_os = "linux")]
 use std::collections::{BTreeMap, HashMap};
+#[cfg(target_os = "linux")]
+use std::process::Command;
+
+#[cfg(target_os = "linux")]
+use serde::Deserialize;
 
 #[derive(Clone, Debug)]
 pub struct OutputDeviceInfo {
@@ -57,6 +62,34 @@ impl DeviceManager {
     /// Live enumeration. Always re-queries the host so newly attached devices
     /// appear immediately without a manual refresh step.
     pub fn output_devices(&self) -> Result<Vec<OutputDeviceInfo>, AudioError> {
+        // On Linux, prefer the PipeWire/PulseAudio sink list so the picker
+        // matches what the user sees in their system settings. Critically, this
+        // avoids cpal's raw ALSA enumeration entirely in the common case, which
+        // otherwise probes dmix PCMs and spams "unable to open slave" errors.
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(sinks) = enum_pulse_sinks() {
+                let list = build_pulse_list(&sinks, pulse_default_sink().as_deref());
+                if !list.is_empty() {
+                    return Ok(list);
+                }
+            }
+            // No PipeWire/Pulse: fall back to grouping cpal's ALSA PCMs by card.
+            let (raw, default_uid) = self.enumerate_cpal()?;
+            let longnames = alsa_card_longnames();
+            Ok(curate_alsa_cards(raw, default_uid.as_deref(), &longnames))
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let (devices, _default_uid) = self.enumerate_cpal()?;
+            Ok(devices)
+        }
+    }
+
+    /// Raw cpal enumeration: every output device the host exposes, plus the
+    /// current default device's UID (for marking `is_default`).
+    fn enumerate_cpal(&self) -> Result<(Vec<OutputDeviceInfo>, Option<String>), AudioError> {
         let default_uid = self
             .host
             .default_output_device()
@@ -78,15 +111,7 @@ impl DeviceManager {
             })
             .collect();
 
-        #[cfg(target_os = "linux")]
-        {
-            return Ok(curate_linux(devices, default_uid.as_deref()));
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            Ok(devices)
-        }
+        Ok((devices, default_uid))
     }
 
     /// The most recently confirmed display name for the selected device.
@@ -109,23 +134,78 @@ impl DeviceManager {
     /// the system default is returned instead. The caller can detect the
     /// fallback by comparing the returned device's UID against the prior
     /// `selected_uid`.
+    ///
+    /// On Linux, a `pw:<node>` selection (a PipeWire/PulseAudio sink) routes
+    /// through PipeWire: we open the host *default* device (the PipeWire ALSA
+    /// plugin) and set `PIPEWIRE_NODE` so the stream lands on that sink. This
+    /// avoids grabbing the hardware card directly — which under PipeWire causes
+    /// dmix failures, stutter, and busy errors. Direct ALSA-PCM selections (the
+    /// non-PipeWire fallback) still open their device by UID.
     pub fn resolve_device(&mut self) -> Result<Arc<cpal::Device>, AudioError> {
-        if let Some(uid) = self.selected_uid.clone()
-            && let Some(device) = self.find_by_uid(&uid)?
+        #[cfg(target_os = "linux")]
         {
-            self.cached_name = device_display_name(&device);
-            return Ok(Arc::new(device));
+            if let Some(uid) = self.selected_uid.clone() {
+                if let Some(node) = uid.strip_prefix("pw:") {
+                    // Validate the sink still exists; if it vanished (e.g. a USB
+                    // DAC was unplugged) clear the pin and fall through to default
+                    // rather than keep targeting a ghost node. If enumeration
+                    // fails we assume it's present (don't disrupt on a transient
+                    // pactl hiccup).
+                    let present = enum_pulse_sinks()
+                        .map(|sinks| sinks.iter().any(|s| s.node_name == node))
+                        .unwrap_or(true);
+                    if present {
+                        set_pipewire_node(Some(node));
+                        return self.default_device();
+                    }
+                    self.selected_uid = None;
+                } else {
+                    // Non-PipeWire fallback: a direct ALSA PCM. Open it by UID.
+                    set_pipewire_node(None);
+                    if let Some(device) = self.find_by_uid(&uid)? {
+                        self.cached_name = device_display_name(&device);
+                        return Ok(Arc::new(device));
+                    }
+                    // Stale selection: drop it and fall through to default.
+                    self.selected_uid = None;
+                }
+            }
+            // Follow the system default sink, but target it *explicitly* so
+            // PipeWire's stream-restore can't silently reroute us to a sink the
+            // app happened to use before (which otherwise plays to the wrong
+            // device — "no sound" from where the user is actually listening).
+            set_pipewire_node(pulse_default_sink().as_deref());
+            self.default_device()
         }
 
-        // Fallback: clear stale selection and use system default.
-        if self.selected_uid.is_some() {
-            self.selected_uid = None;
+        #[cfg(not(target_os = "linux"))]
+        {
+            if let Some(uid) = self.selected_uid.clone()
+                && let Some(device) = self.find_by_uid(&uid)?
+            {
+                self.cached_name = device_display_name(&device);
+                return Ok(Arc::new(device));
+            }
+
+            // Fallback: clear stale selection and use system default.
+            if self.selected_uid.is_some() {
+                self.selected_uid = None;
+            }
+            let default = self.host.default_output_device().ok_or_else(|| {
+                AudioError::DeviceNotFound("No default output device".to_string())
+            })?;
+            self.cached_name = device_display_name(&default);
+            Ok(Arc::new(default))
         }
+    }
+
+    /// Opens the host default output device (on Linux, the PipeWire ALSA plugin).
+    #[cfg(target_os = "linux")]
+    fn default_device(&self) -> Result<Arc<cpal::Device>, AudioError> {
         let default = self
             .host
             .default_output_device()
             .ok_or_else(|| AudioError::DeviceNotFound("No default output device".to_string()))?;
-        self.cached_name = device_display_name(&default);
         Ok(Arc::new(default))
     }
 
@@ -248,10 +328,134 @@ fn pick_best_uid(devices: &[OutputDeviceInfo]) -> String {
     uids.first().map(|s| s.to_string()).unwrap_or_default()
 }
 
+/// The always-present "follow system default" entry. Empty UID maps to
+/// `selected_uid = None`, so cpal opens the host default device — which on a
+/// PipeWire/PulseAudio system routes through the sound server. This is the
+/// safety net: it works even if every curated device below fails to open.
 #[cfg(target_os = "linux")]
-fn curate_linux(raw: Vec<OutputDeviceInfo>, _default_uid: Option<&str>) -> Vec<OutputDeviceInfo> {
-    let longnames = alsa_card_longnames();
+fn system_default_entry() -> OutputDeviceInfo {
+    OutputDeviceInfo {
+        name: "System Default".to_string(),
+        uid: String::new(),
+        is_default: true,
+    }
+}
 
+/// Sets (or clears) the `PIPEWIRE_NODE` env var that the PipeWire ALSA plugin
+/// reads at stream-connect time to pick a target sink. Cleared (`None`) means
+/// "follow the system default sink".
+///
+/// Caveat: `set_var`/`remove_var` are `unsafe` in edition 2024 because they race
+/// with concurrent `getenv` from other threads, and cpal/PipeWire run their own
+/// worker threads. Writers here are serialized (every caller holds the
+/// `DeviceManager` write lock and sets this right before building a stream), but
+/// that does NOT exclude a library reading the environment concurrently during
+/// connect. So this is best-effort routing — it has been observed not to take
+/// effect reliably inside the full GUI app — and a non-env mechanism would be
+/// more correct (see HANDOFF-linux-exclusive-dac.md). The realtime callback
+/// never touches the environment.
+#[cfg(target_os = "linux")]
+pub(crate) fn set_pipewire_node(node: Option<&str>) {
+    unsafe {
+        match node {
+            Some(n) if !n.is_empty() => std::env::set_var("PIPEWIRE_NODE", n),
+            _ => std::env::remove_var("PIPEWIRE_NODE"),
+        }
+    }
+}
+
+/// A PipeWire/PulseAudio output sink, distilled to the fields we need.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+struct PulseSink {
+    /// Human-readable name shown by the OS (e.g. "D50 III Headphones").
+    description: String,
+    /// PipeWire node name, e.g. "alsa_output.usb-Topping_D50_III-00...sink".
+    /// Used verbatim as the `PIPEWIRE_NODE` routing target.
+    node_name: String,
+}
+
+/// Shape of one entry in `pactl -f json list sinks`.
+#[cfg(target_os = "linux")]
+#[derive(Deserialize)]
+struct RawPulseSink {
+    name: String,
+    description: String,
+}
+
+/// Runs `pactl` to enumerate sinks. Returns `None` on any failure (binary
+/// missing, non-zero exit, unparseable output) so the caller degrades to the
+/// ALSA-card path.
+#[cfg(target_os = "linux")]
+fn enum_pulse_sinks() -> Option<Vec<PulseSink>> {
+    let output = Command::new("pactl")
+        .args(["-f", "json", "list", "sinks"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let json = String::from_utf8(output.stdout).ok()?;
+    parse_pulse_sinks(&json)
+}
+
+/// The current default sink's node name (`pactl get-default-sink`), used to mark
+/// one device as the default and to target it explicitly when following default.
+/// `None` on any failure.
+#[cfg(target_os = "linux")]
+pub(crate) fn pulse_default_sink() -> Option<String> {
+    let output = Command::new("pactl")
+        .args(["get-default-sink"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Pure parser for `pactl -f json list sinks` output. Split out from
+/// `enum_pulse_sinks` so it can be unit-tested against a captured fixture.
+#[cfg(target_os = "linux")]
+fn parse_pulse_sinks(json: &str) -> Option<Vec<PulseSink>> {
+    let raw: Vec<RawPulseSink> = serde_json::from_str(json).ok()?;
+    let sinks = raw
+        .into_iter()
+        .map(|s| PulseSink {
+            description: s.description,
+            node_name: s.name,
+        })
+        .collect();
+    Some(sinks)
+}
+
+/// Builds one entry per sink (no synthetic "System Default" — the sinks already
+/// are the system's devices). Each UID is `pw:<node>`, which `resolve_device`
+/// routes to via `PIPEWIRE_NODE`. The sink matching `default_node` is flagged
+/// `is_default`, so the UI marks it and highlights it while following default.
+#[cfg(target_os = "linux")]
+fn build_pulse_list(sinks: &[PulseSink], default_node: Option<&str>) -> Vec<OutputDeviceInfo> {
+    sinks
+        .iter()
+        .filter(|s| !s.node_name.is_empty())
+        .map(|s| OutputDeviceInfo {
+            name: s.description.clone(),
+            uid: format!("pw:{}", s.node_name),
+            is_default: default_node == Some(s.node_name.as_str()),
+        })
+        .collect()
+}
+
+/// Fallback enumeration: group cpal's raw ALSA PCMs by card, one representative
+/// entry per card. `longnames` is passed in (rather than queried) so the pure
+/// grouping logic is unit-testable without audio hardware.
+#[cfg(target_os = "linux")]
+fn curate_alsa_cards(
+    raw: Vec<OutputDeviceInfo>,
+    _default_uid: Option<&str>,
+    longnames: &HashMap<String, String>,
+) -> Vec<OutputDeviceInfo> {
     let (card_devices, _non_card): (Vec<_>, Vec<_>) =
         raw.into_iter().partition(|d| d.uid.contains("CARD="));
 
@@ -262,13 +466,7 @@ fn curate_linux(raw: Vec<OutputDeviceInfo>, _default_uid: Option<&str>) -> Vec<O
         }
     }
 
-    let mut result = Vec::new();
-
-    result.push(OutputDeviceInfo {
-        name: "System Default".to_string(),
-        uid: String::new(),
-        is_default: true,
-    });
+    let mut result = vec![system_default_entry()];
 
     for (card_token, devices) in groups {
         let representative = pick_best_uid(&devices);
@@ -379,5 +577,171 @@ mod tests {
             default_count <= 1,
             "at most one device should be marked default"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    fn dev(uid: &str, name: &str) -> OutputDeviceInfo {
+        OutputDeviceInfo {
+            name: name.to_string(),
+            uid: uid.to_string(),
+            is_default: false,
+        }
+    }
+
+    /// A cpal-style "flood" enumeration for a 3-card system (PCH analog/digital,
+    /// ATI HDMI, D50 III USB), mirroring what `host.output_devices()` yields.
+    #[cfg(target_os = "linux")]
+    fn cpal_flood() -> Vec<OutputDeviceInfo> {
+        vec![
+            dev("default", "Default"),
+            dev("pipewire", "PipeWire"),
+            dev("pulse", "PulseAudio"),
+            // PCH
+            dev("sysdefault:CARD=PCH", "HDA Intel PCH, Analog"),
+            dev("front:CARD=PCH,DEV=0", "Front"),
+            dev("surround40:CARD=PCH,DEV=0", "Surround 4.0"),
+            dev("iec958:CARD=PCH,DEV=0", "IEC958 Digital"),
+            dev("hw:CARD=PCH,DEV=0", "hw PCH"),
+            dev("plughw:CARD=PCH,DEV=0", "plughw PCH"),
+            // HDMI (ATI), several ports
+            dev("hdmi:CARD=HDMI,DEV=0", "HDMI 0"),
+            dev("hdmi:CARD=HDMI,DEV=1", "HDMI 1"),
+            dev("hw:CARD=HDMI,DEV=3", "hw HDMI"),
+            dev("plughw:CARD=HDMI,DEV=3", "plughw HDMI"),
+            // D50 III (USB)
+            dev("sysdefault:CARD=III", "D50 III"),
+            dev("front:CARD=III,DEV=0", "Front"),
+            dev("hw:CARD=III,DEV=0", "hw III"),
+            dev("plughw:CARD=III,DEV=0", "plughw III"),
+        ]
+    }
+
+    #[cfg(target_os = "linux")]
+    const PACTL_FIXTURE: &str = r#"[
+        {"index":53,"name":"alsa_output.pci-0000_00_1f.3.iec958-stereo",
+         "description":"Built-in Audio Digital Stereo (IEC958)",
+         "properties":{"alsa.id":"PCH","api.alsa.path":"iec958:0"}},
+        {"index":52,"name":"alsa_output.usb-Topping_D50_III-00.HiFi__Headphones__sink",
+         "description":"D50 III Headphones",
+         "properties":{"alsa.id":"III","api.alsa.path":"hw:III,0"}},
+        {"index":51,"name":"alsa_output.pci-0000_04_00.1.hdmi-stereo-extra1",
+         "description":"Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 2)",
+         "properties":{"alsa.id":"HDMI","api.alsa.path":"hdmi:1,1"}}
+    ]"#;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_pulse_sinks_extracts_description_and_node_name() {
+        let sinks = parse_pulse_sinks(PACTL_FIXTURE).expect("fixture must parse");
+        assert_eq!(sinks.len(), 3);
+        assert_eq!(
+            sinks[0].description,
+            "Built-in Audio Digital Stereo (IEC958)"
+        );
+        assert_eq!(
+            sinks[0].node_name,
+            "alsa_output.pci-0000_00_1f.3.iec958-stereo"
+        );
+        assert_eq!(
+            sinks[1].node_name,
+            "alsa_output.usb-Topping_D50_III-00.HiFi__Headphones__sink"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_pulse_sinks_rejects_garbage() {
+        assert!(parse_pulse_sinks("not json").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn build_pulse_list_is_pw_routed_sinks_with_one_default() {
+        let sinks = parse_pulse_sinks(PACTL_FIXTURE).unwrap();
+        let default = "alsa_output.usb-Topping_D50_III-00.HiFi__Headphones__sink";
+        let list = build_pulse_list(&sinks, Some(default));
+
+        // No synthetic "System Default" — just the three real sinks.
+        assert_eq!(list.len(), 3);
+        let names: Vec<&str> = list.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "Built-in Audio Digital Stereo (IEC958)",
+                "D50 III Headphones",
+                "Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 2)",
+            ]
+        );
+        let uids: Vec<&str> = list.iter().map(|d| d.uid.as_str()).collect();
+        assert_eq!(
+            uids,
+            vec![
+                "pw:alsa_output.pci-0000_00_1f.3.iec958-stereo",
+                "pw:alsa_output.usb-Topping_D50_III-00.HiFi__Headphones__sink",
+                "pw:alsa_output.pci-0000_04_00.1.hdmi-stereo-extra1",
+            ]
+        );
+        // Exactly the D50 sink is flagged default.
+        let defaults: Vec<&str> = list
+            .iter()
+            .filter(|d| d.is_default)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert_eq!(defaults, vec!["D50 III Headphones"]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn build_pulse_list_skips_sinks_without_node_name() {
+        let sinks = vec![PulseSink {
+            description: "Ghost".into(),
+            node_name: String::new(),
+        }];
+        let list = build_pulse_list(&sinks, None);
+        assert!(list.is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn build_pulse_list_marks_no_default_when_unknown() {
+        let sinks = parse_pulse_sinks(PACTL_FIXTURE).unwrap();
+        let list = build_pulse_list(&sinks, None);
+        assert_eq!(list.len(), 3);
+        assert!(list.iter().all(|d| !d.is_default));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn curate_alsa_cards_groups_one_entry_per_card() {
+        let raw = cpal_flood();
+        let mut longnames = HashMap::new();
+        longnames.insert("PCH".to_string(), "HDA Intel PCH".to_string());
+        longnames.insert("HDMI".to_string(), "HDA ATI HDMI".to_string());
+        longnames.insert("III".to_string(), "D50 III".to_string());
+
+        let list = curate_alsa_cards(raw, None, &longnames);
+
+        assert_eq!(list[0].name, "System Default");
+        let named: Vec<(&str, &str)> = list[1..]
+            .iter()
+            .map(|d| (d.name.as_str(), d.uid.as_str()))
+            .collect();
+        // BTreeMap order: HDMI, III, PCH. pick_best_uid prefers plughw: > hw:.
+        assert_eq!(
+            named,
+            vec![
+                ("HDA ATI HDMI", "plughw:CARD=HDMI,DEV=3"),
+                ("D50 III", "plughw:CARD=III,DEV=0"),
+                ("HDA Intel PCH", "plughw:CARD=PCH,DEV=0"),
+            ]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn curate_alsa_cards_empty_input_is_just_default() {
+        let list = curate_alsa_cards(vec![dev("default", "Default")], None, &HashMap::new());
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "System Default");
     }
 }
