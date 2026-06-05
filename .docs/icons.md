@@ -4,11 +4,11 @@ All UI icons are embedded into the binary at compile time via `rust-embed`. No e
 
 ## How It Works
 
-The `Assets` struct in `crates/pawse/src/assets.rs` uses `#[derive(RustEmbed)]` to compile everything under `assets/icons/` into the binary:
+The `Assets` struct in `crates/ui_resources/src/assets.rs` uses `#[derive(RustEmbed)]` to compile everything under `assets/icons/` into the binary:
 
 ```rust
 #[derive(RustEmbed)]
-#[folder = "../../assets"]
+#[folder = "assets"]
 #[include = "icons/**/*"]
 pub struct Assets;
 ```
@@ -16,8 +16,13 @@ pub struct Assets;
 This struct implements GPUI's `AssetSource` trait, which is registered on startup in `main.rs`:
 
 ```rust
-let app = Application::new().with_assets(assets::Assets);
+let app = Application::new().with_assets(ui_resources::assets::Assets);
 ```
+
+`gpui-component` does not ship any SVG files — its `IconName::path()` returns
+paths like `icons/folder.svg`, which must be supplied here. Any `IconName` the app
+(or a `gpui-component` component it uses) renders needs a matching kebab-case SVG
+in `assets/icons/`, or GPUI logs `asset not found: icons/...` on every render.
 
 ## Adding a New Icon
 
@@ -83,11 +88,17 @@ svg()
 | Path | Usage |
 |------|-------|
 | `icons/back.svg` | Back to album list button |
-| `icons/check.svg` | Bit-perfect OK indicator or selected device in popover |
+| `icons/check.svg` | Bit-perfect OK indicator or selected device in popover (`IconName::Check`) |
 | `icons/next.svg` | Next track button (flipped horizontally for previous track) |
-| `icons/triangle-alert.svg` | Bit-perfect warning indicator |
+| `icons/triangle-alert.svg` | Bit-perfect warning indicator + `gpui-component` warning toast (`IconName::TriangleAlert`) |
 | `icons/volume_mute.svg` | Volume control — shown when muted or volume is 0 |
 | `icons/volume_unmute.svg` | Volume control — shown when volume > 0 |
+| `icons/folder.svg` | `gpui-component` `IconName::Folder` — settings folder list, onboarding |
+| `icons/chevron-down.svg` | `gpui-component` `IconName::ChevronDown` — settings dropdown triggers |
+| `icons/circle-x.svg` | `gpui-component` `IconName::CircleX` — search input clear button, error toast |
+| `icons/info.svg` | `gpui-component` `IconName::Info` — info toast |
+| `icons/circle-check.svg` | `gpui-component` `IconName::CircleCheck` — success toast |
+| `icons/close.svg` | `gpui-component` `IconName::Close` — notification close button |
 
 ## Do Not Use `img()` for Icons
 
