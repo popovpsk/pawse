@@ -9,10 +9,13 @@ actions!(
         PreviousTrack,
         VolumeUp,
         VolumeDown,
+        PlayPause,
     ]
 );
 
 pub const CONTEXT: &str = "MainView";
+
+const BINDING: &str = "MainView && !Input";
 
 pub fn init(cx: &mut App) {
     #[cfg(target_os = "macos")]
@@ -21,12 +24,13 @@ pub fn init(cx: &mut App) {
     let (next, prev) = ("ctrl-right", "ctrl-left");
 
     cx.bind_keys([
-        KeyBinding::new("right", SeekForward, Some(CONTEXT)),
-        KeyBinding::new("left", SeekBackward, Some(CONTEXT)),
-        KeyBinding::new(next, NextTrack, Some(CONTEXT)),
-        KeyBinding::new(prev, PreviousTrack, Some(CONTEXT)),
-        KeyBinding::new("up", VolumeUp, Some(CONTEXT)),
-        KeyBinding::new("down", VolumeDown, Some(CONTEXT)),
+        KeyBinding::new("right", SeekForward, Some(BINDING)),
+        KeyBinding::new("left", SeekBackward, Some(BINDING)),
+        KeyBinding::new(next, NextTrack, Some(BINDING)),
+        KeyBinding::new(prev, PreviousTrack, Some(BINDING)),
+        KeyBinding::new("up", VolumeUp, Some(BINDING)),
+        KeyBinding::new("down", VolumeDown, Some(BINDING)),
+        KeyBinding::new("space", PlayPause, Some(BINDING)),
     ]);
 
     #[cfg(target_os = "macos")]

@@ -1,9 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, Hsla,
-    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window,
-    canvas, div, px, svg,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement,
+    Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
 };
 use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
@@ -15,7 +14,7 @@ use gpui_component::{
 use crate::audio_settings::AudioSettings;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
-    NextTrack, PreviousTrack, SeekBackward, SeekForward, VolumeDown, VolumeUp,
+    NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown, VolumeUp,
 };
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::localization::LangChanged;
@@ -281,23 +280,6 @@ impl MainView {
         }
     }
 
-    /// Returns a listener for a keyboard shortcut action. The handler only
-    /// fires when the main view itself has keyboard focus — if a child text
-    /// Input is focused, the shortcut is suppressed. This is needed because
-    /// GPUI dispatches key bindings on parent key contexts before sending the
-    /// keystroke as a character to the Input's IME handler.
-    fn shortcut_listener<A>(
-        fh: FocusHandle,
-        handler: impl Fn(&mut Self, &A, &mut Window, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) -> impl Fn(&A, &mut Window, &mut gpui::App) + 'static {
-        cx.listener(move |this, action, window, cx| {
-            if fh.is_focused(window) {
-                handler(this, action, window, cx);
-            }
-        })
-    }
-
     fn clear_search(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.search_input
             .update(cx, |s, cx| s.set_value("", window, cx));
@@ -366,6 +348,23 @@ impl MainView {
             f.volume()
                 .update(cx, |v, cx| v.nudge(-crate::volume::VOLUME_STEP, cx));
         });
+    }
+
+    fn on_play_pause(&mut self, _: &PlayPause, _: &mut Window, cx: &mut Context<Self>) {
+        let services = cx.global::<crate::services::Services>();
+        // Don't flip the is_playing mirror with no track loaded:
+        // play() would emit no event, leaving it stuck true.
+        if services.playback_queue.borrow().current_track().is_none() {
+            return;
+        }
+        let was_playing = services
+            .is_playing
+            .fetch_xor(true, std::sync::atomic::Ordering::Relaxed);
+        if was_playing {
+            services.engine_manager.pause();
+        } else {
+            services.engine_manager.play();
+        }
     }
 }
 
@@ -452,59 +451,6 @@ impl Render for MainView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .key_context(crate::keyboard_shortcuts::CONTEXT)
-            .track_focus(&self.focus_handle)
-            .on_action(Self::shortcut_listener(
-                self.focus_handle.clone(),
-                Self::on_seek_forward,
-                cx,
-            ))
-            .on_action(Self::shortcut_listener(
-                self.focus_handle.clone(),
-                Self::on_seek_backward,
-                cx,
-            ))
-            .on_action(Self::shortcut_listener(
-                self.focus_handle.clone(),
-                Self::on_next_track,
-                cx,
-            ))
-            .on_action(Self::shortcut_listener(
-                self.focus_handle.clone(),
-                Self::on_previous_track,
-                cx,
-            ))
-            .on_action(Self::shortcut_listener(
-                self.focus_handle.clone(),
-                Self::on_volume_up,
-                cx,
-            ))
-            .on_action(Self::shortcut_listener(
-                self.focus_handle.clone(),
-                Self::on_volume_down,
-                cx,
-            ))
-            .on_key_down({
-                let fh = self.focus_handle.clone();
-                move |ev: &KeyDownEvent, window, cx| {
-                    if ev.keystroke.key.as_str() == "space" && fh.is_focused(window) {
-                        let services = cx.global::<crate::services::Services>();
-                        // Don't flip the is_playing mirror with no track loaded:
-                        // play() would emit no event, leaving it stuck true.
-                        if services.playback_queue.borrow().current_track().is_none() {
-                            return;
-                        }
-                        let was_playing = services
-                            .is_playing
-                            .fetch_xor(true, std::sync::atomic::Ordering::Relaxed);
-                        if was_playing {
-                            services.engine_manager.pause();
-                        } else {
-                            services.engine_manager.play();
-                        }
-                    }
-                }
-            })
             .on_drag_move(
                 cx.listener(move |this, e: &DragMoveEvent<DragQueueResize>, _, cx| {
                     if e.drag(cx).0 != entity_id {
@@ -524,98 +470,119 @@ impl Render for MainView {
             .child(crate::window_title_bar::WindowTitleBar::new())
             .child(
                 div()
-                    .w_full()
-                    .flex_shrink_0()
-                    .h(px(HEADER_HEIGHT))
-                    .flex()
-                    .items_center()
-                    .pl_2()
-                    .pr_2()
-                    .bg(title_bar)
-                    .child(left_group)
-                    .when(!show_settings, |d| {
-                        d.child(
-                            div().w(px(260.)).child(
-                                Input::new(&self.search_input)
-                                    .with_size(Size::Medium)
-                                    .focus_bordered(false)
-                                    .rounded_full()
-                                    .bg(title_bar),
-                            ),
-                        )
-                    })
-                    .child(right_group),
-            )
-            .child(
-                div()
+                    .id("main_content")
+                    .v_flex()
                     .flex_1()
                     .overflow_hidden()
-                    .flex()
-                    .bg(title_bar)
+                    .key_context(crate::keyboard_shortcuts::CONTEXT)
+                    .track_focus(&self.focus_handle)
+                    .on_action(cx.listener(Self::on_seek_forward))
+                    .on_action(cx.listener(Self::on_seek_backward))
+                    .on_action(cx.listener(Self::on_next_track))
+                    .on_action(cx.listener(Self::on_previous_track))
+                    .on_action(cx.listener(Self::on_volume_up))
+                    .on_action(cx.listener(Self::on_volume_down))
+                    .on_action(cx.listener(Self::on_play_pause))
+                    .child(
+                        div()
+                            .w_full()
+                            .flex_shrink_0()
+                            .h(px(HEADER_HEIGHT))
+                            .flex()
+                            .items_center()
+                            .pl_2()
+                            .pr_2()
+                            .bg(title_bar)
+                            .child(left_group)
+                            .when(!show_settings, |d| {
+                                d.child(
+                                    div().w(px(260.)).child(
+                                        Input::new(&self.search_input)
+                                            .with_size(Size::Medium)
+                                            .focus_bordered(false)
+                                            .rounded_full()
+                                            .bg(title_bar),
+                                    ),
+                                )
+                            })
+                            .child(right_group),
+                    )
                     .child(
                         div()
                             .flex_1()
                             .overflow_hidden()
-                            .ml_4()
-                            .when(!self.show_queue, |d| d.mr_4())
-                            .child(if show_settings {
-                                // Our own tab-based settings widget (ui_components) owns
-                                // its scroll + active-tab state; it just needs a
-                                // definite-size parent, which `flex_1` provides here.
+                            .flex()
+                            .bg(title_bar)
+                            .child(
                                 div()
-                                    .size_full()
-                                    .child(crate::settings_view::settings_widget(
-                                        self.settings_pages.clone(),
-                                    ))
-                                    .into_any_element()
-                            } else {
-                                self.library_view.clone().into_any_element()
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .ml_4()
+                                    .when(!self.show_queue, |d| d.mr_4())
+                                    .child(if show_settings {
+                                        // Our own tab-based settings widget (ui_components) owns
+                                        // its scroll + active-tab state; it just needs a
+                                        // definite-size parent, which `flex_1` provides here.
+                                        div()
+                                            .size_full()
+                                            .child(crate::settings_view::settings_widget(
+                                                self.settings_pages.clone(),
+                                            ))
+                                            .into_any_element()
+                                    } else {
+                                        self.library_view.clone().into_any_element()
+                                    }),
+                            )
+                            .when(self.show_queue, |d| {
+                                let queue_width = self.queue_width;
+                                d.child(
+                                    div()
+                                        .w(px(queue_width))
+                                        .flex_shrink_0()
+                                        .border_l(px(1.))
+                                        .border_color(Colors::border(cx))
+                                        .relative()
+                                        .child(
+                                            div()
+                                                .size_full()
+                                                .overflow_hidden()
+                                                .child(self.queue_view.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("queue_resize_handle")
+                                                .absolute()
+                                                .left(px(-3.))
+                                                .top(px(0.))
+                                                .h_full()
+                                                .w(px(6.))
+                                                .cursor(gpui::CursorStyle::ResizeLeftRight)
+                                                .on_mouse_down(
+                                                    MouseButton::Left,
+                                                    cx.listener(
+                                                        |this, e: &MouseDownEvent, _, _| {
+                                                            this.queue_resize_origin = Some((
+                                                                e.position.x,
+                                                                this.queue_width,
+                                                            ));
+                                                        },
+                                                    ),
+                                                )
+                                                .on_drag(
+                                                    DragQueueResize(entity_id),
+                                                    |drag, _, _, cx| cx.new(|_| drag.clone()),
+                                                ),
+                                        ),
+                                )
                             }),
                     )
-                    .when(self.show_queue, |d| {
-                        let queue_width = self.queue_width;
-                        d.child(
-                            div()
-                                .w(px(queue_width))
-                                .flex_shrink_0()
-                                .border_l(px(1.))
-                                .border_color(Colors::border(cx))
-                                .relative()
-                                .child(
-                                    div()
-                                        .size_full()
-                                        .overflow_hidden()
-                                        .child(self.queue_view.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .id("queue_resize_handle")
-                                        .absolute()
-                                        .left(px(-3.))
-                                        .top(px(0.))
-                                        .h_full()
-                                        .w(px(6.))
-                                        .cursor(gpui::CursorStyle::ResizeLeftRight)
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, e: &MouseDownEvent, _, _| {
-                                                this.queue_resize_origin =
-                                                    Some((e.position.x, this.queue_width));
-                                            }),
-                                        )
-                                        .on_drag(DragQueueResize(entity_id), |drag, _, _, cx| {
-                                            cx.new(|_| drag.clone())
-                                        }),
-                                ),
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .flex_shrink_0()
-                    .h(px(FOOTER_HEIGHT))
-                    .child(self.footer.clone()),
+                    .child(
+                        div()
+                            .w_full()
+                            .flex_shrink_0()
+                            .h(px(FOOTER_HEIGHT))
+                            .child(self.footer.clone()),
+                    ),
             )
             .when(!show_settings, |d| {
                 d.child(fade_overlay(
@@ -692,12 +659,7 @@ fn back_button(fg: Hsla, hover_bg: Hsla, cx: &mut Context<MainView>) -> impl Int
                 this.library_view.update(cx, |view, cx| view.go_back(cx));
             }
         }))
-        .child(
-            svg()
-                .path("icons/back.svg")
-                .size(px(22.))
-                .text_color(fg),
-        )
+        .child(svg().path("icons/back.svg").size(px(22.)).text_color(fg))
 }
 
 fn tab_icon_button(
