@@ -488,6 +488,27 @@ fn queue_group() -> SettingGroup {
             )
             .description(tr().artist_name_desc.clone()),
         )
+        .item(
+            SettingItem::new(
+                tr().queue_deduplication.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().queue_deduplication();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("queue-dedup-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_queue_deduplication(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().queue_deduplication_desc.clone()),
+        )
 }
 
 fn library_group() -> SettingGroup {

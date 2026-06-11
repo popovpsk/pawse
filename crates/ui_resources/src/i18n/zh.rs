@@ -87,6 +87,8 @@ pub static ZH: Strings = lang! {
     action_buttons_desc: "在队列中显示或隐藏添加到列表和喜欢按钮",
     artist_name: "艺术家名称",
     artist_name_desc: "在队列中显示或隐藏艺术家名称",
+    queue_deduplication: "移除重复项",
+    queue_deduplication_desc: "添加时跳过已在队列中的曲目",
     music_folders: "音乐文件夹",
     music_folders_desc: "用于扫描音乐文件的文件夹",
     no_folders_added: "未添加文件夹",

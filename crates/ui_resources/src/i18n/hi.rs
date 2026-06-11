@@ -87,6 +87,8 @@ pub static HI: Strings = lang! {
     action_buttons_desc: "क़तार में प्लेलिस्ट में जोड़ने और पसंद बटन दिखाएँ या छिपाएँ",
     artist_name: "कलाकार का नाम",
     artist_name_desc: "क़तार में कलाकार का नाम दिखाएँ या छिपाएँ",
+    queue_deduplication: "डुप्लिकेट हटाएँ",
+    queue_deduplication_desc: "जोड़ते समय उन ट्रैक को छोड़ें जो पहले से क़तार में हैं",
     music_folders: "संगीत फ़ोल्डर",
     music_folders_desc: "संगीत फ़ाइलों के लिए स्कैन किए गए फ़ोल्डर",
     no_folders_added: "कोई फ़ोल्डर नहीं जोड़ा गया",

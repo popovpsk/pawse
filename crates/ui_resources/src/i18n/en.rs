@@ -87,6 +87,8 @@ pub static EN: Strings = lang! {
     action_buttons_desc: "Show or hide the add-to-playlist and like buttons in the queue",
     artist_name: "Artist name",
     artist_name_desc: "Show or hide the artist name in the queue",
+    queue_deduplication: "Remove duplicates",
+    queue_deduplication_desc: "Skip tracks that are already in the queue when adding",
     music_folders: "Music folders",
     music_folders_desc: "Folders scanned for music files",
     no_folders_added: "No folders added",

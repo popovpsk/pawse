@@ -87,6 +87,8 @@ pub static TR: Strings = lang! {
     action_buttons_desc: "Sırada çalma listesine ekle ve beğen düğmelerini göster veya gizle",
     artist_name: "Sanatçı adı",
     artist_name_desc: "Sırada sanatçı adını göster veya gizle",
+    queue_deduplication: "Yinelenenleri kaldır",
+    queue_deduplication_desc: "Eklerken sırada zaten bulunan parçaları atla",
     music_folders: "Müzik klasörleri",
     music_folders_desc: "Müzik dosyaları için taranan klasörler",
     no_folders_added: "Klasör eklenmedi",

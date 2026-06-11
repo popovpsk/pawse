@@ -87,6 +87,8 @@ pub static RU: Strings = lang! {
     action_buttons_desc: "Показать или скрыть кнопки добавления в плейлист и лайка в очереди",
     artist_name: "Имя исполнителя",
     artist_name_desc: "Показать или скрыть имя исполнителя в очереди",
+    queue_deduplication: "Удалять дубликаты",
+    queue_deduplication_desc: "Не добавлять треки, которые уже есть в очереди",
     music_folders: "Папки с музыкой",
     music_folders_desc: "Папки, сканируемые на наличие музыкальных файлов",
     no_folders_added: "Папки не добавлены",

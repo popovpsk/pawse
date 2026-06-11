@@ -341,8 +341,8 @@ impl PlaybackQueue {
         }
     }
 
-    pub fn append_track(&mut self, track: Rc<Track>) {
-        if self.tracks.iter().any(|t| t.id == track.id) {
+    pub fn append_track(&mut self, track: Rc<Track>, deduplicate: bool) {
+        if deduplicate && self.tracks.iter().any(|t| t.id == track.id) {
             return;
         }
         if let Some(ref mut original) = self.original_order {
@@ -351,9 +351,9 @@ impl PlaybackQueue {
         self.tracks.push(track);
     }
 
-    pub fn append_tracks(&mut self, tracks: Vec<Rc<Track>>) {
+    pub fn append_tracks(&mut self, tracks: Vec<Rc<Track>>, deduplicate: bool) {
         for track in tracks {
-            self.append_track(track);
+            self.append_track(track, deduplicate);
         }
     }
 
@@ -888,5 +888,23 @@ mod tests {
 
         q.set_repeat(RepeatMode::One);
         assert!(q.has_next());
+    }
+
+    #[test]
+    fn append_track_dedup_true_skips_existing() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.append_track(track(1, "/p/1.flac"), true);
+        assert_eq!(q.len(), 3);
+    }
+
+    #[test]
+    fn append_track_dedup_false_allows_duplicate() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.append_track(track(1, "/p/1.flac"), false);
+        assert_eq!(q.len(), 4);
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![0, 1, 2, 1]);
     }
 }

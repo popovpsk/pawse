@@ -87,6 +87,8 @@ pub static PL: Strings = lang! {
     action_buttons_desc: "Pokaż lub ukryj przyciski dodawania do playlisty i polubienia w kolejce",
     artist_name: "Nazwa wykonawcy",
     artist_name_desc: "Pokaż lub ukryj nazwę wykonawcy w kolejce",
+    queue_deduplication: "Usuń duplikaty",
+    queue_deduplication_desc: "Pomiń utwory, które są już w kolejce, podczas dodawania",
     music_folders: "Foldery muzyki",
     music_folders_desc: "Foldery skanowane w poszukiwaniu plików muzycznych",
     no_folders_added: "Nie dodano folderów",

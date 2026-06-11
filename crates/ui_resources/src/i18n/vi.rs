@@ -87,6 +87,8 @@ pub static VI: Strings = lang! {
     action_buttons_desc: "Hiện hoặc ẩn nút thêm vào danh sách và yêu thích trong hàng đợi",
     artist_name: "Tên nghệ sĩ",
     artist_name_desc: "Hiện hoặc ẩn tên nghệ sĩ trong hàng đợi",
+    queue_deduplication: "Xóa bản trùng lặp",
+    queue_deduplication_desc: "Bỏ qua các bài hát đã có trong hàng đợi khi thêm",
     music_folders: "Thư mục nhạc",
     music_folders_desc: "Các thư mục được quét để tìm tệp nhạc",
     no_folders_added: "Chưa thêm thư mục",

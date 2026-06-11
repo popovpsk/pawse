@@ -87,6 +87,8 @@ pub static ID: Strings = lang! {
     action_buttons_desc: "Tampilkan atau sembunyikan tombol tambah ke playlist dan suka di antrean",
     artist_name: "Nama artis",
     artist_name_desc: "Tampilkan atau sembunyikan nama artis di antrean",
+    queue_deduplication: "Hapus duplikat",
+    queue_deduplication_desc: "Lewati lagu yang sudah ada di antrean saat menambahkan",
     music_folders: "Folder musik",
     music_folders_desc: "Folder yang dipindai untuk berkas musik",
     no_folders_added: "Belum ada folder ditambahkan",

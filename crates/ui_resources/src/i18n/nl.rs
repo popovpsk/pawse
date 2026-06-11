@@ -87,6 +87,8 @@ pub static NL: Strings = lang! {
     action_buttons_desc: "Toon of verberg de toevoeg- en favorietknoppen in de wachtrij",
     artist_name: "Artiestnaam",
     artist_name_desc: "Toon of verberg de artiestnaam in de wachtrij",
+    queue_deduplication: "Duplicaten verwijderen",
+    queue_deduplication_desc: "Nummers die al in de wachtrij staan overslaan bij toevoegen",
     music_folders: "Muziekmappen",
     music_folders_desc: "Mappen die worden gescand op muziekbestanden",
     no_folders_added: "Geen mappen toegevoegd",

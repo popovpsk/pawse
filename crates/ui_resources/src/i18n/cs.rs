@@ -87,6 +87,8 @@ pub static CS: Strings = lang! {
     action_buttons_desc: "Zobrazit nebo skrýt tlačítka přidání do playlistu a oblíbení ve frontě",
     artist_name: "Jméno interpreta",
     artist_name_desc: "Zobrazit nebo skrýt jméno interpreta ve frontě",
+    queue_deduplication: "Odstranit duplikáty",
+    queue_deduplication_desc: "Při přidávání přeskočit skladby, které už jsou ve frontě",
     music_folders: "Hudební složky",
     music_folders_desc: "Složky prohledávané kvůli hudebním souborům",
     no_folders_added: "Nebyly přidány žádné složky",

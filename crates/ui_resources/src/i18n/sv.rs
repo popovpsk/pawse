@@ -87,6 +87,8 @@ pub static SV: Strings = lang! {
     action_buttons_desc: "Visa eller dölj knapparna för att lägga till i spellista och gilla i kön",
     artist_name: "Artistnamn",
     artist_name_desc: "Visa eller dölj artistnamnet i kön",
+    queue_deduplication: "Ta bort dubbletter",
+    queue_deduplication_desc: "Hoppa över spår som redan finns i kön vid tillägg",
     music_folders: "Musikmappar",
     music_folders_desc: "Mappar som söks igenom efter musikfiler",
     no_folders_added: "Inga mappar tillagda",

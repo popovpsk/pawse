@@ -87,6 +87,8 @@ pub static TH: Strings = lang! {
     action_buttons_desc: "แสดงหรือซ่อนปุ่มเพิ่มลงเพลย์ลิสต์และถูกใจในคิว",
     artist_name: "ชื่อศิลปิน",
     artist_name_desc: "แสดงหรือซ่อนชื่อศิลปินในคิว",
+    queue_deduplication: "ลบรายการซ้ำ",
+    queue_deduplication_desc: "ข้ามเพลงที่อยู่ในคิวแล้วเมื่อเพิ่ม",
     music_folders: "โฟลเดอร์เพลง",
     music_folders_desc: "โฟลเดอร์ที่สแกนหาไฟล์เพลง",
     no_folders_added: "ยังไม่ได้เพิ่มโฟลเดอร์",

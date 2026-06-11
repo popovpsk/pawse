@@ -87,6 +87,8 @@ pub static DE: Strings = lang! {
     action_buttons_desc: "Hinzufügen- und Favoriten-Buttons in der Warteschlange anzeigen oder ausblenden",
     artist_name: "Künstlername",
     artist_name_desc: "Künstlername in der Warteschlange anzeigen oder ausblenden",
+    queue_deduplication: "Duplikate entfernen",
+    queue_deduplication_desc: "Titel überspringen, die bereits in der Warteschlange sind",
     music_folders: "Musikordner",
     music_folders_desc: "Nach Musikdateien durchsuchte Ordner",
     no_folders_added: "Keine Ordner hinzugefügt",

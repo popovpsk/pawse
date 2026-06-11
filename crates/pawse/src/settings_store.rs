@@ -245,6 +245,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub show_queue_artist: bool,
     #[serde(default)]
+    pub queue_deduplication: bool,
+    #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default)]
     pub onboarding_complete: bool,
@@ -266,6 +268,7 @@ impl Default for UserSettings {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            queue_deduplication: false,
             font_scale: FontScale::default(),
             onboarding_complete: false,
         }
@@ -478,6 +481,15 @@ impl SettingsStore {
 
     pub fn set_show_queue_artist(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_queue_artist = show;
+        self.save()
+    }
+
+    pub fn queue_deduplication(&self) -> bool {
+        self.settings.queue_deduplication
+    }
+
+    pub fn set_queue_deduplication(&mut self, value: bool) -> anyhow::Result<()> {
+        self.settings.queue_deduplication = value;
         self.save()
     }
 
@@ -758,6 +770,7 @@ mod tests {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            queue_deduplication: false,
             font_scale: FontScale::Large,
             onboarding_complete: false,
         };

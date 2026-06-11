@@ -135,6 +135,8 @@ pub struct Strings {
     pub action_buttons_desc: SharedString,
     pub artist_name: SharedString,
     pub artist_name_desc: SharedString,
+    pub queue_deduplication: SharedString,
+    pub queue_deduplication_desc: SharedString,
     pub music_folders: SharedString,
     pub music_folders_desc: SharedString,
     pub no_folders_added: SharedString,

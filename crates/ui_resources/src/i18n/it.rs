@@ -87,6 +87,8 @@ pub static IT: Strings = lang! {
     action_buttons_desc: "Mostra o nascondi i pulsanti di aggiunta alla playlist e preferito nella coda",
     artist_name: "Nome artista",
     artist_name_desc: "Mostra o nascondi il nome dell'artista nella coda",
+    queue_deduplication: "Rimuovi duplicati",
+    queue_deduplication_desc: "Salta i brani già presenti nella coda durante l'aggiunta",
     music_folders: "Cartelle musicali",
     music_folders_desc: "Cartelle analizzate alla ricerca di file musicali",
     no_folders_added: "Nessuna cartella aggiunta",

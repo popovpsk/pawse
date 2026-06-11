@@ -87,6 +87,8 @@ pub static ES: Strings = lang! {
     action_buttons_desc: "Mostrar u ocultar los botones de añadir a la lista y favorito en la cola",
     artist_name: "Nombre del artista",
     artist_name_desc: "Mostrar u ocultar el nombre del artista en la cola",
+    queue_deduplication: "Eliminar duplicados",
+    queue_deduplication_desc: "Omitir las pistas que ya están en la cola al añadir",
     music_folders: "Carpetas de música",
     music_folders_desc: "Carpetas analizadas en busca de archivos de música",
     no_folders_added: "No se han añadido carpetas",

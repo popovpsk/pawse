@@ -87,6 +87,8 @@ pub static KO: Strings = lang! {
     action_buttons_desc: "대기열에서 재생목록 추가 및 좋아요 버튼을 표시하거나 숨깁니다",
     artist_name: "아티스트 이름",
     artist_name_desc: "대기열에서 아티스트 이름을 표시하거나 숨깁니다",
+    queue_deduplication: "중복 제거",
+    queue_deduplication_desc: "추가할 때 이미 대기열에 있는 트랙을 건너뜁니다",
     music_folders: "음악 폴더",
     music_folders_desc: "음악 파일을 스캔할 폴더",
     no_folders_added: "추가된 폴더 없음",

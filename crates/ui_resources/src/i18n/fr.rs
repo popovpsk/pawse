@@ -87,6 +87,8 @@ pub static FR: Strings = lang! {
     action_buttons_desc: "Afficher ou masquer les boutons d'ajout et de favori dans la file",
     artist_name: "Nom de l'artiste",
     artist_name_desc: "Afficher ou masquer le nom de l'artiste dans la file",
+    queue_deduplication: "Supprimer les doublons",
+    queue_deduplication_desc: "Ignorer les pistes déjà dans la file lors de l'ajout",
     music_folders: "Dossiers de musique",
     music_folders_desc: "Dossiers analysés pour trouver des fichiers de musique",
     no_folders_added: "Aucun dossier ajouté",

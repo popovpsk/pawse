@@ -87,6 +87,8 @@ pub static PT: Strings = lang! {
     action_buttons_desc: "Mostrar ou ocultar os botões de adicionar à playlist e curtir na fila",
     artist_name: "Nome do artista",
     artist_name_desc: "Mostrar ou ocultar o nome do artista na fila",
+    queue_deduplication: "Remover duplicados",
+    queue_deduplication_desc: "Ignorar faixas que já estão na fila ao adicionar",
     music_folders: "Pastas de música",
     music_folders_desc: "Pastas escaneadas em busca de arquivos de música",
     no_folders_added: "Nenhuma pasta adicionada",

@@ -87,6 +87,8 @@ pub static JA: Strings = lang! {
     action_buttons_desc: "キューでプレイリスト追加・お気に入りボタンを表示／非表示",
     artist_name: "アーティスト名",
     artist_name_desc: "キューでアーティスト名を表示／非表示",
+    queue_deduplication: "重複を削除",
+    queue_deduplication_desc: "追加時にすでにキューにある曲をスキップ",
     music_folders: "音楽フォルダ",
     music_folders_desc: "音楽ファイルをスキャンするフォルダ",
     no_folders_added: "フォルダが追加されていません",
