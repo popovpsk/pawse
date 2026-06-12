@@ -30,6 +30,7 @@ pub static FR: Strings = lang! {
     tab_artists: "Artistes",
     tab_liked: "Favoris",
     tab_playlists: "Playlists",
+    cover_mode: "Vue pochette",
     all_tracks: "Tous les titres",
     no_metadata: "Sans métadonnées",
 
@@ -141,4 +142,9 @@ pub static FR: Strings = lang! {
     failed_exclusive_t: "Impossible d'activer le mode exclusif : {}",
     failed_switch_device_t: "Impossible de changer de périphérique : {}",
     failed_save_settings_t: "Impossible d'enregistrer les réglages : {}",
+    cover_artist_desc: "Afficher l'artiste sous le titre dans la vue pochette",
+    cover_progress: "Barre de progression",
+    cover_progress_desc: "Afficher une barre de progression minimale dans la vue pochette",
+    cover_controls: "Commandes de lecture",
+    cover_controls_desc: "Afficher les boutons lecture, suivant et précédent dans la vue pochette",
 };

@@ -30,6 +30,7 @@ pub static TH: Strings = lang! {
     tab_artists: "ศิลปิน",
     tab_liked: "ที่ถูกใจ",
     tab_playlists: "เพลย์ลิสต์",
+    cover_mode: "มุมมองปก",
     all_tracks: "เพลงทั้งหมด",
     no_metadata: "ไม่มีข้อมูลเมตา",
 
@@ -141,4 +142,9 @@ pub static TH: Strings = lang! {
     failed_exclusive_t: "ไม่สามารถเปิดโหมดเอกสิทธิ์: {}",
     failed_switch_device_t: "ไม่สามารถสลับอุปกรณ์: {}",
     failed_save_settings_t: "ไม่สามารถบันทึกการตั้งค่า: {}",
+    cover_artist_desc: "แสดงศิลปินใต้ชื่อเพลงในมุมมองปก",
+    cover_progress: "แถบความคืบหน้า",
+    cover_progress_desc: "แสดงแถบความคืบหน้าแบบมินิมอลในมุมมองปก",
+    cover_controls: "ปุ่มควบคุมการเล่น",
+    cover_controls_desc: "แสดงปุ่มเล่น ถัดไป และก่อนหน้าในมุมมองปก",
 };

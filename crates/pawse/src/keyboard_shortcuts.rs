@@ -10,6 +10,7 @@ actions!(
         VolumeUp,
         VolumeDown,
         PlayPause,
+        ExitCoverMode,
     ]
 );
 
@@ -31,6 +32,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("up", VolumeUp, Some(BINDING)),
         KeyBinding::new("down", VolumeDown, Some(BINDING)),
         KeyBinding::new("space", PlayPause, Some(BINDING)),
+        KeyBinding::new("escape", ExitCoverMode, Some(BINDING)),
     ]);
 
     #[cfg(target_os = "macos")]

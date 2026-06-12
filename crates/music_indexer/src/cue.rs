@@ -46,7 +46,11 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
         .primary_tag()
         .or_else(|| tagged_file.first_tag())
         .and_then(embedded_cover)
-        .or_else(|| find_external_cover_art(&audio_path));
+        .map(|data| (data, audio_path.clone(), true))
+        .or_else(|| {
+            find_external_cover_art(&audio_path)
+                .map(|(data, source_path)| (data, source_path, false))
+        });
 
     // Multi-disc rips lay each disc out in a `CD1`/`CD2` (or `Disc N`) subfolder. The
     // CUE format has no disc field and these whole-disc files usually carry no tags, so
@@ -117,7 +121,13 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             disc_number,
             year,
             duration_ms: Some(duration_ms),
-            cover_art: cover_art.clone().map(CoverArt::Bytes),
+            cover_art: cover_art
+                .clone()
+                .map(|(data, source_path, embedded)| CoverArt::Bytes {
+                    data,
+                    source_path,
+                    embedded,
+                }),
             start_offset_ms: Some(start_offset_ms),
             bitrate,
         });

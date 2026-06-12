@@ -5,7 +5,6 @@ use gpui::{
 use gpui_component::tooltip::Tooltip;
 
 use crate::localization::tr;
-use crate::services::Services;
 use crate::theme_colors::Colors;
 
 pub struct NextButton;
@@ -16,13 +15,7 @@ impl NextButton {
     }
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<Services>();
-        let mut queue = services.playback_queue.borrow_mut();
-        if let Some(track) = queue.next_track().cloned() {
-            drop(queue);
-            services.play_track(&track);
-            crate::services::save_playback(cx);
-        }
+        crate::services::play_next(cx);
     }
 }
 

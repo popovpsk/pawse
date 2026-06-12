@@ -1202,7 +1202,7 @@ mod tests {
             })
             .unwrap();
         session
-            .add_cover(&hash, thumbs.small, thumbs.large)
+            .add_cover(&hash, thumbs.small, thumbs.large, "/music/a.flac", true)
             .unwrap();
         session.finish().unwrap();
 
@@ -1215,6 +1215,78 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "A");
         assert_eq!(tracks[0].cover_art_id, albums[0].cover_art_id);
+    }
+
+    #[test]
+    fn test_cover_art_source_roundtrip() {
+        let (lib, _path) = create_test_db();
+        let cover = make_test_jpeg(&[7, 8, 9]);
+        let hash = sha256_hex(&cover);
+        let thumbs = crate::thumbnail::generate_thumbnails(&cover).unwrap();
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_cover(&hash, thumbs.small, thumbs.large, "/m/art/cover.jpg", false)
+            .unwrap();
+        session.finish().unwrap();
+
+        let (_, id) = lib
+            .cover_art_hashes()
+            .unwrap()
+            .into_iter()
+            .find(|(h, _)| *h == hash)
+            .unwrap();
+        assert_eq!(
+            lib.get_cover_art_source(id).unwrap(),
+            Some(("/m/art/cover.jpg".to_string(), false))
+        );
+    }
+
+    #[test]
+    fn test_cover_art_source_none_when_untracked() {
+        let (lib, _path) = create_test_db();
+        let id = lib.save_cover_art(&make_test_jpeg(&[4, 5, 6])).unwrap();
+        assert_eq!(lib.get_cover_art_source(id).unwrap(), None);
+    }
+
+    #[test]
+    fn test_add_cover_keeps_first_source_across_rescans() {
+        let (lib, _path) = create_test_db();
+        let cover = make_test_jpeg(&[11, 12, 13]);
+        let hash = sha256_hex(&cover);
+        let thumbs = crate::thumbnail::generate_thumbnails(&cover).unwrap();
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_cover(
+                &hash,
+                thumbs.small.clone(),
+                thumbs.large.clone(),
+                "/first/cover.jpg",
+                false,
+            )
+            .unwrap();
+        session.finish().unwrap();
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_cover(&hash, thumbs.small, thumbs.large, "/second/cover.jpg", true)
+            .unwrap();
+        session.finish().unwrap();
+
+        let (_, id) = lib
+            .cover_art_hashes()
+            .unwrap()
+            .into_iter()
+            .find(|(h, _)| *h == hash)
+            .unwrap();
+        assert_eq!(
+            lib.get_cover_art_source(id).unwrap(),
+            Some(("/first/cover.jpg".to_string(), false))
+        );
     }
 
     #[test]

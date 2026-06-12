@@ -30,6 +30,7 @@ pub static PL: Strings = lang! {
     tab_artists: "Wykonawcy",
     tab_liked: "Polubione",
     tab_playlists: "Playlisty",
+    cover_mode: "Widok okładki",
     all_tracks: "Wszystkie utwory",
     no_metadata: "Bez metadanych",
 
@@ -141,4 +142,9 @@ pub static PL: Strings = lang! {
     failed_exclusive_t: "Nie udało się włączyć trybu wyłącznego: {}",
     failed_switch_device_t: "Nie udało się przełączyć urządzenia: {}",
     failed_save_settings_t: "Nie udało się zapisać ustawień: {}",
+    cover_artist_desc: "Pokaż wykonawcę pod tytułem w widoku okładki",
+    cover_progress: "Pasek postępu",
+    cover_progress_desc: "Pokaż minimalny pasek postępu w widoku okładki",
+    cover_controls: "Przyciski sterowania",
+    cover_controls_desc: "Pokaż przyciski odtwarzania, następny i poprzedni w widoku okładki",
 };

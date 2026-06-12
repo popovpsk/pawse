@@ -645,6 +645,18 @@ impl LibraryRepository for SqliteLibrary {
         Ok(result)
     }
 
+    fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let result: Option<(Option<String>, bool)> = conn
+            .query_row(
+                "SELECT source_path, embedded FROM cover_art WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(result.and_then(|(path, embedded)| path.map(|p| (p, embedded))))
+    }
+
     fn album_has_artists(&self, album_id: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let exists: bool = conn.query_row(
@@ -1283,11 +1295,19 @@ impl ScanWrite for ScanSession {
         Ok(())
     }
 
-    fn add_cover(&mut self, hash: &str, small: Vec<u8>, large: Vec<u8>) -> Result<()> {
+    fn add_cover(
+        &mut self,
+        hash: &str,
+        small: Vec<u8>,
+        large: Vec<u8>,
+        source_path: &str,
+        embedded: bool,
+    ) -> Result<()> {
         if !self.cover_cache.contains_key(hash) {
             self.conn.execute(
-                "INSERT OR IGNORE INTO cover_art (hash, small, large) VALUES (?1, ?2, ?3)",
-                rusqlite::params![hash, small, large],
+                "INSERT OR IGNORE INTO cover_art (hash, small, large, source_path, embedded) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![hash, small, large, source_path, embedded],
             )?;
             let id: i64 =
                 self.conn

@@ -84,9 +84,7 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
                             a || c || i
                         })
                         .unwrap_or(false);
-                    if relevant
-                        && let Ok(md) = entry.metadata()
-                    {
+                    if relevant && let Ok(md) = entry.metadata() {
                         let mtime = md
                             .modified()
                             .ok()
@@ -271,20 +269,26 @@ fn emit_track(
     counter: &AtomicUsize,
 ) -> bool {
     let cover_hash = match &track.cover_art {
-        Some(CoverArt::Bytes(bytes)) => {
-            let hash = sha256_hex(bytes);
+        Some(CoverArt::Bytes {
+            data,
+            source_path,
+            embedded,
+        }) => {
+            let hash = sha256_hex(data);
             if !known.contains(&hash) {
                 // Only the first worker to claim a hash generates its thumbnail;
                 // peers reference the hash and let the writer resolve the id.
                 let newly_claimed = claimed.lock().unwrap().insert(hash.clone());
                 if newly_claimed {
-                    match generate_thumbnails(bytes) {
+                    match generate_thumbnails(data) {
                         Ok(thumbs) => {
                             if tx
                                 .send(ScanEvent::Cover {
                                     hash: hash.clone(),
                                     small: thumbs.small,
                                     large: thumbs.large,
+                                    source_path: source_path.to_string_lossy().into_owned(),
+                                    embedded: *embedded,
                                 })
                                 .is_err()
                             {

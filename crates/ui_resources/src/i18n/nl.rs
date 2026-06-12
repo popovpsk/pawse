@@ -30,6 +30,7 @@ pub static NL: Strings = lang! {
     tab_artists: "Artiesten",
     tab_liked: "Vind-ik-leuks",
     tab_playlists: "Afspeellijsten",
+    cover_mode: "Hoesweergave",
     all_tracks: "Alle nummers",
     no_metadata: "Geen metadata",
 
@@ -141,4 +142,9 @@ pub static NL: Strings = lang! {
     failed_exclusive_t: "Kan exclusieve modus niet inschakelen: {}",
     failed_switch_device_t: "Kan niet van apparaat wisselen: {}",
     failed_save_settings_t: "Kan instellingen niet opslaan: {}",
+    cover_artist_desc: "Toon de artiest onder de titel in hoesweergave",
+    cover_progress: "Voortgangsbalk",
+    cover_progress_desc: "Toon een minimale voortgangsbalk in hoesweergave",
+    cover_controls: "Afspeelknoppen",
+    cover_controls_desc: "Toon de knoppen afspelen, volgende en vorige in hoesweergave",
 };

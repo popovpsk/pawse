@@ -30,6 +30,7 @@ pub static CS: Strings = lang! {
     tab_artists: "Interpreti",
     tab_liked: "Oblíbené",
     tab_playlists: "Playlisty",
+    cover_mode: "Zobrazení obalu",
     all_tracks: "Všechny skladby",
     no_metadata: "Bez metadat",
 
@@ -141,4 +142,9 @@ pub static CS: Strings = lang! {
     failed_exclusive_t: "Nepodařilo se zapnout exkluzivní režim: {}",
     failed_switch_device_t: "Nepodařilo se přepnout zařízení: {}",
     failed_save_settings_t: "Nepodařilo se uložit nastavení: {}",
+    cover_artist_desc: "Zobrazit interpreta pod názvem v zobrazení obalu",
+    cover_progress: "Ukazatel průběhu",
+    cover_progress_desc: "Zobrazit minimální ukazatel průběhu v zobrazení obalu",
+    cover_controls: "Ovládání přehrávání",
+    cover_controls_desc: "Zobrazit tlačítka přehrát, další a předchozí v zobrazení obalu",
 };

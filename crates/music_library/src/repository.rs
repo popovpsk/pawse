@@ -16,7 +16,14 @@ pub trait ScanWrite: Send {
     /// Wipe tracks/artists/albums (keeping `cover_art`, like [`LibraryRepository::clear`]).
     fn clear(&mut self) -> Result<()>;
     /// Register a freshly generated cover thumbnail by content hash.
-    fn add_cover(&mut self, hash: &str, small: Vec<u8>, large: Vec<u8>) -> Result<()>;
+    fn add_cover(
+        &mut self,
+        hash: &str,
+        small: Vec<u8>,
+        large: Vec<u8>,
+        source_path: &str,
+        embedded: bool,
+    ) -> Result<()>;
     /// Insert one scanned track, resolving artists/album/cover from caches.
     fn add_track(&mut self, track: ScanTrack) -> Result<()>;
     /// Flush any buffered tracks and commit.
@@ -52,6 +59,7 @@ pub trait LibraryRepository: Send + Sync {
     fn get_cover_art(&self, id: i64) -> Result<Option<CoverArt>>;
     fn get_cover_art_small(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
+    fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>>;
     fn album_has_artists(&self, album_id: i64) -> Result<bool>;
     fn artists(&self) -> Result<Vec<ArtistSummary>>;
     fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;

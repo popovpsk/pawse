@@ -30,6 +30,7 @@ pub static ZH: Strings = lang! {
     tab_artists: "艺术家",
     tab_liked: "喜欢",
     tab_playlists: "播放列表",
+    cover_mode: "封面视图",
     all_tracks: "所有曲目",
     no_metadata: "无元数据",
 
@@ -141,4 +142,9 @@ pub static ZH: Strings = lang! {
     failed_exclusive_t: "无法启用独占模式：{}",
     failed_switch_device_t: "无法切换设备：{}",
     failed_save_settings_t: "无法保存设置：{}",
+    cover_artist_desc: "在封面视图中于标题下方显示艺术家",
+    cover_progress: "进度条",
+    cover_progress_desc: "在封面视图中显示简约的进度条",
+    cover_controls: "播放控制",
+    cover_controls_desc: "在封面视图中显示播放、下一首和上一首按钮",
 };

@@ -30,6 +30,7 @@ pub static ES: Strings = lang! {
     tab_artists: "Artistas",
     tab_liked: "Favoritos",
     tab_playlists: "Listas",
+    cover_mode: "Vista de portada",
     all_tracks: "Todas las pistas",
     no_metadata: "Sin metadatos",
 
@@ -141,4 +142,9 @@ pub static ES: Strings = lang! {
     failed_exclusive_t: "No se pudo activar el modo exclusivo: {}",
     failed_switch_device_t: "No se pudo cambiar de dispositivo: {}",
     failed_save_settings_t: "No se pudieron guardar los ajustes: {}",
+    cover_artist_desc: "Mostrar el artista debajo del título en la vista de portada",
+    cover_progress: "Barra de progreso",
+    cover_progress_desc: "Mostrar una barra de progreso mínima en la vista de portada",
+    cover_controls: "Controles de reproducción",
+    cover_controls_desc: "Mostrar los botones de reproducción, siguiente y anterior en la vista de portada",
 };

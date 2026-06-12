@@ -1,6 +1,7 @@
-pub const MIGRATIONS: &[(i32, &str)] = &[(
-    1,
-    r#"
+pub const MIGRATIONS: &[(i32, &str)] = &[
+    (
+        1,
+        r#"
         CREATE TABLE artists (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -92,4 +93,12 @@ pub const MIGRATIONS: &[(i32, &str)] = &[(
             value TEXT NOT NULL
         );
         "#,
-)];
+    ),
+    (
+        2,
+        r#"
+        ALTER TABLE cover_art ADD COLUMN source_path TEXT;
+        ALTER TABLE cover_art ADD COLUMN embedded INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
+];

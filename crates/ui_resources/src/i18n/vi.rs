@@ -30,6 +30,7 @@ pub static VI: Strings = lang! {
     tab_artists: "Nghệ sĩ",
     tab_liked: "Yêu thích",
     tab_playlists: "Danh sách phát",
+    cover_mode: "Chế độ xem bìa",
     all_tracks: "Tất cả bài hát",
     no_metadata: "Không có siêu dữ liệu",
 
@@ -141,4 +142,9 @@ pub static VI: Strings = lang! {
     failed_exclusive_t: "Không thể bật chế độ độc quyền: {}",
     failed_switch_device_t: "Không thể chuyển thiết bị: {}",
     failed_save_settings_t: "Không thể lưu cài đặt: {}",
+    cover_artist_desc: "Hiển thị nghệ sĩ dưới tiêu đề trong chế độ xem bìa",
+    cover_progress: "Thanh tiến trình",
+    cover_progress_desc: "Hiển thị thanh tiến trình tối giản trong chế độ xem bìa",
+    cover_controls: "Điều khiển phát",
+    cover_controls_desc: "Hiển thị nút phát, tiếp theo và trước đó trong chế độ xem bìa",
 };

@@ -30,6 +30,7 @@ pub static SV: Strings = lang! {
     tab_artists: "Artister",
     tab_liked: "Gillade",
     tab_playlists: "Spellistor",
+    cover_mode: "Omslagsvy",
     all_tracks: "Alla låtar",
     no_metadata: "Inga metadata",
 
@@ -141,4 +142,9 @@ pub static SV: Strings = lang! {
     failed_exclusive_t: "Det gick inte att aktivera exklusivt läge: {}",
     failed_switch_device_t: "Det gick inte att byta enhet: {}",
     failed_save_settings_t: "Det gick inte att spara inställningarna: {}",
+    cover_artist_desc: "Visa artisten under titeln i omslagsvyn",
+    cover_progress: "Förloppsindikator",
+    cover_progress_desc: "Visa en minimal förloppsindikator i omslagsvyn",
+    cover_controls: "Uppspelningskontroller",
+    cover_controls_desc: "Visa knapparna spela, nästa och föregående i omslagsvyn",
 };

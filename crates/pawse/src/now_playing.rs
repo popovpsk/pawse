@@ -140,12 +140,10 @@ impl NowPlaying {
             self.cover_art_id = cover;
             self.album_id = album_id;
             self.specs = SharedString::from(format_specs(sample_rate, bit_depth, bitrate));
-            let mut seen = std::collections::HashSet::new();
             self.artists = services
                 .library
-                .track_artists_with_ids(track_id)
+                .unique_track_artists(track_id)
                 .into_iter()
-                .filter(|(id, _)| seen.insert(*id))
                 .map(|(id, name)| (id, SharedString::from(name)))
                 .collect();
             self.cover_image = services

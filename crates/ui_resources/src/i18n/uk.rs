@@ -30,6 +30,7 @@ pub static UK: Strings = lang! {
     tab_artists: "Виконавці",
     tab_liked: "Вподобані",
     tab_playlists: "Плейлисти",
+    cover_mode: "Режим обкладинки",
     all_tracks: "Всі треки",
     no_metadata: "Без метаданих",
 
@@ -141,4 +142,9 @@ pub static UK: Strings = lang! {
     failed_exclusive_t: "Не вдалося увімкнути ексклюзивний режим: {}",
     failed_switch_device_t: "Не вдалося змінити пристрій: {}",
     failed_save_settings_t: "Не вдалося зберегти налаштування: {}",
+    cover_artist_desc: "Показувати виконавця під назвою в режимі обкладинки",
+    cover_progress: "Смуга прогресу",
+    cover_progress_desc: "Показувати мінімалістичну смугу прогресу в режимі обкладинки",
+    cover_controls: "Кнопки керування",
+    cover_controls_desc: "Показувати кнопки відтворення, вперед і назад у режимі обкладинки",
 };

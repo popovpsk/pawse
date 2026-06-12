@@ -57,18 +57,10 @@ impl PlayButton {
     }
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<Services>();
-        if services.playback_queue.borrow().current_track().is_none() {
-            return;
+        if let Some(playing) = crate::services::toggle_play_pause(cx) {
+            self.state.is_playing = playing;
+            cx.notify();
         }
-        if self.state.is_playing {
-            services.engine_manager.pause();
-            self.state.is_playing = false;
-        } else {
-            services.engine_manager.play();
-            self.state.is_playing = true;
-        }
-        cx.notify();
     }
 }
 

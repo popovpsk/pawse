@@ -30,6 +30,7 @@ pub static ID: Strings = lang! {
     tab_artists: "Artis",
     tab_liked: "Disukai",
     tab_playlists: "Playlist",
+    cover_mode: "Tampilan sampul",
     all_tracks: "Semua lagu",
     no_metadata: "Tanpa metadata",
 
@@ -141,4 +142,9 @@ pub static ID: Strings = lang! {
     failed_exclusive_t: "Gagal mengaktifkan mode eksklusif: {}",
     failed_switch_device_t: "Gagal mengganti perangkat: {}",
     failed_save_settings_t: "Gagal menyimpan pengaturan: {}",
+    cover_artist_desc: "Tampilkan artis di bawah judul di tampilan sampul",
+    cover_progress: "Bilah kemajuan",
+    cover_progress_desc: "Tampilkan bilah kemajuan minimal di tampilan sampul",
+    cover_controls: "Kontrol pemutaran",
+    cover_controls_desc: "Tampilkan tombol putar, berikutnya, dan sebelumnya di tampilan sampul",
 };

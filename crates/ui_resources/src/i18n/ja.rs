@@ -30,6 +30,7 @@ pub static JA: Strings = lang! {
     tab_artists: "アーティスト",
     tab_liked: "お気に入り",
     tab_playlists: "プレイリスト",
+    cover_mode: "カバー表示",
     all_tracks: "すべてのトラック",
     no_metadata: "メタデータなし",
 
@@ -141,4 +142,9 @@ pub static JA: Strings = lang! {
     failed_exclusive_t: "排他モードを有効にできませんでした: {}",
     failed_switch_device_t: "デバイスを切り替えられませんでした: {}",
     failed_save_settings_t: "設定を保存できませんでした: {}",
+    cover_artist_desc: "カバー表示でタイトルの下にアーティストを表示します",
+    cover_progress: "進行状況バー",
+    cover_progress_desc: "カバー表示に最小限の進行状況バーを表示します",
+    cover_controls: "再生コントロール",
+    cover_controls_desc: "カバー表示に再生・次へ・前へボタンを表示します",
 };

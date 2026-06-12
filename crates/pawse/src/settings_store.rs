@@ -244,6 +244,12 @@ pub struct UserSettings {
     pub show_queue_actions: bool,
     #[serde(default = "default_true")]
     pub show_queue_artist: bool,
+    #[serde(default = "default_true")]
+    pub cover_show_artist: bool,
+    #[serde(default = "default_true")]
+    pub cover_show_progress: bool,
+    #[serde(default = "default_true")]
+    pub cover_show_controls: bool,
     #[serde(default)]
     pub queue_deduplication: bool,
     #[serde(default)]
@@ -268,6 +274,9 @@ impl Default for UserSettings {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            cover_show_artist: true,
+            cover_show_progress: true,
+            cover_show_controls: true,
             queue_deduplication: false,
             font_scale: FontScale::default(),
             onboarding_complete: false,
@@ -481,6 +490,33 @@ impl SettingsStore {
 
     pub fn set_show_queue_artist(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_queue_artist = show;
+        self.save()
+    }
+
+    pub fn cover_show_artist(&self) -> bool {
+        self.settings.cover_show_artist
+    }
+
+    pub fn set_cover_show_artist(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.cover_show_artist = show;
+        self.save()
+    }
+
+    pub fn cover_show_progress(&self) -> bool {
+        self.settings.cover_show_progress
+    }
+
+    pub fn set_cover_show_progress(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.cover_show_progress = show;
+        self.save()
+    }
+
+    pub fn cover_show_controls(&self) -> bool {
+        self.settings.cover_show_controls
+    }
+
+    pub fn set_cover_show_controls(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.cover_show_controls = show;
         self.save()
     }
 
@@ -770,6 +806,9 @@ mod tests {
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
+            cover_show_artist: true,
+            cover_show_progress: true,
+            cover_show_controls: true,
             queue_deduplication: false,
             font_scale: FontScale::Large,
             onboarding_complete: false,

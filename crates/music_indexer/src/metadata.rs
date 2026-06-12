@@ -29,10 +29,14 @@ impl CoverCache {
                 return cached.clone().map(CoverArt::Cached);
             }
         }
-        let bytes = find_external_cover_art(path);
-        let hash = bytes.as_ref().map(|b| sha256_hex(b));
+        let found = find_external_cover_art(path);
+        let hash = found.as_ref().map(|(b, _)| sha256_hex(b));
         self.resolved.lock().unwrap().insert(dir, hash);
-        bytes.map(CoverArt::Bytes)
+        found.map(|(data, source_path)| CoverArt::Bytes {
+            data,
+            source_path,
+            embedded: false,
+        })
     }
 }
 
@@ -40,7 +44,10 @@ pub fn read_metadata(path: impl AsRef<Path>) -> anyhow::Result<ScannedTrack> {
     read_metadata_inner(path.as_ref(), None)
 }
 
-pub(crate) fn read_metadata_cached(path: &Path, cache: &CoverCache) -> anyhow::Result<ScannedTrack> {
+pub(crate) fn read_metadata_cached(
+    path: &Path,
+    cache: &CoverCache,
+) -> anyhow::Result<ScannedTrack> {
     read_metadata_inner(path, Some(cache))
 }
 
@@ -113,10 +120,18 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
     }
 
     let cover_art = match embedded {
-        Some(bytes) => Some(CoverArt::Bytes(bytes)),
+        Some(data) => Some(CoverArt::Bytes {
+            data,
+            source_path: path.to_path_buf(),
+            embedded: true,
+        }),
         None => match cache {
             Some(cache) => cache.external_cover(path),
-            None => find_external_cover_art(path).map(CoverArt::Bytes),
+            None => find_external_cover_art(path).map(|(data, source_path)| CoverArt::Bytes {
+                data,
+                source_path,
+                embedded: false,
+            }),
         },
     };
 
@@ -144,28 +159,52 @@ pub(crate) fn embedded_cover(tag: &Tag) -> Option<Vec<u8>> {
         .map(|pic| pic.data().to_vec())
 }
 
-pub fn find_external_cover_art(path: &Path) -> Option<Vec<u8>> {
+pub fn extract_embedded_cover(path: &Path) -> Option<Vec<u8>> {
+    let tagged_file = lofty::read_from_path(path).ok()?;
+    tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+        .and_then(embedded_cover)
+}
+
+pub fn extract_cover_art(path: &Path) -> Option<Vec<u8>> {
+    extract_embedded_cover(path).or_else(|| find_external_cover_art(path).map(|(data, _)| data))
+}
+
+pub fn load_cover_from_source(
+    source: Option<(String, bool)>,
+    track_path: Option<&str>,
+) -> Option<Vec<u8>> {
+    match source {
+        Some((path, true)) => extract_embedded_cover(Path::new(&path)),
+        Some((path, false)) => std::fs::read(path).ok(),
+        None => None,
+    }
+    .or_else(|| track_path.and_then(|p| extract_cover_art(Path::new(p))))
+}
+
+pub fn find_external_cover_art(path: &Path) -> Option<(Vec<u8>, PathBuf)> {
     let dir = path.parent()?;
 
     // 1. Track's own directory (e.g. CD1/, CD2/)
-    if let Some(data) = find_cover_art_in_dir(dir) {
-        return Some(data);
+    if let Some(found) = find_cover_art_in_dir(dir) {
+        return Some(found);
     }
 
     // 2. Named artwork subdirectories under track's directory
-    if let Some(data) = find_cover_in_subdirs(dir) {
-        return Some(data);
+    if let Some(found) = find_cover_in_subdirs(dir) {
+        return Some(found);
     }
 
     // 3. Parent directory (album root) — common for multi-disc albums
     if let Some(parent) = dir.parent() {
-        if let Some(data) = find_cover_art_in_dir(parent) {
-            return Some(data);
+        if let Some(found) = find_cover_art_in_dir(parent) {
+            return Some(found);
         }
 
         // 4. Named artwork subdirectories under parent directory
-        if let Some(data) = find_cover_in_subdirs(parent) {
-            return Some(data);
+        if let Some(found) = find_cover_in_subdirs(parent) {
+            return Some(found);
         }
     }
 
@@ -176,7 +215,7 @@ const ARTWORK_DIR_NAMES: &[&str] = &[
     "artwork", "art", "covers", "scans", "images", "img", "pics", "folder", "booklet",
 ];
 
-fn find_cover_in_subdirs(dir: &Path) -> Option<Vec<u8>> {
+fn find_cover_in_subdirs(dir: &Path) -> Option<(Vec<u8>, PathBuf)> {
     for entry in std::fs::read_dir(dir).ok()? {
         let entry = entry.ok()?;
         if !entry.file_type().ok()?.is_dir() {
@@ -186,14 +225,14 @@ fn find_cover_in_subdirs(dir: &Path) -> Option<Vec<u8>> {
         if !ARTWORK_DIR_NAMES.contains(&name.as_str()) {
             continue;
         }
-        if let Some(data) = find_cover_art_in_dir(&entry.path()) {
-            return Some(data);
+        if let Some(found) = find_cover_art_in_dir(&entry.path()) {
+            return Some(found);
         }
     }
     None
 }
 
-fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
+fn find_cover_art_in_dir(dir: &Path) -> Option<(Vec<u8>, PathBuf)> {
     let prefixes = ["cover", "folder", "front", "album", "art"];
     let exts = ["jpg", "jpeg", "png"];
     let negative = [
@@ -257,14 +296,14 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<Vec<u8>> {
         return candidates
             .into_iter()
             .next()
-            .and_then(|(_, p)| std::fs::read(p).ok());
+            .and_then(|(_, p)| std::fs::read(&p).ok().map(|data| (data, p)));
     }
 
     fallback.sort_by_key(|(size, _)| std::cmp::Reverse(*size));
     fallback
         .into_iter()
         .next()
-        .and_then(|(_, p)| std::fs::read(p).ok())
+        .and_then(|(_, p)| std::fs::read(&p).ok().map(|data| (data, p)))
 }
 
 fn contains_word(haystack: &str, needle: &str) -> bool {
@@ -279,7 +318,91 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::contains_word;
+    use super::{contains_word, find_external_cover_art, load_cover_from_source};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new() -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "pawse_meta_test_{}_{}",
+                std::process::id(),
+                id
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn find_external_cover_art_returns_source_path() {
+        let tmp = TempDir::new();
+        let cover_path = tmp.path.join("cover.jpg");
+        std::fs::write(&cover_path, b"jpegbytes").unwrap();
+        let track = tmp.path.join("track.flac");
+
+        let (data, path) = find_external_cover_art(&track).unwrap();
+        assert_eq!(data, b"jpegbytes");
+        assert_eq!(path, cover_path);
+    }
+
+    #[test]
+    fn load_cover_from_external_source_path() {
+        let tmp = TempDir::new();
+        let cover_path = tmp.path.join("art.jpg");
+        std::fs::write(&cover_path, b"external").unwrap();
+
+        let source = Some((cover_path.to_string_lossy().into_owned(), false));
+        assert_eq!(load_cover_from_source(source, None).unwrap(), b"external");
+    }
+
+    #[test]
+    fn load_cover_falls_back_to_track_dir_when_source_missing() {
+        let tmp = TempDir::new();
+        std::fs::write(tmp.path.join("cover.jpg"), b"fallback").unwrap();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+
+        let gone = tmp.path.join("deleted.jpg");
+        let source = Some((gone.to_string_lossy().into_owned(), false));
+        let track_path = track.to_string_lossy().into_owned();
+        assert_eq!(
+            load_cover_from_source(source, Some(&track_path)).unwrap(),
+            b"fallback"
+        );
+    }
+
+    #[test]
+    fn load_cover_falls_back_when_embedded_extraction_fails() {
+        let tmp = TempDir::new();
+        std::fs::write(tmp.path.join("cover.jpg"), b"fallback").unwrap();
+        let not_audio = tmp.path.join("track.flac");
+        std::fs::write(&not_audio, b"not really audio").unwrap();
+
+        let source = Some((not_audio.to_string_lossy().into_owned(), true));
+        let track_path = not_audio.to_string_lossy().into_owned();
+        assert_eq!(
+            load_cover_from_source(source, Some(&track_path)).unwrap(),
+            b"fallback"
+        );
+    }
+
+    #[test]
+    fn load_cover_none_without_source_or_track() {
+        assert!(load_cover_from_source(None, None).is_none());
+    }
 
     #[test]
     fn test_contains_word_at_start() {

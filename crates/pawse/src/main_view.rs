@@ -1,20 +1,24 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement,
-    Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, px, svg,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window,
+    canvas, div, px, svg,
 };
 use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     theme::ThemeRegistry,
+    tooltip::Tooltip,
 };
 
 use crate::audio_settings::AudioSettings;
+use crate::cover_mode_view::CoverModeView;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
-    NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown, VolumeUp,
+    ExitCoverMode, NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown,
+    VolumeUp,
 };
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::localization::LangChanged;
@@ -63,6 +67,8 @@ pub struct MainView {
     is_drilled_in: bool,
     current_tab: LibraryRootTab,
     show_settings: bool,
+    cover_mode: bool,
+    cover_mode_view: Entity<CoverModeView>,
     show_queue: bool,
     queue_width: f32,
     queue_resize_origin: Option<(Pixels, f32)>,
@@ -77,6 +83,9 @@ pub struct MainView {
     _footer_subscription: Subscription,
     _footer_album_subscription: Subscription,
     _footer_artist_subscription: Subscription,
+    _cover_album_subscription: Subscription,
+    _cover_artist_subscription: Subscription,
+    _cover_observe_subscription: Subscription,
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
     _theme_picker_subscription: gpui::Subscription,
@@ -190,6 +199,7 @@ impl MainView {
             let library_view = library_view.clone();
             move |this, _, event: &NavigateToAlbumRequested, window, cx| {
                 this.show_settings = false;
+                this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
                     view.navigate_to_album(event.album_id, window, cx);
                 });
@@ -200,6 +210,7 @@ impl MainView {
             let library_view = library_view.clone();
             move |this, _, event: &NavigateToArtistRequested, cx| {
                 this.show_settings = false;
+                this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
                     view.navigate_to_artist(event.artist_id, cx);
                 });
@@ -207,6 +218,27 @@ impl MainView {
         });
 
         let queue_view = cx.new(|cx| QueueView::new(window, cx));
+
+        let cover_mode_view = cx.new(|cx| CoverModeView::new(window, cx));
+        let cover_album_subscription = cx.subscribe_in(&cover_mode_view, window, {
+            let library_view = library_view.clone();
+            move |this: &mut MainView, _, event: &NavigateToAlbumRequested, window, cx| {
+                this.set_cover_mode(false, cx);
+                library_view.update(cx, |view, cx| {
+                    view.navigate_to_album(event.album_id, window, cx);
+                });
+            }
+        });
+        let cover_artist_subscription = cx.subscribe(&cover_mode_view, {
+            let library_view = library_view.clone();
+            move |this: &mut MainView, _, event: &NavigateToArtistRequested, cx| {
+                this.set_cover_mode(false, cx);
+                library_view.update(cx, |view, cx| {
+                    view.navigate_to_artist(event.artist_id, cx);
+                });
+            }
+        });
+        let cover_observe_subscription = cx.observe(&cover_mode_view, |_, _, cx| cx.notify());
 
         // ShuffleButton::on_click calls cx.notify() after reordering the queue.
         // Observe that entity so QueueView stays in sync with the shuffled order.
@@ -255,6 +287,8 @@ impl MainView {
             is_drilled_in: false,
             current_tab: LibraryRootTab::Albums,
             show_settings: false,
+            cover_mode: false,
+            cover_mode_view,
             show_queue: false,
             queue_width: QUEUE_WIDTH_DEFAULT,
             queue_resize_origin: None,
@@ -269,6 +303,9 @@ impl MainView {
             _footer_subscription: footer_subscription,
             _footer_album_subscription: footer_album_subscription,
             _footer_artist_subscription: footer_artist_subscription,
+            _cover_album_subscription: cover_album_subscription,
+            _cover_artist_subscription: cover_artist_subscription,
+            _cover_observe_subscription: cover_observe_subscription,
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
             _theme_picker_subscription: theme_picker_subscription,
@@ -301,39 +338,11 @@ impl MainView {
     }
 
     fn on_next_track(&mut self, _: &NextTrack, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<crate::services::Services>();
-        let mut queue = services.playback_queue.borrow_mut();
-        if let Some(track) = queue.next_track().cloned() {
-            drop(queue);
-            services.play_track(&track);
-            crate::services::save_playback(cx);
-        }
+        crate::services::play_next(cx);
     }
 
     fn on_previous_track(&mut self, _: &PreviousTrack, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<crate::services::Services>();
-        let current_ms = services
-            .current_position_ms
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let current_secs = current_ms as f32 / 1000.0;
-        let mut queue = services.playback_queue.borrow_mut();
-        let track_changed = match queue.previous(current_secs) {
-            crate::playback_queue::PreviousAction::SeekToStart => {
-                drop(queue);
-                services.engine_manager.seek(0.0);
-                services.engine_manager.play();
-                false
-            }
-            crate::playback_queue::PreviousAction::PreviousTrack(track) => {
-                let track = track.clone();
-                drop(queue);
-                services.play_track(&track);
-                true
-            }
-        };
-        if track_changed {
-            crate::services::save_playback(cx);
-        }
+        crate::services::play_previous(cx);
     }
 
     fn on_volume_up(&mut self, _: &VolumeUp, _: &mut Window, cx: &mut Context<Self>) {
@@ -351,19 +360,36 @@ impl MainView {
     }
 
     fn on_play_pause(&mut self, _: &PlayPause, _: &mut Window, cx: &mut Context<Self>) {
-        let services = cx.global::<crate::services::Services>();
-        // Don't flip the is_playing mirror with no track loaded:
-        // play() would emit no event, leaving it stuck true.
-        if services.playback_queue.borrow().current_track().is_none() {
+        crate::services::toggle_play_pause(cx);
+    }
+
+    fn leave_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_search(window, cx);
+        self.set_cover_mode(false, cx);
+    }
+
+    fn set_cover_mode(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.cover_mode == on {
             return;
         }
-        let was_playing = services
-            .is_playing
-            .fetch_xor(true, std::sync::atomic::Ordering::Relaxed);
-        if was_playing {
-            services.engine_manager.pause();
+        self.cover_mode = on;
+        self.cover_mode_view
+            .update(cx, |view, cx| view.set_active(on, cx));
+        cx.notify();
+    }
+
+    fn toggle_cover_queue(&mut self, cx: &mut Context<Self>) {
+        self.show_queue = !self.show_queue;
+        let show = self.show_queue;
+        self.footer.update(cx, |f, cx| f.set_show_queue(show, cx));
+        cx.notify();
+    }
+
+    fn on_exit_cover_mode(&mut self, _: &ExitCoverMode, _: &mut Window, cx: &mut Context<Self>) {
+        if self.cover_mode {
+            self.set_cover_mode(false, cx);
         } else {
-            services.engine_manager.play();
+            cx.propagate();
         }
     }
 }
@@ -373,7 +399,12 @@ impl Render for MainView {
         let entity_id = cx.entity_id();
         let show_settings = self.show_settings;
         let has_back = show_settings || self.is_drilled_in;
-        let current_tab = self.current_tab;
+        let cover_mode = self.cover_mode;
+        let active_tab = (!cover_mode).then_some(self.current_tab);
+        let (chrome_visible, corner_visible) = {
+            let view = self.cover_mode_view.read(cx);
+            (view.chrome_visible(), view.corner_visible())
+        };
 
         let title_bar = Colors::title_bar(cx);
         let muted = Colors::muted(cx);
@@ -400,7 +431,7 @@ impl Render for MainView {
                 d.child(tab_icon_button(
                     "tab_albums",
                     "icons/s1-albums.svg",
-                    current_tab == LibraryRootTab::Albums,
+                    active_tab == Some(LibraryRootTab::Albums),
                     LibraryRootTab::Albums,
                     tab_colors,
                     cx,
@@ -408,7 +439,7 @@ impl Render for MainView {
                 .child(tab_icon_button(
                     "tab_artists",
                     "icons/s1-artists.svg",
-                    current_tab == LibraryRootTab::Artists,
+                    active_tab == Some(LibraryRootTab::Artists),
                     LibraryRootTab::Artists,
                     tab_colors,
                     cx,
@@ -417,7 +448,7 @@ impl Render for MainView {
                     d.child(tab_icon_button(
                         "tab_liked",
                         "icons/s1-heart.svg",
-                        current_tab == LibraryRootTab::Liked,
+                        active_tab == Some(LibraryRootTab::Liked),
                         LibraryRootTab::Liked,
                         tab_colors,
                         cx,
@@ -427,12 +458,13 @@ impl Render for MainView {
                     d.child(tab_icon_button(
                         "tab_playlists",
                         "icons/s1-playlists.svg",
-                        current_tab == LibraryRootTab::Playlists,
+                        active_tab == Some(LibraryRootTab::Playlists),
                         LibraryRootTab::Playlists,
                         tab_colors,
                         cx,
                     ))
                 })
+                .child(cover_mode_button(cover_mode, tab_colors, cx))
             });
 
         let right_group = div()
@@ -467,8 +499,121 @@ impl Render for MainView {
                     }
                 }),
             )
+            .when(cover_mode, |d| {
+                d.on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
+                    this.cover_mode_view
+                        .update(cx, |view, cx| view.handle_mouse_move(cx));
+                }))
+            })
             .child(crate::window_title_bar::WindowTitleBar::new())
-            .child(
+            .child({
+                let header_bar = div()
+                    .w_full()
+                    .flex_shrink_0()
+                    .h(px(HEADER_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .pl_2()
+                    .pr_2()
+                    .bg(title_bar)
+                    .child(left_group)
+                    .when(!show_settings && !cover_mode, |d| {
+                        d.child(
+                            div().w(px(260.)).child(
+                                Input::new(&self.search_input)
+                                    .with_size(Size::Medium)
+                                    .focus_bordered(false)
+                                    .rounded_full()
+                                    .bg(title_bar),
+                            ),
+                        )
+                    })
+                    .child(right_group);
+
+                let middle = div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .flex()
+                    .bg(title_bar)
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .when(!cover_mode, |d| d.ml_4())
+                            .when(!cover_mode && !self.show_queue, |d| d.mr_4())
+                            .child(if cover_mode {
+                                self.cover_mode_view.clone().into_any_element()
+                            } else if show_settings {
+                                // Our own tab-based settings widget (ui_components) owns
+                                // its scroll + active-tab state; it just needs a
+                                // definite-size parent, which `flex_1` provides here.
+                                div()
+                                    .size_full()
+                                    .child(crate::settings_view::settings_widget(
+                                        self.settings_pages.clone(),
+                                    ))
+                                    .into_any_element()
+                            } else {
+                                self.library_view.clone().into_any_element()
+                            })
+                            .when(cover_mode && (chrome_visible || corner_visible), |d| {
+                                d.relative()
+                                    .child(cover_chrome_button(chrome_visible, tab_colors, cx))
+                                    .when(!chrome_visible, |d| {
+                                        d.child(cover_queue_button(
+                                            self.show_queue,
+                                            tab_colors,
+                                            cx,
+                                        ))
+                                    })
+                            }),
+                    )
+                    .when(self.show_queue, |d| {
+                        let queue_width = self.queue_width;
+                        d.child(
+                            div()
+                                .w(px(queue_width))
+                                .flex_shrink_0()
+                                .border_l(px(1.))
+                                .border_color(Colors::border(cx))
+                                .relative()
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .overflow_hidden()
+                                        .child(self.queue_view.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .id("queue_resize_handle")
+                                        .absolute()
+                                        .left(px(-3.))
+                                        .top(px(0.))
+                                        .h_full()
+                                        .w(px(6.))
+                                        .cursor(gpui::CursorStyle::ResizeLeftRight)
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, e: &MouseDownEvent, _, _| {
+                                                this.queue_resize_origin =
+                                                    Some((e.position.x, this.queue_width));
+                                            }),
+                                        )
+                                        .on_drag(DragQueueResize(entity_id), |drag, _, _, cx| {
+                                            cx.new(|_| drag.clone())
+                                        }),
+                                ),
+                        )
+                    });
+
+                let footer_bar = div()
+                    .w_full()
+                    .flex_shrink_0()
+                    .h(px(FOOTER_HEIGHT))
+                    .child(self.footer.clone());
+
+                let show_chrome = !cover_mode || chrome_visible;
+
                 div()
                     .id("main_content")
                     .v_flex()
@@ -483,108 +628,12 @@ impl Render for MainView {
                     .on_action(cx.listener(Self::on_volume_up))
                     .on_action(cx.listener(Self::on_volume_down))
                     .on_action(cx.listener(Self::on_play_pause))
-                    .child(
-                        div()
-                            .w_full()
-                            .flex_shrink_0()
-                            .h(px(HEADER_HEIGHT))
-                            .flex()
-                            .items_center()
-                            .pl_2()
-                            .pr_2()
-                            .bg(title_bar)
-                            .child(left_group)
-                            .when(!show_settings, |d| {
-                                d.child(
-                                    div().w(px(260.)).child(
-                                        Input::new(&self.search_input)
-                                            .with_size(Size::Medium)
-                                            .focus_bordered(false)
-                                            .rounded_full()
-                                            .bg(title_bar),
-                                    ),
-                                )
-                            })
-                            .child(right_group),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .overflow_hidden()
-                            .flex()
-                            .bg(title_bar)
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .overflow_hidden()
-                                    .ml_4()
-                                    .when(!self.show_queue, |d| d.mr_4())
-                                    .child(if show_settings {
-                                        // Our own tab-based settings widget (ui_components) owns
-                                        // its scroll + active-tab state; it just needs a
-                                        // definite-size parent, which `flex_1` provides here.
-                                        div()
-                                            .size_full()
-                                            .child(crate::settings_view::settings_widget(
-                                                self.settings_pages.clone(),
-                                            ))
-                                            .into_any_element()
-                                    } else {
-                                        self.library_view.clone().into_any_element()
-                                    }),
-                            )
-                            .when(self.show_queue, |d| {
-                                let queue_width = self.queue_width;
-                                d.child(
-                                    div()
-                                        .w(px(queue_width))
-                                        .flex_shrink_0()
-                                        .border_l(px(1.))
-                                        .border_color(Colors::border(cx))
-                                        .relative()
-                                        .child(
-                                            div()
-                                                .size_full()
-                                                .overflow_hidden()
-                                                .child(self.queue_view.clone()),
-                                        )
-                                        .child(
-                                            div()
-                                                .id("queue_resize_handle")
-                                                .absolute()
-                                                .left(px(-3.))
-                                                .top(px(0.))
-                                                .h_full()
-                                                .w(px(6.))
-                                                .cursor(gpui::CursorStyle::ResizeLeftRight)
-                                                .on_mouse_down(
-                                                    MouseButton::Left,
-                                                    cx.listener(
-                                                        |this, e: &MouseDownEvent, _, _| {
-                                                            this.queue_resize_origin = Some((
-                                                                e.position.x,
-                                                                this.queue_width,
-                                                            ));
-                                                        },
-                                                    ),
-                                                )
-                                                .on_drag(
-                                                    DragQueueResize(entity_id),
-                                                    |drag, _, _, cx| cx.new(|_| drag.clone()),
-                                                ),
-                                        ),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .flex_shrink_0()
-                            .h(px(FOOTER_HEIGHT))
-                            .child(self.footer.clone()),
-                    ),
-            )
-            .when(!show_settings, |d| {
+                    .on_action(cx.listener(Self::on_exit_cover_mode))
+                    .when(show_chrome, |d| d.child(header_bar))
+                    .child(middle)
+                    .when(show_chrome, |d| d.child(footer_bar))
+            })
+            .when(!show_settings && !cover_mode, |d| {
                 d.child(fade_overlay(
                     FadeEdge::Top,
                     title_bar,
@@ -635,7 +684,7 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         .icon(Icon::default().path("icons/settings.svg").size(px(20.)))
         .tooltip(tr().settings.clone())
         .on_click(cx.listener(|this, _, window, cx| {
-            this.clear_search(window, cx);
+            this.leave_overlays(window, cx);
             this.show_settings = true;
             cx.notify();
         }))
@@ -651,7 +700,7 @@ fn back_button(fg: Hsla, hover_bg: Hsla, cx: &mut Context<MainView>) -> impl Int
         .rounded_full()
         .hover(move |style| style.bg(hover_bg))
         .on_click(cx.listener(|this, _, window, cx| {
-            this.clear_search(window, cx);
+            this.leave_overlays(window, cx);
             if this.show_settings {
                 this.show_settings = false;
                 cx.notify();
@@ -688,10 +737,108 @@ fn tab_icon_button(
         .when(active, move |d| d.bg(active_bg))
         .hover(move |s| s.bg(hover_bg))
         .on_click(cx.listener(move |this, _, window, cx| {
-            this.clear_search(window, cx);
+            this.leave_overlays(window, cx);
             this.library_view
                 .update(cx, |view, cx| view.select_tab(tab, cx));
             cx.notify();
         }))
         .child(svg().path(icon_path).size(px(20.)).text_color(fg))
+}
+
+fn cover_chrome_button(
+    chrome_visible: bool,
+    colors: TabColors,
+    cx: &mut Context<MainView>,
+) -> impl IntoElement {
+    let icon = if chrome_visible {
+        "icons/s1-collapse.svg"
+    } else {
+        "icons/s1-expand.svg"
+    };
+    let fg = colors.foreground;
+    let hover_bg = colors.hover_bg;
+
+    div()
+        .id("cover_chrome_toggle")
+        .absolute()
+        .top(px(12.))
+        .left(px(12.))
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .hover(move |s| s.bg(hover_bg))
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.cover_mode_view
+                .update(cx, |view, cx| view.toggle_chrome(cx));
+        }))
+        .child(svg().path(icon).size(px(20.)).text_color(fg))
+}
+
+fn cover_queue_button(
+    show_queue: bool,
+    colors: TabColors,
+    cx: &mut Context<MainView>,
+) -> impl IntoElement {
+    let fg = if show_queue {
+        colors.primary
+    } else {
+        colors.foreground
+    };
+    let hover_bg = colors.hover_bg;
+
+    div()
+        .id("cover_queue_toggle")
+        .absolute()
+        .bottom(px(12.))
+        .right(px(12.))
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .hover(move |s| s.bg(hover_bg))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_cover_queue(cx)))
+        .child(
+            svg()
+                .path("icons/s2-queue.svg")
+                .size(px(20.))
+                .text_color(fg),
+        )
+}
+
+fn cover_mode_button(
+    active: bool,
+    colors: TabColors,
+    cx: &mut Context<MainView>,
+) -> impl IntoElement {
+    let fg = if active {
+        colors.primary
+    } else {
+        colors.foreground
+    };
+    let active_bg = colors.active_bg;
+    let hover_bg = colors.hover_bg;
+
+    div()
+        .id("tab_cover_mode")
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .when(active, move |d| d.bg(active_bg))
+        .hover(move |s| s.bg(hover_bg))
+        .tooltip(|window, cx| Tooltip::new(tr().cover_mode.clone()).build(window, cx))
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.clear_search(window, cx);
+            this.set_cover_mode(!this.cover_mode, cx);
+        }))
+        .child(
+            svg()
+                .path("icons/s1-expand.svg")
+                .size(px(20.))
+                .text_color(fg),
+        )
 }

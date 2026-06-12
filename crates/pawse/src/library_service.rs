@@ -82,6 +82,14 @@ impl LibraryService {
             .unwrap_or_default()
     }
 
+    pub fn unique_track_artists(&self, track_id: i64) -> Vec<(i64, String)> {
+        let mut seen = std::collections::HashSet::new();
+        self.track_artists_with_ids(track_id)
+            .into_iter()
+            .filter(|(id, _)| seen.insert(*id))
+            .collect()
+    }
+
     pub fn track_artists_map(&self, track_ids: &[i64]) -> HashMap<i64, Vec<String>> {
         self.repo.track_artists_map(track_ids).unwrap_or_default()
     }
@@ -203,6 +211,10 @@ impl LibraryService {
 
     pub fn get_cover_art_large(&self, id: i64) -> Option<Vec<u8>> {
         self.repo.get_cover_art_large(id).ok().flatten()
+    }
+
+    pub fn get_cover_art_source(&self, id: i64) -> Option<(String, bool)> {
+        self.repo.get_cover_art_source(id).ok().flatten()
     }
 
     pub fn get_cover_art_path_for_media(&self, id: i64) -> Option<std::path::PathBuf> {
@@ -371,8 +383,14 @@ impl LibraryService {
 
         loop {
             match scan_rx.recv_async().await {
-                Ok(ScanEvent::Cover { hash, small, large }) => {
-                    if let Err(e) = session.add_cover(&hash, small, large) {
+                Ok(ScanEvent::Cover {
+                    hash,
+                    small,
+                    large,
+                    source_path,
+                    embedded,
+                }) => {
+                    if let Err(e) = session.add_cover(&hash, small, large, &source_path, embedded) {
                         log::error!("Failed to insert cover art: {}", e);
                     }
                 }

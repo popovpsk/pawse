@@ -30,6 +30,7 @@ pub static DE: Strings = lang! {
     tab_artists: "Künstler",
     tab_liked: "Favoriten",
     tab_playlists: "Playlists",
+    cover_mode: "Cover-Ansicht",
     all_tracks: "Alle Titel",
     no_metadata: "Keine Metadaten",
 
@@ -141,4 +142,9 @@ pub static DE: Strings = lang! {
     failed_exclusive_t: "Exklusivmodus konnte nicht aktiviert werden: {}",
     failed_switch_device_t: "Gerät konnte nicht gewechselt werden: {}",
     failed_save_settings_t: "Einstellungen konnten nicht gespeichert werden: {}",
+    cover_artist_desc: "Den Interpreten unter dem Titel in der Cover-Ansicht anzeigen",
+    cover_progress: "Fortschrittsleiste",
+    cover_progress_desc: "Eine minimale Fortschrittsleiste in der Cover-Ansicht anzeigen",
+    cover_controls: "Wiedergabesteuerung",
+    cover_controls_desc: "Wiedergabe-, Weiter- und Zurück-Tasten in der Cover-Ansicht anzeigen",
 };

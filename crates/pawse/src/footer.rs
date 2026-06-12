@@ -49,6 +49,14 @@ impl Footer {
     pub fn progress(&self) -> &Entity<TrackProgressSlider> {
         &self.track_progress_slider
     }
+
+    pub fn set_show_queue(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.show_queue == show {
+            return;
+        }
+        self.show_queue = show;
+        cx.notify();
+    }
 }
 
 impl EventEmitter<ToggleQueueEvent> for Footer {}

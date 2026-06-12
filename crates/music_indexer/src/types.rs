@@ -6,14 +6,18 @@ use std::path::PathBuf;
 /// references it without re-reading, re-hashing, or re-thumbnailing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoverArt {
-    Bytes(Vec<u8>),
+    Bytes {
+        data: Vec<u8>,
+        source_path: PathBuf,
+        embedded: bool,
+    },
     Cached(String),
 }
 
 impl CoverArt {
     pub fn bytes(&self) -> Option<&[u8]> {
         match self {
-            CoverArt::Bytes(b) => Some(b),
+            CoverArt::Bytes { data, .. } => Some(data),
             CoverArt::Cached(_) => None,
         }
     }
@@ -95,6 +99,8 @@ pub enum ScanEvent {
         hash: String,
         small: Vec<u8>,
         large: Vec<u8>,
+        source_path: String,
+        embedded: bool,
     },
     Track(PreparedTrack),
     Progress {

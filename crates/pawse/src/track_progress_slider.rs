@@ -231,6 +231,10 @@ impl TrackProgressSlider {
         }
     }
 
+    pub fn slider(&self) -> Entity<Slider> {
+        self.slider.clone()
+    }
+
     fn format_time(secs: f32) -> String {
         let mins = (secs / 60.0) as u32;
         let secs = (secs % 60.0) as u32;

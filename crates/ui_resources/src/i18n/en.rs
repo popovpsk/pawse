@@ -30,6 +30,7 @@ pub static EN: Strings = lang! {
     tab_artists: "Artists",
     tab_liked: "Liked",
     tab_playlists: "Playlists",
+    cover_mode: "Cover view",
     all_tracks: "All tracks",
     no_metadata: "No metadata",
 
@@ -141,4 +142,9 @@ pub static EN: Strings = lang! {
     failed_exclusive_t: "Failed to enable exclusive mode: {}",
     failed_switch_device_t: "Failed to switch device: {}",
     failed_save_settings_t: "Failed to save settings: {}",
+    cover_artist_desc: "Show the artist under the title in cover view",
+    cover_progress: "Progress bar",
+    cover_progress_desc: "Show a minimal progress bar in cover view",
+    cover_controls: "Playback controls",
+    cover_controls_desc: "Show play, next and previous buttons in cover view",
 };

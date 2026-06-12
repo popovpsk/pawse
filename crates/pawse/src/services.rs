@@ -250,6 +250,50 @@ pub fn save_playback(cx: &mut App) {
     }
 }
 
+// why: play() with no track emits no event, leaving the is_playing mirror stuck true
+pub fn toggle_play_pause(cx: &mut App) -> Option<bool> {
+    let services = cx.global::<Services>();
+    services.playback_queue.borrow().current_track()?;
+    let was_playing = services.is_playing.fetch_xor(true, Ordering::Relaxed);
+    if was_playing {
+        services.engine_manager.pause();
+    } else {
+        services.engine_manager.play();
+    }
+    Some(!was_playing)
+}
+
+pub fn play_next(cx: &mut App) {
+    let services = cx.global::<Services>();
+    let next = services.playback_queue.borrow_mut().next_track().cloned();
+    if let Some(track) = next {
+        services.play_track(&track);
+        save_playback(cx);
+    }
+}
+
+pub fn play_previous(cx: &mut App) {
+    let services = cx.global::<Services>();
+    let position_secs = services.current_position_ms.load(Ordering::Relaxed) as f32 / 1000.0;
+    let previous = {
+        let mut queue = services.playback_queue.borrow_mut();
+        match queue.previous(position_secs) {
+            crate::playback_queue::PreviousAction::SeekToStart => None,
+            crate::playback_queue::PreviousAction::PreviousTrack(track) => Some(track.clone()),
+        }
+    };
+    match previous {
+        None => {
+            services.engine_manager.seek(0.0);
+            services.engine_manager.play();
+        }
+        Some(track) => {
+            services.play_track(&track);
+            save_playback(cx);
+        }
+    }
+}
+
 impl Global for Services {}
 
 pub struct EngineEventsBus;

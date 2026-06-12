@@ -1206,7 +1206,10 @@ FILE \"disc2.flac\" WAVE
 
         std::fs::write(dir.join("front.jpg"), b"small").unwrap();
         let added = crate::collect_sources(&folders).fingerprint;
-        assert_ne!(base, added, "adding a cover image must change the fingerprint");
+        assert_ne!(
+            base, added,
+            "adding a cover image must change the fingerprint"
+        );
 
         std::fs::write(dir.join("front.jpg"), b"a much larger cover payload").unwrap();
         let swapped = crate::collect_sources(&folders).fingerprint;

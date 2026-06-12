@@ -30,6 +30,7 @@ pub static PT: Strings = lang! {
     tab_artists: "Artistas",
     tab_liked: "Curtidas",
     tab_playlists: "Playlists",
+    cover_mode: "Visualização da capa",
     all_tracks: "Todas as faixas",
     no_metadata: "Sem metadados",
 
@@ -141,4 +142,9 @@ pub static PT: Strings = lang! {
     failed_exclusive_t: "Falha ao ativar o modo exclusivo: {}",
     failed_switch_device_t: "Falha ao trocar de dispositivo: {}",
     failed_save_settings_t: "Falha ao salvar as configurações: {}",
+    cover_artist_desc: "Mostrar o artista abaixo do título na visualização da capa",
+    cover_progress: "Barra de progresso",
+    cover_progress_desc: "Mostrar uma barra de progresso mínima na visualização da capa",
+    cover_controls: "Controles de reprodução",
+    cover_controls_desc: "Mostrar os botões reproduzir, próximo e anterior na visualização da capa",
 };

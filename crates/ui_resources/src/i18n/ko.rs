@@ -30,6 +30,7 @@ pub static KO: Strings = lang! {
     tab_artists: "아티스트",
     tab_liked: "좋아요",
     tab_playlists: "재생목록",
+    cover_mode: "커버 보기",
     all_tracks: "모든 트랙",
     no_metadata: "메타데이터 없음",
 
@@ -141,4 +142,9 @@ pub static KO: Strings = lang! {
     failed_exclusive_t: "독점 모드를 활성화하지 못했습니다: {}",
     failed_switch_device_t: "장치를 전환하지 못했습니다: {}",
     failed_save_settings_t: "설정을 저장하지 못했습니다: {}",
+    cover_artist_desc: "커버 보기에서 제목 아래에 아티스트를 표시합니다",
+    cover_progress: "진행 표시줄",
+    cover_progress_desc: "커버 보기에 최소한의 진행 표시줄을 표시합니다",
+    cover_controls: "재생 컨트롤",
+    cover_controls_desc: "커버 보기에 재생, 다음, 이전 버튼을 표시합니다",
 };

@@ -1,65 +1,21 @@
-use audio_engine::EngineEvent;
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Transformation, Window, div, px, size, svg,
+    StatefulInteractiveElement, Styled, Transformation, Window, div, px, size, svg,
 };
 use gpui_component::tooltip::Tooltip;
 
 use crate::localization::tr;
-use crate::services::Services;
 use crate::theme_colors::Colors;
 
-pub struct PrevButton {
-    current_position_secs: f32,
-    _subscription: Subscription,
-}
+pub struct PrevButton;
 
 impl PrevButton {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
-
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, _cx| match event {
-                    EngineEvent::PositionChanged(position) => {
-                        this.current_position_secs = position.as_secs_f32();
-                    }
-                    EngineEvent::Loaded { .. } => {
-                        this.current_position_secs = 0.0;
-                    }
-                    _ => {}
-                },
-            );
-
-        Self {
-            current_position_secs: 0.0,
-            _subscription: subscription,
-        }
+    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
+        Self
     }
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let track_changed = {
-            let services = cx.global::<Services>();
-            let mut queue = services.playback_queue.borrow_mut();
-            match queue.previous(self.current_position_secs) {
-                crate::playback_queue::PreviousAction::SeekToStart => {
-                    drop(queue);
-                    services.engine_manager.seek(0.0);
-                    services.engine_manager.play();
-                    false
-                }
-                crate::playback_queue::PreviousAction::PreviousTrack(track) => {
-                    let track = track.clone();
-                    drop(queue);
-                    services.play_track(&track);
-                    true
-                }
-            }
-        };
-        if track_changed {
-            crate::services::save_playback(cx);
-        }
+        crate::services::play_previous(cx);
     }
 }
 

@@ -12,6 +12,7 @@ use crate::{
 pub mod app_menu;
 pub mod audio_settings;
 pub mod cover_art_cache;
+pub mod cover_mode_view;
 pub mod error_bridge;
 pub mod footer;
 pub mod keyboard_shortcuts;

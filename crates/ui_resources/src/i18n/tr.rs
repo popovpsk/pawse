@@ -30,6 +30,7 @@ pub static TR: Strings = lang! {
     tab_artists: "Sanatçılar",
     tab_liked: "Beğenilenler",
     tab_playlists: "Çalma listeleri",
+    cover_mode: "Kapak görünümü",
     all_tracks: "Tüm parçalar",
     no_metadata: "Meta veri yok",
 
@@ -141,4 +142,9 @@ pub static TR: Strings = lang! {
     failed_exclusive_t: "Özel mod etkinleştirilemedi: {}",
     failed_switch_device_t: "Aygıt değiştirilemedi: {}",
     failed_save_settings_t: "Ayarlar kaydedilemedi: {}",
+    cover_artist_desc: "Kapak görünümünde başlığın altında sanatçıyı göster",
+    cover_progress: "İlerleme çubuğu",
+    cover_progress_desc: "Kapak görünümünde minimal bir ilerleme çubuğu göster",
+    cover_controls: "Oynatma denetimleri",
+    cover_controls_desc: "Kapak görünümünde oynat, sonraki ve önceki düğmelerini göster",
 };

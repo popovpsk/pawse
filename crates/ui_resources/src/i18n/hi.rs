@@ -30,6 +30,7 @@ pub static HI: Strings = lang! {
     tab_artists: "कलाकार",
     tab_liked: "पसंदीदा",
     tab_playlists: "प्लेलिस्ट",
+    cover_mode: "कवर दृश्य",
     all_tracks: "सभी ट्रैक",
     no_metadata: "कोई मेटाडेटा नहीं",
 
@@ -141,4 +142,9 @@ pub static HI: Strings = lang! {
     failed_exclusive_t: "एक्सक्लूसिव मोड सक्षम करने में विफल: {}",
     failed_switch_device_t: "डिवाइस बदलने में विफल: {}",
     failed_save_settings_t: "सेटिंग्स सहेजने में विफल: {}",
+    cover_artist_desc: "कवर दृश्य में शीर्षक के नीचे कलाकार दिखाएं",
+    cover_progress: "प्रगति बार",
+    cover_progress_desc: "कवर दृश्य में एक न्यूनतम प्रगति बार दिखाएं",
+    cover_controls: "प्लेबैक नियंत्रण",
+    cover_controls_desc: "कवर दृश्य में चलाएं, अगला और पिछला बटन दिखाएं",
 };
