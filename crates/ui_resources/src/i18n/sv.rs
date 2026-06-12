@@ -21,6 +21,9 @@ pub static SV: Strings = lang! {
     remove_from_playlist: "Ta bort från spellista",
     add_to_queue: "Lägg till i kön",
     add_album_to_queue: "Lägg till album i kön",
+    replace_queue: "Ersätt kön",
+    replace_queue_confirm_title: "Ersätt kön?",
+    replace_queue_confirm_message: "Du har redigerat den aktuella kön. Att spela det här spåret ersätter den. Du kan i stället lägga till det i kön.",
     add_to_liked: "Lägg till i gillade",
     remove_from_liked: "Ta bort från gillade",
 

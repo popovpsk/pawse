@@ -136,6 +136,7 @@ impl Services {
     /// `EngineEvent::Loaded` so subscribers (now-playing, queue view) update,
     /// but leaves the engine paused at position 0.
     pub fn load_track(&self, track: &Track) {
+        self.current_position_ms.store(0, Ordering::Relaxed);
         let path = std::path::PathBuf::from(&track.path);
         let start_offset = if track.start_offset_ms > 0 {
             Some(Duration::from_millis(track.start_offset_ms as u64))
@@ -169,6 +170,7 @@ impl Services {
             shuffle: queue.shuffle(),
             repeat: queue.repeat().into(),
             source: queue.source().into(),
+            custom: queue.is_custom(),
         }
     }
 }

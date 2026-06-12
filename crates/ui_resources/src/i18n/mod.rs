@@ -65,6 +65,9 @@ pub struct Strings {
     pub remove_from_playlist: SharedString,
     pub add_to_queue: SharedString,
     pub add_album_to_queue: SharedString,
+    pub replace_queue: SharedString,
+    pub replace_queue_confirm_title: SharedString,
+    pub replace_queue_confirm_message: SharedString,
     pub add_to_liked: SharedString,
     pub remove_from_liked: SharedString,
 

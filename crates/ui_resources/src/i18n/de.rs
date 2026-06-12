@@ -21,6 +21,9 @@ pub static DE: Strings = lang! {
     remove_from_playlist: "Aus Playlist entfernen",
     add_to_queue: "Zur Warteschlange hinzufügen",
     add_album_to_queue: "Album zur Warteschlange hinzufügen",
+    replace_queue: "Warteschlange ersetzen",
+    replace_queue_confirm_title: "Warteschlange ersetzen?",
+    replace_queue_confirm_message: "Du hast die aktuelle Warteschlange bearbeitet. Die Wiedergabe dieses Titels ersetzt sie. Du kannst ihn stattdessen zur Warteschlange hinzufügen.",
     add_to_liked: "Zu Favoriten hinzufügen",
     remove_from_liked: "Aus Favoriten entfernen",
 

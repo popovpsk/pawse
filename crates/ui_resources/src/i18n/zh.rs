@@ -21,6 +21,9 @@ pub static ZH: Strings = lang! {
     remove_from_playlist: "从播放列表移除",
     add_to_queue: "添加到队列",
     add_album_to_queue: "将专辑添加到队列",
+    replace_queue: "替换队列",
+    replace_queue_confirm_title: "替换队列？",
+    replace_queue_confirm_message: "你已编辑当前队列，播放此曲目将替换队列。你也可以改为将其添加到队列。",
     add_to_liked: "添加到喜欢",
     remove_from_liked: "从喜欢移除",
 

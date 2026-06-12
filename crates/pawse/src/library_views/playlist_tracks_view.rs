@@ -441,17 +441,14 @@ fn playlist_track_row(
         .child(track_duration(cx, row.base.duration.clone()))
         .child(add_to_queue_button(track_for_queue, 26., 16., &p.buttons))
         .id(ElementId::Integer(track_id as u64))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            let services = cx.global::<Services>();
-            let mut queue = services.playback_queue.borrow_mut();
-            let track = queue
-                .set_tracks_and_play_at(this.tracks_all.clone(), track_all_ix, this.source)
-                .cloned();
-            drop(queue);
-            if let Some(track) = track {
-                services.play_track(&track);
-                crate::services::save_playback(cx);
-            }
+        .on_click(cx.listener(move |this, _, window, cx| {
+            crate::track_list::play_replacing_queue(
+                this.tracks_all.clone(),
+                track_all_ix,
+                this.source,
+                window,
+                cx,
+            );
         }))
         .into_any_element()
 }

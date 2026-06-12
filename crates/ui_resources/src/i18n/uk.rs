@@ -21,6 +21,9 @@ pub static UK: Strings = lang! {
     remove_from_playlist: "Прибрати з плейлиста",
     add_to_queue: "Додати до черги",
     add_album_to_queue: "Додати альбом до черги",
+    replace_queue: "Замінити чергу",
+    replace_queue_confirm_title: "Замінити чергу?",
+    replace_queue_confirm_message: "Ви змінювали поточну чергу — відтворення цього треку замінить її. Натомість трек можна додати до черги.",
     add_to_liked: "Додати до вподобаних",
     remove_from_liked: "Прибрати з вподобаних",
 

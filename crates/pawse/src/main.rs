@@ -203,16 +203,17 @@ fn main() {
             services.output.set_volume(initial_volume);
             {
                 let mut queue = services.playback_queue.borrow_mut();
-                queue.restore(
-                    stored.queue.into_iter().map(std::rc::Rc::new).collect(),
-                    stored
+                queue.restore(crate::playback_queue::QueueRestore {
+                    tracks: stored.queue.into_iter().map(std::rc::Rc::new).collect(),
+                    original_order: stored
                         .original_queue
                         .map(|v| v.into_iter().map(std::rc::Rc::new).collect()),
-                    stored.current_index,
-                    stored.shuffle,
-                    stored.repeat.into(),
-                    stored.source.into(),
-                );
+                    current_index: stored.current_index,
+                    shuffle: stored.shuffle,
+                    repeat: stored.repeat.into(),
+                    source: stored.source.into(),
+                    custom: stored.custom,
+                });
             }
         }
 

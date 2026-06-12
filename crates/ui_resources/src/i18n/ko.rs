@@ -21,6 +21,9 @@ pub static KO: Strings = lang! {
     remove_from_playlist: "재생목록에서 제거",
     add_to_queue: "대기열에 추가",
     add_album_to_queue: "앨범을 대기열에 추가",
+    replace_queue: "대기열 바꾸기",
+    replace_queue_confirm_title: "대기열을 바꾸시겠습니까?",
+    replace_queue_confirm_message: "현재 대기열을 직접 편집했습니다. 이 트랙을 재생하면 대기열이 바뀝니다. 대신 대기열에 추가할 수 있습니다.",
     add_to_liked: "좋아요에 추가",
     remove_from_liked: "좋아요에서 제거",
 

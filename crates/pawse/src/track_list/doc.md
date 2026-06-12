@@ -22,7 +22,12 @@ so call sites have a single import; `mod.rs` re-exports the submodule items.
   so the heart/queue/playlist buttons fade in on row hover.
 - `queue_button.rs` — `add_to_queue_button(Rc<Track>, …, &RowButtonColors)` (append one
   track; takes an `Rc` so the row clone is a refcount bump) and
-  `add_album_to_queue_button` (append a whole album); both emit `QueueChanged`.
+  `add_album_to_queue_button` (append a whole album); both emit `QueueChanged`. Also
+  `play_replacing_queue(tracks, index, source, window, cx)` — the shared click handler
+  for every track-list row: replaces the queue and plays, but when the queue is custom
+  (`PlaybackQueue::is_custom`) it first opens a three-button confirm dialog
+  (add the clicked track to the queue / cancel / replace). The dialog builder runs per
+  frame, so the track list is captured behind an `Rc`.
 - `playlist_buttons.rs` — `add_to_playlist_button` (opens the global playlist popup)
   and `remove_from_playlist_button`.
 - `row_style.rs` — `current_row`, the styling applied to the currently-playing row.

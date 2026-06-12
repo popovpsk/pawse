@@ -21,6 +21,9 @@ pub static ES: Strings = lang! {
     remove_from_playlist: "Quitar de la lista",
     add_to_queue: "Añadir a la cola",
     add_album_to_queue: "Añadir álbum a la cola",
+    replace_queue: "Reemplazar cola",
+    replace_queue_confirm_title: "¿Reemplazar la cola?",
+    replace_queue_confirm_message: "Has editado la cola actual. Reproducir esta pista la reemplazará. En su lugar, puedes añadirla a la cola.",
     add_to_liked: "Añadir a favoritos",
     remove_from_liked: "Quitar de favoritos",
 

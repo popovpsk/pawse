@@ -21,6 +21,9 @@ pub static ID: Strings = lang! {
     remove_from_playlist: "Hapus dari playlist",
     add_to_queue: "Tambahkan ke antrean",
     add_album_to_queue: "Tambahkan album ke antrean",
+    replace_queue: "Ganti antrean",
+    replace_queue_confirm_title: "Ganti antrean?",
+    replace_queue_confirm_message: "Anda telah mengubah antrean saat ini. Memutar trek ini akan menggantinya. Sebagai gantinya, Anda bisa menambahkannya ke antrean.",
     add_to_liked: "Tambahkan ke disukai",
     remove_from_liked: "Hapus dari disukai",
 

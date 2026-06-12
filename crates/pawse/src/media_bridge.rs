@@ -277,6 +277,9 @@ async fn run_command_loop(
                         track_duration,
                     );
                     engine_manager.play();
+                    _cx.global::<Services>()
+                        .current_position_ms
+                        .store(0, Ordering::Relaxed);
                     crate::services::save_playback(_cx);
                 }
             }
@@ -302,6 +305,9 @@ async fn run_command_loop(
                         drop(q);
                         engine_manager.set_track_with_offset(path, start_offset, track_duration);
                         engine_manager.play();
+                        _cx.global::<Services>()
+                            .current_position_ms
+                            .store(0, Ordering::Relaxed);
                         crate::services::save_playback(_cx);
                     }
                 }

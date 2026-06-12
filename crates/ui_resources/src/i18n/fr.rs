@@ -21,6 +21,9 @@ pub static FR: Strings = lang! {
     remove_from_playlist: "Retirer de la playlist",
     add_to_queue: "Ajouter à la file",
     add_album_to_queue: "Ajouter l'album à la file",
+    replace_queue: "Remplacer la file",
+    replace_queue_confirm_title: "Remplacer la file d'attente ?",
+    replace_queue_confirm_message: "Vous avez modifié la file d'attente. Lire cette piste la remplacera. Vous pouvez plutôt l'ajouter à la file.",
     add_to_liked: "Ajouter aux favoris",
     remove_from_liked: "Retirer des favoris",
 

@@ -21,6 +21,9 @@ pub static RU: Strings = lang! {
     remove_from_playlist: "Убрать из плейлиста",
     add_to_queue: "Добавить в очередь",
     add_album_to_queue: "Добавить альбом в очередь",
+    replace_queue: "Заменить очередь",
+    replace_queue_confirm_title: "Заменить очередь?",
+    replace_queue_confirm_message: "Вы изменяли текущую очередь — воспроизведение этого трека заменит её. Вместо этого трек можно добавить в очередь.",
     add_to_liked: "Добавить в избранное",
     remove_from_liked: "Убрать из избранного",
 

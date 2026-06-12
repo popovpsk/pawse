@@ -214,6 +214,8 @@ pub struct PlaybackState {
     pub repeat: RepeatModePersist,
     #[serde(default)]
     pub source: QueueSourcePersist,
+    #[serde(default)]
+    pub custom: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -797,6 +799,7 @@ mod tests {
                 shuffle: true,
                 repeat: RepeatModePersist::All,
                 source: QueueSourcePersist::Playlist(7),
+                custom: true,
             },
             show_hog_button: true,
             show_repeat_shuffle: true,
@@ -824,6 +827,7 @@ mod tests {
         assert!(back.playback.shuffle);
         assert_eq!(back.playback.repeat, RepeatModePersist::All);
         assert_eq!(back.playback.source, QueueSourcePersist::Playlist(7));
+        assert!(back.playback.custom);
     }
 
     #[test]

@@ -21,6 +21,9 @@ pub static IT: Strings = lang! {
     remove_from_playlist: "Rimuovi dalla playlist",
     add_to_queue: "Aggiungi alla coda",
     add_album_to_queue: "Aggiungi album alla coda",
+    replace_queue: "Sostituisci coda",
+    replace_queue_confirm_title: "Sostituire la coda?",
+    replace_queue_confirm_message: "Hai modificato la coda attuale. Riprodurre questo brano la sostituirà. In alternativa puoi aggiungerlo alla coda.",
     add_to_liked: "Aggiungi ai preferiti",
     remove_from_liked: "Rimuovi dai preferiti",
 

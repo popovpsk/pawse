@@ -38,6 +38,17 @@ pub struct PlaybackQueue {
     shuffle: bool,
     repeat: RepeatMode,
     source: QueueSource,
+    custom: bool,
+}
+
+pub struct QueueRestore {
+    pub tracks: Vec<Rc<Track>>,
+    pub original_order: Option<Vec<Rc<Track>>>,
+    pub current_index: Option<usize>,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    pub source: QueueSource,
+    pub custom: bool,
 }
 
 impl Default for PlaybackQueue {
@@ -73,6 +84,7 @@ impl PlaybackQueue {
             shuffle: false,
             repeat: RepeatMode::Off,
             source: QueueSource::Unknown,
+            custom: false,
         }
     }
 
@@ -85,6 +97,7 @@ impl PlaybackQueue {
         self.original_order = None;
         self.current_index = None;
         self.source = source;
+        self.custom = false;
         if self.shuffle {
             self.apply_shuffle();
         }
@@ -103,6 +116,7 @@ impl PlaybackQueue {
     ) -> Option<&Rc<Track>> {
         self.original_order = None;
         self.source = source;
+        self.custom = false;
         self.current_index = if index < tracks.len() {
             Some(index)
         } else {
@@ -119,6 +133,10 @@ impl PlaybackQueue {
         self.source
     }
 
+    pub fn is_custom(&self) -> bool {
+        self.custom
+    }
+
     pub fn set_source(&mut self, source: QueueSource) {
         self.source = source;
     }
@@ -131,6 +149,7 @@ impl PlaybackQueue {
     pub fn refresh_keeping_current(&mut self, new_tracks: Vec<Rc<Track>>) {
         let current_id = self.current_track().map(|t| t.id);
         self.tracks = new_tracks;
+        self.custom = false;
         self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
         if self.shuffle {
             self.apply_shuffle();
@@ -305,21 +324,14 @@ impl PlaybackQueue {
         self.original_order.clone()
     }
 
-    pub fn restore(
-        &mut self,
-        tracks: Vec<Rc<Track>>,
-        original_order: Option<Vec<Rc<Track>>>,
-        current_index: Option<usize>,
-        shuffle: bool,
-        repeat: RepeatMode,
-        source: QueueSource,
-    ) {
-        self.tracks = tracks;
-        self.original_order = original_order;
-        self.current_index = current_index;
-        self.shuffle = shuffle;
-        self.repeat = repeat;
-        self.source = source;
+    pub fn restore(&mut self, state: QueueRestore) {
+        self.tracks = state.tracks;
+        self.original_order = state.original_order;
+        self.current_index = state.current_index;
+        self.shuffle = state.shuffle;
+        self.repeat = state.repeat;
+        self.source = state.source;
+        self.custom = state.custom;
     }
 
     pub fn set_track_liked(&mut self, track_id: i64, liked: bool) {
@@ -349,6 +361,7 @@ impl PlaybackQueue {
             original.push(track.clone());
         }
         self.tracks.push(track);
+        self.custom = true;
     }
 
     pub fn append_tracks(&mut self, tracks: Vec<Rc<Track>>, deduplicate: bool) {
@@ -362,6 +375,7 @@ impl PlaybackQueue {
             return RemoveOutcome::Unaffected;
         }
         let removed = self.tracks.remove(index);
+        self.custom = !self.tracks.is_empty();
         if let Some(ref mut original) = self.original_order
             && let Some(pos) = original.iter().position(|t| t.id == removed.id)
         {
@@ -397,6 +411,7 @@ impl PlaybackQueue {
         }
         let track = self.tracks.remove(from);
         self.tracks.insert(to, track);
+        self.custom = true;
         if let Some(cur) = self.current_index {
             self.current_index = Some(if cur == from {
                 to
@@ -888,6 +903,114 @@ mod tests {
 
         q.set_repeat(RepeatMode::One);
         assert!(q.has_next());
+    }
+
+    #[test]
+    fn append_track_marks_queue_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        assert!(!q.is_custom());
+        q.append_track(track(10, "/p/10.flac"), false);
+        assert!(q.is_custom());
+    }
+
+    #[test]
+    fn append_track_skipped_by_dedup_keeps_queue_not_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.append_track(track(1, "/p/1.flac"), true);
+        assert!(!q.is_custom());
+    }
+
+    #[test]
+    fn move_track_marks_queue_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.move_track(0, 2);
+        assert!(q.is_custom());
+    }
+
+    #[test]
+    fn move_track_noop_keeps_queue_not_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.move_track(1, 1);
+        q.move_track(0, 10);
+        assert!(!q.is_custom());
+    }
+
+    #[test]
+    fn remove_track_marks_queue_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.remove_track_at(1);
+        assert!(q.is_custom());
+    }
+
+    #[test]
+    fn remove_last_remaining_track_clears_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(2));
+        q.append_track(track(10, "/p/10.flac"), false);
+        q.remove_track_at(2);
+        q.remove_track_at(1);
+        assert!(q.is_custom());
+        q.remove_track_at(0);
+        assert!(!q.is_custom());
+    }
+
+    #[test]
+    fn remove_out_of_range_keeps_queue_not_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.remove_track_at(10);
+        assert!(!q.is_custom());
+    }
+
+    #[test]
+    fn shuffle_does_not_mark_queue_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(5));
+        q.play_track_at(0);
+        q.set_shuffle(true);
+        assert!(!q.is_custom());
+        q.set_shuffle(false);
+        assert!(!q.is_custom());
+    }
+
+    #[test]
+    fn replacing_tracks_resets_custom() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(3));
+        q.append_track(track(10, "/p/10.flac"), false);
+        assert!(q.is_custom());
+
+        q.set_tracks_and_play_at(sample_tracks(4), 0, QueueSource::Unknown);
+        assert!(!q.is_custom());
+
+        q.append_track(track(11, "/p/11.flac"), false);
+        assert!(q.is_custom());
+        q.set_tracks(sample_tracks(2));
+        assert!(!q.is_custom());
+
+        q.append_track(track(12, "/p/12.flac"), false);
+        q.refresh_keeping_current(sample_tracks(6));
+        assert!(!q.is_custom());
+    }
+
+    #[test]
+    fn restore_round_trips_custom() {
+        let mut q = PlaybackQueue::new();
+        q.restore(QueueRestore {
+            tracks: sample_tracks(3),
+            original_order: None,
+            current_index: Some(1),
+            shuffle: false,
+            repeat: RepeatMode::Off,
+            source: QueueSource::Unknown,
+            custom: true,
+        });
+        assert!(q.is_custom());
     }
 
     #[test]

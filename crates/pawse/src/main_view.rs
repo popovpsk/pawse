@@ -192,6 +192,8 @@ impl MainView {
         let footer = cx.new(|cx| Footer::new(window, cx));
         let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
             this.show_queue = event.show;
+            this.queue_view
+                .update(cx, |qv, _| qv.set_visible(event.show));
             cx.notify();
         });
 
@@ -382,6 +384,7 @@ impl MainView {
         self.show_queue = !self.show_queue;
         let show = self.show_queue;
         self.footer.update(cx, |f, cx| f.set_show_queue(show, cx));
+        self.queue_view.update(cx, |qv, _| qv.set_visible(show));
         cx.notify();
     }
 

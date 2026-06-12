@@ -125,6 +125,7 @@ pub struct QueueView {
     tracks: Vec<Track>,
     current_index: Option<usize>,
     is_playing: bool,
+    visible: bool,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
@@ -189,7 +190,12 @@ impl QueueView {
                         this.refresh_tracks(cx);
                     }
                     LibraryEvent::QueueChanged => {
+                        let len_before = this.tracks.len();
                         this.refresh_tracks(cx);
+                        if this.visible && this.tracks.len() > len_before {
+                            this.scroll_handle
+                                .scroll_to_item(this.tracks.len() - 1, gpui::ScrollStrategy::Top);
+                        }
                     }
                     LibraryEvent::ScanComplete { changed: true } => {
                         this.refresh_tracks(cx);
@@ -202,6 +208,7 @@ impl QueueView {
             tracks: Vec::new(),
             current_index: None,
             is_playing,
+            visible: false,
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _library_subscription: library_subscription,
@@ -209,6 +216,10 @@ impl QueueView {
         };
         result.refresh_tracks(cx);
         result
+    }
+
+    pub fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
     }
 
     pub fn refresh_tracks(&mut self, cx: &mut Context<Self>) {
@@ -419,17 +430,9 @@ fn queue_visible_range_row(
                         .remove_track_at(track_ix);
                     match outcome {
                         RemoveOutcome::PlayNext(next) => {
-                            // The successor starts from its beginning;
-                            // reset the persisted position so a save
-                            // racing the async engine reset is correct.
-                            services
-                                .current_position_ms
-                                .store(0, std::sync::atomic::Ordering::Relaxed);
                             if this.is_playing {
                                 services.play_track(&next);
                             } else {
-                                // Load the successor so now-playing
-                                // updates without resuming playback.
                                 services.load_track(&next);
                             }
                         }
