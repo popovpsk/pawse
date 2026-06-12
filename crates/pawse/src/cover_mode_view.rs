@@ -518,10 +518,11 @@ impl Render for CoverModeView {
                             .px(px(COVER_MARGIN))
                             .items_center()
                             .gap_2()
-                            .max_w_full()
+                            .max_w(px(avail_w))
                             .overflow_hidden()
                             .child({
                                 let title_inner = div()
+                                    .flex_shrink_0()
                                     .text_xl()
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(title_color)
@@ -529,6 +530,7 @@ impl Render for CoverModeView {
                                 if let Some(aid) = album_id {
                                     div()
                                         .id("cm_title")
+                                        .flex_shrink_0()
                                         .cursor_pointer()
                                         .border_b(px(1.))
                                         .hover(move |s| s.border_color(title_color))
@@ -542,9 +544,14 @@ impl Render for CoverModeView {
                                 }
                             });
                         if show_artist && !self.artists.is_empty() {
-                            row =
-                                row.child(div().text_xl().text_color(artist_color).child("\u{b7}"));
-                            let mut artists = h_flex().items_center();
+                            row = row.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xl()
+                                    .text_color(artist_color)
+                                    .child("\u{b7}"),
+                            );
+                            let mut artists = h_flex().flex_shrink_0().items_center();
                             for (i, (artist_id, name)) in self.artists.iter().enumerate() {
                                 if i > 0 {
                                     artists = artists.child(
@@ -572,7 +579,6 @@ impl Render for CoverModeView {
                             .mt(px(COVER_TEXT_GAP))
                             .items_center()
                             .gap(px(COVER_PROGRESS_GAP))
-                            .w(px(side))
                             .child(row);
                         if show_progress_bar {
                             group = group.child(

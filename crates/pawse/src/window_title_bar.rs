@@ -1,15 +1,26 @@
-use gpui::{App, IntoElement, RenderOnce, Styled, Window};
+use gpui::{App, IntoElement, RenderOnce, Styled, Window, div, px};
 
 #[cfg(target_os = "linux")]
 use gpui::{
     Decorations, InteractiveElement, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement as _, WindowControlArea, div, prelude::FluentBuilder, px, svg,
+    StatefulInteractiveElement as _, WindowControlArea, prelude::FluentBuilder, svg,
 };
 
 #[cfg(target_os = "linux")]
 use gpui_component::{InteractiveElementExt as _, h_flex};
 
 use crate::theme_colors::Colors;
+
+const HEIGHT: f32 = 34.;
+const FULLSCREEN_TOP_INSET: f32 = 8.;
+
+pub fn title_bar_height(window: &Window) -> f32 {
+    if window.is_fullscreen() {
+        FULLSCREEN_TOP_INSET
+    } else {
+        HEIGHT
+    }
+}
 
 #[derive(IntoElement, Default)]
 pub struct WindowTitleBar;
@@ -22,10 +33,19 @@ impl WindowTitleBar {
 
 #[cfg(not(target_os = "linux"))]
 impl RenderOnce for WindowTitleBar {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if window.is_fullscreen() {
+            return div()
+                .w_full()
+                .flex_shrink_0()
+                .h(px(FULLSCREEN_TOP_INSET))
+                .bg(Colors::background(cx))
+                .into_any_element();
+        }
         gpui_component::TitleBar::new()
             .bg(Colors::background(cx))
             .border_color(Colors::background(cx))
+            .into_any_element()
     }
 }
 
@@ -160,7 +180,7 @@ impl RenderOnce for WindowTitleBar {
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .h(px(34.))
+                .h(px(HEIGHT))
                 .pl(px(12.))
                 .border_b_1()
                 .border_color(bg)

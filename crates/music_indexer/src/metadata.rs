@@ -330,11 +330,8 @@ mod tests {
         fn new() -> Self {
             static COUNTER: AtomicU32 = AtomicU32::new(0);
             let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "pawse_meta_test_{}_{}",
-                std::process::id(),
-                id
-            ));
+            let path =
+                std::env::temp_dir().join(format!("pawse_meta_test_{}_{}", std::process::id(), id));
             std::fs::create_dir_all(&path).unwrap();
             Self { path }
         }

@@ -406,6 +406,7 @@ impl Render for MainView {
             (view.chrome_visible(), view.corner_visible())
         };
 
+        let title_bar_height = crate::window_title_bar::title_bar_height(window);
         let title_bar = Colors::title_bar(cx);
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
@@ -560,11 +561,7 @@ impl Render for MainView {
                                 d.relative()
                                     .child(cover_chrome_button(chrome_visible, tab_colors, cx))
                                     .when(!chrome_visible, |d| {
-                                        d.child(cover_queue_button(
-                                            self.show_queue,
-                                            tab_colors,
-                                            cx,
-                                        ))
+                                        d.child(cover_queue_button(self.show_queue, tab_colors, cx))
                                     })
                             }),
                     )
@@ -638,7 +635,7 @@ impl Render for MainView {
                     FadeEdge::Top,
                     title_bar,
                     FADE_HEIGHT,
-                    34.0 + HEADER_HEIGHT,
+                    title_bar_height + HEADER_HEIGHT,
                 ))
                 .child(fade_overlay(
                     FadeEdge::Bottom,
