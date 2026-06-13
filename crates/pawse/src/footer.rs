@@ -120,7 +120,7 @@ impl Render for Footer {
             .h_full()
             .items_center()
             .px_4()
-            .bg(Colors::background(cx))
+            .bg(Colors::title_bar(cx))
             .child(self.now_playing.clone())
             .child(
                 v_flex()

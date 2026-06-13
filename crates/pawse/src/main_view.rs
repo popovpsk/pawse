@@ -408,6 +408,12 @@ impl Render for MainView {
         };
 
         let title_bar = Colors::title_bar(cx);
+        let background = Colors::background(cx);
+        let title_bar_bg = if cover_mode && !chrome_visible {
+            background
+        } else {
+            title_bar
+        };
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
         let tab_colors = TabColors {
@@ -506,7 +512,7 @@ impl Render for MainView {
                         .update(cx, |view, cx| view.handle_mouse_move(cx));
                 }))
             })
-            .child(crate::window_title_bar::WindowTitleBar::new())
+            .child(crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg))
             .child({
                 let header_bar = div()
                     .w_full()
@@ -535,7 +541,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .bg(title_bar)
+                    .bg(background)
                     .child(
                         div()
                             .flex_1()

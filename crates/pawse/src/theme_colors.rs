@@ -40,13 +40,17 @@ impl Colors {
     pub fn muted(cx: &App) -> Hsla {
         cx.theme().muted
     }
-    /// Main content area, footer, fade overlays, and window title-bar background.
+    /// Central content area and fade overlays.
     pub fn background(cx: &App) -> Hsla {
         cx.theme().background
     }
-    /// Header bar, settings sidebar, and settings section-header background.
+    /// Top/bottom chrome: window title-bar, header bar, footer, and settings section-header background.
     pub fn title_bar(cx: &App) -> Hsla {
         cx.theme().title_bar
+    }
+    /// Subtle elevated surface for grouped controls: settings group cards and their dropdown triggers.
+    pub fn group_box(cx: &App) -> Hsla {
+        cx.theme().group_box
     }
     /// Floating-panel / popover background (queue panel, settings popover, playlist popup).
     pub fn popover(cx: &App) -> Hsla {

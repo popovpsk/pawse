@@ -5,7 +5,7 @@ use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, BoxShadow, ClickEvent, Context, Entity, EventEmitter, Hsla, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString, Size,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderImage, SharedString, Size,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Transformation, Window,
     canvas, div, img, point, px, size, svg,
 };
@@ -39,7 +39,7 @@ pub struct CoverModeView {
     cover_art_id: Option<i64>,
     track_path: Option<String>,
     large_cover: Option<Arc<Image>>,
-    full_cover: Option<Arc<Image>>,
+    full_cover: Option<Arc<RenderImage>>,
     cover_aspect: Option<f32>,
     active: bool,
     chrome_visible: bool,
@@ -361,7 +361,7 @@ impl CoverModeView {
     fn release_full_cover(&mut self, cx: &mut Context<Self>) {
         self.cover_aspect = None;
         if let Some(old) = self.full_cover.take() {
-            old.remove_asset(cx);
+            cx.drop_image(old, None);
         }
     }
 
@@ -384,12 +384,14 @@ impl CoverModeView {
         let services = cx.global::<Services>();
         let source = services.library.get_cover_art_source(id);
         let track_path = self.track_path.clone();
+        let renderer = cx.svg_renderer();
         let load = cx.background_executor().spawn(async move {
             let bytes =
                 music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
             let format = sniff_image_format(&bytes)?;
             let aspect = image_aspect(&bytes);
-            Some((Arc::new(Image::from_bytes(format, bytes)), aspect))
+            let image = Image::from_bytes(format, bytes).to_image_data(renderer).ok()?;
+            Some((image, aspect))
         });
         self._full_cover_task = Some(cx.spawn(async move |this, cx| {
             let Some((image, aspect)) = load.await else {
@@ -538,7 +540,7 @@ impl Render for CoverModeView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(Colors::title_bar(cx))
+            .bg(Colors::background(cx))
             .child(
                 div()
                     .size_full()

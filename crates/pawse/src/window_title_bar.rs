@@ -1,4 +1,4 @@
-use gpui::{App, IntoElement, RenderOnce, Styled, Window, div, px};
+use gpui::{App, Hsla, IntoElement, RenderOnce, Styled, Window, div, px};
 
 #[cfg(target_os = "linux")]
 use gpui::{
@@ -23,28 +23,36 @@ pub fn title_bar_height(window: &Window) -> f32 {
 }
 
 #[derive(IntoElement, Default)]
-pub struct WindowTitleBar;
+pub struct WindowTitleBar {
+    bg: Option<Hsla>,
+}
 
 impl WindowTitleBar {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    pub fn bg(mut self, bg: Hsla) -> Self {
+        self.bg = Some(bg);
+        self
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 impl RenderOnce for WindowTitleBar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let bg = self.bg.unwrap_or_else(|| Colors::title_bar(cx));
         if window.is_fullscreen() {
             return div()
                 .w_full()
                 .flex_shrink_0()
                 .h(px(FULLSCREEN_TOP_INSET))
-                .bg(Colors::background(cx))
+                .bg(bg)
                 .into_any_element();
         }
         gpui_component::TitleBar::new()
-            .bg(Colors::background(cx))
-            .border_color(Colors::background(cx))
+            .bg(bg)
+            .border_color(bg)
             .into_any_element()
     }
 }
@@ -66,7 +74,7 @@ impl RenderOnce for WindowTitleBar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let is_client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
         let state = window.use_state(cx, |_, _| DragState { should_move: false });
-        let bg = Colors::background(cx);
+        let bg = self.bg.unwrap_or_else(|| Colors::title_bar(cx));
         let text_secondary = Colors::muted_foreground(cx);
         let text_primary = Colors::foreground(cx);
         let danger = Colors::danger(cx);
