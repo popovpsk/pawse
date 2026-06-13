@@ -1,9 +1,11 @@
+use std::time::Duration;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, Hsla,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription, Window,
-    canvas, div, px, svg,
+    Animation, AnimationExt as _, AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity,
+    EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, StatefulInteractiveElement,
+    Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
 };
 use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
@@ -38,6 +40,7 @@ const FOOTER_HEIGHT: f32 = 80.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;
+const QUEUE_ANIM: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy)]
 struct TabColors {
@@ -70,6 +73,8 @@ pub struct MainView {
     show_queue: bool,
     queue_width: f32,
     queue_resize_origin: Option<(Pixels, f32)>,
+    queue_closing: bool,
+    _queue_close_task: Option<gpui::Task<()>>,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _theme_picker: Entity<ThemePickerState>,
@@ -189,10 +194,7 @@ impl MainView {
 
         let footer = cx.new(|cx| Footer::new(window, cx));
         let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
-            this.show_queue = event.show;
-            this.queue_view
-                .update(cx, |qv, _| qv.set_visible(event.show));
-            cx.notify();
+            this.set_queue_visible(event.show, cx);
         });
 
         let footer_album_subscription = cx.subscribe_in(&footer, window, {
@@ -292,6 +294,8 @@ impl MainView {
             show_queue: false,
             queue_width: QUEUE_WIDTH_DEFAULT,
             queue_resize_origin: None,
+            queue_closing: false,
+            _queue_close_task: None,
             settings_pages,
             search_input,
             _theme_picker: theme_picker,
@@ -379,10 +383,31 @@ impl MainView {
     }
 
     fn toggle_cover_queue(&mut self, cx: &mut Context<Self>) {
-        self.show_queue = !self.show_queue;
-        let show = self.show_queue;
+        let show = !self.show_queue;
         self.footer.update(cx, |f, cx| f.set_show_queue(show, cx));
+        self.set_queue_visible(show, cx);
+    }
+
+    fn set_queue_visible(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.show_queue == show {
+            return;
+        }
+        self.show_queue = show;
         self.queue_view.update(cx, |qv, _| qv.set_visible(show));
+        if show {
+            self.queue_closing = false;
+            self._queue_close_task = None;
+        } else {
+            self.queue_closing = true;
+            self._queue_close_task = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(QUEUE_ANIM).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.queue_closing = false;
+                    this._queue_close_task = None;
+                    cx.notify();
+                });
+            }));
+        }
         cx.notify();
     }
 
@@ -571,11 +596,11 @@ impl Render for MainView {
                                     })
                             }),
                     )
-                    .when(self.show_queue, |d| {
+                    .when(self.show_queue || self.queue_closing, |d| {
                         let queue_width = self.queue_width;
+                        let closing = self.queue_closing;
                         d.child(
                             div()
-                                .w(px(queue_width))
                                 .flex_shrink_0()
                                 .border_l(px(1.))
                                 .border_color(Colors::border(cx))
@@ -605,6 +630,18 @@ impl Render for MainView {
                                         .on_drag(DragQueueResize(entity_id), |drag, _, _, cx| {
                                             cx.new(|_| drag.clone())
                                         }),
+                                )
+                                .with_animation(
+                                    if closing {
+                                        "queue-slide-out"
+                                    } else {
+                                        "queue-slide-in"
+                                    },
+                                    Animation::new(QUEUE_ANIM).with_easing(ease_out_quint()),
+                                    move |this, delta| {
+                                        let factor = if closing { 1.0 - delta } else { delta };
+                                        this.w(px(queue_width * factor))
+                                    },
                                 ),
                         )
                     });
