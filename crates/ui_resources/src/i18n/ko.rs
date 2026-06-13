@@ -34,6 +34,7 @@ pub static KO: Strings = lang! {
     tab_liked: "좋아요",
     tab_playlists: "재생목록",
     cover_mode: "커버 보기",
+    full_screen: "전체 화면",
     all_tracks: "모든 트랙",
     no_metadata: "메타데이터 없음",
 

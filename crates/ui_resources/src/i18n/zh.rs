@@ -34,6 +34,7 @@ pub static ZH: Strings = lang! {
     tab_liked: "喜欢",
     tab_playlists: "播放列表",
     cover_mode: "封面视图",
+    full_screen: "全屏",
     all_tracks: "所有曲目",
     no_metadata: "无元数据",
 

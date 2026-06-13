@@ -34,6 +34,7 @@ pub static VI: Strings = lang! {
     tab_liked: "Yêu thích",
     tab_playlists: "Danh sách phát",
     cover_mode: "Chế độ xem bìa",
+    full_screen: "Toàn màn hình",
     all_tracks: "Tất cả bài hát",
     no_metadata: "Không có siêu dữ liệu",
 

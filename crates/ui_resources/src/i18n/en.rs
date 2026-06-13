@@ -34,6 +34,7 @@ pub static EN: Strings = lang! {
     tab_liked: "Liked",
     tab_playlists: "Playlists",
     cover_mode: "Cover view",
+    full_screen: "Full screen",
     all_tracks: "All tracks",
     no_metadata: "No metadata",
 

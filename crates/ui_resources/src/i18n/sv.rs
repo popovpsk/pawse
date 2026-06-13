@@ -34,6 +34,7 @@ pub static SV: Strings = lang! {
     tab_liked: "Gillade",
     tab_playlists: "Spellistor",
     cover_mode: "Omslagsvy",
+    full_screen: "Helskärm",
     all_tracks: "Alla låtar",
     no_metadata: "Inga metadata",
 

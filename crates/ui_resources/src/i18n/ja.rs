@@ -34,6 +34,7 @@ pub static JA: Strings = lang! {
     tab_liked: "お気に入り",
     tab_playlists: "プレイリスト",
     cover_mode: "カバー表示",
+    full_screen: "全画面表示",
     all_tracks: "すべてのトラック",
     no_metadata: "メタデータなし",
 

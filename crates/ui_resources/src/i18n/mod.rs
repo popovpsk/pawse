@@ -79,6 +79,7 @@ pub struct Strings {
     pub tab_liked: SharedString,
     pub tab_playlists: SharedString,
     pub cover_mode: SharedString,
+    pub full_screen: SharedString,
     pub all_tracks: SharedString,
     pub no_metadata: SharedString,
 

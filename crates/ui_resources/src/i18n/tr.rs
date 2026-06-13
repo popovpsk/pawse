@@ -34,6 +34,7 @@ pub static TR: Strings = lang! {
     tab_liked: "Beğenilenler",
     tab_playlists: "Çalma listeleri",
     cover_mode: "Kapak görünümü",
+    full_screen: "Tam ekran",
     all_tracks: "Tüm parçalar",
     no_metadata: "Meta veri yok",
 

@@ -34,6 +34,7 @@ pub static NL: Strings = lang! {
     tab_liked: "Vind-ik-leuks",
     tab_playlists: "Afspeellijsten",
     cover_mode: "Hoesweergave",
+    full_screen: "Volledig scherm",
     all_tracks: "Alle nummers",
     no_metadata: "Geen metadata",
 

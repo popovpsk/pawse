@@ -34,6 +34,7 @@ pub static TH: Strings = lang! {
     tab_liked: "ที่ถูกใจ",
     tab_playlists: "เพลย์ลิสต์",
     cover_mode: "มุมมองปก",
+    full_screen: "เต็มหน้าจอ",
     all_tracks: "เพลงทั้งหมด",
     no_metadata: "ไม่มีข้อมูลเมตา",
 

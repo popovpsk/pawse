@@ -34,6 +34,7 @@ pub static ID: Strings = lang! {
     tab_liked: "Disukai",
     tab_playlists: "Playlist",
     cover_mode: "Tampilan sampul",
+    full_screen: "Layar penuh",
     all_tracks: "Semua lagu",
     no_metadata: "Tanpa metadata",
 

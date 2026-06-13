@@ -34,6 +34,7 @@ pub static HI: Strings = lang! {
     tab_liked: "पसंदीदा",
     tab_playlists: "प्लेलिस्ट",
     cover_mode: "कवर दृश्य",
+    full_screen: "पूर्ण स्क्रीन",
     all_tracks: "सभी ट्रैक",
     no_metadata: "कोई मेटाडेटा नहीं",
 

@@ -64,7 +64,14 @@ impl ThemePickerState {
 
     pub fn build_options(cx: &App) -> Vec<(SharedString, SharedString)> {
         let mut opts: Vec<(SharedString, SharedString)> = vec![("system".into(), "System".into())];
-        for cfg in ThemeRegistry::global(cx).sorted_themes() {
+        let mut themes = ThemeRegistry::global(cx).sorted_themes();
+        themes.sort_by(|a, b| {
+            b.mode
+                .is_dark()
+                .cmp(&a.mode.is_dark())
+                .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        for cfg in themes {
             let name: SharedString = cfg.name.clone();
             opts.push((name.clone(), name));
         }

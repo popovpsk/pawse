@@ -34,6 +34,7 @@ pub static CS: Strings = lang! {
     tab_liked: "Oblíbené",
     tab_playlists: "Playlisty",
     cover_mode: "Zobrazení obalu",
+    full_screen: "Celá obrazovka",
     all_tracks: "Všechny skladby",
     no_metadata: "Bez metadat",
 

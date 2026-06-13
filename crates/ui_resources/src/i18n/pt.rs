@@ -34,6 +34,7 @@ pub static PT: Strings = lang! {
     tab_liked: "Curtidas",
     tab_playlists: "Playlists",
     cover_mode: "Visualização da capa",
+    full_screen: "Tela cheia",
     all_tracks: "Todas as faixas",
     no_metadata: "Sem metadados",
 

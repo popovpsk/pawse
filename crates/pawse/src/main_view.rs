@@ -740,9 +740,9 @@ fn cover_chrome_button(
     cx: &mut Context<MainView>,
 ) -> impl IntoElement {
     let icon = if chrome_visible {
-        "icons/s1-collapse.svg"
-    } else {
         "icons/s1-expand.svg"
+    } else {
+        "icons/s1-collapse.svg"
     };
     let fg = colors.foreground;
     let hover_bg = colors.hover_bg;
@@ -757,6 +757,7 @@ fn cover_chrome_button(
         .items_center()
         .justify_center()
         .rounded_full()
+        .tooltip(|window, cx| Tooltip::new(tr().full_screen.clone()).build(window, cx))
         .hover(move |s| s.bg(hover_bg))
         .on_click(cx.listener(|this, _, _, cx| {
             this.cover_mode_view
@@ -787,6 +788,7 @@ fn cover_queue_button(
         .items_center()
         .justify_center()
         .rounded_full()
+        .tooltip(|window, cx| Tooltip::new(tr().queue.clone()).build(window, cx))
         .hover(move |s| s.bg(hover_bg))
         .on_click(cx.listener(|this, _, _, cx| this.toggle_cover_queue(cx)))
         .child(
@@ -826,7 +828,7 @@ fn cover_mode_button(
         }))
         .child(
             svg()
-                .path("icons/s1-expand.svg")
+                .path("icons/s1-cover.svg")
                 .size(px(20.))
                 .text_color(fg),
         )

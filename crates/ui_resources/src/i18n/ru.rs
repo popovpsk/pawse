@@ -34,6 +34,7 @@ pub static RU: Strings = lang! {
     tab_liked: "Понравившиеся",
     tab_playlists: "Плейлисты",
     cover_mode: "Режим обложки",
+    full_screen: "Полный экран",
     all_tracks: "Все треки",
     no_metadata: "Без метаинформации",
 
