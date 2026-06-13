@@ -31,12 +31,10 @@ use crate::queue_view::QueueView;
 use crate::settings_store::SettingsStore;
 use crate::settings_view::{LangPickerState, ThemePickerState};
 use crate::theme_colors::Colors;
-use ui_components::fade::{FadeEdge, fade_overlay};
 use ui_components::settings::SettingPage;
 
 const HEADER_HEIGHT: f32 = 44.;
 const FOOTER_HEIGHT: f32 = 80.;
-const FADE_HEIGHT: f32 = 16.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;
@@ -409,7 +407,6 @@ impl Render for MainView {
             (view.chrome_visible(), view.corner_visible())
         };
 
-        let title_bar_height = crate::window_title_bar::title_bar_height(window);
         let title_bar = Colors::title_bar(cx);
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
@@ -632,20 +629,6 @@ impl Render for MainView {
                     .when(show_chrome, |d| d.child(header_bar))
                     .child(middle)
                     .when(show_chrome, |d| d.child(footer_bar))
-            })
-            .when(!show_settings && !cover_mode, |d| {
-                d.child(fade_overlay(
-                    FadeEdge::Top,
-                    title_bar,
-                    FADE_HEIGHT,
-                    title_bar_height + HEADER_HEIGHT,
-                ))
-                .child(fade_overlay(
-                    FadeEdge::Bottom,
-                    Colors::background(cx),
-                    FADE_HEIGHT,
-                    FOOTER_HEIGHT,
-                ))
             })
             .child({
                 let entity = cx.entity();

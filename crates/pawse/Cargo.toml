@@ -30,6 +30,7 @@ media_integration = { path = "../media_integration" }
 sys-locale = "0.3"
 nucleo-matcher = "0.3"
 rand = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 interprocess = "2"

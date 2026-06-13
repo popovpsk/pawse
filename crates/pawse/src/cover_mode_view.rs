@@ -40,6 +40,7 @@ pub struct CoverModeView {
     track_path: Option<String>,
     large_cover: Option<Arc<Image>>,
     full_cover: Option<Arc<Image>>,
+    cover_aspect: Option<f32>,
     active: bool,
     chrome_visible: bool,
     measured: Size<Pixels>,
@@ -73,6 +74,36 @@ fn sniff_image_format(bytes: &[u8]) -> Option<ImageFormat> {
         Some(ImageFormat::Bmp)
     } else {
         None
+    }
+}
+
+fn image_aspect(bytes: &[u8]) -> Option<f32> {
+    let (w, h) = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    if w == 0 || h == 0 {
+        return None;
+    }
+    Some(w as f32 / h as f32)
+}
+
+fn fit_cover_box(aspect: Option<f32>, max_w: f32, max_h: f32) -> (f32, f32) {
+    match aspect {
+        Some(a) if a.is_finite() && a > 0. => {
+            let mut w = max_w;
+            let mut h = w / a;
+            if h > max_h {
+                h = max_h;
+                w = h * a;
+            }
+            (w, h)
+        }
+        _ => {
+            let s = max_w.min(max_h);
+            (s, s)
+        }
     }
 }
 
@@ -149,6 +180,7 @@ impl CoverModeView {
             track_path: None,
             large_cover: None,
             full_cover: None,
+            cover_aspect: None,
             active: false,
             chrome_visible: true,
             measured: size(px(0.), px(0.)),
@@ -327,6 +359,7 @@ impl CoverModeView {
     }
 
     fn release_full_cover(&mut self, cx: &mut Context<Self>) {
+        self.cover_aspect = None;
         if let Some(old) = self.full_cover.take() {
             old.remove_asset(cx);
         }
@@ -355,16 +388,18 @@ impl CoverModeView {
             let bytes =
                 music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
             let format = sniff_image_format(&bytes)?;
-            Some(Arc::new(Image::from_bytes(format, bytes)))
+            let aspect = image_aspect(&bytes);
+            Some((Arc::new(Image::from_bytes(format, bytes)), aspect))
         });
         self._full_cover_task = Some(cx.spawn(async move |this, cx| {
-            let Some(image) = load.await else {
+            let Some((image, aspect)) = load.await else {
                 return;
             };
             let _ = this.update(cx, |view, cx| {
                 view._full_cover_task = None;
                 if view.active && view.cover_art_id == Some(id) {
                     view.full_cover = Some(image);
+                    view.cover_aspect = aspect;
                     cx.notify();
                 }
             });
@@ -415,14 +450,14 @@ impl Render for CoverModeView {
         } else {
             0.
         };
-        let side = (avail_w - COVER_MARGIN * 2.)
-            .min(avail_h - COVER_MARGIN * 2. - below)
-            .max(COVER_MIN_SIDE);
+        let max_w = (avail_w - COVER_MARGIN * 2.).max(COVER_MIN_SIDE);
+        let max_h = (avail_h - COVER_MARGIN * 2. - below).max(COVER_MIN_SIDE);
+        let (cover_w, cover_h) = fit_cover_box(self.cover_aspect, max_w, max_h);
 
         let cover_square = div()
             .relative()
-            .w(px(side))
-            .h(px(side))
+            .w(px(cover_w))
+            .h(px(cover_h))
             .rounded(px(COVER_RADIUS))
             .overflow_hidden()
             .bg(placeholder_bg)
@@ -441,18 +476,18 @@ impl Render for CoverModeView {
                             .top_0()
                             .left_0()
                             .size_full()
-                            .object_fit(gpui::ObjectFit::Cover),
+                            .object_fit(gpui::ObjectFit::Contain),
                     ),
                 (Some(thumb), None) => {
                     d.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
                 }
                 (None, Some(full)) => {
-                    d.child(img(full).size_full().object_fit(gpui::ObjectFit::Cover))
+                    d.child(img(full).size_full().object_fit(gpui::ObjectFit::Contain))
                 }
                 (None, None) => d.flex().items_center().justify_center().child(
                     svg()
                         .path("icons/placeholder-notes.svg")
-                        .size(px(side * 0.5))
+                        .size(px(cover_w.min(cover_h) * 0.5))
                         .text_color(placeholder_fg),
                 ),
             })
@@ -583,7 +618,7 @@ impl Render for CoverModeView {
                         if show_progress_bar {
                             group = group.child(
                                 div()
-                                    .w(px(side * COVER_PROGRESS_W_FRAC))
+                                    .w(px(cover_w * COVER_PROGRESS_W_FRAC))
                                     .child(self.progress.read(cx).slider()),
                             );
                         }
