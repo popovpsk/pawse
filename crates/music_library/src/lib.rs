@@ -1127,6 +1127,38 @@ mod tests {
     }
 
     #[test]
+    fn test_move_track_in_playlist_reorders_positions() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        let b = seed_track(&lib, "B", "Album", "Artist");
+        let c = seed_track(&lib, "C", "Album", "Artist");
+        let playlist_id = lib.create_playlist("Order").unwrap();
+        lib.add_track_to_playlist(playlist_id, a).unwrap();
+        lib.add_track_to_playlist(playlist_id, b).unwrap();
+        lib.add_track_to_playlist(playlist_id, c).unwrap();
+
+        let ids = |lib: &SqliteLibrary| -> Vec<i64> {
+            lib.tracks_for_playlist(playlist_id)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect()
+        };
+
+        lib.move_track_in_playlist(playlist_id, 0, 2).unwrap();
+        assert_eq!(ids(&lib), vec![b, c, a]);
+
+        lib.move_track_in_playlist(playlist_id, 2, 0).unwrap();
+        assert_eq!(ids(&lib), vec![a, b, c]);
+
+        lib.move_track_in_playlist(playlist_id, 1, 1).unwrap();
+        assert_eq!(ids(&lib), vec![a, b, c]);
+
+        lib.move_track_in_playlist(playlist_id, 0, 9).unwrap();
+        assert_eq!(ids(&lib), vec![a, b, c]);
+    }
+
+    #[test]
     fn test_playlist_track_refs_survive_clear_and_rescan() {
         // Snapshot → clear → re-insert tracks at new ids → restore: playlist
         // contents must reappear referencing the new track ids.

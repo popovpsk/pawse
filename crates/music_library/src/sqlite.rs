@@ -859,6 +859,43 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
+    fn move_track_in_playlist(&self, playlist_id: i64, from: usize, to: usize) -> Result<()> {
+        if from == to {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut ids: Vec<i64> = {
+            let mut stmt = tx.prepare(
+                "SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position",
+            )?;
+            let rows = stmt.query_map([playlist_id], |row| row.get(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        if from >= ids.len() || to >= ids.len() {
+            tx.commit()?;
+            return Ok(());
+        }
+        let moved = ids.remove(from);
+        ids.insert(to, moved);
+        // why: position is part of the PK, so an in-place shift would transiently
+        // collide; renumbering the whole list densely sidesteps it.
+        tx.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+            [playlist_id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+            )?;
+            for (position, track_id) in ids.iter().enumerate() {
+                stmt.execute(rusqlite::params![playlist_id, position as i64, track_id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(

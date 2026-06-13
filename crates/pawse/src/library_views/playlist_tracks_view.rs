@@ -4,9 +4,9 @@ use std::rc::Rc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
-    svg,
+    AppContext, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -34,6 +34,28 @@ const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 44.;
 const COVER_SIZE: f32 = 32.;
 const HEADER_HEIGHT: f32 = 56.;
+
+#[derive(Clone)]
+struct DraggedPlaylistTrack {
+    from_pos: usize,
+    title: SharedString,
+}
+
+impl Render for DraggedPlaylistTrack {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .bg(Colors::popover(cx))
+            .text_color(Colors::popover_foreground(cx))
+            .border_1()
+            .border_color(Colors::border(cx))
+            .text_sm()
+            .opacity(0.9)
+            .child(self.title.clone())
+    }
+}
 
 #[derive(Clone, Copy)]
 enum Item {
@@ -376,6 +398,8 @@ fn playlist_track_row(
         QueueSource::Playlist(id) => Some(id),
         _ => None,
     };
+    let can_reorder = remove_playlist_id.is_some() && view.filter.is_empty();
+    let drag_title = row.base.title.clone();
 
     let cover_el = cover_thumb(row.cover.as_ref(), COVER_SIZE, 3., p.muted, p.muted_fg);
 
@@ -450,5 +474,40 @@ fn playlist_track_row(
                 cx,
             );
         }))
+        .when(can_reorder, |row| {
+            row.on_drag(
+                DraggedPlaylistTrack {
+                    from_pos: track_all_ix,
+                    title: drag_title,
+                },
+                |drag, _, _, cx| {
+                    cx.stop_propagation();
+                    cx.new(|_| drag.clone())
+                },
+            )
+            .drag_over::<DraggedPlaylistTrack>(move |style, drag, _, cx| {
+                let style = if drag.from_pos < track_all_ix {
+                    style.border_b_2()
+                } else {
+                    style.border_t_2().border_b(px(0.))
+                };
+                style.border_color(Colors::drag_border(cx))
+            })
+            .on_drop(
+                cx.listener(move |_this, drag: &DraggedPlaylistTrack, _, cx| {
+                    if drag.from_pos == track_all_ix {
+                        return;
+                    }
+                    let Some(pid) = remove_playlist_id else {
+                        return;
+                    };
+                    cx.global::<Services>().library.move_track_in_playlist(
+                        pid,
+                        drag.from_pos,
+                        track_all_ix,
+                    );
+                }),
+            )
+        })
         .into_any_element()
 }

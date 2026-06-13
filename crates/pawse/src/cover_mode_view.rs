@@ -5,9 +5,9 @@ use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, BoxShadow, ClickEvent, Context, Entity, EventEmitter, Hsla, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderImage, SharedString, Size,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Transformation, Window,
-    canvas, div, img, point, px, size, svg,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderImage, SharedString,
+    Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Transformation,
+    Window, canvas, div, img, point, px, size, svg,
 };
 use gpui_component::{h_flex, v_flex};
 
@@ -390,7 +390,9 @@ impl CoverModeView {
                 music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
             let format = sniff_image_format(&bytes)?;
             let aspect = image_aspect(&bytes);
-            let image = Image::from_bytes(format, bytes).to_image_data(renderer).ok()?;
+            let image = Image::from_bytes(format, bytes)
+                .to_image_data(renderer)
+                .ok()?;
             Some((image, aspect))
         });
         self._full_cover_task = Some(cx.spawn(async move |this, cx| {

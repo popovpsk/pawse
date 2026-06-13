@@ -19,7 +19,8 @@ drive the `PlaybackQueue` on click.
 - `artist_tracks_view.rs` — all tracks of one artist, grouped by album.
 - `liked_view.rs` — the liked-tracks screen.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
-- `playlist_tracks_view.rs` — tracks of one playlist.
+- `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable
+  (only with an empty filter), persisted via `LibraryService::move_track_in_playlist`.
 - `album_info.rs` — the album header element (cover + title/artist/year + add-album
   button) rendered as the first row inside `tracks_view`.
 

@@ -201,6 +201,22 @@ impl LibraryService {
             .send(LibraryEvent::PlaylistTracksChanged { playlist_id });
     }
 
+    pub fn move_track_in_playlist(&self, playlist_id: i64, from: usize, to: usize) {
+        if let Err(e) = self.repo.move_track_in_playlist(playlist_id, from, to) {
+            log::error!(
+                "Failed to move track from {} to {} in playlist {}: {}",
+                from,
+                to,
+                playlist_id,
+                e
+            );
+            return;
+        }
+        let _ = self
+            .event_tx
+            .send(LibraryEvent::PlaylistTracksChanged { playlist_id });
+    }
+
     pub fn album_title(&self, album_id: i64) -> Option<String> {
         self.repo.album_title(album_id).ok().flatten()
     }
