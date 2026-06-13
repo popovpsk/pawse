@@ -57,6 +57,7 @@ fn display_ordered_tracks(conn: &Connection, where_clause: &str) -> Result<Vec<T
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
     db_path: PathBuf,
+    liked_playlist_id: i64,
 }
 
 /// Remove the SQLite database and its WAL sidecar files. Used when an
@@ -160,11 +161,13 @@ impl SqliteLibrary {
 
         let conn = Connection::open(&db_path)?;
         apply_pragmas(&conn)?;
-        let lib = Self {
+        let mut lib = Self {
             conn: Mutex::new(conn),
             db_path,
+            liked_playlist_id: 0,
         };
         lib.run_migrations()?;
+        lib.liked_playlist_id = lib.ensure_liked_playlist()?;
         Ok(lib)
     }
 
@@ -174,11 +177,13 @@ impl SqliteLibrary {
         std::fs::create_dir_all(db_dir)?;
         let conn = Connection::open(path)?;
         apply_pragmas(&conn)?;
-        let lib = Self {
+        let mut lib = Self {
             conn: Mutex::new(conn),
             db_path: path.to_path_buf(),
+            liked_playlist_id: 0,
         };
         lib.run_migrations()?;
+        lib.liked_playlist_id = lib.ensure_liked_playlist()?;
         Ok(lib)
     }
 
@@ -198,6 +203,62 @@ impl SqliteLibrary {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    fn ensure_liked_playlist(&self) -> Result<i64> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let stored: Option<i64> = tx
+            .query_row(
+                "SELECT value FROM scan_meta WHERE key = 'liked_playlist_id'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|s| s.parse::<i64>().ok());
+        let valid = match stored {
+            Some(id) => {
+                tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM playlists WHERE id = ?1)",
+                    [id],
+                    |row| row.get::<_, i64>(0),
+                )? != 0
+            }
+            None => false,
+        };
+        let id = match (stored, valid) {
+            (Some(id), true) => id,
+            _ => {
+                let created_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                tx.execute(
+                    "INSERT INTO playlists (name, created_at) VALUES ('Liked', ?1)",
+                    [created_at],
+                )?;
+                let new_id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO scan_meta (key, value) VALUES ('liked_playlist_id', ?1) \
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    [new_id.to_string()],
+                )?;
+                // why: an existing DB may already have liked tracks; seed the
+                // hidden playlist from them in their current display order so the
+                // Liked view isn't empty on first run after this feature.
+                let liked_now = display_ordered_tracks(&tx, "WHERE t.liked = 1")?;
+                let mut insert = tx.prepare(
+                    "INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+                )?;
+                for (position, track) in liked_now.iter().enumerate() {
+                    insert.execute(rusqlite::params![new_id, position as i64, track.id])?;
+                }
+                drop(insert);
+                new_id
+            }
+        };
+        tx.commit()?;
+        Ok(id)
     }
 
     fn get_or_insert_artist(&self, tx: &rusqlite::Transaction, name: &str) -> Result<i64> {
@@ -736,8 +797,7 @@ impl LibraryRepository for SqliteLibrary {
     }
 
     fn liked_tracks(&self) -> Result<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
-        display_ordered_tracks(&conn, "WHERE t.liked = 1")
+        self.tracks_for_playlist(self.liked_playlist_id)
     }
 
     fn all_tracks(&self) -> Result<Vec<Track>> {
@@ -753,11 +813,47 @@ impl LibraryRepository for SqliteLibrary {
     }
 
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        let liked_playlist_id = self.liked_playlist_id;
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE tracks SET liked = ?1 WHERE id = ?2",
             rusqlite::params![liked as i64, track_id],
         )?;
+        if liked {
+            let next_position: i64 = tx
+                .query_row(
+                    "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+                    [liked_playlist_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            tx.execute(
+                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+                rusqlite::params![liked_playlist_id, next_position, track_id],
+            )?;
+        } else {
+            let position: Option<i64> = tx
+                .query_row(
+                    "SELECT MIN(position) FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2",
+                    rusqlite::params![liked_playlist_id, track_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            if let Some(position) = position {
+                tx.execute(
+                    "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND position = ?2",
+                    rusqlite::params![liked_playlist_id, position],
+                )?;
+                tx.execute(
+                    "UPDATE playlist_tracks SET position = position - 1 \
+                     WHERE playlist_id = ?1 AND position > ?2",
+                    rusqlite::params![liked_playlist_id, position],
+                )?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -791,11 +887,12 @@ impl LibraryRepository for SqliteLibrary {
                 COUNT(pt.track_id) AS track_count
             FROM playlists p
             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
+            WHERE p.id != ?1
             GROUP BY p.id
             ORDER BY p.created_at ASC, p.id ASC
             "#,
         )?;
-        let rows = stmt.query_map([], |row| {
+        let rows = stmt.query_map([self.liked_playlist_id], |row| {
             Ok(PlaylistSummary {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -896,6 +993,10 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
+    fn move_liked_track(&self, from: usize, to: usize) -> Result<()> {
+        self.move_track_in_playlist(self.liked_playlist_id, from, to)
+    }
+
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
@@ -938,9 +1039,11 @@ impl LibraryRepository for SqliteLibrary {
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1",
+            "SELECT DISTINCT playlist_id FROM playlist_tracks WHERE track_id = ?1 AND playlist_id != ?2",
         )?;
-        let rows = stmt.query_map([track_id], |row| row.get::<_, i64>(0))?;
+        let rows = stmt.query_map([track_id, self.liked_playlist_id], |row| {
+            row.get::<_, i64>(0)
+        })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
@@ -1002,6 +1105,13 @@ impl LibraryRepository for SqliteLibrary {
                 next_position += 1;
             }
         }
+        // why: clear() wiped tracks.liked; re-derive it from the restored hidden
+        // playlist membership so hearts elsewhere stay in sync with the Liked view.
+        tx.execute(
+            "UPDATE tracks SET liked = 1 WHERE id IN \
+             (SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1)",
+            [self.liked_playlist_id],
+        )?;
         tx.commit()?;
         Ok(())
     }

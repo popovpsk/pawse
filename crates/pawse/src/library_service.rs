@@ -217,6 +217,17 @@ impl LibraryService {
             .send(LibraryEvent::PlaylistTracksChanged { playlist_id });
     }
 
+    pub fn move_liked_track(&self, from: usize, to: usize) {
+        if let Err(e) = self.repo.move_liked_track(from, to) {
+            log::error!(
+                "Failed to reorder liked track from {} to {}: {}",
+                from,
+                to,
+                e
+            );
+        }
+    }
+
     pub fn album_title(&self, album_id: i64) -> Option<String> {
         self.repo.album_title(album_id).ok().flatten()
     }

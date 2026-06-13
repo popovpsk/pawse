@@ -4,8 +4,9 @@ use std::rc::Rc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px, size,
+    AppContext, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, size,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -31,6 +32,28 @@ use crate::settings_store::SettingsStore;
 const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 44.;
 const COVER_SIZE: f32 = 32.;
+
+#[derive(Clone)]
+struct DraggedLikedTrack {
+    from_pos: usize,
+    title: SharedString,
+}
+
+impl Render for DraggedLikedTrack {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .bg(Colors::popover(cx))
+            .text_color(Colors::popover_foreground(cx))
+            .border_1()
+            .border_color(Colors::border(cx))
+            .text_sm()
+            .opacity(0.9)
+            .child(self.title.clone())
+    }
+}
 
 #[derive(Clone, Copy)]
 enum LikedItem {
@@ -89,34 +112,12 @@ impl LikedView {
             &library_event_bus,
             |this, _, event: &LibraryEvent, cx| match event {
                 LibraryEvent::ScanComplete { changed } if *changed => {
-                    let services = cx.global::<Services>();
-                    this.tracks_all = services
-                        .library
-                        .liked_tracks()
-                        .into_iter()
-                        .map(Rc::new)
-                        .collect();
-                    this.artist_by_track = build_artist_map(&services.library, &this.tracks_all);
-                    this.haystacks = build_haystacks(&this.tracks_all, &this.artist_by_track);
-                    this.recompute_visible(cx);
-                    cx.notify();
+                    this.reload(cx);
                 }
                 LibraryEvent::TrackLikedChanged { track_id, liked } => {
                     if *liked {
                         if !this.tracks_all.iter().any(|t| t.id == *track_id) {
-                            let services = cx.global::<Services>();
-                            this.tracks_all = services
-                                .library
-                                .liked_tracks()
-                                .into_iter()
-                                .map(Rc::new)
-                                .collect();
-                            this.artist_by_track =
-                                build_artist_map(&services.library, &this.tracks_all);
-                            this.haystacks =
-                                build_haystacks(&this.tracks_all, &this.artist_by_track);
-                            this.recompute_visible(cx);
-                            cx.notify();
+                            this.reload(cx);
                         }
                     } else {
                         let before = this.tracks_all.len();
@@ -179,6 +180,20 @@ impl LikedView {
             _library_subscription: library_subscription,
             _engine_subscription: engine_subscription,
         }
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        let services = cx.global::<Services>();
+        self.tracks_all = services
+            .library
+            .liked_tracks()
+            .into_iter()
+            .map(Rc::new)
+            .collect();
+        self.artist_by_track = build_artist_map(&services.library, &self.tracks_all);
+        self.haystacks = build_haystacks(&self.tracks_all, &self.artist_by_track);
+        self.recompute_visible(cx);
+        cx.notify();
     }
 
     fn build_items(count: usize) -> (Vec<LikedItem>, Vec<Size<Pixels>>) {
@@ -331,6 +346,8 @@ fn liked_track_row(
     let track_all_ix = row.track_all_ix;
     let is_current = Some(track_id) == view.current_track_id;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
+    let can_reorder = view.filter.is_empty();
+    let drag_title = row.base.title.clone();
 
     let cover_el = cover_thumb(row.cover.as_ref(), COVER_SIZE, 3., p.muted, p.muted_fg);
 
@@ -385,5 +402,34 @@ fn liked_track_row(
                 cx,
             );
         }))
+        .when(can_reorder, |row| {
+            row.on_drag(
+                DraggedLikedTrack {
+                    from_pos: track_all_ix,
+                    title: drag_title,
+                },
+                |drag, _, _, cx| {
+                    cx.stop_propagation();
+                    cx.new(|_| drag.clone())
+                },
+            )
+            .drag_over::<DraggedLikedTrack>(move |style, drag, _, cx| {
+                let style = if drag.from_pos < track_all_ix {
+                    style.border_b_2()
+                } else {
+                    style.border_t_2().border_b(px(0.))
+                };
+                style.border_color(Colors::drag_border(cx))
+            })
+            .on_drop(cx.listener(move |this, drag: &DraggedLikedTrack, _, cx| {
+                if drag.from_pos == track_all_ix {
+                    return;
+                }
+                cx.global::<Services>()
+                    .library
+                    .move_liked_track(drag.from_pos, track_all_ix);
+                this.reload(cx);
+            }))
+        })
         .into_any_element()
 }

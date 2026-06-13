@@ -17,7 +17,8 @@ drive the `PlaybackQueue` on click.
 - `artists_view.rs` — Artists tab: virtualized list of artists.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
 - `artist_tracks_view.rs` — all tracks of one artist, grouped by album.
-- `liked_view.rs` — the liked-tracks screen.
+- `liked_view.rs` — the liked-tracks screen. Rows are drag-reorderable (only with
+  an empty filter) via `LibraryService::move_liked_track`.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
 - `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable
   (only with an empty filter), persisted via `LibraryService::move_track_in_playlist`.
@@ -42,6 +43,12 @@ drive the `PlaybackQueue` on click.
   mutating the matching `TrackRow` in place (no full rebuild); the `tracks_all`
   entry is updated via `Rc::make_mut` (copy-on-write only if shared). `liked_view`
   instead re-fetches, since unliking removes the row.
+- **Liked ordering**: likes are backed by a hidden playlist in `music_library`, so
+  the liked set has a persisted manual order (newest like appended last). The
+  `tracks.liked` boolean stays the source of truth for the heart icon; the hidden
+  playlist only carries order and is filtered out of `playlists()` /
+  `playlists_containing_track`. `liked_view` reorder calls `move_liked_track` then
+  reloads itself (no event round-trip, and the queue is never backed by liked).
 - **Item sizing**: virtual lists use an `items` enum (`TopPadding` / `AlbumInfo` /
   `DiscHeader` / `Track`) with a parallel `item_sizes` vec; heights are fixed
   constants, width is `px(0.)` (unused by the vertical list — kept zero on purpose).
