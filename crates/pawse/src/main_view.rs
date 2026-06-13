@@ -16,7 +16,7 @@ use gpui_component::{
 };
 
 use crate::audio_settings::AudioSettings;
-use crate::cover_mode_view::CoverModeView;
+use crate::cover_mode_view::{CORNER_FADE, CoverModeView};
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
     ExitCoverMode, NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown,
@@ -427,9 +427,13 @@ impl Render for MainView {
         let has_back = show_settings || self.is_drilled_in;
         let cover_mode = self.cover_mode;
         let active_tab = (!cover_mode).then_some(self.current_tab);
-        let (chrome_visible, corner_visible) = {
+        let (chrome_visible, corner_visible, corner_hiding) = {
             let view = self.cover_mode_view.read(cx);
-            (view.chrome_visible(), view.corner_visible())
+            (
+                view.chrome_visible(),
+                view.corner_visible(),
+                view.corner_hiding(),
+            )
         };
 
         let title_bar = Colors::title_bar(cx);
@@ -588,13 +592,47 @@ impl Render for MainView {
                             } else {
                                 self.library_view.clone().into_any_element()
                             })
-                            .when(cover_mode && (chrome_visible || corner_visible), |d| {
-                                d.relative()
-                                    .child(cover_chrome_button(chrome_visible, tab_colors, cx))
-                                    .when(!chrome_visible, |d| {
-                                        d.child(cover_queue_button(self.show_queue, tab_colors, cx))
+                            .when(
+                                cover_mode && (chrome_visible || corner_visible || corner_hiding),
+                                |d| {
+                                    let immersive = !chrome_visible;
+                                    let hiding = corner_hiding;
+                                    let buttons = div()
+                                        .absolute()
+                                        .top_0()
+                                        .left_0()
+                                        .size_full()
+                                        .child(cover_chrome_button(chrome_visible, tab_colors, cx))
+                                        .when(immersive, |d| {
+                                            d.child(cover_queue_button(
+                                                self.show_queue,
+                                                tab_colors,
+                                                cx,
+                                            ))
+                                        });
+                                    d.relative().child(if immersive {
+                                        buttons
+                                            .with_animation(
+                                                if hiding {
+                                                    "cover-corner-out"
+                                                } else {
+                                                    "cover-corner-in"
+                                                },
+                                                Animation::new(CORNER_FADE),
+                                                move |b, delta| {
+                                                    b.opacity(if hiding {
+                                                        1.0 - delta
+                                                    } else {
+                                                        delta
+                                                    })
+                                                },
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        buttons.into_any_element()
                                     })
-                            }),
+                                },
+                            ),
                     )
                     .when(self.show_queue || self.queue_closing, |d| {
                         let queue_width = self.queue_width;

@@ -4,10 +4,10 @@ use std::time::{Duration, Instant};
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, BoxShadow, ClickEvent, Context, Entity, EventEmitter, Hsla, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderImage, SharedString,
-    Size, StatefulInteractiveElement, Styled, StyledImage, Subscription, Task, Transformation,
-    Window, canvas, div, img, point, px, size, svg,
+    Animation, AnimationExt, AppContext, BoxShadow, ClickEvent, Context, Div, Entity, EventEmitter,
+    Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    RenderImage, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription,
+    Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px, size, svg,
 };
 use gpui_component::{h_flex, v_flex};
 
@@ -30,7 +30,11 @@ const COVER_GROUP_DROP: f32 = 28.;
 const COVER_CTRL_BG_OPACITY: f32 = 0.55;
 const COVER_CTRL_SIZE: f32 = 44.;
 const COVER_CTRL_ICON: f32 = 26.;
+const COVER_PLAY_SIZE: f32 = 64.;
+const COVER_PLAY_ICON: f32 = 34.;
 const CORNER_HIDE_DELAY: Duration = Duration::from_secs(3);
+pub const CORNER_FADE: Duration = Duration::from_millis(200);
+const COVER_SLIDE: Duration = Duration::from_millis(300);
 
 pub struct CoverModeView {
     track_title: SharedString,
@@ -41,11 +45,18 @@ pub struct CoverModeView {
     large_cover: Option<Arc<Image>>,
     full_cover: Option<Arc<RenderImage>>,
     cover_aspect: Option<f32>,
+    prev_large_cover: Option<Arc<Image>>,
+    prev_full_cover: Option<Arc<RenderImage>>,
+    sliding: bool,
+    slide_forward: bool,
+    slide_seq: u64,
+    queue_index: Option<usize>,
     active: bool,
     chrome_visible: bool,
     measured: Size<Pixels>,
     is_playing: bool,
     corner_visible: bool,
+    corner_hiding: bool,
     corner_hide_at: Instant,
     corner_hide_task: Option<Task<()>>,
     show_artist: bool,
@@ -53,6 +64,7 @@ pub struct CoverModeView {
     show_controls: bool,
     progress: Entity<TrackProgressSlider>,
     _full_cover_task: Option<Task<()>>,
+    _slide_task: Option<Task<()>>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
@@ -114,7 +126,7 @@ impl CoverModeView {
             &engine_event_bus,
             |this, _, event: &EngineEvent, cx| match event {
                 EngineEvent::Loaded { .. } => {
-                    this.populate_current(cx);
+                    this.populate_current(true, cx);
                 }
                 EngineEvent::Playing => {
                     this.is_playing = true;
@@ -144,7 +156,7 @@ impl CoverModeView {
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
                 if let LibraryEvent::ScanComplete { changed: true } = event {
-                    this.populate_current(cx);
+                    this.populate_current(false, cx);
                 }
             });
 
@@ -181,11 +193,18 @@ impl CoverModeView {
             large_cover: None,
             full_cover: None,
             cover_aspect: None,
+            prev_large_cover: None,
+            prev_full_cover: None,
+            sliding: false,
+            slide_forward: true,
+            slide_seq: 0,
+            queue_index: None,
             active: false,
             chrome_visible: true,
             measured: size(px(0.), px(0.)),
             is_playing,
             corner_visible: false,
+            corner_hiding: false,
             corner_hide_at: Instant::now(),
             corner_hide_task: None,
             show_artist,
@@ -193,6 +212,7 @@ impl CoverModeView {
             show_controls,
             progress,
             _full_cover_task: None,
+            _slide_task: None,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
@@ -207,9 +227,14 @@ impl CoverModeView {
         self.corner_visible
     }
 
+    pub fn corner_hiding(&self) -> bool {
+        self.corner_hiding
+    }
+
     pub fn toggle_chrome(&mut self, cx: &mut Context<Self>) {
         self.chrome_visible = !self.chrome_visible;
         self.corner_visible = false;
+        self.corner_hiding = false;
         self.corner_hide_task = None;
         cx.notify();
     }
@@ -221,6 +246,7 @@ impl CoverModeView {
         self.corner_hide_at = Instant::now() + CORNER_HIDE_DELAY;
         if !self.corner_visible {
             self.corner_visible = true;
+            self.corner_hiding = false;
             cx.notify();
         }
         if self.corner_hide_task.is_none() {
@@ -237,17 +263,42 @@ impl CoverModeView {
                 }) else {
                     return;
                 };
-                if remaining.is_zero() {
-                    let _ = this.update(cx, |view, cx| {
-                        view.corner_hide_task = None;
+                if !remaining.is_zero() {
+                    cx.background_executor().timer(remaining).await;
+                    continue;
+                }
+                let fading = this
+                    .update(cx, |view, cx| {
                         if view.active && view.corner_visible {
                             view.corner_visible = false;
+                            view.corner_hiding = true;
                             cx.notify();
+                            true
+                        } else {
+                            false
                         }
-                    });
-                    return;
+                    })
+                    .unwrap_or(false);
+                if fading {
+                    cx.background_executor().timer(CORNER_FADE).await;
+                    let reshown = this
+                        .update(cx, |view, cx| {
+                            if view.corner_visible {
+                                return true;
+                            }
+                            if view.corner_hiding {
+                                view.corner_hiding = false;
+                                cx.notify();
+                            }
+                            false
+                        })
+                        .unwrap_or(false);
+                    if reshown {
+                        continue;
+                    }
                 }
-                cx.background_executor().timer(remaining).await;
+                let _ = this.update(cx, |view, _| view.corner_hide_task = None);
+                return;
             }
         }));
     }
@@ -259,12 +310,14 @@ impl CoverModeView {
         self.active = active;
         self.chrome_visible = true;
         self.corner_visible = false;
+        self.corner_hiding = false;
         self.corner_hide_task = None;
         if active {
-            self.populate_current(cx);
+            self.populate_current(false, cx);
         } else {
             self._full_cover_task = None;
             self.release_full_cover(cx);
+            self.end_cover_slide(cx);
         }
         cx.notify();
     }
@@ -289,6 +342,8 @@ impl CoverModeView {
         id: &'static str,
         icon: &'static str,
         flipped: bool,
+        btn_size: f32,
+        icon_size: f32,
         bg: Hsla,
         hover: Hsla,
         fg: Hsla,
@@ -298,7 +353,7 @@ impl CoverModeView {
         div().rounded_full().bg(bg).child(
             div()
                 .id(id)
-                .size(px(COVER_CTRL_SIZE))
+                .size(px(btn_size))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -309,7 +364,7 @@ impl CoverModeView {
                 .child(
                     svg()
                         .path(icon)
-                        .size(px(COVER_CTRL_ICON))
+                        .size(px(icon_size))
                         .when(flipped, |s| {
                             s.with_transformation(Transformation::scale(size(-1.0, 1.0)))
                         })
@@ -318,44 +373,89 @@ impl CoverModeView {
         )
     }
 
-    fn populate_current(&mut self, cx: &mut Context<Self>) {
+    fn populate_current(&mut self, animate: bool, cx: &mut Context<Self>) {
         if !self.active {
             return;
         }
         let services = cx.global::<Services>();
         let queue = services.playback_queue.borrow();
-        if let Some(track) = queue.current_track() {
-            let track_id = track.id;
-            let title = track.title.clone();
-            let cover = track.cover_art_id;
-            let album_id = track.album_id;
-            let path = track.path.clone();
-            drop(queue);
-            self.track_title = title.into();
-            self.album_id = album_id;
-            self.track_path = Some(path);
-            self.artists = services
-                .library
-                .unique_track_artists(track_id)
-                .into_iter()
-                .map(|(id, name)| (id, SharedString::from(name)))
-                .collect();
-            self.large_cover = services
-                .cover_art_cache
-                .borrow_mut()
-                .get_large(cover, &services.library);
-            if self.cover_art_id != cover {
-                self.cover_art_id = cover;
-                self.release_full_cover(cx);
-                self.load_full_cover(cx);
-            } else if self.full_cover.is_none() {
-                self.load_full_cover(cx);
-            }
-        } else {
+        let Some(track) = queue.current_track() else {
             drop(queue);
             self.clear(cx);
+            cx.notify();
+            return;
+        };
+        let track_id = track.id;
+        let title = track.title.clone();
+        let cover = track.cover_art_id;
+        let album_id = track.album_id;
+        let path = track.path.clone();
+        let index = queue.current_index();
+        drop(queue);
+        self.track_title = title.into();
+        self.album_id = album_id;
+        self.track_path = Some(path);
+        self.artists = services
+            .library
+            .unique_track_artists(track_id)
+            .into_iter()
+            .map(|(id, name)| (id, SharedString::from(name)))
+            .collect();
+        let new_thumb = services
+            .cover_art_cache
+            .borrow_mut()
+            .get_large(cover, &services.library);
+        if self.cover_art_id != cover {
+            if animate && (self.large_cover.is_some() || self.full_cover.is_some()) {
+                self.start_cover_slide(index, cx);
+            } else {
+                self.release_full_cover(cx);
+            }
+            self.cover_art_id = cover;
+            self.large_cover = new_thumb;
+            self.load_full_cover(cx);
+        } else {
+            self.large_cover = new_thumb;
+            if self.full_cover.is_none() {
+                self.load_full_cover(cx);
+            }
         }
+        self.queue_index = index;
         cx.notify();
+    }
+
+    fn start_cover_slide(&mut self, new_index: Option<usize>, cx: &mut Context<Self>) {
+        self.release_prev_cover(cx);
+        self.prev_large_cover = self.large_cover.take();
+        self.prev_full_cover = self.full_cover.take();
+        self.slide_forward = match (self.queue_index, new_index) {
+            (Some(old), Some(new)) => new >= old,
+            _ => true,
+        };
+        self.slide_seq = self.slide_seq.wrapping_add(1);
+        self.sliding = true;
+        self._slide_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(COVER_SLIDE).await;
+            let _ = this.update(cx, |view, cx| {
+                view.sliding = false;
+                view._slide_task = None;
+                view.release_prev_cover(cx);
+                cx.notify();
+            });
+        }));
+    }
+
+    fn end_cover_slide(&mut self, cx: &mut Context<Self>) {
+        self.sliding = false;
+        self._slide_task = None;
+        self.release_prev_cover(cx);
+    }
+
+    fn release_prev_cover(&mut self, cx: &mut Context<Self>) {
+        self.prev_large_cover = None;
+        if let Some(old) = self.prev_full_cover.take() {
+            cx.drop_image(old, None);
+        }
     }
 
     fn release_full_cover(&mut self, cx: &mut Context<Self>) {
@@ -372,8 +472,51 @@ impl CoverModeView {
         self.cover_art_id = None;
         self.track_path = None;
         self.large_cover = None;
+        self.queue_index = None;
         self.release_full_cover(cx);
+        self.end_cover_slide(cx);
         self._full_cover_task = None;
+    }
+
+    fn cover_layer(
+        thumb: Option<Arc<Image>>,
+        full: Option<Arc<RenderImage>>,
+        w: f32,
+        h: f32,
+        placeholder_bg: Hsla,
+        placeholder_fg: Hsla,
+    ) -> Div {
+        div()
+            .relative()
+            .w(px(w))
+            .h(px(h))
+            .rounded(px(COVER_RADIUS))
+            .overflow_hidden()
+            .bg(placeholder_bg)
+            .map(|d| match (thumb, full) {
+                (Some(thumb), Some(full)) => d
+                    .child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
+                    .child(
+                        img(full)
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    ),
+                (Some(thumb), None) => {
+                    d.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
+                }
+                (None, Some(full)) => {
+                    d.child(img(full).size_full().object_fit(gpui::ObjectFit::Contain))
+                }
+                (None, None) => d.flex().items_center().justify_center().child(
+                    svg()
+                        .path("icons/placeholder-notes.svg")
+                        .size(px(w.min(h) * 0.5))
+                        .text_color(placeholder_fg),
+                ),
+            })
     }
 
     fn load_full_cover(&mut self, cx: &mut Context<Self>) {
@@ -458,85 +601,141 @@ impl Render for CoverModeView {
         let max_h = (avail_h - COVER_MARGIN * 2. - below).max(COVER_MIN_SIDE);
         let (cover_w, cover_h) = fit_cover_box(self.cover_aspect, max_w, max_h);
 
-        let cover_square = div()
-            .relative()
-            .w(px(cover_w))
-            .h(px(cover_h))
-            .rounded(px(COVER_RADIUS))
-            .overflow_hidden()
-            .bg(placeholder_bg)
-            .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.5),
-                offset: point(px(0.), px(18.)),
-                blur_radius: px(28.),
-                spread_radius: px(0.),
-            }])
-            .map(|d| match (thumb_img, full_img) {
-                (Some(thumb), Some(full)) => d
-                    .child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
-                    .child(
-                        img(full)
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .size_full()
-                            .object_fit(gpui::ObjectFit::Contain),
-                    ),
-                (Some(thumb), None) => {
-                    d.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
-                }
-                (None, Some(full)) => {
-                    d.child(img(full).size_full().object_fit(gpui::ObjectFit::Contain))
-                }
-                (None, None) => d.flex().items_center().justify_center().child(
-                    svg()
-                        .path("icons/placeholder-notes.svg")
-                        .size(px(cover_w.min(cover_h) * 0.5))
-                        .text_color(placeholder_fg),
-                ),
-            })
-            .when(show_text && show_controls && self.corner_visible, |d| {
-                d.child(
-                    h_flex()
-                        .absolute()
-                        .bottom(px(16.))
-                        .left(px(0.))
-                        .right(px(0.))
-                        .items_center()
-                        .justify_center()
-                        .gap_3()
-                        .child(Self::control_button(
-                            "cm_prev",
-                            "icons/next.svg",
-                            true,
-                            ctrl_bg,
-                            ctrl_hover,
-                            title_color,
-                            Self::on_prev_click,
-                            cx,
-                        ))
-                        .child(Self::control_button(
-                            "cm_play",
-                            play_icon,
-                            false,
-                            ctrl_bg,
-                            ctrl_hover,
-                            title_color,
-                            Self::on_play_click,
-                            cx,
-                        ))
-                        .child(Self::control_button(
-                            "cm_next",
-                            "icons/next.svg",
-                            false,
-                            ctrl_bg,
-                            ctrl_hover,
-                            title_color,
-                            Self::on_next_click,
-                            cx,
-                        )),
-                )
+        let shadow = vec![BoxShadow {
+            color: gpui::black().opacity(0.5),
+            offset: point(px(0.), px(18.)),
+            blur_radius: px(28.),
+            spread_radius: px(0.),
+        }];
+
+        let controls = (show_text && show_controls && (self.corner_visible || self.corner_hiding))
+            .then(|| {
+                let hiding = self.corner_hiding;
+                h_flex()
+                    .absolute()
+                    .bottom(px(16.))
+                    .left(px(0.))
+                    .right(px(0.))
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .child(Self::control_button(
+                        "cm_prev",
+                        "icons/next.svg",
+                        true,
+                        COVER_CTRL_SIZE,
+                        COVER_CTRL_ICON,
+                        ctrl_bg,
+                        ctrl_hover,
+                        title_color,
+                        Self::on_prev_click,
+                        cx,
+                    ))
+                    .child(Self::control_button(
+                        "cm_play",
+                        play_icon,
+                        false,
+                        COVER_PLAY_SIZE,
+                        COVER_PLAY_ICON,
+                        ctrl_bg,
+                        ctrl_hover,
+                        title_color,
+                        Self::on_play_click,
+                        cx,
+                    ))
+                    .child(Self::control_button(
+                        "cm_next",
+                        "icons/next.svg",
+                        false,
+                        COVER_CTRL_SIZE,
+                        COVER_CTRL_ICON,
+                        ctrl_bg,
+                        ctrl_hover,
+                        title_color,
+                        Self::on_next_click,
+                        cx,
+                    ))
+                    .with_animation(
+                        if hiding {
+                            "cm-corner-out"
+                        } else {
+                            "cm-corner-in"
+                        },
+                        Animation::new(CORNER_FADE),
+                        move |controls, delta| {
+                            controls.opacity(if hiding { 1.0 - delta } else { delta })
+                        },
+                    )
             });
+
+        let cover_square = if self.sliding {
+            let forward = self.slide_forward;
+            let track_w = cover_w;
+            let seq = self.slide_seq;
+            let outgoing = Self::cover_layer(
+                self.prev_large_cover.clone(),
+                self.prev_full_cover.clone(),
+                cover_w,
+                cover_h,
+                placeholder_bg,
+                placeholder_fg,
+            );
+            let incoming = Self::cover_layer(
+                thumb_img,
+                full_img,
+                cover_w,
+                cover_h,
+                placeholder_bg,
+                placeholder_fg,
+            );
+            let (first, second) = if forward {
+                (outgoing, incoming)
+            } else {
+                (incoming, outgoing)
+            };
+            div()
+                .relative()
+                .w(px(cover_w))
+                .h(px(cover_h))
+                .rounded(px(COVER_RADIUS))
+                .overflow_hidden()
+                .bg(placeholder_bg)
+                .shadow(shadow)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .h(px(cover_h))
+                        .flex()
+                        .flex_row()
+                        .child(first.flex_shrink_0())
+                        .child(second.flex_shrink_0())
+                        .with_animation(
+                            ("cm-cover-slide", seq),
+                            Animation::new(COVER_SLIDE).with_easing(ease_out_quint()),
+                            move |strip, delta| {
+                                let left = if forward {
+                                    -track_w * delta
+                                } else {
+                                    -track_w * (1.0 - delta)
+                                };
+                                strip.left(px(left))
+                            },
+                        ),
+                )
+                .when_some(controls, |d, c| d.child(c))
+        } else {
+            Self::cover_layer(
+                thumb_img,
+                full_img,
+                cover_w,
+                cover_h,
+                placeholder_bg,
+                placeholder_fg,
+            )
+            .shadow(shadow)
+            .when_some(controls, |d, c| d.child(c))
+        };
 
         div()
             .size_full()
