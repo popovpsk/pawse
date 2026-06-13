@@ -62,6 +62,7 @@ struct PlaylistRowParams {
 
 const TOP_PADDING: f32 = 12.;
 const PLAYLIST_ROW_HEIGHT: f32 = 48.;
+const ROW_ACTION_SIZE: f32 = 28.;
 
 pub struct PlaylistsView {
     playlists_all: Vec<music_library::PlaylistSummary>,
@@ -238,7 +239,7 @@ impl Render for PlaylistsView {
                     ),
             )
         } else {
-            v_flex().px_4().pt_3().pb_2().child(
+            v_flex().px_4().py_3().child(
                 h_flex().child(
                     Button::new("playlists-new")
                         .outline()
@@ -361,6 +362,7 @@ fn all_tracks_row(
                 .child(tr().all_tracks.clone()),
         )
         .child(div().text_sm().text_color(muted_fg).child(count_label))
+        .child(div().size(px(ROW_ACTION_SIZE)))
         .id("playlists-all-tracks")
         .on_click(cx.listener(|_, _, _, cx| {
             cx.emit(AllTracksSelectedEvent);
@@ -384,7 +386,7 @@ fn playlist_row(
             "pl-trash".into(),
             playlist_id as u64,
         ))
-        .size(px(28.))
+        .size(px(ROW_ACTION_SIZE))
         .flex()
         .items_center()
         .justify_center()
