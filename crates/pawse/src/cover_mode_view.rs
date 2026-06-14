@@ -35,6 +35,7 @@ const COVER_PLAY_ICON: f32 = 34.;
 const CORNER_HIDE_DELAY: Duration = Duration::from_secs(3);
 pub const CORNER_FADE: Duration = Duration::from_millis(200);
 const COVER_SLIDE: Duration = Duration::from_millis(300);
+const COVER_SLIDE_GAP: f32 = 40.;
 
 pub struct CoverModeView {
     track_title: SharedString,
@@ -670,7 +671,8 @@ impl Render for CoverModeView {
 
         let cover_square = if self.sliding {
             let forward = self.slide_forward;
-            let track_w = cover_w;
+            let slide_gap = (avail_w - cover_w) / 2. + COVER_SLIDE_GAP;
+            let page = cover_w + slide_gap;
             let seq = self.slide_seq;
             let outgoing = Self::cover_layer(
                 self.prev_large_cover.clone(),
@@ -679,7 +681,8 @@ impl Render for CoverModeView {
                 cover_h,
                 placeholder_bg,
                 placeholder_fg,
-            );
+            )
+            .shadow(shadow.clone());
             let incoming = Self::cover_layer(
                 thumb_img,
                 full_img,
@@ -687,7 +690,8 @@ impl Render for CoverModeView {
                 cover_h,
                 placeholder_bg,
                 placeholder_fg,
-            );
+            )
+            .shadow(shadow.clone());
             let (first, second) = if forward {
                 (outgoing, incoming)
             } else {
@@ -697,10 +701,6 @@ impl Render for CoverModeView {
                 .relative()
                 .w(px(cover_w))
                 .h(px(cover_h))
-                .rounded(px(COVER_RADIUS))
-                .overflow_hidden()
-                .bg(placeholder_bg)
-                .shadow(shadow)
                 .child(
                     div()
                         .absolute()
@@ -708,6 +708,7 @@ impl Render for CoverModeView {
                         .h(px(cover_h))
                         .flex()
                         .flex_row()
+                        .gap(px(slide_gap))
                         .child(first.flex_shrink_0())
                         .child(second.flex_shrink_0())
                         .with_animation(
@@ -715,9 +716,9 @@ impl Render for CoverModeView {
                             Animation::new(COVER_SLIDE).with_easing(ease_out_quint()),
                             move |strip, delta| {
                                 let left = if forward {
-                                    -track_w * delta
+                                    -page * delta
                                 } else {
-                                    -track_w * (1.0 - delta)
+                                    -page * (1.0 - delta)
                                 };
                                 strip.left(px(left))
                             },
