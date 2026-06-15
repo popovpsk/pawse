@@ -39,6 +39,10 @@ pub static HI: Strings = lang! {
     no_metadata: "कोई मेटाडेटा नहीं",
 
     scanning: "स्कैन हो रहा है...",
+    library_updating: "लाइब्रेरी अपडेट हो रही है…",
+    library_updated: "लाइब्रेरी अपडेट हो गई",
+    library_up_to_date: "लाइब्रेरी अप टू डेट है",
+    library_update_failed: "लाइब्रेरी अपडेट विफल",
     no_music_folders_configured: "कोई संगीत फ़ोल्डर कॉन्फ़िगर नहीं किया गया।",
     add_music_folder: "संगीत फ़ोल्डर जोड़ें",
     no_albums_found: "कोई एल्बम नहीं मिला।",

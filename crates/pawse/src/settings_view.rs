@@ -6,7 +6,7 @@ use gpui::{
     Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
-    Icon, IconName, Selectable, Sizable, WindowExt,
+    Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
     dialog::DialogButtonProps,
     h_flex,
@@ -241,7 +241,7 @@ pub fn force_rescan(cx: &mut App) {
     let folders = cx.global::<SettingsStore>().music_folders().to_vec();
     cx.global::<Services>()
         .library
-        .request_rescan(folders, true);
+        .request_rescan(folders, true, true);
 }
 
 /// Remove a folder from settings and rescan whatever remains (a clear+rescan
@@ -593,6 +593,7 @@ fn library_group() -> SettingGroup {
             tr().music_folders.clone(),
             SettingField::render(|_window, cx: &mut App| {
                 let folders = cx.global::<SettingsStore>().music_folders().to_vec();
+                let is_scanning = cx.global::<Services>().library.is_scanning();
 
                 let mut list = v_flex().gap_2().w_full();
 
@@ -687,6 +688,7 @@ fn library_group() -> SettingGroup {
                         .child(
                             Button::new("rescan-library")
                                 .ghost()
+                                .disabled(is_scanning)
                                 .label(tr().rescan_library.clone())
                                 .on_click(|_, _, cx| force_rescan(cx)),
                         ),

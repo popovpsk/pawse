@@ -85,6 +85,10 @@ pub struct Strings {
 
     // --- Library empty / loading states ---
     pub scanning: SharedString,
+    pub library_updating: SharedString,
+    pub library_updated: SharedString,
+    pub library_up_to_date: SharedString,
+    pub library_update_failed: SharedString,
     pub no_music_folders_configured: SharedString,
     pub add_music_folder: SharedString,
     pub no_albums_found: SharedString,

@@ -39,6 +39,10 @@ pub static RU: Strings = lang! {
     no_metadata: "Без метаинформации",
 
     scanning: "Сканирование...",
+    library_updating: "Обновление медиатеки…",
+    library_updated: "Медиатека обновлена",
+    library_up_to_date: "Медиатека синхронизирована",
+    library_update_failed: "Не удалось обновить медиатеку",
     no_music_folders_configured: "Папки с музыкой не настроены.",
     add_music_folder: "Добавить папку с музыкой",
     no_albums_found: "Альбомы не найдены.",

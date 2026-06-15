@@ -39,6 +39,10 @@ pub static NL: Strings = lang! {
     no_metadata: "Geen metadata",
 
     scanning: "Scannen...",
+    library_updating: "Bibliotheek bijwerken…",
+    library_updated: "Bibliotheek bijgewerkt",
+    library_up_to_date: "Bibliotheek is up-to-date",
+    library_update_failed: "Bijwerken van bibliotheek mislukt",
     no_music_folders_configured: "Geen muziekmappen geconfigureerd.",
     add_music_folder: "Muziekmap toevoegen",
     no_albums_found: "Geen albums gevonden.",

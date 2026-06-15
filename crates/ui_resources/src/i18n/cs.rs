@@ -39,6 +39,10 @@ pub static CS: Strings = lang! {
     no_metadata: "Bez metadat",
 
     scanning: "Prohledávání...",
+    library_updating: "Aktualizace knihovny…",
+    library_updated: "Knihovna aktualizována",
+    library_up_to_date: "Knihovna je aktuální",
+    library_update_failed: "Aktualizace knihovny selhala",
     no_music_folders_configured: "Nejsou nastaveny žádné hudební složky.",
     add_music_folder: "Přidat hudební složku",
     no_albums_found: "Nenalezena žádná alba.",

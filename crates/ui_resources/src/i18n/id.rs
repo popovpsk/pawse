@@ -39,6 +39,10 @@ pub static ID: Strings = lang! {
     no_metadata: "Tanpa metadata",
 
     scanning: "Memindai...",
+    library_updating: "Memperbarui pustaka…",
+    library_updated: "Pustaka diperbarui",
+    library_up_to_date: "Pustaka sudah terbaru",
+    library_update_failed: "Gagal memperbarui pustaka",
     no_music_folders_configured: "Belum ada folder musik yang dikonfigurasi.",
     add_music_folder: "Tambahkan folder musik",
     no_albums_found: "Tidak ada album ditemukan.",

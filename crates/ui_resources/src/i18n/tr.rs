@@ -39,6 +39,10 @@ pub static TR: Strings = lang! {
     no_metadata: "Meta veri yok",
 
     scanning: "Taranıyor...",
+    library_updating: "Kitaplık güncelleniyor…",
+    library_updated: "Kitaplık güncellendi",
+    library_up_to_date: "Kitaplık güncel",
+    library_update_failed: "Kitaplık güncellenemedi",
     no_music_folders_configured: "Yapılandırılmış müzik klasörü yok.",
     add_music_folder: "Müzik klasörü ekle",
     no_albums_found: "Albüm bulunamadı.",

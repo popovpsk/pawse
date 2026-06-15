@@ -39,6 +39,10 @@ pub static SV: Strings = lang! {
     no_metadata: "Inga metadata",
 
     scanning: "Skannar...",
+    library_updating: "Uppdaterar biblioteket…",
+    library_updated: "Biblioteket uppdaterat",
+    library_up_to_date: "Biblioteket är uppdaterat",
+    library_update_failed: "Det gick inte att uppdatera biblioteket",
     no_music_folders_configured: "Inga musikmappar konfigurerade.",
     add_music_folder: "Lägg till musikmapp",
     no_albums_found: "Inga album hittades.",

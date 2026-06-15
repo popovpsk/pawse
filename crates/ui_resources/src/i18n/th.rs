@@ -39,6 +39,10 @@ pub static TH: Strings = lang! {
     no_metadata: "ไม่มีข้อมูลเมตา",
 
     scanning: "กำลังสแกน...",
+    library_updating: "กำลังอัปเดตคลัง…",
+    library_updated: "อัปเดตคลังแล้ว",
+    library_up_to_date: "คลังเป็นปัจจุบันแล้ว",
+    library_update_failed: "อัปเดตคลังไม่สำเร็จ",
     no_music_folders_configured: "ยังไม่ได้ตั้งค่าโฟลเดอร์เพลง",
     add_music_folder: "เพิ่มโฟลเดอร์เพลง",
     no_albums_found: "ไม่พบอัลบั้ม",

@@ -39,6 +39,10 @@ pub static KO: Strings = lang! {
     no_metadata: "메타데이터 없음",
 
     scanning: "스캔 중...",
+    library_updating: "라이브러리 업데이트 중…",
+    library_updated: "라이브러리 업데이트됨",
+    library_up_to_date: "라이브러리가 최신 상태입니다",
+    library_update_failed: "라이브러리 업데이트 실패",
     no_music_folders_configured: "구성된 음악 폴더가 없습니다.",
     add_music_folder: "음악 폴더 추가",
     no_albums_found: "앨범을 찾을 수 없습니다.",

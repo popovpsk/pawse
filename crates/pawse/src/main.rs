@@ -243,7 +243,9 @@ fn main() {
                 .music_folders()
                 .to_vec();
             if !folders.is_empty() {
-                cx.global::<Services>().library.clear_and_rescan(folders);
+                cx.global::<Services>()
+                    .library
+                    .request_rescan(folders, true, true);
             }
         });
 

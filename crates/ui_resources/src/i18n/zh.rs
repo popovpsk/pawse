@@ -39,6 +39,10 @@ pub static ZH: Strings = lang! {
     no_metadata: "无元数据",
 
     scanning: "扫描中...",
+    library_updating: "正在更新音乐库…",
+    library_updated: "音乐库已更新",
+    library_up_to_date: "音乐库已是最新",
+    library_update_failed: "音乐库更新失败",
     no_music_folders_configured: "尚未配置音乐文件夹。",
     add_music_folder: "添加音乐文件夹",
     no_albums_found: "未找到专辑。",

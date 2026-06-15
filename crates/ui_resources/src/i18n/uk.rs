@@ -39,6 +39,10 @@ pub static UK: Strings = lang! {
     no_metadata: "Без метаданих",
 
     scanning: "Сканування...",
+    library_updating: "Оновлення медіатеки…",
+    library_updated: "Медіатеку оновлено",
+    library_up_to_date: "Медіатека синхронізована",
+    library_update_failed: "Не вдалося оновити медіатеку",
     no_music_folders_configured: "Папки з музикою не налаштовані.",
     add_music_folder: "Додати папку з музикою",
     no_albums_found: "Альбомів не знайдено.",

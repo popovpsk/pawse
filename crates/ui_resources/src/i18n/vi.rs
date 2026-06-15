@@ -39,6 +39,10 @@ pub static VI: Strings = lang! {
     no_metadata: "Không có siêu dữ liệu",
 
     scanning: "Đang quét...",
+    library_updating: "Đang cập nhật thư viện…",
+    library_updated: "Đã cập nhật thư viện",
+    library_up_to_date: "Thư viện đã được cập nhật",
+    library_update_failed: "Cập nhật thư viện thất bại",
     no_music_folders_configured: "Chưa cấu hình thư mục nhạc.",
     add_music_folder: "Thêm thư mục nhạc",
     no_albums_found: "Không tìm thấy album.",

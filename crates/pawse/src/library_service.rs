@@ -13,6 +13,7 @@ const SCAN_DEBOUNCE: Duration = Duration::from_secs(2);
 struct ScanState {
     scanning: AtomicBool,
     pending: AtomicBool,
+    manual: AtomicBool,
     debounce_gen: AtomicU64,
     folders: Mutex<Vec<PathBuf>>,
 }
@@ -27,6 +28,9 @@ pub enum LibraryEvent {
     ScanComplete {
         changed: bool,
     },
+    ScanUpToDate,
+    ScanSucceeded,
+    ScanFailed,
     TrackLikedChanged {
         track_id: i64,
         liked: bool,
@@ -261,12 +265,19 @@ impl LibraryService {
         Some(path)
     }
 
-    pub fn clear_and_rescan(&self, paths: Vec<PathBuf>) {
-        self.request_rescan(paths, true);
+    pub fn is_scanning(&self) -> bool {
+        self.scan_state.scanning.load(Ordering::Acquire)
     }
 
-    pub fn request_rescan(&self, folders: Vec<PathBuf>, force: bool) {
+    pub fn clear_and_rescan(&self, paths: Vec<PathBuf>) {
+        self.request_rescan(paths, true, false);
+    }
+
+    pub fn request_rescan(&self, folders: Vec<PathBuf>, force: bool, manual: bool) {
         *self.scan_state.folders.lock().unwrap() = folders;
+        if manual {
+            self.scan_state.manual.store(true, Ordering::Release);
+        }
         let generation = self.scan_state.debounce_gen.fetch_add(1, Ordering::AcqRel) + 1;
 
         if force {
@@ -310,11 +321,13 @@ impl LibraryService {
             .spawn(async move {
                 loop {
                     let folders = state.folders.lock().unwrap().clone();
+                    let manual = state.manual.swap(false, Ordering::AcqRel);
                     Self::run_scan(
                         repo.clone(),
                         event_tx.clone(),
                         task_executor.clone(),
                         folders,
+                        manual,
                     )
                     .await;
 
@@ -338,9 +351,8 @@ impl LibraryService {
         event_tx: flume::Sender<LibraryEvent>,
         inner_executor: gpui::BackgroundExecutor,
         paths: Vec<PathBuf>,
+        manual: bool,
     ) {
-        let _ = event_tx.send(LibraryEvent::ScanStarted);
-
         // Cheap walk + fingerprint. Fast path: if nothing on disk changed
         // since the last successful scan, skip all DB work entirely. This
         // is what makes run-on-launch / background rescans viable.
@@ -351,8 +363,13 @@ impl LibraryService {
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
         if unchanged {
             let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            if manual {
+                let _ = event_tx.send(LibraryEvent::ScanUpToDate);
+            }
             return;
         }
+
+        let _ = event_tx.send(LibraryEvent::ScanStarted);
         let fingerprint = sources.fingerprint.clone();
 
         // Snapshot playlist memberships by (path, start_offset_ms) before
@@ -376,23 +393,30 @@ impl LibraryService {
             Err(e) => {
                 log::error!("Failed to open scan session: {}", e);
                 let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+                let _ = event_tx.send(LibraryEvent::ScanFailed);
                 return;
             }
         };
         if let Err(e) = session.clear() {
             log::error!("Failed to clear library: {}", e);
             let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanFailed);
             return;
         }
 
         if paths.is_empty() {
-            match session.finish() {
+            let ok = match session.finish() {
                 Ok(()) => {
                     finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                    true
                 }
-                Err(e) => log::error!("Failed to finish scan session: {}", e),
-            }
+                Err(e) => {
+                    log::error!("Failed to finish scan session: {}", e);
+                    false
+                }
+            };
             let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+            let _ = event_tx.send(scan_outcome(ok));
             return;
         }
 
@@ -440,13 +464,26 @@ impl LibraryService {
         // Only finalize (and record the fingerprint) if the final commit
         // succeeded. Otherwise the fast path would lock in a partially
         // written library and never rescan to repair it.
-        match session.finish() {
+        let ok = match session.finish() {
             Ok(()) => {
                 finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                true
             }
-            Err(e) => log::error!("Failed to finish scan session: {}", e),
-        }
+            Err(e) => {
+                log::error!("Failed to finish scan session: {}", e);
+                false
+            }
+        };
         let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+        let _ = event_tx.send(scan_outcome(ok));
+    }
+}
+
+fn scan_outcome(ok: bool) -> LibraryEvent {
+    if ok {
+        LibraryEvent::ScanSucceeded
+    } else {
+        LibraryEvent::ScanFailed
     }
 }
 

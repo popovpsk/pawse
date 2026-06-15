@@ -39,6 +39,10 @@ pub static DE: Strings = lang! {
     no_metadata: "Keine Metadaten",
 
     scanning: "Wird gescannt...",
+    library_updating: "Bibliothek wird aktualisiert…",
+    library_updated: "Bibliothek aktualisiert",
+    library_up_to_date: "Bibliothek ist aktuell",
+    library_update_failed: "Aktualisierung der Bibliothek fehlgeschlagen",
     no_music_folders_configured: "Keine Musikordner konfiguriert.",
     add_music_folder: "Musikordner hinzufügen",
     no_albums_found: "Keine Alben gefunden.",

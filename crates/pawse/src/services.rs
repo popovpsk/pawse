@@ -12,6 +12,8 @@ use std::{
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
 use audio_output::Output;
 use gpui::{App, AppContext, AsyncApp, Entity, EventEmitter, Global};
+use gpui_component::WindowExt;
+use gpui_component::notification::Notification;
 use music_library::Track;
 
 use crate::cover_art_cache::CoverArtCache;
@@ -70,6 +72,7 @@ impl Services {
                                 .borrow_mut()
                                 .set_track_liked(*track_id, *liked);
                         }
+                        notify_scan_event(&event, cx);
                         library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
                     })
                     .is_err()
@@ -90,7 +93,7 @@ impl Services {
                             .global::<crate::settings_store::SettingsStore>()
                             .music_folders()
                             .to_vec();
-                        watcher_library.request_rescan(folders, false);
+                        watcher_library.request_rescan(folders, false, false);
                     })
                     .is_err()
                 {
@@ -173,6 +176,30 @@ impl Services {
             custom: queue.is_custom(),
         }
     }
+}
+
+fn notify_scan_event(event: &LibraryEvent, cx: &mut App) {
+    let notification = match event {
+        LibraryEvent::ScanStarted => {
+            Notification::info(crate::localization::tr().library_updating.clone())
+        }
+        LibraryEvent::ScanSucceeded => {
+            Notification::success(crate::localization::tr().library_updated.clone())
+        }
+        LibraryEvent::ScanUpToDate => {
+            Notification::success(crate::localization::tr().library_up_to_date.clone())
+        }
+        LibraryEvent::ScanFailed => {
+            Notification::error(crate::localization::tr().library_update_failed.clone())
+        }
+        _ => return,
+    };
+    let Some(handle) = cx.windows().into_iter().next() else {
+        return;
+    };
+    let _ = handle.update(cx, |_, window, cx| {
+        window.push_notification(notification, cx);
+    });
 }
 
 /// If the active playback queue is backed by the given playlist, replace its

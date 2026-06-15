@@ -23,6 +23,7 @@ use crate::keyboard_shortcuts::{
     ExitCoverMode, NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown,
     VolumeUp,
 };
+use crate::library_service::LibraryEvent;
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::localization::LangChanged;
 use crate::localization::tr;
@@ -84,6 +85,7 @@ pub struct MainView {
     #[cfg(not(target_os = "macos"))]
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
+    _scan_subscription: Subscription,
     _search_subscription: Subscription,
     _footer_subscription: Subscription,
     _footer_album_subscription: Subscription,
@@ -289,10 +291,28 @@ impl MainView {
                 if !folders.is_empty() {
                     cx.global::<crate::services::Services>()
                         .library
-                        .request_rescan(folders, false);
+                        .request_rescan(folders, false, false);
                 }
             }
         });
+
+        let library_event_bus = cx
+            .global::<crate::services::Services>()
+            .library_event_bus
+            .clone();
+        let scan_subscription = cx.subscribe(
+            &library_event_bus,
+            |this: &mut MainView, _, event: &LibraryEvent, cx| {
+                if this.show_settings
+                    && matches!(
+                        event,
+                        LibraryEvent::ScanStarted | LibraryEvent::ScanComplete { .. }
+                    )
+                {
+                    cx.notify();
+                }
+            },
+        );
 
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
@@ -318,6 +338,7 @@ impl MainView {
             #[cfg(not(target_os = "macos"))]
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
+            _scan_subscription: scan_subscription,
             _search_subscription: search_subscription,
             _footer_subscription: footer_subscription,
             _footer_album_subscription: footer_album_subscription,
