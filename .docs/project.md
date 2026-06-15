@@ -13,7 +13,7 @@ A local audio player built with Rust and [GPUI](https://github.com/zed-industrie
 | `music_library` | `crates/music_library/` | SQLite repository. Artists, albums, tracks with many-to-many relationships. Cover art stored as DB blobs (small + large thumbnails) |
 | `music_indexer` | `crates/music_indexer/` | Directory scanner (`jwalk`) + metadata reader (`lofty`) + CUE-sheet expansion. Emits `ScanEvent` |
 | `cue_parser` | `crates/cue_parser/` | Plain-Rust CUE sheet parser (no audio dependencies). Returns `CueSheet` with tracks, FILE references, indexes |
-| `media_integration` | `crates/media_integration/` | System media integration: platform-agnostic facade (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) plus a per-OS implementation. macOS = native `objc2` (Now Playing widget, remote media-key commands, Dock icon) under `src/macos/`; Windows (SMTC) + Linux (MPRIS) share a `souvlaki`-based backend in `src/souvlaki_backend.rs` |
+| `media_integration` | `crates/media_integration/` | System media integration: platform-agnostic facade (`SystemMediaIntegration`, `NowPlayingInfo`, `MediaCommand`) plus a per-OS implementation. macOS = native `objc2` (Now Playing widget + remote media-key commands) under `src/macos/`; Windows (SMTC) + Linux (MPRIS) share a `souvlaki`-based backend in `src/souvlaki_backend.rs`. See `crates/media_integration/src/doc.md` |
 | `ui_components` | `crates/ui_components/` | Reusable GPUI components (custom `slider`, `fade` overlay) not provided by `gpui-component` |
 | `ui_resources` | `crates/ui_resources/` | UI data layer (not UI logic): embedded icon `Assets` (`rust_embed`), bundled `themes` JSON, and `i18n` — compile-time-checked localization tables for 20 languages. See `crates/ui_resources/src/doc.md` |
 | `diagnostics` | `crates/diagnostics/` | GPUI-free error/diagnostics sink. `log::Log` backend writing a rolling log file, a panic hook, and a user-notification channel the app drains into toasts. See `crates/diagnostics/src/doc.md` |
@@ -85,11 +85,11 @@ The two buses are `EngineEventsBus` (audio playback) and `LibraryEventsBus` (sca
 
 The bridge listens to `EngineEvent`s via the `EngineEventsBus` and forwards them to the platform's system media UI (via the shared `apply_engine_event`), while a `flume`-fed command loop drives the `EngineManager` / `PlaybackQueue`. It calls `media_integration::create_integration(command_tx, hwnd)` and, if an integration exists for the platform, installs both; otherwise it is a no-op.
 
-- On **macOS**: there is **no** `MediaBridge` entity. `media_bridge::setup(cx)` runs once at startup from `main()` and keeps the integration **app-lived** (an `App::subscribe(...).detach()` plus a detached command loop), because the last window can close while audio keeps playing — a window-owned bridge would die with the window and leave the Now-Playing panel's buttons / state dead. `MacOsIntegration` updates the Now Playing widget, status bar menu, and remote media-key commands via `objc2`. `seed_from_services` publishes the current track/state on construction (see decision 12 in `macos-media-integration.md`)
+- On **macOS**: there is **no** `MediaBridge` entity. `media_bridge::setup(cx)` runs once at startup from `main()` and keeps the integration **app-lived** (an `App::subscribe(...).detach()` plus a detached command loop), because the last window can close while audio keeps playing — a window-owned bridge would die with the window and leave the Now-Playing panel's buttons / state dead. `MacOsIntegration` updates the Now Playing widget and registers remote media-key commands via `objc2`. `seed_from_services` publishes the current track/state on construction
 - On **Windows / Linux**: `MediaBridge` is a GPUI entity instantiated in `MainView` (`#[cfg(not(target_os = "macos"))]`) — fine because these platforms quit when the last window closes. The `souvlaki`-based backend drives SMTC (Windows) / MPRIS (Linux); Windows needs the native window handle (`hwnd`), which `MediaBridge::new` extracts from the GPUI `Window` (it implements `raw_window_handle::HasWindowHandle`)
 - Commands from the OS (play / pause / next / previous / seek) flow through a `flume` channel into an async task that drives the `EngineManager` and `PlaybackQueue`
 
-> See `.docs/macos-media-integration.md` for a detailed explanation of the macOS design decisions (why `OnceLock`, `flume`, `RcBlock`, `RefCell` caching, and the trait split were chosen).
+> See `crates/media_integration/src/doc.md` for the design decisions behind the system media integration (why `flume`, `RcBlock`, `RefCell` artwork caching, idempotent remote-command registration, and the per-OS backend split were chosen).
 
 ### MainView Layout
 
@@ -257,13 +257,13 @@ Albums are matched by `(title, year)`. Two folders with the same album title but
 - **Track title fallback**: If `lofty` finds no title tag, the filename stem is used
 - **Multiple artists**: `music_indexer` reads `TrackArtists` tag from `lofty`; falls back to single `Artist` tag
 - **Exclusive mode is macOS-only**: On other platforms the toggle is hidden (controlled by `show_hog_button` in settings) and `audio_output::exclusive::unsupported` returns errors
-- **No skip-15s media-key handlers**: only `changePlaybackPositionCommand` is registered. See `.docs/macos-media-integration.md`
+- **No skip-15s media-key handlers**: only `changePlaybackPositionCommand` is registered. See `crates/media_integration/src/doc.md`
 
 ## Build Environment
 
 - **Platform**: macOS (Metal renderer required for GPUI)
 - **Edition**: Rust 2024
-- **Lint**: `#![forbid(unsafe_code)]` at workspace level; `macos_integration` overrides it to `allow` because it uses `objc2` for AppKit interop
+- **Lint**: `#![forbid(unsafe_code)]` at workspace level; `media_integration` allows `unsafe` because its macOS backend uses `objc2` for AppKit interop, and re-forbids it for non-macOS targets via `#![cfg_attr(not(target_os = "macos"), forbid(unsafe_code))]` so only the macOS module can use `unsafe`
 - **Note**: GPUI requires Xcode Metal Toolchain. If `cargo build` fails with "missing Metal Toolchain", run: `xcodebuild -downloadComponent MetalToolchain`
 
 ## Migrations

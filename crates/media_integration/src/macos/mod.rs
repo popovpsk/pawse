@@ -59,30 +59,11 @@ impl MacOsIntegration {
 }
 
 impl SystemMediaIntegration for MacOsIntegration {
-    fn update_now_playing(&self, info: NowPlayingInfo) {
+    fn update_now_playing(&self, info: NowPlayingInfo, state: MediaPlaybackState) {
         self.update_cached_artwork(&info);
 
-        update_now_playing_info(&info, 1.0);
-
         let cached = self.cached_artwork.borrow();
-        if let Some(ref artwork) = *cached {
-            unsafe {
-                let center = objc2_media_player::MPNowPlayingInfoCenter::defaultCenter();
-                let dict: Retained<
-                    objc2_foundation::NSMutableDictionary<objc2_foundation::NSString>,
-                > = objc2_foundation::NSMutableDictionary::dictionary();
-                if let Some(prev) = center.nowPlayingInfo() {
-                    dict.addEntriesFromDictionary(&prev);
-                }
-                dict.setObject_forKey(
-                    artwork,
-                    objc2::runtime::ProtocolObject::from_ref(
-                        objc2_media_player::MPMediaItemPropertyArtwork,
-                    ),
-                );
-                center.setNowPlayingInfo(Some(&dict));
-            }
-        }
+        update_now_playing_info(&info, cached.as_deref(), playback_rate(state));
     }
 
     fn set_playback_state(&self, state: MediaPlaybackState) {
@@ -90,10 +71,13 @@ impl SystemMediaIntegration for MacOsIntegration {
     }
 
     fn update_position(&self, elapsed_secs: f64, state: MediaPlaybackState) {
-        let rate = match state {
-            MediaPlaybackState::Playing => 1.0,
-            _ => 0.0,
-        };
-        update_position_info(elapsed_secs, rate);
+        update_position_info(elapsed_secs, playback_rate(state));
+    }
+}
+
+fn playback_rate(state: MediaPlaybackState) -> f64 {
+    match state {
+        MediaPlaybackState::Playing => 1.0,
+        _ => 0.0,
     }
 }

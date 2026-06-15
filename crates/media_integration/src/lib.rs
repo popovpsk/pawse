@@ -1,3 +1,5 @@
+#![cfg_attr(not(target_os = "macos"), forbid(unsafe_code))]
+
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -44,7 +46,7 @@ pub enum MediaCommand {
 /// (GPUI's requirement for AppKit interop).
 pub trait SystemMediaIntegration {
     /// Update the metadata shown in the system Now Playing widget.
-    fn update_now_playing(&self, info: NowPlayingInfo);
+    fn update_now_playing(&self, info: NowPlayingInfo, state: MediaPlaybackState);
 
     /// Update the playback state shown in system UI.
     fn set_playback_state(&self, state: MediaPlaybackState);

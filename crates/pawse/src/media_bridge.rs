@@ -348,7 +348,7 @@ fn publish_track(
         .and_then(|id| services.library.album_title(id))
         .unwrap_or_default();
     info.elapsed_secs = Some(elapsed_secs);
-    integration.update_now_playing(info);
+    integration.update_now_playing(info, state);
     integration.set_playback_state(state);
     integration.update_position(elapsed_secs, state);
     true
