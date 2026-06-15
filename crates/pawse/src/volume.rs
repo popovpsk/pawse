@@ -14,6 +14,18 @@ use crate::settings_store::SettingsStore;
 
 pub const VOLUME_STEP: f32 = 0.05;
 
+pub fn volume_icon(is_exclusive: bool, muted: bool, value: f32) -> &'static str {
+    if is_exclusive {
+        "icons/volume_unmute.svg"
+    } else if muted || value <= 0. {
+        "icons/volume_mute.svg"
+    } else if value < 0.5 {
+        "icons/volume_low.svg"
+    } else {
+        "icons/volume_unmute.svg"
+    }
+}
+
 pub struct Volume {
     slider: Entity<Slider>,
     volume: f32,
@@ -26,15 +38,7 @@ impl Render for Volume {
         let services = cx.global::<Services>();
         let is_exclusive = services.output.is_exclusive();
 
-        let icon_path: &str = if is_exclusive {
-            "icons/volume_unmute.svg"
-        } else if self.is_muted || self.volume <= 0. {
-            "icons/volume_mute.svg"
-        } else if self.volume < 0.5 {
-            "icons/volume_low.svg"
-        } else {
-            "icons/volume_unmute.svg"
-        };
+        let icon_path = volume_icon(is_exclusive, self.is_muted, self.volume);
 
         let mut container = h_flex()
             .id("volume_control")
@@ -141,10 +145,14 @@ impl Volume {
     }
 
     pub fn nudge(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.set(self.volume + delta, cx);
+    }
+
+    pub fn set(&mut self, value: f32, cx: &mut Context<Self>) {
         if cx.global::<Services>().output.is_exclusive() {
             return;
         }
-        let new = (self.volume + delta).clamp(0.0, 1.0);
+        let new = value.clamp(0.0, 1.0);
         self.volume = new;
         self.is_muted = new <= 0.0;
         if new > 0.0 {
@@ -157,5 +165,13 @@ impl Volume {
             crate::settings_store::notify_save_error(cx, e);
         }
         cx.notify();
+    }
+
+    pub fn value(&self) -> f32 {
+        self.volume
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.is_muted
     }
 }

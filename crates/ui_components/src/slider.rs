@@ -2,7 +2,7 @@ use gpui::{
     AppContext, Bounds, Context, DispatchPhase, DragMoveEvent, Empty, EntityId, EventEmitter,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Point, Render, StatefulInteractiveElement, Styled, Window, canvas, div,
-    px, relative,
+    prelude::FluentBuilder, px, relative,
 };
 use gpui_component::ActiveTheme;
 
@@ -32,6 +32,7 @@ pub struct Slider {
     max: f32,
     step: f32,
     track_bounds: Bounds<Pixels>,
+    vertical: bool,
     live_update: bool,
     interacting: bool,
     disabled: bool,
@@ -48,6 +49,7 @@ impl Slider {
             max: 1.0,
             step: 0.01,
             track_bounds: Bounds::default(),
+            vertical: false,
             live_update: true,
             interacting: false,
             disabled: false,
@@ -79,6 +81,11 @@ impl Slider {
 
     pub fn live_update(mut self, live_update: bool) -> Self {
         self.live_update = live_update;
+        self
+    }
+
+    pub fn vertical(mut self, vertical: bool) -> Self {
+        self.vertical = vertical;
         self
     }
 
@@ -140,13 +147,21 @@ impl Slider {
 
     /// Compute slider value at a given mouse position without mutating state.
     fn compute_value_at_position(&self, position: Point<Pixels>) -> Option<f32> {
-        let width = self.track_bounds.size.width;
-        if width <= px(0.) {
-            return None;
-        }
-
-        let offset_x = position.x - self.track_bounds.left();
-        let percentage = (offset_x / width).clamp(0.0, 1.0);
+        let percentage = if self.vertical {
+            let height = self.track_bounds.size.height;
+            if height <= px(0.) {
+                return None;
+            }
+            let offset_y = position.y - self.track_bounds.top();
+            1.0 - (offset_y / height).clamp(0.0, 1.0)
+        } else {
+            let width = self.track_bounds.size.width;
+            if width <= px(0.) {
+                return None;
+            }
+            let offset_x = position.x - self.track_bounds.left();
+            (offset_x / width).clamp(0.0, 1.0)
+        };
         let raw_value = self.min + percentage * (self.max - self.min);
         let stepped = (raw_value / self.step).round() * self.step;
         Some(stepped.clamp(self.min, self.max))
@@ -203,14 +218,19 @@ impl Render for Slider {
         };
         let tooltip_text = tooltip_info.and_then(|v| self.tooltip_formatter.as_ref().map(|f| f(v)));
 
+        let vertical = self.vertical;
         let mut element = div()
             .id(("slider-track", entity_id))
             .relative()
-            .w_full()
-            .h(px(16.))
             .flex()
-            .items_center()
             .opacity(disabled_opacity)
+            .map(|d| {
+                if vertical {
+                    d.h_full().w(px(16.)).justify_center()
+                } else {
+                    d.w_full().h(px(16.)).items_center()
+                }
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, _window, cx| {
@@ -280,18 +300,27 @@ impl Render for Slider {
             .child(
                 div()
                     .relative()
-                    .w_full()
-                    .h(px(4.))
                     .rounded_full()
                     .bg(cx.theme().muted)
+                    .map(|d| {
+                        if vertical {
+                            d.h_full().w(px(4.))
+                        } else {
+                            d.w_full().h(px(4.))
+                        }
+                    })
                     .child(
                         div()
                             .absolute()
-                            .h_full()
-                            .left(px(0.))
-                            .w(relative(pct))
                             .rounded_full()
-                            .bg(cx.theme().foreground),
+                            .bg(cx.theme().foreground)
+                            .map(|d| {
+                                if vertical {
+                                    d.w_full().bottom(px(0.)).h(relative(pct))
+                                } else {
+                                    d.h_full().left(px(0.)).w(relative(pct))
+                                }
+                            }),
                     )
                     .child(
                         div()
@@ -299,10 +328,14 @@ impl Render for Slider {
                             .size(px(12.))
                             .rounded_full()
                             .bg(cx.theme().foreground)
-                            .left(relative(pct))
-                            .ml(-px(6.))
-                            .top(px(-4.))
-                            .opacity(if show_thumb { 1.0 } else { 0.0 }),
+                            .opacity(if show_thumb { 1.0 } else { 0.0 })
+                            .map(|d| {
+                                if vertical {
+                                    d.top(relative(1.0 - pct)).mt(-px(6.)).left(px(-4.))
+                                } else {
+                                    d.left(relative(pct)).ml(-px(6.)).top(px(-4.))
+                                }
+                            }),
                     ),
             )
             // Invisible canvas overlay that serves two purposes:

@@ -17,6 +17,7 @@ use gpui_component::{
 
 use crate::audio_settings::AudioSettings;
 use crate::cover_mode_view::{CORNER_FADE, CoverModeView};
+use crate::cover_volume::CoverVolume;
 use crate::footer::{Footer, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
     ExitCoverMode, NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown,
@@ -70,6 +71,7 @@ pub struct MainView {
     show_settings: bool,
     cover_mode: bool,
     cover_mode_view: Entity<CoverModeView>,
+    cover_volume: Entity<CoverVolume>,
     show_queue: bool,
     queue_width: f32,
     queue_resize_origin: Option<(Pixels, f32)>,
@@ -197,6 +199,9 @@ impl MainView {
             this.set_queue_visible(event.show, cx);
         });
 
+        let cover_volume_source = footer.read(cx).volume().clone();
+        let cover_volume = cx.new(|cx| CoverVolume::new(cover_volume_source, window, cx));
+
         let footer_album_subscription = cx.subscribe_in(&footer, window, {
             let library_view = library_view.clone();
             move |this, _, event: &NavigateToAlbumRequested, window, cx| {
@@ -240,7 +245,16 @@ impl MainView {
                 });
             }
         });
-        let cover_observe_subscription = cx.observe(&cover_mode_view, |_, _, cx| cx.notify());
+        let cover_observe_subscription = cx.observe(&cover_mode_view, |this, view, cx| {
+            let hidden = {
+                let v = view.read(cx);
+                !v.corner_visible() && !v.corner_hiding()
+            };
+            if hidden {
+                this.cover_volume.update(cx, |cv, cx| cv.collapse(cx));
+            }
+            cx.notify();
+        });
 
         // ShuffleButton::on_click calls cx.notify() after reordering the queue.
         // Observe that entity so QueueView stays in sync with the shuffled order.
@@ -291,6 +305,7 @@ impl MainView {
             show_settings: false,
             cover_mode: false,
             cover_mode_view,
+            cover_volume,
             show_queue: false,
             queue_width: QUEUE_WIDTH_DEFAULT,
             queue_resize_origin: None,
@@ -379,6 +394,9 @@ impl MainView {
         self.cover_mode = on;
         self.cover_mode_view
             .update(cx, |view, cx| view.set_active(on, cx));
+        if !on {
+            self.cover_volume.update(cx, |v, cx| v.collapse(cx));
+        }
         cx.notify();
     }
 
@@ -609,6 +627,7 @@ impl Render for MainView {
                                                 tab_colors,
                                                 cx,
                                             ))
+                                            .child(self.cover_volume.clone())
                                         });
                                     d.relative().child(if immersive {
                                         buttons
@@ -837,6 +856,7 @@ fn cover_chrome_button(
         .on_click(cx.listener(|this, _, _, cx| {
             this.cover_mode_view
                 .update(cx, |view, cx| view.toggle_chrome(cx));
+            this.cover_volume.update(cx, |v, cx| v.collapse(cx));
         }))
         .child(svg().path(icon).size(px(20.)).text_color(fg))
 }
