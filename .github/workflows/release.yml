@@ -97,6 +97,21 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
 
+      - name: Re-image dmg without signature
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then exit 0; fi
+          shopt -s nullglob
+          for dmg in target/release/*.dmg; do
+            tmp="${dmg%.dmg}.repacked.dmg"
+            hdiutil convert "$dmg" -format UDZO -o "$tmp"
+            mv -f "$tmp" "$dmg"
+            echo "re-imaged unsigned: $dmg"
+          done
+
       - name: Collect artifacts
         shell: bash
         run: |

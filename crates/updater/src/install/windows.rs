@@ -18,14 +18,16 @@ pub fn launch_installer(installer: &Path) {
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    let raw = match std::env::current_exe() {
+    let inner = match std::env::current_exe() {
         Ok(exe) => format!(
-            "/C \"{}\" /S & start \"\" \"{}\"",
+            "\"{}\" /S & start \"\" \"{}\"",
             installer.display(),
             exe.display()
         ),
-        Err(_) => format!("/C \"{}\" /S", installer.display()),
+        Err(_) => format!("\"{}\" /S", installer.display()),
     };
+    // why: cmd /C strips one outer quote pair; wrap the whole command so its inner quotes survive
+    let raw = format!("/C \"{inner}\"");
 
     let _ = Command::new("cmd")
         .raw_arg(raw)
