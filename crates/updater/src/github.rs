@@ -1,6 +1,7 @@
 use anyhow::{Context as _, Result};
 use semver::Version;
 use serde::Deserialize;
+use std::time::Duration;
 
 use crate::version;
 
@@ -27,7 +28,12 @@ pub struct Found {
 
 pub fn fetch_latest() -> Result<Found> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let response = ureq::get(&url)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(30))
+        .build();
+    let response = agent
+        .get(&url)
         .set("User-Agent", USER_AGENT)
         .set("Accept", "application/vnd.github+json")
         .set("X-GitHub-Api-Version", "2022-11-28")

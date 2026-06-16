@@ -74,12 +74,13 @@ pub fn init(cx: &mut App, current_version: &str, enabled: bool) {
     let on_quit = updater.clone();
     cx.on_app_quit(move |cx| {
         let this = on_quit.read(cx);
+        let relaunch = this.apply_on_quit;
         let staged = (this.apply_on_quit || this.enabled)
             .then(|| this.staged.clone())
             .flatten();
         async move {
             if let Some(staged) = staged {
-                staged.finalize_on_quit();
+                staged.finalize_on_quit(relaunch);
             }
         }
     })
@@ -194,11 +195,15 @@ impl AutoUpdater {
 
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let outcome = check_and_stage(current, this.clone(), cx).await;
+            this.update(cx, |this, cx| {
+                this.in_flight = false;
+                cx.notify();
+            })
+            .ok();
             match outcome {
                 Ok(Some((version, staged))) => {
                     let toast_version = version.clone();
                     this.update(cx, move |this, cx| {
-                        this.in_flight = false;
                         this.staged = Some(Arc::new(staged));
                         this.status = Status::Ready { version };
                         cx.notify();
@@ -208,7 +213,6 @@ impl AutoUpdater {
                 }
                 Ok(None) => {
                     this.update(cx, |this, cx| {
-                        this.in_flight = false;
                         this.status = Status::Idle;
                         cx.notify();
                     })
@@ -226,7 +230,6 @@ impl AutoUpdater {
                 }
                 Err(error) => {
                     this.update(cx, |this, cx| {
-                        this.in_flight = false;
                         this.status = Status::Idle;
                         cx.notify();
                     })

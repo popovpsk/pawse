@@ -13,18 +13,18 @@ pub fn download(url: &str) -> Result<PathBuf> {
     Ok(dest)
 }
 
-pub fn launch_installer(installer: &Path) {
+pub fn launch_installer(installer: &Path, relaunch: bool) {
     use std::os::windows::process::CommandExt as _;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-    let inner = match std::env::current_exe() {
-        Ok(exe) => format!(
+    let inner = match (relaunch, std::env::current_exe()) {
+        (true, Ok(exe)) => format!(
             "\"{}\" /S & start \"\" \"{}\"",
             installer.display(),
             exe.display()
         ),
-        Err(_) => format!("\"{}\" /S", installer.display()),
+        _ => format!("\"{}\" /S", installer.display()),
     };
     // why: cmd /C strips one outer quote pair; wrap the whole command so its inner quotes survive
     let raw = format!("/C \"{inner}\"");

@@ -45,17 +45,25 @@ pub(crate) fn appimage_path() -> Option<std::path::PathBuf> {
 }
 
 impl Staged {
-    pub fn finalize_on_quit(&self) {
+    pub fn finalize_on_quit(&self, relaunch: bool) {
         #[cfg(target_os = "windows")]
-        windows::launch_installer(&self.installer);
+        windows::launch_installer(&self.installer, relaunch);
+        #[cfg(not(target_os = "windows"))]
+        let _ = relaunch;
     }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub(crate) fn download_file(url: &str, dest: &std::path::Path) -> Result<()> {
     use anyhow::Context as _;
+    use std::time::Duration;
 
-    let response = ureq::get(url)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(30))
+        .timeout_read(Duration::from_secs(60))
+        .build();
+    let response = agent
+        .get(url)
         .set("User-Agent", "pawse-updater")
         .call()
         .context("download request failed")?;
