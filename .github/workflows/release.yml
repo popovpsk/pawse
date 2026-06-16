@@ -78,8 +78,23 @@ jobs:
       - name: Build release binary
         run: cargo build --release -p pawse
 
+      - name: Enable macOS code signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            python3 scripts/enable_macos_signing.py "Pawse Self Signed"
+          else
+            echo "APPLE_CERTIFICATE secret not set; building unsigned"
+          fi
+
       - name: Package
         working-directory: crates/pawse
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
 
       - name: Collect artifacts
