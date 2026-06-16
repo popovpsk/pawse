@@ -1,0 +1,34 @@
+use anyhow::{Context as _, Result};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+pub fn download(url: &str) -> Result<PathBuf> {
+    let dir = dirs::cache_dir()
+        .context("no cache directory")?
+        .join("pawse")
+        .join("updates");
+    std::fs::create_dir_all(&dir).context("creating updates directory")?;
+    let dest = dir.join("Pawse-setup.exe");
+    super::download_file(url, &dest)?;
+    Ok(dest)
+}
+
+pub fn launch_installer(installer: &Path) {
+    use std::os::windows::process::CommandExt as _;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let raw = match std::env::current_exe() {
+        Ok(exe) => format!(
+            "/C \"{}\" /S & start \"\" \"{}\"",
+            installer.display(),
+            exe.display()
+        ),
+        Err(_) => format!("/C \"{}\" /S", installer.display()),
+    };
+
+    let _ = Command::new("cmd")
+        .raw_arg(raw)
+        .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+        .spawn();
+}

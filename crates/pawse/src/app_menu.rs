@@ -25,6 +25,8 @@ pub fn app_menus() -> Vec<Menu> {
             name: "Pawse".into(),
             items: vec![
                 MenuItem::action(s.rescan_library.clone(), Rescan),
+                #[cfg(not(target_os = "linux"))]
+                MenuItem::action(s.check_for_updates.clone(), updater::CheckForUpdates),
                 MenuItem::separator(),
                 #[cfg(target_os = "macos")]
                 MenuItem::os_submenu("Services", gpui::SystemMenuType::Services),

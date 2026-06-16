@@ -138,6 +138,9 @@ pub static RU: Strings = lang! {
     zoom: "Масштаб",
     menu_help: "Справка",
     repository: "Репозиторий",
+    check_for_updates: "Проверить обновления...",
+    automatic_updates: "Автоматические обновления",
+    automatic_updates_desc: "Автоматически проверять обновления при запуске",
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",

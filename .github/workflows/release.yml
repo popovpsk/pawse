@@ -41,6 +41,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Stamp release version
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PY=python3
+            command -v "$PY" >/dev/null 2>&1 || PY=python
+            "$PY" scripts/stamp_version.py "$VERSION"
+          else
+            echo "No semver release version (got '$VERSION'); leaving Cargo.toml version as-is"
+          fi
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |

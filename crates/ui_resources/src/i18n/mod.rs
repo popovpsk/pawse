@@ -194,6 +194,9 @@ pub struct Strings {
     pub zoom: SharedString,
     pub menu_help: SharedString,
     pub repository: SharedString,
+    pub check_for_updates: SharedString,
+    pub automatic_updates: SharedString,
+    pub automatic_updates_desc: SharedString,
 
     // --- Templated (read via the accessor methods below) ---
     pub disc_t: SharedString,

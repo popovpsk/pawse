@@ -138,6 +138,9 @@ pub static VI: Strings = lang! {
     zoom: "Thu phóng",
     menu_help: "Trợ giúp",
     repository: "Kho mã nguồn",
+    check_for_updates: "Kiểm tra cập nhật...",
+    automatic_updates: "Tự động cập nhật",
+    automatic_updates_desc: "Tự động kiểm tra cập nhật khi khởi động",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",

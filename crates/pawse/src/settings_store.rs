@@ -254,6 +254,8 @@ pub struct UserSettings {
     pub cover_show_controls: bool,
     #[serde(default)]
     pub queue_deduplication: bool,
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
     #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default)]
@@ -280,6 +282,7 @@ impl Default for UserSettings {
             cover_show_progress: true,
             cover_show_controls: true,
             queue_deduplication: false,
+            auto_update: true,
             font_scale: FontScale::default(),
             onboarding_complete: false,
         }
@@ -429,6 +432,15 @@ impl SettingsStore {
 
     pub fn set_show_hog_button(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_hog_button = show;
+        self.save()
+    }
+
+    pub fn auto_update(&self) -> bool {
+        self.settings.auto_update
+    }
+
+    pub fn set_auto_update(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.auto_update = enabled;
         self.save()
     }
 
@@ -813,6 +825,7 @@ mod tests {
             cover_show_progress: true,
             cover_show_controls: true,
             queue_deduplication: false,
+            auto_update: true,
             font_scale: FontScale::Large,
             onboarding_complete: false,
         };

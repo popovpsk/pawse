@@ -138,6 +138,9 @@ pub static CS: Strings = lang! {
     zoom: "Zoom",
     menu_help: "Nápověda",
     repository: "Repozitář",
+    check_for_updates: "Zkontrolovat aktualizace...",
+    automatic_updates: "Automatické aktualizace",
+    automatic_updates_desc: "Automaticky kontrolovat aktualizace při spuštění",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",

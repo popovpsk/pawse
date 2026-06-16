@@ -344,6 +344,31 @@ fn interface_group(
         );
     }
 
+    #[cfg(not(target_os = "linux"))]
+    {
+        group = group.item(
+            SettingItem::new(
+                tr().automatic_updates.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().auto_update();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("auto-update-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_auto_update(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                                updater::set_enabled(cx, *new_val);
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().automatic_updates_desc.clone()),
+        );
+    }
+
     group
         .item(
             SettingItem::new(

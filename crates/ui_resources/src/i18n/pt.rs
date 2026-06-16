@@ -138,6 +138,9 @@ pub static PT: Strings = lang! {
     zoom: "Zoom",
     menu_help: "Ajuda",
     repository: "Repositório",
+    check_for_updates: "Procurar atualizações...",
+    automatic_updates: "Atualizações automáticas",
+    automatic_updates_desc: "Procurar atualizações automaticamente ao iniciar",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} faixa",

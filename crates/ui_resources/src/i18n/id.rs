@@ -138,6 +138,9 @@ pub static ID: Strings = lang! {
     zoom: "Zum",
     menu_help: "Bantuan",
     repository: "Repositori",
+    check_for_updates: "Periksa pembaruan...",
+    automatic_updates: "Pembaruan otomatis",
+    automatic_updates_desc: "Periksa pembaruan secara otomatis saat memulai",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",

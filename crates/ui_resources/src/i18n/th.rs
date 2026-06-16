@@ -138,6 +138,9 @@ pub static TH: Strings = lang! {
     zoom: "ย่อ/ขยาย",
     menu_help: "ความช่วยเหลือ",
     repository: "ที่เก็บโค้ด",
+    check_for_updates: "ตรวจหาการอัปเดต...",
+    automatic_updates: "อัปเดตอัตโนมัติ",
+    automatic_updates_desc: "ตรวจหาการอัปเดตโดยอัตโนมัติเมื่อเริ่มทำงาน",
 
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",

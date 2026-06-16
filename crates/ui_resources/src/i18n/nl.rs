@@ -138,6 +138,9 @@ pub static NL: Strings = lang! {
     zoom: "Zoom",
     menu_help: "Help",
     repository: "Repository",
+    check_for_updates: "Controleren op updates...",
+    automatic_updates: "Automatische updates",
+    automatic_updates_desc: "Bij het opstarten automatisch op updates controleren",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",

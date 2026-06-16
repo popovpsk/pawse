@@ -179,6 +179,14 @@ fn main() {
             .start_background_writer(save_executor);
         crate::localization::sync_active_lang(cx);
 
+        #[cfg(not(target_os = "linux"))]
+        {
+            let auto_update_enabled = cx
+                .global::<crate::settings_store::SettingsStore>()
+                .auto_update();
+            updater::init(cx, env!("CARGO_PKG_VERSION"), auto_update_enabled);
+        }
+
         ui_resources::themes::register_bundled_themes(cx, |cx| {
             let choice = cx.global::<crate::settings_store::SettingsStore>().theme();
             if let crate::settings_store::ThemeChoice::Named(name) = choice {
@@ -275,6 +283,9 @@ fn main() {
         cx.on_action(|_: &crate::app_menu::OpenRepository, cx| {
             cx.open_url(crate::app_menu::REPOSITORY_URL);
         });
+
+        #[cfg(not(target_os = "linux"))]
+        cx.on_action(|_: &updater::CheckForUpdates, cx| updater::check_now(cx));
 
         cx.activate(true);
         crate::app_menu::set_menus(cx);

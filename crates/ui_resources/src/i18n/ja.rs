@@ -138,6 +138,9 @@ pub static JA: Strings = lang! {
     zoom: "拡大/縮小",
     menu_help: "ヘルプ",
     repository: "リポジトリ",
+    check_for_updates: "アップデートを確認...",
+    automatic_updates: "自動アップデート",
+    automatic_updates_desc: "起動時に自動的にアップデートを確認する",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",

@@ -138,6 +138,9 @@ pub static TR: Strings = lang! {
     zoom: "Yakınlaştır",
     menu_help: "Yardım",
     repository: "Depo",
+    check_for_updates: "Güncellemeleri denetle...",
+    automatic_updates: "Otomatik güncellemeler",
+    automatic_updates_desc: "Başlangıçta güncellemeleri otomatik denetle",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",

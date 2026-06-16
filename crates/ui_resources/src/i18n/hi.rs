@@ -138,6 +138,9 @@ pub static HI: Strings = lang! {
     zoom: "ज़ूम",
     menu_help: "मदद",
     repository: "रिपॉज़िटरी",
+    check_for_updates: "अपडेट जांचें...",
+    automatic_updates: "स्वचालित अपडेट",
+    automatic_updates_desc: "शुरू होने पर स्वचालित रूप से अपडेट जांचें",
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",

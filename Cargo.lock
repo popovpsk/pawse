@@ -548,7 +548,7 @@ checksum = "628d228f918ac3b82fe590352cc719d30664a0c13ca3a60266fe02c7132d480a"
 
 [[package]]
 name = "audio_common"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "thiserror 1.0.69",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "audio_decoder"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "ape-decoder",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "audio_engine"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "audio_common",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "audio_output"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "alsa",
  "anyhow",
@@ -1522,7 +1522,7 @@ checksum = "e2931af7e13dc045d8e9d26afccc6fa115d64e115c9c84b1166288b46f6782c2"
 
 [[package]]
 name = "cue_parser"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rstest",
  "thiserror 1.0.69",
@@ -1598,7 +1598,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "flume 0.12.0",
  "humantime",
@@ -3891,7 +3891,7 @@ dependencies = [
 
 [[package]]
 name = "media_integration"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "block2",
  "flume 0.12.0",
@@ -4014,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "music_indexer"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "cue_parser",
@@ -4028,7 +4028,7 @@ dependencies = [
 
 [[package]]
 name = "music_library"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dirs 6.0.0",
  "image",
@@ -4814,7 +4814,7 @@ dependencies = [
 
 [[package]]
 name = "pawse"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "audio_engine",
@@ -4840,6 +4840,7 @@ dependencies = [
  "sys-locale",
  "ui_components",
  "ui_resources",
+ "updater",
  "winresource",
 ]
 
@@ -5858,6 +5859,7 @@ version = "0.23.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -7424,7 +7426,7 @@ dependencies = [
 
 [[package]]
 name = "ui_components"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "gpui",
  "gpui-component",
@@ -7432,7 +7434,7 @@ dependencies = [
 
 [[package]]
 name = "ui_resources"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -7544,6 +7546,38 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "updater"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "dirs 5.0.1",
+ "gpui",
+ "gpui-component",
+ "log",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ureq",
+]
+
+[[package]]
+name = "ureq"
+version = "2.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
+dependencies = [
+ "base64",
+ "flate2",
+ "log",
+ "once_cell",
+ "rustls",
+ "rustls-pki-types",
+ "url",
+ "webpki-roots 0.26.11",
+]
 
 [[package]]
 name = "url"
@@ -7965,6 +7999,24 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.26.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
+dependencies = [
+ "webpki-roots 1.0.7",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

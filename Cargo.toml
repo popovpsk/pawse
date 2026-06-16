@@ -12,7 +12,8 @@ members = [
     "crates/ui_components",
     "crates/ui_resources",
     "crates/cue_parser",
-    "crates/diagnostics"
+    "crates/diagnostics",
+    "crates/updater"
 ]
 
 default-members = ["crates/pawse"]
@@ -20,7 +21,7 @@ default-members = ["crates/pawse"]
 
 [workspace.package]
 publish = false
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [workspace.dependencies]

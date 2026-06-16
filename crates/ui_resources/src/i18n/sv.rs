@@ -138,6 +138,9 @@ pub static SV: Strings = lang! {
     zoom: "Zooma",
     menu_help: "Hjälp",
     repository: "Repository",
+    check_for_updates: "Sök efter uppdateringar...",
+    automatic_updates: "Automatiska uppdateringar",
+    automatic_updates_desc: "Sök automatiskt efter uppdateringar vid start",
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",

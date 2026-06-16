@@ -138,6 +138,9 @@ pub static KO: Strings = lang! {
     zoom: "확대/축소",
     menu_help: "도움말",
     repository: "저장소",
+    check_for_updates: "업데이트 확인...",
+    automatic_updates: "자동 업데이트",
+    automatic_updates_desc: "시작 시 자동으로 업데이트 확인",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",

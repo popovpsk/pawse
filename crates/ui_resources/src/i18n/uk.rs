@@ -138,6 +138,9 @@ pub static UK: Strings = lang! {
     zoom: "Масштаб",
     menu_help: "Довідка",
     repository: "Репозиторій",
+    check_for_updates: "Перевірити оновлення...",
+    automatic_updates: "Автоматичні оновлення",
+    automatic_updates_desc: "Автоматично перевіряти оновлення під час запуску",
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",

@@ -27,6 +27,7 @@ dirs = "5"
 ui_components = { path = "../ui_components" }
 ui_resources = { path = "../ui_resources" }
 media_integration = { path = "../media_integration" }
+updater = { path = "../updater" }
 sys-locale = "0.3"
 nucleo-matcher = "0.3"
 rand = "0.9"

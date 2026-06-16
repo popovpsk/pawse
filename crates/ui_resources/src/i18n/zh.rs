@@ -138,6 +138,9 @@ pub static ZH: Strings = lang! {
     zoom: "缩放",
     menu_help: "帮助",
     repository: "代码仓库",
+    check_for_updates: "检查更新...",
+    automatic_updates: "自动更新",
+    automatic_updates_desc: "启动时自动检查更新",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",
