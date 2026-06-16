@@ -141,6 +141,8 @@ pub static JA: Strings = lang! {
     check_for_updates: "アップデートを確認...",
     automatic_updates: "自動アップデート",
     automatic_updates_desc: "起動時に自動的にアップデートを確認する",
+    restart_to_update: "再起動して更新",
+    up_to_date: "Pawse は最新です",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",
@@ -153,6 +155,8 @@ pub static JA: Strings = lang! {
     failed_exclusive_t: "排他モードを有効にできませんでした: {}",
     failed_switch_device_t: "デバイスを切り替えられませんでした: {}",
     failed_save_settings_t: "設定を保存できませんでした: {}",
+    update_ready_t: "Pawse {} をインストールできます",
+    update_check_failed_t: "アップデートの確認に失敗しました: {}",
     cover_artist_desc: "カバー表示でタイトルの下にアーティストを表示します",
     cover_progress: "進行状況バー",
     cover_progress_desc: "カバー表示に最小限の進行状況バーを表示します",

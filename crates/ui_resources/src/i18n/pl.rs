@@ -141,6 +141,8 @@ pub static PL: Strings = lang! {
     check_for_updates: "Sprawdź aktualizacje...",
     automatic_updates: "Aktualizacje automatyczne",
     automatic_updates_desc: "Automatycznie sprawdzaj aktualizacje przy uruchamianiu",
+    restart_to_update: "Uruchom ponownie, aby zaktualizować",
+    up_to_date: "Pawse jest aktualny",
 
     disc_t: "Płyta {}",
     n_tracks_one: "{} utwór",
@@ -153,6 +155,8 @@ pub static PL: Strings = lang! {
     failed_exclusive_t: "Nie udało się włączyć trybu wyłącznego: {}",
     failed_switch_device_t: "Nie udało się przełączyć urządzenia: {}",
     failed_save_settings_t: "Nie udało się zapisać ustawień: {}",
+    update_ready_t: "Pawse {} jest gotowy do instalacji",
+    update_check_failed_t: "Sprawdzanie aktualizacji nie powiodło się: {}",
     cover_artist_desc: "Pokaż wykonawcę pod tytułem w widoku okładki",
     cover_progress: "Pasek postępu",
     cover_progress_desc: "Pokaż minimalny pasek postępu w widoku okładki",

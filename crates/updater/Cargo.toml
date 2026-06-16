@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 gpui.workspace = true
 gpui-component.workspace = true
+ui_resources = { path = "../ui_resources" }
 anyhow.workspace = true
 log.workspace = true
 serde = { version = "1", features = ["derive"] }

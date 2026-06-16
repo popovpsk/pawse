@@ -141,6 +141,8 @@ pub static TR: Strings = lang! {
     check_for_updates: "Güncellemeleri denetle...",
     automatic_updates: "Otomatik güncellemeler",
     automatic_updates_desc: "Başlangıçta güncellemeleri otomatik denetle",
+    restart_to_update: "Güncellemek için yeniden başlat",
+    up_to_date: "Pawse güncel",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",
@@ -153,6 +155,8 @@ pub static TR: Strings = lang! {
     failed_exclusive_t: "Özel mod etkinleştirilemedi: {}",
     failed_switch_device_t: "Aygıt değiştirilemedi: {}",
     failed_save_settings_t: "Ayarlar kaydedilemedi: {}",
+    update_ready_t: "Pawse {} kuruluma hazır",
+    update_check_failed_t: "Güncelleme denetimi başarısız: {}",
     cover_artist_desc: "Kapak görünümünde başlığın altında sanatçıyı göster",
     cover_progress: "İlerleme çubuğu",
     cover_progress_desc: "Kapak görünümünde minimal bir ilerleme çubuğu göster",

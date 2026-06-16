@@ -141,6 +141,8 @@ pub static CS: Strings = lang! {
     check_for_updates: "Zkontrolovat aktualizace...",
     automatic_updates: "Automatické aktualizace",
     automatic_updates_desc: "Automaticky kontrolovat aktualizace při spuštění",
+    restart_to_update: "Restartovat pro aktualizaci",
+    up_to_date: "Pawse je aktuální",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",
@@ -153,6 +155,8 @@ pub static CS: Strings = lang! {
     failed_exclusive_t: "Nepodařilo se zapnout exkluzivní režim: {}",
     failed_switch_device_t: "Nepodařilo se přepnout zařízení: {}",
     failed_save_settings_t: "Nepodařilo se uložit nastavení: {}",
+    update_ready_t: "Pawse {} je připraven k instalaci",
+    update_check_failed_t: "Kontrola aktualizací selhala: {}",
     cover_artist_desc: "Zobrazit interpreta pod názvem v zobrazení obalu",
     cover_progress: "Ukazatel průběhu",
     cover_progress_desc: "Zobrazit minimální ukazatel průběhu v zobrazení obalu",

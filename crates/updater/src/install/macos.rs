@@ -36,7 +36,8 @@ pub fn install(url: &str, app_bundle: &Path) -> Result<()> {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let prefix = dir.path().to_string_lossy();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap_or_else(|_| dir.path().to_path_buf());
+    let prefix = canonical.to_string_lossy();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mount_point = stdout
         .split_whitespace()

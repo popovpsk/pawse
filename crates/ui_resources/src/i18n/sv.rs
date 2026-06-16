@@ -141,6 +141,8 @@ pub static SV: Strings = lang! {
     check_for_updates: "Sök efter uppdateringar...",
     automatic_updates: "Automatiska uppdateringar",
     automatic_updates_desc: "Sök automatiskt efter uppdateringar vid start",
+    restart_to_update: "Starta om för att uppdatera",
+    up_to_date: "Pawse är uppdaterat",
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",
@@ -153,6 +155,8 @@ pub static SV: Strings = lang! {
     failed_exclusive_t: "Det gick inte att aktivera exklusivt läge: {}",
     failed_switch_device_t: "Det gick inte att byta enhet: {}",
     failed_save_settings_t: "Det gick inte att spara inställningarna: {}",
+    update_ready_t: "Pawse {} är redo att installeras",
+    update_check_failed_t: "Sökning efter uppdateringar misslyckades: {}",
     cover_artist_desc: "Visa artisten under titeln i omslagsvyn",
     cover_progress: "Förloppsindikator",
     cover_progress_desc: "Visa en minimal förloppsindikator i omslagsvyn",

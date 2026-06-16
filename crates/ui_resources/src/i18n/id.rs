@@ -141,6 +141,8 @@ pub static ID: Strings = lang! {
     check_for_updates: "Periksa pembaruan...",
     automatic_updates: "Pembaruan otomatis",
     automatic_updates_desc: "Periksa pembaruan secara otomatis saat memulai",
+    restart_to_update: "Mulai ulang untuk memperbarui",
+    up_to_date: "Pawse sudah versi terbaru",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",
@@ -153,6 +155,8 @@ pub static ID: Strings = lang! {
     failed_exclusive_t: "Gagal mengaktifkan mode eksklusif: {}",
     failed_switch_device_t: "Gagal mengganti perangkat: {}",
     failed_save_settings_t: "Gagal menyimpan pengaturan: {}",
+    update_ready_t: "Pawse {} siap dipasang",
+    update_check_failed_t: "Gagal memeriksa pembaruan: {}",
     cover_artist_desc: "Tampilkan artis di bawah judul di tampilan sampul",
     cover_progress: "Bilah kemajuan",
     cover_progress_desc: "Tampilkan bilah kemajuan minimal di tampilan sampul",

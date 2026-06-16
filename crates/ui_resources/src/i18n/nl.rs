@@ -141,6 +141,8 @@ pub static NL: Strings = lang! {
     check_for_updates: "Controleren op updates...",
     automatic_updates: "Automatische updates",
     automatic_updates_desc: "Bij het opstarten automatisch op updates controleren",
+    restart_to_update: "Herstart om bij te werken",
+    up_to_date: "Pawse is up-to-date",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",
@@ -153,6 +155,8 @@ pub static NL: Strings = lang! {
     failed_exclusive_t: "Kan exclusieve modus niet inschakelen: {}",
     failed_switch_device_t: "Kan niet van apparaat wisselen: {}",
     failed_save_settings_t: "Kan instellingen niet opslaan: {}",
+    update_ready_t: "Pawse {} is klaar om te installeren",
+    update_check_failed_t: "Controle op updates mislukt: {}",
     cover_artist_desc: "Toon de artiest onder de titel in hoesweergave",
     cover_progress: "Voortgangsbalk",
     cover_progress_desc: "Toon een minimale voortgangsbalk in hoesweergave",

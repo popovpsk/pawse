@@ -141,6 +141,8 @@ pub static UK: Strings = lang! {
     check_for_updates: "Перевірити оновлення...",
     automatic_updates: "Автоматичні оновлення",
     automatic_updates_desc: "Автоматично перевіряти оновлення під час запуску",
+    restart_to_update: "Перезапустити для оновлення",
+    up_to_date: "Встановлено останню версію Pawse",
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",
@@ -153,6 +155,8 @@ pub static UK: Strings = lang! {
     failed_exclusive_t: "Не вдалося увімкнути ексклюзивний режим: {}",
     failed_switch_device_t: "Не вдалося змінити пристрій: {}",
     failed_save_settings_t: "Не вдалося зберегти налаштування: {}",
+    update_ready_t: "Pawse {} готовий до встановлення",
+    update_check_failed_t: "Не вдалося перевірити оновлення: {}",
     cover_artist_desc: "Показувати виконавця під назвою в режимі обкладинки",
     cover_progress: "Смуга прогресу",
     cover_progress_desc: "Показувати мінімалістичну смугу прогресу в режимі обкладинки",

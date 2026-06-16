@@ -141,6 +141,8 @@ pub static ZH: Strings = lang! {
     check_for_updates: "检查更新...",
     automatic_updates: "自动更新",
     automatic_updates_desc: "启动时自动检查更新",
+    restart_to_update: "重启以更新",
+    up_to_date: "Pawse 已是最新版本",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",
@@ -153,6 +155,8 @@ pub static ZH: Strings = lang! {
     failed_exclusive_t: "无法启用独占模式：{}",
     failed_switch_device_t: "无法切换设备：{}",
     failed_save_settings_t: "无法保存设置：{}",
+    update_ready_t: "Pawse {} 已可安装",
+    update_check_failed_t: "检查更新失败：{}",
     cover_artist_desc: "在封面视图中于标题下方显示艺术家",
     cover_progress: "进度条",
     cover_progress_desc: "在封面视图中显示简约的进度条",

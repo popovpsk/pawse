@@ -113,12 +113,20 @@ pub fn apply_and_restart(cx: &mut App) {
     let _ = updater;
 }
 
+pub fn handle(cx: &App) -> Option<Entity<AutoUpdater>> {
+    global(cx)
+}
+
 fn global(cx: &App) -> Option<Entity<AutoUpdater>> {
     cx.try_global::<GlobalUpdater>()
         .map(|global| global.0.clone())
 }
 
 impl AutoUpdater {
+    pub fn has_staged_update(&self) -> bool {
+        self.staged.is_some()
+    }
+
     fn set_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.enabled = enabled;
         if enabled {
@@ -156,6 +164,7 @@ impl AutoUpdater {
 
         self.in_flight = true;
         self.status = Status::Checking;
+        cx.notify();
         let current = self.current_version.clone();
 
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -163,29 +172,38 @@ impl AutoUpdater {
             match outcome {
                 Ok(Some((version, staged))) => {
                     let toast_version = version.clone();
-                    this.update(cx, move |this, _| {
+                    this.update(cx, move |this, cx| {
                         this.in_flight = false;
                         this.staged = Some(Arc::new(staged));
                         this.status = Status::Ready { version };
+                        cx.notify();
                     })
                     .ok();
                     cx.update(|cx| toast_ready(cx, &toast_version)).ok();
                 }
                 Ok(None) => {
-                    this.update(cx, |this, _| {
+                    this.update(cx, |this, cx| {
                         this.in_flight = false;
                         this.status = Status::Idle;
+                        cx.notify();
                     })
                     .ok();
                     if manual {
-                        cx.update(|cx| toast(cx, "Pawse is up to date", NotificationType::Info))
-                            .ok();
+                        cx.update(|cx| {
+                            toast(
+                                cx,
+                                ui_resources::i18n::strings().up_to_date.clone(),
+                                NotificationType::Info,
+                            )
+                        })
+                        .ok();
                     }
                 }
                 Err(error) => {
-                    this.update(cx, |this, _| {
+                    this.update(cx, |this, cx| {
                         this.in_flight = false;
                         this.status = Status::Idle;
+                        cx.notify();
                     })
                     .ok();
                     log::error!("updater: {error:#}");
@@ -193,7 +211,8 @@ impl AutoUpdater {
                         cx.update(|cx| {
                             toast(
                                 cx,
-                                format!("Update check failed: {error}"),
+                                ui_resources::i18n::strings()
+                                    .update_check_failed(&error.to_string()),
                                 NotificationType::Error,
                             )
                         })
@@ -220,8 +239,9 @@ async fn check_and_stage(
         return Ok(None);
     }
 
-    this.update(cx, |this, _| {
+    this.update(cx, |this, cx| {
         this.status = Status::Downloading;
+        cx.notify();
     })
     .ok();
 
@@ -239,9 +259,8 @@ fn toast_ready(cx: &mut App, version: &Version) {
     let Some(handle) = cx.active_window() else {
         return;
     };
-    let message = SharedString::from(format!(
-        "Pawse {version} is ready — click to restart and update"
-    ));
+    let message =
+        SharedString::from(ui_resources::i18n::strings().update_ready(&version.to_string()));
     let _ = handle.update(cx, |_, window, cx| {
         window.push_notification(
             Notification::new()
@@ -249,7 +268,7 @@ fn toast_ready(cx: &mut App, version: &Version) {
                 .message(message)
                 .with_type(NotificationType::Success)
                 .autohide(false)
-                .on_click(|_, _, cx| apply_and_restart(cx)),
+                .on_click(|_, _, _| {}),
             cx,
         );
     });

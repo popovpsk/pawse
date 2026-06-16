@@ -141,6 +141,8 @@ pub static ES: Strings = lang! {
     check_for_updates: "Buscar actualizaciones...",
     automatic_updates: "Actualizaciones automáticas",
     automatic_updates_desc: "Buscar actualizaciones automáticamente al iniciar",
+    restart_to_update: "Reiniciar para actualizar",
+    up_to_date: "Pawse está actualizado",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} canción",
@@ -153,6 +155,8 @@ pub static ES: Strings = lang! {
     failed_exclusive_t: "No se pudo activar el modo exclusivo: {}",
     failed_switch_device_t: "No se pudo cambiar de dispositivo: {}",
     failed_save_settings_t: "No se pudieron guardar los ajustes: {}",
+    update_ready_t: "Pawse {} está listo para instalar",
+    update_check_failed_t: "Error al buscar actualizaciones: {}",
     cover_artist_desc: "Mostrar el artista debajo del título en la vista de portada",
     cover_progress: "Barra de progreso",
     cover_progress_desc: "Mostrar una barra de progreso mínima en la vista de portada",

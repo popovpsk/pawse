@@ -197,8 +197,12 @@ pub struct Strings {
     pub check_for_updates: SharedString,
     pub automatic_updates: SharedString,
     pub automatic_updates_desc: SharedString,
+    pub restart_to_update: SharedString,
+    pub up_to_date: SharedString,
 
     // --- Templated (read via the accessor methods below) ---
+    pub update_ready_t: SharedString,
+    pub update_check_failed_t: SharedString,
     pub disc_t: SharedString,
     pub n_tracks_one: SharedString,
     pub n_tracks_few: SharedString,
@@ -336,6 +340,14 @@ impl Strings {
 
     pub fn failed_save_settings(&self, err: &str) -> String {
         fill(&self.failed_save_settings_t, &[err])
+    }
+
+    pub fn update_ready(&self, version: &str) -> String {
+        fill(&self.update_ready_t, &[version])
+    }
+
+    pub fn update_check_failed(&self, err: &str) -> String {
+        fill(&self.update_check_failed_t, &[err])
     }
 }
 

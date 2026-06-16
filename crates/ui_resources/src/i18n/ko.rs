@@ -141,6 +141,8 @@ pub static KO: Strings = lang! {
     check_for_updates: "업데이트 확인...",
     automatic_updates: "자동 업데이트",
     automatic_updates_desc: "시작 시 자동으로 업데이트 확인",
+    restart_to_update: "업데이트하려면 다시 시작",
+    up_to_date: "Pawse가 최신 상태입니다",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",
@@ -153,6 +155,8 @@ pub static KO: Strings = lang! {
     failed_exclusive_t: "독점 모드를 활성화하지 못했습니다: {}",
     failed_switch_device_t: "장치를 전환하지 못했습니다: {}",
     failed_save_settings_t: "설정을 저장하지 못했습니다: {}",
+    update_ready_t: "Pawse {} 설치 준비 완료",
+    update_check_failed_t: "업데이트 확인 실패: {}",
     cover_artist_desc: "커버 보기에서 제목 아래에 아티스트를 표시합니다",
     cover_progress: "진행 표시줄",
     cover_progress_desc: "커버 보기에 최소한의 진행 표시줄을 표시합니다",

@@ -141,6 +141,8 @@ pub static VI: Strings = lang! {
     check_for_updates: "Kiểm tra cập nhật...",
     automatic_updates: "Tự động cập nhật",
     automatic_updates_desc: "Tự động kiểm tra cập nhật khi khởi động",
+    restart_to_update: "Khởi động lại để cập nhật",
+    up_to_date: "Pawse đã là bản mới nhất",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",
@@ -153,6 +155,8 @@ pub static VI: Strings = lang! {
     failed_exclusive_t: "Không thể bật chế độ độc quyền: {}",
     failed_switch_device_t: "Không thể chuyển thiết bị: {}",
     failed_save_settings_t: "Không thể lưu cài đặt: {}",
+    update_ready_t: "Pawse {} đã sẵn sàng để cài đặt",
+    update_check_failed_t: "Kiểm tra cập nhật thất bại: {}",
     cover_artist_desc: "Hiển thị nghệ sĩ dưới tiêu đề trong chế độ xem bìa",
     cover_progress: "Thanh tiến trình",
     cover_progress_desc: "Hiển thị thanh tiến trình tối giản trong chế độ xem bìa",

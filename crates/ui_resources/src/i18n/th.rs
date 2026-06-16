@@ -141,6 +141,8 @@ pub static TH: Strings = lang! {
     check_for_updates: "ตรวจหาการอัปเดต...",
     automatic_updates: "อัปเดตอัตโนมัติ",
     automatic_updates_desc: "ตรวจหาการอัปเดตโดยอัตโนมัติเมื่อเริ่มทำงาน",
+    restart_to_update: "รีสตาร์ทเพื่ออัปเดต",
+    up_to_date: "Pawse เป็นเวอร์ชันล่าสุดแล้ว",
 
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",
@@ -153,6 +155,8 @@ pub static TH: Strings = lang! {
     failed_exclusive_t: "ไม่สามารถเปิดโหมดเอกสิทธิ์: {}",
     failed_switch_device_t: "ไม่สามารถสลับอุปกรณ์: {}",
     failed_save_settings_t: "ไม่สามารถบันทึกการตั้งค่า: {}",
+    update_ready_t: "Pawse {} พร้อมติดตั้งแล้ว",
+    update_check_failed_t: "ตรวจหาการอัปเดตล้มเหลว: {}",
     cover_artist_desc: "แสดงศิลปินใต้ชื่อเพลงในมุมมองปก",
     cover_progress: "แถบความคืบหน้า",
     cover_progress_desc: "แสดงแถบความคืบหน้าแบบมินิมอลในมุมมองปก",

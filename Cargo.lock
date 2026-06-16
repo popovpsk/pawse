@@ -7560,6 +7560,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "ui_resources",
  "ureq",
 ]
 

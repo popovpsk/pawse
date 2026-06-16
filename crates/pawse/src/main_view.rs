@@ -100,6 +100,8 @@ pub struct MainView {
     _settings_observer: gpui::Subscription,
     _lang_subscription: Subscription,
     _activation_subscription: gpui::Subscription,
+    updater: Option<Entity<updater::AutoUpdater>>,
+    _updater_observer: Option<gpui::Subscription>,
     focus_handle: FocusHandle,
 }
 
@@ -314,6 +316,11 @@ impl MainView {
             },
         );
 
+        let updater = updater::handle(cx);
+        let updater_observer = updater
+            .as_ref()
+            .map(|entity| cx.observe(entity, |_, _, cx| cx.notify()));
+
         Self {
             audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
             library_view,
@@ -353,6 +360,8 @@ impl MainView {
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
             _activation_subscription: activation_subscription,
+            updater,
+            _updater_observer: updater_observer,
             focus_handle,
         }
     }
@@ -542,6 +551,11 @@ impl Render for MainView {
                 .child(cover_mode_button(cover_mode, tab_colors, cx))
             });
 
+        let update_ready = self
+            .updater
+            .as_ref()
+            .is_some_and(|entity| entity.read(cx).has_staged_update());
+
         let right_group = div()
             .flex_1()
             .flex()
@@ -549,6 +563,9 @@ impl Render for MainView {
             .justify_end()
             .gap_2()
             .h_full()
+            .when(update_ready && !show_settings, |d| {
+                d.child(update_button(cx))
+            })
             .when(!show_settings, |d| d.child(settings_gear_button(cx)))
             .child(self.audio_settings.clone());
 
@@ -792,6 +809,18 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
             this.show_settings = true;
             cx.notify();
         }))
+}
+
+fn update_button(cx: &mut Context<MainView>) -> impl IntoElement {
+    Button::new("update_button")
+        .ghost()
+        .compact()
+        .rounded_full()
+        .w(px(40.))
+        .h(px(40.))
+        .icon(Icon::default().path("icons/update.svg").size(px(20.)))
+        .tooltip(tr().restart_to_update.clone())
+        .on_click(cx.listener(|_, _, _, cx| updater::apply_and_restart(cx)))
 }
 
 fn back_button(fg: Hsla, hover_bg: Hsla, cx: &mut Context<MainView>) -> impl IntoElement {

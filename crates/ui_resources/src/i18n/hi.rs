@@ -141,6 +141,8 @@ pub static HI: Strings = lang! {
     check_for_updates: "अपडेट जांचें...",
     automatic_updates: "स्वचालित अपडेट",
     automatic_updates_desc: "शुरू होने पर स्वचालित रूप से अपडेट जांचें",
+    restart_to_update: "अपडेट के लिए पुनः आरंभ करें",
+    up_to_date: "Pawse अप टू डेट है",
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",
@@ -153,6 +155,8 @@ pub static HI: Strings = lang! {
     failed_exclusive_t: "एक्सक्लूसिव मोड सक्षम करने में विफल: {}",
     failed_switch_device_t: "डिवाइस बदलने में विफल: {}",
     failed_save_settings_t: "सेटिंग्स सहेजने में विफल: {}",
+    update_ready_t: "Pawse {} इंस्टॉल के लिए तैयार है",
+    update_check_failed_t: "अपडेट जांच विफल: {}",
     cover_artist_desc: "कवर दृश्य में शीर्षक के नीचे कलाकार दिखाएं",
     cover_progress: "प्रगति बार",
     cover_progress_desc: "कवर दृश्य में एक न्यूनतम प्रगति बार दिखाएं",
