@@ -344,8 +344,7 @@ fn interface_group(
         );
     }
 
-    #[cfg(not(target_os = "linux"))]
-    {
+    if updater::is_supported() {
         group = group.item(
             SettingItem::new(
                 tr().automatic_updates.clone(),

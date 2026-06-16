@@ -62,7 +62,12 @@ fn asset_matches(name: &str) -> bool {
     name.ends_with("-setup.exe")
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+fn asset_matches(name: &str) -> bool {
+    name.ends_with(".AppImage") && name.contains(std::env::consts::ARCH)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn asset_matches(_name: &str) -> bool {
     false
 }

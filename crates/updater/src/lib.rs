@@ -45,6 +45,9 @@ struct GlobalUpdater(Entity<AutoUpdater>);
 impl Global for GlobalUpdater {}
 
 pub fn init(cx: &mut App, current_version: &str, enabled: bool) {
+    if !is_supported() {
+        return;
+    }
     let version = match version::parse(current_version) {
         Ok(version) => version,
         Err(error) => {
@@ -109,12 +112,34 @@ pub fn apply_and_restart(cx: &mut App) {
         updater.update(cx, |this, _| this.apply_on_quit = true);
         cx.quit();
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(path) = install::appimage_path() {
+            cx.set_restart_path(path);
+        }
+        cx.restart();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     let _ = updater;
 }
 
 pub fn handle(cx: &App) -> Option<Entity<AutoUpdater>> {
     global(cx)
+}
+
+pub fn is_supported() -> bool {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("APPIMAGE").is_some()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        false
+    }
 }
 
 fn global(cx: &App) -> Option<Entity<AutoUpdater>> {

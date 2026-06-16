@@ -1,5 +1,7 @@
 use anyhow::Result;
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -24,11 +26,22 @@ pub fn download_and_stage(url: &str, app_bundle: Option<std::path::PathBuf>) -> 
         let installer = windows::download(url)?;
         Ok(Staged { installer })
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app_bundle;
+        linux::install(url)?;
+        Ok(Staged {})
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = (url, app_bundle);
         anyhow::bail!("auto-update is not supported on this platform")
     }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn appimage_path() -> Option<std::path::PathBuf> {
+    linux::appimage_path()
 }
 
 impl Staged {
@@ -38,7 +51,7 @@ impl Staged {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub(crate) fn download_file(url: &str, dest: &std::path::Path) -> Result<()> {
     use anyhow::Context as _;
 

@@ -179,7 +179,6 @@ fn main() {
             .start_background_writer(save_executor);
         crate::localization::sync_active_lang(cx);
 
-        #[cfg(not(target_os = "linux"))]
         {
             let auto_update_enabled = cx
                 .global::<crate::settings_store::SettingsStore>()
@@ -284,7 +283,6 @@ fn main() {
             cx.open_url(crate::app_menu::REPOSITORY_URL);
         });
 
-        #[cfg(not(target_os = "linux"))]
         cx.on_action(|_: &updater::CheckForUpdates, cx| updater::check_now(cx));
 
         cx.activate(true);
