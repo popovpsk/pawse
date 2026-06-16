@@ -358,8 +358,7 @@ impl LibraryService {
         // is what makes run-on-launch / background rescans viable.
         let sources = music_indexer::collect_sources(&paths);
         let folders_key = serialize_folders(&paths);
-        let unchanged = repo.has_tracks().unwrap_or(false)
-            && matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
+        let unchanged = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
         if unchanged {
             let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
