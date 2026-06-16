@@ -70,6 +70,7 @@ pub static RU: Strings = lang! {
     delete: "Удалить",
 
     settings_interface: "Интерфейс",
+    settings_general: "Общие",
     settings_library: "Медиатека",
     theme: "Тема",
     theme_desc: "Цветовая схема приложения",

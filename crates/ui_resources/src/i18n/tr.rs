@@ -70,6 +70,7 @@ pub static TR: Strings = lang! {
     delete: "Sil",
 
     settings_interface: "Arayüz",
+    settings_general: "Genel",
     settings_library: "Kitaplık",
     theme: "Tema",
     theme_desc: "Uygulamanın renk şeması",

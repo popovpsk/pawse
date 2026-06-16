@@ -70,6 +70,7 @@ pub static ID: Strings = lang! {
     delete: "Hapus",
 
     settings_interface: "Antarmuka",
+    settings_general: "Umum",
     settings_library: "Pustaka",
     theme: "Tema",
     theme_desc: "Skema warna aplikasi",

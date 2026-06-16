@@ -70,6 +70,7 @@ pub static VI: Strings = lang! {
     delete: "Xóa",
 
     settings_interface: "Giao diện",
+    settings_general: "Chung",
     settings_library: "Thư viện",
     theme: "Chủ đề",
     theme_desc: "Bảng màu của ứng dụng",

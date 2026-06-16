@@ -118,6 +118,7 @@ pub struct Strings {
 
     // --- Settings page ---
     pub settings_interface: SharedString,
+    pub settings_general: SharedString,
     pub settings_library: SharedString,
     pub theme: SharedString,
     pub theme_desc: SharedString,

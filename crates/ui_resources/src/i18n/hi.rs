@@ -70,6 +70,7 @@ pub static HI: Strings = lang! {
     delete: "हटाएँ",
 
     settings_interface: "इंटरफ़ेस",
+    settings_general: "सामान्य",
     settings_library: "लाइब्रेरी",
     theme: "थीम",
     theme_desc: "एप्लिकेशन की रंग योजना",

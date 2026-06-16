@@ -70,6 +70,7 @@ pub static JA: Strings = lang! {
     delete: "削除",
 
     settings_interface: "インターフェース",
+    settings_general: "一般",
     settings_library: "ライブラリ",
     theme: "テーマ",
     theme_desc: "アプリのカラースキーム",

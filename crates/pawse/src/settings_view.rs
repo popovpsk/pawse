@@ -197,13 +197,17 @@ pub fn build_settings_pages(
     theme_picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
 ) -> Vec<SettingPage> {
-    vec![
+    let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(theme_picker, lang_picker))
             .group(cover_view_group())
             .group(queue_group()),
-        SettingPage::new(tr().settings_library.clone()).group(library_group()),
-    ]
+    ];
+    if updater::is_supported() {
+        pages.push(SettingPage::new(tr().settings_general.clone()).group(general_group()));
+    }
+    pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
+    pages
 }
 
 /// Wrap pre-built pages into the `Settings` element for inline rendering.
@@ -344,30 +348,6 @@ fn interface_group(
         );
     }
 
-    if updater::is_supported() {
-        group = group.item(
-            SettingItem::new(
-                tr().automatic_updates.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let enabled = cx.global::<SettingsStore>().auto_update();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("auto-update-toggle").checked(enabled).on_click(
-                            |new_val, _, cx| {
-                                if let Err(e) =
-                                    cx.global_mut::<SettingsStore>().set_auto_update(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                                updater::set_enabled(cx, *new_val);
-                            },
-                        ),
-                    )
-                }),
-            )
-            .description(tr().automatic_updates_desc.clone()),
-        );
-    }
-
     group
         .item(
             SettingItem::new(
@@ -452,6 +432,30 @@ fn interface_group(
             )
             .description(tr().playlists_desc.clone()),
         )
+}
+
+fn general_group() -> SettingGroup {
+    SettingGroup::new().item(
+        SettingItem::new(
+            tr().automatic_updates.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().auto_update();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("auto-update-toggle").checked(enabled).on_click(
+                        |new_val, _, cx| {
+                            if let Err(e) =
+                                cx.global_mut::<SettingsStore>().set_auto_update(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                            updater::set_enabled(cx, *new_val);
+                        },
+                    ),
+                )
+            }),
+        )
+        .description(tr().automatic_updates_desc.clone()),
+    )
 }
 
 fn cover_view_group() -> SettingGroup {

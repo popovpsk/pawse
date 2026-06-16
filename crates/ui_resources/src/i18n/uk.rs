@@ -70,6 +70,7 @@ pub static UK: Strings = lang! {
     delete: "Видалити",
 
     settings_interface: "Інтерфейс",
+    settings_general: "Загальні",
     settings_library: "Медіатека",
     theme: "Тема",
     theme_desc: "Колірна схема застосунку",

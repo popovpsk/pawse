@@ -70,6 +70,7 @@ pub static ES: Strings = lang! {
     delete: "Eliminar",
 
     settings_interface: "Interfaz",
+    settings_general: "General",
     settings_library: "Biblioteca",
     theme: "Tema",
     theme_desc: "Esquema de colores de la aplicación",

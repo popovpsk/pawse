@@ -70,6 +70,7 @@ pub static ZH: Strings = lang! {
     delete: "删除",
 
     settings_interface: "界面",
+    settings_general: "通用",
     settings_library: "音乐库",
     theme: "主题",
     theme_desc: "应用程序的配色方案",

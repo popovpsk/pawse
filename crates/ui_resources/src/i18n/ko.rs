@@ -70,6 +70,7 @@ pub static KO: Strings = lang! {
     delete: "삭제",
 
     settings_interface: "인터페이스",
+    settings_general: "일반",
     settings_library: "라이브러리",
     theme: "테마",
     theme_desc: "애플리케이션 색상 구성표",

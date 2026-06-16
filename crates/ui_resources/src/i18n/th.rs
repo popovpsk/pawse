@@ -70,6 +70,7 @@ pub static TH: Strings = lang! {
     delete: "ลบ",
 
     settings_interface: "อินเทอร์เฟซ",
+    settings_general: "ทั่วไป",
     settings_library: "คลัง",
     theme: "ธีม",
     theme_desc: "ชุดสีของแอปพลิเคชัน",

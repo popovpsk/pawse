@@ -70,6 +70,7 @@ pub static SV: Strings = lang! {
     delete: "Ta bort",
 
     settings_interface: "Gränssnitt",
+    settings_general: "Allmänt",
     settings_library: "Bibliotek",
     theme: "Tema",
     theme_desc: "Färgschema för applikationen",

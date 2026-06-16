@@ -70,6 +70,7 @@ pub static NL: Strings = lang! {
     delete: "Verwijderen",
 
     settings_interface: "Interface",
+    settings_general: "Algemeen",
     settings_library: "Bibliotheek",
     theme: "Thema",
     theme_desc: "Kleurenschema van de applicatie",

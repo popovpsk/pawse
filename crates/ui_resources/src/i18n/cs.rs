@@ -70,6 +70,7 @@ pub static CS: Strings = lang! {
     delete: "Smazat",
 
     settings_interface: "Rozhraní",
+    settings_general: "Obecné",
     settings_library: "Knihovna",
     theme: "Motiv",
     theme_desc: "Barevné schéma aplikace",
