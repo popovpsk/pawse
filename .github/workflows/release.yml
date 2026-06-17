@@ -156,14 +156,6 @@ jobs:
           body: |
             ## Installation
 
-            These builds are not code-signed.
-
-            **macOS** — move `Pawse.app` to Applications, then clear the quarantine flag once:
-            ```
-            xattr -dr com.apple.quarantine /Applications/Pawse.app
-            ```
-            This is required: the app is unsigned, so macOS reports it as "damaged" and the right-click → Open trick does not work on Apple Silicon.
-
-            **Windows** — in the SmartScreen dialog, click "More info" → "Run anyway".
-
-            **Linux** — make the `.AppImage` executable (`chmod +x`) and run it, or install the `.deb`.
+            - **macOS** — move `Pawse.app` to Applications and open it. If macOS blocks it, go to System Settings → Privacy & Security and click **Open Anyway**.
+            - **Windows** — in the SmartScreen dialog click **More info** → **Run anyway**.
+            - **Linux** — `chmod +x` the `.AppImage` and run it (recommended for smooth auto-updates), or install the `.deb`.
