@@ -16,13 +16,13 @@ impl Drop for Mounted {
     }
 }
 
-pub fn install(url: &str, app_bundle: &Path) -> Result<()> {
+pub fn install(url: &str, digest: Option<&str>, app_bundle: &Path) -> Result<()> {
     let dir = tempfile::Builder::new()
         .prefix("pawse-update")
         .tempdir()
         .context("creating temp dir")?;
     let dmg = dir.path().join("pawse.dmg");
-    super::download_file(url, &dmg)?;
+    super::download_file(url, &dmg, digest)?;
 
     let output = Command::new("hdiutil")
         .args(["attach", "-nobrowse", "-mountrandom"])

@@ -5,7 +5,9 @@ Platform install backends. `download_and_stage` returns a `Staged` handle; the c
 download time), or `finalize_on_quit` (run the installer) on Windows when the app is
 quitting with a pending, approved update.
 
-- `mod.rs` — `Staged` + dispatch + the shared blocking `download_file` (`ureq`).
+- `mod.rs` — `Staged` + dispatch + the shared blocking `download_file` (`ureq`),
+  which stream-hashes the body (SHA-256) and verifies it against the asset `digest`
+  when one is supplied (mismatch = bail + delete the partial file).
 - `macos.rs` — download the dmg to a temp dir, `hdiutil attach -mountrandom`, parse
   the mount point from stdout, `rsync -a --delete` the new bundle over the running
   one (`app_path()`), and `hdiutil detach -force` via a `Drop` guard. Apply =

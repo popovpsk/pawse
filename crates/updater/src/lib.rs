@@ -275,9 +275,10 @@ async fn check_and_stage(
 
     let app_bundle = cx.update(|cx| cx.app_path().ok())?;
     let url = found.url.clone();
+    let digest = found.digest.clone();
     let staged = cx
         .background_executor()
-        .spawn(async move { install::download_and_stage(&url, app_bundle) })
+        .spawn(async move { install::download_and_stage(&url, digest.as_deref(), app_bundle) })
         .await?;
 
     Ok(Some((found.version, staged)))

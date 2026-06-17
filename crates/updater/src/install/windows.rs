@@ -2,14 +2,14 @@ use anyhow::{Context as _, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn download(url: &str) -> Result<PathBuf> {
+pub fn download(url: &str, digest: Option<&str>) -> Result<PathBuf> {
     let dir = dirs::cache_dir()
         .context("no cache directory")?
         .join("pawse")
         .join("updates");
     std::fs::create_dir_all(&dir).context("creating updates directory")?;
     let dest = dir.join("Pawse-setup.exe");
-    super::download_file(url, &dest)?;
+    super::download_file(url, &dest, digest)?;
     Ok(dest)
 }
 

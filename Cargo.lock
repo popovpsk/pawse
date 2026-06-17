@@ -7559,6 +7559,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "ui_resources",
  "ureq",

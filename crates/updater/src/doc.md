@@ -22,13 +22,21 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   on the main thread and passed into the installer.
 - `version.rs` — semver parse (strips a leading `v`) + `is_newer`. Unit-tested.
 - `github.rs` — `GET /repos/popovpsk/pawse/releases/latest` (blocking `ureq`,
-  rustls). Parses `tag_name` + picks the per-OS asset (`*.dmg` / `*-setup.exe`).
+  rustls). Parses `tag_name` + picks the per-OS asset (`*.dmg` / `*-setup.exe`),
+  carrying the asset's `digest` (`sha256:…`) through to the downloader.
 - `install/` — platform install backends (see `install/doc.md`).
 
 ## Non-obvious behavior / contract
 
-- **No signing.** Trust = our GitHub release over HTTPS. There is no signature
-  verification; if that ever changes, add it in `install::download_file`.
+- **No signing, but digest-checked.** Trust = our GitHub release over HTTPS. There
+  is no code-signature verification, but `install::download_file` stream-hashes the
+  download (SHA-256) and compares it against the release asset's `digest` from the
+  GitHub API: a mismatch is a hard failure and the partial file is removed. The check
+  is enforced only when the API reports a `sha256:` digest (older assets predate the
+  field); a missing or non-`sha256:` digest logs a warning and proceeds (fail-open by
+  design — the digest is defense-in-depth over HTTPS, so an unrecognized future format
+  must not brick the update channel, only fall back to the HTTPS-only posture). This is
+  not a substitute for signing; it only closes "bytes altered in transit / on the CDN".
 - **Apply contract.** macOS rsyncs the new bundle during download, so the bundle on
   disk is already updated and apply is just `cx.restart()`. Windows downloads the
   installer and runs it **once, in the `on_app_quit` handler** — never from

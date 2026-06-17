@@ -12,29 +12,33 @@ pub struct Staged {
     installer: std::path::PathBuf,
 }
 
-pub fn download_and_stage(url: &str, app_bundle: Option<std::path::PathBuf>) -> Result<Staged> {
+pub fn download_and_stage(
+    url: &str,
+    digest: Option<&str>,
+    app_bundle: Option<std::path::PathBuf>,
+) -> Result<Staged> {
     #[cfg(target_os = "macos")]
     {
         let bundle =
             app_bundle.ok_or_else(|| anyhow::anyhow!("running app path is unavailable"))?;
-        macos::install(url, &bundle)?;
+        macos::install(url, digest, &bundle)?;
         Ok(Staged {})
     }
     #[cfg(target_os = "windows")]
     {
         let _ = app_bundle;
-        let installer = windows::download(url)?;
+        let installer = windows::download(url, digest)?;
         Ok(Staged { installer })
     }
     #[cfg(target_os = "linux")]
     {
         let _ = app_bundle;
-        linux::install(url)?;
+        linux::install(url, digest)?;
         Ok(Staged {})
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        let _ = (url, app_bundle);
+        let _ = (url, digest, app_bundle);
         anyhow::bail!("auto-update is not supported on this platform")
     }
 }
@@ -54,8 +58,13 @@ impl Staged {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-pub(crate) fn download_file(url: &str, dest: &std::path::Path) -> Result<()> {
+pub(crate) fn download_file(
+    url: &str,
+    dest: &std::path::Path,
+    expected_digest: Option<&str>,
+) -> Result<()> {
     use anyhow::Context as _;
+    use sha2::{Digest as _, Sha256};
     use std::time::Duration;
 
     let agent = ureq::AgentBuilder::new()
@@ -68,8 +77,50 @@ pub(crate) fn download_file(url: &str, dest: &std::path::Path) -> Result<()> {
         .call()
         .context("download request failed")?;
     let mut reader = response.into_reader();
-    let mut file =
+    let file =
         std::fs::File::create(dest).with_context(|| format!("creating {}", dest.display()))?;
-    std::io::copy(&mut reader, &mut file).context("writing downloaded file")?;
+    let mut writer = HashingWriter {
+        inner: file,
+        hasher: Sha256::new(),
+    };
+    std::io::copy(&mut reader, &mut writer).context("writing downloaded file")?;
+
+    match expected_digest {
+        None => log::warn!("updater: release asset has no digest; skipping SHA-256 verification"),
+        Some(digest) => match digest.strip_prefix("sha256:") {
+            Some(expected) => {
+                let actual = format!("{:x}", writer.hasher.finalize());
+                if !actual.eq_ignore_ascii_case(expected) {
+                    let _ = std::fs::remove_file(dest);
+                    anyhow::bail!(
+                        "downloaded file failed SHA-256 verification (expected {expected}, got {actual})"
+                    );
+                }
+            }
+            None => log::warn!(
+                "updater: release asset digest {digest:?} is not SHA-256; skipping verification"
+            ),
+        },
+    }
     Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+struct HashingWriter<W> {
+    inner: W,
+    hasher: sha2::Sha256,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+impl<W: std::io::Write> std::io::Write for HashingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        use sha2::Digest as _;
+        let n = self.inner.write(buf)?;
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }

@@ -19,11 +19,13 @@ struct Release {
 struct Asset {
     name: String,
     browser_download_url: String,
+    digest: Option<String>,
 }
 
 pub struct Found {
     pub version: Version,
     pub url: String,
+    pub digest: Option<String>,
 }
 
 pub fn fetch_latest() -> Result<Found> {
@@ -47,15 +49,16 @@ pub fn fetch_latest() -> Result<Found> {
         serde_json::from_str(&body).context("parsing GitHub releases response")?;
 
     let version = version::parse(&release.tag_name)?;
-    let url = select_asset(&release.assets).context("no release asset matches this platform")?;
-    Ok(Found { version, url })
+    let asset = select_asset(&release.assets).context("no release asset matches this platform")?;
+    Ok(Found {
+        version,
+        url: asset.browser_download_url.clone(),
+        digest: asset.digest.clone(),
+    })
 }
 
-fn select_asset(assets: &[Asset]) -> Option<String> {
-    assets
-        .iter()
-        .find(|asset| asset_matches(&asset.name))
-        .map(|asset| asset.browser_download_url.clone())
+fn select_asset(assets: &[Asset]) -> Option<&Asset> {
+    assets.iter().find(|asset| asset_matches(&asset.name))
 }
 
 #[cfg(target_os = "macos")]
