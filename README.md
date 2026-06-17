@@ -6,8 +6,8 @@
 
 **A fast, bit-perfect local music player built in Rust.**
 
-Native, GPU-accelerated desktop player for your local library — FLAC/MP3/WAV/OGG and more,
-with exclusive (bit-perfect) output, CUE support, playlists, and system media integration.
+Native, GPU-accelerated desktop player for your local library — a fluid 120+ fps interface
+with exclusive (bit-perfect) output, CUE support, and playlists.
 
 macOS · Windows · Linux
 
@@ -15,10 +15,16 @@ macOS · Windows · Linux
 
 </div>
 
-| | |
-|---|---|
-| ![Artists](.docs/screenshots/artists.png) | ![Album](.docs/screenshots/album.png) |
-| ![Cover view](.docs/screenshots/cover_view.png) | ![Settings](.docs/screenshots/settings.png) |
+<table>
+  <tr>
+    <td width="50%"><img alt="Artists" src=".docs/screenshots/artists.png"></td>
+    <td width="50%"><img alt="Album" src=".docs/screenshots/album.png"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img alt="Cover view" src=".docs/screenshots/cover_view.png"></td>
+    <td width="50%"><img alt="Settings" src=".docs/screenshots/settings.png"></td>
+  </tr>
+</table>
 
 ## Features
 
