@@ -236,6 +236,10 @@ impl LibraryService {
         self.repo.album_title(album_id).ok().flatten()
     }
 
+    pub fn album_genres(&self, album_id: i64) -> Vec<String> {
+        self.repo.album_genres(album_id).unwrap_or_default()
+    }
+
     pub fn get_cover_art_small(&self, id: i64) -> Option<Vec<u8>> {
         self.repo.get_cover_art_small(id).ok().flatten()
     }
@@ -507,6 +511,7 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         track_number: track.track_number,
         disc_number: track.disc_number,
         year: track.year,
+        genres: track.genres,
         duration_ms: track.duration_ms,
         cover_hash: track.cover_hash,
         start_offset_ms: track.start_offset_ms,

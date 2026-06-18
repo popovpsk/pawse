@@ -51,6 +51,69 @@ pub(crate) fn read_metadata_cached(
     read_metadata_inner(path, Some(cache))
 }
 
+fn read_year(tag: &Tag) -> Option<i32> {
+    [
+        ItemKey::RecordingDate,
+        ItemKey::Year,
+        ItemKey::OriginalReleaseDate,
+        ItemKey::ReleaseDate,
+    ]
+    .iter()
+    .find_map(|key| {
+        tag.get(key)
+            .and_then(|item| item.value().text())
+            .and_then(year_from_str)
+    })
+}
+
+fn year_from_str(value: &str) -> Option<i32> {
+    let digits: String = value
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .take(4)
+        .collect();
+    if digits.len() == 4 {
+        digits.parse().ok()
+    } else {
+        None
+    }
+}
+
+pub(crate) fn normalize_genres<'a>(raw: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for value in raw {
+        for piece in value.split([',', ';', '/']) {
+            let cleaned: String = piece.split_whitespace().collect::<Vec<_>>().join(" ");
+            if cleaned.is_empty() || is_junk_genre(&cleaned) {
+                continue;
+            }
+            let key = cleaned.to_lowercase();
+            if !out.iter().any(|g| g.to_lowercase() == key) {
+                out.push(cleaned);
+            }
+        }
+    }
+    out
+}
+
+fn is_junk_genre(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    matches!(
+        lower.as_str(),
+        "album"
+            | "unknown"
+            | "unknown genre"
+            | "other"
+            | "various"
+            | "various artists"
+            | "genre"
+            | "none"
+            | "no genre"
+            | "misc"
+    ) || lower.chars().all(|c| c.is_ascii_digit())
+}
+
 fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Result<ScannedTrack> {
     let tagged_file = lofty::read_from_path(path)?;
 
@@ -69,6 +132,7 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
     let mut track_number = None;
     let mut disc_number = None;
     let mut year = None;
+    let mut genres = Vec::new();
     let mut embedded = None;
 
     if let Some(tag) = tag {
@@ -109,12 +173,8 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
             disc_number = val.split('/').next().and_then(|s| s.parse().ok());
         }
 
-        // Year
-        if let Some(item) = tag.get(&ItemKey::Year)
-            && let Some(val) = item.value().text()
-        {
-            year = val.parse().ok();
-        }
+        year = read_year(tag);
+        genres = normalize_genres(tag.get_strings(&ItemKey::Genre));
 
         embedded = embedded_cover(tag);
     }
@@ -144,6 +204,7 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
         track_number,
         disc_number,
         year,
+        genres,
         duration_ms: Some(duration_ms),
         cover_art,
         start_offset_ms: None,

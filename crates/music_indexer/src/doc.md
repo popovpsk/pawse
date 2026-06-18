@@ -23,7 +23,8 @@ own *parsing rules*. Either can change without touching the other.
   Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS` lists and
   `INDEXER_FORMAT_VERSION`.
 - `metadata.rs` — `read_metadata` (tags → `ScannedTrack` for one standalone audio
-  file) and external cover-art discovery (`find_external_cover_art` + helpers).
+  file), date/genre normalization (`read_year`, `normalize_genres`), and external
+  cover-art discovery (`find_external_cover_art` + helpers).
 - `cue.rs` — CUE-sheet business logic: `process_cue_file` (one `.cue` → many
   `ScannedTrack`), audio-file resolution, multi-disc folder inference, and
   `read_cue_text` (encoding-tolerant CUE reader).
@@ -76,6 +77,15 @@ own *parsing rules*. Either can change without touching the other.
   exact `FILE` name, then any sibling with the same stem and a supported audio
   extension — rippers often leave the original `.wav` name in the cue after
   encoding to FLAC.
+
+- **Year & genre tags.** `read_year` tries `RecordingDate` (the modern `DATE`/`TDRC`
+  field most taggers write) first, then `Year` / `OriginalReleaseDate` / `ReleaseDate`,
+  and extracts the leading 4-digit year (so `1994-05-12` → `1994`; a bare 2-digit year
+  is dropped). `normalize_genres` splits each value on `,` `;` `/` — but **not** `&`, so
+  `Drum & Bass` / `R&B` survive — then trims/collapses whitespace, drops junk
+  (`Album` / `Unknown` / numeric-only), and dedups case-insensitively. The resulting
+  `Vec<String>` becomes `genres` + `track_genres` rows in the writer. Changing either
+  reading is exactly what an `INDEXER_FORMAT_VERSION` bump is for.
 
 - **Cover art: many fallbacks, one dedupe.** Order: embedded `CoverFront` picture →
   first embedded picture → external file. External search (`find_external_cover_art`)

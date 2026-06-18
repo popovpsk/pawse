@@ -141,11 +141,39 @@ mod tests {
     }
 
     #[test]
-    fn test_read_metadata_year_unparseable() {
+    fn test_read_metadata_year_from_full_date() {
         let track = read_tagged_fixture("tagged_track_disc_slash.flac");
         assert_eq!(
-            track.year, None,
-            "YEAR=2023-06-15 should fail to parse as i32"
+            track.year,
+            Some(2023),
+            "YEAR=2023-06-15 should yield the leading 4-digit year"
+        );
+    }
+
+    #[test]
+    fn test_normalize_genres_splits_dedups_and_filters() {
+        let got = crate::metadata::normalize_genres(
+            [
+                "Rock, Alternative",
+                "alternative",
+                " Indie  Rock ",
+                "Album",
+                "255",
+                "Drum & Bass",
+                "Progressive Rock/Metal",
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            got.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec![
+                "Rock",
+                "Alternative",
+                "Indie Rock",
+                "Drum & Bass",
+                "Progressive Rock",
+                "Metal",
+            ]
         );
     }
 

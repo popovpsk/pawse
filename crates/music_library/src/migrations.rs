@@ -101,4 +101,25 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         ALTER TABLE cover_art ADD COLUMN embedded INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
+    (
+        3,
+        r#"
+        CREATE TABLE genres (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            key TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX idx_genres_key ON genres(key);
+
+        CREATE TABLE track_genres (
+            track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            genre_id INTEGER NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (track_id, genre_id)
+        );
+
+        CREATE INDEX idx_track_genres_genre ON track_genres(genre_id, track_id);
+        "#,
+    ),
 ];

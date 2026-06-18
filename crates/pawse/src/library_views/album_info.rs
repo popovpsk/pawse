@@ -4,7 +4,7 @@ use gpui::{
     Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use crate::theme_colors::Colors;
 use ui_components::cover_thumb::cover_thumb;
@@ -20,6 +20,8 @@ pub struct AlbumInfo {
     artist_id: Option<i64>,
     year: Option<i32>,
     cover: Option<Arc<Image>>,
+    genres_inline: SharedString,
+    genres_tooltip: Option<SharedString>,
 }
 
 impl AlbumInfo {
@@ -29,6 +31,22 @@ impl AlbumInfo {
             .cover_art_cache
             .borrow_mut()
             .get_large(album.cover_art_id, &services.library);
+        let all_genres = services.library.album_genres(album.id);
+        let shown = all_genres
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let (genres_inline, genres_tooltip): (SharedString, Option<SharedString>) =
+            if all_genres.len() > 3 {
+                (
+                    format!("{shown} …").into(),
+                    Some(all_genres.join(" · ").into()),
+                )
+            } else {
+                (shown.into(), None)
+            };
         Self {
             album_id: album.id,
             title: album.title.clone(),
@@ -36,6 +54,8 @@ impl AlbumInfo {
             artist_id: album.artist_id,
             year: album.year,
             cover,
+            genres_inline,
+            genres_tooltip,
         }
     }
 }
@@ -104,6 +124,25 @@ impl Render for AlbumInfo {
                         div().text_sm().text_color(muted_fg).child(year.to_string())
                     } else {
                         div()
+                    })
+                    .child(if self.genres_inline.is_empty() {
+                        div().into_any_element()
+                    } else if let Some(tooltip) = self.genres_tooltip.clone() {
+                        div()
+                            .id(("album_genres", album_id as u64))
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .child(self.genres_inline.clone())
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(tooltip.clone()).build(window, cx)
+                            })
+                            .into_any_element()
+                    } else {
+                        div()
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .child(self.genres_inline.clone())
+                            .into_any_element()
                     }),
             )
             .child(add_album_to_queue_button(album_id, 42., 26., cx))

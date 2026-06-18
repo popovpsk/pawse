@@ -89,7 +89,10 @@ All tests must pass.
 
 ### Migrations
 
-There are no users. When changing data handling, migrations are not needed.
+There are users now — preserve their data. A schema change must be a versioned
+step in `MIGRATIONS` (`ALTER`/`CREATE`, bumping `user_version`), never a DB wipe.
+Re-deriving track data from files is fine via an `INDEXER_FORMAT_VERSION` bump; the
+reindex keeps playlists/likes through the content-key snapshot.
 
 ### User Interaction
 

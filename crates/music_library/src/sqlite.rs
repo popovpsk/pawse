@@ -593,6 +593,24 @@ impl LibraryRepository for SqliteLibrary {
         Ok(title)
     }
 
+    fn album_genres(&self, album_id: i64) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT g.name
+            FROM genres g
+            JOIN track_genres tg ON tg.genre_id = g.id
+            JOIN tracks t ON t.id = tg.track_id
+            WHERE t.album_id = ?1
+            GROUP BY g.id
+            ORDER BY COUNT(*) DESC, g.name
+            "#,
+        )?;
+        let rows = stmt.query_map([album_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn clear(&self) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
@@ -600,10 +618,12 @@ impl LibraryRepository for SqliteLibrary {
         // keep playlist definitions: a user's playlists survive a rescan.
         tx.execute("DELETE FROM playlist_tracks", [])?;
         tx.execute("DELETE FROM track_artists", [])?;
+        tx.execute("DELETE FROM track_genres", [])?;
         tx.execute("DELETE FROM album_artists", [])?;
         tx.execute("DELETE FROM tracks", [])?;
         tx.execute("DELETE FROM albums", [])?;
         tx.execute("DELETE FROM artists", [])?;
+        tx.execute("DELETE FROM genres", [])?;
         // cover_art rows are NOT deleted here; they are cleaned up after the
         // rescan via delete_orphaned_albums_and_artists so that the same SHA-256
         // hash always maps back to the same id. This keeps cover_art_ids valid
@@ -1239,6 +1259,7 @@ pub struct ScanSession {
     in_tx: bool,
     uncommitted: usize,
     artist_cache: HashMap<String, i64>,
+    genre_cache: HashMap<String, i64>,
     album_cache: HashMap<(String, Option<i32>), i64>,
     album_artists_set: HashSet<i64>,
     cover_cache: HashMap<String, i64>,
@@ -1269,6 +1290,7 @@ impl ScanSession {
             in_tx: false,
             uncommitted: 0,
             artist_cache: HashMap::new(),
+            genre_cache: HashMap::new(),
             album_cache: HashMap::new(),
             album_artists_set: HashSet::new(),
             cover_cache,
@@ -1318,6 +1340,24 @@ impl ScanSession {
         Ok(id)
     }
 
+    fn resolve_genre(&mut self, name: &str) -> Result<i64> {
+        let key = name.to_lowercase();
+        if let Some(&id) = self.genre_cache.get(&key) {
+            return Ok(id);
+        }
+        self.conn.execute(
+            "INSERT OR IGNORE INTO genres (name, key) VALUES (?1, ?2)",
+            [name, key.as_str()],
+        )?;
+        let id: i64 =
+            self.conn
+                .query_row("SELECT id FROM genres WHERE key = ?1", [&key], |row| {
+                    row.get(0)
+                })?;
+        self.genre_cache.insert(key, id);
+        Ok(id)
+    }
+
     fn resolve_album(
         &mut self,
         title: &str,
@@ -1355,6 +1395,11 @@ impl ScanSession {
         for (pos, name) in track.artist_names.iter().enumerate() {
             let id = self.resolve_artist(name)?;
             artist_ids.push((id, pos as i64));
+        }
+
+        let mut genre_ids = Vec::with_capacity(track.genres.len());
+        for name in &track.genres {
+            genre_ids.push(self.resolve_genre(name)?);
         }
 
         let album_id = if let Some(title) = &track.album_title {
@@ -1423,6 +1468,13 @@ impl ScanSession {
             )?;
         }
 
+        for (position, genre_id) in genre_ids.iter().enumerate() {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO track_genres (track_id, genre_id, position) VALUES (?1, ?2, ?3)",
+                [track_id, *genre_id, position as i64],
+            )?;
+        }
+
         self.maybe_commit()
     }
 }
@@ -1434,10 +1486,12 @@ impl ScanWrite for ScanSession {
         self.conn.execute_batch(
             "DELETE FROM playlist_tracks; \
              DELETE FROM track_artists; \
+             DELETE FROM track_genres; \
              DELETE FROM album_artists; \
              DELETE FROM tracks; \
              DELETE FROM albums; \
-             DELETE FROM artists;",
+             DELETE FROM artists; \
+             DELETE FROM genres;",
         )?;
         Ok(())
     }

@@ -120,6 +120,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             track_number,
             disc_number,
             year,
+            genres: crate::metadata::normalize_genres(sheet.genre.as_deref().into_iter()),
             duration_ms: Some(duration_ms),
             cover_art: cover_art
                 .clone()
