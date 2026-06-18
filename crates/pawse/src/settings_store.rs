@@ -255,6 +255,10 @@ pub struct UserSettings {
     #[serde(default)]
     pub queue_deduplication: bool,
     #[serde(default = "default_true")]
+    pub albums_show_year: bool,
+    #[serde(default = "default_true")]
+    pub albums_show_genre: bool,
+    #[serde(default = "default_true")]
     pub auto_update: bool,
     #[serde(default)]
     pub font_scale: FontScale,
@@ -282,6 +286,8 @@ impl Default for UserSettings {
             cover_show_progress: true,
             cover_show_controls: true,
             queue_deduplication: false,
+            albums_show_year: true,
+            albums_show_genre: true,
             auto_update: true,
             font_scale: FontScale::default(),
             onboarding_complete: false,
@@ -540,6 +546,24 @@ impl SettingsStore {
 
     pub fn set_queue_deduplication(&mut self, value: bool) -> anyhow::Result<()> {
         self.settings.queue_deduplication = value;
+        self.save()
+    }
+
+    pub fn albums_show_year(&self) -> bool {
+        self.settings.albums_show_year
+    }
+
+    pub fn set_albums_show_year(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.albums_show_year = show;
+        self.save()
+    }
+
+    pub fn albums_show_genre(&self) -> bool {
+        self.settings.albums_show_genre
+    }
+
+    pub fn set_albums_show_genre(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.albums_show_genre = show;
         self.save()
     }
 
@@ -825,6 +849,8 @@ mod tests {
             cover_show_progress: true,
             cover_show_controls: true,
             queue_deduplication: false,
+            albums_show_year: true,
+            albums_show_genre: true,
             auto_update: true,
             font_scale: FontScale::Large,
             onboarding_complete: false,

@@ -240,6 +240,10 @@ impl LibraryService {
         self.repo.album_genres(album_id).unwrap_or_default()
     }
 
+    pub fn album_genres_map(&self) -> std::collections::HashMap<i64, Vec<String>> {
+        self.repo.album_genres_map().unwrap_or_default()
+    }
+
     pub fn get_cover_art_small(&self, id: i64) -> Option<Vec<u8>> {
         self.repo.get_cover_art_small(id).ok().flatten()
     }

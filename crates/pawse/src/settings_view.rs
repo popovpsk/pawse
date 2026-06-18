@@ -200,6 +200,7 @@ pub fn build_settings_pages(
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(theme_picker, lang_picker))
+            .group(albums_view_group())
             .group(cover_view_group())
             .group(queue_group()),
     ];
@@ -456,6 +457,53 @@ fn general_group() -> SettingGroup {
         )
         .description(tr().automatic_updates_desc.clone()),
     )
+}
+
+fn albums_view_group() -> SettingGroup {
+    SettingGroup::new()
+        .title(tr().settings_albums_view.clone())
+        .item(
+            SettingItem::new(
+                tr().year_column.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().albums_show_year();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("albums-year-column-toggle")
+                            .checked(show)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_albums_show_year(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().year_column_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                tr().genre_column.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().albums_show_genre();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("albums-genre-column-toggle")
+                            .checked(show)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_albums_show_genre(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().genre_column_desc.clone()),
+        )
 }
 
 fn cover_view_group() -> SettingGroup {

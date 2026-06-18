@@ -12,6 +12,7 @@ use gpui_component::{
     button::Button,
     h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
+    tooltip::Tooltip,
     v_flex, v_virtual_list,
 };
 
@@ -43,6 +44,9 @@ struct AlbumRowData {
     albums_all_ix: usize,
     id: i64,
     display_text: SharedString,
+    genre_inline: SharedString,
+    genre_tooltip: Option<SharedString>,
+    year: SharedString,
     cover: Option<Arc<Image>>,
 }
 
@@ -52,17 +56,33 @@ impl AlbumRowData {
         albums_all_ix: usize,
         cover_cache: &mut CoverArtCache,
         library: &crate::library_service::LibraryService,
+        genres_map: &HashMap<i64, Vec<String>>,
     ) -> Self {
-        let display_text: SharedString = if album.id == music_library::NO_METADATA_ALBUM_ID {
-            tr().no_metadata.clone()
-        } else {
-            let year_str = album.year.map(|y| format!(" ({})", y)).unwrap_or_default();
-            format!("{}{} - {}", album.artist_name, year_str, album.title).into()
-        };
+        let (display_text, year): (SharedString, SharedString) =
+            if album.id == music_library::NO_METADATA_ALBUM_ID {
+                (tr().no_metadata.clone(), SharedString::default())
+            } else {
+                (
+                    format!("{} - {}", album.artist_name, album.title).into(),
+                    album.year.map(|y| y.to_string()).unwrap_or_default().into(),
+                )
+            };
+        let (genre_inline, genre_tooltip): (SharedString, Option<SharedString>) =
+            match genres_map.get(&album.id) {
+                Some(genres) if genres.len() > 1 => (
+                    format!("{} …", genres[0]).into(),
+                    Some(genres.join(" · ").into()),
+                ),
+                Some(genres) if !genres.is_empty() => (genres[0].clone().into(), None),
+                _ => (SharedString::default(), None),
+            };
         Self {
             albums_all_ix,
             id: album.id,
             display_text,
+            genre_inline,
+            genre_tooltip,
+            year,
             cover: cover_cache.get_small(album.cover_art_id, library),
         }
     }
@@ -73,17 +93,22 @@ struct AlbumRowParams {
     list_hover: Hsla,
     muted: Hsla,
     muted_fg: Hsla,
+    show_year: bool,
+    show_genre: bool,
 }
 
 const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
 const COVER_SIZE: f32 = 32.;
 const COVER_RADIUS: f32 = 4.;
+const GENRE_COLUMN_WIDTH: f32 = 150.;
+const YEAR_COLUMN_WIDTH: f32 = 40.;
 
 pub struct AlbumsView {
     albums_all: Vec<music_library::AlbumSummary>,
     search_entries: Vec<music_library::AlbumSearchEntry>,
     id_to_ix: HashMap<i64, usize>,
+    genres_map: HashMap<i64, Vec<String>>,
     row_data: Vec<AlbumRowData>,
     items: Vec<AlbumItem>,
     filter: String,
@@ -105,6 +130,7 @@ impl AlbumsView {
 
         let albums_all = library.albums();
         let search_entries = library.album_search_entries();
+        let genres_map = library.album_genres_map();
         let id_to_ix = Self::id_index(&albums_all);
         let (items, item_sizes) = Self::build_items(albums_all.len());
         let row_data = {
@@ -112,7 +138,9 @@ impl AlbumsView {
             albums_all
                 .iter()
                 .enumerate()
-                .map(|(ix, album)| AlbumRowData::from_album(album, ix, &mut cover_cache, &library))
+                .map(|(ix, album)| {
+                    AlbumRowData::from_album(album, ix, &mut cover_cache, &library, &genres_map)
+                })
                 .collect()
         };
         let is_scanning = false;
@@ -132,6 +160,7 @@ impl AlbumsView {
                             services.cover_art_cache.borrow_mut().clear();
                             this.albums_all = services.library.albums();
                             this.search_entries = services.library.album_search_entries();
+                            this.genres_map = services.library.album_genres_map();
                             this.id_to_ix = Self::id_index(&this.albums_all);
                             this.recompute_visible(cx);
                         }
@@ -153,6 +182,7 @@ impl AlbumsView {
         Self {
             albums_all,
             search_entries,
+            genres_map,
             id_to_ix,
             row_data,
             items,
@@ -202,12 +232,15 @@ impl AlbumsView {
         let mut cover_cache = services.cover_art_cache.borrow_mut();
         let library = &services.library;
 
+        let genres_map = &self.genres_map;
         if self.filter.is_empty() {
             self.row_data = self
                 .albums_all
                 .iter()
                 .enumerate()
-                .map(|(ix, album)| AlbumRowData::from_album(album, ix, &mut cover_cache, library))
+                .map(|(ix, album)| {
+                    AlbumRowData::from_album(album, ix, &mut cover_cache, library, genres_map)
+                })
                 .collect();
         } else {
             let ids = fuzzy_sorted(
@@ -227,6 +260,7 @@ impl AlbumsView {
                         ix,
                         &mut cover_cache,
                         library,
+                        genres_map,
                     ))
                 })
                 .collect();
@@ -287,11 +321,14 @@ impl Render for AlbumsView {
                 .child(div().px_4().child(message));
         }
 
+        let settings = cx.global::<SettingsStore>();
         let params = AlbumRowParams {
             border,
             list_hover,
             muted,
             muted_fg,
+            show_year: settings.albums_show_year(),
+            show_genre: settings.albums_show_genre(),
         };
         let item_sizes = self.item_sizes.clone();
         v_flex()
@@ -337,7 +374,7 @@ fn album_row(
         p.muted_fg,
     );
 
-    div()
+    let mut container = div()
         .w_full()
         .h(px(ALBUM_ROW_HEIGHT))
         .px_4()
@@ -355,7 +392,41 @@ fn album_row(
                 .truncate()
                 .text_sm()
                 .child(row.display_text.clone()),
-        )
+        );
+
+    if p.show_genre {
+        let genre_base = div()
+            .w(px(GENRE_COLUMN_WIDTH))
+            .flex_shrink_0()
+            .overflow_hidden()
+            .truncate()
+            .text_sm()
+            .text_color(p.muted_fg)
+            .child(row.genre_inline.clone());
+        let genre_el = match row.genre_tooltip.clone() {
+            Some(tooltip) => genre_base
+                .id(("album_genre", row.id as u64))
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .into_any_element(),
+            None => genre_base.into_any_element(),
+        };
+        container = container.child(genre_el);
+    }
+
+    if p.show_year {
+        container = container.child(
+            div()
+                .w(px(YEAR_COLUMN_WIDTH))
+                .flex_shrink_0()
+                .whitespace_nowrap()
+                .text_sm()
+                .text_color(p.muted_fg)
+                .text_right()
+                .child(row.year.clone()),
+        );
+    }
+
+    container
         .id(ElementId::Integer(row.id as u64))
         .on_click(cx.listener(move |this, _, _, cx| {
             cx.emit(AlbumSelectedEvent {

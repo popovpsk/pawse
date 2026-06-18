@@ -13,7 +13,14 @@ drive the `PlaybackQueue` on click.
   entities and the drill-down views (`tracks`/`artist_tracks`/`playlist_tracks`)
   as `Option`s created on navigation. Owns `LibraryRootTab` / `LibraryViewState`,
   routes the header search query to the active child, and re-emits navigation events.
-- `albums_view.rs` — Albums tab: virtualized vertical list of albums.
+- `albums_view.rs` — Albums tab: virtualized vertical list of albums. Genre and year
+  are fixed-width trailing columns (reserve their slot even when empty so rows don't
+  flex), each toggleable in Settings → Interface → Albums view (`albums_show_year` /
+  `albums_show_genre`, default on; the view observes `SettingsStore` so a toggle
+  re-renders); row order is SQL-side (`artist, year, title`), not derived from the
+  text. Genre shows the most-common one + `…` when there are more, full list on hover.
+  Album genres are batch-fetched once (`album_genres_map`) and cached, not queried
+  per row — `recompute_visible` runs on every keystroke.
 - `artists_view.rs` — Artists tab: virtualized list of artists.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
 - `artist_tracks_view.rs` — all tracks of one artist, grouped by album.

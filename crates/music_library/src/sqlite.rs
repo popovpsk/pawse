@@ -611,6 +611,29 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn album_genres_map(&self) -> Result<HashMap<i64, Vec<String>>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT t.album_id, g.name
+            FROM genres g
+            JOIN track_genres tg ON tg.genre_id = g.id
+            JOIN tracks t ON t.id = tg.track_id
+            GROUP BY t.album_id, g.id
+            ORDER BY t.album_id, COUNT(*) DESC, g.name
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (album_id, name) = row.map_err(LibraryError::Database)?;
+            map.entry(album_id).or_default().push(name);
+        }
+        Ok(map)
+    }
+
     fn clear(&self) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
