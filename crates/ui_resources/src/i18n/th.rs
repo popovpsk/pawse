@@ -21,6 +21,7 @@ pub static TH: Strings = lang! {
     remove_from_playlist: "นำออกจากเพลย์ลิสต์",
     add_to_queue: "เพิ่มลงคิว",
     add_album_to_queue: "เพิ่มอัลบั้มลงคิว",
+    add_artist_tracks_to_queue: "เพิ่มเพลงของศิลปินลงคิว",
     replace_queue: "แทนที่คิว",
     replace_queue_confirm_title: "แทนที่คิวหรือไม่?",
     replace_queue_confirm_message: "คุณได้แก้ไขคิวปัจจุบันไว้ การเล่นเพลงนี้จะแทนที่คิว คุณสามารถเพิ่มลงในคิวแทนได้",

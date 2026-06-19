@@ -21,6 +21,7 @@ pub static NL: Strings = lang! {
     remove_from_playlist: "Uit afspeellijst verwijderen",
     add_to_queue: "Aan wachtrij toevoegen",
     add_album_to_queue: "Album aan wachtrij toevoegen",
+    add_artist_tracks_to_queue: "Nummers van artiest aan wachtrij toevoegen",
     replace_queue: "Wachtrij vervangen",
     replace_queue_confirm_title: "Wachtrij vervangen?",
     replace_queue_confirm_message: "Je hebt de huidige wachtrij bewerkt. Dit nummer afspelen vervangt de wachtrij. Je kunt het ook aan de wachtrij toevoegen.",

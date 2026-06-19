@@ -21,6 +21,7 @@ pub static TR: Strings = lang! {
     remove_from_playlist: "Çalma listesinden kaldır",
     add_to_queue: "Sıraya ekle",
     add_album_to_queue: "Albümü sıraya ekle",
+    add_artist_tracks_to_queue: "Sanatçının parçalarını sıraya ekle",
     replace_queue: "Sırayı değiştir",
     replace_queue_confirm_title: "Sıra değiştirilsin mi?",
     replace_queue_confirm_message: "Mevcut sırayı düzenlediniz. Bu parçayı çalmak sırayı değiştirecek. Bunun yerine parçayı sıraya ekleyebilirsiniz.",

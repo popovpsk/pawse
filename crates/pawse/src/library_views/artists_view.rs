@@ -265,7 +265,7 @@ impl Render for ArtistsView {
                                         div()
                                             .flex_1()
                                             .overflow_hidden()
-                                            .truncate()
+                                            .text_ellipsis()
                                             .child(row.name.clone()),
                                     )
                                     .child(

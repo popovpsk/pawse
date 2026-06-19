@@ -342,7 +342,7 @@ fn queue_visible_range_row(
                         .flex_1()
                         .justify_center()
                         .overflow_hidden()
-                        .truncate()
+                        .text_ellipsis()
                         .child(
                             div()
                                 .text_sm()
@@ -365,7 +365,7 @@ fn queue_visible_range_row(
                         .ml_2()
                         .flex_1()
                         .overflow_hidden()
-                        .truncate()
+                        .text_ellipsis()
                         .text_sm()
                         .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                         .child(track.base.title.clone()),

@@ -21,6 +21,7 @@ pub static HI: Strings = lang! {
     remove_from_playlist: "प्लेलिस्ट से हटाएँ",
     add_to_queue: "क़तार में जोड़ें",
     add_album_to_queue: "एल्बम को क़तार में जोड़ें",
+    add_artist_tracks_to_queue: "कलाकार के ट्रैक क़तार में जोड़ें",
     replace_queue: "क़तार बदलें",
     replace_queue_confirm_title: "क़तार बदलें?",
     replace_queue_confirm_message: "आपने मौजूदा क़तार में बदलाव किए हैं। इस ट्रैक को चलाने से वह बदल जाएगी। इसके बजाय आप इसे क़तार में जोड़ सकते हैं।",

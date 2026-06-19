@@ -116,9 +116,9 @@ const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
 const COVER_SIZE: f32 = 32.;
 const COVER_RADIUS: f32 = 4.;
-const GENRE_COLUMN_WIDTH: f32 = 150.;
+const GENRE_COLUMN_WIDTH: f32 = 120.;
 const YEAR_COLUMN_WIDTH: f32 = 40.;
-const ARTIST_COLUMN_WIDTH: f32 = 200.;
+const ARTIST_COLUMN_WIDTH: f32 = 160.;
 
 pub struct AlbumsView {
     albums_all: Vec<music_library::AlbumSummary>,
@@ -411,7 +411,7 @@ fn album_row(
             div()
                 .flex_1()
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .text_sm()
                 .child(title_line),
         );
@@ -422,7 +422,7 @@ fn album_row(
                 .w(px(ARTIST_COLUMN_WIDTH))
                 .flex_shrink_0()
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .text_sm()
                 .text_color(p.muted_fg)
                 .child(row.artist.clone()),
@@ -448,7 +448,7 @@ fn album_row(
             .w(px(GENRE_COLUMN_WIDTH))
             .flex_shrink_0()
             .overflow_hidden()
-            .truncate()
+            .text_ellipsis()
             .text_sm()
             .text_color(p.muted_fg)
             .text_right()

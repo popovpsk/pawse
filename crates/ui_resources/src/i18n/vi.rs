@@ -21,6 +21,7 @@ pub static VI: Strings = lang! {
     remove_from_playlist: "Xóa khỏi danh sách phát",
     add_to_queue: "Thêm vào hàng đợi",
     add_album_to_queue: "Thêm album vào hàng đợi",
+    add_artist_tracks_to_queue: "Thêm bài hát của nghệ sĩ vào hàng đợi",
     replace_queue: "Thay thế hàng đợi",
     replace_queue_confirm_title: "Thay thế hàng đợi?",
     replace_queue_confirm_message: "Bạn đã chỉnh sửa hàng đợi hiện tại. Phát bản nhạc này sẽ thay thế hàng đợi. Thay vào đó, bạn có thể thêm nó vào hàng đợi.",

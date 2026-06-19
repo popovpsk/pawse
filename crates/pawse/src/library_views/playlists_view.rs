@@ -358,7 +358,7 @@ fn all_tracks_row(
             div()
                 .flex_1()
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .child(tr().all_tracks.clone()),
         )
         .child(div().text_sm().text_color(muted_fg).child(count_label))
@@ -428,7 +428,7 @@ fn playlist_row(
             div()
                 .flex_1()
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .child(row.name.clone()),
         )
         .child(div().text_sm().text_color(p.muted_fg).child(count_label))

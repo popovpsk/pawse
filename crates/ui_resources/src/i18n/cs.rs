@@ -21,6 +21,7 @@ pub static CS: Strings = lang! {
     remove_from_playlist: "Odebrat z playlistu",
     add_to_queue: "Přidat do fronty",
     add_album_to_queue: "Přidat album do fronty",
+    add_artist_tracks_to_queue: "Přidat skladby umělce do fronty",
     replace_queue: "Nahradit frontu",
     replace_queue_confirm_title: "Nahradit frontu?",
     replace_queue_confirm_message: "Aktuální frontu jste upravili. Přehráním této skladby ji nahradíte. Místo toho ji můžete do fronty přidat.",

@@ -21,6 +21,7 @@ pub static EN: Strings = lang! {
     remove_from_playlist: "Remove from playlist",
     add_to_queue: "Add to queue",
     add_album_to_queue: "Add album to queue",
+    add_artist_tracks_to_queue: "Add artist's tracks to queue",
     replace_queue: "Replace queue",
     replace_queue_confirm_title: "Replace the queue?",
     replace_queue_confirm_message: "You've edited the current queue. Playing this track will replace it. You can add it to the queue instead.",

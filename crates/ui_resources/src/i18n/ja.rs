@@ -21,6 +21,7 @@ pub static JA: Strings = lang! {
     remove_from_playlist: "プレイリストから削除",
     add_to_queue: "キューに追加",
     add_album_to_queue: "アルバムをキューに追加",
+    add_artist_tracks_to_queue: "アーティストの曲をキューに追加",
     replace_queue: "キューを置き換え",
     replace_queue_confirm_title: "キューを置き換えますか？",
     replace_queue_confirm_message: "現在のキューは編集されています。この曲を再生するとキューが置き換えられます。代わりにキューに追加することもできます。",

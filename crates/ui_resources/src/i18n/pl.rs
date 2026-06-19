@@ -21,6 +21,7 @@ pub static PL: Strings = lang! {
     remove_from_playlist: "Usuń z playlisty",
     add_to_queue: "Dodaj do kolejki",
     add_album_to_queue: "Dodaj album do kolejki",
+    add_artist_tracks_to_queue: "Dodaj utwory artysty do kolejki",
     replace_queue: "Zastąp kolejkę",
     replace_queue_confirm_title: "Zastąpić kolejkę?",
     replace_queue_confirm_message: "Kolejka została zmieniona ręcznie. Odtworzenie tego utworu ją zastąpi. Zamiast tego możesz dodać utwór do kolejki.",

@@ -4,13 +4,15 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, EventEmitter, FontWeight, Image, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, px, size, svg,
+    ClickEvent, Context, Div, ElementId, EventEmitter, FontWeight, Hsla, Image, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Point, Render, SharedString, Size, Stateful,
+    StatefulInteractiveElement, Styled, Subscription, Window, anchored, deferred, div, point, px,
+    size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
+    tooltip::Tooltip,
     v_flex, v_virtual_list,
 };
 
@@ -18,7 +20,7 @@ use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
     LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
-    fmt_track_num, like_button, track_duration,
+    append_tracks_to_queue, fmt_track_num, like_button, track_duration,
 };
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
@@ -32,6 +34,9 @@ use crate::settings_store::SettingsStore;
 
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const ALBUM_COVER_SIZE: f32 = 60.;
+const QUEUE_BTN_SIZE: f32 = 34.;
+const QUEUE_ICON_SIZE: f32 = 20.;
+const ALBUM_MENU_WIDTH: f32 = 240.;
 const ARTIST_HEADER_HEIGHT: f32 = 48.;
 const ALBUM_HEADER_HEIGHT: f32 = 84.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
@@ -66,6 +71,13 @@ struct AlbumGroup {
 }
 
 #[derive(Clone)]
+struct AlbumMenu {
+    g_ix: usize,
+    album_id: i64,
+    anchor: Point<Pixels>,
+}
+
+#[derive(Clone)]
 enum ItemKind {
     ArtistHeader,
     AlbumHeader(usize),
@@ -85,6 +97,7 @@ pub struct ArtistTracksView {
     matcher: Matcher,
     current_track_id: Option<i64>,
     is_playing: bool,
+    album_menu: Option<AlbumMenu>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
@@ -202,6 +215,7 @@ impl ArtistTracksView {
             matcher: Matcher::new(Config::DEFAULT),
             current_track_id,
             is_playing,
+            album_menu: None,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
@@ -341,13 +355,15 @@ impl ArtistTracksView {
 impl EventEmitter<NavigateToAlbumRequested> for ArtistTracksView {}
 
 impl Render for ArtistTracksView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let border = Colors::border(cx);
         let list_hover = Colors::list_hover(cx);
         let muted_fg = Colors::muted_foreground(cx);
         let foreground = Colors::foreground(cx);
         let fallback_bg = Colors::secondary(cx);
         let fallback_fg = Colors::muted_foreground(cx);
+        let popover_bg = Colors::popover(cx);
+        let viewport = window.viewport_size();
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
 
@@ -412,6 +428,11 @@ impl Render for ArtistTracksView {
                 .flex_1(),
             )
             .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
+            .when_some(self.album_menu.clone(), |el, menu| {
+                el.child(album_menu_overlay(
+                    &menu, viewport, popover_bg, border, foreground, fallback_bg, cx,
+                ))
+            })
     }
 }
 
@@ -480,6 +501,7 @@ fn artist_album_header(
             .child(label)
             .into_any_element(),
     };
+    let trigger_hover = Colors::muted(cx);
     h_flex()
         .w_full()
         .h(px(ALBUM_HEADER_HEIGHT))
@@ -490,7 +512,162 @@ fn artist_album_header(
         .border_color(border)
         .child(cover_el)
         .child(h_flex().flex_1().overflow_hidden().child(title_el))
+        .child(album_queue_trigger(g_ix, album_id, muted_fg, trigger_hover, cx))
         .into_any_element()
+}
+
+fn album_queue_trigger(
+    g_ix: usize,
+    album_id: Option<i64>,
+    icon_color: Hsla,
+    hover_bg: Hsla,
+    cx: &mut Context<ArtistTracksView>,
+) -> Stateful<Div> {
+    let base = div()
+        .id(("artist-album-queue", g_ix))
+        .size(px(QUEUE_BTN_SIZE))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover_bg))
+        .child(
+            svg()
+                .path("icons/add-queue.svg")
+                .size(px(QUEUE_ICON_SIZE))
+                .text_color(icon_color),
+        )
+        .tooltip(|window, cx| Tooltip::new(tr().add_to_queue.clone()).build(window, cx));
+    match album_id {
+        Some(aid) => base.on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+            this.album_menu = Some(AlbumMenu {
+                g_ix,
+                album_id: aid,
+                anchor: ev.position(),
+            });
+            cx.notify();
+        })),
+        None => base.on_click(cx.listener(move |this, _, _, cx| {
+            let tracks = group_tracks(this, g_ix);
+            append_tracks_to_queue(tracks, cx);
+        })),
+    }
+}
+
+fn album_menu_overlay(
+    menu: &AlbumMenu,
+    viewport: Size<Pixels>,
+    popover_bg: Hsla,
+    border: Hsla,
+    foreground: Hsla,
+    hover_bg: Hsla,
+    cx: &mut Context<ArtistTracksView>,
+) -> gpui::AnyElement {
+    let g_ix = menu.g_ix;
+    let album_id = menu.album_id;
+    let backdrop = div()
+        .absolute()
+        .left(px(0.))
+        .top(px(0.))
+        .w(viewport.width)
+        .h(viewport.height)
+        .occlude()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                this.album_menu = None;
+                cx.notify();
+            }),
+        );
+    let content = v_flex()
+        .w(px(ALBUM_MENU_WIDTH))
+        .bg(popover_bg)
+        .border_1()
+        .border_color(border)
+        .rounded(px(8.))
+        .shadow_md()
+        .p_1()
+        .occlude()
+        .child(
+            queue_menu_row(
+                "artist-album-queue-artist".into(),
+                "icons/s1-artists.svg",
+                tr().add_artist_tracks_to_queue.clone(),
+                foreground,
+                hover_bg,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let tracks = group_tracks(this, g_ix);
+                this.album_menu = None;
+                append_tracks_to_queue(tracks, cx);
+                cx.notify();
+            })),
+        )
+        .child(
+            queue_menu_row(
+                "artist-album-queue-album".into(),
+                "icons/s1-albums.svg",
+                tr().add_album_to_queue.clone(),
+                foreground,
+                hover_bg,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.album_menu = None;
+                let tracks = cx.global::<Services>().library.tracks_for_album(album_id);
+                append_tracks_to_queue(tracks.into_iter().map(Rc::new).collect(), cx);
+                cx.notify();
+            })),
+        );
+    let anchor = point(menu.anchor.x - px(ALBUM_MENU_WIDTH), menu.anchor.y + px(8.));
+    let menu_layer = deferred(
+        anchored()
+            .snap_to_window_with_margin(px(8.))
+            .position(anchor)
+            .child(div().occlude().child(content)),
+    )
+    .with_priority(2);
+    let backdrop_layer =
+        deferred(anchored().position(point(px(0.), px(0.))).child(backdrop)).with_priority(1);
+    div()
+        .absolute()
+        .left(px(0.))
+        .top(px(0.))
+        .size_full()
+        .child(backdrop_layer)
+        .child(menu_layer)
+        .into_any_element()
+}
+
+fn group_tracks(view: &ArtistTracksView, g_ix: usize) -> Vec<Rc<music_library::Track>> {
+    view.groups[g_ix]
+        .global_indices
+        .iter()
+        .map(|&ix| view.tracks_all[ix].clone())
+        .collect()
+}
+
+fn queue_menu_row(
+    id: ElementId,
+    icon: &'static str,
+    label: SharedString,
+    foreground: Hsla,
+    hover_bg: Hsla,
+) -> Stateful<Div> {
+    h_flex()
+        .id(id)
+        .w_full()
+        .gap_2()
+        .px_2()
+        .py_1p5()
+        .rounded(px(4.))
+        .cursor_pointer()
+        .text_sm()
+        .text_color(foreground)
+        .hover(move |s| s.bg(hover_bg))
+        .child(svg().path(icon).size(px(14.)).text_color(foreground))
+        .child(label)
 }
 
 struct ArtistTrackRowParams {
@@ -554,7 +731,7 @@ fn artist_track_row(
                 .flex_1()
                 .min_w(px(0.))
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(track.base.title.clone()),
         )

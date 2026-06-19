@@ -369,7 +369,7 @@ fn liked_track_row(
                 .flex_1()
                 .min_w(px(0.))
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .text_sm()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(row.base.title.clone()),
@@ -379,7 +379,7 @@ fn liked_track_row(
                 .w(px(140.))
                 .min_w(px(0.))
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .text_sm()
                 .text_color(p.muted_fg)
                 .child(row.artist.clone()),

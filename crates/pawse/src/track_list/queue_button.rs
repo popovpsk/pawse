@@ -15,7 +15,7 @@ use crate::playback_queue::QueueSource;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
-fn append_tracks_to_queue(tracks: Vec<Rc<Track>>, cx: &mut App) {
+pub fn append_tracks_to_queue(tracks: Vec<Rc<Track>>, cx: &mut App) {
     let dedup = cx.global::<SettingsStore>().queue_deduplication();
     cx.global::<Services>()
         .playback_queue

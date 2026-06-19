@@ -433,7 +433,7 @@ fn track_row(
                 .flex_1()
                 .min_w(px(0.))
                 .overflow_hidden()
-                .truncate()
+                .text_ellipsis()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(row.base.title.clone()),
         )
