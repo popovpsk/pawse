@@ -4,9 +4,9 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, ElementId, FontWeight, Image, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
-    size, svg,
+    Context, ElementId, EventEmitter, FontWeight, Image, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, px, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -26,6 +26,7 @@ use ui_components::cover_thumb::cover_thumb;
 use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_scored;
 use crate::localization::{LangChanged, tr};
+use crate::now_playing::NavigateToAlbumRequested;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -337,6 +338,8 @@ impl ArtistTracksView {
     }
 }
 
+impl EventEmitter<NavigateToAlbumRequested> for ArtistTracksView {}
+
 impl Render for ArtistTracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let border = Colors::border(cx);
@@ -395,6 +398,8 @@ impl Render for ArtistTracksView {
                                     border,
                                     fallback_bg,
                                     fallback_fg,
+                                    muted_fg,
+                                    cx,
                                 ),
                                 ItemKind::Track(g_ix, t_ix) => {
                                     artist_track_row(view, *g_ix, *t_ix, &p, cx)
@@ -441,6 +446,8 @@ fn artist_album_header(
     border: gpui::Hsla,
     fallback_bg: gpui::Hsla,
     fallback_fg: gpui::Hsla,
+    muted_fg: gpui::Hsla,
+    cx: &mut Context<ArtistTracksView>,
 ) -> gpui::AnyElement {
     let group = &view.groups[g_ix];
     let cover_el = cover_thumb(
@@ -450,11 +457,28 @@ fn artist_album_header(
         fallback_bg,
         fallback_fg,
     );
+    let album_id = group.album_id;
     let year_str = group.year.map(|y| format!(" · {}", y)).unwrap_or_default();
-    let title = if group.album_id.is_none() {
-        tr().no_metadata.clone()
-    } else {
-        group.album_title.clone()
+    let label = match album_id {
+        None => format!("{}{}", tr().no_metadata, year_str),
+        Some(_) => format!("{}{}", group.album_title, year_str),
+    };
+    let title_el = match album_id {
+        Some(aid) => div()
+            .id(("artist_album_link", aid as u64))
+            .font_weight(FontWeight::SEMIBOLD)
+            .cursor_pointer()
+            .border_b(px(1.))
+            .hover(|s| s.border_color(muted_fg))
+            .on_click(cx.listener(move |_, _, _, cx| {
+                cx.emit(NavigateToAlbumRequested { album_id: aid });
+            }))
+            .child(label)
+            .into_any_element(),
+        None => div()
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(label)
+            .into_any_element(),
     };
     h_flex()
         .w_full()
@@ -465,13 +489,7 @@ fn artist_album_header(
         .border_b(px(1.))
         .border_color(border)
         .child(cover_el)
-        .child(
-            div().flex_1().overflow_hidden().child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(format!("{}{}", title, year_str)),
-            ),
-        )
+        .child(h_flex().flex_1().overflow_hidden().child(title_el))
         .into_any_element()
 }
 

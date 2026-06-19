@@ -206,13 +206,13 @@ impl MainView {
         let cover_volume_source = footer.read(cx).volume().clone();
         let cover_volume = cx.new(|cx| CoverVolume::new(cover_volume_source, window, cx));
 
-        let footer_album_subscription = cx.subscribe_in(&footer, window, {
+        let footer_album_subscription = cx.subscribe(&footer, {
             let library_view = library_view.clone();
-            move |this, _, event: &NavigateToAlbumRequested, window, cx| {
+            move |this, _, event: &NavigateToAlbumRequested, cx| {
                 this.show_settings = false;
                 this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
-                    view.navigate_to_album(event.album_id, window, cx);
+                    view.navigate_to_album(event.album_id, cx);
                 });
             }
         });
@@ -231,12 +231,12 @@ impl MainView {
         let queue_view = cx.new(|cx| QueueView::new(window, cx));
 
         let cover_mode_view = cx.new(|cx| CoverModeView::new(window, cx));
-        let cover_album_subscription = cx.subscribe_in(&cover_mode_view, window, {
+        let cover_album_subscription = cx.subscribe(&cover_mode_view, {
             let library_view = library_view.clone();
-            move |this: &mut MainView, _, event: &NavigateToAlbumRequested, window, cx| {
+            move |this: &mut MainView, _, event: &NavigateToAlbumRequested, cx| {
                 this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
-                    view.navigate_to_album(event.album_id, window, cx);
+                    view.navigate_to_album(event.album_id, cx);
                 });
             }
         });
