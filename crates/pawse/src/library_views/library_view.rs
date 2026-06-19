@@ -33,29 +33,31 @@ pub enum LibraryRootTab {
     Playlists,
 }
 
-enum LibraryViewState {
+enum NavEntry {
     Root(LibraryRootTab),
-    AlbumTracks,
-    ArtistTracks,
-    PlaylistTracks,
+    AlbumTracks {
+        view: Entity<TracksView>,
+        _sub: Subscription,
+    },
+    ArtistTracks {
+        view: Entity<ArtistTracksView>,
+        _sub: Subscription,
+    },
+    PlaylistTracks(Entity<PlaylistTracksView>),
 }
 
 pub struct LibraryView {
-    state: LibraryViewState,
+    stack: Vec<NavEntry>,
     albums_view: Entity<AlbumsView>,
     artists_view: Entity<ArtistsView>,
     liked_view: Entity<LikedView>,
     playlists_view: Entity<PlaylistsView>,
-    tracks_view: Option<Entity<TracksView>>,
-    artist_tracks_view: Option<Entity<ArtistTracksView>>,
-    playlist_tracks_view: Option<Entity<PlaylistTracksView>>,
     _album_subscription: Subscription,
     _artist_subscription: Subscription,
     _playlist_subscription: Subscription,
     _all_tracks_subscription: Subscription,
     _settings_subscription: Subscription,
     _settings_observer: Subscription,
-    _drill_nav_subscription: Option<Subscription>,
 }
 
 impl LibraryView {
@@ -96,125 +98,102 @@ impl LibraryView {
                 cx.emit(LibraryViewEvent::AddMusicFolderRequested);
             });
 
-        // Pop back to a still-visible tab if the user disables the one we're on.
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
             let store = cx.global::<SettingsStore>();
             let liked = store.liked_enabled();
             let playlists = store.playlists_enabled();
-            let needs_pop = match this.state {
-                LibraryViewState::Root(LibraryRootTab::Liked) if !liked => true,
-                LibraryViewState::Root(LibraryRootTab::Playlists) if !playlists => true,
-                LibraryViewState::PlaylistTracks if !playlists => true,
-                _ => false,
-            };
-            if needs_pop {
-                this.state = LibraryViewState::Root(LibraryRootTab::Albums);
-                this.tracks_view = None;
-                this.artist_tracks_view = None;
-                this.playlist_tracks_view = None;
-                this._drill_nav_subscription = None;
-                cx.emit(LibraryViewEvent::StateChanged);
-                cx.notify();
+            let before = this.stack.len();
+            this.stack.retain(|entry| match entry {
+                NavEntry::Root(LibraryRootTab::Liked) => liked,
+                NavEntry::Root(LibraryRootTab::Playlists) => playlists,
+                NavEntry::PlaylistTracks(_) => playlists,
+                _ => true,
+            });
+            if this.stack.len() == before {
+                return;
             }
+            if !matches!(this.stack.first(), Some(NavEntry::Root(_))) {
+                this.stack = vec![NavEntry::Root(LibraryRootTab::Albums)];
+            }
+            cx.emit(LibraryViewEvent::StateChanged);
+            cx.notify();
         });
 
         Self {
-            state: LibraryViewState::Root(LibraryRootTab::Albums),
+            stack: vec![NavEntry::Root(LibraryRootTab::Albums)],
             albums_view,
             artists_view,
             liked_view,
             playlists_view,
-            tracks_view: None,
-            artist_tracks_view: None,
-            playlist_tracks_view: None,
             _album_subscription: album_subscription,
             _artist_subscription: artist_subscription,
             _playlist_subscription: playlist_subscription,
             _all_tracks_subscription: all_tracks_subscription,
             _settings_subscription: settings_subscription,
             _settings_observer: settings_observer,
-            _drill_nav_subscription: None,
         }
     }
 
     pub fn is_drilled_in(&self) -> bool {
-        matches!(
-            self.state,
-            LibraryViewState::AlbumTracks
-                | LibraryViewState::ArtistTracks
-                | LibraryViewState::PlaylistTracks
-        )
+        self.stack.len() > 1
     }
 
     pub fn current_tab(&self) -> Option<LibraryRootTab> {
-        match self.state {
-            LibraryViewState::Root(t) => Some(t),
+        if self.is_drilled_in() {
+            return None;
+        }
+        match self.stack.first() {
+            Some(NavEntry::Root(t)) => Some(*t),
             _ => None,
         }
     }
 
     pub fn select_tab(&mut self, tab: LibraryRootTab, cx: &mut Context<Self>) {
-        let same_root = matches!(self.state, LibraryViewState::Root(t) if t == tab);
+        let same_root =
+            self.stack.len() == 1 && matches!(self.stack[0], NavEntry::Root(t) if t == tab);
         if same_root {
             return;
         }
-        self.state = LibraryViewState::Root(tab);
-        self.tracks_view = None;
-        self.artist_tracks_view = None;
-        self.playlist_tracks_view = None;
-        self._drill_nav_subscription = None;
+        self.stack = vec![NavEntry::Root(tab)];
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
 
     pub fn apply_search(&mut self, query: &str, cx: &mut Context<Self>) {
-        match self.state {
-            LibraryViewState::Root(LibraryRootTab::Albums) => {
+        match self.stack.last() {
+            Some(NavEntry::Root(LibraryRootTab::Albums)) => {
                 self.albums_view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::Root(LibraryRootTab::Artists) => {
+            Some(NavEntry::Root(LibraryRootTab::Artists)) => {
                 self.artists_view
                     .update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::Root(LibraryRootTab::Liked) => {
+            Some(NavEntry::Root(LibraryRootTab::Liked)) => {
                 self.liked_view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::Root(LibraryRootTab::Playlists) => {
+            Some(NavEntry::Root(LibraryRootTab::Playlists)) => {
                 self.playlists_view
                     .update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::AlbumTracks => {
-                if let Some(tv) = &self.tracks_view {
-                    tv.update(cx, |v, cx| v.set_filter(query, cx));
-                }
+            Some(NavEntry::AlbumTracks { view, .. }) => {
+                view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::ArtistTracks => {
-                if let Some(av) = &self.artist_tracks_view {
-                    av.update(cx, |v, cx| v.set_filter(query, cx));
-                }
+            Some(NavEntry::ArtistTracks { view, .. }) => {
+                view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            LibraryViewState::PlaylistTracks => {
-                if let Some(pv) = &self.playlist_tracks_view {
-                    pv.update(cx, |v, cx| v.set_filter(query, cx));
-                }
+            Some(NavEntry::PlaylistTracks(view)) => {
+                view.update(cx, |v, cx| v.set_filter(query, cx));
             }
+            None => {}
         }
     }
 
     pub fn go_back(&mut self, cx: &mut Context<Self>) {
-        let tab = match self.state {
-            LibraryViewState::AlbumTracks => LibraryRootTab::Albums,
-            LibraryViewState::ArtistTracks => LibraryRootTab::Artists,
-            LibraryViewState::PlaylistTracks => LibraryRootTab::Playlists,
-            LibraryViewState::Root(t) => t,
-        };
-        self.state = LibraryViewState::Root(tab);
-        self.tracks_view = None;
-        self.artist_tracks_view = None;
-        self.playlist_tracks_view = None;
-        self._drill_nav_subscription = None;
-        cx.emit(LibraryViewEvent::StateChanged);
-        cx.notify();
+        if self.stack.len() > 1 {
+            self.stack.pop();
+            cx.emit(LibraryViewEvent::StateChanged);
+            cx.notify();
+        }
     }
 
     pub fn navigate_to_album(&mut self, album_id: i64, cx: &mut Context<Self>) {
@@ -242,33 +221,21 @@ impl LibraryView {
     }
 
     fn show_album_tracks(&mut self, album: music_library::AlbumSummary, cx: &mut Context<Self>) {
-        self.state = LibraryViewState::AlbumTracks;
-        let tracks_view = cx.new(|cx| TracksView::new(&album, cx));
-        self._drill_nav_subscription = Some(cx.subscribe(
-            &tracks_view,
-            |this, _, event: &NavigateToArtistRequested, cx| {
-                this.navigate_to_artist(event.artist_id, cx);
-            },
-        ));
-        self.tracks_view = Some(tracks_view);
-        self.artist_tracks_view = None;
-        self.playlist_tracks_view = None;
+        let view = cx.new(|cx| TracksView::new(&album, cx));
+        let sub = cx.subscribe(&view, |this, _, event: &NavigateToArtistRequested, cx| {
+            this.navigate_to_artist(event.artist_id, cx);
+        });
+        self.stack.push(NavEntry::AlbumTracks { view, _sub: sub });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
 
     fn show_artist_tracks(&mut self, artist: music_library::ArtistSummary, cx: &mut Context<Self>) {
-        self.state = LibraryViewState::ArtistTracks;
-        let artist_tracks_view = cx.new(|cx| ArtistTracksView::new(&artist, cx));
-        self._drill_nav_subscription = Some(cx.subscribe(
-            &artist_tracks_view,
-            |this, _, event: &NavigateToAlbumRequested, cx| {
-                this.navigate_to_album(event.album_id, cx);
-            },
-        ));
-        self.artist_tracks_view = Some(artist_tracks_view);
-        self.tracks_view = None;
-        self.playlist_tracks_view = None;
+        let view = cx.new(|cx| ArtistTracksView::new(&artist, cx));
+        let sub = cx.subscribe(&view, |this, _, event: &NavigateToAlbumRequested, cx| {
+            this.navigate_to_album(event.album_id, cx);
+        });
+        self.stack.push(NavEntry::ArtistTracks { view, _sub: sub });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -279,7 +246,6 @@ impl LibraryView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.state = LibraryViewState::PlaylistTracks;
         let view = cx.new(|cx| {
             PlaylistTracksView::new(
                 playlist.name.clone().into(),
@@ -288,23 +254,16 @@ impl LibraryView {
                 cx,
             )
         });
-        self.playlist_tracks_view = Some(view);
-        self.tracks_view = None;
-        self.artist_tracks_view = None;
-        self._drill_nav_subscription = None;
+        self.stack.push(NavEntry::PlaylistTracks(view));
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
 
     fn show_all_tracks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.state = LibraryViewState::PlaylistTracks;
         let view = cx.new(|cx| {
             PlaylistTracksView::new(tr().all_tracks.clone(), QueueSource::AllTracks, window, cx)
         });
-        self.playlist_tracks_view = Some(view);
-        self.tracks_view = None;
-        self.artist_tracks_view = None;
-        self._drill_nav_subscription = None;
+        self.stack.push(NavEntry::PlaylistTracks(view));
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -314,40 +273,23 @@ impl EventEmitter<LibraryViewEvent> for LibraryView {}
 
 impl Render for LibraryView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().relative().size_full().child(match self.state {
-            LibraryViewState::Root(LibraryRootTab::Albums) => {
+        div().relative().size_full().child(match self.stack.last() {
+            Some(NavEntry::Root(LibraryRootTab::Albums)) => {
                 v_flex().size_full().child(self.albums_view.clone())
             }
-            LibraryViewState::Root(LibraryRootTab::Artists) => {
+            Some(NavEntry::Root(LibraryRootTab::Artists)) => {
                 v_flex().size_full().child(self.artists_view.clone())
             }
-            LibraryViewState::Root(LibraryRootTab::Liked) => {
+            Some(NavEntry::Root(LibraryRootTab::Liked)) => {
                 v_flex().size_full().child(self.liked_view.clone())
             }
-            LibraryViewState::Root(LibraryRootTab::Playlists) => {
+            Some(NavEntry::Root(LibraryRootTab::Playlists)) => {
                 v_flex().size_full().child(self.playlists_view.clone())
             }
-            LibraryViewState::AlbumTracks => {
-                if let Some(ref tracks_view) = self.tracks_view {
-                    v_flex().size_full().child(tracks_view.clone())
-                } else {
-                    v_flex().size_full()
-                }
-            }
-            LibraryViewState::ArtistTracks => {
-                if let Some(ref artist_tracks_view) = self.artist_tracks_view {
-                    v_flex().size_full().child(artist_tracks_view.clone())
-                } else {
-                    v_flex().size_full()
-                }
-            }
-            LibraryViewState::PlaylistTracks => {
-                if let Some(ref playlist_tracks_view) = self.playlist_tracks_view {
-                    v_flex().size_full().child(playlist_tracks_view.clone())
-                } else {
-                    v_flex().size_full()
-                }
-            }
+            Some(NavEntry::AlbumTracks { view, .. }) => v_flex().size_full().child(view.clone()),
+            Some(NavEntry::ArtistTracks { view, .. }) => v_flex().size_full().child(view.clone()),
+            Some(NavEntry::PlaylistTracks(view)) => v_flex().size_full().child(view.clone()),
+            None => v_flex().size_full(),
         })
     }
 }

@@ -10,9 +10,18 @@ drive the `PlaybackQueue` on click.
 
 - `mod.rs` — module declarations only.
 - `library_view.rs` — root container. Holds the four root-tab views as long-lived
-  entities and the drill-down views (`tracks`/`artist_tracks`/`playlist_tracks`)
-  as `Option`s created on navigation. Owns `LibraryRootTab` / `LibraryViewState`,
-  routes the header search query to the active child, and re-emits navigation events.
+  entities. Navigation is a back-stack `Vec<NavEntry>` (not a flat state machine):
+  `stack[0]` is always the current `Root(LibraryRootTab)`; drill-downs
+  (`AlbumTracks`/`ArtistTracks`/`PlaylistTracks`) push a frame on top that *owns* the
+  live drill view, and the album/artist cross-nav `Subscription` lives in the frame
+  (so it dies with its view). `go_back` pops one frame; picking a tab resets the
+  stack to `[Root(tab)]`; jumps from footer/now-playing/cover-mode push frames that
+  unwind on back. Only `stack.last()` renders and receives the header search query —
+  buried frames stay live (their like/track-change subscriptions keep them current)
+  but unmounted, so they cost nothing per frame. `is_drilled_in() = stack.len() > 1`;
+  `current_tab()` is `None` while drilled in (`MainView` keeps the prior tab lit).
+  Disabling Liked/Playlists in settings purges those frames, resetting to
+  `[Root(Albums)]` if that breaks the `stack[0]`-is-`Root` invariant.
 - `albums_view.rs` — Albums tab: virtualized vertical list of albums. Genre and year
   are fixed-width trailing columns (reserve their slot even when empty so rows don't
   flex), each toggleable in Settings → Interface → Albums view (`albums_show_year` /

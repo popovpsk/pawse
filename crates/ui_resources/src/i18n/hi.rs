@@ -167,9 +167,9 @@ pub static HI: Strings = lang! {
     failed_save_settings_t: "सेटिंग्स सहेजने में विफल: {}",
     update_ready_t: "Pawse {} इंस्टॉल के लिए तैयार है",
     update_check_failed_t: "अपडेट जांच विफल: {}",
-    cover_artist_desc: "कवर दृश्य में शीर्षक के नीचे कलाकार दिखाएं",
+    cover_artist_desc: "कवर दृश्य में शीर्षक के नीचे कलाकार दिखाएँ",
     cover_progress: "प्रगति बार",
-    cover_progress_desc: "कवर दृश्य में एक न्यूनतम प्रगति बार दिखाएं",
+    cover_progress_desc: "कवर दृश्य में एक न्यूनतम प्रगति बार दिखाएँ",
     cover_controls: "प्लेबैक नियंत्रण",
-    cover_controls_desc: "कवर दृश्य में चलाएं, अगला और पिछला बटन दिखाएं",
+    cover_controls_desc: "कवर दृश्य में चलाएँ, अगला और पिछला बटन दिखाएँ",
 };
