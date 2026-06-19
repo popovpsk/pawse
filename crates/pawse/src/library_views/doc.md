@@ -18,7 +18,10 @@ drive the `PlaybackQueue` on click.
   flex), each toggleable in Settings → Interface → Albums view (`albums_show_year` /
   `albums_show_genre`, default on; the view observes `SettingsStore` so a toggle
   re-renders); row order is SQL-side (`artist, year, title`), not derived from the
-  text. Genre shows the most-common one + `…` when there are more, full list on hover.
+  text — independent of how the artist is shown. The artist has a tri-state display
+  (`albums_artist_display`: `Inline` "artist - title" in the title cell, default;
+  `Column` a separate fixed-width column left of year; `Hidden` title only).
+  Genre shows the most-common one + `…` when there are more, full list on hover.
   Album genres are batch-fetched once (`album_genres_map`) and cached, not queried
   per row — `recompute_visible` runs on every keystroke.
 - `artists_view.rs` — Artists tab: virtualized list of artists.

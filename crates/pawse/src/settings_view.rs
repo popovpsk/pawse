@@ -22,8 +22,8 @@ use ui_resources::i18n::Lang;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::{
-    FontScale, LangChoice, SettingsStore, ThemeChoice, apply_font_scale, apply_theme,
-    notify_save_error,
+    AlbumsArtistDisplay, FontScale, LangChoice, SettingsStore, ThemeChoice, apply_font_scale,
+    apply_theme, notify_save_error,
 };
 use crate::theme_colors::Colors;
 
@@ -462,6 +462,50 @@ fn general_group() -> SettingGroup {
 fn albums_view_group() -> SettingGroup {
     SettingGroup::new()
         .title(tr().settings_albums_view.clone())
+        .item(
+            SettingItem::new(
+                tr().artist_name.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let current = cx.global::<SettingsStore>().albums_artist_display();
+                    h_flex().items_center().justify_end().child(
+                        ButtonGroup::new("albums-artist-group")
+                            .small()
+                            .child(
+                                Button::new("albums-artist-inline")
+                                    .label(tr().albums_artist_inline.clone())
+                                    .selected(current == AlbumsArtistDisplay::Inline),
+                            )
+                            .child(
+                                Button::new("albums-artist-column")
+                                    .label(tr().albums_artist_column.clone())
+                                    .selected(current == AlbumsArtistDisplay::Column),
+                            )
+                            .child(
+                                Button::new("albums-artist-hidden")
+                                    .label(tr().albums_artist_hidden.clone())
+                                    .selected(current == AlbumsArtistDisplay::Hidden),
+                            )
+                            .on_click(|clicks: &Vec<usize>, _, cx| {
+                                let Some(&ix) = clicks.first() else {
+                                    return;
+                                };
+                                let display = match ix {
+                                    1 => AlbumsArtistDisplay::Column,
+                                    2 => AlbumsArtistDisplay::Hidden,
+                                    _ => AlbumsArtistDisplay::Inline,
+                                };
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_albums_artist_display(display)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().albums_artist_desc.clone()),
+        )
         .item(
             SettingItem::new(
                 tr().year_column.clone(),

@@ -25,7 +25,7 @@ use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{AlbumsArtistDisplay, SettingsStore};
 
 #[derive(Clone, Debug)]
 pub struct AlbumSelectedEvent {
@@ -43,7 +43,9 @@ enum AlbumItem {
 struct AlbumRowData {
     albums_all_ix: usize,
     id: i64,
-    display_text: SharedString,
+    title: SharedString,
+    artist: SharedString,
+    display_inline: SharedString,
     genre_inline: SharedString,
     genre_tooltip: Option<SharedString>,
     year: SharedString,
@@ -58,15 +60,25 @@ impl AlbumRowData {
         library: &crate::library_service::LibraryService,
         genres_map: &HashMap<i64, Vec<String>>,
     ) -> Self {
-        let (display_text, year): (SharedString, SharedString) =
+        let (title, artist, year): (SharedString, SharedString, SharedString) =
             if album.id == music_library::NO_METADATA_ALBUM_ID {
-                (tr().no_metadata.clone(), SharedString::default())
+                (
+                    tr().no_metadata.clone(),
+                    SharedString::default(),
+                    SharedString::default(),
+                )
             } else {
                 (
-                    format!("{} - {}", album.artist_name, album.title).into(),
+                    album.title.clone().into(),
+                    album.artist_name.clone().into(),
                     album.year.map(|y| y.to_string()).unwrap_or_default().into(),
                 )
             };
+        let display_inline: SharedString = if artist.is_empty() {
+            title.clone()
+        } else {
+            format!("{} - {}", artist, title).into()
+        };
         let (genre_inline, genre_tooltip): (SharedString, Option<SharedString>) =
             match genres_map.get(&album.id) {
                 Some(genres) if genres.len() > 1 => (
@@ -79,7 +91,9 @@ impl AlbumRowData {
         Self {
             albums_all_ix,
             id: album.id,
-            display_text,
+            title,
+            artist,
+            display_inline,
             genre_inline,
             genre_tooltip,
             year,
@@ -95,6 +109,7 @@ struct AlbumRowParams {
     muted_fg: Hsla,
     show_year: bool,
     show_genre: bool,
+    artist_display: AlbumsArtistDisplay,
 }
 
 const TOP_PADDING: f32 = 12.;
@@ -103,6 +118,7 @@ const COVER_SIZE: f32 = 32.;
 const COVER_RADIUS: f32 = 4.;
 const GENRE_COLUMN_WIDTH: f32 = 150.;
 const YEAR_COLUMN_WIDTH: f32 = 40.;
+const ARTIST_COLUMN_WIDTH: f32 = 200.;
 
 pub struct AlbumsView {
     albums_all: Vec<music_library::AlbumSummary>,
@@ -329,6 +345,7 @@ impl Render for AlbumsView {
             muted_fg,
             show_year: settings.albums_show_year(),
             show_genre: settings.albums_show_genre(),
+            artist_display: settings.albums_artist_display(),
         };
         let item_sizes = self.item_sizes.clone();
         v_flex()
@@ -374,6 +391,11 @@ fn album_row(
         p.muted_fg,
     );
 
+    let title_line = match p.artist_display {
+        AlbumsArtistDisplay::Inline => row.display_inline.clone(),
+        _ => row.title.clone(),
+    };
+
     let mut container = div()
         .w_full()
         .h(px(ALBUM_ROW_HEIGHT))
@@ -391,26 +413,20 @@ fn album_row(
                 .overflow_hidden()
                 .truncate()
                 .text_sm()
-                .child(row.display_text.clone()),
+                .child(title_line),
         );
 
-    if p.show_genre {
-        let genre_base = div()
-            .w(px(GENRE_COLUMN_WIDTH))
-            .flex_shrink_0()
-            .overflow_hidden()
-            .truncate()
-            .text_sm()
-            .text_color(p.muted_fg)
-            .child(row.genre_inline.clone());
-        let genre_el = match row.genre_tooltip.clone() {
-            Some(tooltip) => genre_base
-                .id(("album_genre", row.id as u64))
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-                .into_any_element(),
-            None => genre_base.into_any_element(),
-        };
-        container = container.child(genre_el);
+    if p.artist_display == AlbumsArtistDisplay::Column {
+        container = container.child(
+            div()
+                .w(px(ARTIST_COLUMN_WIDTH))
+                .flex_shrink_0()
+                .overflow_hidden()
+                .truncate()
+                .text_sm()
+                .text_color(p.muted_fg)
+                .child(row.artist.clone()),
+        );
     }
 
     if p.show_year {
@@ -424,6 +440,27 @@ fn album_row(
                 .text_right()
                 .child(row.year.clone()),
         );
+    }
+
+    if p.show_genre {
+        let genre_base = div()
+            .ml_2()
+            .w(px(GENRE_COLUMN_WIDTH))
+            .flex_shrink_0()
+            .overflow_hidden()
+            .truncate()
+            .text_sm()
+            .text_color(p.muted_fg)
+            .text_right()
+            .child(row.genre_inline.clone());
+        let genre_el = match row.genre_tooltip.clone() {
+            Some(tooltip) => genre_base
+                .id(("album_genre", row.id as u64))
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .into_any_element(),
+            None => genre_base.into_any_element(),
+        };
+        container = container.child(genre_el);
     }
 
     container

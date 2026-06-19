@@ -170,6 +170,15 @@ impl FontScale {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbumsArtistDisplay {
+    #[default]
+    Inline,
+    Column,
+    Hidden,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum QueueSourcePersist {
     #[default]
@@ -258,6 +267,8 @@ pub struct UserSettings {
     pub albums_show_year: bool,
     #[serde(default = "default_true")]
     pub albums_show_genre: bool,
+    #[serde(default)]
+    pub albums_artist_display: AlbumsArtistDisplay,
     #[serde(default = "default_true")]
     pub auto_update: bool,
     #[serde(default)]
@@ -288,6 +299,7 @@ impl Default for UserSettings {
             queue_deduplication: false,
             albums_show_year: true,
             albums_show_genre: true,
+            albums_artist_display: AlbumsArtistDisplay::default(),
             auto_update: true,
             font_scale: FontScale::default(),
             onboarding_complete: false,
@@ -564,6 +576,18 @@ impl SettingsStore {
 
     pub fn set_albums_show_genre(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.albums_show_genre = show;
+        self.save()
+    }
+
+    pub fn albums_artist_display(&self) -> AlbumsArtistDisplay {
+        self.settings.albums_artist_display
+    }
+
+    pub fn set_albums_artist_display(
+        &mut self,
+        display: AlbumsArtistDisplay,
+    ) -> anyhow::Result<()> {
+        self.settings.albums_artist_display = display;
         self.save()
     }
 
@@ -851,6 +875,7 @@ mod tests {
             queue_deduplication: false,
             albums_show_year: true,
             albums_show_genre: true,
+            albums_artist_display: AlbumsArtistDisplay::Column,
             auto_update: true,
             font_scale: FontScale::Large,
             onboarding_complete: false,
@@ -859,6 +884,7 @@ mod tests {
         let back: UserSettings = serde_json::from_str(&json).unwrap();
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
         assert_eq!(back.font_scale, FontScale::Large);
+        assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
         assert_eq!(back.playback.queue.len(), 1);
         assert_eq!(back.playback.queue[0], track);
         assert_eq!(back.playback.current_index, Some(0));
