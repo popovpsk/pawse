@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 music_library = { path = "../music_library" }
 cue_parser = { path = "../cue_parser" }
+lyrics = { path = "../lyrics" }
 anyhow = { workspace = true }
 log = { workspace = true }
 lofty = "0.22.0"

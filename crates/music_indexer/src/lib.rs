@@ -1468,4 +1468,99 @@ FILE \"disc2.flac\" WAVE
             "exactly the two cue tracks — not a raw standalone track, not a double index"
         );
     }
+
+    #[test]
+    fn test_scan_emits_synced_sidecar_lyrics() {
+        use crate::types::LyricsSource;
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("song.wav"));
+        std::fs::write(dir.join("song.lrc"), "[00:01.00]first\n[00:02.50]second").unwrap();
+
+        let tracks: Vec<_> = collect_scan_events(dir)
+            .into_iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(tracks.len(), 1);
+        let lyrics = tracks[0].lyrics.as_ref().expect("sidecar lyrics present");
+        assert!(lyrics.synced, "timestamped lrc must be synced");
+        assert_eq!(lyrics.source, LyricsSource::Lrc);
+        assert_eq!(lyrics.text, "[00:01.00]first\n[00:02.50]second");
+    }
+
+    #[test]
+    fn test_scan_plain_sidecar_lyrics_not_synced() {
+        use crate::types::LyricsSource;
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("song.wav"));
+        std::fs::write(dir.join("song.lrc"), "just a plain\nlyric sheet").unwrap();
+
+        let tracks: Vec<_> = collect_scan_events(dir)
+            .into_iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+
+        let lyrics = tracks[0].lyrics.as_ref().expect("sidecar lyrics present");
+        assert!(!lyrics.synced);
+        assert_eq!(lyrics.source, LyricsSource::Lrc);
+    }
+
+    #[test]
+    fn test_scan_no_lyrics_without_sidecar_or_embedded() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("song.wav"));
+
+        let tracks: Vec<_> = collect_scan_events(dir)
+            .into_iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+
+        assert!(tracks[0].lyrics.is_none());
+    }
+
+    #[test]
+    fn test_fingerprint_tracks_lrc_changes() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("song.wav"));
+        let folders = vec![dir.to_path_buf()];
+
+        let base = crate::collect_sources(&folders);
+        assert_eq!(base.audio_files.len(), 1);
+
+        std::fs::write(dir.join("song.lrc"), "[00:01.00]a").unwrap();
+        let added = crate::collect_sources(&folders);
+        assert_ne!(
+            base.fingerprint, added.fingerprint,
+            "adding a sidecar lrc must change the fingerprint"
+        );
+        assert_eq!(
+            added.audio_files.len(),
+            1,
+            "a .lrc is not a track and must not enter audio_files"
+        );
+        assert!(
+            added.cue_files.is_empty(),
+            "a .lrc must not enter cue_files"
+        );
+
+        std::fs::write(dir.join("song.lrc"), "[00:01.00]a\n[00:02.00]b").unwrap();
+        let edited = crate::collect_sources(&folders);
+        assert_ne!(
+            added.fingerprint, edited.fingerprint,
+            "editing a sidecar lrc must change the fingerprint"
+        );
+    }
 }

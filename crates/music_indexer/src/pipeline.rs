@@ -31,6 +31,8 @@ pub(crate) const CUE_EXTENSIONS: &[&str] = &["cue"];
 /// stray file on disk flipping it.
 const FINGERPRINT_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
 
+const FINGERPRINT_LYRICS_EXTENSIONS: &[&str] = &["lrc"];
+
 /// Emit a `Progress` event once every this many tracks.
 const PROGRESS_INTERVAL: usize = 10;
 
@@ -41,20 +43,23 @@ const PROGRESS_INTERVAL: usize = 10;
 /// indexer's behavior changed while the input bytes did not. Bump this whenever
 /// a fix changes the tracks produced from the same files (e.g. the Windows-1252
 /// CUE decoding fix), and every existing library reindexes once on next launch.
-const INDEXER_FORMAT_VERSION: u32 = 2;
+const INDEXER_FORMAT_VERSION: u32 = 3;
 
 enum WorkItem {
     Audio(PathBuf),
     Cue(PathBuf),
 }
 
-fn classify(ext: &str) -> (bool, bool, bool) {
+fn classify(ext: &str) -> (bool, bool, bool, bool) {
     let is_audio = AUDIO_EXTENSIONS.iter().any(|e| e.eq_ignore_ascii_case(ext));
     let is_cue = CUE_EXTENSIONS.iter().any(|e| e.eq_ignore_ascii_case(ext));
     let is_image = FINGERPRINT_IMAGE_EXTENSIONS
         .iter()
         .any(|e| e.eq_ignore_ascii_case(ext));
-    (is_audio, is_cue, is_image)
+    let is_lyrics = FINGERPRINT_LYRICS_EXTENSIONS
+        .iter()
+        .any(|e| e.eq_ignore_ascii_case(ext));
+    (is_audio, is_cue, is_image, is_lyrics)
 }
 
 /// Walk the folders once, classify files, and compute a change-detection
@@ -80,8 +85,8 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
                         .extension()
                         .and_then(|e| e.to_str())
                         .map(|e| {
-                            let (a, c, i) = classify(e);
-                            a || c || i
+                            let (a, c, i, l) = classify(e);
+                            a || c || i || l
                         })
                         .unwrap_or(false);
                     if relevant && let Ok(md) = entry.metadata() {
@@ -102,9 +107,9 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
             }
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let (is_audio, is_cue, is_image) = classify(ext);
+            let (is_audio, is_cue, is_image, is_lyrics) = classify(ext);
 
-            if (is_audio || is_cue || is_image)
+            if (is_audio || is_cue || is_image || is_lyrics)
                 && let Some((mtime, size)) = entry.client_state
             {
                 listing.push((path.to_string_lossy().into_owned(), mtime, size));

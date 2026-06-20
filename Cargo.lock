@@ -4035,6 +4035,7 @@ dependencies = [
  "jwalk",
  "lofty",
  "log",
+ "lyrics",
  "music_library",
 ]
 

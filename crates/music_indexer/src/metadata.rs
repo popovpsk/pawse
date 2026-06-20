@@ -8,7 +8,7 @@ use lofty::prelude::{Accessor, TaggedFileExt};
 use lofty::tag::{ItemKey, Tag};
 use music_library::sha256_hex;
 
-use crate::types::{CoverArt, ScannedTrack};
+use crate::types::{CoverArt, IndexedLyrics, LyricsSource, ScannedTrack};
 
 /// Resolves a directory's external cover at most once per scan. Keyed by the
 /// track's parent dir, since [`find_external_cover_art`] depends only on it.
@@ -134,6 +134,7 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
     let mut year = None;
     let mut genres = Vec::new();
     let mut embedded = None;
+    let mut embedded_lyrics = None;
 
     if let Some(tag) = tag {
         title = tag.title().map(|s| s.to_string());
@@ -177,7 +178,14 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
         genres = normalize_genres(tag.get_strings(&ItemKey::Genre));
 
         embedded = embedded_cover(tag);
+
+        embedded_lyrics = tag
+            .get(&ItemKey::Lyrics)
+            .and_then(|item| item.value().text())
+            .map(|s| s.to_string());
     }
+
+    let lyrics = read_lyrics(path, embedded_lyrics);
 
     let cover_art = match embedded {
         Some(data) => Some(CoverArt::Bytes {
@@ -209,6 +217,43 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
         cover_art,
         start_offset_ms: None,
         bitrate,
+        lyrics,
+    })
+}
+
+pub(crate) fn read_sidecar_lrc(audio_path: &Path) -> Option<String> {
+    let lrc_path = audio_path.with_extension("lrc");
+    let bytes = std::fs::read(&lrc_path).ok()?;
+    let text = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+    };
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn read_lyrics(audio_path: &Path, embedded: Option<String>) -> Option<IndexedLyrics> {
+    if let Some(text) = read_sidecar_lrc(audio_path) {
+        let synced = lyrics::has_timestamps(&text);
+        return Some(IndexedLyrics {
+            text,
+            synced,
+            source: LyricsSource::Lrc,
+        });
+    }
+
+    let text = embedded?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    let synced = lyrics::has_timestamps(&text);
+    Some(IndexedLyrics {
+        text,
+        synced,
+        source: LyricsSource::Embedded,
     })
 }
 
@@ -379,7 +424,8 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_word, find_external_cover_art, load_cover_from_source};
+    use super::{contains_word, find_external_cover_art, load_cover_from_source, read_sidecar_lrc};
+    use crate::types::LyricsSource;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -514,5 +560,100 @@ mod tests {
         assert!(contains_word("a_b", "a"));
         assert!(contains_word("a_b", "b"));
         assert!(!contains_word("ab_c", "b"));
+    }
+
+    #[test]
+    fn read_sidecar_lrc_reads_sibling_with_same_stem() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+        std::fs::write(tmp.path.join("track.lrc"), "[00:01.00]hello").unwrap();
+
+        assert_eq!(read_sidecar_lrc(&track).as_deref(), Some("[00:01.00]hello"));
+    }
+
+    #[test]
+    fn read_sidecar_lrc_none_without_file() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+
+        assert!(read_sidecar_lrc(&track).is_none());
+    }
+
+    #[test]
+    fn read_sidecar_lrc_none_when_empty() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+        std::fs::write(tmp.path.join("track.lrc"), "   \n\n").unwrap();
+
+        assert!(read_sidecar_lrc(&track).is_none());
+    }
+
+    #[test]
+    fn synced_sidecar_lrc_marks_synced_with_lrc_source() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+        std::fs::write(tmp.path.join("track.lrc"), "[00:01.00]a\n[00:02.00]b").unwrap();
+
+        let parsed = super::read_lyrics(&track, None).unwrap();
+        assert!(parsed.synced);
+        assert_eq!(parsed.source, LyricsSource::Lrc);
+        assert_eq!(parsed.text, "[00:01.00]a\n[00:02.00]b");
+    }
+
+    #[test]
+    fn plain_sidecar_lrc_is_not_synced() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+        std::fs::write(tmp.path.join("track.lrc"), "first line\nsecond line").unwrap();
+
+        let parsed = super::read_lyrics(&track, None).unwrap();
+        assert!(!parsed.synced);
+        assert_eq!(parsed.source, LyricsSource::Lrc);
+    }
+
+    #[test]
+    fn sidecar_lrc_takes_priority_over_embedded() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+        std::fs::write(tmp.path.join("track.lrc"), "[00:01.00]from sidecar").unwrap();
+
+        let parsed = super::read_lyrics(&track, Some("from embedded tag".to_string())).unwrap();
+        assert_eq!(parsed.source, LyricsSource::Lrc);
+        assert_eq!(parsed.text, "[00:01.00]from sidecar");
+        assert!(parsed.synced);
+    }
+
+    #[test]
+    fn embedded_lyrics_used_when_no_sidecar() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+
+        let parsed = super::read_lyrics(&track, Some("plain embedded".to_string())).unwrap();
+        assert_eq!(parsed.source, LyricsSource::Embedded);
+        assert_eq!(parsed.text, "plain embedded");
+        assert!(!parsed.synced);
+    }
+
+    #[test]
+    fn no_lyrics_when_neither_present() {
+        let tmp = TempDir::new();
+        let track = tmp.path.join("track.flac");
+        std::fs::write(&track, b"").unwrap();
+
+        assert!(super::read_lyrics(&track, None).is_none());
+        assert!(super::read_lyrics(&track, Some("   ".to_string())).is_none());
+    }
+
+    #[test]
+    fn lyrics_source_as_str_matches_db_strings() {
+        assert_eq!(LyricsSource::Lrc.as_str(), "lrc");
+        assert_eq!(LyricsSource::Embedded.as_str(), "embedded");
     }
 }

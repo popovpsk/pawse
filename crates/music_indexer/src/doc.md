@@ -17,14 +17,18 @@ own *parsing rules*. Either can change without touching the other.
 - `types.rs` — the data types crossing module/crate boundaries: `ScannedTrack`
   (raw parser output, carries cover *bytes*), `PreparedTrack` (DB-ready, cover
   bytes replaced by a content *hash*), `SourceSet` (walk result + fingerprint),
-  and the `ScanEvent` enum.
+  the `ScanEvent` enum, and `IndexedLyrics`/`LyricsSource` (a track's words plus
+  whether they are timestamped and where they came from — `lrc` sidecar or
+  `embedded` tag). Both `ScannedTrack` and `PreparedTrack` carry an
+  `Option<IndexedLyrics>` that rides straight through `into_prepared`.
 - `pipeline.rs` — the only place with threading. `collect_sources` (cheap
   stat-only walk + fingerprint) and `run` (cue-dedup + worker pool → events).
-  Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS` lists and
-  `INDEXER_FORMAT_VERSION`.
+  Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS`/`FINGERPRINT_IMAGE_EXTENSIONS`/
+  `FINGERPRINT_LYRICS_EXTENSIONS` lists and `INDEXER_FORMAT_VERSION`.
 - `metadata.rs` — `read_metadata` (tags → `ScannedTrack` for one standalone audio
-  file), date/genre normalization (`read_year`, `normalize_genres`), and external
-  cover-art discovery (`find_external_cover_art` + helpers).
+  file), date/genre normalization (`read_year`, `normalize_genres`), lyrics
+  resolution (`read_sidecar_lrc` + `read_lyrics`), and external cover-art
+  discovery (`find_external_cover_art` + helpers).
 - `cue.rs` — CUE-sheet business logic: `process_cue_file` (one `.cue` → many
   `ScannedTrack`), audio-file resolution, multi-disc folder inference, and
   `read_cue_text` (encoding-tolerant CUE reader).
@@ -36,7 +40,7 @@ own *parsing rules*. Either can change without touching the other.
 ## Non-obvious behavior
 
 - **Fingerprint is filesystem-state only, salted by version.** `collect_sources`
-  hashes every audio/cue/image file's `(path, mtime, size)`. It is *truly*
+  hashes every audio/cue/image/lyric (`.lrc`) file's `(path, mtime, size)`. It is *truly*
   stat-only — no decoding, no cue parsing — so the fast path stays cheap; the
   per-file stat runs on the walk's worker threads (`process_read_dir`) and only
   for files that feed the fingerprint. The caller skips all DB work when the
@@ -46,7 +50,10 @@ own *parsing rules*. Either can change without touching the other.
   hash input for exactly this reason: **bump it whenever a fix changes the tracks
   produced from the same files**, and every existing library reindexes once.
   (Image files are in the fingerprint so swapping cover art alone still triggers a
-  rescan; stray non-media files are not, to avoid noise.)
+  rescan; `.lrc` sidecars are in it too so adding or editing words alone triggers
+  one; stray non-media files are not, to avoid noise.) The current version is **3**
+  (v3 added lyrics reading — `.lrc` sidecar then embedded tag); a `.lrc` is a
+  fingerprint input only, never a track, so it stays out of `audio_files`/`cue_files`.
 
 - **CUE files may not be UTF-8.** EAC and similar rippers write Windows-1252
   (e.g. a `0x92` curly apostrophe in "I'm Alive"), which `std::fs::read_to_string`
@@ -102,6 +109,13 @@ own *parsing rules*. Either can change without touching the other.
   each unique `Bytes` cover (by SHA-256) is thumbnailed exactly once across all
   workers; peers reference the hash and let the writer resolve the id. Hashes
   already in the DB (`known_hashes`) skip thumbnail generation entirely.
+
+- **Lyrics: sidecar wins, CUE gets none.** `read_lyrics` prefers a `.lrc` sidecar
+  (same stem as the audio, same dir — `read_sidecar_lrc`, UTF-8 with a lossy
+  fallback) over the embedded `ItemKey::Lyrics` tag (USLT / `©lyr`). `synced` comes
+  from `lyrics::has_timestamps`; empty/whitespace-only text yields no lyrics. CUE
+  tracks always get `lyrics: None` — they share one whole-album audio file, so its
+  embedded text would be the wrong words for every track.
 
 - **Graceful degradation.** A failed file (bad tags, unreadable cue) emits a
   `ScanEvent::Error` and the scan continues. Every `tx.send` is checked: a dropped

@@ -23,6 +23,28 @@ impl CoverArt {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LyricsSource {
+    Lrc,
+    Embedded,
+}
+
+impl LyricsSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LyricsSource::Lrc => "lrc",
+            LyricsSource::Embedded => "embedded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexedLyrics {
+    pub text: String,
+    pub synced: bool,
+    pub source: LyricsSource,
+}
+
 /// Raw output of the parsing business logic for one logical track. Carries the
 /// embedded/external cover as [`CoverArt`] — the pipeline turns these into
 /// deduped, pre-thumbnailed [`ScanEvent::Cover`] events plus a hash reference.
@@ -41,6 +63,7 @@ pub struct ScannedTrack {
     pub cover_art: Option<CoverArt>,
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
+    pub lyrics: Option<IndexedLyrics>,
 }
 
 impl ScannedTrack {
@@ -59,6 +82,7 @@ impl ScannedTrack {
             cover_hash,
             start_offset_ms: self.start_offset_ms,
             bitrate: self.bitrate,
+            lyrics: self.lyrics,
         }
     }
 }
@@ -81,6 +105,7 @@ pub struct PreparedTrack {
     pub cover_hash: Option<String>,
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
+    pub lyrics: Option<IndexedLyrics>,
 }
 
 /// The filesystem state to index, captured cheaply by [`collect_sources`](crate::collect_sources).
