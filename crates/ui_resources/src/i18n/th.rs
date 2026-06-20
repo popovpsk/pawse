@@ -22,7 +22,6 @@ pub static TH: Strings = lang! {
     add_to_queue: "เพิ่มลงคิว",
     add_album_to_queue: "เพิ่มอัลบั้มลงคิว",
     add_artist_tracks_to_queue: "เพิ่มเพลงของศิลปินลงคิว",
-    full_albums: "อัลบั้มเต็ม",
     full_albums_tooltip: "บางอัลบั้มแสดงเฉพาะเพลงที่ศิลปินนี้ร่วมแสดง เปิดใช้เพื่อแสดงอัลบั้มเหล่านั้นแบบเต็ม รวมถึงเพลงของศิลปินอื่นด้วย",
     replace_queue: "แทนที่คิว",
     replace_queue_confirm_title: "แทนที่คิวหรือไม่?",

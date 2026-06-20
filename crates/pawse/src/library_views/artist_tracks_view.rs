@@ -5,15 +5,14 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    ClickEvent, Context, Div, ElementId, EventEmitter, FontWeight, Hsla, Image, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Point, Render, SharedString, Size, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Window, anchored, deferred, div, point, px,
-    size, svg,
+    App, ClickEvent, Context, Div, ElementId, EventEmitter, FontWeight, Hsla, Image,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
+    SharedString, Size, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
+    anchored, deferred, div, point, px, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
-    switch::Switch,
     tooltip::Tooltip,
     v_flex, v_virtual_list,
 };
@@ -862,36 +861,61 @@ fn artist_header(
         .items_center()
         .child(title)
         .when(!view.partial_albums.is_empty(), |el| {
-            el.child(
-                h_flex()
-                    .id("artist-full-albums-toggle-row")
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .child(tr().full_albums.clone()),
-                    )
-                    .child(
-                        Switch::new("artist-full-albums-toggle")
-                            .checked(view.show_full_albums)
-                            .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                                this.show_full_albums = *checked;
-                                this.rebuild_source(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .tooltip(|window, cx| {
-                        Tooltip::element(|_, _| {
-                            div().w(px(260.)).child(tr().full_albums_tooltip.clone())
-                        })
-                        .build(window, cx)
-                    }),
-            )
+            let on = view.show_full_albums;
+            let primary = Colors::primary(cx);
+            let primary_fg = Colors::primary_foreground(cx);
+            let accent = Colors::accent(cx);
+            el.child(full_albums_icon(
+                on, primary, primary_fg, muted_fg, accent, cx,
+            ))
         })
         .into_any_element()
+}
+
+fn toggle_full_albums(this: &mut ArtistTracksView, cx: &mut Context<ArtistTracksView>) {
+    this.show_full_albums = !this.show_full_albums;
+    this.rebuild_source(cx);
+    cx.notify();
+}
+
+fn full_albums_tooltip(window: &mut Window, cx: &mut App) -> gpui::AnyView {
+    Tooltip::element(|_, _| div().w(px(260.)).child(tr().full_albums_tooltip.clone()))
+        .build(window, cx)
+}
+
+fn full_albums_icon(
+    on: bool,
+    primary: Hsla,
+    primary_fg: Hsla,
+    muted_fg: Hsla,
+    accent: Hsla,
+    cx: &mut Context<ArtistTracksView>,
+) -> Stateful<Div> {
+    let icon_color = if on { primary_fg } else { muted_fg };
+    div()
+        .id("artist-full-albums-icon")
+        .size(px(QUEUE_BTN_SIZE))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .cursor_pointer()
+        .map(|el| {
+            if on {
+                el.bg(primary)
+            } else {
+                el.hover(move |s| s.bg(accent))
+            }
+        })
+        .child(
+            svg()
+                .path("icons/s1-albums.svg")
+                .size(px(QUEUE_ICON_SIZE))
+                .text_color(icon_color),
+        )
+        .on_click(cx.listener(|this, _, _, cx| toggle_full_albums(this, cx)))
+        .tooltip(full_albums_tooltip)
 }
 
 fn artist_header_static(name: SharedString) -> gpui::Div {

@@ -22,7 +22,6 @@ pub static KO: Strings = lang! {
     add_to_queue: "대기열에 추가",
     add_album_to_queue: "앨범을 대기열에 추가",
     add_artist_tracks_to_queue: "아티스트의 트랙을 대기열에 추가",
-    full_albums: "전체 앨범",
     full_albums_tooltip: "일부 앨범에는 이 아티스트가 참여한 곡만 표시됩니다. 켜면 다른 아티스트의 곡을 포함해 해당 앨범 전체를 표시합니다.",
     replace_queue: "대기열 바꾸기",
     replace_queue_confirm_title: "대기열을 바꾸시겠습니까?",

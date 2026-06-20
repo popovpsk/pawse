@@ -22,7 +22,6 @@ pub static UK: Strings = lang! {
     add_to_queue: "Додати до черги",
     add_album_to_queue: "Додати альбом до черги",
     add_artist_tracks_to_queue: "Додати треки виконавця до черги",
-    full_albums: "Альбоми повністю",
     full_albums_tooltip: "Деякі альбоми показують лише треки за участю цього виконавця. Увімкніть, щоб показати такі альбоми повністю, включно з треками інших виконавців.",
     replace_queue: "Замінити чергу",
     replace_queue_confirm_title: "Замінити чергу?",

@@ -22,7 +22,6 @@ pub static IT: Strings = lang! {
     add_to_queue: "Aggiungi alla coda",
     add_album_to_queue: "Aggiungi album alla coda",
     add_artist_tracks_to_queue: "Aggiungi i brani dell'artista alla coda",
-    full_albums: "Album completi",
     full_albums_tooltip: "Alcuni album mostrano solo i brani a cui ha partecipato questo artista. Attiva per mostrare quegli album per intero, inclusi i brani di altri artisti.",
     replace_queue: "Sostituisci coda",
     replace_queue_confirm_title: "Sostituire la coda?",

@@ -22,7 +22,6 @@ pub static DE: Strings = lang! {
     add_to_queue: "Zur Warteschlange hinzufügen",
     add_album_to_queue: "Album zur Warteschlange hinzufügen",
     add_artist_tracks_to_queue: "Titel des Künstlers zur Warteschlange hinzufügen",
-    full_albums: "Vollständige Alben",
     full_albums_tooltip: "Manche Alben zeigen nur die Titel, an denen dieser Künstler beteiligt war. Aktivieren, um diese Alben vollständig anzuzeigen, einschließlich Titel anderer Künstler.",
     replace_queue: "Warteschlange ersetzen",
     replace_queue_confirm_title: "Warteschlange ersetzen?",

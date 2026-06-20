@@ -22,7 +22,6 @@ pub static CS: Strings = lang! {
     add_to_queue: "Přidat do fronty",
     add_album_to_queue: "Přidat album do fronty",
     add_artist_tracks_to_queue: "Přidat skladby umělce do fronty",
-    full_albums: "Celá alba",
     full_albums_tooltip: "Některá alba zobrazují jen skladby, na kterých se tento interpret podílel. Zapnutím zobrazíte tato alba celá, včetně skladeb jiných interpretů.",
     replace_queue: "Nahradit frontu",
     replace_queue_confirm_title: "Nahradit frontu?",

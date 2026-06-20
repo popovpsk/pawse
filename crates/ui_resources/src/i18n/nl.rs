@@ -22,7 +22,6 @@ pub static NL: Strings = lang! {
     add_to_queue: "Aan wachtrij toevoegen",
     add_album_to_queue: "Album aan wachtrij toevoegen",
     add_artist_tracks_to_queue: "Nummers van artiest aan wachtrij toevoegen",
-    full_albums: "Volledige albums",
     full_albums_tooltip: "Sommige albums tonen alleen de nummers waaraan deze artiest meewerkte. Schakel dit in om die albums volledig te tonen, inclusief nummers van andere artiesten.",
     replace_queue: "Wachtrij vervangen",
     replace_queue_confirm_title: "Wachtrij vervangen?",

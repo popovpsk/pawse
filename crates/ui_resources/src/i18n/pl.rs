@@ -22,7 +22,6 @@ pub static PL: Strings = lang! {
     add_to_queue: "Dodaj do kolejki",
     add_album_to_queue: "Dodaj album do kolejki",
     add_artist_tracks_to_queue: "Dodaj utwory artysty do kolejki",
-    full_albums: "Pełne albumy",
     full_albums_tooltip: "Niektóre albumy pokazują tylko utwory, w których wystąpił ten artysta. Włącz, aby wyświetlić te albumy w całości, łącznie z utworami innych artystów.",
     replace_queue: "Zastąp kolejkę",
     replace_queue_confirm_title: "Zastąpić kolejkę?",

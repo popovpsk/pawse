@@ -22,7 +22,6 @@ pub static FR: Strings = lang! {
     add_to_queue: "Ajouter à la file",
     add_album_to_queue: "Ajouter l'album à la file",
     add_artist_tracks_to_queue: "Ajouter les titres de l'artiste à la file",
-    full_albums: "Albums complets",
     full_albums_tooltip: "Certains albums n'affichent que les titres auxquels cet artiste a participé. Activez pour afficher ces albums en entier, y compris les titres d'autres artistes.",
     replace_queue: "Remplacer la file",
     replace_queue_confirm_title: "Remplacer la file d'attente ?",

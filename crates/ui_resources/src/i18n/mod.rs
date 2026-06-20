@@ -82,7 +82,6 @@ pub struct Strings {
     pub cover_mode: SharedString,
     pub full_screen: SharedString,
     pub all_tracks: SharedString,
-    pub full_albums: SharedString,
     pub full_albums_tooltip: SharedString,
     pub no_metadata: SharedString,
 

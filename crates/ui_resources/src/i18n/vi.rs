@@ -22,7 +22,6 @@ pub static VI: Strings = lang! {
     add_to_queue: "Thêm vào hàng đợi",
     add_album_to_queue: "Thêm album vào hàng đợi",
     add_artist_tracks_to_queue: "Thêm bài hát của nghệ sĩ vào hàng đợi",
-    full_albums: "Toàn bộ album",
     full_albums_tooltip: "Một số album chỉ hiển thị các bản nhạc có sự tham gia của nghệ sĩ này. Bật để hiển thị đầy đủ các album đó, bao gồm cả bản nhạc của nghệ sĩ khác.",
     replace_queue: "Thay thế hàng đợi",
     replace_queue_confirm_title: "Thay thế hàng đợi?",
