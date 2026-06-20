@@ -8,7 +8,7 @@ use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
-    PlaylistTrackRef, ScanTrack, Track,
+    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -1101,6 +1101,42 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT synced, source, text FROM lyrics WHERE track_id = ?1",
+            [track_id],
+            |row| {
+                Ok(StoredLyrics {
+                    synced: row.get::<_, i64>(0)? != 0,
+                    source: row.get(1)?,
+                    text: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(LibraryError::Database)
+    }
+
+    fn upsert_lyrics(&self, track_id: i64, text: &str, synced: bool, source: &str) -> Result<()> {
+        let updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO lyrics (track_id, synced, source, text, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5) \
+             ON CONFLICT(track_id) DO UPDATE SET \
+                synced = excluded.synced, \
+                source = excluded.source, \
+                text = excluded.text, \
+                updated_at = excluded.updated_at",
+            rusqlite::params![track_id, synced as i64, source, text, updated_at],
+        )?;
+        Ok(())
+    }
+
     fn playlist_track_refs(&self) -> Result<Vec<PlaylistTrackRef>> {
         let conn = self.conn.lock().unwrap();
         // ORDER BY position is load-bearing: the restore step relies on Vec
@@ -1508,6 +1544,24 @@ impl ScanSession {
             )?;
         }
 
+        if let Some(lyrics) = &track.lyrics {
+            let updated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            self.conn.execute(
+                "INSERT INTO lyrics (track_id, synced, source, text, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    track_id,
+                    lyrics.synced as i64,
+                    lyrics.source,
+                    lyrics.text,
+                    updated_at,
+                ],
+            )?;
+        }
+
         self.maybe_commit()
     }
 }
@@ -1685,5 +1739,60 @@ mod tests {
     #[test]
     fn test_fallback_title_from_path_empty() {
         assert_eq!(fallback_title_from_path(""), "");
+    }
+
+    fn open_test_lib() -> SqliteLibrary {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let temp_dir = std::env::temp_dir().join("pawse-music-library-sqlite");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let db_path = temp_dir.join(format!(
+            "test-{}-{}.db",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_file(&db_path);
+        SqliteLibrary::open_at(&db_path).unwrap()
+    }
+
+    #[test]
+    fn test_upsert_lyrics_insert_then_update_single_row() {
+        let lib = open_test_lib();
+        let track_id = lib
+            .upsert_track(
+                &NewTrack {
+                    path: "/m/u.flac".into(),
+                    title: Some("U".into()),
+                    ..Default::default()
+                },
+                None,
+                &[],
+            )
+            .unwrap();
+
+        lib.upsert_lyrics(track_id, "plain words", false, "embedded")
+            .unwrap();
+        let first = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        assert!(!first.synced);
+        assert_eq!(first.source, "embedded");
+        assert_eq!(first.text, "plain words");
+
+        lib.upsert_lyrics(track_id, "[00:00.00] synced now", true, "lrclib")
+            .unwrap();
+        let second = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        assert!(second.synced);
+        assert_eq!(second.source, "lrclib");
+        assert_eq!(second.text, "[00:00.00] synced now");
+
+        let count: i64 = {
+            let conn = lib.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM lyrics WHERE track_id = ?1",
+                [track_id],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(count, 1);
     }
 }

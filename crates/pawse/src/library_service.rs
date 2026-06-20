@@ -524,6 +524,7 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         cover_hash: track.cover_hash,
         start_offset_ms: track.start_offset_ms,
         bitrate: track.bitrate,
+        lyrics: None,
     }
 }
 

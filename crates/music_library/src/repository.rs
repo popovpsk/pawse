@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
-    PlaylistTrackRef, ScanTrack, Track,
+    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -81,6 +81,9 @@ pub trait LibraryRepository: Send + Sync {
     fn move_liked_track(&self, from: usize, to: usize) -> Result<()>;
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>>;
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>>;
+
+    fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>>;
+    fn upsert_lyrics(&self, track_id: i64, text: &str, synced: bool, source: &str) -> Result<()>;
 
     fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Result<Vec<Track>>;
 
