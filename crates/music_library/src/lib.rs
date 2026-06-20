@@ -8,7 +8,7 @@ pub mod thumbnail;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Playlist,
-    PlaylistSummary, PlaylistTrackRef, ScanTrack, Track,
+    PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack, StoredLyrics, Track,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -1260,6 +1260,7 @@ mod tests {
                 cover_hash: Some(hash.clone()),
                 start_offset_ms: None,
                 bitrate: None,
+                lyrics: None,
             })
             .unwrap();
         session
@@ -1376,6 +1377,7 @@ mod tests {
                 cover_hash: Some(hash),
                 start_offset_ms: None,
                 bitrate: None,
+                lyrics: None,
             })
             .unwrap();
         session.finish().unwrap();
@@ -1407,6 +1409,7 @@ mod tests {
                     cover_hash: None,
                     start_offset_ms: None,
                     bitrate: None,
+                    lyrics: None,
                 })
                 .unwrap();
         }
@@ -1415,6 +1418,79 @@ mod tests {
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(lib.tracks_for_album(albums[0].id).unwrap().len(), 600);
+    }
+
+    #[test]
+    fn test_scan_session_writes_lyrics() {
+        let (lib, _path) = create_test_db();
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_track(ScanTrack {
+                path: "/m/lyric.flac".into(),
+                title: Some("Lyric".into()),
+                album_title: Some("Al".into()),
+                artist_names: vec!["Ar".into()],
+                album_artist_names: vec!["Ar".into()],
+                track_number: Some(1),
+                disc_number: Some(1),
+                year: Some(2020),
+                genres: vec![],
+                duration_ms: Some(1000),
+                cover_hash: None,
+                start_offset_ms: None,
+                bitrate: None,
+                lyrics: Some(ScanLyrics {
+                    text: "[00:01.00] hello\n[00:02.00] world".into(),
+                    synced: true,
+                    source: "lrclib".into(),
+                }),
+            })
+            .unwrap();
+        session.finish().unwrap();
+
+        let tracks = lib.all_tracks().unwrap();
+        assert_eq!(tracks.len(), 1);
+        let stored = lib.lyrics_for_track(tracks[0].id).unwrap().unwrap();
+        assert!(stored.synced);
+        assert_eq!(stored.source, "lrclib");
+        assert_eq!(stored.text, "[00:01.00] hello\n[00:02.00] world");
+    }
+
+    #[test]
+    fn test_lyrics_cascade_on_clear() {
+        let (lib, _path) = create_test_db();
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_track(ScanTrack {
+                path: "/m/c.flac".into(),
+                title: Some("C".into()),
+                album_title: Some("Al".into()),
+                artist_names: vec!["Ar".into()],
+                album_artist_names: vec!["Ar".into()],
+                track_number: Some(1),
+                disc_number: Some(1),
+                year: Some(2020),
+                genres: vec![],
+                duration_ms: Some(1000),
+                cover_hash: None,
+                start_offset_ms: None,
+                bitrate: None,
+                lyrics: Some(ScanLyrics {
+                    text: "to be wiped".into(),
+                    synced: false,
+                    source: "embedded".into(),
+                }),
+            })
+            .unwrap();
+        session.finish().unwrap();
+
+        let track_id = lib.all_tracks().unwrap()[0].id;
+        assert!(lib.lyrics_for_track(track_id).unwrap().is_some());
+
+        lib.clear().unwrap();
+        assert!(lib.lyrics_for_track(track_id).unwrap().is_none());
     }
 
     #[test]

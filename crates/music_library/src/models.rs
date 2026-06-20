@@ -82,6 +82,20 @@ pub struct NewTrack {
 /// referenced by content hash (resolved to a `cover_art_id` by the writer's
 /// in-memory cache) rather than by id, so the parse workers never touch the DB.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ScanLyrics {
+    pub text: String,
+    pub synced: bool,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredLyrics {
+    pub synced: bool,
+    pub source: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ScanTrack {
     pub path: String,
     pub title: Option<String>,
@@ -96,6 +110,7 @@ pub struct ScanTrack {
     pub cover_hash: Option<String>,
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
+    pub lyrics: Option<ScanLyrics>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

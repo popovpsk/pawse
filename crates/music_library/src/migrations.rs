@@ -122,4 +122,16 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_track_genres_genre ON track_genres(genre_id, track_id);
         "#,
     ),
+    (
+        4,
+        r#"
+        CREATE TABLE lyrics (
+            track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+            synced     INTEGER NOT NULL DEFAULT 0,
+            source     TEXT    NOT NULL,
+            text       TEXT    NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        "#,
+    ),
 ];
