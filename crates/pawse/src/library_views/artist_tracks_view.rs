@@ -5,7 +5,7 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Context, Div, ElementId, EventEmitter, FontWeight, Hsla, Image,
+    App, ClickEvent, Context, Corner, Div, ElementId, EventEmitter, FontWeight, Hsla, Image,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
     SharedString, Size, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
     anchored, deferred, div, point, px, size, svg,
@@ -652,7 +652,7 @@ fn album_menu_overlay(
             }),
         );
     let content = v_flex()
-        .w(px(ALBUM_MENU_WIDTH))
+        .min_w(px(ALBUM_MENU_WIDTH))
         .bg(popover_bg)
         .border_1()
         .border_color(border)
@@ -689,9 +689,10 @@ fn album_menu_overlay(
                 cx.notify();
             })),
         );
-    let anchor = point(menu.anchor.x - px(ALBUM_MENU_WIDTH), menu.anchor.y + px(8.));
+    let anchor = point(menu.anchor.x, menu.anchor.y + px(8.));
     let menu_layer = deferred(
         anchored()
+            .anchor(Corner::TopRight)
             .snap_to_window_with_margin(px(8.))
             .position(anchor)
             .child(div().occlude().child(content)),
@@ -749,8 +750,8 @@ fn queue_menu_row(
         .text_sm()
         .text_color(foreground)
         .hover(move |s| s.bg(hover_bg))
-        .child(svg().path(icon).size(px(14.)).text_color(foreground))
-        .child(label)
+        .child(svg().path(icon).size(px(14.)).flex_shrink_0().text_color(foreground))
+        .child(div().whitespace_nowrap().child(label))
 }
 
 struct ArtistTrackRowParams {
