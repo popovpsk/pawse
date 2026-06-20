@@ -3811,6 +3811,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lyrics"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "ureq",
+]
+
+[[package]]
 name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
