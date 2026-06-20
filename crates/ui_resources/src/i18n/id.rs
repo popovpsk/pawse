@@ -22,6 +22,8 @@ pub static ID: Strings = lang! {
     add_to_queue: "Tambahkan ke antrean",
     add_album_to_queue: "Tambahkan album ke antrean",
     add_artist_tracks_to_queue: "Tambahkan lagu artis ke antrean",
+    full_albums: "Album lengkap",
+    full_albums_tooltip: "Beberapa album hanya menampilkan lagu yang dibawakan artis ini. Aktifkan untuk menampilkan album tersebut secara penuh, termasuk lagu dari artis lain.",
     replace_queue: "Ganti antrean",
     replace_queue_confirm_title: "Ganti antrean?",
     replace_queue_confirm_message: "Anda telah mengubah antrean saat ini. Memutar trek ini akan menggantinya. Sebagai gantinya, Anda bisa menambahkannya ke antrean.",

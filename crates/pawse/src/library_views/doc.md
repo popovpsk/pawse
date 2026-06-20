@@ -35,7 +35,13 @@ drive the `PlaybackQueue` on click.
   per row — `recompute_visible` runs on every keystroke.
 - `artists_view.rs` — Artists tab: virtualized list of artists.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
-- `artist_tracks_view.rs` — all tracks of one artist, grouped by album.
+- `artist_tracks_view.rs` — all tracks of one artist, grouped by album. An album
+  the artist only partly appears on (their track count < the album's total) is
+  "partial"; its queue button offers artist-tracks-only vs. the full album. When the
+  artist has any partial album, the header shows a "Full albums" toggle (top-right):
+  flipping it on re-fetches the source so partial albums expand to every track
+  (`tracks_for_album`) — `tracks_all` is the playback/queue source, so it stays in
+  sync — and suppresses the per-album queue menu (the displayed album is already full).
 - `liked_view.rs` — the liked-tracks screen. Rows are drag-reorderable (only with
   an empty filter) via `LibraryService::move_liked_track`.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).

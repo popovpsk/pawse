@@ -22,6 +22,8 @@ pub static PT: Strings = lang! {
     add_to_queue: "Adicionar à fila",
     add_album_to_queue: "Adicionar álbum à fila",
     add_artist_tracks_to_queue: "Adicionar faixas do artista à fila",
+    full_albums: "Álbuns completos",
+    full_albums_tooltip: "Alguns álbuns mostram apenas as faixas em que este artista participou. Ative para exibir esses álbuns por completo, incluindo faixas de outros artistas.",
     replace_queue: "Substituir fila",
     replace_queue_confirm_title: "Substituir a fila?",
     replace_queue_confirm_message: "Você editou a fila atual. Reproduzir esta faixa irá substituí-la. Em vez disso, você pode adicioná-la à fila.",

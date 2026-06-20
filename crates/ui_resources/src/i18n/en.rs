@@ -22,6 +22,8 @@ pub static EN: Strings = lang! {
     add_to_queue: "Add to queue",
     add_album_to_queue: "Add album to queue",
     add_artist_tracks_to_queue: "Add artist's tracks to queue",
+    full_albums: "Full albums",
+    full_albums_tooltip: "Some albums list only the tracks this artist performed on. Turn this on to show those albums in full, including tracks by other artists.",
     replace_queue: "Replace queue",
     replace_queue_confirm_title: "Replace the queue?",
     replace_queue_confirm_message: "You've edited the current queue. Playing this track will replace it. You can add it to the queue instead.",

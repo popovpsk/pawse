@@ -22,6 +22,8 @@ pub static ZH: Strings = lang! {
     add_to_queue: "添加到队列",
     add_album_to_queue: "将专辑添加到队列",
     add_artist_tracks_to_queue: "将艺术家的曲目添加到队列",
+    full_albums: "完整专辑",
+    full_albums_tooltip: "有些专辑只显示此艺人参与的曲目。开启后可完整显示这些专辑，包括其他艺人的曲目。",
     replace_queue: "替换队列",
     replace_queue_confirm_title: "替换队列？",
     replace_queue_confirm_message: "你已编辑当前队列，播放此曲目将替换队列。你也可以改为将其添加到队列。",

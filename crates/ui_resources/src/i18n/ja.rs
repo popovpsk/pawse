@@ -22,6 +22,8 @@ pub static JA: Strings = lang! {
     add_to_queue: "キューに追加",
     add_album_to_queue: "アルバムをキューに追加",
     add_artist_tracks_to_queue: "アーティストの曲をキューに追加",
+    full_albums: "アルバム全体",
+    full_albums_tooltip: "一部のアルバムにはこのアーティストが参加した曲のみが表示されます。オンにすると、他のアーティストの曲も含めてアルバム全体を表示します。",
     replace_queue: "キューを置き換え",
     replace_queue_confirm_title: "キューを置き換えますか？",
     replace_queue_confirm_message: "現在のキューは編集されています。この曲を再生するとキューが置き換えられます。代わりにキューに追加することもできます。",

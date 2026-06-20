@@ -22,6 +22,8 @@ pub static ES: Strings = lang! {
     add_to_queue: "Añadir a la cola",
     add_album_to_queue: "Añadir álbum a la cola",
     add_artist_tracks_to_queue: "Añadir pistas del artista a la cola",
+    full_albums: "Álbumes completos",
+    full_albums_tooltip: "Algunos álbumes muestran solo las canciones en las que participó este artista. Actívalo para mostrar esos álbumes completos, incluidas las canciones de otros artistas.",
     replace_queue: "Reemplazar cola",
     replace_queue_confirm_title: "¿Reemplazar la cola?",
     replace_queue_confirm_message: "Has editado la cola actual. Reproducir esta pista la reemplazará. En su lugar, puedes añadirla a la cola.",

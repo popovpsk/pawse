@@ -22,6 +22,8 @@ pub static SV: Strings = lang! {
     add_to_queue: "Lägg till i kön",
     add_album_to_queue: "Lägg till album i kön",
     add_artist_tracks_to_queue: "Lägg till artistens låtar i kön",
+    full_albums: "Fullständiga album",
+    full_albums_tooltip: "Vissa album visar bara låtarna som den här artisten medverkade på. Slå på för att visa dessa album i sin helhet, inklusive låtar av andra artister.",
     replace_queue: "Ersätt kön",
     replace_queue_confirm_title: "Ersätt kön?",
     replace_queue_confirm_message: "Du har redigerat den aktuella kön. Att spela det här spåret ersätter den. Du kan i stället lägga till det i kön.",

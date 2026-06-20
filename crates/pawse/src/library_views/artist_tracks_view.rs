@@ -13,6 +13,7 @@ use gpui::{
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
+    switch::Switch,
     tooltip::Tooltip,
     v_flex, v_virtual_list,
 };
@@ -99,6 +100,7 @@ pub struct ArtistTracksView {
     is_playing: bool,
     album_menu: Option<AlbumMenu>,
     partial_albums: HashSet<i64>,
+    show_full_albums: bool,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
@@ -219,6 +221,7 @@ impl ArtistTracksView {
             is_playing,
             album_menu: None,
             partial_albums,
+            show_full_albums: false,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
@@ -230,7 +233,8 @@ impl ArtistTracksView {
         library: &crate::library_service::LibraryService,
     ) -> HashSet<i64> {
         let album_totals = library.album_track_counts();
-        let mut artist_counts: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+        let mut artist_counts: std::collections::HashMap<i64, i64> =
+            std::collections::HashMap::new();
         for track in tracks {
             if let Some(album_id) = track.album_id {
                 *artist_counts.entry(album_id).or_default() += 1;
@@ -365,6 +369,38 @@ impl ArtistTracksView {
         self.item_sizes = Rc::new(sizes);
     }
 
+    fn rebuild_source(&mut self, cx: &mut Context<Self>) {
+        let library = cx.global::<Services>().library.clone();
+        let artist_tracks: Vec<Rc<music_library::Track>> = library
+            .tracks_by_artist(self.artist_id)
+            .into_iter()
+            .map(Rc::new)
+            .collect();
+        if self.show_full_albums && !self.partial_albums.is_empty() {
+            let mut combined: Vec<Rc<music_library::Track>> = Vec::new();
+            let mut i = 0;
+            while i < artist_tracks.len() {
+                let album_id = artist_tracks[i].album_id;
+                let mut j = i;
+                while j < artist_tracks.len() && artist_tracks[j].album_id == album_id {
+                    j += 1;
+                }
+                match album_id {
+                    Some(aid) if self.partial_albums.contains(&aid) => {
+                        combined.extend(library.tracks_for_album(aid).into_iter().map(Rc::new))
+                    }
+                    _ => combined.extend_from_slice(&artist_tracks[i..j]),
+                }
+                i = j;
+            }
+            self.tracks_all = combined;
+        } else {
+            self.tracks_all = artist_tracks;
+        }
+        self.album_menu = None;
+        self.recompute_groups(cx);
+    }
+
     fn header_name(&self) -> SharedString {
         if self.artist_id == music_library::NO_METADATA_ARTIST_ID {
             tr().no_metadata.clone()
@@ -424,9 +460,7 @@ impl Render for ArtistTracksView {
                     move |view, visible_range, _window, cx| {
                         visible_range
                             .map(|ix| match &view.items[ix] {
-                                ItemKind::ArtistHeader => {
-                                    artist_header_static(view.header_name()).into_any_element()
-                                }
+                                ItemKind::ArtistHeader => artist_header(view, muted_fg, cx),
                                 ItemKind::DiscHeader(disc, gap) => {
                                     artist_disc_header(disc.clone(), *gap, border, muted_fg)
                                 }
@@ -452,7 +486,13 @@ impl Render for ArtistTracksView {
             .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
             .when_some(self.album_menu.clone(), |el, menu| {
                 el.child(album_menu_overlay(
-                    &menu, viewport, popover_bg, border, foreground, fallback_bg, cx,
+                    &menu,
+                    viewport,
+                    popover_bg,
+                    border,
+                    foreground,
+                    fallback_bg,
+                    cx,
                 ))
             })
     }
@@ -524,7 +564,11 @@ fn artist_album_header(
             .into_any_element(),
     };
     let trigger_hover = Colors::muted(cx);
-    let menu_album = album_id.filter(|aid| view.partial_albums.contains(aid));
+    let menu_album = if view.show_full_albums {
+        None
+    } else {
+        album_id.filter(|aid| view.partial_albums.contains(aid))
+    };
     h_flex()
         .w_full()
         .h(px(ALBUM_HEADER_HEIGHT))
@@ -793,6 +837,60 @@ fn artist_track_row(
                 cx,
             );
         }))
+        .into_any_element()
+}
+
+fn artist_header(
+    view: &ArtistTracksView,
+    muted_fg: Hsla,
+    cx: &mut Context<ArtistTracksView>,
+) -> gpui::AnyElement {
+    let title = div()
+        .flex_1()
+        .min_w(px(0.))
+        .overflow_hidden()
+        .text_ellipsis()
+        .text_xl()
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(view.header_name());
+    h_flex()
+        .w_full()
+        .h(px(ARTIST_HEADER_HEIGHT))
+        .pl_4()
+        .pr_6()
+        .gap_3()
+        .items_center()
+        .child(title)
+        .when(!view.partial_albums.is_empty(), |el| {
+            el.child(
+                h_flex()
+                    .id("artist-full-albums-toggle-row")
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .child(tr().full_albums.clone()),
+                    )
+                    .child(
+                        Switch::new("artist-full-albums-toggle")
+                            .checked(view.show_full_albums)
+                            .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.show_full_albums = *checked;
+                                this.rebuild_source(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .tooltip(|window, cx| {
+                        Tooltip::element(|_, _| {
+                            div().w(px(260.)).child(tr().full_albums_tooltip.clone())
+                        })
+                        .build(window, cx)
+                    }),
+            )
+        })
         .into_any_element()
 }
 

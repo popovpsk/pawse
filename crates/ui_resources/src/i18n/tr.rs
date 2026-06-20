@@ -22,6 +22,8 @@ pub static TR: Strings = lang! {
     add_to_queue: "Sıraya ekle",
     add_album_to_queue: "Albümü sıraya ekle",
     add_artist_tracks_to_queue: "Sanatçının parçalarını sıraya ekle",
+    full_albums: "Tam albümler",
+    full_albums_tooltip: "Bazı albümler yalnızca bu sanatçının yer aldığı parçaları gösterir. Bu albümleri, diğer sanatçıların parçaları dahil, tam olarak göstermek için açın.",
     replace_queue: "Sırayı değiştir",
     replace_queue_confirm_title: "Sıra değiştirilsin mi?",
     replace_queue_confirm_message: "Mevcut sırayı düzenlediniz. Bu parçayı çalmak sırayı değiştirecek. Bunun yerine parçayı sıraya ekleyebilirsiniz.",
