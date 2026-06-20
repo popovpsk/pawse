@@ -156,6 +156,14 @@ pub static ZH: Strings = lang! {
     restart_to_update: "重启以更新",
     up_to_date: "Pawse 已是最新版本",
 
+    lyrics: "歌词",
+    lyrics_empty: "无歌词",
+    lyrics_fetching: "正在获取歌词…",
+    lyrics_not_found: "未找到歌词",
+    lyrics_save: "保存歌词",
+    lyrics_from_internet: "从互联网获取歌词",
+    lyrics_from_internet_desc: "通过 LRCLIB 在线查找缺失的歌词。关闭以保护隐私。",
+
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",
     n_tracks_few: "{} 首曲目",

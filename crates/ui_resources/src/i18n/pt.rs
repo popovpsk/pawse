@@ -156,6 +156,14 @@ pub static PT: Strings = lang! {
     restart_to_update: "Reiniciar para atualizar",
     up_to_date: "O Pawse está atualizado",
 
+    lyrics: "Letra",
+    lyrics_empty: "Sem letra",
+    lyrics_fetching: "Buscando letra…",
+    lyrics_not_found: "Letra não encontrada",
+    lyrics_save: "Salvar letra",
+    lyrics_from_internet: "Buscar letra na internet",
+    lyrics_from_internet_desc: "Procurar letras ausentes online via LRCLIB. Desative para privacidade.",
+
     disc_t: "Disco {}",
     n_tracks_one: "{} faixa",
     n_tracks_few: "{} faixas",

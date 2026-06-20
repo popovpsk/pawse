@@ -156,6 +156,14 @@ pub static NL: Strings = lang! {
     restart_to_update: "Herstart om bij te werken",
     up_to_date: "Pawse is up-to-date",
 
+    lyrics: "Songtekst",
+    lyrics_empty: "Geen songtekst",
+    lyrics_fetching: "Songtekst ophalen…",
+    lyrics_not_found: "Songtekst niet gevonden",
+    lyrics_save: "Songtekst opslaan",
+    lyrics_from_internet: "Songtekst van internet ophalen",
+    lyrics_from_internet_desc: "Ontbrekende songteksten online zoeken via LRCLIB. Zet uit voor privacy.",
+
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",
     n_tracks_few: "{} nummers",

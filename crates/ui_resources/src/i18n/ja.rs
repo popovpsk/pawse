@@ -156,6 +156,14 @@ pub static JA: Strings = lang! {
     restart_to_update: "再起動して更新",
     up_to_date: "Pawse は最新です",
 
+    lyrics: "歌詞",
+    lyrics_empty: "歌詞なし",
+    lyrics_fetching: "歌詞を取得中…",
+    lyrics_not_found: "歌詞が見つかりません",
+    lyrics_save: "歌詞を保存",
+    lyrics_from_internet: "インターネットから歌詞を取得",
+    lyrics_from_internet_desc: "LRCLIB を使ってオンラインで歌詞を検索します。プライバシーのためにオフにすることができます。",
+
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",
     n_tracks_few: "{} 曲",

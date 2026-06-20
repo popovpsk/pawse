@@ -156,6 +156,14 @@ pub static VI: Strings = lang! {
     restart_to_update: "Khởi động lại để cập nhật",
     up_to_date: "Pawse đã là bản mới nhất",
 
+    lyrics: "Lời bài hát",
+    lyrics_empty: "Không có lời",
+    lyrics_fetching: "Đang tải lời bài hát…",
+    lyrics_not_found: "Không tìm thấy lời bài hát",
+    lyrics_save: "Lưu lời bài hát",
+    lyrics_from_internet: "Lấy lời bài hát từ internet",
+    lyrics_from_internet_desc: "Tìm kiếm lời bài hát còn thiếu trực tuyến qua LRCLIB. Tắt để bảo vệ quyền riêng tư.",
+
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",
     n_tracks_few: "{} bài hát",

@@ -156,6 +156,14 @@ pub static CS: Strings = lang! {
     restart_to_update: "Restartovat pro aktualizaci",
     up_to_date: "Pawse je aktuální",
 
+    lyrics: "Text písně",
+    lyrics_empty: "Žádný text",
+    lyrics_fetching: "Načítání textu…",
+    lyrics_not_found: "Text nenalezen",
+    lyrics_save: "Uložit text",
+    lyrics_from_internet: "Stáhnout text z internetu",
+    lyrics_from_internet_desc: "Hledat chybějící texty online přes LRCLIB. Vypněte pro ochranu soukromí.",
+
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",
     n_tracks_few: "{} skladby",
