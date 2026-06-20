@@ -48,6 +48,7 @@ pub trait LibraryRepository: Send + Sync {
     fn albums(&self) -> Result<Vec<AlbumSummary>>;
     fn album_search_entries(&self) -> Result<Vec<AlbumSearchEntry>>;
     fn tracks_for_album(&self, album_id: i64) -> Result<Vec<Track>>;
+    fn album_track_counts(&self) -> Result<HashMap<i64, i64>>;
     fn track_artists(&self, track_id: i64) -> Result<Vec<String>>;
     fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>>;
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;

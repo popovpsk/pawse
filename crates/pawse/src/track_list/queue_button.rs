@@ -16,6 +16,9 @@ use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
 pub fn append_tracks_to_queue(tracks: Vec<Rc<Track>>, cx: &mut App) {
+    if tracks.is_empty() {
+        return;
+    }
     let dedup = cx.global::<SettingsStore>().queue_deduplication();
     cx.global::<Services>()
         .playback_queue
@@ -129,7 +132,11 @@ pub fn add_album_to_queue_button(
     .tooltip(|window, cx| Tooltip::new(tr().add_album_to_queue.clone()).build(window, cx))
     .on_click(move |_, _, cx| {
         cx.stop_propagation();
-        let tracks = cx.global::<Services>().library.tracks_for_album(album_id);
-        append_tracks_to_queue(tracks.into_iter().map(Rc::new).collect(), cx);
+        append_album_to_queue(album_id, cx);
     })
+}
+
+pub fn append_album_to_queue(album_id: i64, cx: &mut App) {
+    let tracks = cx.global::<Services>().library.tracks_for_album(album_id);
+    append_tracks_to_queue(tracks.into_iter().map(Rc::new).collect(), cx);
 }

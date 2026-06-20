@@ -68,6 +68,10 @@ impl LibraryService {
         self.repo.tracks_for_album(album_id).unwrap_or_default()
     }
 
+    pub fn album_track_counts(&self) -> HashMap<i64, i64> {
+        self.repo.album_track_counts().unwrap_or_default()
+    }
+
     pub fn has_tracks(&self) -> bool {
         self.repo.has_tracks().unwrap_or(false)
     }

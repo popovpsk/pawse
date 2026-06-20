@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
     LIKE_ROW_GROUP, RowButtonColors, TrackRowBase, add_to_playlist_button, add_to_queue_button,
-    append_tracks_to_queue, fmt_track_num, like_button, track_duration,
+    append_album_to_queue, append_tracks_to_queue, fmt_track_num, like_button, track_duration,
 };
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
@@ -72,7 +73,6 @@ struct AlbumGroup {
 
 #[derive(Clone)]
 struct AlbumMenu {
-    g_ix: usize,
     album_id: i64,
     anchor: Point<Pixels>,
 }
@@ -98,6 +98,7 @@ pub struct ArtistTracksView {
     current_track_id: Option<i64>,
     is_playing: bool,
     album_menu: Option<AlbumMenu>,
+    partial_albums: HashSet<i64>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
@@ -120,6 +121,7 @@ impl ArtistTracksView {
             let mut cache = services.cover_art_cache.borrow_mut();
             Self::group_by_album(&tracks_all, &services.library, &mut cache)
         };
+        let partial_albums = Self::compute_partial_albums(&tracks_all, &services.library);
         let (items, sizes) = Self::build_items(&groups, tr());
 
         let current_track_id = services
@@ -216,10 +218,29 @@ impl ArtistTracksView {
             current_track_id,
             is_playing,
             album_menu: None,
+            partial_albums,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
         }
+    }
+
+    fn compute_partial_albums(
+        tracks: &[Rc<music_library::Track>],
+        library: &crate::library_service::LibraryService,
+    ) -> HashSet<i64> {
+        let album_totals = library.album_track_counts();
+        let mut artist_counts: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+        for track in tracks {
+            if let Some(album_id) = track.album_id {
+                *artist_counts.entry(album_id).or_default() += 1;
+            }
+        }
+        artist_counts
+            .into_iter()
+            .filter(|(album_id, mine)| album_totals.get(album_id).copied().unwrap_or(0) > *mine)
+            .map(|(album_id, _)| album_id)
+            .collect()
     }
 
     fn group_by_album(
@@ -289,6 +310,7 @@ impl ArtistTracksView {
             return;
         }
         self.filter = trimmed;
+        self.album_menu = None;
         self.recompute_groups(cx);
         self.scroll_handle
             .scroll_to_item(0, gpui::ScrollStrategy::Top);
@@ -502,6 +524,7 @@ fn artist_album_header(
             .into_any_element(),
     };
     let trigger_hover = Colors::muted(cx);
+    let menu_album = album_id.filter(|aid| view.partial_albums.contains(aid));
     h_flex()
         .w_full()
         .h(px(ALBUM_HEADER_HEIGHT))
@@ -512,13 +535,19 @@ fn artist_album_header(
         .border_color(border)
         .child(cover_el)
         .child(h_flex().flex_1().overflow_hidden().child(title_el))
-        .child(album_queue_trigger(g_ix, album_id, muted_fg, trigger_hover, cx))
+        .child(album_queue_trigger(
+            g_ix,
+            menu_album,
+            muted_fg,
+            trigger_hover,
+            cx,
+        ))
         .into_any_element()
 }
 
 fn album_queue_trigger(
     g_ix: usize,
-    album_id: Option<i64>,
+    menu_album: Option<i64>,
     icon_color: Hsla,
     hover_bg: Hsla,
     cx: &mut Context<ArtistTracksView>,
@@ -540,10 +569,9 @@ fn album_queue_trigger(
                 .text_color(icon_color),
         )
         .tooltip(|window, cx| Tooltip::new(tr().add_to_queue.clone()).build(window, cx));
-    match album_id {
+    match menu_album {
         Some(aid) => base.on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
             this.album_menu = Some(AlbumMenu {
-                g_ix,
                 album_id: aid,
                 anchor: ev.position(),
             });
@@ -565,7 +593,6 @@ fn album_menu_overlay(
     hover_bg: Hsla,
     cx: &mut Context<ArtistTracksView>,
 ) -> gpui::AnyElement {
-    let g_ix = menu.g_ix;
     let album_id = menu.album_id;
     let backdrop = div()
         .absolute()
@@ -599,8 +626,8 @@ fn album_menu_overlay(
                 hover_bg,
             )
             .on_click(cx.listener(move |this, _, _, cx| {
-                let tracks = group_tracks(this, g_ix);
                 this.album_menu = None;
+                let tracks = artist_tracks_for_album(this, album_id);
                 append_tracks_to_queue(tracks, cx);
                 cx.notify();
             })),
@@ -615,8 +642,7 @@ fn album_menu_overlay(
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.album_menu = None;
-                let tracks = cx.global::<Services>().library.tracks_for_album(album_id);
-                append_tracks_to_queue(tracks.into_iter().map(Rc::new).collect(), cx);
+                append_album_to_queue(album_id, cx);
                 cx.notify();
             })),
         );
@@ -641,10 +667,24 @@ fn album_menu_overlay(
 }
 
 fn group_tracks(view: &ArtistTracksView, g_ix: usize) -> Vec<Rc<music_library::Track>> {
-    view.groups[g_ix]
+    let Some(group) = view.groups.get(g_ix) else {
+        return Vec::new();
+    };
+    group
         .global_indices
         .iter()
         .map(|&ix| view.tracks_all[ix].clone())
+        .collect()
+}
+
+fn artist_tracks_for_album(
+    view: &ArtistTracksView,
+    album_id: i64,
+) -> Vec<Rc<music_library::Track>> {
+    view.tracks_all
+        .iter()
+        .filter(|t| t.album_id == Some(album_id))
+        .cloned()
         .collect()
 }
 

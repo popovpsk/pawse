@@ -15,7 +15,8 @@ mod row_style;
 pub use like_button::{LIKE_ROW_GROUP, like_button};
 pub use playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};
 pub use queue_button::{
-    add_album_to_queue_button, add_to_queue_button, append_tracks_to_queue, play_replacing_queue,
+    add_album_to_queue_button, add_to_queue_button, append_album_to_queue, append_tracks_to_queue,
+    play_replacing_queue,
 };
 pub use row_style::current_row;
 

@@ -549,6 +549,16 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn album_track_counts(&self) -> Result<HashMap<i64, i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT album_id, COUNT(*) FROM tracks WHERE album_id IS NOT NULL GROUP BY album_id",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn track_artists(&self, track_id: i64) -> Result<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
