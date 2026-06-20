@@ -156,6 +156,14 @@ pub static UK: Strings = lang! {
     restart_to_update: "Перезапустити для оновлення",
     up_to_date: "Встановлено останню версію Pawse",
 
+    lyrics: "Текст пісні",
+    lyrics_empty: "Немає тексту",
+    lyrics_fetching: "Завантаження тексту…",
+    lyrics_not_found: "Текст не знайдено",
+    lyrics_save: "Зберегти текст",
+    lyrics_from_internet: "Підтягувати текст з інтернету",
+    lyrics_from_internet_desc: "Шукати відсутній текст онлайн через LRCLIB. Вимкніть для приватності.",
+
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",
     n_tracks_few: "{} треки",

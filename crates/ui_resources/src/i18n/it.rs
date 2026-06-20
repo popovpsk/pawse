@@ -156,6 +156,14 @@ pub static IT: Strings = lang! {
     restart_to_update: "Riavvia per aggiornare",
     up_to_date: "Pawse è aggiornato",
 
+    lyrics: "Testo",
+    lyrics_empty: "Nessun testo",
+    lyrics_fetching: "Recupero testo…",
+    lyrics_not_found: "Testo non trovato",
+    lyrics_save: "Salva testo",
+    lyrics_from_internet: "Cerca testo su internet",
+    lyrics_from_internet_desc: "Cerca il testo mancante online tramite LRCLIB. Disattiva per la privacy.",
+
     disc_t: "Disco {}",
     n_tracks_one: "{} brano",
     n_tracks_few: "{} brani",

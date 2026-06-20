@@ -156,6 +156,14 @@ pub static RU: Strings = lang! {
     restart_to_update: "Перезапустить для обновления",
     up_to_date: "Установлена последняя версия Pawse",
 
+    lyrics: "Текст",
+    lyrics_empty: "Нет текста",
+    lyrics_fetching: "Загрузка текста…",
+    lyrics_not_found: "Текст не найден",
+    lyrics_save: "Сохранить текст",
+    lyrics_from_internet: "Подтягивать текст из интернета",
+    lyrics_from_internet_desc: "Искать недостающий текст онлайн (LRCLIB). Отключите для приватности.",
+
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",
     n_tracks_few: "{} трека",

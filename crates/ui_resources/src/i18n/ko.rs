@@ -156,6 +156,14 @@ pub static KO: Strings = lang! {
     restart_to_update: "업데이트하려면 다시 시작",
     up_to_date: "Pawse가 최신 상태입니다",
 
+    lyrics: "가사",
+    lyrics_empty: "가사 없음",
+    lyrics_fetching: "가사 불러오는 중…",
+    lyrics_not_found: "가사를 찾을 수 없음",
+    lyrics_save: "가사 저장",
+    lyrics_from_internet: "인터넷에서 가사 가져오기",
+    lyrics_from_internet_desc: "LRCLIB을 통해 온라인에서 누락된 가사를 검색합니다. 개인정보 보호를 위해 끄세요.",
+
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",
     n_tracks_few: "트랙 {}개",

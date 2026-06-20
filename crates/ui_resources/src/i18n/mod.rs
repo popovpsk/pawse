@@ -212,6 +212,15 @@ pub struct Strings {
     pub restart_to_update: SharedString,
     pub up_to_date: SharedString,
 
+    // --- Lyrics ---
+    pub lyrics: SharedString,
+    pub lyrics_empty: SharedString,
+    pub lyrics_fetching: SharedString,
+    pub lyrics_not_found: SharedString,
+    pub lyrics_save: SharedString,
+    pub lyrics_from_internet: SharedString,
+    pub lyrics_from_internet_desc: SharedString,
+
     // --- Templated (read via the accessor methods below) ---
     pub update_ready_t: SharedString,
     pub update_check_failed_t: SharedString,

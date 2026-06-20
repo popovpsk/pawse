@@ -156,6 +156,14 @@ pub static HI: Strings = lang! {
     restart_to_update: "अपडेट के लिए पुनः आरंभ करें",
     up_to_date: "Pawse अप टू डेट है",
 
+    lyrics: "बोल",
+    lyrics_empty: "कोई बोल नहीं",
+    lyrics_fetching: "बोल लोड हो रहे हैं…",
+    lyrics_not_found: "बोल नहीं मिले",
+    lyrics_save: "बोल सहेजें",
+    lyrics_from_internet: "इंटरनेट से बोल लाएं",
+    lyrics_from_internet_desc: "LRCLIB के माध्यम से ऑनलाइन गुम बोल खोजें। गोपनीयता के लिए बंद करें।",
+
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",
     n_tracks_few: "{} ट्रैक",

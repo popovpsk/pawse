@@ -156,6 +156,14 @@ pub static EN: Strings = lang! {
     restart_to_update: "Restart to update",
     up_to_date: "Pawse is up to date",
 
+    lyrics: "Lyrics",
+    lyrics_empty: "No lyrics",
+    lyrics_fetching: "Fetching lyrics…",
+    lyrics_not_found: "Lyrics not found",
+    lyrics_save: "Save lyrics",
+    lyrics_from_internet: "Fetch lyrics from the internet",
+    lyrics_from_internet_desc: "Look up missing lyrics online via LRCLIB. Turn off for privacy.",
+
     disc_t: "Disc {}",
     n_tracks_one: "{} track",
     n_tracks_few: "{} tracks",

@@ -156,6 +156,14 @@ pub static TH: Strings = lang! {
     restart_to_update: "รีสตาร์ทเพื่ออัปเดต",
     up_to_date: "Pawse เป็นเวอร์ชันล่าสุดแล้ว",
 
+    lyrics: "เนื้อเพลง",
+    lyrics_empty: "ไม่มีเนื้อเพลง",
+    lyrics_fetching: "กำลังโหลดเนื้อเพลง…",
+    lyrics_not_found: "ไม่พบเนื้อเพลง",
+    lyrics_save: "บันทึกเนื้อเพลง",
+    lyrics_from_internet: "ดึงเนื้อเพลงจากอินเทอร์เน็ต",
+    lyrics_from_internet_desc: "ค้นหาเนื้อเพลงที่ขาดหายไปทางออนไลน์ผ่าน LRCLIB ปิดเพื่อความเป็นส่วนตัว",
+
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",
     n_tracks_few: "{} เพลง",

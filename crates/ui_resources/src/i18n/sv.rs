@@ -156,6 +156,14 @@ pub static SV: Strings = lang! {
     restart_to_update: "Starta om för att uppdatera",
     up_to_date: "Pawse är uppdaterat",
 
+    lyrics: "Låttext",
+    lyrics_empty: "Ingen låttext",
+    lyrics_fetching: "Hämtar låttext…",
+    lyrics_not_found: "Låttext hittades inte",
+    lyrics_save: "Spara låttext",
+    lyrics_from_internet: "Hämta låttext från internet",
+    lyrics_from_internet_desc: "Sök efter saknad låttext online via LRCLIB. Stäng av för integritet.",
+
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",
     n_tracks_few: "{} låtar",

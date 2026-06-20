@@ -156,6 +156,14 @@ pub static ID: Strings = lang! {
     restart_to_update: "Mulai ulang untuk memperbarui",
     up_to_date: "Pawse sudah versi terbaru",
 
+    lyrics: "Lirik",
+    lyrics_empty: "Tidak ada lirik",
+    lyrics_fetching: "Mengambil lirik…",
+    lyrics_not_found: "Lirik tidak ditemukan",
+    lyrics_save: "Simpan lirik",
+    lyrics_from_internet: "Ambil lirik dari internet",
+    lyrics_from_internet_desc: "Cari lirik yang hilang secara online melalui LRCLIB. Matikan untuk privasi.",
+
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",
     n_tracks_few: "{} lagu",

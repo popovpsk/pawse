@@ -156,6 +156,14 @@ pub static DE: Strings = lang! {
     restart_to_update: "Zum Aktualisieren neu starten",
     up_to_date: "Pawse ist aktuell",
 
+    lyrics: "Liedtext",
+    lyrics_empty: "Kein Liedtext",
+    lyrics_fetching: "Liedtext wird geladen…",
+    lyrics_not_found: "Liedtext nicht gefunden",
+    lyrics_save: "Liedtext speichern",
+    lyrics_from_internet: "Liedtext aus dem Internet laden",
+    lyrics_from_internet_desc: "Fehlende Liedtexte online über LRCLIB suchen. Für mehr Datenschutz deaktivieren.",
+
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",
     n_tracks_few: "{} Titel",
