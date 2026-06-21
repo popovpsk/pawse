@@ -204,9 +204,7 @@ pub fn build_settings_pages(
             .group(cover_view_group())
             .group(queue_group()),
     ];
-    if updater::is_supported() {
-        pages.push(SettingPage::new(tr().settings_general.clone()).group(general_group()));
-    }
+    pages.push(SettingPage::new(tr().settings_general.clone()).group(general_group()));
     pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
     pages
 }
@@ -436,27 +434,53 @@ fn interface_group(
 }
 
 fn general_group() -> SettingGroup {
-    SettingGroup::new().item(
+    let mut group = SettingGroup::new().item(
         SettingItem::new(
-            tr().automatic_updates.clone(),
+            tr().lyrics_from_internet.clone(),
             SettingField::render(|_window, cx: &mut App| {
-                let enabled = cx.global::<SettingsStore>().auto_update();
+                let enabled = cx.global::<SettingsStore>().lyrics_from_internet();
                 h_flex().items_center().justify_end().child(
-                    Switch::new("auto-update-toggle").checked(enabled).on_click(
-                        |new_val, _, cx| {
-                            if let Err(e) =
-                                cx.global_mut::<SettingsStore>().set_auto_update(*new_val)
+                    Switch::new("lyrics-from-internet-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_lyrics_from_internet(*new_val)
                             {
                                 notify_save_error(cx, e);
                             }
-                            updater::set_enabled(cx, *new_val);
-                        },
-                    ),
+                        }),
                 )
             }),
         )
-        .description(tr().automatic_updates_desc.clone()),
-    )
+        .description(tr().lyrics_from_internet_desc.clone()),
+    );
+
+    if updater::is_supported() {
+        group = group.item(
+            SettingItem::new(
+                tr().automatic_updates.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().auto_update();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("auto-update-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_auto_update(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                                updater::set_enabled(cx, *new_val);
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().automatic_updates_desc.clone()),
+        );
+    }
+
+    group
 }
 
 fn albums_view_group() -> SettingGroup {

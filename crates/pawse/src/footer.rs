@@ -25,6 +25,11 @@ pub struct ToggleQueueEvent {
     pub show: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct ToggleLyricsEvent {
+    pub show: bool,
+}
+
 pub struct Footer {
     play_button: Entity<PlayButton>,
     prev_button: Entity<PrevButton>,
@@ -35,6 +40,7 @@ pub struct Footer {
     track_progress_slider: Entity<TrackProgressSlider>,
     now_playing: Entity<NowPlaying>,
     show_queue: bool,
+    show_lyrics: bool,
     show_repeat_shuffle: bool,
     _settings_subscription: Subscription,
     _np_album_subscription: Subscription,
@@ -57,9 +63,18 @@ impl Footer {
         self.show_queue = show;
         cx.notify();
     }
+
+    pub fn set_show_lyrics(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.show_lyrics == show {
+            return;
+        }
+        self.show_lyrics = show;
+        cx.notify();
+    }
 }
 
 impl EventEmitter<ToggleQueueEvent> for Footer {}
+impl EventEmitter<ToggleLyricsEvent> for Footer {}
 impl EventEmitter<NavigateToAlbumRequested> for Footer {}
 impl EventEmitter<NavigateToArtistRequested> for Footer {}
 
@@ -103,6 +118,7 @@ impl Footer {
             track_progress_slider: cx.new(|cx| TrackProgressSlider::new(window, cx)),
             now_playing,
             show_queue: false,
+            show_lyrics: false,
             show_repeat_shuffle,
             _settings_subscription: settings_subscription,
             _np_album_subscription: np_album_subscription,
@@ -153,32 +169,65 @@ impl Render for Footer {
                 } else {
                     Colors::muted_foreground(cx)
                 };
+                let lyrics_color = if self.show_lyrics {
+                    Colors::primary(cx)
+                } else {
+                    Colors::muted_foreground(cx)
+                };
                 v_flex()
                     .w(px(200.))
                     .items_end()
                     .justify_center()
                     .gap_1()
                     .child(
-                        div()
-                            .id("queue_toggle")
-                            .cursor_pointer()
-                            .rounded(px(4.))
-                            .hover(|s| s.bg(Colors::muted(cx)))
-                            .tooltip(|window, cx| {
-                                Tooltip::new(tr().queue.clone()).build(window, cx)
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_queue = !this.show_queue;
-                                cx.emit(ToggleQueueEvent {
-                                    show: this.show_queue,
-                                });
-                                cx.notify();
-                            }))
+                        h_flex()
+                            .gap_1()
+                            .items_center()
                             .child(
-                                svg()
-                                    .path("icons/s2-queue.svg")
-                                    .size(px(22.))
-                                    .text_color(queue_color),
+                                div()
+                                    .id("lyrics_toggle")
+                                    .cursor_pointer()
+                                    .rounded(px(4.))
+                                    .hover(|s| s.bg(Colors::muted(cx)))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr().lyrics.clone()).build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_lyrics = !this.show_lyrics;
+                                        cx.emit(ToggleLyricsEvent {
+                                            show: this.show_lyrics,
+                                        });
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path("icons/s2-lyrics.svg")
+                                            .size(px(22.))
+                                            .text_color(lyrics_color),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("queue_toggle")
+                                    .cursor_pointer()
+                                    .rounded(px(4.))
+                                    .hover(|s| s.bg(Colors::muted(cx)))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr().queue.clone()).build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_queue = !this.show_queue;
+                                        cx.emit(ToggleQueueEvent {
+                                            show: this.show_queue,
+                                        });
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        svg()
+                                            .path("icons/s2-queue.svg")
+                                            .size(px(22.))
+                                            .text_color(queue_color),
+                                    ),
                             ),
                     )
                     .child(self.volume_slider.clone())

@@ -4840,6 +4840,7 @@ dependencies = [
  "image",
  "interprocess",
  "log",
+ "lyrics",
  "media_integration",
  "music_indexer",
  "music_library",

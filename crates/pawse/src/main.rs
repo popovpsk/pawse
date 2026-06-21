@@ -21,6 +21,7 @@ pub mod library_service;
 pub mod library_views;
 pub mod library_watcher;
 pub mod localization;
+pub mod lyrics_view;
 pub mod main_view;
 pub mod media_bridge;
 pub mod next_button;

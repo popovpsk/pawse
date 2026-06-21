@@ -18,7 +18,7 @@ use gpui_component::{
 use crate::audio_settings::AudioSettings;
 use crate::cover_mode_view::{CORNER_FADE, CoverModeView};
 use crate::cover_volume::CoverVolume;
-use crate::footer::{Footer, ToggleQueueEvent};
+use crate::footer::{Footer, ToggleLyricsEvent, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
     ExitCoverMode, NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown,
     VolumeUp,
@@ -27,6 +27,7 @@ use crate::library_service::LibraryEvent;
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
 use crate::localization::LangChanged;
 use crate::localization::tr;
+use crate::lyrics_view::LyricsView;
 #[cfg(not(target_os = "macos"))]
 use crate::media_bridge::MediaBridge;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
@@ -42,6 +43,7 @@ const FOOTER_HEIGHT: f32 = 80.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;
+const LYRICS_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_ANIM: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy)]
@@ -66,6 +68,7 @@ pub struct MainView {
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
     queue_view: Entity<QueueView>,
+    lyrics_view: Entity<LyricsView>,
     playlist_popup: Entity<PlaylistPopup>,
     is_drilled_in: bool,
     current_tab: LibraryRootTab,
@@ -78,6 +81,9 @@ pub struct MainView {
     queue_resize_origin: Option<(Pixels, f32)>,
     queue_closing: bool,
     _queue_close_task: Option<gpui::Task<()>>,
+    show_lyrics: bool,
+    lyrics_closing: bool,
+    _lyrics_close_task: Option<gpui::Task<()>>,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _theme_picker: Entity<ThemePickerState>,
@@ -88,6 +94,7 @@ pub struct MainView {
     _scan_subscription: Subscription,
     _search_subscription: Subscription,
     _footer_subscription: Subscription,
+    _footer_lyrics_subscription: Subscription,
     _footer_album_subscription: Subscription,
     _footer_artist_subscription: Subscription,
     _cover_album_subscription: Subscription,
@@ -202,6 +209,10 @@ impl MainView {
         let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
             this.set_queue_visible(event.show, cx);
         });
+        let footer_lyrics_subscription =
+            cx.subscribe(&footer, |this, _, event: &ToggleLyricsEvent, cx| {
+                this.set_lyrics_visible(event.show, cx);
+            });
 
         let cover_volume_source = footer.read(cx).volume().clone();
         let cover_volume = cx.new(|cx| CoverVolume::new(cover_volume_source, window, cx));
@@ -229,6 +240,7 @@ impl MainView {
         });
 
         let queue_view = cx.new(|cx| QueueView::new(window, cx));
+        let lyrics_view = cx.new(|cx| LyricsView::new(window, cx));
 
         let cover_mode_view = cx.new(|cx| CoverModeView::new(window, cx));
         let cover_album_subscription = cx.subscribe(&cover_mode_view, {
@@ -326,6 +338,7 @@ impl MainView {
             library_view,
             footer,
             queue_view,
+            lyrics_view,
             playlist_popup,
             is_drilled_in: false,
             current_tab: LibraryRootTab::Albums,
@@ -338,6 +351,9 @@ impl MainView {
             queue_resize_origin: None,
             queue_closing: false,
             _queue_close_task: None,
+            show_lyrics: false,
+            lyrics_closing: false,
+            _lyrics_close_task: None,
             settings_pages,
             search_input,
             _theme_picker: theme_picker,
@@ -348,6 +364,7 @@ impl MainView {
             _scan_subscription: scan_subscription,
             _search_subscription: search_subscription,
             _footer_subscription: footer_subscription,
+            _footer_lyrics_subscription: footer_lyrics_subscription,
             _footer_album_subscription: footer_album_subscription,
             _footer_artist_subscription: footer_artist_subscription,
             _cover_album_subscription: cover_album_subscription,
@@ -436,6 +453,12 @@ impl MainView {
         self.set_queue_visible(show, cx);
     }
 
+    fn toggle_cover_lyrics(&mut self, cx: &mut Context<Self>) {
+        let show = !self.show_lyrics;
+        self.footer.update(cx, |f, cx| f.set_show_lyrics(show, cx));
+        self.set_lyrics_visible(show, cx);
+    }
+
     fn set_queue_visible(&mut self, show: bool, cx: &mut Context<Self>) {
         if self.show_queue == show {
             return;
@@ -452,6 +475,30 @@ impl MainView {
                 let _ = this.update(cx, |this, cx| {
                     this.queue_closing = false;
                     this._queue_close_task = None;
+                    cx.notify();
+                });
+            }));
+        }
+        cx.notify();
+    }
+
+    fn set_lyrics_visible(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.show_lyrics == show {
+            return;
+        }
+        self.show_lyrics = show;
+        self.lyrics_view
+            .update(cx, |lv, cx| lv.set_visible(show, cx));
+        if show {
+            self.lyrics_closing = false;
+            self._lyrics_close_task = None;
+        } else {
+            self.lyrics_closing = true;
+            self._lyrics_close_task = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(QUEUE_ANIM).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.lyrics_closing = false;
+                    this._lyrics_close_task = None;
                     cx.notify();
                 });
             }));
@@ -632,7 +679,9 @@ impl Render for MainView {
                             .flex_1()
                             .overflow_hidden()
                             .when(!cover_mode, |d| d.ml_4())
-                            .when(!cover_mode && !self.show_queue, |d| d.mr_4())
+                            .when(!cover_mode && !self.show_queue && !self.show_lyrics, |d| {
+                                d.mr_4()
+                            })
                             .child(if cover_mode {
                                 self.cover_mode_view.clone().into_any_element()
                             } else if show_settings {
@@ -660,7 +709,12 @@ impl Render for MainView {
                                         .size_full()
                                         .child(cover_chrome_button(chrome_visible, tab_colors, cx))
                                         .when(immersive, |d| {
-                                            d.child(cover_queue_button(
+                                            d.child(cover_lyrics_button(
+                                                self.show_lyrics,
+                                                tab_colors,
+                                                cx,
+                                            ))
+                                            .child(cover_queue_button(
                                                 self.show_queue,
                                                 tab_colors,
                                                 cx,
@@ -691,6 +745,33 @@ impl Render for MainView {
                                 },
                             ),
                     )
+                    .when(self.show_lyrics || self.lyrics_closing, |d| {
+                        let closing = self.lyrics_closing;
+                        d.child(
+                            div()
+                                .flex_shrink_0()
+                                .border_l(px(1.))
+                                .border_color(Colors::border(cx))
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .overflow_hidden()
+                                        .child(self.lyrics_view.clone()),
+                                )
+                                .with_animation(
+                                    if closing {
+                                        "lyrics-slide-out"
+                                    } else {
+                                        "lyrics-slide-in"
+                                    },
+                                    Animation::new(QUEUE_ANIM).with_easing(ease_out_quint()),
+                                    move |this, delta| {
+                                        let factor = if closing { 1.0 - delta } else { delta };
+                                        this.w(px(LYRICS_WIDTH_DEFAULT * factor))
+                                    },
+                                ),
+                        )
+                    })
                     .when(self.show_queue || self.queue_closing, |d| {
                         let queue_width = self.queue_width;
                         let closing = self.queue_closing;
@@ -939,6 +1020,39 @@ fn cover_queue_button(
         .child(
             svg()
                 .path("icons/s2-queue.svg")
+                .size(px(20.))
+                .text_color(fg),
+        )
+}
+
+fn cover_lyrics_button(
+    show_lyrics: bool,
+    colors: TabColors,
+    cx: &mut Context<MainView>,
+) -> impl IntoElement {
+    let fg = if show_lyrics {
+        colors.primary
+    } else {
+        colors.foreground
+    };
+    let hover_bg = colors.hover_bg;
+
+    div()
+        .id("cover_lyrics_toggle")
+        .absolute()
+        .bottom(px(12.))
+        .right(px(100.))
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .tooltip(|window, cx| Tooltip::new(tr().lyrics.clone()).build(window, cx))
+        .hover(move |s| s.bg(hover_bg))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_cover_lyrics(cx)))
+        .child(
+            svg()
+                .path("icons/s2-lyrics.svg")
                 .size(px(20.))
                 .text_color(fg),
         )
