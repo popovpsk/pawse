@@ -31,6 +31,7 @@ macOS · Windows · Linux
 - **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, and more.
 - **Instant fuzzy search** — find any album, artist or track as you type.
 - **Playlists & likes** — create, edit and drag-reorder playlists; like tracks.
+- **Lyrics** — time-synced lyrics from your files or fetched online.
 - **System media integration** — control playback from your OS media controls and hardware media keys.
 - **CUE sheets** — single-file albums are split into individual tracks automatically.
 
