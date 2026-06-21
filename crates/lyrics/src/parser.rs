@@ -14,7 +14,7 @@ pub fn parse_lrc(raw: &str) -> Lyrics {
     let mut lines: Vec<LyricLine> = Vec::new();
     let mut synced = false;
 
-    for raw_line in raw.lines() {
+    for raw_line in raw.split(['\n', '\r']) {
         let mut rest = raw_line;
         let mut times: Vec<u32> = Vec::new();
 
@@ -172,6 +172,13 @@ mod tests {
         assert_eq!(parsed.lines.len(), 3);
         assert!(parsed.lines.iter().all(|l| l.time_ms.is_none()));
         assert_eq!(parsed.lines[0].text, "first line");
+    }
+
+    #[test]
+    fn splits_on_carriage_returns() {
+        let parsed = parse_lrc("first\rsecond\r\nthird");
+        let texts: Vec<_> = parsed.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, vec!["first", "second", "third"]);
     }
 
     #[test]

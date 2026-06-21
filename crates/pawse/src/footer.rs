@@ -186,8 +186,12 @@ impl Render for Footer {
                             .child(
                                 div()
                                     .id("lyrics_toggle")
+                                    .size(px(34.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
                                     .cursor_pointer()
-                                    .rounded(px(4.))
+                                    .rounded_full()
                                     .hover(|s| s.bg(Colors::muted(cx)))
                                     .tooltip(|window, cx| {
                                         Tooltip::new(tr().lyrics.clone()).build(window, cx)
@@ -209,8 +213,12 @@ impl Render for Footer {
                             .child(
                                 div()
                                     .id("queue_toggle")
+                                    .size(px(34.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
                                     .cursor_pointer()
-                                    .rounded(px(4.))
+                                    .rounded_full()
                                     .hover(|s| s.bg(Colors::muted(cx)))
                                     .tooltip(|window, cx| {
                                         Tooltip::new(tr().queue.clone()).build(window, cx)

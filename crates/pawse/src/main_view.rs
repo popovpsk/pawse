@@ -1041,7 +1041,7 @@ fn cover_lyrics_button(
         .id("cover_lyrics_toggle")
         .absolute()
         .bottom(px(12.))
-        .right(px(100.))
+        .right(px(56.))
         .size(px(36.))
         .flex()
         .items_center()

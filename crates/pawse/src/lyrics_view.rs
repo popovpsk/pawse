@@ -16,6 +16,7 @@ use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
 const LYRICS_SOURCE: &str = "lrclib";
+const LYRICS_LOOKAHEAD: usize = 2;
 
 pub struct LyricsView {
     current_track_id: Option<i64>,
@@ -269,7 +270,8 @@ impl LyricsView {
         }
         self.active_ix = new_active;
         if let Some(ix) = new_active {
-            self.scroll_handle.scroll_to_item(ix);
+            let target = (ix + LYRICS_LOOKAHEAD).min(self.lines.len().saturating_sub(1));
+            self.scroll_handle.scroll_to_item(target);
         }
         cx.notify();
     }
@@ -320,7 +322,7 @@ impl Render for LyricsView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .rounded(px(4.))
+                        .rounded_full()
                         .cursor_pointer()
                         .hover(|s| s.bg(muted))
                         .tooltip(|window, cx| {

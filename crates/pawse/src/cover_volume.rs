@@ -112,7 +112,7 @@ impl Render for CoverVolume {
             .id("cover_volume")
             .absolute()
             .bottom(px(12.))
-            .right(px(56.))
+            .right(px(100.))
             .flex()
             .flex_col()
             .items_center()
