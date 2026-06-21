@@ -40,6 +40,9 @@ pub enum LibraryEvent {
         playlist_id: i64,
     },
     QueueChanged,
+    LyricsChanged {
+        track_id: i64,
+    },
 }
 
 pub struct LibraryService {
@@ -134,6 +137,18 @@ impl LibraryService {
         let _ = self
             .event_tx
             .send(LibraryEvent::TrackLikedChanged { track_id, liked });
+    }
+
+    pub fn lyrics_for_track(&self, track_id: i64) -> Option<music_library::StoredLyrics> {
+        self.repo.lyrics_for_track(track_id).unwrap_or_default()
+    }
+
+    pub fn save_lyrics(&self, track_id: i64, text: String, synced: bool, source: &str) {
+        if let Err(e) = self.repo.upsert_lyrics(track_id, &text, synced, source) {
+            log::error!("Failed to save lyrics for track {}: {}", track_id, e);
+            return;
+        }
+        let _ = self.event_tx.send(LibraryEvent::LyricsChanged { track_id });
     }
 
     pub fn playlists(&self) -> Vec<music_library::PlaylistSummary> {
@@ -524,7 +539,11 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         cover_hash: track.cover_hash,
         start_offset_ms: track.start_offset_ms,
         bitrate: track.bitrate,
-        lyrics: None,
+        lyrics: track.lyrics.map(|l| music_library::ScanLyrics {
+            text: l.text,
+            synced: l.synced,
+            source: l.source.as_str().to_string(),
+        }),
     }
 }
 

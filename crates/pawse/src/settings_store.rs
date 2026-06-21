@@ -271,6 +271,8 @@ pub struct UserSettings {
     pub albums_artist_display: AlbumsArtistDisplay,
     #[serde(default = "default_true")]
     pub auto_update: bool,
+    #[serde(default = "default_true")]
+    pub lyrics_from_internet: bool,
     #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default)]
@@ -301,6 +303,7 @@ impl Default for UserSettings {
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
             auto_update: true,
+            lyrics_from_internet: true,
             font_scale: FontScale::default(),
             onboarding_complete: false,
         }
@@ -459,6 +462,15 @@ impl SettingsStore {
 
     pub fn set_auto_update(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.auto_update = enabled;
+        self.save()
+    }
+
+    pub fn lyrics_from_internet(&self) -> bool {
+        self.settings.lyrics_from_internet
+    }
+
+    pub fn set_lyrics_from_internet(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_from_internet = enabled;
         self.save()
     }
 
@@ -877,6 +889,7 @@ mod tests {
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
             auto_update: true,
+            lyrics_from_internet: true,
             font_scale: FontScale::Large,
             onboarding_complete: false,
         };
