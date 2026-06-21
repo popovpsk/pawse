@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
+    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, LyricsRef, NewTrack, PlaylistSummary,
     PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 
@@ -84,6 +84,16 @@ pub trait LibraryRepository: Send + Sync {
 
     fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>>;
     fn upsert_lyrics(&self, track_id: i64, text: &str, synced: bool, source: &str) -> Result<()>;
+    fn track_count_for_path(&self, path: &str) -> Result<i64>;
+
+    /// Capture lyrics that can't be re-derived from disk (network fetches) by
+    /// content key, so a `clear()` + rescan doesn't drop them. Disk-backed
+    /// sources (`lrc`, `embedded`) are excluded — the scan re-reads those.
+    fn lyrics_refs(&self) -> Result<Vec<LyricsRef>>;
+    /// Re-insert snapshotted lyrics for tracks that don't already have a row
+    /// after the rescan (the scan's fresh disk lyrics win). Refs whose
+    /// (path, start_offset_ms) no longer resolve to a track are dropped.
+    fn restore_lyrics_refs(&self, refs: &[LyricsRef]) -> Result<()>;
 
     fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Result<Vec<Track>>;
 

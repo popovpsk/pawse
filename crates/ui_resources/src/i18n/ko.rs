@@ -160,7 +160,7 @@ pub static KO: Strings = lang! {
     lyrics_empty: "가사 없음",
     lyrics_fetching: "가사 불러오는 중…",
     lyrics_not_found: "가사를 찾을 수 없음",
-    lyrics_save: "가사 저장",
+    lyrics_save: ".lrc 파일로 저장",
     lyrics_from_internet: "인터넷에서 가사 가져오기",
     lyrics_from_internet_desc: "LRCLIB을 통해 온라인에서 누락된 가사를 검색합니다. 개인정보 보호를 위해 끄세요.",
 

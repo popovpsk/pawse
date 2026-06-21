@@ -160,7 +160,7 @@ pub static ID: Strings = lang! {
     lyrics_empty: "Tidak ada lirik",
     lyrics_fetching: "Mengambil lirik…",
     lyrics_not_found: "Lirik tidak ditemukan",
-    lyrics_save: "Simpan lirik",
+    lyrics_save: "Simpan ke file .lrc",
     lyrics_from_internet: "Ambil lirik dari internet",
     lyrics_from_internet_desc: "Cari lirik yang hilang secara online melalui LRCLIB. Matikan untuk privasi.",
 

@@ -160,7 +160,7 @@ pub static VI: Strings = lang! {
     lyrics_empty: "Không có lời",
     lyrics_fetching: "Đang tải lời bài hát…",
     lyrics_not_found: "Không tìm thấy lời bài hát",
-    lyrics_save: "Lưu lời bài hát",
+    lyrics_save: "Lưu vào tệp .lrc",
     lyrics_from_internet: "Lấy lời bài hát từ internet",
     lyrics_from_internet_desc: "Tìm kiếm lời bài hát còn thiếu trực tuyến qua LRCLIB. Tắt để bảo vệ quyền riêng tư.",
 

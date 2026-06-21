@@ -160,7 +160,7 @@ pub static HI: Strings = lang! {
     lyrics_empty: "कोई बोल नहीं",
     lyrics_fetching: "बोल लोड हो रहे हैं…",
     lyrics_not_found: "बोल नहीं मिले",
-    lyrics_save: "बोल सहेजें",
+    lyrics_save: ".lrc फ़ाइल में सहेजें",
     lyrics_from_internet: "इंटरनेट से बोल लाएं",
     lyrics_from_internet_desc: "LRCLIB के माध्यम से ऑनलाइन गुम बोल खोजें। गोपनीयता के लिए बंद करें।",
 

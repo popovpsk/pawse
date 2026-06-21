@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use music_indexer::{PreparedTrack, ScanEvent};
-use music_library::{LibraryRepository, PlaylistTrackRef, ScanTrack, SqliteLibrary};
+use music_library::{LibraryRepository, LyricsRef, PlaylistTrackRef, ScanTrack, SqliteLibrary};
 
 const SCAN_DEBOUNCE: Duration = Duration::from_secs(2);
 
@@ -149,6 +149,40 @@ impl LibraryService {
             return;
         }
         let _ = self.event_tx.send(LibraryEvent::LyricsChanged { track_id });
+    }
+
+    pub fn is_multitrack_file(&self, path: &str) -> bool {
+        self.repo.track_count_for_path(path).unwrap_or(0) > 1
+    }
+
+    pub fn save_lyrics_file(
+        &self,
+        track_id: i64,
+        audio_path: PathBuf,
+        text: String,
+        synced: bool,
+    ) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        self.executor
+            .spawn(async move {
+                let lrc_path = audio_path.with_extension("lrc");
+                if let Err(e) = std::fs::write(&lrc_path, &text) {
+                    log::error!("Failed to write lyrics file {:?}: {}", lrc_path, e);
+                    return;
+                }
+                // why: don't re-baseline the scan fingerprint — collect_sources hashes the whole tree, so a not-yet-indexed change would be absorbed and skipped by the next rescan
+                if let Err(e) = repo.upsert_lyrics(track_id, &text, synced, "lrc") {
+                    log::error!(
+                        "Failed to update lyrics after export for {}: {}",
+                        track_id,
+                        e
+                    );
+                } else {
+                    let _ = event_tx.send(LibraryEvent::LyricsChanged { track_id });
+                }
+            })
+            .detach();
     }
 
     pub fn playlists(&self) -> Vec<music_library::PlaylistSummary> {
@@ -407,6 +441,14 @@ impl LibraryService {
             Vec::new()
         });
 
+        // Network-fetched lyrics aren't on disk, so the rescan can't re-read
+        // them; snapshot them by content key and restore after, or they'd be
+        // cascade-deleted with the tracks row on every rescan.
+        let lyrics_refs = repo.lyrics_refs().unwrap_or_else(|e| {
+            log::error!("Failed to snapshot lyrics: {}", e);
+            Vec::new()
+        });
+
         // Covers survive clear(); hand the pipeline their hashes so it skips
         // regenerating thumbnails that already exist.
         let known_hashes: HashSet<String> = repo
@@ -433,7 +475,13 @@ impl LibraryService {
         if paths.is_empty() {
             let ok = match session.finish() {
                 Ok(()) => {
-                    finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                    finalize_rescan(
+                        &*repo,
+                        &playlist_refs,
+                        &lyrics_refs,
+                        &fingerprint,
+                        &folders_key,
+                    );
                     true
                 }
                 Err(e) => {
@@ -492,7 +540,13 @@ impl LibraryService {
         // written library and never rescan to repair it.
         let ok = match session.finish() {
             Ok(()) => {
-                finalize_rescan(&*repo, &playlist_refs, &fingerprint, &folders_key);
+                finalize_rescan(
+                    &*repo,
+                    &playlist_refs,
+                    &lyrics_refs,
+                    &fingerprint,
+                    &folders_key,
+                );
                 true
             }
             Err(e) => {
@@ -553,11 +607,15 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
 fn finalize_rescan(
     repo: &dyn LibraryRepository,
     playlist_refs: &[PlaylistTrackRef],
+    lyrics_refs: &[LyricsRef],
     fingerprint: &str,
     folders_key: &str,
 ) {
     if let Err(e) = repo.restore_playlist_track_refs(playlist_refs) {
         log::error!("Failed to restore playlist tracks: {}", e);
+    }
+    if let Err(e) = repo.restore_lyrics_refs(lyrics_refs) {
+        log::error!("Failed to restore lyrics: {}", e);
     }
     if let Err(e) = repo.delete_orphaned_albums_and_artists() {
         log::error!("Failed to clean up orphaned cover art: {}", e);

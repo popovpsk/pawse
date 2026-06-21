@@ -160,7 +160,7 @@ pub static EN: Strings = lang! {
     lyrics_empty: "No lyrics",
     lyrics_fetching: "Fetching lyrics…",
     lyrics_not_found: "Lyrics not found",
-    lyrics_save: "Save lyrics",
+    lyrics_save: "Save to .lrc file",
     lyrics_from_internet: "Fetch lyrics from the internet",
     lyrics_from_internet_desc: "Look up missing lyrics online via LRCLIB. Turn off for privacy.",
 

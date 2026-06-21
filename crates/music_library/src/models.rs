@@ -151,3 +151,18 @@ pub struct PlaylistTrackRef {
     pub path: String,
     pub start_offset_ms: i32,
 }
+
+/// A frozen lyrics row keyed by **content key** (path + start_offset_ms), used
+/// to carry non-disk-derived lyrics (network fetches) across a full rescan.
+/// `clear()` cascades the `lyrics` table away with `tracks`, and a rescan only
+/// re-reads `.lrc`/embedded lyrics from disk — so without this, fetched lyrics
+/// would vanish on every rescan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LyricsRef {
+    pub path: String,
+    pub start_offset_ms: i32,
+    pub synced: bool,
+    pub source: String,
+    pub text: String,
+    pub updated_at: i64,
+}

@@ -750,7 +750,13 @@ fn queue_menu_row(
         .text_sm()
         .text_color(foreground)
         .hover(move |s| s.bg(hover_bg))
-        .child(svg().path(icon).size(px(14.)).flex_shrink_0().text_color(foreground))
+        .child(
+            svg()
+                .path(icon)
+                .size(px(14.))
+                .flex_shrink_0()
+                .text_color(foreground),
+        )
         .child(div().whitespace_nowrap().child(label))
 }
 

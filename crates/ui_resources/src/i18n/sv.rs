@@ -160,7 +160,7 @@ pub static SV: Strings = lang! {
     lyrics_empty: "Ingen låttext",
     lyrics_fetching: "Hämtar låttext…",
     lyrics_not_found: "Låttext hittades inte",
-    lyrics_save: "Spara låttext",
+    lyrics_save: "Spara till .lrc-fil",
     lyrics_from_internet: "Hämta låttext från internet",
     lyrics_from_internet_desc: "Sök efter saknad låttext online via LRCLIB. Stäng av för integritet.",
 

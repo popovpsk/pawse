@@ -160,7 +160,7 @@ pub static TR: Strings = lang! {
     lyrics_empty: "Söz yok",
     lyrics_fetching: "Sözler getiriliyor…",
     lyrics_not_found: "Söz bulunamadı",
-    lyrics_save: "Sözleri kaydet",
+    lyrics_save: ".lrc dosyasına kaydet",
     lyrics_from_internet: "İnternetten sözleri getir",
     lyrics_from_internet_desc: "Eksik sözleri LRCLIB aracılığıyla çevrimiçi ara. Gizlilik için kapat.",
 

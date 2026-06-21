@@ -147,6 +147,9 @@ impl QueueView {
                 |this, _, event: &EngineEvent, cx| match event {
                     EngineEvent::Loaded { .. } => {
                         this.refresh_tracks(cx);
+                        if this.visible {
+                            this.scroll_current_into_view();
+                        }
                         cx.notify();
                     }
                     EngineEvent::Playing if !this.is_playing => {
@@ -220,6 +223,16 @@ impl QueueView {
 
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
+        if visible {
+            self.scroll_current_into_view();
+        }
+    }
+
+    fn scroll_current_into_view(&self) {
+        if let Some(ix) = self.current_index {
+            self.scroll_handle
+                .scroll_to_item(ix, gpui::ScrollStrategy::Top);
+        }
     }
 
     pub fn refresh_tracks(&mut self, cx: &mut Context<Self>) {

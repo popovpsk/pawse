@@ -160,7 +160,7 @@ pub static CS: Strings = lang! {
     lyrics_empty: "Žádný text",
     lyrics_fetching: "Načítání textu…",
     lyrics_not_found: "Text nenalezen",
-    lyrics_save: "Uložit text",
+    lyrics_save: "Uložit do souboru .lrc",
     lyrics_from_internet: "Stáhnout text z internetu",
     lyrics_from_internet_desc: "Hledat chybějící texty online přes LRCLIB. Vypněte pro ochranu soukromí.",
 

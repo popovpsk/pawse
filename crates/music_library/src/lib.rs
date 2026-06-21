@@ -7,8 +7,8 @@ pub mod thumbnail;
 
 pub use error::{LibraryError, Result};
 pub use models::{
-    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, NewTrack, Playlist,
-    PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack, StoredLyrics, Track,
+    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, LyricsRef, NewTrack,
+    Playlist, PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack, StoredLyrics, Track,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -1232,6 +1232,69 @@ mod tests {
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "Kept");
+    }
+
+    #[test]
+    fn test_fetched_lyrics_survive_clear_and_rescan() {
+        // Network (lrclib) lyrics aren't on disk, so a rescan can't re-read
+        // them; the snapshot/restore must carry them to the new track id.
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Fetched", "Album", "Artist");
+        lib.upsert_lyrics(track_id, "la la la", false, "lrclib")
+            .unwrap();
+
+        let refs = lib.lyrics_refs().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].source, "lrclib");
+
+        lib.clear().unwrap();
+        let new_track_id = seed_track(&lib, "Fetched", "Album", "Artist");
+        assert!(lib.lyrics_for_track(new_track_id).unwrap().is_none());
+
+        lib.restore_lyrics_refs(&refs).unwrap();
+        let restored = lib.lyrics_for_track(new_track_id).unwrap().unwrap();
+        assert_eq!(restored.text, "la la la");
+        assert_eq!(restored.source, "lrclib");
+    }
+
+    #[test]
+    fn test_disk_lyrics_excluded_from_snapshot() {
+        // lrc/embedded lyrics are re-read from disk on rescan, so snapshotting
+        // them would risk reinstating a sidecar the user has since deleted.
+        let (lib, _path) = create_test_db();
+        let lrc = seed_track(&lib, "Sidecar", "Album", "Artist");
+        let embedded = seed_track(&lib, "Tagged", "Album", "Artist");
+        let fetched = seed_track(&lib, "Fetched", "Album", "Artist");
+        lib.upsert_lyrics(lrc, "from sidecar", true, "lrc").unwrap();
+        lib.upsert_lyrics(embedded, "from tag", false, "embedded")
+            .unwrap();
+        lib.upsert_lyrics(fetched, "from net", true, "lrclib")
+            .unwrap();
+
+        let refs = lib.lyrics_refs().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].source, "lrclib");
+    }
+
+    #[test]
+    fn test_restore_lyrics_does_not_clobber_fresh_disk_lyrics() {
+        // If the rescan finds a sidecar .lrc for a track that previously had
+        // fetched lyrics, the fresh disk copy must win over the snapshot.
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.upsert_lyrics(track_id, "stale fetched", false, "lrclib")
+            .unwrap();
+        let refs = lib.lyrics_refs().unwrap();
+
+        lib.clear().unwrap();
+        let new_track_id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.upsert_lyrics(new_track_id, "fresh from disk", true, "lrc")
+            .unwrap();
+        lib.restore_lyrics_refs(&refs).unwrap();
+
+        let kept = lib.lyrics_for_track(new_track_id).unwrap().unwrap();
+        assert_eq!(kept.text, "fresh from disk");
+        assert_eq!(kept.source, "lrc");
     }
 
     #[test]

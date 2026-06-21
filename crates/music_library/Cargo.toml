@@ -11,6 +11,8 @@ dirs = "6.0"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
+flate2 = "1"
+log = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

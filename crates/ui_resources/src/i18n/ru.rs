@@ -160,7 +160,7 @@ pub static RU: Strings = lang! {
     lyrics_empty: "Нет текста",
     lyrics_fetching: "Загрузка текста…",
     lyrics_not_found: "Текст не найден",
-    lyrics_save: "Сохранить текст",
+    lyrics_save: "Сохранить в файл .lrc",
     lyrics_from_internet: "Подтягивать текст из интернета",
     lyrics_from_internet_desc: "Искать недостающий текст онлайн (LRCLIB). Отключите для приватности.",
 

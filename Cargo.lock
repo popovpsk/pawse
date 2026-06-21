@@ -4044,7 +4044,9 @@ name = "music_library"
 version = "1.0.0"
 dependencies = [
  "dirs 6.0.0",
+ "flate2",
  "image",
+ "log",
  "rusqlite",
  "serde",
  "sha2",

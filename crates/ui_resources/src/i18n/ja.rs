@@ -160,7 +160,7 @@ pub static JA: Strings = lang! {
     lyrics_empty: "歌詞なし",
     lyrics_fetching: "歌詞を取得中…",
     lyrics_not_found: "歌詞が見つかりません",
-    lyrics_save: "歌詞を保存",
+    lyrics_save: ".lrc ファイルに保存",
     lyrics_from_internet: "インターネットから歌詞を取得",
     lyrics_from_internet_desc: "LRCLIB を使ってオンラインで歌詞を検索します。プライバシーのためにオフにすることができます。",
 

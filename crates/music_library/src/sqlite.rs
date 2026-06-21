@@ -1,13 +1,17 @@
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use flate2::Compression;
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, NewTrack, PlaylistSummary,
+    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, LyricsRef, NewTrack, PlaylistSummary,
     PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
@@ -85,6 +89,20 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     // fail with SQLITE_BUSY instead of waiting for the batch to commit.
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     Ok(())
+}
+
+fn compress_lyrics(text: &str) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    let _ = encoder.write_all(text.as_bytes());
+    encoder.finish().unwrap_or_default()
+}
+
+fn decompress_lyrics(blob: &[u8]) -> String {
+    let mut out = String::new();
+    if let Err(e) = ZlibDecoder::new(blob).read_to_string(&mut out) {
+        log::warn!("Failed to decompress lyrics blob ({} bytes): {e}", blob.len());
+    }
+    out
 }
 
 impl SqliteLibrary {
@@ -1110,7 +1128,7 @@ impl LibraryRepository for SqliteLibrary {
                 Ok(StoredLyrics {
                     synced: row.get::<_, i64>(0)? != 0,
                     source: row.get(1)?,
-                    text: row.get(2)?,
+                    text: decompress_lyrics(&row.get::<_, Vec<u8>>(2)?),
                 })
             },
         )
@@ -1132,8 +1150,78 @@ impl LibraryRepository for SqliteLibrary {
                 source = excluded.source, \
                 text = excluded.text, \
                 updated_at = excluded.updated_at",
-            rusqlite::params![track_id, synced as i64, source, text, updated_at],
+            rusqlite::params![
+                track_id,
+                synced as i64,
+                source,
+                compress_lyrics(text),
+                updated_at
+            ],
         )?;
+        Ok(())
+    }
+
+    fn track_count_for_path(&self, path: &str) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM tracks WHERE path = ?1",
+            [path],
+            |row| row.get(0),
+        )
+        .map_err(LibraryError::Database)
+    }
+
+    fn lyrics_refs(&self) -> Result<Vec<LyricsRef>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT t.path, t.start_offset_ms, l.synced, l.source, l.text, l.updated_at \
+             FROM lyrics l \
+             JOIN tracks t ON t.id = l.track_id \
+             WHERE l.source NOT IN ('lrc', 'embedded')",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(LyricsRef {
+                path: row.get(0)?,
+                start_offset_ms: row.get(1)?,
+                synced: row.get::<_, i64>(2)? != 0,
+                source: row.get(3)?,
+                text: decompress_lyrics(&row.get::<_, Vec<u8>>(4)?),
+                updated_at: row.get(5)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn restore_lyrics_refs(&self, refs: &[LyricsRef]) -> Result<()> {
+        if refs.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        for r in refs {
+            let track_id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM tracks WHERE path = ?1 AND start_offset_ms = ?2",
+                    rusqlite::params![r.path, r.start_offset_ms],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let Some(track_id) = track_id else { continue };
+            // why: OR IGNORE so a track the scan just gave fresh disk lyrics keeps them; we only fill tracks left without a row
+            tx.execute(
+                "INSERT OR IGNORE INTO lyrics (track_id, synced, source, text, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    track_id,
+                    r.synced as i64,
+                    r.source,
+                    compress_lyrics(&r.text),
+                    r.updated_at
+                ],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -1556,7 +1644,7 @@ impl ScanSession {
                     track_id,
                     lyrics.synced as i64,
                     lyrics.source,
-                    lyrics.text,
+                    compress_lyrics(&lyrics.text),
                     updated_at,
                 ],
             )?;
@@ -1686,6 +1774,20 @@ mod tests {
     #[test]
     fn test_compute_sort_name_the() {
         assert_eq!(compute_sort_name("The Beatles"), "beatles, the");
+    }
+
+    #[test]
+    fn test_lyrics_compression_round_trips_unicode() {
+        let text = "[00:01.00]Привет, мир\n[00:02.00]こんにちは\n[00:03.00]🎵";
+        assert_eq!(decompress_lyrics(&compress_lyrics(text)), text);
+    }
+
+    #[test]
+    fn test_lyrics_compression_shrinks_repetitive_text() {
+        let chorus = "[00:30.00]We are the champions, my friend\n".repeat(40);
+        let compressed = compress_lyrics(&chorus);
+        assert!(compressed.len() * 3 < chorus.len());
+        assert_eq!(decompress_lyrics(&compressed), chorus);
     }
 
     #[test]
