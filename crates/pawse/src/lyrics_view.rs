@@ -32,7 +32,7 @@ struct LyricRow {
 struct TrackContext {
     id: i64,
     path: String,
-    start_offset_ms: i32,
+    is_cue: bool,
     album_id: Option<i64>,
     title: String,
     duration_secs: Option<u64>,
@@ -158,7 +158,7 @@ impl LyricsView {
         Some(TrackContext {
             id: track.id,
             path: track.path,
-            start_offset_ms: track.start_offset_ms,
+            is_cue: track.is_cue,
             album_id: track.album_id,
             title: track.title,
             duration_secs: track.duration_ms.map(|ms| (ms / 1000) as u64),
@@ -191,7 +191,7 @@ impl LyricsView {
             let bg = ctx.clone();
             let outcome = cx
                 .background_spawn(async move {
-                    let is_cue = bg.start_offset_ms != 0 || access.is_multitrack_file(&bg.path);
+                    let is_cue = bg.is_cue;
                     match access.stored(bg.id) {
                         Some(s) if s.not_found => LoadOutcome::NotFound { is_cue },
                         Some(s) => LoadOutcome::Lyrics {
@@ -483,9 +483,13 @@ impl LyricsView {
             return;
         };
         // why: don't fake success — can_export clears only when the write lands and source flips to "lrc" via LyricsChanged, so a failed write keeps the button for retry
-        cx.global::<Services>()
-            .library
-            .save_lyrics_file(ctx.id, PathBuf::from(ctx.path), raw);
+        let folders = cx.global::<SettingsStore>().music_folders().to_vec();
+        cx.global::<Services>().library.save_lyrics_file(
+            ctx.id,
+            PathBuf::from(ctx.path),
+            raw,
+            folders,
+        );
     }
 }
 

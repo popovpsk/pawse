@@ -131,6 +131,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
                 }),
             start_offset_ms: Some(start_offset_ms),
             bitrate,
+            is_cue: true,
             lyrics: None,
         });
     }

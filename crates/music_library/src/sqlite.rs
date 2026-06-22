@@ -21,10 +21,10 @@ use crate::repository::{LibraryRepository, ScanWrite};
 const SCAN_BATCH_SIZE: usize = 256;
 
 const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
-    duration_ms, year, cover_art_id, start_offset_ms, liked, bitrate";
+    duration_ms, year, cover_art_id, start_offset_ms, liked, bitrate, is_cue";
 
 const TRACK_COLUMNS_T: &str = "t.id, t.path, t.title, t.album_id, t.track_number, \
-    t.disc_number, t.duration_ms, t.year, t.cover_art_id, t.start_offset_ms, t.liked, t.bitrate";
+    t.disc_number, t.duration_ms, t.year, t.cover_art_id, t.start_offset_ms, t.liked, t.bitrate, t.is_cue";
 
 fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
     Ok(Track {
@@ -40,6 +40,7 @@ fn map_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
         start_offset_ms: row.get(9)?,
         liked: row.get::<_, i64>(10)? != 0,
         bitrate: row.get(11)?,
+        is_cue: row.get::<_, i64>(12)? != 0,
     })
 }
 
@@ -1193,16 +1194,6 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
-    fn track_count_for_path(&self, path: &str) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT COUNT(*) FROM tracks WHERE path = ?1",
-            [path],
-            |row| row.get(0),
-        )
-        .map_err(LibraryError::Database)
-    }
-
     fn lyrics_refs(&self) -> Result<Vec<LyricsRef>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -1640,8 +1631,8 @@ impl ScanSession {
         // failing the statement.
         let inserted = self.conn.execute(
             r#"INSERT OR IGNORE INTO tracks
-                (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+                (path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate, is_cue)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
             rusqlite::params![
                 track.path,
                 title,
@@ -1653,6 +1644,7 @@ impl ScanSession {
                 cover_id,
                 start_offset_ms,
                 track.bitrate,
+                track.is_cue,
             ],
         )?;
         // A duplicate was ignored: bail before linking artists, otherwise

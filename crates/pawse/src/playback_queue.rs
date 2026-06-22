@@ -480,6 +480,7 @@ mod tests {
             start_offset_ms: 0,
             liked: false,
             bitrate: None,
+            is_cue: false,
         })
     }
 

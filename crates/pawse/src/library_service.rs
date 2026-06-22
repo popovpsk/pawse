@@ -71,10 +71,6 @@ impl LyricsAccess {
         }
     }
 
-    pub fn is_multitrack_file(&self, path: &str) -> bool {
-        self.repo.track_count_for_path(path).unwrap_or(0) > 1
-    }
-
     pub fn first_artist(&self, track_id: i64) -> Option<String> {
         self.repo
             .track_artists(track_id)
@@ -209,17 +205,30 @@ impl LibraryService {
         }
     }
 
-    pub fn save_lyrics_file(&self, track_id: i64, audio_path: PathBuf, text: String) {
+    pub fn save_lyrics_file(
+        &self,
+        track_id: i64,
+        audio_path: PathBuf,
+        text: String,
+        folders: Vec<PathBuf>,
+    ) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
         self.executor
             .spawn(async move {
+                let folders_key = serialize_folders(&folders);
+                // why: snapshot disk state before our write so we only re-baseline when our .lrc is the sole delta — otherwise advancing the fingerprint would absorb an unrelated, not-yet-indexed change
+                let up_to_date = {
+                    let pre = music_indexer::collect_sources(&folders).fingerprint;
+                    matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
+                        && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
+                };
+
                 let lrc_path = audio_path.with_extension("lrc");
                 if let Err(e) = std::fs::write(&lrc_path, &text) {
                     log::error!("Failed to write lyrics file {:?}: {}", lrc_path, e);
                     return;
                 }
-                // why: don't re-baseline the scan fingerprint — collect_sources hashes the whole tree, so a not-yet-indexed change would be absorbed and skipped by the next rescan
                 if let Err(e) =
                     repo.upsert_lyrics(track_id, &text, music_library::lyrics_source::LRC, false)
                 {
@@ -230,6 +239,16 @@ impl LibraryService {
                     );
                 } else {
                     let _ = event_tx.send(LibraryEvent::LyricsChanged { track_id });
+                }
+
+                if up_to_date {
+                    let post = music_indexer::collect_sources(&folders).fingerprint;
+                    if let Err(e) = repo.set_scan_meta(&post, &folders_key) {
+                        log::error!(
+                            "Failed to re-baseline scan fingerprint after lyrics export: {}",
+                            e
+                        );
+                    }
                 }
             })
             .detach();
@@ -643,6 +662,7 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         cover_hash: track.cover_hash,
         start_offset_ms: track.start_offset_ms,
         bitrate: track.bitrate,
+        is_cue: track.is_cue,
         lyrics: track.lyrics.map(|l| music_library::ScanLyrics {
             text: l.text,
             source: l.source.as_str().to_string(),

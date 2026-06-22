@@ -36,6 +36,8 @@ pub struct Track {
     pub liked: bool,
     #[serde(default)]
     pub bitrate: Option<u32>,
+    #[serde(default)]
+    pub is_cue: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +125,7 @@ pub struct ScanTrack {
     pub cover_hash: Option<String>,
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
+    pub is_cue: bool,
     pub lyrics: Option<ScanLyrics>,
 }
 

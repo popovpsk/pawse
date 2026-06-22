@@ -134,4 +134,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
         "#,
     ),
+    (
+        5,
+        r#"
+        ALTER TABLE tracks ADD COLUMN is_cue INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
 ];

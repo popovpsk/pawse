@@ -217,6 +217,7 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
         cover_art,
         start_offset_ms: None,
         bitrate,
+        is_cue: false,
         lyrics,
     })
 }

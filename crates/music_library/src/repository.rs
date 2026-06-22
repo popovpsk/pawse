@@ -85,7 +85,6 @@ pub trait LibraryRepository: Send + Sync {
     fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>>;
     fn upsert_lyrics(&self, track_id: i64, text: &str, source: &str, not_found: bool)
     -> Result<()>;
-    fn track_count_for_path(&self, path: &str) -> Result<i64>;
 
     /// Capture lyrics that can't be re-derived from disk (network fetches) by
     /// content key, so a `clear()` + rescan doesn't drop them. Disk-backed

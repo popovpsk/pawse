@@ -1312,6 +1312,7 @@ mod tests {
         session.clear().unwrap();
         session
             .add_track(ScanTrack {
+                is_cue: false,
                 path: "/music/a.flac".into(),
                 title: Some("A".into()),
                 album_title: Some("Album".into()),
@@ -1429,6 +1430,7 @@ mod tests {
         session.clear().unwrap();
         session
             .add_track(ScanTrack {
+                is_cue: false,
                 path: "/m/x.flac".into(),
                 title: Some("X".into()),
                 album_title: Some("Al".into()),
@@ -1461,6 +1463,7 @@ mod tests {
         for i in 0..600 {
             session
                 .add_track(ScanTrack {
+                    is_cue: false,
                     path: format!("/m/{i}.flac"),
                     title: Some(format!("T{i}")),
                     album_title: Some("Big".into()),
@@ -1492,6 +1495,7 @@ mod tests {
         session.clear().unwrap();
         session
             .add_track(ScanTrack {
+                is_cue: false,
                 path: "/m/lyric.flac".into(),
                 title: Some("Lyric".into()),
                 album_title: Some("Al".into()),
@@ -1528,6 +1532,7 @@ mod tests {
         session.clear().unwrap();
         session
             .add_track(ScanTrack {
+                is_cue: false,
                 path: "/m/c.flac".into(),
                 title: Some("C".into()),
                 album_title: Some("Al".into()),
