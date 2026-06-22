@@ -164,6 +164,8 @@ pub static ZH: Strings = lang! {
     lyrics_follow: "跟随当前歌词",
     lyrics_from_internet: "从互联网获取歌词",
     lyrics_from_internet_desc: "通过 LRCLIB 在线查找缺失的歌词。关闭以保护隐私。",
+    lyrics_text_size: "文字大小",
+    lyrics_text_size_desc: "歌词文字大小",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",

@@ -164,6 +164,8 @@ pub static HI: Strings = lang! {
     lyrics_follow: "वर्तमान पंक्ति का अनुसरण करें",
     lyrics_from_internet: "इंटरनेट से बोल लाएं",
     lyrics_from_internet_desc: "LRCLIB के माध्यम से ऑनलाइन गुम बोल खोजें। गोपनीयता के लिए बंद करें।",
+    lyrics_text_size: "टेक्स्ट का आकार",
+    lyrics_text_size_desc: "बोल के टेक्स्ट का आकार",
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",

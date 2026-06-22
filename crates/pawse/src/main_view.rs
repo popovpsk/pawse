@@ -11,6 +11,7 @@ use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    slider::{SliderEvent, SliderState},
     theme::ThemeRegistry,
     tooltip::Tooltip,
 };
@@ -44,6 +45,8 @@ const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;
 const LYRICS_WIDTH_DEFAULT: f32 = 360.;
+const LYRICS_WIDTH_MIN: f32 = 280.;
+const LYRICS_WIDTH_MAX: f32 = 560.;
 const QUEUE_ANIM: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy)]
@@ -58,6 +61,15 @@ struct TabColors {
 struct DragQueueResize(EntityId);
 
 impl Render for DragQueueResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
+}
+
+#[derive(Clone)]
+struct DragLyricsResize(EntityId);
+
+impl Render for DragLyricsResize {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         Empty
     }
@@ -82,8 +94,13 @@ pub struct MainView {
     queue_closing: bool,
     _queue_close_task: Option<gpui::Task<()>>,
     show_lyrics: bool,
+    lyrics_width: f32,
+    lyrics_resize_origin: Option<(Pixels, f32)>,
     lyrics_closing: bool,
     _lyrics_close_task: Option<gpui::Task<()>>,
+    _lyrics_slider: Entity<SliderState>,
+    _lyrics_slider_observe: Subscription,
+    _lyrics_slider_subscription: Subscription,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _theme_picker: Entity<ThemePickerState>,
@@ -178,9 +195,31 @@ impl MainView {
         let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
         let lang_picker: Entity<LangPickerState> = cx.new(|cx| LangPickerState::new(cx));
 
+        let saved_lyrics_size = cx.global::<SettingsStore>().lyrics_font_size();
+        let lyrics_slider: Entity<SliderState> = cx.new(|_| {
+            SliderState::new()
+                .min(crate::settings_store::LYRICS_FONT_SIZE_MIN)
+                .max(crate::settings_store::LYRICS_FONT_SIZE_MAX)
+                .step(1.)
+                .default_value(saved_lyrics_size)
+        });
+        let lyrics_slider_observe = cx.observe(&lyrics_slider, |_, _, cx| cx.notify());
+        let lyrics_slider_subscription =
+            cx.subscribe(&lyrics_slider, |this, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event;
+                if let Err(e) = cx
+                    .global_mut::<SettingsStore>()
+                    .set_lyrics_font_size(value.start())
+                {
+                    crate::settings_store::notify_save_error(cx, e);
+                }
+                this.lyrics_view.update(cx, |_, cx| cx.notify());
+            });
+
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
+            let lyrics_slider = lyrics_slider.clone();
             move |this, cx| {
                 theme_picker.update(cx, |state, cx| {
                     state.options = ThemePickerState::build_options(&*cx);
@@ -189,6 +228,7 @@ impl MainView {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),
+                    lyrics_slider.clone(),
                 );
                 cx.notify();
             }
@@ -202,8 +242,11 @@ impl MainView {
             cx.notify();
         });
 
-        let settings_pages =
-            crate::settings_view::build_settings_pages(theme_picker.clone(), lang_picker.clone());
+        let settings_pages = crate::settings_view::build_settings_pages(
+            theme_picker.clone(),
+            lang_picker.clone(),
+            lyrics_slider.clone(),
+        );
 
         let footer = cx.new(|cx| Footer::new(window, cx));
         let footer_subscription = cx.subscribe(&footer, |this, _, event: &ToggleQueueEvent, cx| {
@@ -287,10 +330,12 @@ impl MainView {
         let settings_observer = cx.observe_global::<SettingsStore>({
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
+            let lyrics_slider = lyrics_slider.clone();
             move |this, cx| {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),
+                    lyrics_slider.clone(),
                 );
                 cx.notify();
             }
@@ -352,8 +397,13 @@ impl MainView {
             queue_closing: false,
             _queue_close_task: None,
             show_lyrics: false,
+            lyrics_width: LYRICS_WIDTH_DEFAULT,
+            lyrics_resize_origin: None,
             lyrics_closing: false,
             _lyrics_close_task: None,
+            _lyrics_slider: lyrics_slider,
+            _lyrics_slider_observe: lyrics_slider_observe,
+            _lyrics_slider_subscription: lyrics_slider_subscription,
             settings_pages,
             search_input,
             _theme_picker: theme_picker,
@@ -638,6 +688,22 @@ impl Render for MainView {
                     }
                 }),
             )
+            .on_drag_move(
+                cx.listener(move |this, e: &DragMoveEvent<DragLyricsResize>, _, cx| {
+                    if e.drag(cx).0 != entity_id {
+                        return;
+                    }
+                    let Some((start_x, start_width)) = this.lyrics_resize_origin else {
+                        return;
+                    };
+                    let delta = (start_x - e.event.position.x) / px(1.);
+                    let new_width = (start_width + delta).clamp(LYRICS_WIDTH_MIN, LYRICS_WIDTH_MAX);
+                    if (this.lyrics_width - new_width).abs() > 0.5 {
+                        this.lyrics_width = new_width;
+                        cx.notify();
+                    }
+                }),
+            )
             .when(cover_mode, |d| {
                 d.on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
                     this.cover_mode_view
@@ -746,17 +812,39 @@ impl Render for MainView {
                             ),
                     )
                     .when(self.show_lyrics || self.lyrics_closing, |d| {
+                        let lyrics_width = self.lyrics_width;
                         let closing = self.lyrics_closing;
                         d.child(
                             div()
                                 .flex_shrink_0()
                                 .border_l(px(1.))
                                 .border_color(Colors::border(cx))
+                                .relative()
                                 .child(
                                     div()
                                         .size_full()
                                         .overflow_hidden()
                                         .child(self.lyrics_view.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .id("lyrics_resize_handle")
+                                        .absolute()
+                                        .left(px(-3.))
+                                        .top(px(0.))
+                                        .h_full()
+                                        .w(px(6.))
+                                        .cursor(gpui::CursorStyle::ResizeLeftRight)
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(|this, e: &MouseDownEvent, _, _| {
+                                                this.lyrics_resize_origin =
+                                                    Some((e.position.x, this.lyrics_width));
+                                            }),
+                                        )
+                                        .on_drag(DragLyricsResize(entity_id), |drag, _, _, cx| {
+                                            cx.new(|_| drag.clone())
+                                        }),
                                 )
                                 .with_animation(
                                     if closing {
@@ -767,7 +855,7 @@ impl Render for MainView {
                                     Animation::new(QUEUE_ANIM).with_easing(ease_out_quint()),
                                     move |this, delta| {
                                         let factor = if closing { 1.0 - delta } else { delta };
-                                        this.w(px(LYRICS_WIDTH_DEFAULT * factor))
+                                        this.w(px(lyrics_width * factor))
                                     },
                                 ),
                         )
@@ -863,6 +951,7 @@ impl Render for MainView {
                             }
                             entity.update(cx, |this, _| {
                                 this.queue_resize_origin = None;
+                                this.lyrics_resize_origin = None;
                             });
                         });
                     },

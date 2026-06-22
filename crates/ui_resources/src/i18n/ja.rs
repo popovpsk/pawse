@@ -164,6 +164,8 @@ pub static JA: Strings = lang! {
     lyrics_follow: "現在の行に追従",
     lyrics_from_internet: "インターネットから歌詞を取得",
     lyrics_from_internet_desc: "LRCLIB を使ってオンラインで歌詞を検索します。プライバシーのためにオフにすることができます。",
+    lyrics_text_size: "文字サイズ",
+    lyrics_text_size_desc: "歌詞の文字サイズ",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",

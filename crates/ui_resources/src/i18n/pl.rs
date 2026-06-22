@@ -164,6 +164,8 @@ pub static PL: Strings = lang! {
     lyrics_follow: "Śledź bieżący wiersz",
     lyrics_from_internet: "Pobierz tekst z internetu",
     lyrics_from_internet_desc: "Szukaj brakujących tekstów online przez LRCLIB. Wyłącz dla prywatności.",
+    lyrics_text_size: "Rozmiar tekstu",
+    lyrics_text_size_desc: "Rozmiar tekstu piosenki",
 
     disc_t: "Płyta {}",
     n_tracks_one: "{} utwór",

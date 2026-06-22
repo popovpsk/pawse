@@ -121,6 +121,14 @@ fn default_volume() -> f32 {
     1.0
 }
 
+pub const LYRICS_FONT_SIZE_MIN: f32 = 12.;
+pub const LYRICS_FONT_SIZE_MAX: f32 = 32.;
+pub const LYRICS_FONT_SIZE_DEFAULT: f32 = 16.;
+
+fn default_lyrics_font_size() -> f32 {
+    LYRICS_FONT_SIZE_DEFAULT
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RepeatModePersist {
@@ -275,6 +283,8 @@ pub struct UserSettings {
     pub lyrics_from_internet: bool,
     #[serde(default)]
     pub font_scale: FontScale,
+    #[serde(default = "default_lyrics_font_size")]
+    pub lyrics_font_size: f32,
     #[serde(default)]
     pub onboarding_complete: bool,
 }
@@ -305,6 +315,7 @@ impl Default for UserSettings {
             auto_update: true,
             lyrics_from_internet: true,
             font_scale: FontScale::default(),
+            lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             onboarding_complete: false,
         }
     }
@@ -612,6 +623,17 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn lyrics_font_size(&self) -> f32 {
+        self.settings
+            .lyrics_font_size
+            .clamp(LYRICS_FONT_SIZE_MIN, LYRICS_FONT_SIZE_MAX)
+    }
+
+    pub fn set_lyrics_font_size(&mut self, size: f32) -> anyhow::Result<()> {
+        self.settings.lyrics_font_size = size.clamp(LYRICS_FONT_SIZE_MIN, LYRICS_FONT_SIZE_MAX);
+        self.save()
+    }
+
     pub fn onboarding_complete(&self) -> bool {
         self.settings.onboarding_complete
     }
@@ -891,6 +913,7 @@ mod tests {
             auto_update: true,
             lyrics_from_internet: true,
             font_scale: FontScale::Large,
+            lyrics_font_size: 20.,
             onboarding_complete: false,
         };
         let json = serde_json::to_string(&settings).unwrap();

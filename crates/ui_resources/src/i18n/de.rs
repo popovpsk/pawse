@@ -164,6 +164,8 @@ pub static DE: Strings = lang! {
     lyrics_follow: "Aktueller Zeile folgen",
     lyrics_from_internet: "Liedtext aus dem Internet laden",
     lyrics_from_internet_desc: "Fehlende Liedtexte online über LRCLIB suchen. Für mehr Datenschutz deaktivieren.",
+    lyrics_text_size: "Textgröße",
+    lyrics_text_size_desc: "Größe des Liedtextes",
 
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",

@@ -164,6 +164,8 @@ pub static EN: Strings = lang! {
     lyrics_follow: "Follow current line",
     lyrics_from_internet: "Fetch lyrics from the internet",
     lyrics_from_internet_desc: "Look up missing lyrics online via LRCLIB. Turn off for privacy.",
+    lyrics_text_size: "Text size",
+    lyrics_text_size_desc: "Size of the lyrics text",
 
     disc_t: "Disc {}",
     n_tracks_one: "{} track",

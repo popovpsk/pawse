@@ -164,6 +164,8 @@ pub static FR: Strings = lang! {
     lyrics_follow: "Suivre la ligne actuelle",
     lyrics_from_internet: "Récupérer les paroles depuis internet",
     lyrics_from_internet_desc: "Chercher les paroles manquantes en ligne via LRCLIB. Désactivez pour plus de confidentialité.",
+    lyrics_text_size: "Taille du texte",
+    lyrics_text_size_desc: "Taille du texte des paroles",
 
     disc_t: "Disque {}",
     n_tracks_one: "{} titre",

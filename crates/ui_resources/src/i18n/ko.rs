@@ -164,6 +164,8 @@ pub static KO: Strings = lang! {
     lyrics_follow: "현재 줄 따라가기",
     lyrics_from_internet: "인터넷에서 가사 가져오기",
     lyrics_from_internet_desc: "LRCLIB을 통해 온라인에서 누락된 가사를 검색합니다. 개인정보 보호를 위해 끄세요.",
+    lyrics_text_size: "텍스트 크기",
+    lyrics_text_size_desc: "가사 텍스트 크기",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",

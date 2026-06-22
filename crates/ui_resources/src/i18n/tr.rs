@@ -164,6 +164,8 @@ pub static TR: Strings = lang! {
     lyrics_follow: "Geçerli satırı takip et",
     lyrics_from_internet: "İnternetten sözleri getir",
     lyrics_from_internet_desc: "Eksik sözleri LRCLIB aracılığıyla çevrimiçi ara. Gizlilik için kapat.",
+    lyrics_text_size: "Metin boyutu",
+    lyrics_text_size_desc: "Şarkı sözü metninin boyutu",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",

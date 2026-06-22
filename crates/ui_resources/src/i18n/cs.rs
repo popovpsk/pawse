@@ -164,6 +164,8 @@ pub static CS: Strings = lang! {
     lyrics_follow: "Sledovat aktuální řádek",
     lyrics_from_internet: "Stáhnout text z internetu",
     lyrics_from_internet_desc: "Hledat chybějící texty online přes LRCLIB. Vypněte pro ochranu soukromí.",
+    lyrics_text_size: "Velikost textu",
+    lyrics_text_size_desc: "Velikost textu písně",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",

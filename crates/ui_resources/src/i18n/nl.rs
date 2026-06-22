@@ -164,6 +164,8 @@ pub static NL: Strings = lang! {
     lyrics_follow: "Huidige regel volgen",
     lyrics_from_internet: "Songtekst van internet ophalen",
     lyrics_from_internet_desc: "Ontbrekende songteksten online zoeken via LRCLIB. Zet uit voor privacy.",
+    lyrics_text_size: "Tekstgrootte",
+    lyrics_text_size_desc: "Grootte van de songtekst",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",

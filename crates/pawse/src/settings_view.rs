@@ -11,6 +11,7 @@ use gpui_component::{
     dialog::DialogButtonProps,
     h_flex,
     scroll::ScrollableElement,
+    slider::{Slider, SliderState},
     switch::Switch,
     theme::ThemeRegistry,
     v_flex,
@@ -196,13 +197,15 @@ fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
 pub fn build_settings_pages(
     theme_picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
+    lyrics_slider: Entity<SliderState>,
 ) -> Vec<SettingPage> {
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(theme_picker, lang_picker))
             .group(albums_view_group())
             .group(cover_view_group())
-            .group(queue_group()),
+            .group(queue_group())
+            .group(lyrics_group(lyrics_slider)),
     ];
     pages.push(SettingPage::new(tr().settings_general.clone()).group(general_group()));
     pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
@@ -729,6 +732,29 @@ fn queue_group() -> SettingGroup {
             )
             .description(tr().queue_deduplication_desc.clone()),
         )
+}
+
+fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
+    SettingGroup::new().title(tr().lyrics.clone()).item(
+        SettingItem::new(
+            tr().lyrics_text_size.clone(),
+            SettingField::render(move |_window, cx: &mut App| {
+                let size = slider.read(cx).value().start();
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .w(px(38.))
+                            .text_sm()
+                            .text_color(Colors::muted_foreground(cx))
+                            .child(format!("{} px", size as i32)),
+                    )
+                    .child(div().w(px(160.)).child(Slider::new(&slider)))
+            }),
+        )
+        .description(tr().lyrics_text_size_desc.clone()),
+    )
 }
 
 fn library_group() -> SettingGroup {

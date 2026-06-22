@@ -502,6 +502,7 @@ impl Render for LyricsView {
         let muted_foreground = Colors::muted_foreground(cx);
         let primary = Colors::primary(cx);
         let muted = Colors::muted(cx);
+        let lyrics_font_size = cx.global::<SettingsStore>().lyrics_font_size();
         let synced = self.synced;
         let active_ix = self.active_ix;
         let hovered_ix = self.hovered_ix;
@@ -544,7 +545,7 @@ impl Render for LyricsView {
                                     svg()
                                         .path("icons/locate.svg")
                                         .size(px(18.))
-                                        .text_color(muted_foreground),
+                                        .text_color(foreground),
                                 ),
                         )
                     })
@@ -567,7 +568,7 @@ impl Render for LyricsView {
                                     svg()
                                         .path("icons/save.svg")
                                         .size(px(18.))
-                                        .text_color(muted_foreground),
+                                        .text_color(foreground),
                                 ),
                         )
                     }),
@@ -596,26 +597,30 @@ impl Render for LyricsView {
                         .w_full()
                         .px_4()
                         .py_1()
-                        .text_sm()
+                        .text_size(px(lyrics_font_size))
                         .text_color(color)
                         .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
                     match (synced, row.time_ms, row.label.clone()) {
-                        (true, Some(time_ms), Some(label)) => {
-                            line.id(("lyrics_line", ix))
-                                .cursor_pointer()
-                                .when(Some(ix) == hovered_ix, |d| d.underline())
-                                .tooltip(move |window, cx| {
-                                    Tooltip::new(label.clone()).build(window, cx)
-                                })
-                                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                                    this.set_hovered(ix, *hovered, cx)
-                                }))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.seek_to_line(ix, time_ms, cx)
-                                }))
-                                .child(row.text.clone())
-                                .into_any_element()
-                        }
+                        // why: keep the click/hover/tooltip target on the text run, not the
+                        // full-width row, so hovering the blank space past a short line is inert
+                        (true, Some(time_ms), Some(label)) => line
+                            .child(
+                                div()
+                                    .id(("lyrics_line", ix))
+                                    .cursor_pointer()
+                                    .when(Some(ix) == hovered_ix, |d| d.underline())
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(label.clone()).build(window, cx)
+                                    })
+                                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                                        this.set_hovered(ix, *hovered, cx)
+                                    }))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.seek_to_line(ix, time_ms, cx)
+                                    }))
+                                    .child(row.text.clone()),
+                            )
+                            .into_any_element(),
                         _ => line.child(row.text.clone()).into_any_element(),
                     }
                 }));

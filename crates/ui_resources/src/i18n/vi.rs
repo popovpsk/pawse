@@ -164,6 +164,8 @@ pub static VI: Strings = lang! {
     lyrics_follow: "Theo dõi dòng hiện tại",
     lyrics_from_internet: "Lấy lời bài hát từ internet",
     lyrics_from_internet_desc: "Tìm kiếm lời bài hát còn thiếu trực tuyến qua LRCLIB. Tắt để bảo vệ quyền riêng tư.",
+    lyrics_text_size: "Cỡ chữ",
+    lyrics_text_size_desc: "Cỡ chữ của lời bài hát",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",

@@ -221,6 +221,8 @@ pub struct Strings {
     pub lyrics_follow: SharedString,
     pub lyrics_from_internet: SharedString,
     pub lyrics_from_internet_desc: SharedString,
+    pub lyrics_text_size: SharedString,
+    pub lyrics_text_size_desc: SharedString,
 
     // --- Templated (read via the accessor methods below) ---
     pub update_ready_t: SharedString,

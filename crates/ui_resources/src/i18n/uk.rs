@@ -164,6 +164,8 @@ pub static UK: Strings = lang! {
     lyrics_follow: "Стежити за рядком",
     lyrics_from_internet: "Підтягувати текст з інтернету",
     lyrics_from_internet_desc: "Шукати відсутній текст онлайн через LRCLIB. Вимкніть для приватності.",
+    lyrics_text_size: "Розмір тексту",
+    lyrics_text_size_desc: "Розмір тексту пісні",
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",
