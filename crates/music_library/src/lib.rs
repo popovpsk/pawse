@@ -9,6 +9,7 @@ pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, LyricsRef, NewTrack,
     Playlist, PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack, StoredLyrics, Track,
+    lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -1240,7 +1241,7 @@ mod tests {
         // them; the snapshot/restore must carry them to the new track id.
         let (lib, _path) = create_test_db();
         let track_id = seed_track(&lib, "Fetched", "Album", "Artist");
-        lib.upsert_lyrics(track_id, "la la la", false, "lrclib")
+        lib.upsert_lyrics(track_id, "la la la", "lrclib", false)
             .unwrap();
 
         let refs = lib.lyrics_refs().unwrap();
@@ -1265,10 +1266,11 @@ mod tests {
         let lrc = seed_track(&lib, "Sidecar", "Album", "Artist");
         let embedded = seed_track(&lib, "Tagged", "Album", "Artist");
         let fetched = seed_track(&lib, "Fetched", "Album", "Artist");
-        lib.upsert_lyrics(lrc, "from sidecar", true, "lrc").unwrap();
-        lib.upsert_lyrics(embedded, "from tag", false, "embedded")
+        lib.upsert_lyrics(lrc, "from sidecar", "lrc", false)
             .unwrap();
-        lib.upsert_lyrics(fetched, "from net", true, "lrclib")
+        lib.upsert_lyrics(embedded, "from tag", "embedded", false)
+            .unwrap();
+        lib.upsert_lyrics(fetched, "from net", "lrclib", false)
             .unwrap();
 
         let refs = lib.lyrics_refs().unwrap();
@@ -1282,13 +1284,13 @@ mod tests {
         // fetched lyrics, the fresh disk copy must win over the snapshot.
         let (lib, _path) = create_test_db();
         let track_id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.upsert_lyrics(track_id, "stale fetched", false, "lrclib")
+        lib.upsert_lyrics(track_id, "stale fetched", "lrclib", false)
             .unwrap();
         let refs = lib.lyrics_refs().unwrap();
 
         lib.clear().unwrap();
         let new_track_id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.upsert_lyrics(new_track_id, "fresh from disk", true, "lrc")
+        lib.upsert_lyrics(new_track_id, "fresh from disk", "lrc", false)
             .unwrap();
         lib.restore_lyrics_refs(&refs).unwrap();
 
@@ -1505,7 +1507,6 @@ mod tests {
                 bitrate: None,
                 lyrics: Some(ScanLyrics {
                     text: "[00:01.00] hello\n[00:02.00] world".into(),
-                    synced: true,
                     source: "lrclib".into(),
                 }),
             })
@@ -1515,7 +1516,7 @@ mod tests {
         let tracks = lib.all_tracks().unwrap();
         assert_eq!(tracks.len(), 1);
         let stored = lib.lyrics_for_track(tracks[0].id).unwrap().unwrap();
-        assert!(stored.synced);
+        assert!(!stored.not_found);
         assert_eq!(stored.source, "lrclib");
         assert_eq!(stored.text, "[00:01.00] hello\n[00:02.00] world");
     }
@@ -1542,7 +1543,6 @@ mod tests {
                 bitrate: None,
                 lyrics: Some(ScanLyrics {
                     text: "to be wiped".into(),
-                    synced: false,
                     source: "embedded".into(),
                 }),
             })

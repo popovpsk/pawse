@@ -78,23 +78,36 @@ pub struct NewTrack {
     pub bitrate: Option<u32>,
 }
 
-/// A track ready for batched scan insertion. Unlike [`NewTrack`], the cover is
-/// referenced by content hash (resolved to a `cover_art_id` by the writer's
-/// in-memory cache) rather than by id, so the parse workers never touch the DB.
+/// The canonical `lyrics.source` tags and the one place that classifies a source
+/// as disk-derived (re-read on rescan) vs. network (must survive a rescan).
+pub mod lyrics_source {
+    pub const LRC: &str = "lrc";
+    pub const EMBEDDED: &str = "embedded";
+    pub const LRCLIB: &str = "lrclib";
+
+    pub fn is_disk_derived(source: &str) -> bool {
+        matches!(source, LRC | EMBEDDED)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ScanLyrics {
     pub text: String,
-    pub synced: bool,
     pub source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredLyrics {
-    pub synced: bool,
     pub source: String,
     pub text: String,
+    /// A remote lookup ran and found nothing: `text` is empty and the UI must
+    /// not re-search.
+    pub not_found: bool,
 }
 
+/// A track ready for batched scan insertion. Unlike [`NewTrack`], the cover is
+/// referenced by content hash (resolved to a `cover_art_id` by the writer's
+/// in-memory cache) rather than by id, so the parse workers never touch the DB.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ScanTrack {
     pub path: String,
@@ -153,16 +166,16 @@ pub struct PlaylistTrackRef {
 }
 
 /// A frozen lyrics row keyed by **content key** (path + start_offset_ms), used
-/// to carry non-disk-derived lyrics (network fetches) across a full rescan.
-/// `clear()` cascades the `lyrics` table away with `tracks`, and a rescan only
-/// re-reads `.lrc`/embedded lyrics from disk — so without this, fetched lyrics
-/// would vanish on every rescan.
+/// to carry non-disk-derived lyrics (network fetches, plus their not-found
+/// markers) across a full rescan. `clear()` cascades the `lyrics` table away
+/// with `tracks`, and a rescan only re-reads `.lrc`/embedded lyrics from disk —
+/// so without this, fetched lyrics would vanish on every rescan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LyricsRef {
     pub path: String,
     pub start_offset_ms: i32,
-    pub synced: bool,
     pub source: String,
     pub text: String,
+    pub not_found: bool,
     pub updated_at: i64,
 }

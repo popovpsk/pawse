@@ -127,22 +127,9 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         r#"
         CREATE TABLE lyrics (
             track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-            synced     INTEGER NOT NULL DEFAULT 0,
-            source     TEXT    NOT NULL,
-            text       TEXT    NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        "#,
-    ),
-    (
-        5,
-        r#"
-        DROP TABLE IF EXISTS lyrics;
-        CREATE TABLE lyrics (
-            track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-            synced     INTEGER NOT NULL DEFAULT 0,
             source     TEXT    NOT NULL,
             text       BLOB    NOT NULL,
+            not_found  INTEGER NOT NULL DEFAULT 0,
             updated_at INTEGER NOT NULL
         );
         "#,

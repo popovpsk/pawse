@@ -1470,7 +1470,7 @@ FILE \"disc2.flac\" WAVE
     }
 
     #[test]
-    fn test_scan_emits_synced_sidecar_lyrics() {
+    fn test_scan_emits_sidecar_lyrics() {
         use crate::types::LyricsSource;
         let tmp = TempDir::new();
         let dir = tmp.path();
@@ -1487,13 +1487,12 @@ FILE \"disc2.flac\" WAVE
 
         assert_eq!(tracks.len(), 1);
         let lyrics = tracks[0].lyrics.as_ref().expect("sidecar lyrics present");
-        assert!(lyrics.synced, "timestamped lrc must be synced");
         assert_eq!(lyrics.source, LyricsSource::Lrc);
         assert_eq!(lyrics.text, "[00:01.00]first\n[00:02.50]second");
     }
 
     #[test]
-    fn test_scan_plain_sidecar_lyrics_not_synced() {
+    fn test_scan_plain_sidecar_lyrics() {
         use crate::types::LyricsSource;
         let tmp = TempDir::new();
         let dir = tmp.path();
@@ -1509,8 +1508,8 @@ FILE \"disc2.flac\" WAVE
             .collect();
 
         let lyrics = tracks[0].lyrics.as_ref().expect("sidecar lyrics present");
-        assert!(!lyrics.synced);
         assert_eq!(lyrics.source, LyricsSource::Lrc);
+        assert_eq!(lyrics.text, "just a plain\nlyric sheet");
     }
 
     #[test]

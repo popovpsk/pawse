@@ -91,18 +91,31 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 fn compress_lyrics(text: &str) -> Vec<u8> {
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     let _ = encoder.write_all(text.as_bytes());
     encoder.finish().unwrap_or_default()
 }
 
-fn decompress_lyrics(blob: &[u8]) -> String {
+fn decompress_lyrics(blob: &[u8]) -> Option<String> {
     let mut out = String::new();
-    if let Err(e) = ZlibDecoder::new(blob).read_to_string(&mut out) {
-        log::warn!("Failed to decompress lyrics blob ({} bytes): {e}", blob.len());
+    match ZlibDecoder::new(blob).read_to_string(&mut out) {
+        Ok(_) => Some(out),
+        Err(e) => {
+            log::warn!(
+                "Failed to decompress lyrics blob ({} bytes): {e}",
+                blob.len()
+            );
+            None
+        }
     }
-    out
 }
 
 impl SqliteLibrary {
@@ -1121,41 +1134,60 @@ impl LibraryRepository for SqliteLibrary {
 
     fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>> {
         let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT synced, source, text FROM lyrics WHERE track_id = ?1",
-            [track_id],
-            |row| {
-                Ok(StoredLyrics {
-                    synced: row.get::<_, i64>(0)? != 0,
-                    source: row.get(1)?,
-                    text: decompress_lyrics(&row.get::<_, Vec<u8>>(2)?),
-                })
-            },
-        )
-        .optional()
-        .map_err(LibraryError::Database)
+        let row = conn
+            .query_row(
+                "SELECT source, text, not_found FROM lyrics WHERE track_id = ?1",
+                [track_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, i64>(2)? != 0,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(LibraryError::Database)?;
+        let Some((source, blob, not_found)) = row else {
+            return Ok(None);
+        };
+        if not_found {
+            return Ok(Some(StoredLyrics {
+                source,
+                text: String::new(),
+                not_found: true,
+            }));
+        }
+        // why: a corrupt blob decodes to None — treat as absent so the UI re-fetches rather than showing a blank
+        Ok(decompress_lyrics(&blob).map(|text| StoredLyrics {
+            source,
+            text,
+            not_found: false,
+        }))
     }
 
-    fn upsert_lyrics(&self, track_id: i64, text: &str, synced: bool, source: &str) -> Result<()> {
-        let updated_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+    fn upsert_lyrics(
+        &self,
+        track_id: i64,
+        text: &str,
+        source: &str,
+        not_found: bool,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO lyrics (track_id, synced, source, text, updated_at) \
+            "INSERT INTO lyrics (track_id, source, text, not_found, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5) \
              ON CONFLICT(track_id) DO UPDATE SET \
-                synced = excluded.synced, \
                 source = excluded.source, \
                 text = excluded.text, \
+                not_found = excluded.not_found, \
                 updated_at = excluded.updated_at",
             rusqlite::params![
                 track_id,
-                synced as i64,
                 source,
                 compress_lyrics(text),
-                updated_at
+                not_found as i64,
+                unix_now()
             ],
         )?;
         Ok(())
@@ -1174,22 +1206,35 @@ impl LibraryRepository for SqliteLibrary {
     fn lyrics_refs(&self) -> Result<Vec<LyricsRef>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT t.path, t.start_offset_ms, l.synced, l.source, l.text, l.updated_at \
+            "SELECT t.path, t.start_offset_ms, l.source, l.text, l.not_found, l.updated_at \
              FROM lyrics l \
-             JOIN tracks t ON t.id = l.track_id \
-             WHERE l.source NOT IN ('lrc', 'embedded')",
+             JOIN tracks t ON t.id = l.track_id",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok(LyricsRef {
+            let source: String = row.get(2)?;
+            if crate::models::lyrics_source::is_disk_derived(&source) {
+                return Ok(None);
+            }
+            let not_found = row.get::<_, i64>(4)? != 0;
+            let text = if not_found {
+                String::new()
+            } else {
+                match decompress_lyrics(&row.get::<_, Vec<u8>>(3)?) {
+                    Some(text) => text,
+                    None => return Ok(None),
+                }
+            };
+            Ok(Some(LyricsRef {
                 path: row.get(0)?,
                 start_offset_ms: row.get(1)?,
-                synced: row.get::<_, i64>(2)? != 0,
-                source: row.get(3)?,
-                text: decompress_lyrics(&row.get::<_, Vec<u8>>(4)?),
+                source,
+                text,
+                not_found,
                 updated_at: row.get(5)?,
-            })
+            }))
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
+        rows.filter_map(|r| r.transpose())
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
 
@@ -1210,13 +1255,13 @@ impl LibraryRepository for SqliteLibrary {
             let Some(track_id) = track_id else { continue };
             // why: OR IGNORE so a track the scan just gave fresh disk lyrics keeps them; we only fill tracks left without a row
             tx.execute(
-                "INSERT OR IGNORE INTO lyrics (track_id, synced, source, text, updated_at) \
+                "INSERT OR IGNORE INTO lyrics (track_id, source, text, not_found, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 rusqlite::params![
                     track_id,
-                    r.synced as i64,
                     r.source,
                     compress_lyrics(&r.text),
+                    r.not_found as i64,
                     r.updated_at
                 ],
             )?;
@@ -1633,19 +1678,14 @@ impl ScanSession {
         }
 
         if let Some(lyrics) = &track.lyrics {
-            let updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
             self.conn.execute(
-                "INSERT INTO lyrics (track_id, synced, source, text, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO lyrics (track_id, source, text, not_found, updated_at) \
+                 VALUES (?1, ?2, ?3, 0, ?4)",
                 rusqlite::params![
                     track_id,
-                    lyrics.synced as i64,
                     lyrics.source,
                     compress_lyrics(&lyrics.text),
-                    updated_at,
+                    unix_now(),
                 ],
             )?;
         }
@@ -1779,7 +1819,10 @@ mod tests {
     #[test]
     fn test_lyrics_compression_round_trips_unicode() {
         let text = "[00:01.00]Привет, мир\n[00:02.00]こんにちは\n[00:03.00]🎵";
-        assert_eq!(decompress_lyrics(&compress_lyrics(text)), text);
+        assert_eq!(
+            decompress_lyrics(&compress_lyrics(text)).as_deref(),
+            Some(text)
+        );
     }
 
     #[test]
@@ -1787,7 +1830,15 @@ mod tests {
         let chorus = "[00:30.00]We are the champions, my friend\n".repeat(40);
         let compressed = compress_lyrics(&chorus);
         assert!(compressed.len() * 3 < chorus.len());
-        assert_eq!(decompress_lyrics(&compressed), chorus);
+        assert_eq!(
+            decompress_lyrics(&compressed).as_deref(),
+            Some(chorus.as_str())
+        );
+    }
+
+    #[test]
+    fn test_decompress_garbage_is_none() {
+        assert!(decompress_lyrics(b"not a zlib stream").is_none());
     }
 
     #[test]
@@ -1872,19 +1923,23 @@ mod tests {
             )
             .unwrap();
 
-        lib.upsert_lyrics(track_id, "plain words", false, "embedded")
+        lib.upsert_lyrics(track_id, "plain words", "embedded", false)
             .unwrap();
         let first = lib.lyrics_for_track(track_id).unwrap().unwrap();
-        assert!(!first.synced);
+        assert!(!first.not_found);
         assert_eq!(first.source, "embedded");
         assert_eq!(first.text, "plain words");
 
-        lib.upsert_lyrics(track_id, "[00:00.00] synced now", true, "lrclib")
+        lib.upsert_lyrics(track_id, "[00:00.00] synced now", "lrclib", false)
             .unwrap();
         let second = lib.lyrics_for_track(track_id).unwrap().unwrap();
-        assert!(second.synced);
         assert_eq!(second.source, "lrclib");
         assert_eq!(second.text, "[00:00.00] synced now");
+
+        lib.upsert_lyrics(track_id, "", "lrclib", true).unwrap();
+        let third = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        assert!(third.not_found);
+        assert_eq!(third.text, "");
 
         let count: i64 = {
             let conn = lib.conn.lock().unwrap();

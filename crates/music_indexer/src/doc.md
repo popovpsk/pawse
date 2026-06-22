@@ -112,10 +112,11 @@ own *parsing rules*. Either can change without touching the other.
 
 - **Lyrics: sidecar wins, CUE gets none.** `read_lyrics` prefers a `.lrc` sidecar
   (same stem as the audio, same dir — `read_sidecar_lrc`, UTF-8 with a lossy
-  fallback) over the embedded `ItemKey::Lyrics` tag (USLT / `©lyr`). `synced` comes
-  from `lyrics::has_timestamps`; empty/whitespace-only text yields no lyrics. CUE
-  tracks always get `lyrics: None` — they share one whole-album audio file, so its
-  embedded text would be the wrong words for every track.
+  fallback) over the embedded `ItemKey::Lyrics` tag (USLT / `©lyr`); empty/
+  whitespace-only text yields no lyrics. The raw text is stored as-is (timed vs.
+  plain is re-derived at display time by `lyrics::parse_lrc`). CUE tracks always get
+  `lyrics: None` — they share one whole-album audio file, so its embedded text would
+  be the wrong words for every track.
 
 - **Graceful degradation.** A failed file (bad tags, unreadable cue) emits a
   `ScanEvent::Error` and the scan continues. Every `tx.send` is checked: a dropped

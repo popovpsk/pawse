@@ -52,6 +52,69 @@ pub struct LibraryService {
     scan_state: Arc<ScanState>,
 }
 
+/// A cloneable handle bundling the repo + event sender, so the lyrics view can run
+/// its DB reads/writes on a background thread instead of blocking the render thread.
+#[derive(Clone)]
+pub struct LyricsAccess {
+    repo: Arc<dyn LibraryRepository>,
+    event_tx: flume::Sender<LibraryEvent>,
+}
+
+impl LyricsAccess {
+    pub fn stored(&self, track_id: i64) -> Option<music_library::StoredLyrics> {
+        match self.repo.lyrics_for_track(track_id) {
+            Ok(stored) => stored,
+            Err(e) => {
+                log::error!("Failed to read lyrics for track {}: {}", track_id, e);
+                None
+            }
+        }
+    }
+
+    pub fn is_multitrack_file(&self, path: &str) -> bool {
+        self.repo.track_count_for_path(path).unwrap_or(0) > 1
+    }
+
+    pub fn first_artist(&self, track_id: i64) -> Option<String> {
+        self.repo
+            .track_artists(track_id)
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+    }
+
+    pub fn album_title(&self, album_id: i64) -> Option<String> {
+        self.repo.album_title(album_id).ok().flatten()
+    }
+
+    /// Returns whether the row was written and a `LyricsChanged` emitted, so the
+    /// caller knows a reload will render (vs. a write failure it must handle).
+    pub fn save(&self, track_id: i64, text: &str, source: &str) -> bool {
+        if let Err(e) = self.repo.upsert_lyrics(track_id, text, source, false) {
+            log::error!("Failed to save lyrics for track {}: {}", track_id, e);
+            return false;
+        }
+        let _ = self.event_tx.send(LibraryEvent::LyricsChanged { track_id });
+        true
+    }
+
+    pub fn mark_not_found(&self, track_id: i64) -> bool {
+        if let Err(e) =
+            self.repo
+                .upsert_lyrics(track_id, "", music_library::lyrics_source::LRCLIB, true)
+        {
+            log::error!(
+                "Failed to mark lyrics not-found for track {}: {}",
+                track_id,
+                e
+            );
+            return false;
+        }
+        let _ = self.event_tx.send(LibraryEvent::LyricsChanged { track_id });
+        true
+    }
+}
+
 impl LibraryService {
     pub fn new(event_tx: flume::Sender<LibraryEvent>, executor: gpui::BackgroundExecutor) -> Self {
         let repo = Arc::new(SqliteLibrary::open().expect("open library db"));
@@ -139,29 +202,14 @@ impl LibraryService {
             .send(LibraryEvent::TrackLikedChanged { track_id, liked });
     }
 
-    pub fn lyrics_for_track(&self, track_id: i64) -> Option<music_library::StoredLyrics> {
-        self.repo.lyrics_for_track(track_id).unwrap_or_default()
-    }
-
-    pub fn save_lyrics(&self, track_id: i64, text: String, synced: bool, source: &str) {
-        if let Err(e) = self.repo.upsert_lyrics(track_id, &text, synced, source) {
-            log::error!("Failed to save lyrics for track {}: {}", track_id, e);
-            return;
+    pub fn lyrics_access(&self) -> LyricsAccess {
+        LyricsAccess {
+            repo: self.repo.clone(),
+            event_tx: self.event_tx.clone(),
         }
-        let _ = self.event_tx.send(LibraryEvent::LyricsChanged { track_id });
     }
 
-    pub fn is_multitrack_file(&self, path: &str) -> bool {
-        self.repo.track_count_for_path(path).unwrap_or(0) > 1
-    }
-
-    pub fn save_lyrics_file(
-        &self,
-        track_id: i64,
-        audio_path: PathBuf,
-        text: String,
-        synced: bool,
-    ) {
+    pub fn save_lyrics_file(&self, track_id: i64, audio_path: PathBuf, text: String) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
         self.executor
@@ -172,7 +220,9 @@ impl LibraryService {
                     return;
                 }
                 // why: don't re-baseline the scan fingerprint — collect_sources hashes the whole tree, so a not-yet-indexed change would be absorbed and skipped by the next rescan
-                if let Err(e) = repo.upsert_lyrics(track_id, &text, synced, "lrc") {
+                if let Err(e) =
+                    repo.upsert_lyrics(track_id, &text, music_library::lyrics_source::LRC, false)
+                {
                     log::error!(
                         "Failed to update lyrics after export for {}: {}",
                         track_id,
@@ -595,7 +645,6 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         bitrate: track.bitrate,
         lyrics: track.lyrics.map(|l| music_library::ScanLyrics {
             text: l.text,
-            synced: l.synced,
             source: l.source.as_str().to_string(),
         }),
     }

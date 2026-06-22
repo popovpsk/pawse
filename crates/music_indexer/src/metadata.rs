@@ -237,10 +237,8 @@ pub(crate) fn read_sidecar_lrc(audio_path: &Path) -> Option<String> {
 
 fn read_lyrics(audio_path: &Path, embedded: Option<String>) -> Option<IndexedLyrics> {
     if let Some(text) = read_sidecar_lrc(audio_path) {
-        let synced = lyrics::has_timestamps(&text);
         return Some(IndexedLyrics {
             text,
-            synced,
             source: LyricsSource::Lrc,
         });
     }
@@ -249,10 +247,8 @@ fn read_lyrics(audio_path: &Path, embedded: Option<String>) -> Option<IndexedLyr
     if text.trim().is_empty() {
         return None;
     }
-    let synced = lyrics::has_timestamps(&text);
     Some(IndexedLyrics {
         text,
-        synced,
         source: LyricsSource::Embedded,
     })
 }
@@ -592,28 +588,27 @@ mod tests {
     }
 
     #[test]
-    fn synced_sidecar_lrc_marks_synced_with_lrc_source() {
+    fn timestamped_sidecar_lrc_yields_lrc_source() {
         let tmp = TempDir::new();
         let track = tmp.path.join("track.flac");
         std::fs::write(&track, b"").unwrap();
         std::fs::write(tmp.path.join("track.lrc"), "[00:01.00]a\n[00:02.00]b").unwrap();
 
         let parsed = super::read_lyrics(&track, None).unwrap();
-        assert!(parsed.synced);
         assert_eq!(parsed.source, LyricsSource::Lrc);
         assert_eq!(parsed.text, "[00:01.00]a\n[00:02.00]b");
     }
 
     #[test]
-    fn plain_sidecar_lrc_is_not_synced() {
+    fn plain_sidecar_lrc_yields_lrc_source() {
         let tmp = TempDir::new();
         let track = tmp.path.join("track.flac");
         std::fs::write(&track, b"").unwrap();
         std::fs::write(tmp.path.join("track.lrc"), "first line\nsecond line").unwrap();
 
         let parsed = super::read_lyrics(&track, None).unwrap();
-        assert!(!parsed.synced);
         assert_eq!(parsed.source, LyricsSource::Lrc);
+        assert_eq!(parsed.text, "first line\nsecond line");
     }
 
     #[test]
@@ -626,7 +621,6 @@ mod tests {
         let parsed = super::read_lyrics(&track, Some("from embedded tag".to_string())).unwrap();
         assert_eq!(parsed.source, LyricsSource::Lrc);
         assert_eq!(parsed.text, "[00:01.00]from sidecar");
-        assert!(parsed.synced);
     }
 
     #[test]
@@ -638,7 +632,6 @@ mod tests {
         let parsed = super::read_lyrics(&track, Some("plain embedded".to_string())).unwrap();
         assert_eq!(parsed.source, LyricsSource::Embedded);
         assert_eq!(parsed.text, "plain embedded");
-        assert!(!parsed.synced);
     }
 
     #[test]

@@ -106,13 +106,14 @@ fn get_exact(agent: &ureq::Agent, q: &LyricsQuery, with_album: bool) -> Result<G
 }
 
 fn search(agent: &ureq::Agent, q: &LyricsQuery) -> Result<Option<RemoteLyrics>> {
-    let query = format!("{} {}", q.artist, q.title);
-    let req = agent
+    let mut req = agent
         .get(SEARCH_URL)
         .set("User-Agent", USER_AGENT)
-        .query("q", query.trim())
         .query("track_name", &q.title)
         .query("artist_name", &q.artist);
+    if let Some(album) = &q.album {
+        req = req.query("album_name", album);
+    }
 
     match req.call() {
         Ok(response) => {

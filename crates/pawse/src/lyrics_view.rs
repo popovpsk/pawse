@@ -1,42 +1,74 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
-    svg,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    div, px, svg,
 };
 use gpui_component::scroll::{ScrollableElement, ScrollbarAxis};
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
-use crate::library_service::LibraryEvent;
+use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
-const LYRICS_SOURCE: &str = "lrclib";
 const LYRICS_LOOKAHEAD: usize = 2;
 const ACTIVE_TOLERANCE_MS: u32 = 50;
 
+#[derive(PartialEq)]
+struct LyricRow {
+    text: SharedString,
+    time_ms: Option<u32>,
+    label: Option<SharedString>,
+}
+
+#[derive(Clone)]
+struct TrackContext {
+    id: i64,
+    path: String,
+    start_offset_ms: i32,
+    album_id: Option<i64>,
+    title: String,
+    duration_secs: Option<u64>,
+}
+
+enum LoadOutcome {
+    Lyrics {
+        text: String,
+        source: String,
+        is_cue: bool,
+    },
+    NotFound {
+        is_cue: bool,
+    },
+    Absent {
+        is_cue: bool,
+    },
+}
+
 pub struct LyricsView {
     current_track_id: Option<i64>,
-    lines: Vec<SharedString>,
-    times: Vec<Option<u32>>,
-    time_labels: Vec<Option<SharedString>>,
-    track_duration_ms: Option<u64>,
+    rows: Vec<LyricRow>,
     synced: bool,
+    source: String,
+    track_duration_ms: Option<u64>,
     active_ix: Option<usize>,
     hovered_ix: Option<usize>,
-    source_label: SharedString,
     can_export: bool,
     is_cue: bool,
     fetching: bool,
-    searched: bool,
-    current_raw: Option<(String, bool)>,
+    loading: bool,
+    not_found: bool,
+    current_raw: Option<String>,
     visible: bool,
     scroll_handle: ScrollHandle,
+    access: LyricsAccess,
+    _load_task: Option<Task<()>>,
     _subscription: Subscription,
     _library_subscription: Subscription,
 }
@@ -46,6 +78,7 @@ impl LyricsView {
         let services = cx.global::<Services>();
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
+        let access = services.library.lyrics_access();
 
         let subscription =
             cx.subscribe(
@@ -53,7 +86,7 @@ impl LyricsView {
                 |this, _, event: &EngineEvent, cx| match event {
                     EngineEvent::Loaded { duration, .. } => {
                         this.track_duration_ms = Some(duration.as_millis() as u64);
-                        this.load_for_current(cx);
+                        this.load(cx);
                     }
                     EngineEvent::PositionChanged(pos) => this.update_active(*pos, cx),
                     EngineEvent::Stopped => this.clear(cx),
@@ -66,31 +99,32 @@ impl LyricsView {
                 if let LibraryEvent::LyricsChanged { track_id } = event
                     && this.current_track_id == Some(*track_id)
                 {
-                    this.refresh_from_db(cx);
+                    this.load(cx);
                 }
             });
 
         let mut result = Self {
             current_track_id: None,
-            lines: Vec::new(),
-            times: Vec::new(),
-            time_labels: Vec::new(),
-            track_duration_ms: None,
+            rows: Vec::new(),
             synced: false,
+            source: String::new(),
+            track_duration_ms: None,
             active_ix: None,
             hovered_ix: None,
-            source_label: tr().lyrics.clone(),
             can_export: false,
             is_cue: false,
             fetching: false,
-            searched: false,
+            loading: false,
+            not_found: false,
             current_raw: None,
             visible: false,
             scroll_handle: ScrollHandle::new(),
+            access,
+            _load_task: None,
             _subscription: subscription,
             _library_subscription: library_subscription,
         };
-        result.refresh_from_db(cx);
+        result.load(cx);
         result
     }
 
@@ -99,163 +133,174 @@ impl LyricsView {
             return;
         }
         self.visible = visible;
-        if visible && self.lines.is_empty() && !self.fetching && !self.searched {
-            self.maybe_fetch(cx);
+        // why: opening the panel on a track we haven't resolved yet kicks the (maybe network) load; a known not-found stays cached
+        if visible && self.rows.is_empty() && !self.fetching && !self.loading && !self.not_found {
+            self.load(cx);
         }
     }
 
-    fn current_track(cx: &mut Context<Self>) -> Option<music_library::Track> {
-        cx.global::<Services>()
+    fn current_context(cx: &mut Context<Self>) -> Option<TrackContext> {
+        let track = cx
+            .global::<Services>()
             .playback_queue
             .borrow()
             .current_track()
-            .cloned()
-    }
-
-    fn is_cue_track(track: &music_library::Track, cx: &mut Context<Self>) -> bool {
-        track.start_offset_ms != 0
-            || cx
-                .global::<Services>()
-                .library
-                .is_multitrack_file(&track.path)
-    }
-
-    fn refresh_from_db(&mut self, cx: &mut Context<Self>) {
-        let Some(track) = Self::current_track(cx) else {
-            self.clear(cx);
-            return;
-        };
-        self.current_track_id = Some(track.id);
-        self.is_cue = Self::is_cue_track(&track, cx);
-        let stored = cx.global::<Services>().library.lyrics_for_track(track.id);
-        match stored {
-            Some(stored) => self.apply_text(&stored.text, &stored.source, cx),
-            None => {
-                self.set_empty(cx);
-                if self.visible {
-                    self.maybe_fetch(cx);
-                }
-            }
-        }
-    }
-
-    fn load_for_current(&mut self, cx: &mut Context<Self>) {
-        let Some(track) = Self::current_track(cx) else {
-            self.clear(cx);
-            return;
-        };
-        let changed = self.current_track_id != Some(track.id);
-        if !changed {
-            return;
-        }
-        self.current_track_id = Some(track.id);
-        self.is_cue = Self::is_cue_track(&track, cx);
-        self.searched = false;
-        let stored = cx.global::<Services>().library.lyrics_for_track(track.id);
-        match stored {
-            Some(stored) => self.apply_text(&stored.text, &stored.source, cx),
-            None => {
-                self.set_empty(cx);
-                if self.visible {
-                    self.maybe_fetch(cx);
-                }
-            }
-        }
-    }
-
-    fn maybe_fetch(&mut self, cx: &mut Context<Self>) {
-        if !cx.global::<SettingsStore>().lyrics_from_internet() {
-            return;
-        }
-        let Some(track) = Self::current_track(cx) else {
-            return;
-        };
-        let req_id = track.id;
-        let artist = cx
-            .global::<Services>()
-            .library
-            .track_artists(track.id)
-            .into_iter()
-            .next()
-            .unwrap_or_default();
-        let query = lyrics::LyricsQuery {
-            artist,
-            title: track.title.clone(),
-            album: None,
+            .cloned()?;
+        Some(TrackContext {
+            id: track.id,
+            path: track.path,
+            start_offset_ms: track.start_offset_ms,
+            album_id: track.album_id,
+            title: track.title,
             duration_secs: track.duration_ms.map(|ms| (ms / 1000) as u64),
-        };
-
-        self.fetching = true;
-        cx.notify();
-
-        cx.spawn(async move |this, cx| {
-            let res = cx
-                .background_spawn(async move { lyrics::fetch(&query) })
-                .await;
-            this.update(cx, |this, cx| this.apply_fetch_result(req_id, res, cx))
-                .ok();
         })
-        .detach();
     }
 
-    fn apply_fetch_result(
+    fn load(&mut self, cx: &mut Context<Self>) {
+        let Some(ctx) = Self::current_context(cx) else {
+            self.clear(cx);
+            return;
+        };
+        let changed = self.current_track_id != Some(ctx.id);
+        self.current_track_id = Some(ctx.id);
+        if changed {
+            // why: drop the previous track's lines at once so they don't linger under the new track during the background read
+            self.reset_display();
+        }
+        // why: show a blank rather than a flash of "No lyrics" while the background read runs, whenever nothing is on screen yet
+        if self.rows.is_empty() && !self.fetching {
+            self.loading = true;
+        }
+        let want_fetch = self.visible && cx.global::<SettingsStore>().lyrics_from_internet();
+        self.spawn_load(ctx, want_fetch, cx);
+        cx.notify();
+    }
+
+    fn spawn_load(&mut self, ctx: TrackContext, want_fetch: bool, cx: &mut Context<Self>) {
+        let access = self.access.clone();
+        self._load_task = Some(cx.spawn(async move |this, cx| {
+            let bg = ctx.clone();
+            let outcome = cx
+                .background_spawn(async move {
+                    let is_cue = bg.start_offset_ms != 0 || access.is_multitrack_file(&bg.path);
+                    match access.stored(bg.id) {
+                        Some(s) if s.not_found => LoadOutcome::NotFound { is_cue },
+                        Some(s) => LoadOutcome::Lyrics {
+                            text: s.text,
+                            source: s.source,
+                            is_cue,
+                        },
+                        None => LoadOutcome::Absent { is_cue },
+                    }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.apply_load_outcome(ctx, want_fetch, outcome, cx)
+            })
+            .ok();
+        }));
+    }
+
+    fn apply_load_outcome(
         &mut self,
-        req_id: i64,
-        res: anyhow::Result<Option<lyrics::RemoteLyrics>>,
+        ctx: TrackContext,
+        want_fetch: bool,
+        outcome: LoadOutcome,
         cx: &mut Context<Self>,
     ) {
-        if self.current_track_id != Some(req_id) {
+        if self.current_track_id != Some(ctx.id) {
             return;
         }
-        self.fetching = false;
-        self.searched = true;
-        let remote = match res {
-            Ok(remote) => remote,
-            Err(e) => {
-                log::warn!("lyrics fetch failed for track {}: {}", req_id, e);
-                None
+        self.loading = false;
+        match outcome {
+            LoadOutcome::Lyrics {
+                text,
+                source,
+                is_cue,
+            } => {
+                self.is_cue = is_cue;
+                self.apply_text(&text, &source, cx);
             }
-        };
-        let text: Option<(String, bool)> = remote.and_then(|r| {
-            r.synced
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| (s, true))
-                .or_else(|| r.plain.filter(|s| !s.trim().is_empty()).map(|s| (s, false)))
-        });
-        match text {
-            Some((raw, synced)) => {
-                cx.global::<Services>().library.save_lyrics(
-                    req_id,
-                    raw.clone(),
-                    synced,
-                    LYRICS_SOURCE,
-                );
-                self.apply_text(&raw, LYRICS_SOURCE, cx)
+            LoadOutcome::NotFound { is_cue } => {
+                self.is_cue = is_cue;
+                self.set_not_found(cx);
             }
-            None => self.set_empty(cx),
+            LoadOutcome::Absent { is_cue } => {
+                self.is_cue = is_cue;
+                if want_fetch {
+                    self.kick_fetch(ctx, cx);
+                } else {
+                    self.set_empty(cx);
+                }
+            }
         }
+    }
+
+    fn kick_fetch(&mut self, ctx: TrackContext, cx: &mut Context<Self>) {
+        self.fetching = true;
+        self.not_found = false;
+        cx.notify();
+        let access = self.access.clone();
+        self._load_task = Some(cx.spawn(async move |this, cx| {
+            let id = ctx.id;
+            // why: fetched lyrics render via the LyricsChanged reload, so the background task only writes; `emitted` tells us whether a render is coming or we must clear the spinner ourselves
+            let emitted = cx
+                .background_spawn(async move {
+                    let artist = access.first_artist(id).unwrap_or_default();
+                    let album = ctx.album_id.and_then(|aid| access.album_title(aid));
+                    let query = lyrics::LyricsQuery {
+                        artist,
+                        title: ctx.title,
+                        album,
+                        duration_secs: ctx.duration_secs,
+                    };
+                    match lyrics::fetch(&query) {
+                        Ok(Some(remote)) => match pick_remote(remote) {
+                            Some(raw) => {
+                                access.save(id, &raw, music_library::lyrics_source::LRCLIB)
+                            }
+                            None => access.mark_not_found(id),
+                        },
+                        Ok(None) => access.mark_not_found(id),
+                        Err(e) => {
+                            log::warn!("lyrics fetch failed for track {}: {}", id, e);
+                            false
+                        }
+                    }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.current_track_id == Some(id) && !emitted && this.fetching {
+                    this.fetching = false;
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     fn apply_text(&mut self, raw: &str, source: &str, cx: &mut Context<Self>) {
         let parsed = lyrics::parse_lrc(raw);
-        let lines: Vec<SharedString> = parsed
+        let rows: Vec<LyricRow> = parsed
             .lines
             .iter()
-            .map(|l| SharedString::from(l.text.clone()))
+            .map(|l| LyricRow {
+                text: SharedString::from(l.text.clone()),
+                time_ms: l.time_ms,
+                label: l.time_ms.map(format_ms),
+            })
             .collect();
-        let lines_changed = lines != self.lines;
+        let rows_changed = rows != self.rows;
         self.synced = parsed.synced;
-        self.lines = lines;
-        self.times = parsed.lines.iter().map(|l| l.time_ms).collect();
-        self.time_labels = parsed
-            .lines
-            .iter()
-            .map(|l| l.time_ms.map(format_ms))
-            .collect();
-        self.current_raw = Some((raw.to_string(), parsed.synced));
-        self.can_export = !self.lines.is_empty() && source != "lrc" && !self.is_cue;
+        self.rows = rows;
+        self.source = source.to_string();
+        self.current_raw = Some(raw.to_string());
+        self.can_export =
+            !self.rows.is_empty() && source != music_library::lyrics_source::LRC && !self.is_cue;
         self.fetching = false;
-        if lines_changed {
+        self.loading = false;
+        self.not_found = false;
+        if rows_changed {
             self.active_ix = None;
             self.hovered_ix = None;
             self.scroll_handle.scroll_to_item(0);
@@ -263,16 +308,35 @@ impl LyricsView {
         cx.notify();
     }
 
-    fn set_empty(&mut self, cx: &mut Context<Self>) {
-        self.lines.clear();
-        self.times.clear();
-        self.time_labels.clear();
+    fn clear_content(&mut self) {
+        self.rows.clear();
         self.synced = false;
+        self.source.clear();
         self.active_ix = None;
         self.hovered_ix = None;
         self.can_export = false;
         self.current_raw = None;
+    }
+
+    fn reset_display(&mut self) {
+        self.clear_content();
+        self.not_found = false;
         self.fetching = false;
+    }
+
+    fn set_empty(&mut self, cx: &mut Context<Self>) {
+        self.clear_content();
+        self.not_found = false;
+        self.fetching = false;
+        self.loading = false;
+        cx.notify();
+    }
+
+    fn set_not_found(&mut self, cx: &mut Context<Self>) {
+        self.clear_content();
+        self.not_found = true;
+        self.fetching = false;
+        self.loading = false;
         cx.notify();
     }
 
@@ -280,8 +344,10 @@ impl LyricsView {
         self.current_track_id = None;
         self.track_duration_ms = None;
         self.is_cue = false;
-        self.searched = false;
-        self.set_empty(cx);
+        self._load_task = None;
+        self.reset_display();
+        self.loading = false;
+        cx.notify();
     }
 
     fn seek_to_line(&mut self, ix: usize, time_ms: u32, cx: &mut Context<Self>) {
@@ -311,16 +377,16 @@ impl LyricsView {
     }
 
     fn update_active(&mut self, pos: Duration, cx: &mut Context<Self>) {
-        if !self.synced || self.times.is_empty() {
+        if !self.synced || self.rows.is_empty() {
             return;
         }
         let pos_ms = pos.as_millis() as u32 + ACTIVE_TOLERANCE_MS;
         let mut new_active: Option<usize> = None;
         let mut lo = 0usize;
-        let mut hi = self.times.len();
+        let mut hi = self.rows.len();
         while lo < hi {
             let mid = (lo + hi) / 2;
-            match self.times[mid] {
+            match self.rows[mid].time_ms {
                 Some(t) if t <= pos_ms => {
                     new_active = Some(mid);
                     lo = mid + 1;
@@ -343,20 +409,24 @@ impl LyricsView {
         if !self.can_export {
             return;
         }
-        let Some(track) = Self::current_track(cx) else {
+        let Some(ctx) = Self::current_context(cx) else {
             return;
         };
-        let Some((raw, synced)) = self.current_raw.clone() else {
+        let Some(raw) = self.current_raw.clone() else {
             return;
         };
         // why: don't fake success — can_export clears only when the write lands and source flips to "lrc" via LyricsChanged, so a failed write keeps the button for retry
-        cx.global::<Services>().library.save_lyrics_file(
-            track.id,
-            std::path::PathBuf::from(track.path),
-            raw,
-            synced,
-        );
+        cx.global::<Services>()
+            .library
+            .save_lyrics_file(ctx.id, PathBuf::from(ctx.path), raw);
     }
+}
+
+fn pick_remote(remote: lyrics::RemoteLyrics) -> Option<String> {
+    remote
+        .synced
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| remote.plain.filter(|s| !s.trim().is_empty()))
 }
 
 impl Render for LyricsView {
@@ -381,7 +451,7 @@ impl Render for LyricsView {
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(foreground)
-                    .child(self.source_label.clone()),
+                    .child(tr().lyrics.clone()),
             )
             .when(self.can_export, |d| {
                 d.child(
@@ -409,14 +479,9 @@ impl Render for LyricsView {
 
         let body = if self.fetching {
             centered_message(tr().lyrics_fetching.clone(), muted_foreground).into_any_element()
-        } else if self.lines.is_empty() {
-            let message = if self.searched {
-                tr().lyrics_not_found.clone()
-            } else {
-                tr().lyrics_empty.clone()
-            };
-            centered_message(message, muted_foreground).into_any_element()
-        } else {
+        } else if self.loading {
+            div().flex_1().into_any_element()
+        } else if !self.rows.is_empty() {
             v_flex()
                 .relative()
                 .flex_1()
@@ -428,22 +493,22 @@ impl Render for LyricsView {
                         .overflow_y_scroll()
                         .track_scroll(&self.scroll_handle)
                         .py_2()
-                        .children(self.lines.iter().enumerate().map(|(ix, line)| {
+                        .children(self.rows.iter().enumerate().map(|(ix, row)| {
                             let is_active = Some(ix) == active_ix;
                             let color = if synced {
                                 if is_active { primary } else { muted_foreground }
                             } else {
                                 foreground
                             };
-                            let row = div()
+                            let line = div()
                                 .w_full()
                                 .px_4()
                                 .py_1()
                                 .text_sm()
                                 .text_color(color)
                                 .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
-                            match (synced, self.times[ix], self.time_labels[ix].clone()) {
-                                (true, Some(time_ms), Some(label)) => row
+                            match (synced, row.time_ms, row.label.clone()) {
+                                (true, Some(time_ms), Some(label)) => line
                                     .id(("lyrics_line", ix))
                                     .cursor_pointer()
                                     .when(Some(ix) == hovered_ix, |d| d.underline())
@@ -456,14 +521,21 @@ impl Render for LyricsView {
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.seek_to_line(ix, time_ms, cx)
                                     }))
-                                    .child(line.clone())
+                                    .child(row.text.clone())
                                     .into_any_element(),
-                                _ => row.child(line.clone()).into_any_element(),
+                                _ => line.child(row.text.clone()).into_any_element(),
                             }
                         })),
                 )
                 .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
                 .into_any_element()
+        } else {
+            let message = if self.not_found {
+                tr().lyrics_not_found.clone()
+            } else {
+                tr().lyrics_empty.clone()
+            };
+            centered_message(message, muted_foreground).into_any_element()
         };
 
         v_flex().size_full().child(header).child(body)

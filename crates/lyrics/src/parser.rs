@@ -54,34 +54,6 @@ pub fn parse_lrc(raw: &str) -> Lyrics {
     Lyrics { synced, lines }
 }
 
-pub fn has_timestamps(raw: &str) -> bool {
-    let bytes = raw.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'[' {
-            let mut j = i + 1;
-            let mut digits = 0;
-            while j < bytes.len() && bytes[j].is_ascii_digit() {
-                j += 1;
-                digits += 1;
-            }
-            if digits > 0 && j < bytes.len() && bytes[j] == b':' {
-                let mut k = j + 1;
-                let mut secs = 0;
-                while k < bytes.len() && bytes[k].is_ascii_digit() {
-                    k += 1;
-                    secs += 1;
-                }
-                if secs > 0 {
-                    return true;
-                }
-            }
-        }
-        i += 1;
-    }
-    false
-}
-
 fn take_bracket(s: &str) -> Option<(&str, &str)> {
     let start = s.find('[')?;
     let end_rel = s[start..].find(']')?;
@@ -127,7 +99,8 @@ fn parse_time_tag(inner: &str) -> Option<u32> {
         }
     };
 
-    Some(minutes * 60_000 + seconds * 1_000 + frac_ms)
+    let total_ms = (minutes as u64) * 60_000 + (seconds as u64) * 1_000 + frac_ms as u64;
+    u32::try_from(total_ms).ok()
 }
 
 #[cfg(test)]
@@ -226,14 +199,9 @@ mod tests {
     }
 
     #[test]
-    fn has_timestamps_true_on_lrc() {
-        assert!(has_timestamps("[00:12.00]line"));
-        assert!(has_timestamps("intro\n[01:02.50]line"));
-    }
-
-    #[test]
-    fn has_timestamps_false_on_plain() {
-        assert!(!has_timestamps("just\nplain\nlyrics"));
-        assert!(!has_timestamps("[ti:Title]\n[ar:Artist]"));
+    fn overflowing_timestamp_is_rejected_not_panicked() {
+        let parsed = parse_lrc("[99999:00.00]x\n[00:01.00]ok");
+        assert_eq!(parsed.lines.len(), 1);
+        assert_eq!(parsed.lines[0].time_ms, Some(1_000));
     }
 }

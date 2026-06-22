@@ -32,8 +32,8 @@ pub enum LyricsSource {
 impl LyricsSource {
     pub fn as_str(&self) -> &'static str {
         match self {
-            LyricsSource::Lrc => "lrc",
-            LyricsSource::Embedded => "embedded",
+            LyricsSource::Lrc => music_library::lyrics_source::LRC,
+            LyricsSource::Embedded => music_library::lyrics_source::EMBEDDED,
         }
     }
 }
@@ -41,7 +41,6 @@ impl LyricsSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedLyrics {
     pub text: String,
-    pub synced: bool,
     pub source: LyricsSource,
 }
 
