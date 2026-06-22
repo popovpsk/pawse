@@ -594,6 +594,7 @@ impl Render for LyricsView {
                         foreground
                     };
                     let line = div()
+                        .flex()
                         .w_full()
                         .px_4()
                         .py_1()
