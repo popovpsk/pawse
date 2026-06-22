@@ -161,6 +161,7 @@ pub static TH: Strings = lang! {
     lyrics_fetching: "กำลังโหลดเนื้อเพลง…",
     lyrics_not_found: "ไม่พบเนื้อเพลง",
     lyrics_save: "บันทึกเป็นไฟล์ .lrc",
+    lyrics_follow: "ติดตามบรรทัดปัจจุบัน",
     lyrics_from_internet: "ดึงเนื้อเพลงจากอินเทอร์เน็ต",
     lyrics_from_internet_desc: "ค้นหาเนื้อเพลงที่ขาดหายไปทางออนไลน์ผ่าน LRCLIB ปิดเพื่อความเป็นส่วนตัว",
 

@@ -4,11 +4,10 @@ use std::time::Duration;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Task, Window,
-    div, px, svg,
+    Animation, AnimationExt, AppContext, Context, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Task, Window, div, ease_out_quint, px, svg,
 };
-use gpui_component::scroll::{ScrollableElement, ScrollbarAxis};
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use crate::library_service::{LibraryEvent, LyricsAccess};
@@ -17,8 +16,10 @@ use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
-const LYRICS_LOOKAHEAD: usize = 2;
 const ACTIVE_TOLERANCE_MS: u32 = 50;
+const SCROLL_ANIM: Duration = Duration::from_millis(360);
+const CENTER_BIAS: f32 = 0.4;
+const SCROLL_EPS: Pixels = px(1.);
 
 #[derive(PartialEq)]
 struct LyricRow {
@@ -67,7 +68,11 @@ pub struct LyricsView {
     current_raw: Option<String>,
     visible: bool,
     scroll_handle: ScrollHandle,
+    autoscroll: bool,
+    scroll_seq: usize,
+    scroll_anim: Option<(Pixels, Pixels)>,
     access: LyricsAccess,
+    _scroll_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
     _subscription: Subscription,
     _library_subscription: Subscription,
@@ -119,7 +124,11 @@ impl LyricsView {
             current_raw: None,
             visible: false,
             scroll_handle: ScrollHandle::new(),
+            autoscroll: true,
+            scroll_seq: 0,
+            scroll_anim: None,
             access,
+            _scroll_task: None,
             _load_task: None,
             _subscription: subscription,
             _library_subscription: library_subscription,
@@ -303,6 +312,8 @@ impl LyricsView {
         if rows_changed {
             self.active_ix = None;
             self.hovered_ix = None;
+            self.autoscroll = true;
+            self.scroll_anim = None;
             self.scroll_handle.scroll_to_item(0);
         }
         cx.notify();
@@ -316,6 +327,7 @@ impl LyricsView {
         self.hovered_ix = None;
         self.can_export = false;
         self.current_raw = None;
+        self.scroll_anim = None;
     }
 
     fn reset_display(&mut self) {
@@ -398,9 +410,64 @@ impl LyricsView {
             return;
         }
         self.active_ix = new_active;
-        if let Some(ix) = new_active {
-            self.scroll_handle
-                .scroll_to_top_of_item(ix.saturating_sub(LYRICS_LOOKAHEAD));
+        if self.autoscroll
+            && let Some(ix) = new_active
+        {
+            self.start_autoscroll(ix, cx);
+        }
+        cx.notify();
+    }
+
+    fn centered_offset(&self, ix: usize) -> Option<Pixels> {
+        let item = self.scroll_handle.bounds_for_item(ix)?;
+        let vp = self.scroll_handle.bounds();
+        if vp.size.height <= px(0.) {
+            return None;
+        }
+        let max = self.scroll_handle.max_offset().height;
+        let target = vp.top() + vp.size.height * CENTER_BIAS - item.size.height * 0.5 - item.top();
+        Some(target.clamp(-max, px(0.)))
+    }
+
+    fn start_autoscroll(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(to) = self.centered_offset(ix) else {
+            return;
+        };
+        let from = self.scroll_handle.offset().y;
+        if (from - to).abs() < SCROLL_EPS {
+            self.scroll_anim = None;
+            return;
+        }
+        self.scroll_seq = self.scroll_seq.wrapping_add(1);
+        let seq = self.scroll_seq;
+        self.scroll_anim = Some((from, to));
+        self._scroll_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SCROLL_ANIM).await;
+            this.update(cx, |this, cx| {
+                // why: drop the animator once it has rested the offset at `to`, but only for the latest run so an interrupting scroll isn't clobbered
+                if this.scroll_seq == seq {
+                    this.scroll_anim = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
+    }
+
+    fn disengage(&mut self, cx: &mut Context<Self>) {
+        if !self.autoscroll && self.scroll_anim.is_none() {
+            return;
+        }
+        self.autoscroll = false;
+        self.scroll_anim = None;
+        self._scroll_task = None;
+        cx.notify();
+    }
+
+    fn resync(&mut self, cx: &mut Context<Self>) {
+        self.autoscroll = true;
+        if let Some(ix) = self.active_ix {
+            self.start_autoscroll(ix, cx);
         }
         cx.notify();
     }
@@ -438,6 +505,7 @@ impl Render for LyricsView {
         let synced = self.synced;
         let active_ix = self.active_ix;
         let hovered_ix = self.hovered_ix;
+        let show_sync = synced && active_ix.is_some() && !self.autoscroll;
 
         let header = h_flex()
             .w_full()
@@ -453,81 +521,126 @@ impl Render for LyricsView {
                     .text_color(foreground)
                     .child(tr().lyrics.clone()),
             )
-            .when(self.can_export, |d| {
-                d.child(
-                    div()
-                        .id("lyrics_save")
-                        .size(px(28.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(muted))
-                        .tooltip(|window, cx| {
-                            Tooltip::new(tr().lyrics_save.clone()).build(window, cx)
-                        })
-                        .on_click(cx.listener(|this, _, _, cx| this.export(cx)))
-                        .child(
-                            svg()
-                                .path("icons/save.svg")
-                                .size(px(18.))
-                                .text_color(muted_foreground),
-                        ),
-                )
-            });
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_1()
+                    .when(show_sync, |d| {
+                        d.child(
+                            div()
+                                .id("lyrics_sync")
+                                .size(px(28.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_full()
+                                .cursor_pointer()
+                                .hover(|s| s.bg(muted))
+                                .tooltip(|window, cx| {
+                                    Tooltip::new(tr().lyrics_follow.clone()).build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| this.resync(cx)))
+                                .child(
+                                    svg()
+                                        .path("icons/locate.svg")
+                                        .size(px(18.))
+                                        .text_color(muted_foreground),
+                                ),
+                        )
+                    })
+                    .when(self.can_export, |d| {
+                        d.child(
+                            div()
+                                .id("lyrics_save")
+                                .size(px(28.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_full()
+                                .cursor_pointer()
+                                .hover(|s| s.bg(muted))
+                                .tooltip(|window, cx| {
+                                    Tooltip::new(tr().lyrics_save.clone()).build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| this.export(cx)))
+                                .child(
+                                    svg()
+                                        .path("icons/save.svg")
+                                        .size(px(18.))
+                                        .text_color(muted_foreground),
+                                ),
+                        )
+                    }),
+            );
 
         let body = if self.fetching {
             centered_message(tr().lyrics_fetching.clone(), muted_foreground).into_any_element()
         } else if self.loading {
             div().flex_1().into_any_element()
         } else if !self.rows.is_empty() {
+            let list = v_flex()
+                .id("lyrics_list")
+                .size_full()
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll_handle)
+                .on_scroll_wheel(cx.listener(|this, _, _, cx| this.disengage(cx)))
+                .py_2()
+                .children(self.rows.iter().enumerate().map(|(ix, row)| {
+                    let is_active = Some(ix) == active_ix;
+                    let color = if synced && is_active {
+                        primary
+                    } else {
+                        foreground
+                    };
+                    let line = div()
+                        .w_full()
+                        .px_4()
+                        .py_1()
+                        .text_sm()
+                        .text_color(color)
+                        .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
+                    match (synced, row.time_ms, row.label.clone()) {
+                        (true, Some(time_ms), Some(label)) => {
+                            line.id(("lyrics_line", ix))
+                                .cursor_pointer()
+                                .when(Some(ix) == hovered_ix, |d| d.underline())
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(label.clone()).build(window, cx)
+                                })
+                                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                                    this.set_hovered(ix, *hovered, cx)
+                                }))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.seek_to_line(ix, time_ms, cx)
+                                }))
+                                .child(row.text.clone())
+                                .into_any_element()
+                        }
+                        _ => line.child(row.text.clone()).into_any_element(),
+                    }
+                }));
+
+            let list = if let Some((from, to)) = self.scroll_anim {
+                let handle = self.scroll_handle.clone();
+                list.with_animation(
+                    ("lyrics-autoscroll", self.scroll_seq),
+                    Animation::new(SCROLL_ANIM).with_easing(ease_out_quint()),
+                    move |el, delta| {
+                        let mut offset = handle.offset();
+                        offset.y = from + (to - from) * delta;
+                        handle.set_offset(offset);
+                        el
+                    },
+                )
+                .into_any_element()
+            } else {
+                list.into_any_element()
+            };
+
             v_flex()
-                .relative()
                 .flex_1()
                 .min_h(px(0.))
-                .child(
-                    v_flex()
-                        .id("lyrics_list")
-                        .size_full()
-                        .overflow_y_scroll()
-                        .track_scroll(&self.scroll_handle)
-                        .py_2()
-                        .children(self.rows.iter().enumerate().map(|(ix, row)| {
-                            let is_active = Some(ix) == active_ix;
-                            let color = if synced {
-                                if is_active { primary } else { muted_foreground }
-                            } else {
-                                foreground
-                            };
-                            let line = div()
-                                .w_full()
-                                .px_4()
-                                .py_1()
-                                .text_sm()
-                                .text_color(color)
-                                .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
-                            match (synced, row.time_ms, row.label.clone()) {
-                                (true, Some(time_ms), Some(label)) => line
-                                    .id(("lyrics_line", ix))
-                                    .cursor_pointer()
-                                    .when(Some(ix) == hovered_ix, |d| d.underline())
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(label.clone()).build(window, cx)
-                                    })
-                                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                                        this.set_hovered(ix, *hovered, cx)
-                                    }))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.seek_to_line(ix, time_ms, cx)
-                                    }))
-                                    .child(row.text.clone())
-                                    .into_any_element(),
-                                _ => line.child(row.text.clone()).into_any_element(),
-                            }
-                        })),
-                )
-                .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)
+                .child(list)
                 .into_any_element()
         } else {
             let message = if self.not_found {

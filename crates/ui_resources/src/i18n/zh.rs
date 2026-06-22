@@ -161,6 +161,7 @@ pub static ZH: Strings = lang! {
     lyrics_fetching: "正在获取歌词…",
     lyrics_not_found: "未找到歌词",
     lyrics_save: "保存为 .lrc 文件",
+    lyrics_follow: "跟随当前歌词",
     lyrics_from_internet: "从互联网获取歌词",
     lyrics_from_internet_desc: "通过 LRCLIB 在线查找缺失的歌词。关闭以保护隐私。",
 

@@ -6,6 +6,9 @@ const USER_AGENT: &str = "pawse music player (https://github.com/popovpsk/pawse)
 const GET_URL: &str = "https://lrclib.net/api/get";
 const SEARCH_URL: &str = "https://lrclib.net/api/search";
 const DURATION_TOLERANCE_SECS: f64 = 5.0;
+const MAX_ATTEMPTS: u32 = 5;
+const RETRY_BACKOFF_MS: u64 = 250;
+const RETRY_AFTER_CAP_SECS: u64 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LyricsQuery {
@@ -93,15 +96,17 @@ fn get_exact(agent: &ureq::Agent, q: &LyricsQuery, with_album: bool) -> Result<G
         req = req.query("duration", &duration.to_string());
     }
 
-    match req.call() {
+    match call_with_retry(req) {
         Ok(response) => {
             let body = response
                 .into_string()
                 .context("reading LRCLIB get response")?;
             Ok(parse_get(&body))
         }
-        Err(ureq::Error::Status(404, _)) => Ok(GetResult::NotFound),
-        Err(e) => Err(anyhow::Error::new(e).context("LRCLIB get request failed")),
+        Err(e) => match *e {
+            ureq::Error::Status(404, _) => Ok(GetResult::NotFound),
+            e => Err(anyhow::Error::new(e).context("LRCLIB get request failed")),
+        },
     }
 }
 
@@ -115,16 +120,60 @@ fn search(agent: &ureq::Agent, q: &LyricsQuery) -> Result<Option<RemoteLyrics>> 
         req = req.query("album_name", album);
     }
 
-    match req.call() {
+    match call_with_retry(req) {
         Ok(response) => {
             let body = response
                 .into_string()
                 .context("reading LRCLIB search response")?;
             Ok(select_search_match(&body, q))
         }
-        Err(ureq::Error::Status(404, _)) => Ok(None),
-        Err(e) => Err(anyhow::Error::new(e).context("LRCLIB search request failed")),
+        Err(e) => match *e {
+            ureq::Error::Status(404, _) => Ok(None),
+            e => Err(anyhow::Error::new(e).context("LRCLIB search request failed")),
+        },
     }
+}
+
+fn call_with_retry(req: ureq::Request) -> Result<ureq::Response, Box<ureq::Error>> {
+    let mut attempt = 0u32;
+    loop {
+        match req.clone().call() {
+            Ok(response) => return Ok(response),
+            Err(e) => {
+                attempt += 1;
+                if attempt >= MAX_ATTEMPTS || !is_retryable(&e) {
+                    return Err(Box::new(e));
+                }
+                std::thread::sleep(retry_delay(&e));
+            }
+        }
+    }
+}
+
+fn is_retryable(e: &ureq::Error) -> bool {
+    match e {
+        ureq::Error::Status(code, _) => retryable_status(*code),
+        ureq::Error::Transport(_) => true,
+    }
+}
+
+fn retryable_status(code: u16) -> bool {
+    code == 429 || code >= 500
+}
+
+fn retry_delay(e: &ureq::Error) -> Duration {
+    if let ureq::Error::Status(429, resp) = e
+        && let Some(delay) = retry_after_delay(resp.header("retry-after"))
+    {
+        return delay;
+    }
+    Duration::from_millis(RETRY_BACKOFF_MS)
+}
+
+fn retry_after_delay(header: Option<&str>) -> Option<Duration> {
+    header
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(|secs| Duration::from_secs(secs.min(RETRY_AFTER_CAP_SECS)))
 }
 
 fn parse_get(body: &str) -> GetResult {
@@ -255,11 +304,11 @@ mod tests {
     #[test]
     fn search_skips_wrong_artist_for_same_title() {
         let body = r#"[
-            {"trackName":"Grace","artistName":"Jeff Buckley","duration":554.0,
+            {"trackName":"Vaeloth","artistName":"Quill Vesper","duration":554.0,
              "syncedLyrics":"[00:01.00]wrong","plainLyrics":"wrong"}
         ]"#;
         assert_eq!(
-            select_search_match(body, &query("Apocalyptica", "Grace", Some(215))),
+            select_search_match(body, &query("Zephyrnauts", "Vaeloth", Some(215))),
             None
         );
     }
@@ -267,11 +316,11 @@ mod tests {
     #[test]
     fn search_skips_instrumental_match() {
         let body = r#"[
-            {"trackName":"Grace","artistName":"Apocalyptica","duration":215.0,
+            {"trackName":"Vaeloth","artistName":"Zephyrnauts","duration":215.0,
              "instrumental":true,"syncedLyrics":null,"plainLyrics":null}
         ]"#;
         assert_eq!(
-            select_search_match(body, &query("Apocalyptica", "Grace", Some(215))),
+            select_search_match(body, &query("Zephyrnauts", "Vaeloth", Some(215))),
             None
         );
     }
@@ -279,16 +328,13 @@ mod tests {
     #[test]
     fn search_accepts_matching_artist_and_title() {
         let body = r#"[
-            {"trackName":"Grace","artistName":"Jeff Buckley","duration":554.0,
+            {"trackName":"Vaeloth","artistName":"Quill Vesper","duration":554.0,
              "syncedLyrics":"[00:01.00]wrong","plainLyrics":"wrong"},
-            {"trackName":"Nothing Else Matters","artistName":"Apocalyptica","duration":300.0,
+            {"trackName":"Hollow Tide","artistName":"Zephyrnauts","duration":300.0,
              "syncedLyrics":"[00:02.00]right","plainLyrics":"right"}
         ]"#;
-        let parsed = select_search_match(
-            body,
-            &query("Apocalyptica", "Nothing Else Matters", Some(301)),
-        )
-        .unwrap();
+        let parsed =
+            select_search_match(body, &query("Zephyrnauts", "Hollow Tide", Some(301))).unwrap();
         assert_eq!(parsed.plain.as_deref(), Some("right"));
     }
 
@@ -307,11 +353,11 @@ mod tests {
     #[test]
     fn search_rejects_same_artist_wrong_duration_overlapping_title() {
         let body = r#"[
-            {"trackName":"Amazing Grace","artistName":"Apocalyptica","duration":480.0,
+            {"trackName":"Bright Vaeloth","artistName":"Zephyrnauts","duration":480.0,
              "syncedLyrics":null,"plainLyrics":"different song"}
         ]"#;
         assert_eq!(
-            select_search_match(body, &query("Apocalyptica", "Grace", Some(215))),
+            select_search_match(body, &query("Zephyrnauts", "Vaeloth", Some(215))),
             None
         );
     }
@@ -332,11 +378,32 @@ mod tests {
     }
 
     #[test]
+    fn retryable_status_classification() {
+        assert!(!retryable_status(404));
+        assert!(!retryable_status(400));
+        assert!(!retryable_status(200));
+        assert!(retryable_status(429));
+        assert!(retryable_status(500));
+        assert!(retryable_status(503));
+    }
+
+    #[test]
+    fn retry_after_delay_parses_clamps_and_rejects() {
+        assert_eq!(retry_after_delay(None), None);
+        assert_eq!(retry_after_delay(Some("nope")), None);
+        assert_eq!(retry_after_delay(Some(" 3 ")), Some(Duration::from_secs(3)));
+        assert_eq!(
+            retry_after_delay(Some("999")),
+            Some(Duration::from_secs(10))
+        );
+    }
+
+    #[test]
     fn text_matches_handles_substrings_and_case() {
-        assert!(text_matches("Apocalyptica", "apocalyptica"));
-        assert!(text_matches("Apocalyptica feat. Gavin", "Apocalyptica"));
-        assert!(text_matches("Grace", "grace (remastered)"));
-        assert!(!text_matches("Jeff Buckley", "Apocalyptica"));
+        assert!(text_matches("Zephyrnauts", "zephyrnauts"));
+        assert!(text_matches("Zephyrnauts feat. Marn", "Zephyrnauts"));
+        assert!(text_matches("Vaeloth", "vaeloth (remastered)"));
+        assert!(!text_matches("Quill Vesper", "Zephyrnauts"));
         assert!(!text_matches("", "x"));
     }
 }

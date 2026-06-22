@@ -161,6 +161,7 @@ pub static NL: Strings = lang! {
     lyrics_fetching: "Songtekst ophalen…",
     lyrics_not_found: "Songtekst niet gevonden",
     lyrics_save: "Opslaan in .lrc-bestand",
+    lyrics_follow: "Huidige regel volgen",
     lyrics_from_internet: "Songtekst van internet ophalen",
     lyrics_from_internet_desc: "Ontbrekende songteksten online zoeken via LRCLIB. Zet uit voor privacy.",
 

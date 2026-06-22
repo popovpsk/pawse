@@ -218,6 +218,7 @@ pub struct Strings {
     pub lyrics_fetching: SharedString,
     pub lyrics_not_found: SharedString,
     pub lyrics_save: SharedString,
+    pub lyrics_follow: SharedString,
     pub lyrics_from_internet: SharedString,
     pub lyrics_from_internet_desc: SharedString,
 

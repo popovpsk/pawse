@@ -161,6 +161,7 @@ pub static DE: Strings = lang! {
     lyrics_fetching: "Liedtext wird geladen…",
     lyrics_not_found: "Liedtext nicht gefunden",
     lyrics_save: "In .lrc-Datei speichern",
+    lyrics_follow: "Aktueller Zeile folgen",
     lyrics_from_internet: "Liedtext aus dem Internet laden",
     lyrics_from_internet_desc: "Fehlende Liedtexte online über LRCLIB suchen. Für mehr Datenschutz deaktivieren.",
 

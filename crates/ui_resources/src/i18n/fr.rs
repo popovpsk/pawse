@@ -161,6 +161,7 @@ pub static FR: Strings = lang! {
     lyrics_fetching: "Récupération des paroles…",
     lyrics_not_found: "Paroles introuvables",
     lyrics_save: "Enregistrer dans un fichier .lrc",
+    lyrics_follow: "Suivre la ligne actuelle",
     lyrics_from_internet: "Récupérer les paroles depuis internet",
     lyrics_from_internet_desc: "Chercher les paroles manquantes en ligne via LRCLIB. Désactivez pour plus de confidentialité.",
 
