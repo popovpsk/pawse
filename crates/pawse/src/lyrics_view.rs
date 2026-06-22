@@ -594,7 +594,6 @@ impl Render for LyricsView {
                         foreground
                     };
                     let line = div()
-                        .flex()
                         .w_full()
                         .px_4()
                         .py_1()
@@ -602,12 +601,12 @@ impl Render for LyricsView {
                         .text_color(color)
                         .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
                     match (synced, row.time_ms, row.label.clone()) {
-                        // why: keep the click/hover/tooltip target on the text run, not the
-                        // full-width row, so hovering the blank space past a short line is inert
                         (true, Some(time_ms), Some(label)) => line
+                            .flex()
                             .child(
                                 div()
                                     .id(("lyrics_line", ix))
+                                    .max_w_full()
                                     .cursor_pointer()
                                     .when(Some(ix) == hovered_ix, |d| d.underline())
                                     .tooltip(move |window, cx| {
