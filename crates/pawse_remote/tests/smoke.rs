@@ -6,7 +6,7 @@ use std::time::Duration;
 fn serves_state_snapshot() {
     let addr: SocketAddr = ([127, 0, 0, 1], 18770).into();
     let (handle, rx) = pawse_remote::channel();
-    pawse_remote::spawn(addr, rx);
+    let (_server, _ready) = pawse_remote::spawn(addr, rx);
     handle.publish(pawse_remote::PlayerState::snapshot(
         Some("Smoke Track".into()),
         true,

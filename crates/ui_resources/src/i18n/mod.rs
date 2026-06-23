@@ -221,6 +221,11 @@ pub struct Strings {
     pub lyrics_follow: SharedString,
     pub lyrics_from_internet: SharedString,
     pub lyrics_from_internet_desc: SharedString,
+    pub remote_control: SharedString,
+    pub remote_control_desc: SharedString,
+    pub remote_port: SharedString,
+    pub remote_port_desc: SharedString,
+    pub open_in_browser: SharedString,
     pub lyrics_text_size: SharedString,
     pub lyrics_text_size_desc: SharedString,
 
@@ -238,6 +243,7 @@ pub struct Strings {
     pub failed_exclusive_t: SharedString,
     pub failed_switch_device_t: SharedString,
     pub failed_save_settings_t: SharedString,
+    pub remote_start_failed_t: SharedString,
 }
 
 /// CLDR-style plural family, used to pick the right count form for a language.
@@ -364,6 +370,10 @@ impl Strings {
 
     pub fn failed_save_settings(&self, err: &str) -> String {
         fill(&self.failed_save_settings_t, &[err])
+    }
+
+    pub fn remote_start_failed(&self, port: u16, err: &str) -> String {
+        fill(&self.remote_start_failed_t, &[&port.to_string(), err])
     }
 
     pub fn update_ready(&self, version: &str) -> String {

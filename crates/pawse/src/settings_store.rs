@@ -121,6 +121,10 @@ fn default_volume() -> f32 {
     1.0
 }
 
+fn default_remote_port() -> u16 {
+    pawse_remote::DEFAULT_PORT
+}
+
 pub const LYRICS_FONT_SIZE_MIN: f32 = 12.;
 pub const LYRICS_FONT_SIZE_MAX: f32 = 32.;
 pub const LYRICS_FONT_SIZE_DEFAULT: f32 = 16.;
@@ -282,6 +286,10 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub lyrics_from_internet: bool,
     #[serde(default)]
+    pub remote_enabled: bool,
+    #[serde(default = "default_remote_port")]
+    pub remote_port: u16,
+    #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default = "default_lyrics_font_size")]
     pub lyrics_font_size: f32,
@@ -314,6 +322,8 @@ impl Default for UserSettings {
             albums_artist_display: AlbumsArtistDisplay::default(),
             auto_update: true,
             lyrics_from_internet: true,
+            remote_enabled: false,
+            remote_port: pawse_remote::DEFAULT_PORT,
             font_scale: FontScale::default(),
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             onboarding_complete: false,
@@ -482,6 +492,24 @@ impl SettingsStore {
 
     pub fn set_lyrics_from_internet(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.lyrics_from_internet = enabled;
+        self.save()
+    }
+
+    pub fn remote_enabled(&self) -> bool {
+        self.settings.remote_enabled
+    }
+
+    pub fn set_remote_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.remote_enabled = enabled;
+        self.save()
+    }
+
+    pub fn remote_port(&self) -> u16 {
+        self.settings.remote_port
+    }
+
+    pub fn set_remote_port(&mut self, port: u16) -> anyhow::Result<()> {
+        self.settings.remote_port = port;
         self.save()
     }
 
@@ -913,6 +941,8 @@ mod tests {
             albums_artist_display: AlbumsArtistDisplay::Column,
             auto_update: true,
             lyrics_from_internet: true,
+            remote_enabled: false,
+            remote_port: pawse_remote::DEFAULT_PORT,
             font_scale: FontScale::Large,
             lyrics_font_size: 20.,
             onboarding_complete: false,

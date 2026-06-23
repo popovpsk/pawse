@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use axum::{
     Json, Router,
     extract::{
@@ -18,10 +16,12 @@ struct AppState {
     rx: StateRx,
 }
 
-pub async fn serve(addr: SocketAddr, rx: StateRx) -> anyhow::Result<()> {
+pub async fn serve(listener: TcpListener, rx: StateRx) -> anyhow::Result<()> {
     let router = build_router(AppState { rx });
-    let listener = TcpListener::bind(addr).await?;
-    log::info!("pawse-remote: listening on http://{addr}");
+    log::info!(
+        "pawse-remote: listening on http://{}",
+        listener.local_addr()?
+    );
     axum::serve(listener, router).await?;
     Ok(())
 }

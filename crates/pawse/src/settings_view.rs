@@ -10,6 +10,7 @@ use gpui_component::{
     button::{Button, ButtonGroup, ButtonVariants},
     dialog::DialogButtonProps,
     h_flex,
+    input::{Input, InputState},
     scroll::ScrollableElement,
     slider::{Slider, SliderState},
     switch::Switch,
@@ -198,6 +199,7 @@ pub fn build_settings_pages(
     theme_picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
     lyrics_slider: Entity<SliderState>,
+    remote_port_input: Entity<InputState>,
 ) -> Vec<SettingPage> {
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
@@ -207,7 +209,9 @@ pub fn build_settings_pages(
             .group(queue_group())
             .group(lyrics_group(lyrics_slider)),
     ];
-    pages.push(SettingPage::new(tr().settings_general.clone()).group(general_group()));
+    pages.push(
+        SettingPage::new(tr().settings_general.clone()).group(general_group(remote_port_input)),
+    );
     pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
     pages
 }
@@ -436,7 +440,7 @@ fn interface_group(
         )
 }
 
-fn general_group() -> SettingGroup {
+fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
     let mut group = SettingGroup::new().item(
         SettingItem::new(
             tr().lyrics_from_internet.clone(),
@@ -483,7 +487,57 @@ fn general_group() -> SettingGroup {
         );
     }
 
-    group
+    group = group.item(
+        SettingItem::new(
+            tr().remote_control.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().remote_enabled();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("remote-enabled-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_remote_enabled(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                            crate::services::apply_remote_state(cx);
+                        }),
+                )
+            }),
+        )
+        .description(tr().remote_control_desc.clone()),
+    );
+
+    group.item(
+        SettingItem::new(
+            tr().remote_port.clone(),
+            SettingField::render(move |_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().remote_enabled();
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .justify_end()
+                    .child(
+                        div()
+                            .w(px(120.))
+                            .child(Input::new(&remote_port_input).small()),
+                    )
+                    .child(
+                        Button::new("open-web-player")
+                            .small()
+                            .disabled(!enabled)
+                            .label(tr().open_in_browser.clone())
+                            .on_click(|_, _, cx| {
+                                let port = cx.global::<SettingsStore>().remote_port();
+                                cx.open_url(&format!("http://localhost:{port}"));
+                            }),
+                    )
+            }),
+        )
+        .description(tr().remote_port_desc.clone()),
+    )
 }
 
 fn albums_view_group() -> SettingGroup {

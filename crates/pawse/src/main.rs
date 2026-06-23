@@ -201,13 +201,10 @@ fn main() {
         let current_position_ms = services.current_position_ms.clone();
         let current_duration_ms = services.current_duration_ms.clone();
         let is_playing = services.is_playing.clone();
+        let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
 
-        let (remote_handle, remote_rx) = pawse_remote::channel();
-        pawse_remote::spawn(
-            std::net::SocketAddr::from(([0, 0, 0, 0], pawse_remote::DEFAULT_PORT)),
-            remote_rx,
-        );
+        crate::services::apply_remote_state(cx);
 
         {
             let (stored, initial_volume) = {

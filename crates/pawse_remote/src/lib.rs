@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 #[cfg(not(debug_assertions))]
 mod assets;
@@ -48,9 +48,30 @@ pub fn channel() -> (StateHandle, StateRx) {
     (StateHandle(tx), rx)
 }
 
-pub fn spawn(addr: SocketAddr, rx: StateRx) {
+pub struct RemoteServer {
+    shutdown: Option<oneshot::Sender<()>>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for RemoteServer {
+    fn drop(&mut self) {
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+pub type ReadyRx = oneshot::Receiver<Result<(), String>>;
+
+#[must_use]
+pub fn spawn(addr: SocketAddr, rx: StateRx) -> (RemoteServer, ReadyRx) {
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (ready_tx, ready_rx) = oneshot::channel();
     let builder = std::thread::Builder::new().name("pawse-remote".into());
-    if let Err(err) = builder.spawn(move || {
+    let join = builder.spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -58,15 +79,46 @@ pub fn spawn(addr: SocketAddr, rx: StateRx) {
             Ok(runtime) => runtime,
             Err(err) => {
                 log::error!("pawse-remote: failed to build runtime: {err}");
+                let _ = ready_tx.send(Err(err.to_string()));
                 return;
             }
         };
         runtime.block_on(async move {
-            if let Err(err) = http::serve(addr, rx).await {
-                log::error!("pawse-remote: server error: {err}");
+            let listener = match tokio::net::TcpListener::bind(addr).await {
+                Ok(listener) => {
+                    let _ = ready_tx.send(Ok(()));
+                    listener
+                }
+                Err(err) => {
+                    log::error!("pawse-remote: failed to bind {addr}: {err}");
+                    let _ = ready_tx.send(Err(err.to_string()));
+                    return;
+                }
+            };
+            tokio::select! {
+                result = http::serve(listener, rx) => {
+                    if let Err(err) = result {
+                        log::error!("pawse-remote: server error: {err}");
+                    }
+                }
+                _ = shutdown_rx => {
+                    log::info!("pawse-remote: stopped on {addr}");
+                }
             }
         });
-    }) {
-        log::warn!("pawse-remote: failed to spawn server thread: {err}");
-    }
+    });
+    let join = match join {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            log::warn!("pawse-remote: failed to spawn server thread: {err}");
+            None
+        }
+    };
+    (
+        RemoteServer {
+            shutdown: Some(shutdown_tx),
+            join,
+        },
+        ready_rx,
+    )
 }

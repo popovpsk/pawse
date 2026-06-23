@@ -103,6 +103,8 @@ pub struct MainView {
     _lyrics_slider_subscription: Subscription,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
+    _remote_port_input: Entity<InputState>,
+    _remote_port_subscription: Subscription,
     _theme_picker: Entity<ThemePickerState>,
     _lang_picker: Entity<LangPickerState>,
     #[cfg(not(target_os = "macos"))]
@@ -216,10 +218,42 @@ impl MainView {
                 this.lyrics_view.update(cx, |_, cx| cx.notify());
             });
 
+        let remote_port_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(cx.global::<SettingsStore>().remote_port().to_string())
+                .validate(|s, _| s.parse::<u16>().is_ok())
+        });
+        let remote_port_subscription = cx.subscribe_in(
+            &remote_port_input,
+            window,
+            |_, input, ev: &InputEvent, window, cx| {
+                if !matches!(ev, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    return;
+                }
+                let stored = cx.global::<SettingsStore>().remote_port();
+                let raw = input.read(cx).value();
+                match raw.trim().parse::<u16>() {
+                    Ok(port) if port != 0 => {
+                        if port != stored {
+                            if let Err(e) = cx.global_mut::<SettingsStore>().set_remote_port(port) {
+                                crate::settings_store::notify_save_error(cx, e);
+                            } else {
+                                crate::services::apply_remote_state(cx);
+                            }
+                        }
+                    }
+                    _ => {
+                        input.update(cx, |s, cx| s.set_value(stored.to_string(), window, cx));
+                    }
+                }
+            },
+        );
+
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
+            let remote_port_input = remote_port_input.clone();
             move |this, cx| {
                 theme_picker.update(cx, |state, cx| {
                     state.options = ThemePickerState::build_options(&*cx);
@@ -229,6 +263,7 @@ impl MainView {
                     theme_picker.clone(),
                     lang_picker.clone(),
                     lyrics_slider.clone(),
+                    remote_port_input.clone(),
                 );
                 cx.notify();
             }
@@ -246,6 +281,7 @@ impl MainView {
             theme_picker.clone(),
             lang_picker.clone(),
             lyrics_slider.clone(),
+            remote_port_input.clone(),
         );
 
         let footer = cx.new(|cx| Footer::new(window, cx));
@@ -331,11 +367,13 @@ impl MainView {
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
+            let remote_port_input = remote_port_input.clone();
             move |this, cx| {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),
                     lyrics_slider.clone(),
+                    remote_port_input.clone(),
                 );
                 cx.notify();
             }
@@ -406,6 +444,8 @@ impl MainView {
             _lyrics_slider_subscription: lyrics_slider_subscription,
             settings_pages,
             search_input,
+            _remote_port_input: remote_port_input,
+            _remote_port_subscription: remote_port_subscription,
             _theme_picker: theme_picker,
             _lang_picker: lang_picker,
             #[cfg(not(target_os = "macos"))]

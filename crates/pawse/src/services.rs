@@ -35,6 +35,9 @@ pub struct Services {
     pub lang_event_bus: Entity<crate::localization::LangEventBus>,
     pub library_watcher: Rc<RefCell<Option<crate::library_watcher::LibraryWatcher>>>,
     pub watcher_ping_tx: flume::Sender<()>,
+    pub remote_handle: pawse_remote::StateHandle,
+    pub remote_state_rx: pawse_remote::StateRx,
+    pub remote_server: Rc<RefCell<Option<pawse_remote::RemoteServer>>>,
 }
 
 impl Services {
@@ -106,6 +109,8 @@ impl Services {
         let playlist_popup_bus = cx.new(|_| crate::playlist_popup::PlaylistPopupBus);
         let lang_event_bus = cx.new(|_| crate::localization::LangEventBus);
 
+        let (remote_handle, remote_state_rx) = pawse_remote::channel();
+
         Services {
             output,
             engine_manager,
@@ -121,6 +126,9 @@ impl Services {
             lang_event_bus,
             library_watcher: Rc::new(RefCell::new(None)),
             watcher_ping_tx,
+            remote_handle,
+            remote_state_rx,
+            remote_server: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -277,6 +285,49 @@ pub fn save_playback(cx: &mut App) {
     {
         crate::settings_store::notify_save_error(cx, e);
     }
+}
+
+pub fn apply_remote_state(cx: &mut App) {
+    let store = cx.global::<crate::settings_store::SettingsStore>();
+    let enabled = store.remote_enabled();
+    let port = store.remote_port();
+    let services = cx.global::<Services>().clone();
+
+    let ready = {
+        let mut slot = services.remote_server.borrow_mut();
+        *slot = None;
+        if enabled {
+            let (server, ready) = pawse_remote::spawn(
+                std::net::SocketAddr::from(([0, 0, 0, 0], port)),
+                services.remote_state_rx.clone(),
+            );
+            *slot = Some(server);
+            Some(ready)
+        } else {
+            None
+        }
+    };
+
+    if let Some(ready) = ready {
+        cx.spawn(async move |cx| {
+            if let Ok(Err(err)) = ready.await {
+                let _ = cx.update(|cx| notify_remote_error(cx, port, &err));
+            }
+        })
+        .detach();
+    }
+}
+
+fn notify_remote_error(cx: &mut App, port: u16, err: &str) {
+    let s = crate::localization::tr();
+    let Some(handle) = cx.windows().into_iter().next() else {
+        return;
+    };
+    let message = s.remote_start_failed(port, err);
+    let title = s.settings.clone();
+    let _ = handle.update(cx, |_, window, cx| {
+        window.push_notification(Notification::error(message).title(title), cx);
+    });
 }
 
 // why: play() with no track emits no event, leaving the is_playing mirror stuck true
