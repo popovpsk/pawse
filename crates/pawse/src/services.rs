@@ -37,6 +37,7 @@ pub struct Services {
     pub watcher_ping_tx: flume::Sender<()>,
     pub remote_handle: pawse_remote::StateHandle,
     pub remote_state_rx: pawse_remote::StateRx,
+    pub remote_command_tx: pawse_remote::CommandSink,
     pub remote_server: Rc<RefCell<Option<pawse_remote::RemoteServer>>>,
 }
 
@@ -110,6 +111,16 @@ impl Services {
         let lang_event_bus = cx.new(|_| crate::localization::LangEventBus);
 
         let (remote_handle, remote_state_rx) = pawse_remote::channel();
+        let (remote_command_tx, remote_command_rx) = pawse_remote::commands();
+
+        cx.spawn(async move |cx| {
+            while let Ok(command) = remote_command_rx.recv_async().await {
+                if cx.update(|cx| apply_remote_command(cx, command)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         Services {
             output,
@@ -128,6 +139,7 @@ impl Services {
             watcher_ping_tx,
             remote_handle,
             remote_state_rx,
+            remote_command_tx,
             remote_server: Rc::new(RefCell::new(None)),
         }
     }
@@ -300,6 +312,7 @@ pub fn apply_remote_state(cx: &mut App) {
             let (server, ready) = pawse_remote::spawn(
                 std::net::SocketAddr::from(([0, 0, 0, 0], port)),
                 services.remote_state_rx.clone(),
+                services.remote_command_tx.clone(),
             );
             *slot = Some(server);
             Some(ready)
@@ -307,6 +320,15 @@ pub fn apply_remote_state(cx: &mut App) {
             None
         }
     };
+
+    if enabled {
+        let state = build_remote_state(cx, &services.remote_handle);
+        services.remote_handle.publish(state);
+    } else {
+        services
+            .remote_handle
+            .publish(pawse_remote::PlayerState::idle());
+    }
 
     if let Some(ready) = ready {
         cx.spawn(async move |cx| {
@@ -374,6 +396,34 @@ pub fn play_previous(cx: &mut App) {
     }
 }
 
+pub fn seek_to_ms(cx: &mut App, position_ms: u64) {
+    let services = cx.global::<Services>();
+    if services.playback_queue.borrow().current_track().is_none() {
+        return;
+    }
+    let duration = services.current_duration_ms.load(Ordering::Relaxed);
+    if duration == 0 {
+        return;
+    }
+    let clamped = position_ms.min(duration);
+    let ratio = (clamped as f32 / duration as f32).clamp(0.0, 1.0);
+    services
+        .current_position_ms
+        .store(clamped, Ordering::Relaxed);
+    services.engine_manager.seek(ratio);
+}
+
+fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
+    match command {
+        pawse_remote::Command::PlayPause => {
+            toggle_play_pause(cx);
+        }
+        pawse_remote::Command::Next => play_next(cx),
+        pawse_remote::Command::Prev => play_previous(cx),
+        pawse_remote::Command::Seek { position_ms } => seek_to_ms(cx, position_ms),
+    }
+}
+
 impl Global for Services {}
 
 pub struct EngineEventsBus;
@@ -412,6 +462,12 @@ pub async fn run_engine_events_bus(
             }
             EngineEvent::PositionChanged(dur) => {
                 current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
+                if remote.has_listeners() {
+                    remote.publish_position(
+                        dur.as_millis() as u64,
+                        is_playing.load(Ordering::Relaxed),
+                    );
+                }
                 maybe_prefetch_next_track(cx, dur, current_duration, &mut prefetched);
             }
             EngineEvent::Playing => {
@@ -445,18 +501,52 @@ pub async fn run_engine_events_bus(
 }
 
 fn publish_now_playing(cx: &mut AsyncApp, remote: &pawse_remote::StateHandle) {
-    let (title, playing) = cx
-        .update(|cx| {
-            let services = cx.global::<Services>();
-            let title = services
-                .playback_queue
-                .borrow()
-                .current_track()
-                .map(|track| track.title.clone());
-            (title, services.is_playing.load(Ordering::Relaxed))
-        })
-        .unwrap_or((None, false));
-    remote.publish(pawse_remote::PlayerState::snapshot(title, playing));
+    if !remote.has_listeners() {
+        return;
+    }
+    if let Ok(state) = cx.update(|cx| build_remote_state(cx, remote)) {
+        remote.publish(state);
+    }
+}
+
+fn build_remote_state(
+    cx: &mut App,
+    remote: &pawse_remote::StateHandle,
+) -> pawse_remote::PlayerState {
+    let services = cx.global::<Services>();
+    let queue = services.playback_queue.borrow();
+    let Some(track) = queue.current_track() else {
+        return pawse_remote::PlayerState::idle();
+    };
+    let track_id = track.id;
+    let title = track.title.clone();
+    let album_id = track.album_id;
+    let cover_id = track.cover_art_id;
+    let duration_ms = track.duration_ms.unwrap_or(0).max(0) as u64;
+    drop(queue);
+
+    let artist = services.library.track_artists(track_id).into_iter().next();
+    let album = album_id.and_then(|id| services.library.album_title(id));
+    let cover = if cover_id.is_some() && cover_id == remote.current_cover_id() {
+        remote.current_cover()
+    } else {
+        cover_id
+            .and_then(|id| services.library.get_cover_art_large(id))
+            .map(Arc::new)
+    };
+
+    pawse_remote::PlayerState {
+        v: 0,
+        has_track: true,
+        title: Some(title),
+        artist,
+        album,
+        playing: services.is_playing.load(Ordering::Relaxed),
+        position_ms: services.current_position_ms.load(Ordering::Relaxed),
+        duration_ms,
+        cover_id: if cover.is_some() { cover_id } else { None },
+        cover,
+    }
 }
 
 /// If the next track is known and we're within 5 seconds of the end of the

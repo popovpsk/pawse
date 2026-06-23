@@ -6,11 +6,14 @@ use std::time::Duration;
 fn serves_state_snapshot() {
     let addr: SocketAddr = ([127, 0, 0, 1], 18770).into();
     let (handle, rx) = pawse_remote::channel();
-    let (_server, _ready) = pawse_remote::spawn(addr, rx);
-    handle.publish(pawse_remote::PlayerState::snapshot(
-        Some("Smoke Track".into()),
-        true,
-    ));
+    let (commands, _command_rx) = pawse_remote::commands();
+    let (_server, _ready) = pawse_remote::spawn(addr, rx, commands);
+    handle.publish(pawse_remote::PlayerState {
+        has_track: true,
+        title: Some("Smoke Track".into()),
+        playing: true,
+        ..Default::default()
+    });
 
     let body = wait_for_state(addr);
     assert!(body.contains("\"v\":1"), "body: {body}");

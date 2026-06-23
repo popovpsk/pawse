@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use tokio::sync::{oneshot, watch};
 
@@ -9,26 +10,27 @@ mod http;
 pub const DEFAULT_PORT: u16 = 8770;
 pub const PROTOCOL_VERSION: u32 = 1;
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Default, serde::Serialize)]
 pub struct PlayerState {
     pub v: u32,
+    pub has_track: bool,
     pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
     pub playing: bool,
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub cover_id: Option<i64>,
+    #[serde(skip)]
+    pub cover: Option<Arc<Vec<u8>>>,
 }
 
 impl PlayerState {
-    pub fn snapshot(title: Option<String>, playing: bool) -> Self {
+    pub fn idle() -> Self {
         Self {
             v: PROTOCOL_VERSION,
-            title,
-            playing,
+            ..Default::default()
         }
-    }
-}
-
-impl Default for PlayerState {
-    fn default() -> Self {
-        Self::snapshot(None, false)
     }
 }
 
@@ -38,14 +40,61 @@ pub type StateRx = watch::Receiver<PlayerState>;
 pub struct StateHandle(watch::Sender<PlayerState>);
 
 impl StateHandle {
-    pub fn publish(&self, state: PlayerState) {
+    pub fn publish(&self, mut state: PlayerState) {
+        state.v = PROTOCOL_VERSION;
         let _ = self.0.send(state);
+    }
+
+    pub fn publish_position(&self, position_ms: u64, playing: bool) {
+        self.0.send_if_modified(|state| {
+            let changed = state.position_ms != position_ms || state.playing != playing;
+            state.position_ms = position_ms;
+            state.playing = playing;
+            changed
+        });
+    }
+
+    pub fn current_cover_id(&self) -> Option<i64> {
+        self.0.borrow().cover_id
+    }
+
+    pub fn current_cover(&self) -> Option<Arc<Vec<u8>>> {
+        self.0.borrow().cover.clone()
+    }
+
+    pub fn has_listeners(&self) -> bool {
+        self.0.receiver_count() > 1
     }
 }
 
 pub fn channel() -> (StateHandle, StateRx) {
-    let (tx, rx) = watch::channel(PlayerState::default());
+    let (tx, rx) = watch::channel(PlayerState::idle());
     (StateHandle(tx), rx)
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(tag = "cmd", rename_all = "snake_case")]
+pub enum Command {
+    PlayPause,
+    Next,
+    Prev,
+    Seek { position_ms: u64 },
+}
+
+pub type CommandRx = flume::Receiver<Command>;
+
+#[derive(Clone)]
+pub struct CommandSink(flume::Sender<Command>);
+
+impl CommandSink {
+    pub fn send(&self, command: Command) -> bool {
+        self.0.send(command).is_ok()
+    }
+}
+
+pub fn commands() -> (CommandSink, CommandRx) {
+    let (tx, rx) = flume::unbounded();
+    (CommandSink(tx), rx)
 }
 
 pub struct RemoteServer {
@@ -67,7 +116,7 @@ impl Drop for RemoteServer {
 pub type ReadyRx = oneshot::Receiver<Result<(), String>>;
 
 #[must_use]
-pub fn spawn(addr: SocketAddr, rx: StateRx) -> (RemoteServer, ReadyRx) {
+pub fn spawn(addr: SocketAddr, rx: StateRx, commands: CommandSink) -> (RemoteServer, ReadyRx) {
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (ready_tx, ready_rx) = oneshot::channel();
     let builder = std::thread::Builder::new().name("pawse-remote".into());
@@ -96,7 +145,7 @@ pub fn spawn(addr: SocketAddr, rx: StateRx) -> (RemoteServer, ReadyRx) {
                 }
             };
             tokio::select! {
-                result = http::serve(listener, rx) => {
+                result = http::serve(listener, rx, commands) => {
                     if let Err(err) = result {
                         log::error!("pawse-remote: server error: {err}");
                     }

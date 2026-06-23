@@ -4,20 +4,26 @@ use axum::{
         State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
-    response::IntoResponse,
-    routing::get,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::{get, post},
 };
 use tokio::net::TcpListener;
 
-use crate::{PlayerState, StateRx};
+use crate::{Command, CommandSink, PlayerState, StateRx};
 
 #[derive(Clone)]
 struct AppState {
     rx: StateRx,
+    commands: CommandSink,
 }
 
-pub async fn serve(listener: TcpListener, rx: StateRx) -> anyhow::Result<()> {
-    let router = build_router(AppState { rx });
+pub async fn serve(
+    listener: TcpListener,
+    rx: StateRx,
+    commands: CommandSink,
+) -> anyhow::Result<()> {
+    let router = build_router(AppState { rx, commands });
     log::info!(
         "pawse-remote: listening on http://{}",
         listener.local_addr()?
@@ -29,6 +35,8 @@ pub async fn serve(listener: TcpListener, rx: StateRx) -> anyhow::Result<()> {
 fn build_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/api/state", get(state_handler))
+        .route("/api/cover", get(cover_handler))
+        .route("/api/command", post(command_handler))
         .route("/ws", get(ws_handler));
 
     #[cfg(not(debug_assertions))]
@@ -39,6 +47,32 @@ fn build_router(state: AppState) -> Router {
 
 async fn state_handler(State(state): State<AppState>) -> impl IntoResponse {
     Json(state.rx.borrow().clone())
+}
+
+async fn cover_handler(State(state): State<AppState>) -> Response {
+    let cover = state.rx.borrow().cover.clone();
+    match cover {
+        Some(bytes) => (
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            bytes.as_ref().clone(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn command_handler(
+    State(state): State<AppState>,
+    Json(command): Json<Command>,
+) -> StatusCode {
+    if state.commands.send(command) {
+        StatusCode::ACCEPTED
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
 async fn ws_handler(State(state): State<AppState>, upgrade: WebSocketUpgrade) -> impl IntoResponse {

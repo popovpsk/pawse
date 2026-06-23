@@ -1,3 +1,67 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    -webkit-tap-highlight-color: transparent;
+    font-family:
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
+  }
+}
+
+@layer components {
+  .seek {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to right,
+      #ffffff 0%,
+      #ffffff var(--p, 0%),
+      rgba(255, 255, 255, 0.18) var(--p, 0%),
+      rgba(255, 255, 255, 0.18) 100%
+    );
+    cursor: pointer;
+    touch-action: none;
+  }
+  .seek:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 9999px;
+    background: #ffffff;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+    transition: transform 0.1s ease;
+  }
+  .seek:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+  }
+  .seek::-moz-range-thumb {
+    height: 16px;
+    width: 16px;
+    border: none;
+    border-radius: 9999px;
+    background: #ffffff;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  }
+  .seek:disabled::-webkit-slider-thumb,
+  .seek:disabled::-moz-range-thumb {
+    display: none;
+  }
+}
