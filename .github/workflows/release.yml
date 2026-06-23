@@ -65,6 +65,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build web remote
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-${{ matrix.label }}

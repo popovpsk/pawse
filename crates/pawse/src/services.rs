@@ -346,6 +346,7 @@ pub async fn run_engine_events_bus(
     current_position_ms: Arc<AtomicU64>,
     current_duration_ms: Arc<AtomicU64>,
     is_playing: Arc<AtomicBool>,
+    remote: pawse_remote::StateHandle,
 ) {
     let mut current_duration: Option<Duration> = None;
     let mut prefetched = false;
@@ -356,23 +357,30 @@ pub async fn run_engine_events_bus(
                 current_duration = Some(*duration);
                 current_duration_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
                 prefetched = false;
+                publish_now_playing(cx, &remote);
             }
             EngineEvent::PositionChanged(dur) => {
                 current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
                 maybe_prefetch_next_track(cx, dur, current_duration, &mut prefetched);
             }
-            EngineEvent::Playing => is_playing.store(true, Ordering::Relaxed),
+            EngineEvent::Playing => {
+                is_playing.store(true, Ordering::Relaxed);
+                publish_now_playing(cx, &remote);
+            }
             EngineEvent::Paused => {
                 is_playing.store(false, Ordering::Relaxed);
+                publish_now_playing(cx, &remote);
             }
             EngineEvent::TrackEnded => {
                 is_playing.store(false, Ordering::Relaxed);
                 let _ = cx.update(advance_on_track_end);
+                publish_now_playing(cx, &remote);
             }
             EngineEvent::Stopped => {
                 is_playing.store(false, Ordering::Relaxed);
                 current_position_ms.store(0, Ordering::Relaxed);
                 current_duration_ms.store(0, Ordering::Relaxed);
+                publish_now_playing(cx, &remote);
             }
             _ => {}
         }
@@ -383,6 +391,21 @@ pub async fn run_engine_events_bus(
             break;
         }
     }
+}
+
+fn publish_now_playing(cx: &mut AsyncApp, remote: &pawse_remote::StateHandle) {
+    let (title, playing) = cx
+        .update(|cx| {
+            let services = cx.global::<Services>();
+            let title = services
+                .playback_queue
+                .borrow()
+                .current_track()
+                .map(|track| track.title.clone());
+            (title, services.is_playing.load(Ordering::Relaxed))
+        })
+        .unwrap_or((None, false));
+    remote.publish(pawse_remote::PlayerState::snapshot(title, playing));
 }
 
 /// If the next track is known and we're within 5 seconds of the end of the

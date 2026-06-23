@@ -203,6 +203,12 @@ fn main() {
         let is_playing = services.is_playing.clone();
         cx.set_global(services);
 
+        let (remote_handle, remote_rx) = pawse_remote::channel();
+        pawse_remote::spawn(
+            std::net::SocketAddr::from(([0, 0, 0, 0], pawse_remote::DEFAULT_PORT)),
+            remote_rx,
+        );
+
         {
             let (stored, initial_volume) = {
                 let store = cx.global::<crate::settings_store::SettingsStore>();
@@ -305,6 +311,7 @@ fn main() {
                 current_position_ms,
                 current_duration_ms,
                 is_playing,
+                remote_handle,
             )
             .await;
         })

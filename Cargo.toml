@@ -9,6 +9,7 @@ members = [
     "crates/music_indexer",
     "crates/media_integration",
     "crates/pawse",
+    "crates/pawse_remote",
     "crates/ui_components",
     "crates/ui_resources",
     "crates/cue_parser",

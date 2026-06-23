@@ -15,6 +15,7 @@ audio_engine = { path = "../audio_engine" }
 audio_output = { path = "../audio_output" }
 music_library = { path = "../music_library" }
 music_indexer = { path = "../music_indexer" }
+pawse_remote = { path = "../pawse_remote" }
 lyrics = { path = "../lyrics" }
 diagnostics = { workspace = true }
 log = { workspace = true }
