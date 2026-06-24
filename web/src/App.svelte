@@ -42,7 +42,10 @@
   {/if}
 
   <header class="relative z-10 flex items-center justify-between px-5 py-4">
-    <span class="text-sm font-semibold tracking-wide text-neutral-300">pawse</span>
+    <span class="flex items-center gap-2">
+      <img src="/pawse.svg" alt="pawse" class="h-6 w-6 rounded-md" />
+      <span class="text-sm font-semibold tracking-wide text-neutral-300">pawse</span>
+    </span>
     <span class="flex items-center gap-2 text-xs text-neutral-400">
       <span class={`h-2 w-2 rounded-full ${dot[remote.status]} transition-colors`}></span>
       <span class="capitalize">{remote.status}</span>
@@ -70,8 +73,10 @@
       </h1>
       <p class="mt-1 truncate text-sm text-neutral-400">
         {remote.artist ?? (remote.hasTrack ? "" : "Pick a track on your computer")}
-        {#if remote.album}<span class="text-neutral-600"> · {remote.album}</span>{/if}
       </p>
+      {#if remote.album}
+        <p class="mt-0.5 truncate text-sm text-neutral-600">{remote.album}</p>
+      {/if}
     </div>
 
     <div class="w-full">
@@ -110,17 +115,17 @@
       </button>
 
       <button
-        class="flex h-16 w-16 items-center justify-center rounded-full bg-white text-neutral-900 shadow-lg transition active:scale-90 enabled:hover:scale-105 disabled:opacity-30"
+        class="flex h-14 w-14 items-center justify-center rounded-full bg-white text-neutral-900 shadow-lg transition active:scale-90 enabled:hover:scale-105 disabled:opacity-30"
         aria-label={remote.playing ? "Pause" : "Play"}
         disabled={!remote.hasTrack}
         onclick={() => remote.playPause()}
       >
         {#if remote.playing}
-          <svg class="h-7 w-7" viewBox="0 0 24 24" fill="currentColor">
+          <svg class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
             <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
           </svg>
         {:else}
-          <svg class="ml-1 h-7 w-7" viewBox="0 0 24 24" fill="currentColor">
+          <svg class="ml-0.5 h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5v14l11-7z" />
           </svg>
         {/if}
