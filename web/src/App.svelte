@@ -33,7 +33,52 @@
   }
 </script>
 
-<div class="relative flex min-h-[100dvh] flex-col overflow-hidden bg-neutral-950 text-neutral-100">
+{#snippet queueList()}
+  {#if remote.queue.length === 0}
+    <p class="px-3 py-8 text-center text-sm text-neutral-500">Queue is empty</p>
+  {:else}
+    {#each remote.queue as item, i (i)}
+      <button
+        class={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition active:scale-[0.99] ${
+          i === remote.queueIndex ? "bg-white/10" : "hover:bg-white/5"
+        }`}
+        onclick={() => {
+          remote.playAt(i);
+          showQueue = false;
+        }}
+      >
+        <div class="h-11 w-11 flex-shrink-0 overflow-hidden rounded-md bg-neutral-800">
+          {#if item.cover_id !== null}
+            <img src={remote.coverUrlFor(item.cover_id)} alt="" class="h-full w-full object-cover" />
+          {:else}
+            <div class="flex h-full w-full items-center justify-center text-neutral-600">
+              <svg class="h-1/2 w-1/2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 18V5l12-2v13" />
+                <circle cx="6" cy="18" r="3" />
+                <circle cx="18" cy="16" r="3" />
+              </svg>
+            </div>
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class={`truncate text-sm ${i === remote.queueIndex ? "font-semibold text-white" : "text-neutral-200"}`}>
+            {item.title}
+          </p>
+          {#if item.artist}
+            <p class="truncate text-xs text-neutral-400">{item.artist}</p>
+          {/if}
+        </div>
+        {#if i === remote.queueIndex}
+          <svg class="h-4 w-4 flex-shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        {/if}
+      </button>
+    {/each}
+  {/if}
+{/snippet}
+
+<div class="relative flex min-h-[100dvh] flex-col overflow-hidden bg-neutral-950 text-neutral-100 lg:h-[100dvh]">
   {#if remote.coverUrl}
     <img
       src={remote.coverUrl}
@@ -55,7 +100,7 @@
         <span class="capitalize">{remote.status}</span>
       </span>
       <button
-        class="text-neutral-400 transition active:scale-90 hover:text-white"
+        class="text-neutral-400 transition active:scale-90 hover:text-white lg:hidden"
         aria-label="Queue"
         onclick={() => (showQueue = true)}
       >
@@ -67,8 +112,9 @@
     </span>
   </header>
 
-  <main class="relative z-10 mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-8 px-6 pb-10">
-    <div class="aspect-square w-full overflow-hidden rounded-3xl bg-neutral-800/60 shadow-2xl ring-1 ring-white/10">
+  <div class="relative z-10 flex min-h-0 flex-1 flex-col lg:flex-row">
+  <main class="mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-8 px-6 pb-10 lg:max-w-5xl lg:flex-row lg:gap-12 2xl:max-w-6xl 2xl:gap-16">
+    <div class="aspect-square w-full overflow-hidden rounded-3xl bg-neutral-800/60 shadow-2xl ring-1 ring-white/10 lg:w-80 lg:flex-shrink-0 xl:w-96 2xl:w-[28rem]">
       {#if remote.coverUrl}
         <img src={remote.coverUrl} alt="" class="h-full w-full object-cover" />
       {:else}
@@ -82,8 +128,9 @@
       {/if}
     </div>
 
-    <div class="w-full text-center">
-      <h1 class="truncate text-2xl font-semibold tracking-tight">
+    <div class="flex w-full flex-col gap-8 lg:flex-1 lg:gap-10">
+    <div class="w-full text-center lg:text-left">
+      <h1 class="truncate text-2xl font-semibold tracking-tight lg:text-3xl">
         {remote.title ?? "Nothing playing"}
       </h1>
       <p class="mt-1 truncate text-sm text-neutral-400">
@@ -117,7 +164,7 @@
       </div>
     </div>
 
-    <div class="flex items-center justify-center gap-10">
+    <div class="flex items-center justify-center gap-10 lg:justify-start">
       <button
         class="text-neutral-300 transition active:scale-90 enabled:hover:text-white disabled:opacity-30"
         aria-label="Previous"
@@ -157,17 +204,28 @@
         </svg>
       </button>
     </div>
+    </div>
   </main>
+
+  <aside class="hidden min-h-0 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl lg:flex lg:w-80 xl:w-96">
+    <div class="flex items-center px-5 py-4">
+      <h2 class="text-sm font-semibold tracking-wide text-neutral-300">Queue</h2>
+    </div>
+    <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+      {@render queueList()}
+    </div>
+  </aside>
+  </div>
 
   {#if showQueue}
     <button
-      class="absolute inset-0 z-20 cursor-default bg-black/50"
+      class="absolute inset-0 z-20 cursor-default bg-black/50 lg:hidden"
       aria-label="Close queue"
       transition:fade={{ duration: 150 }}
       onclick={() => (showQueue = false)}
     ></button>
     <section
-      class="absolute inset-x-0 bottom-0 z-30 flex max-h-[80dvh] flex-col rounded-t-3xl border-t border-white/10 bg-neutral-900 shadow-2xl"
+      class="absolute inset-x-0 bottom-0 z-30 flex max-h-[80dvh] flex-col rounded-t-3xl border-t border-white/10 bg-neutral-900 shadow-2xl lg:hidden"
       transition:fly={{ y: 500, duration: 250 }}
     >
       <div class="flex items-center justify-between px-5 py-4">
@@ -184,48 +242,7 @@
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {#if remote.queue.length === 0}
-          <p class="px-3 py-8 text-center text-sm text-neutral-500">Queue is empty</p>
-        {:else}
-          {#each remote.queue as item, i (i)}
-            <button
-              class={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition active:scale-[0.99] ${
-                i === remote.queueIndex ? "bg-white/10" : "hover:bg-white/5"
-              }`}
-              onclick={() => {
-                remote.playAt(i);
-                showQueue = false;
-              }}
-            >
-              <div class="h-11 w-11 flex-shrink-0 overflow-hidden rounded-md bg-neutral-800">
-                {#if item.cover_id !== null}
-                  <img src={remote.coverUrlFor(item.cover_id)} alt="" class="h-full w-full object-cover" />
-                {:else}
-                  <div class="flex h-full w-full items-center justify-center text-neutral-600">
-                    <svg class="h-1/2 w-1/2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 18V5l12-2v13" />
-                      <circle cx="6" cy="18" r="3" />
-                      <circle cx="18" cy="16" r="3" />
-                    </svg>
-                  </div>
-                {/if}
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class={`truncate text-sm ${i === remote.queueIndex ? "font-semibold text-white" : "text-neutral-200"}`}>
-                  {item.title}
-                </p>
-                {#if item.artist}
-                  <p class="truncate text-xs text-neutral-400">{item.artist}</p>
-                {/if}
-              </div>
-              {#if i === remote.queueIndex}
-                <svg class="h-4 w-4 flex-shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              {/if}
-            </button>
-          {/each}
-        {/if}
+        {@render queueList()}
       </div>
     </section>
   {/if}
