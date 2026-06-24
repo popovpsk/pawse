@@ -19,6 +19,9 @@ fn serves_state_snapshot() {
     assert!(body.contains("\"v\":1"), "body: {body}");
     assert!(body.contains("Smoke Track"), "body: {body}");
     assert!(body.contains("\"playing\":true"), "body: {body}");
+
+    let queue = try_get(addr, "/api/queue").expect("queue endpoint");
+    assert_eq!(queue.trim(), "[]", "queue: {queue}");
 }
 
 fn wait_for_state(addr: SocketAddr) -> String {

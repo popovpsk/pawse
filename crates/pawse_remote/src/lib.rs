@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -10,6 +11,14 @@ mod http;
 pub const DEFAULT_PORT: u16 = 8770;
 pub const PROTOCOL_VERSION: u32 = 1;
 
+#[derive(Clone, serde::Serialize)]
+pub struct QueueItem {
+    pub id: i64,
+    pub title: String,
+    pub artist: Option<String>,
+    pub cover_id: Option<i64>,
+}
+
 #[derive(Clone, Default, serde::Serialize)]
 pub struct PlayerState {
     pub v: u32,
@@ -21,8 +30,14 @@ pub struct PlayerState {
     pub position_ms: u64,
     pub duration_ms: u64,
     pub cover_id: Option<i64>,
+    pub queue_index: Option<usize>,
+    pub queue_rev: u64,
     #[serde(skip)]
     pub cover: Option<Arc<Vec<u8>>>,
+    #[serde(skip)]
+    pub queue: Arc<Vec<QueueItem>>,
+    #[serde(skip)]
+    pub queue_covers: Arc<HashMap<i64, Arc<Vec<u8>>>>,
 }
 
 impl PlayerState {
@@ -62,6 +77,18 @@ impl StateHandle {
         self.0.borrow().cover.clone()
     }
 
+    pub fn current_queue_rev(&self) -> u64 {
+        self.0.borrow().queue_rev
+    }
+
+    pub fn current_queue(&self) -> Arc<Vec<QueueItem>> {
+        self.0.borrow().queue.clone()
+    }
+
+    pub fn current_queue_covers(&self) -> Arc<HashMap<i64, Arc<Vec<u8>>>> {
+        self.0.borrow().queue_covers.clone()
+    }
+
     pub fn has_listeners(&self) -> bool {
         self.0.receiver_count() > 1
     }
@@ -79,6 +106,7 @@ pub enum Command {
     Next,
     Prev,
     Seek { position_ms: u64 },
+    PlayAt { index: usize },
 }
 
 pub type CommandRx = flume::Receiver<Command>;

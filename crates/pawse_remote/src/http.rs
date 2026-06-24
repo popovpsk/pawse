@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{
-        State,
+        Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{StatusCode, header},
@@ -35,6 +35,7 @@ pub async fn serve(
 fn build_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/api/state", get(state_handler))
+        .route("/api/queue", get(queue_handler))
         .route("/api/cover", get(cover_handler))
         .route("/api/command", post(command_handler))
         .route("/ws", get(ws_handler));
@@ -49,8 +50,21 @@ async fn state_handler(State(state): State<AppState>) -> impl IntoResponse {
     Json(state.rx.borrow().clone())
 }
 
-async fn cover_handler(State(state): State<AppState>) -> Response {
-    let cover = state.rx.borrow().cover.clone();
+async fn queue_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let queue = state.rx.borrow().queue.clone();
+    Json(queue.as_ref().clone())
+}
+
+#[derive(serde::Deserialize)]
+struct CoverQuery {
+    id: Option<i64>,
+}
+
+async fn cover_handler(State(state): State<AppState>, Query(query): Query<CoverQuery>) -> Response {
+    let cover = match query.id {
+        Some(id) => state.rx.borrow().queue_covers.get(&id).cloned(),
+        None => state.rx.borrow().cover.clone(),
+    };
     match cover {
         Some(bytes) => (
             [

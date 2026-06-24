@@ -76,6 +76,19 @@ impl Services {
                                 .borrow_mut()
                                 .set_track_liked(*track_id, *liked);
                         }
+                        let queue_touched = matches!(
+                            &event,
+                            LibraryEvent::QueueChanged
+                                | LibraryEvent::PlaylistTracksChanged { .. }
+                                | LibraryEvent::ScanComplete { changed: true }
+                        );
+                        if queue_touched {
+                            let remote = cx.global::<Services>().remote_handle.clone();
+                            if remote.has_listeners() {
+                                let state = build_remote_state(cx, &remote);
+                                remote.publish(state);
+                            }
+                        }
                         notify_scan_event(&event, cx);
                         library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
                     })
@@ -413,6 +426,19 @@ pub fn seek_to_ms(cx: &mut App, position_ms: u64) {
     services.engine_manager.seek(ratio);
 }
 
+pub fn play_queue_index(cx: &mut App, index: usize) {
+    let services = cx.global::<Services>();
+    let track = services
+        .playback_queue
+        .borrow_mut()
+        .play_track_at(index)
+        .cloned();
+    if let Some(track) = track {
+        services.play_track(&track);
+        save_playback(cx);
+    }
+}
+
 fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
     match command {
         pawse_remote::Command::PlayPause => {
@@ -421,6 +447,7 @@ fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
         pawse_remote::Command::Next => play_next(cx),
         pawse_remote::Command::Prev => play_previous(cx),
         pawse_remote::Command::Seek { position_ms } => seek_to_ms(cx, position_ms),
+        pawse_remote::Command::PlayAt { index } => play_queue_index(cx, index),
     }
 }
 
@@ -513,17 +540,68 @@ fn build_remote_state(
     cx: &mut App,
     remote: &pawse_remote::StateHandle,
 ) -> pawse_remote::PlayerState {
+    use std::collections::HashMap;
+    use std::collections::hash_map::Entry;
+    use std::hash::{Hash, Hasher};
+
     let services = cx.global::<Services>();
     let queue = services.playback_queue.borrow();
-    let Some(track) = queue.current_track() else {
-        return pawse_remote::PlayerState::idle();
-    };
-    let track_id = track.id;
-    let title = track.title.clone();
-    let album_id = track.album_id;
-    let cover_id = track.cover_art_id;
-    let duration_ms = track.duration_ms.unwrap_or(0).max(0) as u64;
+    let tracks = queue.tracks_vec();
+    let queue_index = queue.current_index();
+    let current = queue.current_track().map(|t| {
+        (
+            t.id,
+            t.title.clone(),
+            t.album_id,
+            t.cover_art_id,
+            t.duration_ms.unwrap_or(0).max(0) as u64,
+        )
+    });
     drop(queue);
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for t in tracks.iter() {
+        t.id.hash(&mut hasher);
+        t.cover_art_id.hash(&mut hasher);
+    }
+    let queue_rev = hasher.finish();
+
+    let (queue_items, queue_covers) =
+        if queue_rev == remote.current_queue_rev() && !tracks.is_empty() {
+            (remote.current_queue(), remote.current_queue_covers())
+        } else {
+            let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+            let artists = services.library.track_artists_map(&ids);
+            let mut covers: HashMap<i64, Arc<Vec<u8>>> = HashMap::new();
+            let items: Vec<pawse_remote::QueueItem> = tracks
+                .iter()
+                .map(|t| {
+                    if let Some(cover_id) = t.cover_art_id
+                        && let Entry::Vacant(slot) = covers.entry(cover_id)
+                        && let Some(bytes) = services.library.get_cover_art_small(cover_id)
+                    {
+                        slot.insert(Arc::new(bytes));
+                    }
+                    pawse_remote::QueueItem {
+                        id: t.id,
+                        title: t.title.clone(),
+                        artist: artists.get(&t.id).and_then(|a| a.first().cloned()),
+                        cover_id: t.cover_art_id,
+                    }
+                })
+                .collect();
+            (Arc::new(items), Arc::new(covers))
+        };
+
+    let Some((track_id, title, album_id, cover_id, duration_ms)) = current else {
+        return pawse_remote::PlayerState {
+            queue_index,
+            queue_rev,
+            queue: queue_items,
+            queue_covers,
+            ..pawse_remote::PlayerState::idle()
+        };
+    };
 
     let artist = services.library.track_artists(track_id).into_iter().next();
     let album = album_id.and_then(|id| services.library.album_title(id));
@@ -546,6 +624,10 @@ fn build_remote_state(
         duration_ms,
         cover_id: if cover.is_some() { cover_id } else { None },
         cover,
+        queue_index,
+        queue_rev,
+        queue: queue_items,
+        queue_covers,
     }
 }
 

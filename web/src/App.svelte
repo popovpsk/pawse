@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { fade, fly } from "svelte/transition";
   import { Remote, formatTime, type Status } from "./lib/connection.svelte";
 
   const remote = new Remote();
+
+  let showQueue = $state(false);
 
   const dot: Record<Status, string> = {
     open: "bg-emerald-400",
@@ -46,9 +49,21 @@
       <img src="/pawse.svg" alt="pawse" class="h-6 w-6 rounded-md" />
       <span class="text-sm font-semibold tracking-wide text-neutral-300">pawse</span>
     </span>
-    <span class="flex items-center gap-2 text-xs text-neutral-400">
-      <span class={`h-2 w-2 rounded-full ${dot[remote.status]} transition-colors`}></span>
-      <span class="capitalize">{remote.status}</span>
+    <span class="flex items-center gap-4">
+      <span class="flex items-center gap-2 text-xs text-neutral-400">
+        <span class={`h-2 w-2 rounded-full ${dot[remote.status]} transition-colors`}></span>
+        <span class="capitalize">{remote.status}</span>
+      </span>
+      <button
+        class="text-neutral-400 transition active:scale-90 hover:text-white"
+        aria-label="Queue"
+        onclick={() => (showQueue = true)}
+      >
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 6h12M4 12h12M4 18h8" />
+          <path d="M17 14v6l4-3z" fill="currentColor" stroke="none" />
+        </svg>
+      </button>
     </span>
   </header>
 
@@ -143,4 +158,75 @@
       </button>
     </div>
   </main>
+
+  {#if showQueue}
+    <button
+      class="absolute inset-0 z-20 cursor-default bg-black/50"
+      aria-label="Close queue"
+      transition:fade={{ duration: 150 }}
+      onclick={() => (showQueue = false)}
+    ></button>
+    <section
+      class="absolute inset-x-0 bottom-0 z-30 flex max-h-[80dvh] flex-col rounded-t-3xl border-t border-white/10 bg-neutral-900 shadow-2xl"
+      transition:fly={{ y: 500, duration: 250 }}
+    >
+      <div class="flex items-center justify-between px-5 py-4">
+        <h2 class="text-sm font-semibold tracking-wide text-neutral-300">Queue</h2>
+        <button
+          class="text-neutral-400 transition active:scale-90 hover:text-white"
+          aria-label="Close"
+          onclick={() => (showQueue = false)}
+        >
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {#if remote.queue.length === 0}
+          <p class="px-3 py-8 text-center text-sm text-neutral-500">Queue is empty</p>
+        {:else}
+          {#each remote.queue as item, i (i)}
+            <button
+              class={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition active:scale-[0.99] ${
+                i === remote.queueIndex ? "bg-white/10" : "hover:bg-white/5"
+              }`}
+              onclick={() => {
+                remote.playAt(i);
+                showQueue = false;
+              }}
+            >
+              <div class="h-11 w-11 flex-shrink-0 overflow-hidden rounded-md bg-neutral-800">
+                {#if item.cover_id !== null}
+                  <img src={remote.coverUrlFor(item.cover_id)} alt="" class="h-full w-full object-cover" />
+                {:else}
+                  <div class="flex h-full w-full items-center justify-center text-neutral-600">
+                    <svg class="h-1/2 w-1/2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 18V5l12-2v13" />
+                      <circle cx="6" cy="18" r="3" />
+                      <circle cx="18" cy="16" r="3" />
+                    </svg>
+                  </div>
+                {/if}
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class={`truncate text-sm ${i === remote.queueIndex ? "font-semibold text-white" : "text-neutral-200"}`}>
+                  {item.title}
+                </p>
+                {#if item.artist}
+                  <p class="truncate text-xs text-neutral-400">{item.artist}</p>
+                {/if}
+              </div>
+              {#if i === remote.queueIndex}
+                <svg class="h-4 w-4 flex-shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              {/if}
+            </button>
+          {/each}
+        {/if}
+      </div>
+    </section>
+  {/if}
 </div>

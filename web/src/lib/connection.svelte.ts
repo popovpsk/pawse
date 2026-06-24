@@ -8,6 +8,15 @@ export type PlayerState = {
   position_ms: number;
   duration_ms: number;
   cover_id: number | null;
+  queue_index: number | null;
+  queue_rev: number;
+};
+
+export type QueueItem = {
+  id: number;
+  title: string;
+  artist: string | null;
+  cover_id: number | null;
 };
 
 export type Status = "connecting" | "open" | "reconnecting";
@@ -16,7 +25,8 @@ type Cmd =
   | { cmd: "play_pause" }
   | { cmd: "next" }
   | { cmd: "prev" }
-  | { cmd: "seek"; position_ms: number };
+  | { cmd: "seek"; position_ms: number }
+  | { cmd: "play_at"; index: number };
 
 export class Remote {
   status = $state<Status>("connecting");
@@ -28,9 +38,12 @@ export class Remote {
   durationMs = $state(0);
   positionMs = $state(0);
   coverId = $state<number | null>(null);
+  queueIndex = $state<number | null>(null);
+  queue = $state<QueueItem[]>([]);
 
   coverUrl = $derived(this.coverId !== null ? `/api/cover?v=${this.coverId}` : null);
 
+  #queueRev = -1;
   #ws: WebSocket | null = null;
   #backoff = 1000;
   #timer: ReturnType<typeof setTimeout> | null = null;
@@ -78,10 +91,33 @@ export class Remote {
     this.playing = state.playing;
     this.durationMs = state.duration_ms;
     this.coverId = state.cover_id;
+    this.queueIndex = state.queue_index;
     this.#base = state.position_ms;
     this.#baseAt = performance.now();
     if (!this.#seeking) this.positionMs = state.position_ms;
+    if (state.queue_rev !== this.#queueRev) {
+      this.#queueRev = state.queue_rev;
+      this.#fetchQueue();
+    }
     this.#ensureTick();
+  }
+
+  #fetchQueue() {
+    fetch("/api/queue")
+      .then((r) => r.json())
+      .then((q: QueueItem[]) => {
+        this.queue = q;
+      })
+      .catch(() => {});
+  }
+
+  coverUrlFor(coverId: number | null): string | null {
+    return coverId !== null ? `/api/cover?id=${coverId}` : null;
+  }
+
+  playAt(index: number) {
+    this.queueIndex = index;
+    this.#send({ cmd: "play_at", index });
   }
 
   #ensureTick() {
