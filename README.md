@@ -23,6 +23,16 @@ macOS · Windows · Linux
   </tr>
 </table>
 
+<table>
+  <tr>
+    <td colspan="2" align="center"><b>Remote control</b> — control playback from any device on your network through a built-in web view</td>
+  </tr>
+  <tr>
+    <td align="center"><img alt="Remote control on desktop" src=".docs/screenshots/remote-desktop.png" height="360"></td>
+    <td align="center"><img alt="Remote control on mobile" src=".docs/screenshots/remote-mobile.jpg" height="360"></td>
+  </tr>
+</table>
+
 ## Features
 
 - **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an **exclusive output mode** on Windows and macOS for an untouched signal path (not available on Linux).
