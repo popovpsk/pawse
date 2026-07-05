@@ -25,7 +25,7 @@ macOS · Windows · Linux
 
 <table>
   <tr>
-    <td colspan="2" align="center"><b>Remote control</b> — control playback from any device on your network through a built-in web view</td>
+    <td colspan="2" align="center"><b>Remote control</b> — desktop &amp; mobile</td>
   </tr>
   <tr>
     <td align="center"><img alt="Remote control on desktop" src=".docs/screenshots/remote-desktop.png" height="360"></td>
