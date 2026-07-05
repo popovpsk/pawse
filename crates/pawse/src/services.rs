@@ -453,6 +453,29 @@ pub fn play_queue_index(cx: &mut App, index: usize) {
     }
 }
 
+fn remove_queue_index(cx: &mut App, index: usize) {
+    let services = cx.global::<Services>();
+    let outcome = services
+        .playback_queue
+        .borrow_mut()
+        .remove_track_at(index);
+    match outcome {
+        crate::playback_queue::RemoveOutcome::PlayNext(next) => {
+            if services.is_playing.load(Ordering::Relaxed) {
+                services.play_track(&next);
+            } else {
+                services.load_track(&next);
+            }
+        }
+        crate::playback_queue::RemoveOutcome::Stopped => {
+            services.current_position_ms.store(0, Ordering::Relaxed);
+            services.engine_manager.stop();
+        }
+        crate::playback_queue::RemoveOutcome::Unaffected => {}
+    }
+    queue_mutated(cx);
+}
+
 fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
     match command {
         pawse_remote::Command::PlayPause => {
@@ -462,6 +485,7 @@ fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
         pawse_remote::Command::Prev => play_previous(cx),
         pawse_remote::Command::Seek { position_ms } => seek_to_ms(cx, position_ms),
         pawse_remote::Command::PlayAt { index } => play_queue_index(cx, index),
+        pawse_remote::Command::RemoveAt { index } => remove_queue_index(cx, index),
         pawse_remote::Command::Refresh => force_publish_remote_state(cx),
         pawse_remote::Command::SetShuffle { on } => set_shuffle(cx, on),
         pawse_remote::Command::SetRepeat { mode } => set_repeat(cx, repeat_from_remote(mode)),

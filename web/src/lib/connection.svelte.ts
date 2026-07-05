@@ -64,6 +64,7 @@ type Cmd =
   | { cmd: "prev" }
   | { cmd: "seek"; position_ms: number }
   | { cmd: "play_at"; index: number }
+  | { cmd: "remove_at"; index: number }
   | { cmd: "set_shuffle"; on: boolean }
   | { cmd: "set_repeat"; mode: RepeatMode }
   | { cmd: "set_volume"; volume: number }
@@ -198,6 +199,17 @@ export class Remote {
   playAt(index: number) {
     this.queueIndex = index;
     this.#send({ cmd: "play_at", index });
+  }
+
+  removeAt(index: number) {
+    const q = this.queue.slice();
+    q.splice(index, 1);
+    this.queue = q;
+    if (this.queueIndex !== null) {
+      if (index < this.queueIndex) this.queueIndex -= 1;
+      else if (index === this.queueIndex && this.queueIndex >= q.length) this.queueIndex = null;
+    }
+    this.#send({ cmd: "remove_at", index });
   }
 
   #ensureTick() {

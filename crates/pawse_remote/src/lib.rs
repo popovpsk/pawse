@@ -147,6 +147,9 @@ pub enum Command {
     PlayAt {
         index: usize,
     },
+    RemoveAt {
+        index: usize,
+    },
     Refresh,
     SetShuffle {
         on: bool,
