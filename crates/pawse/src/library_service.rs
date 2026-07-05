@@ -40,6 +40,7 @@ pub enum LibraryEvent {
         playlist_id: i64,
     },
     QueueChanged,
+    PlaybackModeChanged,
     LyricsChanged {
         track_id: i64,
     },
@@ -58,6 +59,168 @@ pub struct LibraryService {
 pub struct LyricsAccess {
     repo: Arc<dyn LibraryRepository>,
     event_tx: flume::Sender<LibraryEvent>,
+}
+
+#[derive(Clone)]
+pub struct LibraryAccess {
+    repo: Arc<dyn LibraryRepository>,
+}
+
+impl pawse_remote::LibraryReader for LibraryAccess {
+    fn cover(&self, id: i64, size: pawse_remote::CoverSize) -> Option<Vec<u8>> {
+        let result = match size {
+            pawse_remote::CoverSize::Small => self.repo.get_cover_art_small(id),
+            pawse_remote::CoverSize::Large => self.repo.get_cover_art_large(id),
+        };
+        result.ok().flatten()
+    }
+
+    fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)> {
+        let source = self.repo.get_cover_art_source(id).ok().flatten();
+        let track_path = self.repo.get_track_path_for_cover(id).ok().flatten();
+        let bytes =
+            music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
+        Some(transcode_web_cover(bytes))
+    }
+
+    fn artists(&self) -> Vec<pawse_remote::ArtistEntry> {
+        let covers = self.repo.artist_album_covers().unwrap_or_default();
+        self.repo
+            .artists()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|artist| pawse_remote::ArtistEntry {
+                id: artist.id,
+                name: artist.name,
+                track_count: artist.track_count,
+                cover_ids: covers
+                    .get(&artist.id)
+                    .into_iter()
+                    .flatten()
+                    .take(4)
+                    .copied()
+                    .collect(),
+            })
+            .collect()
+    }
+
+    fn artist_detail(&self, artist_id: i64, full: bool) -> Option<pawse_remote::ArtistDetail> {
+        let name = if artist_id == music_library::NO_METADATA_ARTIST_ID {
+            String::new()
+        } else {
+            self.repo.artist_name(artist_id).ok().flatten()?
+        };
+        let base = self.repo.tracks_by_artist(artist_id).unwrap_or_default();
+        let partial = artist_partial_albums(&*self.repo, &base);
+        let tracks = if full {
+            expand_partial_albums(&*self.repo, base, &partial)
+        } else {
+            base
+        };
+        Some(pawse_remote::ArtistDetail {
+            id: artist_id,
+            name,
+            has_partial: !partial.is_empty(),
+            albums: group_artist_albums(&*self.repo, &tracks, &partial),
+        })
+    }
+}
+
+fn artist_partial_albums(
+    repo: &dyn LibraryRepository,
+    tracks: &[music_library::Track],
+) -> HashSet<i64> {
+    let totals = repo.album_track_counts().unwrap_or_default();
+    let mut counts: HashMap<i64, i64> = HashMap::new();
+    for track in tracks {
+        if let Some(album_id) = track.album_id {
+            *counts.entry(album_id).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(album_id, mine)| totals.get(album_id).copied().unwrap_or(0) > *mine)
+        .map(|(album_id, _)| album_id)
+        .collect()
+}
+
+fn expand_partial_albums(
+    repo: &dyn LibraryRepository,
+    tracks: Vec<music_library::Track>,
+    partial: &HashSet<i64>,
+) -> Vec<music_library::Track> {
+    if partial.is_empty() {
+        return tracks;
+    }
+    let mut combined = Vec::new();
+    let mut i = 0;
+    while i < tracks.len() {
+        let album_id = tracks[i].album_id;
+        let mut j = i;
+        while j < tracks.len() && tracks[j].album_id == album_id {
+            j += 1;
+        }
+        match album_id {
+            Some(aid) if partial.contains(&aid) => {
+                combined.extend(repo.tracks_for_album(aid).unwrap_or_default())
+            }
+            _ => combined.extend_from_slice(&tracks[i..j]),
+        }
+        i = j;
+    }
+    combined
+}
+
+pub fn artist_display_tracks(
+    repo: &dyn LibraryRepository,
+    artist_id: i64,
+    full: bool,
+) -> Vec<music_library::Track> {
+    let base = repo.tracks_by_artist(artist_id).unwrap_or_default();
+    if !full {
+        return base;
+    }
+    let partial = artist_partial_albums(repo, &base);
+    expand_partial_albums(repo, base, &partial)
+}
+
+fn group_artist_albums(
+    repo: &dyn LibraryRepository,
+    tracks: &[music_library::Track],
+    partial: &HashSet<i64>,
+) -> Vec<pawse_remote::ArtistAlbum> {
+    let mut albums: Vec<pawse_remote::ArtistAlbum> = Vec::new();
+    for track in tracks {
+        let item = pawse_remote::AlbumTrack {
+            id: track.id,
+            title: track.title.clone(),
+            track_number: track.track_number,
+            disc_number: track.disc_number,
+            duration_ms: track.duration_ms.unwrap_or(0).max(0) as u64,
+        };
+        if let Some(last) = albums.last_mut()
+            && last.album_id == track.album_id
+        {
+            last.tracks.push(item);
+            continue;
+        }
+        let title = track
+            .album_id
+            .and_then(|id| repo.album_title(id).ok().flatten())
+            .unwrap_or_default();
+        albums.push(pawse_remote::ArtistAlbum {
+            album_id: track.album_id,
+            title,
+            year: track.year,
+            cover_id: track.cover_art_id,
+            partial: track
+                .album_id
+                .map(|id| partial.contains(&id))
+                .unwrap_or(false),
+            tracks: vec![item],
+        });
+    }
+    albums
 }
 
 impl LyricsAccess {
@@ -203,6 +366,16 @@ impl LibraryService {
             repo: self.repo.clone(),
             event_tx: self.event_tx.clone(),
         }
+    }
+
+    pub fn library_access(&self) -> LibraryAccess {
+        LibraryAccess {
+            repo: self.repo.clone(),
+        }
+    }
+
+    pub fn artist_display_tracks(&self, artist_id: i64, full: bool) -> Vec<music_library::Track> {
+        artist_display_tracks(&*self.repo, artist_id, full)
     }
 
     pub fn save_lyrics_file(
@@ -694,5 +867,56 @@ fn finalize_rescan(
     }
     if let Err(e) = repo.vacuum() {
         log::error!("Failed to vacuum library: {}", e);
+    }
+}
+
+const WEB_COVER_MAX: u32 = 1440;
+const WEB_COVER_QUALITY: u8 = 90;
+
+fn transcode_web_cover(bytes: Vec<u8>) -> (Vec<u8>, String) {
+    let original_type = cover_content_type(&bytes).to_string();
+    let dims = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_dimensions().ok());
+
+    if let Some((w, h)) = dims {
+        if w <= WEB_COVER_MAX && h <= WEB_COVER_MAX {
+            return (bytes, original_type);
+        }
+    }
+
+    let Ok(img) = image::load_from_memory(&bytes) else {
+        return (bytes, original_type);
+    };
+    let rgb = img
+        .resize(WEB_COVER_MAX, WEB_COVER_MAX, image::imageops::FilterType::Lanczos3)
+        .into_rgb8();
+    let mut out = std::io::Cursor::new(Vec::new());
+    let ok = {
+        let mut encoder =
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, WEB_COVER_QUALITY);
+        encoder.encode_image(&rgb).is_ok()
+    };
+    if ok {
+        (out.into_inner(), "image/jpeg".to_string())
+    } else {
+        (bytes, original_type)
+    }
+}
+
+fn cover_content_type(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0xFF, 0xD8]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"\x89PNG") {
+        "image/png"
+    } else if bytes.len() > 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else if bytes.starts_with(b"GIF8") {
+        "image/gif"
+    } else if bytes.starts_with(b"BM") {
+        "image/bmp"
+    } else {
+        "application/octet-stream"
     }
 }

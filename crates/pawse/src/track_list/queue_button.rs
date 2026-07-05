@@ -9,7 +9,6 @@ use music_library::Track;
 use crate::theme_colors::Colors;
 
 use super::{RowButtonColors, row_icon_button};
-use crate::library_service::LibraryEvent;
 use crate::localization::tr;
 use crate::playback_queue::QueueSource;
 use crate::services::Services;
@@ -24,12 +23,15 @@ pub fn append_tracks_to_queue(tracks: Vec<Rc<Track>>, cx: &mut App) {
         .playback_queue
         .borrow_mut()
         .append_tracks(tracks, dedup);
-    let bus = cx.global::<Services>().library_event_bus.clone();
-    bus.update(cx, |_, cx| cx.emit(LibraryEvent::QueueChanged));
-    crate::services::save_playback(cx);
+    crate::services::queue_mutated(cx);
 }
 
-fn replace_queue_and_play(tracks: Vec<Rc<Track>>, index: usize, source: QueueSource, cx: &mut App) {
+pub fn replace_queue_and_play(
+    tracks: Vec<Rc<Track>>,
+    index: usize,
+    source: QueueSource,
+    cx: &mut App,
+) {
     let services = cx.global::<Services>();
     let track = services
         .playback_queue

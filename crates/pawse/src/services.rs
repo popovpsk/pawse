@@ -10,7 +10,7 @@ use std::{
 };
 
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
-use audio_output::Output;
+use audio_output::{AudioOutput, Output};
 use gpui::{App, AppContext, AsyncApp, Entity, EventEmitter, Global};
 use gpui_component::WindowExt;
 use gpui_component::notification::Notification;
@@ -39,7 +39,10 @@ pub struct Services {
     pub remote_state_rx: pawse_remote::StateRx,
     pub remote_command_tx: pawse_remote::CommandSink,
     pub remote_server: Rc<RefCell<Option<pawse_remote::RemoteServer>>>,
+    remote_queue_cache: Rc<RefCell<RemoteQueueCache>>,
 }
+
+type RemoteQueueCache = Option<(u64, Arc<Vec<pawse_remote::QueueItem>>)>;
 
 impl Services {
     pub fn initialize(cx: &mut App) -> Self {
@@ -78,16 +81,11 @@ impl Services {
                         }
                         let queue_touched = matches!(
                             &event,
-                            LibraryEvent::QueueChanged
-                                | LibraryEvent::PlaylistTracksChanged { .. }
+                            LibraryEvent::PlaylistTracksChanged { .. }
                                 | LibraryEvent::ScanComplete { changed: true }
                         );
                         if queue_touched {
-                            let remote = cx.global::<Services>().remote_handle.clone();
-                            if remote.has_listeners() {
-                                let state = build_remote_state(cx, &remote);
-                                remote.publish(state);
-                            }
+                            publish_remote_state(cx);
                         }
                         notify_scan_event(&event, cx);
                         library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
@@ -154,6 +152,7 @@ impl Services {
             remote_state_rx,
             remote_command_tx,
             remote_server: Rc::new(RefCell::new(None)),
+            remote_queue_cache: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -326,6 +325,7 @@ pub fn apply_remote_state(cx: &mut App) {
                 std::net::SocketAddr::from(([0, 0, 0, 0], port)),
                 services.remote_state_rx.clone(),
                 services.remote_command_tx.clone(),
+                Arc::new(services.library.library_access()),
             );
             *slot = Some(server);
             Some(ready)
@@ -335,8 +335,7 @@ pub fn apply_remote_state(cx: &mut App) {
     };
 
     if enabled {
-        let state = build_remote_state(cx, &services.remote_handle);
-        services.remote_handle.publish(state);
+        force_publish_remote_state(cx);
     } else {
         services
             .remote_handle
@@ -376,6 +375,21 @@ pub fn toggle_play_pause(cx: &mut App) -> Option<bool> {
         services.engine_manager.play();
     }
     Some(!was_playing)
+}
+
+pub fn play(cx: &mut App) {
+    let services = cx.global::<Services>();
+    if services.playback_queue.borrow().current_track().is_none() {
+        return;
+    }
+    services.is_playing.store(true, Ordering::Relaxed);
+    services.engine_manager.play();
+}
+
+pub fn pause(cx: &mut App) {
+    let services = cx.global::<Services>();
+    services.is_playing.store(false, Ordering::Relaxed);
+    services.engine_manager.pause();
 }
 
 pub fn play_next(cx: &mut App) {
@@ -448,7 +462,168 @@ fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
         pawse_remote::Command::Prev => play_previous(cx),
         pawse_remote::Command::Seek { position_ms } => seek_to_ms(cx, position_ms),
         pawse_remote::Command::PlayAt { index } => play_queue_index(cx, index),
+        pawse_remote::Command::Refresh => force_publish_remote_state(cx),
+        pawse_remote::Command::SetShuffle { on } => set_shuffle(cx, on),
+        pawse_remote::Command::SetRepeat { mode } => set_repeat(cx, repeat_from_remote(mode)),
+        pawse_remote::Command::SetVolume { volume } => set_volume(cx, volume),
+        pawse_remote::Command::PlayArtistTrack {
+            artist_id,
+            track_id,
+            full,
+        } => play_artist_track(cx, artist_id, track_id, full),
+        pawse_remote::Command::QueueArtistTrack {
+            artist_id,
+            track_id,
+            full,
+        } => queue_artist_track(cx, artist_id, track_id, full),
+        pawse_remote::Command::QueueArtistAlbum {
+            artist_id,
+            album_id,
+            full,
+        } => queue_artist_album(cx, artist_id, album_id, full),
     }
+}
+
+fn play_artist_track(cx: &mut App, artist_id: i64, track_id: i64, full: bool) {
+    let tracks = cx
+        .global::<Services>()
+        .library
+        .artist_display_tracks(artist_id, full);
+    let Some(index) = tracks.iter().position(|t| t.id == track_id) else {
+        return;
+    };
+    let tracks: Vec<Rc<Track>> = tracks.into_iter().map(Rc::new).collect();
+    crate::track_list::replace_queue_and_play(
+        tracks,
+        index,
+        crate::playback_queue::QueueSource::Unknown,
+        cx,
+    );
+}
+
+fn queue_artist_track(cx: &mut App, artist_id: i64, track_id: i64, full: bool) {
+    let track = cx
+        .global::<Services>()
+        .library
+        .artist_display_tracks(artist_id, full)
+        .into_iter()
+        .find(|t| t.id == track_id);
+    if let Some(track) = track {
+        crate::track_list::append_tracks_to_queue(vec![Rc::new(track)], cx);
+    }
+}
+
+fn queue_artist_album(cx: &mut App, artist_id: i64, album_id: Option<i64>, full: bool) {
+    let tracks: Vec<Rc<Track>> = cx
+        .global::<Services>()
+        .library
+        .artist_display_tracks(artist_id, full)
+        .into_iter()
+        .filter(|t| t.album_id == album_id)
+        .map(Rc::new)
+        .collect();
+    crate::track_list::append_tracks_to_queue(tracks, cx);
+}
+
+pub fn toggle_shuffle(cx: &mut App) {
+    let on = !cx.global::<Services>().playback_queue.borrow().shuffle();
+    set_shuffle(cx, on);
+}
+
+pub fn set_shuffle(cx: &mut App, on: bool) {
+    {
+        let services = cx.global::<Services>();
+        let mut queue = services.playback_queue.borrow_mut();
+        if queue.shuffle() == on {
+            return;
+        }
+        queue.set_shuffle(on);
+    }
+    playback_mode_changed(cx);
+    queue_mutated(cx);
+}
+
+pub fn cycle_repeat(cx: &mut App) {
+    let next = cx
+        .global::<Services>()
+        .playback_queue
+        .borrow()
+        .repeat()
+        .cycle();
+    set_repeat(cx, next);
+}
+
+pub fn set_repeat(cx: &mut App, mode: crate::playback_queue::RepeatMode) {
+    {
+        let services = cx.global::<Services>();
+        let mut queue = services.playback_queue.borrow_mut();
+        if queue.repeat() == mode {
+            return;
+        }
+        queue.set_repeat(mode);
+    }
+    playback_mode_changed(cx);
+    save_playback(cx);
+    publish_remote_state(cx);
+}
+
+pub fn set_volume(cx: &mut App, volume: f32) {
+    if !volume.is_finite() {
+        return;
+    }
+    let services = cx.global::<Services>();
+    if services.output.is_exclusive() {
+        return;
+    }
+    let volume = volume.clamp(0.0, 1.0);
+    services.output.set_volume(volume);
+    if let Err(e) = cx
+        .global_mut::<crate::settings_store::SettingsStore>()
+        .set_volume(volume)
+    {
+        crate::settings_store::notify_save_error(cx, e);
+    }
+    publish_remote_state(cx);
+}
+
+fn playback_mode_changed(cx: &mut App) {
+    let bus = cx.global::<Services>().library_event_bus.clone();
+    bus.update(cx, |_, cx| cx.emit(LibraryEvent::PlaybackModeChanged));
+}
+
+fn repeat_to_remote(mode: crate::playback_queue::RepeatMode) -> pawse_remote::RepeatMode {
+    match mode {
+        crate::playback_queue::RepeatMode::Off => pawse_remote::RepeatMode::Off,
+        crate::playback_queue::RepeatMode::All => pawse_remote::RepeatMode::All,
+        crate::playback_queue::RepeatMode::One => pawse_remote::RepeatMode::One,
+    }
+}
+
+fn repeat_from_remote(mode: pawse_remote::RepeatMode) -> crate::playback_queue::RepeatMode {
+    match mode {
+        pawse_remote::RepeatMode::Off => crate::playback_queue::RepeatMode::Off,
+        pawse_remote::RepeatMode::All => crate::playback_queue::RepeatMode::All,
+        pawse_remote::RepeatMode::One => crate::playback_queue::RepeatMode::One,
+    }
+}
+
+pub fn queue_mutated(cx: &mut App) {
+    let bus = cx.global::<Services>().library_event_bus.clone();
+    bus.update(cx, |_, cx| cx.emit(LibraryEvent::QueueChanged));
+    save_playback(cx);
+    publish_remote_state(cx);
+}
+
+pub fn publish_remote_state(cx: &mut App) {
+    if !cx.global::<Services>().remote_handle.is_serving() {
+        return;
+    }
+    force_publish_remote_state(cx);
+}
+
+fn force_publish_remote_state(cx: &mut App) {
+    let state = build_remote_state(cx);
+    cx.global::<Services>().remote_handle.publish(state);
 }
 
 impl Global for Services {}
@@ -485,11 +660,11 @@ pub async fn run_engine_events_bus(
                 current_duration = Some(*duration);
                 current_duration_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
                 prefetched = false;
-                publish_now_playing(cx, &remote);
+                publish_now_playing(cx);
             }
             EngineEvent::PositionChanged(dur) => {
                 current_position_ms.store(dur.as_millis() as u64, Ordering::Relaxed);
-                if remote.has_listeners() {
+                if remote.is_serving() {
                     remote.publish_position(
                         dur.as_millis() as u64,
                         is_playing.load(Ordering::Relaxed),
@@ -499,22 +674,22 @@ pub async fn run_engine_events_bus(
             }
             EngineEvent::Playing => {
                 is_playing.store(true, Ordering::Relaxed);
-                publish_now_playing(cx, &remote);
+                publish_now_playing(cx);
             }
             EngineEvent::Paused => {
                 is_playing.store(false, Ordering::Relaxed);
-                publish_now_playing(cx, &remote);
+                publish_now_playing(cx);
             }
             EngineEvent::TrackEnded => {
                 is_playing.store(false, Ordering::Relaxed);
                 let _ = cx.update(advance_on_track_end);
-                publish_now_playing(cx, &remote);
+                publish_now_playing(cx);
             }
             EngineEvent::Stopped => {
                 is_playing.store(false, Ordering::Relaxed);
                 current_position_ms.store(0, Ordering::Relaxed);
                 current_duration_ms.store(0, Ordering::Relaxed);
-                publish_now_playing(cx, &remote);
+                publish_now_playing(cx);
             }
             _ => {}
         }
@@ -527,27 +702,19 @@ pub async fn run_engine_events_bus(
     }
 }
 
-fn publish_now_playing(cx: &mut AsyncApp, remote: &pawse_remote::StateHandle) {
-    if !remote.has_listeners() {
-        return;
-    }
-    if let Ok(state) = cx.update(|cx| build_remote_state(cx, remote)) {
-        remote.publish(state);
-    }
+fn publish_now_playing(cx: &mut AsyncApp) {
+    let _ = cx.update(publish_remote_state);
 }
 
-fn build_remote_state(
-    cx: &mut App,
-    remote: &pawse_remote::StateHandle,
-) -> pawse_remote::PlayerState {
-    use std::collections::HashMap;
-    use std::collections::hash_map::Entry;
+fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
     use std::hash::{Hash, Hasher};
 
     let services = cx.global::<Services>();
     let queue = services.playback_queue.borrow();
     let tracks = queue.tracks_vec();
     let queue_index = queue.current_index();
+    let shuffle = queue.shuffle();
+    let repeat = repeat_to_remote(queue.repeat());
     let current = queue.current_track().map(|t| {
         (
             t.id,
@@ -558,63 +725,61 @@ fn build_remote_state(
         )
     });
     drop(queue);
+    let volume = cx
+        .global::<crate::settings_store::SettingsStore>()
+        .volume();
+    let volume_locked = services.output.is_exclusive();
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for t in tracks.iter() {
         t.id.hash(&mut hasher);
         t.cover_art_id.hash(&mut hasher);
+        t.title.hash(&mut hasher);
     }
     let queue_rev = hasher.finish();
 
-    let (queue_items, queue_covers) =
-        if queue_rev == remote.current_queue_rev() && !tracks.is_empty() {
-            (remote.current_queue(), remote.current_queue_covers())
-        } else {
-            let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-            let artists = services.library.track_artists_map(&ids);
-            let mut covers: HashMap<i64, Arc<Vec<u8>>> = HashMap::new();
-            let items: Vec<pawse_remote::QueueItem> = tracks
+    let cached = services
+        .remote_queue_cache
+        .borrow()
+        .as_ref()
+        .filter(|(rev, _)| *rev == queue_rev)
+        .map(|(_, items)| items.clone());
+    let queue_items = cached.unwrap_or_else(|| {
+        let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+        let artists = services.library.track_artists_map(&ids);
+        let items: Arc<Vec<pawse_remote::QueueItem>> = Arc::new(
+            tracks
                 .iter()
-                .map(|t| {
-                    if let Some(cover_id) = t.cover_art_id
-                        && let Entry::Vacant(slot) = covers.entry(cover_id)
-                        && let Some(bytes) = services.library.get_cover_art_small(cover_id)
-                    {
-                        slot.insert(Arc::new(bytes));
-                    }
-                    pawse_remote::QueueItem {
-                        id: t.id,
-                        title: t.title.clone(),
-                        artist: artists.get(&t.id).and_then(|a| a.first().cloned()),
-                        cover_id: t.cover_art_id,
-                    }
+                .map(|t| pawse_remote::QueueItem {
+                    id: t.id,
+                    title: t.title.clone(),
+                    artist: artists.get(&t.id).and_then(|a| a.first().cloned()),
+                    cover_id: t.cover_art_id,
                 })
-                .collect();
-            (Arc::new(items), Arc::new(covers))
-        };
+                .collect(),
+        );
+        *services.remote_queue_cache.borrow_mut() = Some((queue_rev, items.clone()));
+        items
+    });
 
     let Some((track_id, title, album_id, cover_id, duration_ms)) = current else {
         return pawse_remote::PlayerState {
             queue_index,
             queue_rev,
+            shuffle,
+            repeat,
+            volume,
+            volume_locked,
             queue: queue_items,
-            queue_covers,
             ..pawse_remote::PlayerState::idle()
         };
     };
 
     let artist = services.library.track_artists(track_id).into_iter().next();
     let album = album_id.and_then(|id| services.library.album_title(id));
-    let cover = if cover_id.is_some() && cover_id == remote.current_cover_id() {
-        remote.current_cover()
-    } else {
-        cover_id
-            .and_then(|id| services.library.get_cover_art_large(id))
-            .map(Arc::new)
-    };
 
     pawse_remote::PlayerState {
-        v: 0,
+        v: pawse_remote::PROTOCOL_VERSION,
         has_track: true,
         title: Some(title),
         artist,
@@ -622,12 +787,14 @@ fn build_remote_state(
         playing: services.is_playing.load(Ordering::Relaxed),
         position_ms: services.current_position_ms.load(Ordering::Relaxed),
         duration_ms,
-        cover_id: if cover.is_some() { cover_id } else { None },
-        cover,
+        cover_id,
         queue_index,
         queue_rev,
+        shuffle,
+        repeat,
+        volume,
+        volume_locked,
         queue: queue_items,
-        queue_covers,
     }
 }
 

@@ -63,8 +63,10 @@ pub trait LibraryRepository: Send + Sync {
     fn get_cover_art_small(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>>;
+    fn get_track_path_for_cover(&self, id: i64) -> Result<Option<String>>;
     fn album_has_artists(&self, album_id: i64) -> Result<bool>;
     fn artists(&self) -> Result<Vec<ArtistSummary>>;
+    fn artist_name(&self, id: i64) -> Result<Option<String>>;
     fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;

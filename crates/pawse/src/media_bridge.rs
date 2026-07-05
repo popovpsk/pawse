@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use audio_engine::EngineEvent;
 use gpui::{App, AsyncApp};
@@ -9,7 +8,6 @@ use gpui::{App, AsyncApp};
 use gpui::{Context, Entity, Subscription, Window};
 use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
-use crate::playback_queue::{PlaybackQueue, PreviousAction};
 #[cfg(not(target_os = "macos"))]
 use crate::services::EngineEventsBus;
 use crate::services::Services;
@@ -19,13 +17,7 @@ pub fn setup(cx: &mut App) {
     let current_position = Rc::new(RefCell::new(0.0f64));
     let current_duration = Rc::new(RefCell::new(0.0f64));
     let last_state = Rc::new(RefCell::new(MediaPlaybackState::Stopped));
-    let Some(integration) = create_integration(
-        cx,
-        None,
-        current_position.clone(),
-        current_duration.clone(),
-        last_state.clone(),
-    ) else {
+    let Some(integration) = create_integration(cx, None) else {
         return;
     };
 
@@ -78,13 +70,7 @@ impl MediaBridge {
         let current_position = Rc::new(RefCell::new(0.0f64));
         let current_duration = Rc::new(RefCell::new(0.0f64));
         let last_state = Rc::new(RefCell::new(MediaPlaybackState::Stopped));
-        let integration = create_integration(
-            cx,
-            hwnd,
-            current_position.clone(),
-            current_duration.clone(),
-            last_state.clone(),
-        )?;
+        let integration = create_integration(cx, hwnd)?;
 
         seed_from_services(
             cx,
@@ -213,111 +199,30 @@ fn window_hwnd(window: &Window) -> Option<*mut std::ffi::c_void> {
 fn create_integration(
     cx: &mut App,
     hwnd: Option<*mut std::ffi::c_void>,
-    current_position: Rc<RefCell<f64>>,
-    current_duration: Rc<RefCell<f64>>,
-    last_state: Rc<RefCell<MediaPlaybackState>>,
 ) -> Option<Rc<dyn SystemMediaIntegration>> {
     let (command_tx, command_rx) = flume::unbounded::<MediaCommand>();
     let integration = media_integration::create_integration(command_tx, hwnd)?;
 
-    let engine_manager = cx.global::<Services>().engine_manager.clone();
-    let queue = cx.global::<Services>().playback_queue.clone();
-
     cx.spawn(async move |cx| {
-        run_command_loop(
-            cx,
-            command_rx,
-            engine_manager,
-            queue,
-            current_position,
-            current_duration,
-            last_state,
-        )
-        .await;
+        run_command_loop(cx, command_rx).await;
     })
     .detach();
 
     Some(integration)
 }
 
-async fn run_command_loop(
-    cx: &mut AsyncApp,
-    rx: flume::Receiver<MediaCommand>,
-    engine_manager: std::rc::Rc<audio_engine::EngineManager>,
-    queue: std::rc::Rc<RefCell<PlaybackQueue>>,
-    current_position: Rc<RefCell<f64>>,
-    current_duration: Rc<RefCell<f64>>,
-    last_state: Rc<RefCell<MediaPlaybackState>>,
-) {
+async fn run_command_loop(cx: &mut AsyncApp, rx: flume::Receiver<MediaCommand>) {
     while let Ok(command) = rx.recv_async().await {
-        let result = cx.update(|_cx| match command {
-            MediaCommand::Play => {
-                engine_manager.play();
+        let result = cx.update(|cx| match command {
+            MediaCommand::Play => crate::services::play(cx),
+            MediaCommand::Pause => crate::services::pause(cx),
+            MediaCommand::TogglePlayPause => {
+                crate::services::toggle_play_pause(cx);
             }
-            MediaCommand::Pause => {
-                engine_manager.pause();
-            }
-            MediaCommand::TogglePlayPause => match *last_state.borrow() {
-                MediaPlaybackState::Playing => engine_manager.pause(),
-                _ => engine_manager.play(),
-            },
-            MediaCommand::Next => {
-                let next = queue.borrow_mut().next_track().cloned();
-                if let Some(track) = next {
-                    let start_offset = if track.start_offset_ms > 0 {
-                        Some(Duration::from_millis(track.start_offset_ms as u64))
-                    } else {
-                        None
-                    };
-                    let track_duration =
-                        track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-                    engine_manager.set_track_with_offset(
-                        std::path::PathBuf::from(&track.path),
-                        start_offset,
-                        track_duration,
-                    );
-                    engine_manager.play();
-                    _cx.global::<Services>()
-                        .current_position_ms
-                        .store(0, Ordering::Relaxed);
-                    crate::services::save_playback(_cx);
-                }
-            }
-            MediaCommand::Previous => {
-                let position_secs = *current_position.borrow() as f32;
-                let mut q = queue.borrow_mut();
-                let action = q.previous(position_secs);
-                match action {
-                    PreviousAction::SeekToStart => {
-                        drop(q);
-                        engine_manager.seek(0.0);
-                        engine_manager.play();
-                    }
-                    PreviousAction::PreviousTrack(track) => {
-                        let start_offset = if track.start_offset_ms > 0 {
-                            Some(Duration::from_millis(track.start_offset_ms as u64))
-                        } else {
-                            None
-                        };
-                        let track_duration =
-                            track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-                        let path = std::path::PathBuf::from(&track.path);
-                        drop(q);
-                        engine_manager.set_track_with_offset(path, start_offset, track_duration);
-                        engine_manager.play();
-                        _cx.global::<Services>()
-                            .current_position_ms
-                            .store(0, Ordering::Relaxed);
-                        crate::services::save_playback(_cx);
-                    }
-                }
-            }
+            MediaCommand::Next => crate::services::play_next(cx),
+            MediaCommand::Previous => crate::services::play_previous(cx),
             MediaCommand::Seek(position_secs) => {
-                let duration = *current_duration.borrow();
-                if duration > 0.0 {
-                    let fraction = (position_secs / duration) as f32;
-                    engine_manager.seek(fraction.clamp(0.0, 1.0));
-                }
+                crate::services::seek_to_ms(cx, (position_secs.max(0.0) * 1000.0) as u64)
             }
         });
         if result.is_err() {

@@ -1,3 +1,5 @@
+export type RepeatMode = "off" | "all" | "one";
+
 export type PlayerState = {
   v: number;
   has_track: boolean;
@@ -10,6 +12,10 @@ export type PlayerState = {
   cover_id: number | null;
   queue_index: number | null;
   queue_rev: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
+  volume: number;
+  volume_locked: boolean;
 };
 
 export type QueueItem = {
@@ -19,6 +25,37 @@ export type QueueItem = {
   cover_id: number | null;
 };
 
+export type ArtistEntry = {
+  id: number;
+  name: string;
+  track_count: number;
+  cover_ids: number[];
+};
+
+export type AlbumTrack = {
+  id: number;
+  title: string;
+  track_number: number | null;
+  disc_number: number;
+  duration_ms: number;
+};
+
+export type ArtistAlbum = {
+  album_id: number | null;
+  title: string;
+  year: number | null;
+  cover_id: number | null;
+  partial: boolean;
+  tracks: AlbumTrack[];
+};
+
+export type ArtistDetail = {
+  id: number;
+  name: string;
+  has_partial: boolean;
+  albums: ArtistAlbum[];
+};
+
 export type Status = "connecting" | "open" | "reconnecting";
 
 type Cmd =
@@ -26,7 +63,13 @@ type Cmd =
   | { cmd: "next" }
   | { cmd: "prev" }
   | { cmd: "seek"; position_ms: number }
-  | { cmd: "play_at"; index: number };
+  | { cmd: "play_at"; index: number }
+  | { cmd: "set_shuffle"; on: boolean }
+  | { cmd: "set_repeat"; mode: RepeatMode }
+  | { cmd: "set_volume"; volume: number }
+  | { cmd: "play_artist_track"; artist_id: number; track_id: number; full: boolean }
+  | { cmd: "queue_artist_track"; artist_id: number; track_id: number; full: boolean }
+  | { cmd: "queue_artist_album"; artist_id: number; album_id: number | null; full: boolean };
 
 export class Remote {
   status = $state<Status>("connecting");
@@ -40,10 +83,18 @@ export class Remote {
   coverId = $state<number | null>(null);
   queueIndex = $state<number | null>(null);
   queue = $state<QueueItem[]>([]);
+  shuffle = $state(false);
+  repeat = $state<RepeatMode>("off");
+  volume = $state(1);
+  volumeLocked = $state(false);
 
-  coverUrl = $derived(this.coverId !== null ? `/api/cover?v=${this.coverId}` : null);
+  coverUrl = $derived(this.coverId !== null ? `/api/cover?id=${this.coverId}&size=full` : null);
+  currentTrackId = $derived(
+    this.queueIndex !== null ? (this.queue[this.queueIndex]?.id ?? null) : null,
+  );
 
   #queueRev = -1;
+  #queueFetchSeq = 0;
   #ws: WebSocket | null = null;
   #backoff = 1000;
   #timer: ReturnType<typeof setTimeout> | null = null;
@@ -52,6 +103,12 @@ export class Remote {
   #baseAt = 0;
   #raf: number | null = null;
   #seeking = false;
+
+  #volumeAdjusting = false;
+  #volumeTimer: ReturnType<typeof setTimeout> | null = null;
+  #volumePending: number | null = null;
+  #volumeResetTimer: ReturnType<typeof setTimeout> | null = null;
+  #volumeReleased = false;
 
   constructor() {
     this.#connect();
@@ -67,20 +124,38 @@ export class Remote {
   }
 
   #connect() {
-    this.status = this.#ws ? "reconnecting" : "connecting";
+    const previous = this.#ws;
+    if (previous) {
+      previous.onopen = null;
+      previous.onmessage = null;
+      previous.onclose = null;
+      previous.onerror = null;
+      try {
+        previous.close();
+      } catch {}
+    }
+    this.status = previous ? "reconnecting" : "connecting";
     const ws = new WebSocket(this.#url());
     this.#ws = ws;
     ws.onopen = () => {
+      if (this.#ws !== ws) return;
       this.status = "open";
       this.#backoff = 1000;
     };
     ws.onmessage = (event) => {
+      if (this.#ws !== ws) return;
       try {
         this.#apply(JSON.parse(event.data) as PlayerState);
       } catch {}
     };
-    ws.onclose = () => this.#scheduleReconnect();
-    ws.onerror = () => ws.close();
+    ws.onclose = () => {
+      if (this.#ws !== ws) return;
+      this.#scheduleReconnect();
+    };
+    ws.onerror = () => {
+      if (this.#ws !== ws) return;
+      ws.close();
+    };
   }
 
   #apply(state: PlayerState) {
@@ -92,6 +167,10 @@ export class Remote {
     this.durationMs = state.duration_ms;
     this.coverId = state.cover_id;
     this.queueIndex = state.queue_index;
+    this.shuffle = state.shuffle;
+    this.repeat = state.repeat;
+    this.volumeLocked = state.volume_locked;
+    if (!this.#volumeAdjusting) this.volume = state.volume;
     this.#base = state.position_ms;
     this.#baseAt = performance.now();
     if (!this.#seeking) this.positionMs = state.position_ms;
@@ -103,16 +182,17 @@ export class Remote {
   }
 
   #fetchQueue() {
+    const seq = ++this.#queueFetchSeq;
     fetch("/api/queue")
       .then((r) => r.json())
       .then((q: QueueItem[]) => {
-        this.queue = q;
+        if (seq === this.#queueFetchSeq) this.queue = q;
       })
       .catch(() => {});
   }
 
   coverUrlFor(coverId: number | null): string | null {
-    return coverId !== null ? `/api/cover?id=${coverId}` : null;
+    return coverId !== null ? `/api/cover?id=${coverId}&size=small` : null;
   }
 
   playAt(index: number) {
@@ -167,6 +247,73 @@ export class Remote {
 
   prev() {
     this.#send({ cmd: "prev" });
+  }
+
+  toggleShuffle() {
+    this.shuffle = !this.shuffle;
+    this.#send({ cmd: "set_shuffle", on: this.shuffle });
+  }
+
+  cycleRepeat() {
+    const next: Record<RepeatMode, RepeatMode> = { off: "all", all: "one", one: "off" };
+    this.repeat = next[this.repeat];
+    this.#send({ cmd: "set_repeat", mode: this.repeat });
+  }
+
+  previewVolume(value: number) {
+    if (this.#volumeResetTimer !== null) {
+      clearTimeout(this.#volumeResetTimer);
+      this.#volumeResetTimer = null;
+    }
+    this.#volumeAdjusting = true;
+    this.#volumeReleased = false;
+    this.volume = value;
+    this.#sendVolumeThrottled(value);
+  }
+
+  endVolume(value: number) {
+    if (this.#volumeReleased) return;
+    this.#volumeReleased = true;
+    this.volume = value;
+    this.#volumePending = null;
+    if (this.#volumeTimer !== null) {
+      clearTimeout(this.#volumeTimer);
+      this.#volumeTimer = null;
+    }
+    this.#send({ cmd: "set_volume", volume: value });
+    if (this.#volumeResetTimer !== null) clearTimeout(this.#volumeResetTimer);
+    this.#volumeResetTimer = setTimeout(() => {
+      this.#volumeResetTimer = null;
+      this.#volumeAdjusting = false;
+    }, 300);
+  }
+
+  #sendVolumeThrottled(value: number) {
+    if (this.#volumeTimer !== null) {
+      this.#volumePending = value;
+      return;
+    }
+    this.#send({ cmd: "set_volume", volume: value });
+    this.#volumeTimer = setTimeout(() => {
+      this.#volumeTimer = null;
+      if (this.#volumePending !== null) {
+        const pending = this.#volumePending;
+        this.#volumePending = null;
+        this.#sendVolumeThrottled(pending);
+      }
+    }, 120);
+  }
+
+  playArtistTrack(artistId: number, trackId: number, full: boolean) {
+    this.#send({ cmd: "play_artist_track", artist_id: artistId, track_id: trackId, full });
+  }
+
+  queueArtistTrack(artistId: number, trackId: number, full: boolean) {
+    this.#send({ cmd: "queue_artist_track", artist_id: artistId, track_id: trackId, full });
+  }
+
+  queueArtistAlbum(artistId: number, albumId: number | null, full: boolean) {
+    this.#send({ cmd: "queue_artist_album", artist_id: artistId, album_id: albumId, full });
   }
 
   #send(cmd: Cmd) {

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -9,7 +8,64 @@ mod assets;
 mod http;
 
 pub const DEFAULT_PORT: u16 = 8770;
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoverSize {
+    Small,
+    Large,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepeatMode {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct ArtistEntry {
+    pub id: i64,
+    pub name: String,
+    pub track_count: i64,
+    pub cover_ids: Vec<i64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct AlbumTrack {
+    pub id: i64,
+    pub title: String,
+    pub track_number: Option<i32>,
+    pub disc_number: i32,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct ArtistAlbum {
+    pub album_id: Option<i64>,
+    pub title: String,
+    pub year: Option<i32>,
+    pub cover_id: Option<i64>,
+    pub partial: bool,
+    pub tracks: Vec<AlbumTrack>,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct ArtistDetail {
+    pub id: i64,
+    pub name: String,
+    pub has_partial: bool,
+    pub albums: Vec<ArtistAlbum>,
+}
+
+pub trait LibraryReader: Send + Sync + 'static {
+    fn cover(&self, id: i64, size: CoverSize) -> Option<Vec<u8>>;
+    fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)>;
+    fn artists(&self) -> Vec<ArtistEntry>;
+    fn artist_detail(&self, artist_id: i64, full: bool) -> Option<ArtistDetail>;
+}
 
 #[derive(Clone, serde::Serialize)]
 pub struct QueueItem {
@@ -32,12 +88,12 @@ pub struct PlayerState {
     pub cover_id: Option<i64>,
     pub queue_index: Option<usize>,
     pub queue_rev: u64,
-    #[serde(skip)]
-    pub cover: Option<Arc<Vec<u8>>>,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    pub volume: f32,
+    pub volume_locked: bool,
     #[serde(skip)]
     pub queue: Arc<Vec<QueueItem>>,
-    #[serde(skip)]
-    pub queue_covers: Arc<HashMap<i64, Arc<Vec<u8>>>>,
 }
 
 impl PlayerState {
@@ -69,27 +125,7 @@ impl StateHandle {
         });
     }
 
-    pub fn current_cover_id(&self) -> Option<i64> {
-        self.0.borrow().cover_id
-    }
-
-    pub fn current_cover(&self) -> Option<Arc<Vec<u8>>> {
-        self.0.borrow().cover.clone()
-    }
-
-    pub fn current_queue_rev(&self) -> u64 {
-        self.0.borrow().queue_rev
-    }
-
-    pub fn current_queue(&self) -> Arc<Vec<QueueItem>> {
-        self.0.borrow().queue.clone()
-    }
-
-    pub fn current_queue_covers(&self) -> Arc<HashMap<i64, Arc<Vec<u8>>>> {
-        self.0.borrow().queue_covers.clone()
-    }
-
-    pub fn has_listeners(&self) -> bool {
+    pub fn is_serving(&self) -> bool {
         self.0.receiver_count() > 1
     }
 }
@@ -105,8 +141,37 @@ pub enum Command {
     PlayPause,
     Next,
     Prev,
-    Seek { position_ms: u64 },
-    PlayAt { index: usize },
+    Seek {
+        position_ms: u64,
+    },
+    PlayAt {
+        index: usize,
+    },
+    Refresh,
+    SetShuffle {
+        on: bool,
+    },
+    SetRepeat {
+        mode: RepeatMode,
+    },
+    SetVolume {
+        volume: f32,
+    },
+    PlayArtistTrack {
+        artist_id: i64,
+        track_id: i64,
+        full: bool,
+    },
+    QueueArtistTrack {
+        artist_id: i64,
+        track_id: i64,
+        full: bool,
+    },
+    QueueArtistAlbum {
+        artist_id: i64,
+        album_id: Option<i64>,
+        full: bool,
+    },
 }
 
 pub type CommandRx = flume::Receiver<Command>;
@@ -144,7 +209,12 @@ impl Drop for RemoteServer {
 pub type ReadyRx = oneshot::Receiver<Result<(), String>>;
 
 #[must_use]
-pub fn spawn(addr: SocketAddr, rx: StateRx, commands: CommandSink) -> (RemoteServer, ReadyRx) {
+pub fn spawn(
+    addr: SocketAddr,
+    rx: StateRx,
+    commands: CommandSink,
+    library: Arc<dyn LibraryReader>,
+) -> (RemoteServer, ReadyRx) {
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (ready_tx, ready_rx) = oneshot::channel();
     let builder = std::thread::Builder::new().name("pawse-remote".into());
@@ -173,7 +243,7 @@ pub fn spawn(addr: SocketAddr, rx: StateRx, commands: CommandSink) -> (RemoteSer
                 }
             };
             tokio::select! {
-                result = http::serve(listener, rx, commands) => {
+                result = http::serve(listener, rx, commands, library) => {
                     if let Err(err) = result {
                         log::error!("pawse-remote: server error: {err}");
                     }

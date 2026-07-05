@@ -204,8 +204,6 @@ fn main() {
         let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
 
-        crate::services::apply_remote_state(cx);
-
         {
             let (stored, initial_volume) = {
                 let store = cx.global::<crate::settings_store::SettingsStore>();
@@ -228,6 +226,8 @@ fn main() {
                 });
             }
         }
+
+        crate::services::apply_remote_state(cx);
 
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {

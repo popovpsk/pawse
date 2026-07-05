@@ -1,29 +1,34 @@
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, div, px, svg,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
 };
 use gpui_component::tooltip::Tooltip;
 
+use crate::library_service::LibraryEvent;
 use crate::localization::tr;
 use crate::playback_queue::RepeatMode;
 use crate::services::Services;
 use crate::theme_colors::Colors;
 
-pub struct RepeatButton;
+pub struct RepeatButton {
+    _subscription: Subscription,
+}
 
 impl RepeatButton {
-    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
-        Self
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let bus = cx.global::<Services>().library_event_bus.clone();
+        let subscription = cx.subscribe(&bus, |_, _, event: &LibraryEvent, cx| {
+            if matches!(event, LibraryEvent::PlaybackModeChanged) {
+                cx.notify();
+            }
+        });
+        Self {
+            _subscription: subscription,
+        }
     }
 
     fn on_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        {
-            let services = cx.global::<Services>();
-            let mut queue = services.playback_queue.borrow_mut();
-            let next = queue.repeat().cycle();
-            queue.set_repeat(next);
-        }
-        crate::services::save_playback(cx);
+        crate::services::cycle_repeat(cx);
         cx.notify();
     }
 }

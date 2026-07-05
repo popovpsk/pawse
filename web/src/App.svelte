@@ -1,10 +1,21 @@
 <script lang="ts">
   import { fade, fly } from "svelte/transition";
   import { Remote, formatTime, type Status } from "./lib/connection.svelte";
+  import Library from "./lib/Library.svelte";
+  import ArtistBrowser from "./lib/ArtistBrowser.svelte";
+  import VolumeControl from "./lib/VolumeControl.svelte";
 
   const remote = new Remote();
 
   let showQueue = $state(false);
+  let showLibrary = $state(false);
+  let desktopTab = $state<"queue" | "artists">("queue");
+
+  let paneBrowser = $state<ArtistBrowser | null>(null);
+  let paneInDetail = $state(false);
+  let paneName = $state("");
+  let paneHasPartial = $state(false);
+  let paneFull = $state(false);
 
   const dot: Record<Status, string> = {
     open: "bg-emerald-400",
@@ -31,6 +42,7 @@
     const value = Number((e.currentTarget as HTMLInputElement).value);
     remote.endSeek((value / 1000) * remote.durationMs);
   }
+
 </script>
 
 {#snippet queueList()}
@@ -78,27 +90,43 @@
   {/if}
 {/snippet}
 
-<div class="relative flex min-h-[100dvh] flex-col overflow-hidden bg-neutral-950 text-neutral-100 lg:h-[100dvh]">
+<div class="relative isolate flex min-h-[100dvh] flex-col overflow-hidden bg-neutral-950 text-neutral-100 lg:h-[100dvh] lg:flex-row">
   {#if remote.coverUrl}
     <img
       src={remote.coverUrl}
       alt=""
       aria-hidden="true"
-      class="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-3xl saturate-150"
+      class="pointer-events-none absolute inset-0 -z-10 h-full w-full scale-125 object-cover opacity-40 blur-3xl saturate-150"
     />
-    <div class="absolute inset-0 bg-gradient-to-b from-neutral-950/70 via-neutral-950/80 to-neutral-950"></div>
+    <div class="absolute inset-0 -z-10 bg-gradient-to-b from-neutral-950/70 via-neutral-950/80 to-neutral-950"></div>
   {/if}
 
-  <header class="relative z-10 flex items-center justify-between px-5 py-4">
-    <span class="flex items-center gap-2">
-      <img src="/pawse.svg" alt="pawse" class="h-6 w-6 rounded-md" />
-      <span class="text-sm font-semibold tracking-wide text-neutral-300">pawse</span>
-    </span>
-    <span class="flex items-center gap-4">
-      <span class="flex items-center gap-2 text-xs text-neutral-400">
-        <span class={`h-2 w-2 rounded-full ${dot[remote.status]} transition-colors`}></span>
-        <span class="capitalize">{remote.status}</span>
+  <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
+  <header class="relative z-10 flex items-center justify-between gap-2 px-5 py-4">
+    <span class="flex min-w-0 items-center gap-2 sm:gap-3">
+      <img src="/pawse.svg" alt="pawse" class="h-6 w-6 flex-shrink-0 rounded-md" />
+      <span class="hidden text-sm font-semibold tracking-wide text-neutral-300 sm:inline">pawse</span>
+      <span class="flex min-w-0 items-center gap-2 text-xs text-neutral-400">
+        <span class={`h-2 w-2 flex-shrink-0 rounded-full ${dot[remote.status]} transition-colors`}></span>
+        {#if remote.status !== "open"}
+          <span class="truncate capitalize">{remote.status}</span>
+        {/if}
       </span>
+    </span>
+    <span class="flex flex-shrink-0 items-center gap-4 sm:gap-5">
+      <div class="lg:hidden">
+        <VolumeControl {remote} direction="down" />
+      </div>
+      <button
+        class="text-neutral-400 transition active:scale-90 hover:text-white lg:hidden"
+        aria-label="Library"
+        onclick={() => (showLibrary = true)}
+      >
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      </button>
       <button
         class="text-neutral-400 transition active:scale-90 hover:text-white lg:hidden"
         aria-label="Queue"
@@ -112,9 +140,9 @@
     </span>
   </header>
 
-  <div class="relative z-10 flex min-h-0 flex-1 flex-col lg:flex-row">
-  <main class="mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-8 px-6 pb-10 lg:max-w-5xl lg:flex-row lg:gap-12 2xl:max-w-6xl 2xl:gap-16">
-    <div class="aspect-square w-full overflow-hidden rounded-3xl bg-neutral-800/60 shadow-2xl ring-1 ring-white/10 lg:w-80 lg:flex-shrink-0 xl:w-96 2xl:w-[28rem]">
+  <main class="flex min-h-0 flex-1 items-center justify-center px-6 py-10">
+    <div class="flex w-full min-w-0 max-w-sm flex-col items-center gap-8 lg:max-w-4xl lg:flex-row lg:items-center lg:gap-12 xl:max-w-5xl 2xl:gap-16">
+    <div class="aspect-square w-full overflow-hidden rounded-3xl bg-neutral-800/60 shadow-2xl ring-1 ring-white/10 lg:w-80 lg:flex-shrink-0 xl:w-96 2xl:w-[26rem]">
       {#if remote.coverUrl}
         <img src={remote.coverUrl} alt="" class="h-full w-full object-cover" />
       {:else}
@@ -128,8 +156,8 @@
       {/if}
     </div>
 
-    <div class="flex w-full flex-col gap-8 lg:flex-1 lg:gap-10">
-    <div class="w-full text-center lg:text-left">
+    <div class="flex w-full min-w-0 flex-col gap-8 lg:flex-1 lg:gap-10">
+    <div class="w-full min-w-0 text-center lg:text-left">
       <h1 class="truncate text-2xl font-semibold tracking-tight lg:text-3xl">
         {remote.title ?? "Nothing playing"}
       </h1>
@@ -164,7 +192,20 @@
       </div>
     </div>
 
-    <div class="flex items-center justify-center gap-10 lg:justify-start">
+    <div class="flex items-center justify-center gap-5 lg:justify-start lg:gap-6">
+      <button
+        class={`transition active:scale-90 hover:text-white ${remote.shuffle ? "text-emerald-400" : "text-neutral-500"}`}
+        aria-label="Shuffle"
+        onclick={() => remote.toggleShuffle()}
+      >
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 3 21 3 21 8" />
+          <line x1="4" y1="20" x2="21" y2="3" />
+          <polyline points="21 16 21 21 16 21" />
+          <line x1="15" y1="15" x2="21" y2="21" />
+          <line x1="4" y1="4" x2="9" y2="9" />
+        </svg>
+      </button>
       <button
         class="text-neutral-300 transition active:scale-90 enabled:hover:text-white disabled:opacity-30"
         aria-label="Previous"
@@ -203,19 +244,91 @@
           <path d="M16 5h2v14h-2zM4 5l11 7-11 7z" />
         </svg>
       </button>
+      <button
+        class={`transition active:scale-90 hover:text-white ${remote.repeat !== "off" ? "text-emerald-400" : "text-neutral-500"}`}
+        aria-label="Repeat"
+        onclick={() => remote.cycleRepeat()}
+      >
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="17 1 21 5 17 9" />
+          <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+          <polyline points="7 23 3 19 7 15" />
+          <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+          {#if remote.repeat === "one"}
+            <text x="12" y="15" text-anchor="middle" font-size="8" font-weight="bold" fill="currentColor" stroke="none">1</text>
+          {/if}
+        </svg>
+      </button>
+      <div class="hidden lg:ml-auto lg:block">
+        <VolumeControl {remote} direction="up" />
+      </div>
+    </div>
     </div>
     </div>
   </main>
+  </div>
 
   <aside class="hidden min-h-0 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl lg:flex lg:w-80 xl:w-96">
-    <div class="flex items-center px-5 py-4">
-      <h2 class="text-sm font-semibold tracking-wide text-neutral-300">Queue</h2>
+    <div class="flex items-center gap-1 px-3 py-3">
+      <button
+        class={`rounded-full px-3 py-1.5 text-sm font-semibold tracking-wide transition ${
+          desktopTab === "queue" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+        }`}
+        onclick={() => (desktopTab = "queue")}
+      >
+        Queue
+      </button>
+      <button
+        class={`rounded-full px-3 py-1.5 text-sm font-semibold tracking-wide transition ${
+          desktopTab === "artists" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+        }`}
+        onclick={() => (desktopTab = "artists")}
+      >
+        Artists
+      </button>
     </div>
-    <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+    <div class={`min-h-0 flex-1 overflow-y-auto px-2 pb-4 ${desktopTab === "queue" ? "" : "hidden"}`}>
       {@render queueList()}
     </div>
+    <div class={`min-h-0 flex-1 flex-col ${desktopTab === "artists" ? "flex" : "hidden"}`}>
+      {#if paneInDetail}
+        <div class="flex items-center gap-2 border-y border-white/10 px-2 py-2">
+          <button
+            class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-neutral-300 transition active:scale-90 hover:bg-white/10"
+            aria-label="Back to artists"
+            onclick={() => paneBrowser?.goBack()}
+          >
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <span class="min-w-0 flex-1 truncate text-sm font-semibold">{paneName}</span>
+          {#if paneHasPartial}
+            <button
+              class={`flex h-8 flex-shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition active:scale-95 ${
+                paneFull ? "bg-emerald-400 text-neutral-950" : "bg-white/10 text-neutral-300"
+              }`}
+              onclick={() => paneBrowser?.toggleFull()}
+            >
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              Full
+            </button>
+          {/if}
+        </div>
+      {/if}
+      <ArtistBrowser
+        bind:this={paneBrowser}
+        {remote}
+        bind:inDetail={paneInDetail}
+        bind:detailName={paneName}
+        bind:detailHasPartial={paneHasPartial}
+        bind:detailFull={paneFull}
+      />
+    </div>
   </aside>
-  </div>
 
   {#if showQueue}
     <button
@@ -245,5 +358,9 @@
         {@render queueList()}
       </div>
     </section>
+  {/if}
+
+  {#if showLibrary}
+    <Library {remote} onclose={() => (showLibrary = false)} />
   {/if}
 </div>

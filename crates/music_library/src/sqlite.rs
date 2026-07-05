@@ -803,6 +803,18 @@ impl LibraryRepository for SqliteLibrary {
         Ok(result.and_then(|(path, embedded)| path.map(|p| (p, embedded))))
     }
 
+    fn get_track_path_for_cover(&self, id: i64) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn
+            .query_row(
+                "SELECT path FROM tracks WHERE cover_art_id = ?1 LIMIT 1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(result)
+    }
+
     fn album_has_artists(&self, album_id: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let exists: bool = conn.query_row(
@@ -851,6 +863,15 @@ impl LibraryRepository for SqliteLibrary {
             });
         }
         Ok(artists)
+    }
+
+    fn artist_name(&self, id: i64) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT name FROM artists WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(LibraryError::Database)
     }
 
     fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>> {

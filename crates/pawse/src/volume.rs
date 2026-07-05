@@ -1,4 +1,3 @@
-use audio_output::AudioOutput;
 use gpui::{
     AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     Render, StatefulInteractiveElement, Styled, Window, div, px, svg,
@@ -85,15 +84,25 @@ impl Volume {
                 let volume = *value;
                 this.volume = volume;
                 this.is_muted = volume <= 0.0;
-                cx.global::<Services>().output.set_volume(volume);
-                if let Err(e) = cx
-                    .global_mut::<crate::settings_store::SettingsStore>()
-                    .set_volume(volume)
-                {
-                    crate::settings_store::notify_save_error(cx, e);
-                }
+                crate::services::set_volume(cx, volume);
                 cx.notify();
             }
+        })
+        .detach();
+
+        cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
+            let volume = cx.global::<SettingsStore>().volume();
+            if volume == this.volume {
+                return;
+            }
+            this.volume = volume;
+            this.is_muted = volume <= 0.0;
+            if volume > 0.0 {
+                this.volume_before_mute = volume;
+            }
+            this.slider
+                .update(cx, |slider, cx| slider.set_value_silent(volume, cx));
+            cx.notify();
         })
         .detach();
 
@@ -132,15 +141,9 @@ impl Volume {
             0.0
         };
 
-        cx.global::<Services>().output.set_volume(new_volume);
         self.slider
             .update(cx, |slider, cx| slider.set_value_silent(new_volume, cx));
-        if let Err(e) = cx
-            .global_mut::<crate::settings_store::SettingsStore>()
-            .set_volume(new_volume)
-        {
-            crate::settings_store::notify_save_error(cx, e);
-        }
+        crate::services::set_volume(cx, new_volume);
         cx.notify();
     }
 
@@ -158,12 +161,9 @@ impl Volume {
         if new > 0.0 {
             self.volume_before_mute = new;
         }
-        cx.global::<Services>().output.set_volume(new);
         self.slider
             .update(cx, |slider, cx| slider.set_value_silent(new, cx));
-        if let Err(e) = cx.global_mut::<SettingsStore>().set_volume(new) {
-            crate::settings_store::notify_save_error(cx, e);
-        }
+        crate::services::set_volume(cx, new);
         cx.notify();
     }
 

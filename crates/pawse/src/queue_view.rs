@@ -458,7 +458,7 @@ fn queue_visible_range_row(
                         RemoveOutcome::Unaffected => {}
                     }
                     this.refresh_tracks(cx);
-                    crate::services::save_playback(cx);
+                    crate::services::queue_mutated(cx);
                 }))
                 .child(
                     gpui::svg()
@@ -510,7 +510,7 @@ fn queue_visible_range_row(
                 .borrow_mut()
                 .move_track(drag.from_ix, track_ix);
             this.refresh_tracks(cx);
-            crate::services::save_playback(cx);
+            crate::services::queue_mutated(cx);
         }))
 }
 

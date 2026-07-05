@@ -207,6 +207,7 @@ impl Render for AudioSettings {
                                         }
                                     }
                                 }
+                                crate::services::publish_remote_state(cx);
                                 cx.notify();
                             });
                         })
