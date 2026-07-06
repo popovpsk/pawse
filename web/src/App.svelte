@@ -3,19 +3,25 @@
   import { Remote, formatTime, type Status } from "./lib/connection.svelte";
   import Library from "./lib/Library.svelte";
   import ArtistBrowser from "./lib/ArtistBrowser.svelte";
+  import PlaylistBrowser from "./lib/PlaylistBrowser.svelte";
+  import LikedBrowser from "./lib/LikedBrowser.svelte";
   import VolumeControl from "./lib/VolumeControl.svelte";
 
   const remote = new Remote();
 
   let showQueue = $state(false);
   let showLibrary = $state(false);
-  let desktopTab = $state<"queue" | "artists">("queue");
+  let desktopTab = $state<"queue" | "artists" | "playlists" | "liked">("queue");
 
   let paneBrowser = $state<ArtistBrowser | null>(null);
   let paneInDetail = $state(false);
   let paneName = $state("");
   let paneHasPartial = $state(false);
   let paneFull = $state(false);
+
+  let plBrowser = $state<PlaylistBrowser | null>(null);
+  let plInDetail = $state(false);
+  let plName = $state("");
 
   const dot: Record<Status, string> = {
     open: "bg-emerald-400",
@@ -137,9 +143,10 @@
         aria-label="Library"
         onclick={() => (showLibrary = true)}
       >
-        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="4" width="14" height="14" rx="2" />
+          <path d="M7 21h13a1.7 1.7 0 0 0 1.7-1.7V7" />
+          <circle cx="11" cy="11" r="1.6" fill="currentColor" stroke="none" />
         </svg>
       </button>
       <button
@@ -286,7 +293,7 @@
   <aside class="hidden min-h-0 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl lg:flex lg:w-80 xl:w-96">
     <div class="flex items-center gap-1 px-3 py-3">
       <button
-        class={`rounded-full px-3 py-1.5 text-sm font-semibold tracking-wide transition ${
+        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
           desktopTab === "queue" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
         }`}
         onclick={() => (desktopTab = "queue")}
@@ -294,12 +301,28 @@
         Queue
       </button>
       <button
-        class={`rounded-full px-3 py-1.5 text-sm font-semibold tracking-wide transition ${
+        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
           desktopTab === "artists" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
         }`}
         onclick={() => (desktopTab = "artists")}
       >
         Artists
+      </button>
+      <button
+        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
+          desktopTab === "playlists" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+        }`}
+        onclick={() => (desktopTab = "playlists")}
+      >
+        Playlists
+      </button>
+      <button
+        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
+          desktopTab === "liked" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+        }`}
+        onclick={() => (desktopTab = "liked")}
+      >
+        Liked
       </button>
     </div>
     <div class={`min-h-0 flex-1 overflow-y-auto px-2 pb-4 ${desktopTab === "queue" ? "" : "hidden"}`}>
@@ -342,6 +365,31 @@
         bind:detailHasPartial={paneHasPartial}
         bind:detailFull={paneFull}
       />
+    </div>
+    <div class={`min-h-0 flex-1 flex-col ${desktopTab === "playlists" ? "flex" : "hidden"}`}>
+      {#if plInDetail}
+        <div class="flex items-center gap-2 border-y border-white/10 px-2 py-2">
+          <button
+            class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-neutral-300 transition active:scale-90 hover:bg-white/10"
+            aria-label="Back to playlists"
+            onclick={() => plBrowser?.goBack()}
+          >
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <span class="min-w-0 flex-1 truncate text-sm font-semibold">{plName}</span>
+        </div>
+      {/if}
+      <PlaylistBrowser
+        bind:this={plBrowser}
+        {remote}
+        bind:inDetail={plInDetail}
+        bind:detailName={plName}
+      />
+    </div>
+    <div class={`min-h-0 flex-1 flex-col ${desktopTab === "liked" ? "flex" : "hidden"}`}>
+      <LikedBrowser {remote} />
     </div>
   </aside>
 

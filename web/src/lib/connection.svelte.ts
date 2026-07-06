@@ -12,6 +12,7 @@ export type PlayerState = {
   cover_id: number | null;
   queue_index: number | null;
   queue_rev: number;
+  library_rev: number;
   shuffle: boolean;
   repeat: RepeatMode;
   volume: number;
@@ -56,6 +57,26 @@ export type ArtistDetail = {
   albums: ArtistAlbum[];
 };
 
+export type PlaylistEntry = {
+  id: number;
+  name: string;
+  track_count: number;
+};
+
+export type PlaylistTrack = {
+  id: number;
+  title: string;
+  artist: string | null;
+  cover_id: number | null;
+  duration_ms: number;
+};
+
+export type PlaylistDetail = {
+  id: number;
+  name: string;
+  tracks: PlaylistTrack[];
+};
+
 export type Status = "connecting" | "open" | "reconnecting";
 
 type Cmd =
@@ -70,7 +91,13 @@ type Cmd =
   | { cmd: "set_volume"; volume: number }
   | { cmd: "play_artist_track"; artist_id: number; track_id: number; full: boolean }
   | { cmd: "queue_artist_track"; artist_id: number; track_id: number; full: boolean }
-  | { cmd: "queue_artist_album"; artist_id: number; album_id: number | null; full: boolean };
+  | { cmd: "queue_artist_album"; artist_id: number; album_id: number | null; full: boolean }
+  | { cmd: "play_playlist_track"; playlist_id: number; track_id: number }
+  | { cmd: "queue_playlist_track"; playlist_id: number; track_id: number }
+  | { cmd: "queue_playlist"; playlist_id: number }
+  | { cmd: "play_liked_track"; track_id: number }
+  | { cmd: "queue_liked_track"; track_id: number }
+  | { cmd: "queue_liked" };
 
 export class Remote {
   status = $state<Status>("connecting");
@@ -84,6 +111,7 @@ export class Remote {
   coverId = $state<number | null>(null);
   queueIndex = $state<number | null>(null);
   queue = $state<QueueItem[]>([]);
+  libraryRev = $state(0);
   shuffle = $state(false);
   repeat = $state<RepeatMode>("off");
   volume = $state(1);
@@ -168,6 +196,7 @@ export class Remote {
     this.durationMs = state.duration_ms;
     this.coverId = state.cover_id;
     this.queueIndex = state.queue_index;
+    this.libraryRev = state.library_rev;
     this.shuffle = state.shuffle;
     this.repeat = state.repeat;
     this.volumeLocked = state.volume_locked;
@@ -326,6 +355,30 @@ export class Remote {
 
   queueArtistAlbum(artistId: number, albumId: number | null, full: boolean) {
     this.#send({ cmd: "queue_artist_album", artist_id: artistId, album_id: albumId, full });
+  }
+
+  playPlaylistTrack(playlistId: number, trackId: number) {
+    this.#send({ cmd: "play_playlist_track", playlist_id: playlistId, track_id: trackId });
+  }
+
+  queuePlaylistTrack(playlistId: number, trackId: number) {
+    this.#send({ cmd: "queue_playlist_track", playlist_id: playlistId, track_id: trackId });
+  }
+
+  queuePlaylist(playlistId: number) {
+    this.#send({ cmd: "queue_playlist", playlist_id: playlistId });
+  }
+
+  playLikedTrack(trackId: number) {
+    this.#send({ cmd: "play_liked_track", track_id: trackId });
+  }
+
+  queueLikedTrack(trackId: number) {
+    this.#send({ cmd: "queue_liked_track", track_id: trackId });
+  }
+
+  queueLiked() {
+    this.#send({ cmd: "queue_liked" });
   }
 
   #send(cmd: Cmd) {

@@ -78,8 +78,7 @@ impl pawse_remote::LibraryReader for LibraryAccess {
     fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)> {
         let source = self.repo.get_cover_art_source(id).ok().flatten();
         let track_path = self.repo.get_track_path_for_cover(id).ok().flatten();
-        let bytes =
-            music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
+        let bytes = music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
         Some(transcode_web_cover(bytes))
     }
 
@@ -124,6 +123,61 @@ impl pawse_remote::LibraryReader for LibraryAccess {
             albums: group_artist_albums(&*self.repo, &tracks, &partial),
         })
     }
+
+    fn playlists(&self) -> Vec<pawse_remote::PlaylistEntry> {
+        self.repo
+            .playlists()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| pawse_remote::PlaylistEntry {
+                id: p.id,
+                name: p.name,
+                track_count: p.track_count,
+            })
+            .collect()
+    }
+
+    fn playlist_detail(&self, playlist_id: i64) -> Option<pawse_remote::PlaylistDetail> {
+        let name = self
+            .repo
+            .playlists()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|p| p.id == playlist_id)?
+            .name;
+        let tracks = self
+            .repo
+            .tracks_for_playlist(playlist_id)
+            .unwrap_or_default();
+        Some(pawse_remote::PlaylistDetail {
+            id: playlist_id,
+            name,
+            tracks: to_playlist_tracks(&*self.repo, tracks),
+        })
+    }
+
+    fn liked(&self) -> Vec<pawse_remote::PlaylistTrack> {
+        let tracks = self.repo.liked_tracks().unwrap_or_default();
+        to_playlist_tracks(&*self.repo, tracks)
+    }
+}
+
+fn to_playlist_tracks(
+    repo: &dyn LibraryRepository,
+    tracks: Vec<music_library::Track>,
+) -> Vec<pawse_remote::PlaylistTrack> {
+    let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+    let artists = repo.track_artists_map(&ids).unwrap_or_default();
+    tracks
+        .into_iter()
+        .map(|t| pawse_remote::PlaylistTrack {
+            id: t.id,
+            title: t.title,
+            artist: artists.get(&t.id).and_then(|a| a.first().cloned()),
+            cover_id: t.cover_art_id,
+            duration_ms: t.duration_ms.unwrap_or(0).max(0) as u64,
+        })
+        .collect()
 }
 
 fn artist_partial_albums(
@@ -880,17 +934,22 @@ fn transcode_web_cover(bytes: Vec<u8>) -> (Vec<u8>, String) {
         .ok()
         .and_then(|r| r.into_dimensions().ok());
 
-    if let Some((w, h)) = dims {
-        if w <= WEB_COVER_MAX && h <= WEB_COVER_MAX {
-            return (bytes, original_type);
-        }
+    if let Some((w, h)) = dims
+        && w <= WEB_COVER_MAX
+        && h <= WEB_COVER_MAX
+    {
+        return (bytes, original_type);
     }
 
     let Ok(img) = image::load_from_memory(&bytes) else {
         return (bytes, original_type);
     };
     let rgb = img
-        .resize(WEB_COVER_MAX, WEB_COVER_MAX, image::imageops::FilterType::Lanczos3)
+        .resize(
+            WEB_COVER_MAX,
+            WEB_COVER_MAX,
+            image::imageops::FilterType::Lanczos3,
+        )
         .into_rgb8();
     let mut out = std::io::Cursor::new(Vec::new());
     let ok = {

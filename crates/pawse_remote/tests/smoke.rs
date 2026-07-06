@@ -55,6 +55,41 @@ impl pawse_remote::LibraryReader for TestLibrary {
             }],
         })
     }
+
+    fn playlists(&self) -> Vec<pawse_remote::PlaylistEntry> {
+        vec![pawse_remote::PlaylistEntry {
+            id: 5,
+            name: "Smoke Playlist".into(),
+            track_count: 1,
+        }]
+    }
+
+    fn playlist_detail(&self, playlist_id: i64) -> Option<pawse_remote::PlaylistDetail> {
+        if playlist_id != 5 {
+            return None;
+        }
+        Some(pawse_remote::PlaylistDetail {
+            id: 5,
+            name: "Smoke Playlist".into(),
+            tracks: vec![pawse_remote::PlaylistTrack {
+                id: 11,
+                title: "Smoke Track".into(),
+                artist: Some("Smoke Artist".into()),
+                cover_id: Some(7),
+                duration_ms: 1000,
+            }],
+        })
+    }
+
+    fn liked(&self) -> Vec<pawse_remote::PlaylistTrack> {
+        vec![pawse_remote::PlaylistTrack {
+            id: 11,
+            title: "Smoke Track".into(),
+            artist: Some("Smoke Artist".into()),
+            cover_id: Some(7),
+            duration_ms: 1000,
+        }]
+    }
 }
 
 #[test]
@@ -97,6 +132,20 @@ fn serves_state_snapshot() {
     let artist_full = try_get(addr, "/api/artist?id=1&full=1").expect("artist endpoint");
     assert!(artist_full.contains("Full Album"), "artist: {artist_full}");
     assert!(try_get(addr, "/api/artist?id=2").is_none());
+
+    let playlists = try_get(addr, "/api/playlists").expect("playlists endpoint");
+    assert!(
+        playlists.contains("Smoke Playlist"),
+        "playlists: {playlists}"
+    );
+
+    let playlist = try_get(addr, "/api/playlist?id=5").expect("playlist endpoint");
+    assert!(playlist.contains("Smoke Playlist"), "playlist: {playlist}");
+    assert!(playlist.contains("Smoke Track"), "playlist: {playlist}");
+    assert!(try_get(addr, "/api/playlist?id=6").is_none());
+
+    let liked = try_get(addr, "/api/liked").expect("liked endpoint");
+    assert!(liked.contains("Smoke Track"), "liked: {liked}");
 }
 
 fn wait_for_state(addr: SocketAddr) -> String {

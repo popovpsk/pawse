@@ -40,6 +40,7 @@ pub struct Services {
     pub remote_command_tx: pawse_remote::CommandSink,
     pub remote_server: Rc<RefCell<Option<pawse_remote::RemoteServer>>>,
     remote_queue_cache: Rc<RefCell<RemoteQueueCache>>,
+    library_rev: Arc<AtomicU64>,
 }
 
 type RemoteQueueCache = Option<(u64, Arc<Vec<pawse_remote::QueueItem>>)>;
@@ -79,12 +80,17 @@ impl Services {
                                 .borrow_mut()
                                 .set_track_liked(*track_id, *liked);
                         }
-                        let queue_touched = matches!(
+                        let library_changed = matches!(
                             &event,
-                            LibraryEvent::PlaylistTracksChanged { .. }
+                            LibraryEvent::TrackLikedChanged { .. }
+                                | LibraryEvent::PlaylistsChanged
+                                | LibraryEvent::PlaylistTracksChanged { .. }
                                 | LibraryEvent::ScanComplete { changed: true }
                         );
-                        if queue_touched {
+                        if library_changed {
+                            cx.global::<Services>()
+                                .library_rev
+                                .fetch_add(1, Ordering::Relaxed);
                             publish_remote_state(cx);
                         }
                         notify_scan_event(&event, cx);
@@ -153,6 +159,7 @@ impl Services {
             remote_command_tx,
             remote_server: Rc::new(RefCell::new(None)),
             remote_queue_cache: Rc::new(RefCell::new(None)),
+            library_rev: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -455,10 +462,7 @@ pub fn play_queue_index(cx: &mut App, index: usize) {
 
 fn remove_queue_index(cx: &mut App, index: usize) {
     let services = cx.global::<Services>();
-    let outcome = services
-        .playback_queue
-        .borrow_mut()
-        .remove_track_at(index);
+    let outcome = services.playback_queue.borrow_mut().remove_track_at(index);
     match outcome {
         crate::playback_queue::RemoveOutcome::PlayNext(next) => {
             if services.is_playing.load(Ordering::Relaxed) {
@@ -505,6 +509,18 @@ fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
             album_id,
             full,
         } => queue_artist_album(cx, artist_id, album_id, full),
+        pawse_remote::Command::PlayPlaylistTrack {
+            playlist_id,
+            track_id,
+        } => play_playlist_track(cx, playlist_id, track_id),
+        pawse_remote::Command::QueuePlaylistTrack {
+            playlist_id,
+            track_id,
+        } => queue_playlist_track(cx, playlist_id, track_id),
+        pawse_remote::Command::QueuePlaylist { playlist_id } => queue_playlist(cx, playlist_id),
+        pawse_remote::Command::PlayLikedTrack { track_id } => play_liked_track(cx, track_id),
+        pawse_remote::Command::QueueLikedTrack { track_id } => queue_liked_track(cx, track_id),
+        pawse_remote::Command::QueueLiked => queue_liked(cx),
     }
 }
 
@@ -544,6 +560,83 @@ fn queue_artist_album(cx: &mut App, artist_id: i64, album_id: Option<i64>, full:
         .artist_display_tracks(artist_id, full)
         .into_iter()
         .filter(|t| t.album_id == album_id)
+        .map(Rc::new)
+        .collect();
+    crate::track_list::append_tracks_to_queue(tracks, cx);
+}
+
+fn play_playlist_track(cx: &mut App, playlist_id: i64, track_id: i64) {
+    let tracks = cx
+        .global::<Services>()
+        .library
+        .tracks_for_playlist(playlist_id);
+    let Some(index) = tracks.iter().position(|t| t.id == track_id) else {
+        return;
+    };
+    let tracks: Vec<Rc<Track>> = tracks.into_iter().map(Rc::new).collect();
+    crate::track_list::replace_queue_and_play(
+        tracks,
+        index,
+        crate::playback_queue::QueueSource::Playlist(playlist_id),
+        cx,
+    );
+}
+
+fn queue_playlist_track(cx: &mut App, playlist_id: i64, track_id: i64) {
+    let track = cx
+        .global::<Services>()
+        .library
+        .tracks_for_playlist(playlist_id)
+        .into_iter()
+        .find(|t| t.id == track_id);
+    if let Some(track) = track {
+        crate::track_list::append_tracks_to_queue(vec![Rc::new(track)], cx);
+    }
+}
+
+fn queue_playlist(cx: &mut App, playlist_id: i64) {
+    let tracks: Vec<Rc<Track>> = cx
+        .global::<Services>()
+        .library
+        .tracks_for_playlist(playlist_id)
+        .into_iter()
+        .map(Rc::new)
+        .collect();
+    crate::track_list::append_tracks_to_queue(tracks, cx);
+}
+
+fn play_liked_track(cx: &mut App, track_id: i64) {
+    let tracks = cx.global::<Services>().library.liked_tracks();
+    let Some(index) = tracks.iter().position(|t| t.id == track_id) else {
+        return;
+    };
+    let tracks: Vec<Rc<Track>> = tracks.into_iter().map(Rc::new).collect();
+    crate::track_list::replace_queue_and_play(
+        tracks,
+        index,
+        crate::playback_queue::QueueSource::Unknown,
+        cx,
+    );
+}
+
+fn queue_liked_track(cx: &mut App, track_id: i64) {
+    let track = cx
+        .global::<Services>()
+        .library
+        .liked_tracks()
+        .into_iter()
+        .find(|t| t.id == track_id);
+    if let Some(track) = track {
+        crate::track_list::append_tracks_to_queue(vec![Rc::new(track)], cx);
+    }
+}
+
+fn queue_liked(cx: &mut App) {
+    let tracks: Vec<Rc<Track>> = cx
+        .global::<Services>()
+        .library
+        .liked_tracks()
+        .into_iter()
         .map(Rc::new)
         .collect();
     crate::track_list::append_tracks_to_queue(tracks, cx);
@@ -749,9 +842,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         )
     });
     drop(queue);
-    let volume = cx
-        .global::<crate::settings_store::SettingsStore>()
-        .volume();
+    let volume = cx.global::<crate::settings_store::SettingsStore>().volume();
     let volume_locked = services.output.is_exclusive();
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -761,6 +852,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         t.title.hash(&mut hasher);
     }
     let queue_rev = hasher.finish();
+    let library_rev = services.library_rev.load(Ordering::Relaxed);
 
     let cached = services
         .remote_queue_cache
@@ -790,6 +882,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         return pawse_remote::PlayerState {
             queue_index,
             queue_rev,
+            library_rev,
             shuffle,
             repeat,
             volume,
@@ -814,6 +907,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         cover_id,
         queue_index,
         queue_rev,
+        library_rev,
         shuffle,
         repeat,
         volume,

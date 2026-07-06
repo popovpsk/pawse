@@ -60,11 +60,37 @@ pub struct ArtistDetail {
     pub albums: Vec<ArtistAlbum>,
 }
 
+#[derive(Clone, serde::Serialize)]
+pub struct PlaylistEntry {
+    pub id: i64,
+    pub name: String,
+    pub track_count: i64,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct PlaylistTrack {
+    pub id: i64,
+    pub title: String,
+    pub artist: Option<String>,
+    pub cover_id: Option<i64>,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct PlaylistDetail {
+    pub id: i64,
+    pub name: String,
+    pub tracks: Vec<PlaylistTrack>,
+}
+
 pub trait LibraryReader: Send + Sync + 'static {
     fn cover(&self, id: i64, size: CoverSize) -> Option<Vec<u8>>;
     fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)>;
     fn artists(&self) -> Vec<ArtistEntry>;
     fn artist_detail(&self, artist_id: i64, full: bool) -> Option<ArtistDetail>;
+    fn playlists(&self) -> Vec<PlaylistEntry>;
+    fn playlist_detail(&self, playlist_id: i64) -> Option<PlaylistDetail>;
+    fn liked(&self) -> Vec<PlaylistTrack>;
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -88,6 +114,7 @@ pub struct PlayerState {
     pub cover_id: Option<i64>,
     pub queue_index: Option<usize>,
     pub queue_rev: u64,
+    pub library_rev: u64,
     pub shuffle: bool,
     pub repeat: RepeatMode,
     pub volume: f32,
@@ -175,6 +202,24 @@ pub enum Command {
         album_id: Option<i64>,
         full: bool,
     },
+    PlayPlaylistTrack {
+        playlist_id: i64,
+        track_id: i64,
+    },
+    QueuePlaylistTrack {
+        playlist_id: i64,
+        track_id: i64,
+    },
+    QueuePlaylist {
+        playlist_id: i64,
+    },
+    PlayLikedTrack {
+        track_id: i64,
+    },
+    QueueLikedTrack {
+        track_id: i64,
+    },
+    QueueLiked,
 }
 
 pub type CommandRx = flume::Receiver<Command>;

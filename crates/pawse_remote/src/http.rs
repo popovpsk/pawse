@@ -47,6 +47,9 @@ fn build_router(state: AppState) -> Router {
         .route("/api/cover", get(cover_handler))
         .route("/api/artists", get(artists_handler))
         .route("/api/artist", get(artist_handler))
+        .route("/api/playlists", get(playlists_handler))
+        .route("/api/playlist", get(playlist_handler))
+        .route("/api/liked", get(liked_handler))
         .route("/api/command", post(command_handler))
         .route("/ws", get(ws_handler));
 
@@ -123,6 +126,29 @@ async fn artist_handler(
         Some(detail) => Json(detail).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+async fn playlists_handler(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.library.playlists())
+}
+
+#[derive(serde::Deserialize)]
+struct PlaylistQuery {
+    id: i64,
+}
+
+async fn playlist_handler(
+    State(state): State<AppState>,
+    Query(query): Query<PlaylistQuery>,
+) -> Response {
+    match state.library.playlist_detail(query.id) {
+        Some(detail) => Json(detail).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn liked_handler(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.library.liked())
 }
 
 async fn command_handler(
