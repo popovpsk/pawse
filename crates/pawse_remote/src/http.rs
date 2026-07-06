@@ -77,10 +77,7 @@ async fn cover_handler(State(state): State<AppState>, Query(query): Query<CoverQ
             Some((bytes, content_type)) => (
                 [
                     (header::CONTENT_TYPE, content_type),
-                    (
-                        header::CACHE_CONTROL,
-                        "private, max-age=31536000, immutable".to_string(),
-                    ),
+                    (header::CACHE_CONTROL, "no-store".to_string()),
                 ],
                 bytes,
             )
@@ -96,7 +93,7 @@ async fn cover_handler(State(state): State<AppState>, Query(query): Query<CoverQ
         Some(bytes) => (
             [
                 (header::CONTENT_TYPE, "image/jpeg"),
-                (header::CACHE_CONTROL, "private, max-age=31536000, immutable"),
+                (header::CACHE_CONTROL, "no-store"),
             ],
             bytes,
         )
