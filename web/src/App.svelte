@@ -11,6 +11,7 @@
 
   let showQueue = $state(false);
   let showLibrary = $state(false);
+  let showPanel = $state(true);
   let desktopTab = $state<"queue" | "artists" | "playlists" | "liked">("queue");
 
   let paneBrowser = $state<ArtistBrowser | null>(null);
@@ -159,6 +160,19 @@
           <path d="M17 14v6l4-3z" fill="currentColor" stroke="none" />
         </svg>
       </button>
+      <button
+        class={`hidden transition active:scale-90 hover:text-white lg:block ${showPanel ? "text-white" : "text-neutral-500"}`}
+        aria-label={showPanel ? "Hide panel" : "Show panel"}
+        onclick={() => (showPanel = !showPanel)}
+      >
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <line x1="15" y1="4" x2="15" y2="20" />
+          {#if showPanel}
+            <path d="M15 5.5h3.5A1.5 1.5 0 0 1 20 7v10a1.5 1.5 0 0 1-1.5 1.5H15z" fill="currentColor" stroke="none" />
+          {/if}
+        </svg>
+      </button>
     </span>
   </header>
 
@@ -290,7 +304,12 @@
   </main>
   </div>
 
-  <aside class="hidden min-h-0 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl lg:flex lg:w-80 xl:w-96">
+  <div
+    class={`hidden flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-out lg:block ${
+      showPanel ? "lg:w-80 xl:w-96" : "lg:w-0"
+    }`}
+  >
+  <aside class="flex h-full min-h-0 w-80 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl xl:w-96">
     <div class="flex items-center gap-1 px-3 py-3">
       <button
         class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
@@ -392,6 +411,7 @@
       <LikedBrowser {remote} />
     </div>
   </aside>
+  </div>
 
   {#if showQueue}
     <button
