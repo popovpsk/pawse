@@ -14,12 +14,12 @@ macOS · Windows · Linux
 
 <table>
   <tr>
-    <td width="50%"><img alt="Artists" src=".docs/screenshots/artists.jpg"></td>
-    <td width="50%"><img alt="Album" src=".docs/screenshots/album.jpg"></td>
+    <td width="50%"><img alt="Artists" src=".docs/screenshots/artists.webp"></td>
+    <td width="50%"><img alt="Album" src=".docs/screenshots/album.webp"></td>
   </tr>
   <tr>
-    <td width="50%"><img alt="Cover view" src=".docs/screenshots/cover_view.jpg"></td>
-    <td width="50%"><img alt="Settings" src=".docs/screenshots/settings.jpg"></td>
+    <td width="50%"><img alt="Cover view" src=".docs/screenshots/cover_view.webp"></td>
+    <td width="50%"><img alt="Settings" src=".docs/screenshots/settings.webp"></td>
   </tr>
 </table>
 
@@ -28,7 +28,7 @@ macOS · Windows · Linux
     <td colspan="2" align="center"><b>Remote control</b> — desktop &amp; mobile</td>
   </tr>
   <tr>
-    <td align="center"><img alt="Remote control on desktop" src=".docs/screenshots/remote-desktop.jpg" height="360"></td>
+    <td align="center"><img alt="Remote control on desktop" src=".docs/screenshots/remote-desktop.webp" height="360"></td>
     <td align="center"><img alt="Remote control on mobile" src=".docs/screenshots/remote-mobile.jpg" height="360"></td>
   </tr>
 </table>
