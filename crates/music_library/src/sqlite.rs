@@ -902,6 +902,17 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn track(&self, id: i64) -> Result<Option<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!("SELECT {TRACK_COLUMNS} FROM tracks WHERE id = ?1");
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let mut rows = stmt.query_map([id], map_track_row)?;
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(LibraryError::Database)?)),
+            None => Ok(None),
+        }
+    }
+
     fn liked_tracks(&self) -> Result<Vec<Track>> {
         self.tracks_for_playlist(self.liked_playlist_id)
     }

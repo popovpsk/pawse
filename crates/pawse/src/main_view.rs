@@ -35,7 +35,7 @@ use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::settings_store::SettingsStore;
-use crate::settings_view::{LangPickerState, ThemePickerState};
+use crate::settings_view::{LangPickerState, LastfmUiState, ThemePickerState};
 use crate::theme_colors::Colors;
 use ui_components::settings::SettingPage;
 
@@ -107,6 +107,8 @@ pub struct MainView {
     _remote_port_subscription: Subscription,
     _theme_picker: Entity<ThemePickerState>,
     _lang_picker: Entity<LangPickerState>,
+    _lastfm_ui: Entity<LastfmUiState>,
+    _lastfm_ui_observe: Subscription,
     #[cfg(not(target_os = "macos"))]
     _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
@@ -249,11 +251,15 @@ impl MainView {
             },
         );
 
+        let lastfm_ui: Entity<LastfmUiState> = cx.new(|_| LastfmUiState::new());
+        let lastfm_ui_observe = cx.observe(&lastfm_ui, |_, _, cx| cx.notify());
+
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let remote_port_input = remote_port_input.clone();
+            let lastfm_ui = lastfm_ui.clone();
             move |this, cx| {
                 theme_picker.update(cx, |state, cx| {
                     state.options = ThemePickerState::build_options(&*cx);
@@ -264,6 +270,7 @@ impl MainView {
                     lang_picker.clone(),
                     lyrics_slider.clone(),
                     remote_port_input.clone(),
+                    lastfm_ui.clone(),
                 );
                 cx.notify();
             }
@@ -282,6 +289,7 @@ impl MainView {
             lang_picker.clone(),
             lyrics_slider.clone(),
             remote_port_input.clone(),
+            lastfm_ui.clone(),
         );
 
         let footer = cx.new(|cx| Footer::new(window, cx));
@@ -368,12 +376,14 @@ impl MainView {
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let remote_port_input = remote_port_input.clone();
+            let lastfm_ui = lastfm_ui.clone();
             move |this, cx| {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),
                     lyrics_slider.clone(),
                     remote_port_input.clone(),
+                    lastfm_ui.clone(),
                 );
                 cx.notify();
             }
@@ -448,6 +458,8 @@ impl MainView {
             _remote_port_subscription: remote_port_subscription,
             _theme_picker: theme_picker,
             _lang_picker: lang_picker,
+            _lastfm_ui: lastfm_ui,
+            _lastfm_ui_observe: lastfm_ui_observe,
             #[cfg(not(target_os = "macos"))]
             _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,

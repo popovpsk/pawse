@@ -289,6 +289,10 @@ pub struct UserSettings {
     pub remote_enabled: bool,
     #[serde(default = "default_remote_port")]
     pub remote_port: u16,
+    #[serde(default = "default_true")]
+    pub lastfm_enabled: bool,
+    #[serde(default)]
+    pub lastfm_session: Option<scrobble::Session>,
     #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default = "default_lyrics_font_size")]
@@ -324,6 +328,8 @@ impl Default for UserSettings {
             lyrics_from_internet: true,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
+            lastfm_enabled: true,
+            lastfm_session: None,
             font_scale: FontScale::default(),
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             onboarding_complete: false,
@@ -510,6 +516,24 @@ impl SettingsStore {
 
     pub fn set_remote_port(&mut self, port: u16) -> anyhow::Result<()> {
         self.settings.remote_port = port;
+        self.save()
+    }
+
+    pub fn lastfm_enabled(&self) -> bool {
+        self.settings.lastfm_enabled
+    }
+
+    pub fn set_lastfm_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lastfm_enabled = enabled;
+        self.save()
+    }
+
+    pub fn lastfm_session(&self) -> Option<scrobble::Session> {
+        self.settings.lastfm_session.clone()
+    }
+
+    pub fn set_lastfm_session(&mut self, session: Option<scrobble::Session>) -> anyhow::Result<()> {
+        self.settings.lastfm_session = session;
         self.save()
     }
 
@@ -943,6 +967,8 @@ mod tests {
             lyrics_from_internet: true,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
+            lastfm_enabled: true,
+            lastfm_session: None,
             font_scale: FontScale::Large,
             lyrics_font_size: 20.,
             onboarding_complete: false,

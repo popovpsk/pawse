@@ -1,4 +1,5 @@
 /target
+.env
 /fixtures
 /bin
 .DS_Store

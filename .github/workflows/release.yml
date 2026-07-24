@@ -41,6 +41,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Verify Last.fm secrets
+        shell: bash
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+        run: |
+          if [ -z "$LASTFM_API_KEY" ] || [ -z "$LASTFM_API_SECRET" ]; then
+            echo "::error::LASTFM_API_KEY / LASTFM_API_SECRET repo secrets are not set; refusing to build a release binary without scrobbling keys baked in."
+            exit 1
+          fi
+          echo "Last.fm secrets present."
+
       - name: Stamp release version
         shell: bash
         run: |
@@ -86,6 +98,9 @@ jobs:
           tool: cargo-packager
 
       - name: Build release binary
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
         run: cargo build --release -p pawse
 
       - name: Enable macOS code signing
@@ -105,6 +120,8 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
 
       - name: Re-image dmg without signature

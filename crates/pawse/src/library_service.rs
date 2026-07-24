@@ -397,6 +397,10 @@ impl LibraryService {
         self.repo.liked_tracks().unwrap_or_default()
     }
 
+    pub fn track(&self, id: i64) -> Option<music_library::Track> {
+        self.repo.track(id).unwrap_or_default()
+    }
+
     pub fn all_tracks(&self) -> Vec<music_library::Track> {
         self.repo.all_tracks().unwrap_or_default()
     }

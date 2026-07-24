@@ -33,6 +33,7 @@ pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;
 pub mod repeat_button;
+pub mod scrobble_bridge;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
@@ -238,6 +239,7 @@ fn main() {
         .detach();
 
         cx.on_app_quit(|cx| {
+            crate::scrobble_bridge::finalize_on_quit(cx);
             let state = cx.global::<Services>().snapshot_playback();
             let _ = cx
                 .global_mut::<crate::settings_store::SettingsStore>()
@@ -299,6 +301,8 @@ fn main() {
 
         #[cfg(target_os = "macos")]
         crate::media_bridge::setup(cx);
+
+        crate::scrobble_bridge::setup(cx);
 
         cx.spawn(async move |cx| {
             run_engine_events_bus(
