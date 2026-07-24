@@ -571,10 +571,14 @@ fn lastfm_group(lastfm_ui: Entity<LastfmUiState>) -> SettingGroup {
             SettingItem::new(
                 tr().lastfm_scrobble.clone(),
                 SettingField::render(|_window, cx: &mut App| {
-                    let enabled = cx.global::<SettingsStore>().lastfm_enabled();
+                    let store = cx.global::<SettingsStore>();
+                    let can_toggle =
+                        scrobble::is_available() && store.lastfm_session().is_some();
+                    let enabled = can_toggle && store.lastfm_enabled();
                     h_flex().items_center().justify_end().child(
                         Switch::new("lastfm-enabled-toggle")
                             .checked(enabled)
+                            .disabled(!can_toggle)
                             .on_click(|new_val, _, cx| {
                                 if let Err(e) = cx
                                     .global_mut::<SettingsStore>()
