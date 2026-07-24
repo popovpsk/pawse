@@ -656,6 +656,37 @@ fn lastfm_account_field(state: Entity<LastfmUiState>, cx: &mut App) -> AnyElemen
 
     let name = session.map(|s| SharedString::from(s.name));
 
+    let identity = match name {
+        Some(name) => h_flex()
+            .flex_1()
+            .min_w(px(0.))
+            .items_baseline()
+            .gap_1p5()
+            .child(
+                div()
+                    .flex_shrink()
+                    .min_w(px(0.))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_sm()
+                    .text_color(Colors::foreground(cx))
+                    .child(name),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_sm()
+                    .text_color(Colors::muted_foreground(cx))
+                    .child(SharedString::from(format!("· {status}"))),
+            )
+            .into_any_element(),
+        None => div()
+            .text_sm()
+            .text_color(Colors::muted_foreground(cx))
+            .child(status)
+            .into_any_element(),
+    };
+
     v_flex()
         .gap_1()
         .child(
@@ -664,22 +695,9 @@ fn lastfm_account_field(state: Entity<LastfmUiState>, cx: &mut App) -> AnyElemen
                 .items_center()
                 .justify_between()
                 .gap_2()
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(Colors::muted_foreground(cx))
-                        .child(status),
-                )
+                .child(identity)
                 .child(button),
         )
-        .when_some(name, |this, name| {
-            this.child(
-                div()
-                    .text_sm()
-                    .text_color(Colors::foreground(cx))
-                    .child(name),
-            )
-        })
         .when_some(error, |this, error| {
             this.child(div().text_sm().text_color(Colors::danger(cx)).child(error))
         })

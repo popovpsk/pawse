@@ -115,6 +115,29 @@ jobs:
             echo "APPLE_CERTIFICATE secret not set; building unsigned"
           fi
 
+      - name: Prefetch AppImage runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          arch="$(uname -m)"
+          url="https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${arch}"
+          dest="$RUNNER_TEMP/appimage-runtime-${arch}"
+          ok=""
+          for i in 1 2 3 4 5; do
+            if curl -fSL --retry 5 --retry-all-errors --retry-delay 5 -o "$dest" "$url" && [ -s "$dest" ]; then
+              ok=1
+              break
+            fi
+            echo "runtime download attempt $i failed; retrying in 15s"
+            sleep 15
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::failed to prefetch AppImage runtime from $url"
+            exit 1
+          fi
+          chmod +x "$dest"
+          echo "LDAI_RUNTIME_FILE=$dest" >> "$GITHUB_ENV"
+
       - name: Package
         working-directory: crates/pawse
         env:
