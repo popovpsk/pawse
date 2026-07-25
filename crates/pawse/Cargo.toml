@@ -3,6 +3,10 @@ name = "pawse"
 version.workspace = true
 edition.workspace = true
 publish = false
+authors = ["Aleksandr Popov <popov.psk@gmail.com>"]
+description = "A fast, native music player for your local library"
+homepage = "https://github.com/popovpsk/pawse"
+license = "MIT"
 
 [[bin]]
 name = "pawse"
