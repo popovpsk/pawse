@@ -175,6 +175,8 @@ pub static VI: Strings = lang! {
     lastfm_sign_out: "Đăng xuất",
     lastfm_confirm: "Xác nhận",
     lastfm_unavailable: "Last.fm chưa được cấu hình trong bản dựng này.",
+    discord_share: "Hiển thị trên Discord",
+    discord_share_desc: "Hiển thị bản nhạc bạn đang phát trên hồ sơ Discord của bạn.",
     remote_control_desc: "Điều khiển phát nhạc từ trình duyệt web trong mạng nội bộ.",
     remote_port: "Cổng",
     remote_port_desc: "Cổng mạng của máy chủ điều khiển từ xa.",

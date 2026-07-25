@@ -175,6 +175,8 @@ pub static JA: Strings = lang! {
     lastfm_sign_out: "サインアウト",
     lastfm_confirm: "確認",
     lastfm_unavailable: "このビルドでは Last.fm が設定されていません。",
+    discord_share: "Discord に表示",
+    discord_share_desc: "再生中の曲を Discord プロフィールに表示します。",
     remote_control_desc: "ローカルネットワーク上のウェブブラウザーから再生を操作します。",
     remote_port: "ポート",
     remote_port_desc: "リモート操作サーバーのネットワークポート。",

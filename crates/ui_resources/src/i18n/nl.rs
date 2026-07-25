@@ -175,6 +175,8 @@ pub static NL: Strings = lang! {
     lastfm_sign_out: "Uitloggen",
     lastfm_confirm: "Bevestigen",
     lastfm_unavailable: "Last.fm is niet geconfigureerd in deze build.",
+    discord_share: "Weergeven op Discord",
+    discord_share_desc: "Toon het nummer dat je afspeelt op je Discord-profiel.",
     remote_control_desc: "Bedien het afspelen vanuit een webbrowser op je lokale netwerk.",
     remote_port: "Poort",
     remote_port_desc: "Netwerkpoort voor de afstandsbedieningsserver.",

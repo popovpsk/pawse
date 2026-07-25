@@ -236,6 +236,8 @@ pub struct Strings {
     pub lastfm_sign_out: SharedString,
     pub lastfm_confirm: SharedString,
     pub lastfm_unavailable: SharedString,
+    pub discord_share: SharedString,
+    pub discord_share_desc: SharedString,
     pub lyrics_text_size: SharedString,
     pub lyrics_text_size_desc: SharedString,
 

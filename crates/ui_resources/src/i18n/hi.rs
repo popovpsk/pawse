@@ -175,6 +175,8 @@ pub static HI: Strings = lang! {
     lastfm_sign_out: "साइन आउट करें",
     lastfm_confirm: "पुष्टि करें",
     lastfm_unavailable: "इस बिल्ड में Last.fm कॉन्फ़िगर नहीं है।",
+    discord_share: "Discord पर दिखाएँ",
+    discord_share_desc: "आप जो ट्रैक चला रहे हैं उसे अपने Discord प्रोफ़ाइल पर दिखाएँ।",
     remote_control_desc: "अपने लोकल नेटवर्क पर वेब ब्राउज़र से प्लेबैक नियंत्रित करें।",
     remote_port: "पोर्ट",
     remote_port_desc: "रिमोट कंट्रोल सर्वर के लिए नेटवर्क पोर्ट।",

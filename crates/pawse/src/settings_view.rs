@@ -211,11 +211,13 @@ pub fn build_settings_pages(
             .group(queue_group())
             .group(lyrics_group(lyrics_slider)),
     ];
-    pages.push(
-        SettingPage::new(tr().settings_general.clone())
-            .group(general_group(remote_port_input))
-            .group(lastfm_group(lastfm_ui)),
-    );
+    let mut general = SettingPage::new(tr().settings_general.clone())
+        .group(general_group(remote_port_input))
+        .group(lastfm_group(lastfm_ui));
+    if discord::is_available() {
+        general = general.group(discord_group());
+    }
+    pages.push(general);
     pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
     pages
 }
@@ -572,8 +574,7 @@ fn lastfm_group(lastfm_ui: Entity<LastfmUiState>) -> SettingGroup {
                 tr().lastfm_scrobble.clone(),
                 SettingField::render(|_window, cx: &mut App| {
                     let store = cx.global::<SettingsStore>();
-                    let can_toggle =
-                        scrobble::is_available() && store.lastfm_session().is_some();
+                    let can_toggle = scrobble::is_available() && store.lastfm_session().is_some();
                     let enabled = can_toggle && store.lastfm_enabled();
                     h_flex().items_center().justify_end().child(
                         Switch::new("lastfm-enabled-toggle")
@@ -602,6 +603,33 @@ fn lastfm_group(lastfm_ui: Entity<LastfmUiState>) -> SettingGroup {
         )
         .layout(Axis::Vertical),
     )
+}
+
+fn discord_group() -> SettingGroup {
+    SettingGroup::new()
+        .title(SharedString::from("Discord"))
+        .item(
+            SettingItem::new(
+                tr().discord_share.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().discord_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("discord-enabled-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_discord_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                                crate::discord_bridge::set_enabled(cx, *new_val);
+                            }),
+                    )
+                }),
+            )
+            .description(tr().discord_share_desc.clone()),
+        )
 }
 
 fn lastfm_account_field(state: Entity<LastfmUiState>, cx: &mut App) -> AnyElement {

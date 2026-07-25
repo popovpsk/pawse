@@ -175,6 +175,8 @@ pub static SV: Strings = lang! {
     lastfm_sign_out: "Logga ut",
     lastfm_confirm: "Bekräfta",
     lastfm_unavailable: "Last.fm är inte konfigurerat i det här bygget.",
+    discord_share: "Visa på Discord",
+    discord_share_desc: "Visa låten du spelar i din Discord-profil.",
     remote_control_desc: "Styr uppspelningen från en webbläsare i ditt lokala nätverk.",
     remote_port: "Port",
     remote_port_desc: "Nätverksport för fjärrstyrningsservern.",

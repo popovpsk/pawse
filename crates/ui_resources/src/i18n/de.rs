@@ -175,6 +175,8 @@ pub static DE: Strings = lang! {
     lastfm_sign_out: "Abmelden",
     lastfm_confirm: "Bestätigen",
     lastfm_unavailable: "Last.fm ist in diesem Build nicht konfiguriert.",
+    discord_share: "In Discord anzeigen",
+    discord_share_desc: "Zeige den laufenden Titel in deinem Discord-Profil an.",
     remote_control_desc: "Wiedergabe über einen Webbrowser im lokalen Netzwerk steuern.",
     remote_port: "Port",
     remote_port_desc: "Netzwerk-Port für den Fernsteuerungsserver.",

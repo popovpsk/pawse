@@ -175,6 +175,8 @@ pub static KO: Strings = lang! {
     lastfm_sign_out: "로그아웃",
     lastfm_confirm: "확인",
     lastfm_unavailable: "이 빌드에서는 Last.fm이 구성되지 않았습니다.",
+    discord_share: "Discord에 표시",
+    discord_share_desc: "재생 중인 곡을 Discord 프로필에 표시합니다.",
     remote_control_desc: "로컬 네트워크의 웹 브라우저에서 재생을 제어합니다.",
     remote_port: "포트",
     remote_port_desc: "원격 제어 서버의 네트워크 포트.",

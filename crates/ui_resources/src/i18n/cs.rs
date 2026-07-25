@@ -175,6 +175,8 @@ pub static CS: Strings = lang! {
     lastfm_sign_out: "Odhlásit se",
     lastfm_confirm: "Potvrdit",
     lastfm_unavailable: "Last.fm není v tomto sestavení nakonfigurován.",
+    discord_share: "Zobrazit na Discordu",
+    discord_share_desc: "Zobrazovat právě přehrávanou skladbu ve vašem profilu Discord.",
     remote_control_desc: "Ovládejte přehrávání z webového prohlížeče v místní síti.",
     remote_port: "Port",
     remote_port_desc: "Síťový port serveru vzdáleného ovládání.",

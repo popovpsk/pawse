@@ -175,6 +175,8 @@ pub static ID: Strings = lang! {
     lastfm_sign_out: "Keluar",
     lastfm_confirm: "Konfirmasi",
     lastfm_unavailable: "Last.fm tidak dikonfigurasi di build ini.",
+    discord_share: "Tampilkan di Discord",
+    discord_share_desc: "Tampilkan lagu yang sedang diputar di profil Discord Anda.",
     remote_control_desc: "Kontrol pemutaran dari peramban web di jaringan lokal Anda.",
     remote_port: "Port",
     remote_port_desc: "Port jaringan untuk server kendali jarak jauh.",

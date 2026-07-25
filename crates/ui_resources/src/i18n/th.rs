@@ -175,6 +175,8 @@ pub static TH: Strings = lang! {
     lastfm_sign_out: "ออกจากระบบ",
     lastfm_confirm: "ยืนยัน",
     lastfm_unavailable: "Last.fm ไม่ได้ตั้งค่าไว้ในบิลด์นี้",
+    discord_share: "แสดงบน Discord",
+    discord_share_desc: "แสดงเพลงที่คุณกำลังเล่นบนโปรไฟล์ Discord ของคุณ",
     remote_control_desc: "ควบคุมการเล่นจากเว็บเบราว์เซอร์ในเครือข่ายภายในของคุณ",
     remote_port: "พอร์ต",
     remote_port_desc: "พอร์ตเครือข่ายของเซิร์ฟเวอร์ควบคุมระยะไกล",

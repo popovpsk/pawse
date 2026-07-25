@@ -14,6 +14,7 @@ pub mod audio_settings;
 pub mod cover_art_cache;
 pub mod cover_mode_view;
 pub mod cover_volume;
+pub mod discord_bridge;
 pub mod error_bridge;
 pub mod footer;
 pub mod keyboard_shortcuts;
@@ -240,6 +241,7 @@ fn main() {
 
         cx.on_app_quit(|cx| {
             crate::scrobble_bridge::finalize_on_quit(cx);
+            crate::discord_bridge::finalize_on_quit(cx);
             let state = cx.global::<Services>().snapshot_playback();
             let _ = cx
                 .global_mut::<crate::settings_store::SettingsStore>()
@@ -303,6 +305,8 @@ fn main() {
         crate::media_bridge::setup(cx);
 
         crate::scrobble_bridge::setup(cx);
+
+        crate::discord_bridge::setup(cx);
 
         cx.spawn(async move |cx| {
             run_engine_events_bus(

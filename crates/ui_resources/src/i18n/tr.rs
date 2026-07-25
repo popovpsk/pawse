@@ -175,6 +175,8 @@ pub static TR: Strings = lang! {
     lastfm_sign_out: "Çıkış yap",
     lastfm_confirm: "Onayla",
     lastfm_unavailable: "Last.fm bu derlemede yapılandırılmamış.",
+    discord_share: "Discord'da göster",
+    discord_share_desc: "Çaldığın parçayı Discord profilinde göster.",
     remote_control_desc: "Yerel ağınızdaki bir web tarayıcısından oynatmayı kontrol edin.",
     remote_port: "Port",
     remote_port_desc: "Uzaktan kumanda sunucusunun ağ bağlantı noktası.",

@@ -294,6 +294,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub lastfm_session: Option<scrobble::Session>,
     #[serde(default)]
+    pub discord_enabled: bool,
+    #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default = "default_lyrics_font_size")]
     pub lyrics_font_size: f32,
@@ -330,6 +332,7 @@ impl Default for UserSettings {
             remote_port: pawse_remote::DEFAULT_PORT,
             lastfm_enabled: true,
             lastfm_session: None,
+            discord_enabled: false,
             font_scale: FontScale::default(),
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             onboarding_complete: false,
@@ -534,6 +537,15 @@ impl SettingsStore {
 
     pub fn set_lastfm_session(&mut self, session: Option<scrobble::Session>) -> anyhow::Result<()> {
         self.settings.lastfm_session = session;
+        self.save()
+    }
+
+    pub fn discord_enabled(&self) -> bool {
+        self.settings.discord_enabled
+    }
+
+    pub fn set_discord_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.discord_enabled = enabled;
         self.save()
     }
 
@@ -969,6 +981,7 @@ mod tests {
             remote_port: pawse_remote::DEFAULT_PORT,
             lastfm_enabled: true,
             lastfm_session: None,
+            discord_enabled: false,
             font_scale: FontScale::Large,
             lyrics_font_size: 20.,
             onboarding_complete: false,

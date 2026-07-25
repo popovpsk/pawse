@@ -175,6 +175,8 @@ pub static PL: Strings = lang! {
     lastfm_sign_out: "Wyloguj się",
     lastfm_confirm: "Potwierdź",
     lastfm_unavailable: "Last.fm nie jest skonfigurowany w tej kompilacji.",
+    discord_share: "Pokaż na Discordzie",
+    discord_share_desc: "Pokazuj odtwarzany utwór w Twoim profilu Discord.",
     remote_control_desc: "Steruj odtwarzaniem z przeglądarki w sieci lokalnej.",
     remote_port: "Port",
     remote_port_desc: "Port sieciowy serwera zdalnego sterowania.",

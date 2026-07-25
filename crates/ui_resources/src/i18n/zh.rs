@@ -175,6 +175,8 @@ pub static ZH: Strings = lang! {
     lastfm_sign_out: "退出登录",
     lastfm_confirm: "确认",
     lastfm_unavailable: "此版本未配置 Last.fm。",
+    discord_share: "在 Discord 上显示",
+    discord_share_desc: "在你的 Discord 个人资料中显示正在播放的曲目。",
     remote_control_desc: "通过局域网中的网页浏览器控制播放。",
     remote_port: "端口",
     remote_port_desc: "远程控制服务器的网络端口。",
