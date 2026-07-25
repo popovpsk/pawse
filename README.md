@@ -44,6 +44,7 @@ macOS · Windows · Linux
 - **Lyrics** — time-synced lyrics from your files or fetched online.
 - **Remote control** — control playback from any device on your network through a built-in HTTP web view.
 - **System media integration** — control playback from your OS media controls and hardware media keys.
+- **Last.fm & Discord** — scrobble everything you play to Last.fm, and show what you're listening to as your Discord status.
 - **CUE sheets** — single-file albums are split into individual tracks automatically.
 
 ## Download
