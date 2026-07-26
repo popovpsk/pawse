@@ -14,6 +14,7 @@ FIXTURES = \
 	$(FIXTURES_DIR)/silence_16_44_mono.wav \
 	$(FIXTURES_DIR)/1khz_16_44_1.wav \
 	$(FIXTURES_DIR)/cover_front.png \
+	$(FIXTURES_DIR)/cover_alternate.png \
 	$(FIXTURES_DIR)/tagged_basic.flac \
 	$(FIXTURES_DIR)/tagged_track_disc_slash.flac \
 	$(FIXTURES_DIR)/tagged_with_cover.flac \
@@ -76,6 +77,11 @@ $(FIXTURES_DIR)/1khz_16_44_1.wav: | $(FIXTURES_DIR)
 
 $(FIXTURES_DIR)/cover_front.png: | $(FIXTURES_DIR)
 	$(FFMPEG) -y -f lavfi -i "color=red:1x1:d=0.1" -frames:v 1 -update 1 "$@"
+
+# A second, different image. Cover-replacement tests need art that is not already
+# embedded in tagged_with_cover.flac, or "replaced" and "unchanged" look identical.
+$(FIXTURES_DIR)/cover_alternate.png: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "color=blue:2x2:d=0.1" -frames:v 1 -update 1 "$@"
 
 # --- Tagged FLAC with metadata ---
 

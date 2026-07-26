@@ -77,6 +77,40 @@ mod flac {
             .map(|(_, block)| block)
             .collect()
     }
+
+    /// A decoded PICTURE block: `<type u32><mime len u32><mime><desc len u32><desc>
+    /// <w><h><depth><colors><data len u32><data>`, all big-endian.
+    pub struct Cover {
+        pub pic_type: u32,
+        pub mime: String,
+        pub data: Vec<u8>,
+    }
+
+    pub fn covers(bytes: &[u8]) -> Vec<Cover> {
+        pictures(bytes)
+            .into_iter()
+            .map(|block| {
+                let be = |at: usize| {
+                    u32::from_be_bytes([block[at], block[at + 1], block[at + 2], block[at + 3]])
+                        as usize
+                };
+                let pic_type = be(0) as u32;
+                let mime_len = be(4);
+                let mut at = 8;
+                let mime = String::from_utf8(block[at..at + mime_len].to_vec()).unwrap();
+                at += mime_len;
+                let desc_len = be(at);
+                at += 4 + desc_len + 16;
+                let data_len = be(at);
+                at += 4;
+                Cover {
+                    pic_type,
+                    mime,
+                    data: block[at..at + data_len].to_vec(),
+                }
+            })
+            .collect()
+    }
 }
 
 mod id3 {
@@ -152,6 +186,36 @@ mod id3 {
                         .collect()
                 })
             })
+        }
+    }
+
+    /// A decoded `APIC` frame: `<encoding><mime\0><pic type><description\0><data>`.
+    /// The MIME string is always Latin-1 regardless of the encoding byte.
+    pub struct Cover {
+        pub pic_type: u8,
+        pub mime: String,
+        pub data: Vec<u8>,
+    }
+
+    impl Tag {
+        pub fn covers(&self) -> Vec<Cover> {
+            self.frames_named("APIC")
+                .into_iter()
+                .map(|frame| {
+                    let body = &frame.body;
+                    let mime_end = body[1..].iter().position(|b| *b == 0).unwrap() + 1;
+                    let mime = body[1..mime_end].iter().map(|b| *b as char).collect();
+                    let pic_type = body[mime_end + 1];
+                    let desc_start = mime_end + 2;
+                    let desc_end =
+                        body[desc_start..].iter().position(|b| *b == 0).unwrap() + desc_start;
+                    Cover {
+                        pic_type,
+                        mime,
+                        data: body[desc_end + 1..].to_vec(),
+                    }
+                })
+                .collect()
         }
     }
 
@@ -414,4 +478,148 @@ fn a_four_character_custom_name_is_refused_without_touching_the_file() {
         id3::parse(&before).frame("TIT2").unwrap().text_values(),
         ["Raw Title"]
     );
+}
+
+fn cover_fixture() -> Vec<u8> {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    std::fs::read(PathBuf::from(manifest).join("../../fixtures/cover_alternate.png")).unwrap()
+}
+
+/// Put a CoverBack picture into the file, straight through lofty — the writer has no
+/// way to make one, and that is exactly what makes it useful as a leftover.
+fn add_back_cover(path: &Path) {
+    use lofty::file::AudioFile;
+    use lofty::prelude::TaggedFileExt;
+
+    let mut tagged = lofty::read_from_path(path).unwrap();
+    let tag = tagged.primary_tag_mut().unwrap();
+    let mut picture =
+        lofty::picture::Picture::from_reader(&mut std::io::Cursor::new(cover_fixture())).unwrap();
+    picture.set_pic_type(lofty::picture::PictureType::CoverBack);
+    tag.push_picture(picture);
+    tagged
+        .save_to_path(path, lofty::config::WriteOptions::default())
+        .unwrap();
+}
+
+fn replacing(bytes: Vec<u8>) -> tag_writer::TrackTagEdits {
+    tag_writer::TrackTagEdits {
+        cover: tag_writer::CoverEdit::Replace { bytes },
+        ..edits()
+    }
+}
+
+/// The whole point of the feature, checked where it counts: the picture other players
+/// read has to be in the file, marked as the front cover, and byte-identical to what
+/// the user picked.
+#[test]
+fn a_replaced_cover_lands_in_the_file_as_the_front_cover() {
+    let scratch = Scratch::new("cover_replace");
+    let picked = cover_fixture();
+
+    let flac = scratch.copy("tagged_with_cover.flac");
+    tag_writer::write_metadata(&flac, &replacing(picked.clone())).unwrap();
+    let covers = flac::covers(&read(&flac));
+    assert_eq!(
+        covers.len(),
+        1,
+        "the old cover must be replaced, not joined"
+    );
+    assert_eq!(covers[0].pic_type, 3, "3 is CoverFront");
+    assert_eq!(covers[0].mime, "image/png");
+    assert_eq!(covers[0].data, picked);
+
+    let mp3 = scratch.copy("tagged_mp3.mp3");
+    tag_writer::write_metadata(&mp3, &replacing(picked.clone())).unwrap();
+    let covers = id3::parse(&read(&mp3)).covers();
+    assert_eq!(covers.len(), 1);
+    assert_eq!(covers[0].pic_type, 3);
+    assert_eq!(covers[0].mime, "image/png");
+    assert_eq!(covers[0].data, picked);
+}
+
+/// A cover the indexer will actually pick up: `read_metadata` prefers CoverFront and
+/// falls back to the first picture, so this is the round-trip that matters for the DB.
+#[test]
+fn a_replaced_cover_is_what_the_indexer_reads_back() {
+    let scratch = Scratch::new("cover_indexer");
+    let picked = cover_fixture();
+    for fixture in [
+        "tagged_with_cover.flac",
+        "tagged_mp3.mp3",
+        "tagged_ogg.ogg",
+        "tagged_m4a.m4a",
+    ] {
+        let path = scratch.copy(fixture);
+        tag_writer::write_metadata(&path, &replacing(picked.clone())).unwrap();
+        assert_eq!(
+            music_indexer::metadata::extract_embedded_cover(&path).as_deref(),
+            Some(picked.as_slice()),
+            "{fixture}"
+        );
+    }
+}
+
+/// Removal has to empty the list, not just drop the front cover: the reader falls back
+/// to the first picture of any type, so a leftover back cover or booklet scan would
+/// quietly become the album art.
+#[test]
+fn removing_the_cover_leaves_no_picture_of_any_type() {
+    let scratch = Scratch::new("cover_remove");
+    let flac = scratch.copy("tagged_with_cover.flac");
+    let mp3 = scratch.copy("tagged_mp3.mp3");
+    tag_writer::write_metadata(&mp3, &replacing(cover_fixture())).unwrap();
+
+    // A front cover alone cannot tell `remove_picture_type(CoverFront)` apart from
+    // emptying the list, so give both files a back cover to leave behind.
+    for path in [&flac, &mp3] {
+        add_back_cover(path);
+    }
+
+    for path in [&flac, &mp3] {
+        assert!(
+            music_indexer::metadata::extract_embedded_cover(path).is_some(),
+            "precondition: there is art to remove"
+        );
+        tag_writer::write_metadata(
+            path,
+            &tag_writer::TrackTagEdits {
+                cover: tag_writer::CoverEdit::Remove,
+                ..edits()
+            },
+        )
+        .unwrap();
+        assert!(music_indexer::metadata::extract_embedded_cover(path).is_none());
+    }
+
+    assert!(flac::pictures(&read(&flac)).is_empty());
+    assert!(id3::parse(&read(&mp3)).covers().is_empty());
+}
+
+/// Anything but JPEG or PNG is refused before the save, so the rest of the same edit
+/// survives. GIF is a real image — this is our narrowing, not lofty's sniffing.
+#[test]
+fn a_cover_that_is_not_jpeg_or_png_is_refused_without_touching_the_file() {
+    let scratch = Scratch::new("cover_format");
+    let path = scratch.copy("tagged_basic.flac");
+    tag_writer::write_metadata(&path, &edits()).unwrap();
+    let before = read(&path);
+
+    for bytes in [
+        b"GIF89a still an image".to_vec(),
+        b"BM also an image".to_vec(),
+        b"not an image at all".to_vec(),
+    ] {
+        assert!(!tag_writer::cover_bytes_ok(&bytes));
+        let mut doomed = replacing(bytes);
+        doomed.title = Some("Never Written".into());
+        assert!(tag_writer::write_metadata(&path, &doomed).is_err());
+        assert_eq!(
+            read(&path),
+            before,
+            "a refused save must not be a partial one"
+        );
+    }
+
+    assert!(tag_writer::cover_bytes_ok(&cover_fixture()));
 }

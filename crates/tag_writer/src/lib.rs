@@ -2,6 +2,7 @@ use std::path::Path;
 
 use lofty::config::WriteOptions;
 use lofty::file::AudioFile;
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::{ItemKey, TaggedFileExt};
 use lofty::tag::{ItemValue, Tag, TagItem, TagType};
 
@@ -22,6 +23,22 @@ pub struct TrackTagEdits {
     pub removed_tags: Vec<RawTag>,
     /// Free-form rows to add. Keys already covered by a field above are ignored.
     pub added_tags: Vec<RawTag>,
+    /// What to do with the embedded cover. Defaults to leaving it alone, so a caller
+    /// that only edits text never has to think about it.
+    pub cover: CoverEdit,
+}
+
+/// A cover lives in the tag as the image itself — there is no "path to the artwork"
+/// tag in any container — and the reader prefers it over anything found on disk, so
+/// replacing it here is what overrides the external-file heuristic.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum CoverEdit {
+    #[default]
+    Keep,
+    Replace {
+        bytes: Vec<u8>,
+    },
+    Remove,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +58,8 @@ pub fn write_metadata(path: &Path, edits: &TrackTagEdits) -> anyhow::Result<()> 
     };
 
     apply(&mut tag, edits);
-    let tag = with_custom(tag, &edits.added_tags)?;
+    let mut tag = with_custom(tag, &edits.added_tags)?;
+    apply_cover(&mut tag, &edits.cover)?;
 
     tagged.insert_tag(tag);
     tagged.save_to_path(path, WriteOptions::default())?;
@@ -98,6 +116,64 @@ fn with_custom(mut tag: Tag, added: &[RawTag]) -> anyhow::Result<Tag> {
     }
 
     Ok(tag)
+}
+
+/// Put the chosen cover in, or take every cover out.
+///
+/// Both branches clear *all* pictures first. `music_indexer`'s reader takes
+/// `CoverFront` and falls back to the first picture of any type, so leaving a back
+/// cover or a booklet scan behind would promote it to album art — a removal that
+/// silently swaps the image rather than clearing it.
+fn apply_cover(tag: &mut Tag, edit: &CoverEdit) -> anyhow::Result<()> {
+    let bytes = match edit {
+        CoverEdit::Keep => return Ok(()),
+        CoverEdit::Remove => {
+            clear_pictures(tag);
+            return Ok(());
+        }
+        CoverEdit::Replace { bytes } => bytes,
+    };
+    // why: refuse before save_to_path — the writer runs long after the dialog closed, so an
+    // error here would take every other edit of the same save down with it
+    let picture = read_cover(bytes)?;
+    clear_pictures(tag);
+    tag.push_picture(picture);
+    Ok(())
+}
+
+/// lofty offers removal by index or by type, neither of which empties the list, and a
+/// file can carry any mix of types.
+fn clear_pictures(tag: &mut Tag) {
+    while !tag.pictures().is_empty() {
+        tag.remove_picture(0);
+    }
+}
+
+/// Decode cover bytes into a front-cover picture, or say why they are unusable.
+///
+/// `Picture::from_reader` sniffs the format and rejects a non-image, but it also
+/// accepts GIF, BMP and TIFF and always reports [`PictureType::Other`]. Narrowing to
+/// JPEG and PNG is ours: those are the only two MP4's `covr` atom takes, and the only
+/// two every player renders, so accepting more would make the result depend on the
+/// container.
+fn read_cover(bytes: &[u8]) -> anyhow::Result<Picture> {
+    let mut picture = Picture::from_reader(&mut std::io::Cursor::new(bytes))
+        .map_err(|_| anyhow::anyhow!("this file is not an image"))?;
+    if !matches!(
+        picture.mime_type(),
+        Some(MimeType::Jpeg) | Some(MimeType::Png)
+    ) {
+        anyhow::bail!("a cover has to be a JPEG or a PNG");
+    }
+    picture.set_pic_type(PictureType::CoverFront);
+    Ok(picture)
+}
+
+/// Whether [`CoverEdit::Replace`] would accept these bytes. The UI asks this the
+/// moment a file is picked so the refusal lands on the picker rather than on a save
+/// that then discards every other edit.
+pub fn cover_bytes_ok(bytes: &[u8]) -> bool {
+    read_cover(bytes).is_ok()
 }
 
 /// The tag every entry point works on: what the reader reads, and what a file with
@@ -458,6 +534,7 @@ mod tests {
             genres: vec!["Drum & Bass".into(), "Ambient".into()],
             removed_tags: Vec::new(),
             added_tags: Vec::new(),
+            cover: CoverEdit::Keep,
         }
     }
 

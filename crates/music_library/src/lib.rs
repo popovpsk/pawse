@@ -557,10 +557,10 @@ mod tests {
             .unwrap();
         let data = buf.into_inner();
 
-        let id = lib.save_cover_art(&data).unwrap();
+        let id = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
         assert!(id > 0);
 
-        let id2 = lib.save_cover_art(&data).unwrap();
+        let id2 = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
         assert_eq!(id, id2);
 
         let cover = lib.get_cover_art(id).unwrap().unwrap();
@@ -743,8 +743,8 @@ mod tests {
         let data1 = make_test_jpeg(&[255, 0, 0]);
         let data2 = make_test_jpeg(&[0, 255, 0]);
 
-        let id1 = lib.save_cover_art(&data1).unwrap();
-        let id2 = lib.save_cover_art(&data2).unwrap();
+        let id1 = lib.save_cover_art(&data1, "/music/a.flac", true).unwrap();
+        let id2 = lib.save_cover_art(&data2, "/music/a.flac", true).unwrap();
         assert_ne!(id1, id2, "different images must have different IDs");
     }
 
@@ -760,7 +760,7 @@ mod tests {
     fn test_cover_art_thumbnail_sizes() {
         let (lib, _path) = create_test_db();
         let data = make_test_jpeg(&[255, 0, 0]);
-        let id = lib.save_cover_art(&data).unwrap();
+        let id = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
         let cover = lib.get_cover_art(id).unwrap().unwrap();
 
         let small_img = image::load_from_memory(&cover.small).unwrap();
@@ -775,7 +775,7 @@ mod tests {
     fn test_cover_art_id_propagates_to_album_and_track() {
         let (lib, _path) = create_test_db();
         let data = make_test_jpeg(&[255, 0, 0]);
-        let cover_id = lib.save_cover_art(&data).unwrap();
+        let cover_id = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
 
         let artist_id = lib.upsert_artist("Artist").unwrap();
         let album_id = lib
@@ -812,29 +812,78 @@ mod tests {
         assert!(!retrieved.large.is_empty());
     }
 
+    /// The album takes the cover of its *lowest-numbered* track, not of whichever one
+    /// was written first — the tracks here go in back to front to prove it, since the
+    /// parallel scan gives no order guarantee at all.
     #[test]
-    fn test_set_album_cover_if_missing_never_replaces_one() {
+    fn test_resolve_album_covers_picks_the_lowest_numbered_track() {
         let (lib, _path) = create_test_db();
-        let kept = lib.save_cover_art(&make_test_jpeg(&[255, 0, 0])).unwrap();
-        let other = lib.save_cover_art(&make_test_jpeg(&[0, 255, 0])).unwrap();
+        let artist = lib.upsert_artist("Artist").unwrap();
+        let album = lib.upsert_album("Album", Some(2020), None).unwrap();
 
-        let bare = lib.upsert_album("Bare", None, None).unwrap();
-        let dressed = lib.upsert_album("Dressed", None, Some(kept)).unwrap();
+        let mut covers = Vec::new();
+        for (n, shade) in [(3u32, 60u8), (2, 30), (1, 0)] {
+            let cover = lib
+                .save_cover_art(&make_test_jpeg(&[shade, 0, 0]), "/music/a.flac", true)
+                .unwrap();
+            covers.push((n, cover));
+            let track = NewTrack {
+                path: format!("/music/{n}.flac"),
+                title: Some(format!("Track {n}")),
+                album_title: Some("Album".into()),
+                artist_names: vec!["Artist".into()],
+                album_artist_names: Vec::new(),
+                track_number: Some(n),
+                disc_number: Some(1),
+                year: Some(2020),
+                duration_ms: Some(1000),
+                cover_art_id: Some(cover),
+                start_offset_ms: None,
+                bitrate: None,
+            };
+            lib.upsert_track(&track, Some(album), &[(artist, 0)])
+                .unwrap();
+        }
 
-        lib.set_album_cover_if_missing(bare, other).unwrap();
-        lib.set_album_cover_if_missing(dressed, other).unwrap();
-
-        let by_id: std::collections::HashMap<i64, Option<i64>> = lib
-            .albums()
-            .unwrap()
-            .into_iter()
-            .map(|a| (a.id, a.cover_art_id))
-            .collect();
-        assert_eq!(by_id[&bare], Some(other), "an empty slot takes the cover");
+        lib.resolve_album_covers().unwrap();
+        let first_track_cover = covers.iter().find(|(n, _)| *n == 1).unwrap().1;
         assert_eq!(
-            by_id[&dressed],
-            Some(kept),
-            "first cover wins, so merging a track in must not restyle the album"
+            lib.albums().unwrap()[0].cover_art_id,
+            Some(first_track_cover),
+            "insert order was 3, 2, 1 — the result must not depend on it"
+        );
+    }
+
+    #[test]
+    fn test_resolve_album_covers_clears_an_album_whose_tracks_lost_their_art() {
+        let (lib, _path) = create_test_db();
+        let cover = lib
+            .save_cover_art(&make_test_jpeg(&[255, 0, 0]), "/music/a.flac", true)
+            .unwrap();
+        let artist = lib.upsert_artist("Artist").unwrap();
+        let album = lib.upsert_album("Album", None, Some(cover)).unwrap();
+        let track = NewTrack {
+            path: "/music/one.flac".into(),
+            title: Some("One".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: Vec::new(),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: Some(1000),
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        lib.upsert_track(&track, Some(album), &[(artist, 0)])
+            .unwrap();
+
+        lib.resolve_album_covers().unwrap();
+        assert_eq!(
+            lib.albums().unwrap()[0].cover_art_id,
+            None,
+            "no track carries art, so the album must not keep a stale cover"
         );
     }
 
@@ -843,8 +892,8 @@ mod tests {
         let (lib, _path) = create_test_db();
         let data = make_test_jpeg(&[255, 0, 0]);
 
-        let cover_id = lib.save_cover_art(&data).unwrap();
-        let cover_id2 = lib.save_cover_art(&data).unwrap();
+        let cover_id = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
+        let cover_id2 = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
         assert_eq!(cover_id, cover_id2, "same bytes must return same ID");
 
         let artist_id = lib.upsert_artist("Artist").unwrap();
@@ -896,7 +945,7 @@ mod tests {
     fn test_cover_art_clear_removes_cover_art() {
         let (lib, _path) = create_test_db();
         let data = make_test_jpeg(&[255, 0, 0]);
-        let cover_id = lib.save_cover_art(&data).unwrap();
+        let cover_id = lib.save_cover_art(&data, "/music/a.flac", true).unwrap();
 
         assert!(lib.get_cover_art(cover_id).unwrap().is_some());
 
@@ -915,7 +964,9 @@ mod tests {
         let cover_data = make_test_jpeg(&[100, 150, 200]);
 
         // Step 1: Scanner extracted raw cover bytes
-        let cover_art_id = lib.save_cover_art(&cover_data).unwrap();
+        let cover_art_id = lib
+            .save_cover_art(&cover_data, "/music/a.flac", true)
+            .unwrap();
 
         // Step 2: Upsert artist
         let artist_id = lib.upsert_artist("Test Artist").unwrap();
@@ -1359,6 +1410,9 @@ mod tests {
             .add_cover(&hash, thumbs.small, thumbs.large, "/music/a.flac", true)
             .unwrap();
         session.finish().unwrap();
+        // The album's cover is settled after the scan, not during it — see
+        // `resolve_album_covers`.
+        lib.resolve_album_covers().unwrap();
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
@@ -1397,11 +1451,29 @@ mod tests {
         );
     }
 
+    /// A cover saved outside a scan records its origin just like one saved during a
+    /// scan, so the "open the original" paths reach the full-size image instead of
+    /// falling back to re-reading the track. Rows left over from the migration that
+    /// added these columns still have no source; that fallback lives in
+    /// `music_indexer::metadata::load_cover_from_source`.
     #[test]
-    fn test_cover_art_source_none_when_untracked() {
+    fn test_save_cover_art_records_where_it_came_from() {
         let (lib, _path) = create_test_db();
-        let id = lib.save_cover_art(&make_test_jpeg(&[4, 5, 6])).unwrap();
-        assert_eq!(lib.get_cover_art_source(id).unwrap(), None);
+        let embedded = lib
+            .save_cover_art(&make_test_jpeg(&[4, 5, 6]), "/music/a.flac", true)
+            .unwrap();
+        let external = lib
+            .save_cover_art(&make_test_jpeg(&[7, 8, 9]), "/music/cover.jpg", false)
+            .unwrap();
+
+        assert_eq!(
+            lib.get_cover_art_source(embedded).unwrap(),
+            Some(("/music/a.flac".to_string(), true))
+        );
+        assert_eq!(
+            lib.get_cover_art_source(external).unwrap(),
+            Some(("/music/cover.jpg".to_string(), false))
+        );
     }
 
     #[test]
@@ -1449,7 +1521,7 @@ mod tests {
         // seeded cache — no add_cover needed, no duplicate row.
         let (lib, _path) = create_test_db();
         let cover = make_test_jpeg(&[1, 2, 3]);
-        let existing_id = lib.save_cover_art(&cover).unwrap();
+        let existing_id = lib.save_cover_art(&cover, "/music/a.flac", true).unwrap();
         let hash = sha256_hex(&cover);
 
         let mut session = lib.open_scan_session().unwrap();
@@ -1604,10 +1676,18 @@ mod tests {
     fn test_artist_album_covers_oldest_first_capped_at_three() {
         let (lib, _path) = create_test_db();
 
-        let cover1 = lib.save_cover_art(&make_test_jpeg(&[255, 0, 0])).unwrap();
-        let cover2 = lib.save_cover_art(&make_test_jpeg(&[0, 255, 0])).unwrap();
-        let cover3 = lib.save_cover_art(&make_test_jpeg(&[0, 0, 255])).unwrap();
-        let cover4 = lib.save_cover_art(&make_test_jpeg(&[128, 128, 0])).unwrap();
+        let cover1 = lib
+            .save_cover_art(&make_test_jpeg(&[255, 0, 0]), "/music/a.flac", true)
+            .unwrap();
+        let cover2 = lib
+            .save_cover_art(&make_test_jpeg(&[0, 255, 0]), "/music/a.flac", true)
+            .unwrap();
+        let cover3 = lib
+            .save_cover_art(&make_test_jpeg(&[0, 0, 255]), "/music/a.flac", true)
+            .unwrap();
+        let cover4 = lib
+            .save_cover_art(&make_test_jpeg(&[128, 128, 0]), "/music/a.flac", true)
+            .unwrap();
 
         let artist = lib.upsert_artist("Radiohead").unwrap();
         let other = lib.upsert_artist("Other").unwrap();

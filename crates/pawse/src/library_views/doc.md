@@ -94,16 +94,41 @@ drive the `PlaybackQueue` on click.
   siblings re-keys the row and splits the album in two. They unlock only in the album
   editor, or for a track that belongs to no album at all — nothing shared to break,
   and no album editor it could be reached from.
-- **Cover art is not a tag-editor field, and re-keying an album must not lose it.**
-  A cover is derived, never typed: the scanner takes the embedded picture, or an
-  image file found next to the track, hashes it into `cover_art` and hangs the id off
-  both the track and the album (`ScanSession::resolve_album`, first cover wins).
-  Renaming an album therefore lands its tracks on a *new* `albums` row, which is born
-  with `cover_art_id NULL` — the tracks keep theirs, but the Albums list and the album
-  header read the album's own column and would go blank until some later full rescan.
-  `reindex_one` closes that by handing the new row the cover its track already carries,
-  through `set_album_cover_if_missing` — the same first-cover-wins statement the
-  scanner uses, so merging a track into an existing album never restyles it.
+- **An album's cover is chosen deterministically, and the choice is re-made after
+  every write.** A cover is derived, never typed: the scanner takes the embedded
+  picture, or an image file found next to the track, and hashes it into `cover_art`
+  with the id hung off the track. The *album*'s cover is then resolved by
+  `LibraryRepository::resolve_album_covers` — the cover of its lowest
+  `(disc, track, path)` track that has one, and `NULL` when none does. It used to be
+  "whichever track the scan finished first", which is not a defined order in a parallel
+  pipeline: harmless while every track of an album shares its art, but once the tag
+  editor can set art per track, that album's cover would change on every rescan.
+  `settle_derived_rows` is the single place both the scan and the point-update paths
+  call, so they cannot drift; `an_album_edit_lands_exactly_where_a_full_rescan_would`
+  fails if either one skips it. This is also what keeps a *renamed* album's cover: the
+  rename lands its tracks on a new `albums` row born with `cover_art_id NULL`, and the
+  re-resolve fills it from the tracks that moved.
+- **The cover row shows the file's own picture, never the library's cover.** This is
+  the one place the two must not be conflated: `tracks.cover_art_id` may have been
+  derived from a `cover.jpg` next to the file, and a *tag* editor showing that would
+  claim a tag the file does not have — Remove would then look like it did something and
+  change nothing. So the preview comes from the embedded picture only
+  (`read_metadata`'s `CoverArt::Bytes { embedded: true }`, or
+  `extract_embedded_cover` for a cue track), the row is empty when there is none, and
+  the Remove button is hidden in that state. Setting one is still offered, and the tag
+  then outranks the folder image by the reader's own precedence —
+  `a_cover_set_in_the_tag_wins_over_the_image_beside_the_file` pins that, and
+  `an_external_cover_is_reported_as_art_but_not_as_an_embedded_picture` pins the
+  distinction it rests on.
+- **Cover editing is offered in every tag modal**, track and album alike, unlike
+  album/album-artist/year. It is safe because the album's cover is derived from its
+  tracks rather than stored per-album: setting art on one track cannot re-key anything.
+  There is no album-level cover *tag* — the album editor simply writes the same file tag
+  into all of the album's files, exactly as it already does for album/year/genre, and
+  says so under the row. Costs to know: the image is embedded verbatim into each file
+  (no resizing — deliberate, so the modal shows the file size instead), and
+  `reindex_one` must set `tracks.cover_art_id` explicitly because `upsert_track`
+  `COALESCE`s that column and can only ever keep the old value.
 - **The point-update path is checked against a real rescan, not field by field.**
   `library_service`'s tests index a temp folder with the actual pipeline
   (`music_indexer::run` + `open_scan_session`, no GPUI), apply a tag edit through the

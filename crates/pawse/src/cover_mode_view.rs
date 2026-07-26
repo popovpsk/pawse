@@ -74,7 +74,7 @@ pub struct CoverModeView {
 impl EventEmitter<NavigateToAlbumRequested> for CoverModeView {}
 impl EventEmitter<NavigateToArtistRequested> for CoverModeView {}
 
-fn sniff_image_format(bytes: &[u8]) -> Option<ImageFormat> {
+pub(crate) fn sniff_image_format(bytes: &[u8]) -> Option<ImageFormat> {
     if bytes.starts_with(&[0xFF, 0xD8]) {
         Some(ImageFormat::Jpeg)
     } else if bytes.starts_with(b"\x89PNG") {

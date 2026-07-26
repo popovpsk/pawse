@@ -447,6 +447,33 @@ mod tests {
         }
     }
 
+    /// The distinction the tag editor's cover preview rests on. A file whose art was
+    /// found *next to it* carries no picture of its own, so `extract_embedded_cover`
+    /// says so while `read_metadata` still reports art — with `embedded: false`. Showing
+    /// the latter in a tag editor would claim a tag the file does not have, and Remove
+    /// would then appear to do something and change nothing.
+    #[test]
+    fn an_external_cover_is_reported_as_art_but_not_as_an_embedded_picture() {
+        let tmp = TempDir::new();
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let fixtures = PathBuf::from(manifest).join("../../fixtures");
+        let track = tmp.path.join("track.flac");
+        std::fs::copy(fixtures.join("tagged_basic.flac"), &track).unwrap();
+        std::fs::copy(fixtures.join("cover_front.png"), tmp.path.join("cover.png")).unwrap();
+
+        assert!(
+            super::extract_embedded_cover(&track).is_none(),
+            "the fixture has no picture of its own"
+        );
+        assert!(matches!(
+            super::read_metadata(&track).unwrap().cover_art,
+            Some(crate::types::CoverArt::Bytes {
+                embedded: false,
+                ..
+            })
+        ));
+    }
+
     #[test]
     fn find_external_cover_art_returns_source_path() {
         let tmp = TempDir::new();

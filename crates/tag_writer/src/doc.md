@@ -10,10 +10,13 @@ with its own round-trip tests. It knows nothing about SQLite or the UI.
 ## Files
 
 - `lib.rs` — the whole crate. `TrackTagEdits` (the editable field set),
-  `write_metadata` (durable write), `RawTag` + `read_raw_tags` (the read-only
-  "everything else in this file" list the tag-editor modal shows), and the
-  round-trip tests. Fixtures cover flac, ogg, mp3 and m4a (`make generate`); a
-  container without one is called out as unverified below rather than assumed.
+  `write_metadata` (durable write), `CoverEdit` + `cover_bytes_ok` (the embedded
+  picture), `RawTag` + `read_raw_tags` (the read-only "everything else in this file"
+  list the tag-editor modal shows), and the round-trip tests. Fixtures cover flac,
+  ogg, mp3 and m4a (`make generate`); a container without one is called out as
+  unverified below rather than assumed. Cover tests use `fixtures/cover_alternate.png`
+  on purpose — `tagged_with_cover.flac` is built *from* `cover_front.png`, so replacing
+  a cover with that one is indistinguishable from not replacing it.
 - `tests/raw_bytes.rs` — the same writes, checked against the bytes with a
   hand-written FLAC/ID3v2 parser instead of lofty. The round-trip tests in `lib.rs`
   write and read through the same library, so anything lofty gets wrong
@@ -64,6 +67,36 @@ with its own round-trip tests. It knows nothing about SQLite or the UI.
 - **Embedded art survives an edit**, including the custom-row path, which is the
   only one that ever rebuilt the tag. `embedded_cover_survives_a_custom_row` pins it
   against `fixtures/tagged_with_cover.flac`: the failure mode would be silent.
+
+- **The cover is the picture itself, never a path.** Every container stores the bytes
+  (`APIC`, `METADATA_BLOCK_PICTURE`, `covr`, `Cover Art (Front)`); none has a
+  "path to the artwork" tag. ID3v2 does allow a MIME of `-->` to mean the frame body
+  is a URL, but lofty has no notion of it — the string would become
+  `MimeType::Unknown("-->")` and the "data" would be read as image bytes — so that
+  door is shut. Embedding is therefore what overrides the external-file heuristic, and
+  it does so for free: `music_indexer` reads the embedded picture first and only falls
+  back to files on disk.
+
+- **`CoverEdit::Remove` clears every picture, not just the front one.** The reader
+  takes `CoverFront` and falls back to the *first* picture of any type, so leaving a
+  back cover or a booklet scan behind would silently promote it to album art instead
+  of clearing anything. `Replace` clears the same way before pushing, so a file ends
+  up with exactly one picture. `removing_the_cover_leaves_no_picture_of_any_type`
+  plants a `CoverBack` first — a fixture with only a front cover cannot tell the two
+  behaviours apart.
+
+- **JPEG and PNG only, and that narrowing is ours.** `Picture::from_reader` sniffs the
+  format and rejects a non-image, but it accepts GIF, BMP and TIFF too and always
+  reports `PictureType::Other` (hence the `set_pic_type` after it). MP4's `covr` takes
+  only JPEG and PNG, and those are the only two every player renders, so accepting
+  more would make the outcome depend on the container. `cover_bytes_ok` is the same
+  question the UI asks the moment a file is picked — asking late would cost the user
+  every other edit in the save.
+
+- **Pictures never reach the raw-row list.** `read_raw_tags` skips non-text values, so
+  a cover cannot be deleted through `removed_tags`; `CoverEdit::Remove` is the only
+  way. Do not "fix" this by surfacing `APIC` as a row — the value is binary and the
+  list is text.
 
 - **Custom rows need `push_unchecked`, not `push`.** `TrackTagEdits::added_tags`
   carries hand-typed key/value pairs, which arrive as `ItemKey::Unknown`. `Tag::push`

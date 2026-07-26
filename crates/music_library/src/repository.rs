@@ -62,16 +62,27 @@ pub trait LibraryRepository: Send + Sync {
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;
     fn delete_orphaned_albums_and_artists(&self) -> Result<()>;
-    fn save_cover_art(&self, data: &[u8]) -> Result<i64>;
+    /// Store a cover (deduplicated by content hash) along with where it came from, so
+    /// the "open the original" paths can reach the full-size image later. Mirrors what
+    /// [`ScanWrite::add_cover`] records, except the thumbnails are generated here —
+    /// the point-update path has no pipeline to make them.
+    fn save_cover_art(&self, data: &[u8], source_path: &str, embedded: bool) -> Result<i64>;
+    /// Set or clear one track's cover. Needed because [`LibraryRepository::upsert_track`]
+    /// `COALESCE`s the column, so passing `None` there keeps the old value instead of
+    /// clearing it.
+    fn set_track_cover(&self, track_id: i64, cover_art_id: Option<i64>) -> Result<()>;
     fn get_cover_art(&self, id: i64) -> Result<Option<CoverArt>>;
     fn get_cover_art_small(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>>;
     fn get_track_path_for_cover(&self, id: i64) -> Result<Option<String>>;
     fn album_has_artists(&self, album_id: i64) -> Result<bool>;
-    /// Give an album a cover only if it has none — the scanner's first-cover-wins
-    /// rule, reused by the point update that follows a tag edit.
-    fn set_album_cover_if_missing(&self, album_id: i64, cover_art_id: i64) -> Result<()>;
+    /// Point every album at the cover of its lowest-numbered track that carries one,
+    /// and at nothing when none does. The order is fully specified, so a scan and a
+    /// point update land on the same row no matter which track either happened to
+    /// process first — without that, an album whose tracks hold different art would
+    /// change its cover between rescans.
+    fn resolve_album_covers(&self) -> Result<()>;
     fn artists(&self) -> Result<Vec<ArtistSummary>>;
     fn artist_name(&self, id: i64) -> Result<Option<String>>;
     fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;

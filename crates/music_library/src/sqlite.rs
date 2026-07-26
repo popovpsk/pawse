@@ -757,7 +757,7 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
-    fn save_cover_art(&self, data: &[u8]) -> Result<i64> {
+    fn save_cover_art(&self, data: &[u8], source_path: &str, embedded: bool) -> Result<i64> {
         let hash = compute_sha256(data);
 
         {
@@ -777,12 +777,28 @@ impl LibraryRepository for SqliteLibrary {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT INTO cover_art (hash, small, large) VALUES (?1, ?2, ?3)",
-            rusqlite::params![hash, thumbnails.small, thumbnails.large],
+            "INSERT INTO cover_art (hash, small, large, source_path, embedded) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                hash,
+                thumbnails.small,
+                thumbnails.large,
+                source_path,
+                embedded
+            ],
         )?;
         let id = tx.last_insert_rowid();
         tx.commit()?;
         Ok(id)
+    }
+
+    fn set_track_cover(&self, track_id: i64, cover_art_id: Option<i64>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET cover_art_id = ?1 WHERE id = ?2",
+            rusqlite::params![cover_art_id, track_id],
+        )?;
+        Ok(())
     }
 
     fn get_cover_art(&self, id: i64) -> Result<Option<CoverArt>> {
@@ -857,11 +873,20 @@ impl LibraryRepository for SqliteLibrary {
         Ok(exists)
     }
 
-    fn set_album_cover_if_missing(&self, album_id: i64, cover_art_id: i64) -> Result<()> {
+    fn resolve_album_covers(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
+        // why: the ORDER BY is total — disc, then track, then path — so the choice cannot depend
+        // on the order tracks arrived in from the parallel scan. `idx_tracks_album_sort` covers it.
         conn.execute(
-            "UPDATE albums SET cover_art_id = ?1 WHERE id = ?2 AND cover_art_id IS NULL",
-            rusqlite::params![cover_art_id, album_id],
+            r#"
+            UPDATE albums SET cover_art_id = (
+                SELECT t.cover_art_id FROM tracks t
+                WHERE t.album_id = albums.id AND t.cover_art_id IS NOT NULL
+                ORDER BY t.disc_number, COALESCE(t.track_number, 999999), t.path
+                LIMIT 1
+            )
+            "#,
+            [],
         )?;
         Ok(())
     }
@@ -1658,27 +1683,17 @@ impl ScanSession {
         Ok(id)
     }
 
-    fn resolve_album(
-        &mut self,
-        title: &str,
-        year: Option<i32>,
-        cover_id: Option<i64>,
-    ) -> Result<i64> {
+    /// The album row only; its cover is left NULL and filled afterwards by
+    /// [`LibraryRepository::resolve_album_covers`], which picks deterministically
+    /// instead of taking whichever track the scan happened to finish first.
+    fn resolve_album(&mut self, title: &str, year: Option<i32>) -> Result<i64> {
         let key = (title.to_string(), year);
         if let Some(&id) = self.album_cache.get(&key) {
-            // First cover wins (matches the old upsert behavior of filling a
-            // missing cover from whichever track carries one).
-            if let Some(cid) = cover_id {
-                self.conn.execute(
-                    "UPDATE albums SET cover_art_id = ?1 WHERE id = ?2 AND cover_art_id IS NULL",
-                    rusqlite::params![cid, id],
-                )?;
-            }
             return Ok(id);
         }
         self.conn.execute(
-            "INSERT INTO albums (title, year, cover_art_id) VALUES (?1, ?2, ?3)",
-            rusqlite::params![title, year, cover_id],
+            "INSERT INTO albums (title, year, cover_art_id) VALUES (?1, ?2, NULL)",
+            rusqlite::params![title, year],
         )?;
         let id = self.conn.last_insert_rowid();
         self.album_cache.insert(key, id);
@@ -1703,7 +1718,7 @@ impl ScanSession {
         }
 
         let album_id = if let Some(title) = &track.album_title {
-            let album_id = self.resolve_album(title, track.year, cover_id)?;
+            let album_id = self.resolve_album(title, track.year)?;
             if !self.album_artists_set.contains(&album_id) {
                 let names = if !track.album_artist_names.is_empty() {
                     track.album_artist_names.clone()

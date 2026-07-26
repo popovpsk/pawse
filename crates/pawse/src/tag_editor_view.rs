@@ -1,14 +1,17 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
+use gpui::StyledImage;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, AppContext, Context, ElementId, Entity, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, px, rems, svg,
+    App, AppContext, Context, ElementId, Entity, Image, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Render, RenderImage, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px, rems, svg,
 };
 use gpui_component::{
     Sizable, WindowExt,
+    button::Button,
     dialog::DialogButtonProps,
     h_flex,
     input::{Input, InputEvent, InputState},
@@ -21,6 +24,7 @@ use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
+use ui_components::cover_thumb::cover_thumb;
 
 const DIALOG_WIDTH: f32 = 560.;
 const LIST_SEPARATOR: &str = "; ";
@@ -38,6 +42,8 @@ const DIALOG_CHROME_HEIGHT: f32 = 144.;
 /// Breathing room between the dialog's bottom edge and the player footer.
 const DIALOG_BOTTOM_MARGIN: f32 = 24.;
 const MIN_FORM_HEIGHT: f32 = 120.;
+const COVER_PREVIEW_SIZE: f32 = 84.;
+const COVER_PREVIEW_RADIUS: f32 = 6.;
 
 enum Target {
     Track { track_id: i64, has_album: bool },
@@ -64,6 +70,11 @@ pub struct TagEditorView {
     custom_key: Entity<InputState>,
     custom_value: Entity<InputState>,
     scroll: ScrollHandle,
+    cover: tag_writer::CoverEdit,
+    /// What the picture row shows: the file's own embedded tag when the dialog opened,
+    /// then whatever the user picked instead. `None` means the file carries no picture —
+    /// which is also the state where there is nothing for Remove to do.
+    cover_preview: Option<(Arc<RenderImage>, usize)>,
     _genre_subscription: Subscription,
     _custom_subscription: Subscription,
 }
@@ -109,6 +120,12 @@ struct Loaded {
     genres: Vec<String>,
     raw_tags: Vec<(SharedString, SharedString)>,
     custom_tags: tag_writer::CustomTags,
+    /// The picture *embedded in the file*, decoded for the preview. Deliberately not the
+    /// cover the library shows: that one may have been found in a neighbouring
+    /// `cover.jpg`, and a tag editor claiming the file holds a tag it does not is a lie
+    /// the user would act on — pressing Remove would appear to do something and change
+    /// nothing.
+    cover: Option<(Arc<RenderImage>, usize)>,
 }
 
 fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> Option<Loaded> {
@@ -129,7 +146,8 @@ fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> 
     // why: a cue track's fields come from the .cue text, not the shared audio file's tags — reading
     // the file would show empty fields for values the library plainly knows
     if track.is_cue {
-        return Some(from_library(track, raw_tags, custom_tags, cx));
+        let embedded = music_indexer::metadata::extract_embedded_cover(path);
+        return Some(from_library(track, raw_tags, custom_tags, embedded, cx));
     }
 
     let scanned = match music_indexer::metadata::read_metadata(path) {
@@ -154,13 +172,37 @@ fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> 
         genres: scanned.genres,
         raw_tags,
         custom_tags,
+        // why: `embedded: false` means the art came from a file next to the track, so the
+        // tag itself is empty and the editor has to show it that way
+        cover: match scanned.cover_art {
+            Some(music_indexer::CoverArt::Bytes {
+                data,
+                embedded: true,
+                ..
+            }) => decode_cover(&data, cx),
+            _ => None,
+        },
     })
+}
+
+/// Decode a picture for the preview, paired with its size in bytes.
+///
+/// `RenderImage` rather than `Image` because the sprite-atlas tile it takes can only be
+/// handed back through `App::drop_image`, and the dialog opens often enough for one
+/// leaked tile per open to add up.
+fn decode_cover(bytes: &[u8], cx: &App) -> Option<(Arc<RenderImage>, usize)> {
+    let format = crate::cover_mode_view::sniff_image_format(bytes)?;
+    let image = Image::from_bytes(format, bytes.to_vec())
+        .to_image_data(cx.svg_renderer())
+        .ok()?;
+    Some((image, bytes.len()))
 }
 
 fn from_library(
     track: &music_library::Track,
     raw_tags: Vec<(SharedString, SharedString)>,
     custom_tags: tag_writer::CustomTags,
+    embedded_cover: Option<Vec<u8>>,
     cx: &App,
 ) -> Loaded {
     let library = &cx.global::<Services>().library;
@@ -184,6 +226,7 @@ fn from_library(
             .unwrap_or_default(),
         raw_tags,
         custom_tags,
+        cover: embedded_cover.and_then(|bytes| decode_cover(&bytes, cx)),
     }
 }
 
@@ -193,6 +236,10 @@ fn open_dialog(
     window: &mut Window,
     cx: &mut App,
 ) {
+    // The subscription is detached rather than held by the view it observes: it has to
+    // outlive that view long enough to fire during its teardown.
+    cx.observe_release(&view, |this, cx| this.release_preview(cx))
+        .detach();
     // why: open_dialog's builder re-runs every frame, so the form's InputStates live in the entity
     // above and the closure only clones the handle
     window.open_dialog(cx, move |dialog, _, _| {
@@ -270,6 +317,8 @@ impl TagEditorView {
             custom_key,
             custom_value,
             scroll: ScrollHandle::new(),
+            cover: tag_writer::CoverEdit::Keep,
+            cover_preview: loaded.cover,
             target,
             read_only,
             _genre_subscription: genre_subscription,
@@ -279,6 +328,63 @@ impl TagEditorView {
 
     fn read_only(&self) -> bool {
         self.read_only
+    }
+
+    /// Ask for an image file, keep it in memory until Save. The format is checked here
+    /// rather than at write time: the writer runs on the background executor long after
+    /// the dialog closed, so a refusal there would discard every other edit too.
+    fn pick_cover(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let Some(handle) = rfd::AsyncFileDialog::new()
+                .add_filter("Image", &["jpg", "jpeg", "png"])
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let path = handle.path().to_path_buf();
+            let Ok(bytes) = cx
+                .background_executor()
+                .spawn(async move { std::fs::read(&path) })
+                .await
+            else {
+                diagnostics::notify_error(
+                    tr().tag_cover_failed_title.to_string(),
+                    tr().tag_cover_unreadable.to_string(),
+                );
+                return;
+            };
+            if !tag_writer::cover_bytes_ok(&bytes) {
+                diagnostics::notify_error(
+                    tr().tag_cover_failed_title.to_string(),
+                    tr().tag_cover_bad_format.to_string(),
+                );
+                return;
+            }
+            let decoded = decode_preview(&bytes, cx).await;
+            let _ = this.update(cx, |this, cx| {
+                this.release_preview(cx);
+                this.cover_preview = decoded.map(|image| (image, bytes.len()));
+                this.cover = tag_writer::CoverEdit::Replace { bytes };
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn remove_cover(&mut self, cx: &mut Context<Self>) {
+        self.release_preview(cx);
+        self.cover = tag_writer::CoverEdit::Remove;
+        cx.notify();
+    }
+
+    /// why: `drop_image` is the only thing that frees the sprite-atlas tile — `RenderImage`
+    /// has no `Drop` that does it — so every preview has to be released explicitly, both
+    /// when another file replaces it and when the dialog goes away.
+    fn release_preview(&mut self, cx: &mut App) {
+        if let Some((old, _)) = self.cover_preview.take() {
+            cx.drop_image(old, None);
+        }
     }
 
     /// Album, album artist and year all describe the shared `albums` row — the row
@@ -387,6 +493,7 @@ impl TagEditorView {
                     genres,
                     removed_tags,
                     added_tags,
+                    cover: self.cover.clone(),
                 };
                 library.update_track_tags(track_id, edits, folders);
             }
@@ -396,6 +503,7 @@ impl TagEditorView {
                     album_artists: split_list(&self.album_artists.read(cx).value()),
                     year,
                     genres,
+                    cover: self.cover.clone(),
                 };
                 library.update_album_tags(album_id, edits, folders);
             }
@@ -494,6 +602,97 @@ impl Render for TagEditorView {
 }
 
 impl TagEditorView {
+    fn cover_row(&self, muted: gpui::Hsla, cx: &mut Context<Self>) -> impl IntoElement {
+        let removing = self.cover == tag_writer::CoverEdit::Remove;
+        let shown = if removing {
+            None
+        } else {
+            self.cover_preview.as_ref()
+        };
+        let is_album = matches!(self.target, Target::Album { .. });
+        h_flex()
+            .gap_3()
+            .items_start()
+            .child(
+                div()
+                    .w(px(LABEL_WIDTH))
+                    .flex_shrink_0()
+                    .pt_1()
+                    .text_sm()
+                    .text_color(muted)
+                    .child(tr().tag_cover.clone()),
+            )
+            .child(match shown {
+                Some((image, _)) => div()
+                    .flex_shrink_0()
+                    .child(
+                        gpui::img(image.clone())
+                            .size(px(COVER_PREVIEW_SIZE))
+                            .rounded(px(COVER_PREVIEW_RADIUS))
+                            .object_fit(gpui::ObjectFit::Cover),
+                    )
+                    .into_any_element(),
+                None => cover_thumb(
+                    None,
+                    COVER_PREVIEW_SIZE,
+                    COVER_PREVIEW_RADIUS,
+                    Colors::muted(cx),
+                    muted,
+                ),
+            })
+            .when(!self.read_only(), |el| {
+                el.child(
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("cover-replace")
+                                        .small()
+                                        .label(tr().tag_cover_replace.clone())
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.pick_cover(cx)),
+                                        ),
+                                )
+                                // Nothing to remove when the file carries no picture, and a
+                                // button that does nothing reads as a broken one.
+                                .when(shown.is_some(), |el| {
+                                    el.child(
+                                        Button::new("cover-remove")
+                                            .small()
+                                            .label(tr().tag_cover_remove.clone())
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| this.remove_cover(cx)),
+                                            ),
+                                    )
+                                }),
+                        )
+                        // why: the picture is embedded verbatim into every file and never
+                        // resized, so its size is the one number that explains what Save costs
+                        .when_some(shown, |el, (_, bytes)| {
+                            el.child(div().text_xs().text_color(muted).child(format_size(*bytes)))
+                        })
+                        .when(is_album, |el| {
+                            el.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(tr().tag_cover_album_hint.clone()),
+                            )
+                        })
+                        .when(removing, |el| {
+                            el.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(tr().tag_cover_will_remove.clone()),
+                            )
+                        }),
+                )
+            })
+    }
+
     fn form(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted = Colors::muted_foreground(cx);
         let border = Colors::border(cx);
@@ -511,6 +710,7 @@ impl TagEditorView {
                         .child(tr().tag_cue_readonly.clone()),
                 )
             })
+            .child(self.cover_row(muted, cx))
             .when(is_track, |el| {
                 el.child(field_row(
                     tr().tag_title.clone(),
@@ -822,6 +1022,32 @@ fn action_icon_button(
         ACTION_BUTTON_SIZE,
         ACTION_ICON_SIZE,
     )
+}
+
+/// Bytes as the user thinks of them. Only ever shown for a file they just picked, so
+/// megabytes is the useful unit and one decimal is plenty.
+fn format_size(bytes: usize) -> String {
+    const MB: f64 = 1024. * 1024.;
+    if bytes as f64 >= MB {
+        format!("{:.1} MB", bytes as f64 / MB)
+    } else {
+        format!("{} KB", (bytes as f64 / 1024.).max(1.).round() as usize)
+    }
+}
+
+/// Decode picked bytes for the preview off the render thread. Mirrors how
+/// `cover_mode_view` builds its full-size image.
+async fn decode_preview(bytes: &[u8], cx: &mut gpui::AsyncApp) -> Option<Arc<RenderImage>> {
+    let format = crate::cover_mode_view::sniff_image_format(bytes)?;
+    let owned = bytes.to_vec();
+    let renderer = cx.update(|cx| cx.svg_renderer()).ok()?;
+    cx.background_executor()
+        .spawn(async move {
+            Image::from_bytes(format, owned)
+                .to_image_data(renderer)
+                .ok()
+        })
+        .await
 }
 
 fn field_row(label: SharedString, input: Input, muted: gpui::Hsla) -> impl IntoElement {

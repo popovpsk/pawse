@@ -19,6 +19,9 @@ pub struct AlbumTagEdits {
     pub album_artists: Vec<String>,
     pub year: Option<i32>,
     pub genres: Vec<String>,
+    /// Applied to every file of the album, since the cover is what the album screens
+    /// show and one file disagreeing would surface as art that changes on rescan.
+    pub cover: tag_writer::CoverEdit,
 }
 
 const SCAN_DEBOUNCE: Duration = Duration::from_secs(2);
@@ -1021,11 +1024,6 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     let album_id = match scanned.album_title.as_deref() {
         Some(title) => {
             let album_id = repo.upsert_album(title, scanned.year, None)?;
-            // why: renaming an album lands the track on a brand new row, which is born coverless —
-            // hand it the cover the track already carries, first-cover-wins like the scanner
-            if let Some(cover_id) = repo.track(track_id)?.and_then(|t| t.cover_art_id) {
-                repo.set_album_cover_if_missing(album_id, cover_id)?;
-            }
             // why: mirrors ScanSession, which links album artists only for the first track landing
             // in an album — a per-track edit must not rewrite a row shared with its siblings
             if !repo.album_has_artists(album_id)? {
@@ -1068,7 +1066,33 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
         );
     }
     repo.set_track_genres(upserted, &scanned.genres)?;
+    // why: upsert_track COALESCEs cover_art_id, so it can only ever keep the old cover — the
+    // column has to be set on its own for a replaced or removed picture to land, and for the
+    // external-file heuristic to be re-run after one
+    repo.set_track_cover(upserted, resolve_cover(repo, &scanned)?)?;
     Ok(())
+}
+
+/// Store the cover the file now resolves to and hand back its id, or `None` when the
+/// file has none. Reads whatever `read_metadata` decided, so an embedded picture and a
+/// neighbouring image file are treated exactly as a scan would treat them.
+fn resolve_cover(
+    repo: &dyn LibraryRepository,
+    scanned: &music_indexer::ScannedTrack,
+) -> anyhow::Result<Option<i64>> {
+    let Some(music_indexer::CoverArt::Bytes {
+        data,
+        source_path,
+        embedded,
+    }) = &scanned.cover_art
+    else {
+        return Ok(None);
+    };
+    Ok(Some(repo.save_cover_art(
+        data,
+        &source_path.to_string_lossy(),
+        *embedded,
+    )?))
 }
 
 /// How a track tag edit gave out. Each needs its own recovery: a refusal and a
@@ -1100,9 +1124,7 @@ fn apply_track_tags(
     }
     tag_writer::write_metadata(path, edits).map_err(TagEditFailure::Write)?;
     reindex_one(repo, track_id, path).map_err(TagEditFailure::Reindex)?;
-    if let Err(e) = repo.delete_orphaned_albums_and_artists() {
-        log::error!("Failed to clean up after tag edit: {}", e);
-    }
+    settle_derived_rows(repo, "tag edit");
     Ok(())
 }
 
@@ -1126,10 +1148,49 @@ fn apply_album_tags(
     if let Err(e) = relink_album_artists(repo, tracks[0].id, edits) {
         log::error!("Failed to relink album artists: {}", e);
     }
-    if let Err(e) = repo.delete_orphaned_albums_and_artists() {
-        log::error!("Failed to clean up after album tag edit: {}", e);
-    }
+    settle_derived_rows(repo, "album tag edit");
     Ok(written)
+}
+
+/// Bring derived rows in line with the tracks that now exist: settle every album's
+/// cover by the deterministic rule, then drop what nothing references any more.
+///
+/// Both the scan and the point-update paths owe this, and they owe it *identically* —
+/// the point update is only an optimisation over a rescan, so any step one takes and
+/// the other skips shows up as a library that changes when it is re-indexed.
+fn settle_derived_rows(repo: &dyn LibraryRepository, what: &str) {
+    if let Err(e) = repo.resolve_album_covers() {
+        log::error!("Failed to resolve album covers after {}: {}", what, e);
+    }
+    if let Err(e) = repo.delete_orphaned_albums_and_artists() {
+        log::error!("Failed to clean up after {}: {}", what, e);
+    }
+}
+
+/// Whether the file's cover is already what the edit asks for, so that re-saving an
+/// album without touching its art does not rewrite every one of its files.
+///
+/// Compares the *embedded* picture only. An album whose art comes from a neighbouring
+/// image file reads back as `embedded: false`, and asking to `Replace` it has to write
+/// even when the bytes match, or the picture would never move into the tag where it
+/// takes priority.
+fn cover_already_matches(
+    current: &music_indexer::ScannedTrack,
+    edit: &tag_writer::CoverEdit,
+) -> bool {
+    let embedded = match &current.cover_art {
+        Some(music_indexer::CoverArt::Bytes {
+            data,
+            embedded: true,
+            ..
+        }) => Some(data.as_slice()),
+        _ => None,
+    };
+    match edit {
+        tag_writer::CoverEdit::Keep => true,
+        tag_writer::CoverEdit::Remove => embedded.is_none(),
+        tag_writer::CoverEdit::Replace { bytes } => embedded == Some(bytes.as_slice()),
+    }
 }
 
 /// Overwrite only the album-level fields of one file, keeping its per-track tags
@@ -1147,6 +1208,7 @@ fn write_album_fields(
         && current.year == edits.year
         && current.album_artist_names == edits.album_artists
         && current.genres == edits.genres
+        && cover_already_matches(&current, &edits.cover)
     {
         return Ok(false);
     }
@@ -1161,6 +1223,7 @@ fn write_album_fields(
         genres: edits.genres.clone(),
         removed_tags: Vec::new(),
         added_tags: Vec::new(),
+        cover: edits.cover.clone(),
     };
     tag_writer::write_metadata(path, &merged)?;
     reindex_one(repo, track_id, path)?;
@@ -1271,9 +1334,7 @@ fn finalize_rescan(
     if let Err(e) = repo.restore_lyrics_refs(lyrics_refs) {
         log::error!("Failed to restore lyrics: {}", e);
     }
-    if let Err(e) = repo.delete_orphaned_albums_and_artists() {
-        log::error!("Failed to clean up orphaned cover art: {}", e);
-    }
+    settle_derived_rows(repo, "scan");
     if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
         log::error!("Failed to store scan fingerprint: {}", e);
     }
@@ -1413,6 +1474,7 @@ mod tests {
             }
             worker.join().unwrap();
             session.finish().unwrap();
+            settle_derived_rows(&self.repo, "scan");
         }
 
         /// Index one file as a cue track. Only the scanner ever sets that flag, and
@@ -1509,6 +1571,11 @@ mod tests {
         }
     }
 
+    fn cover_bytes() -> Vec<u8> {
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        std::fs::read(PathBuf::from(manifest).join("../../fixtures/cover_alternate.png")).unwrap()
+    }
+
     fn edits_titled(title: &str) -> tag_writer::TrackTagEdits {
         tag_writer::TrackTagEdits {
             title: Some(title.to_string()),
@@ -1571,6 +1638,7 @@ mod tests {
             album_artists: Vec::new(),
             year: None,
             genres: Vec::new(),
+            cover: tag_writer::CoverEdit::Keep,
         };
         assert!(write_album_fields(&ws.repo, track_id, &path, &edits).unwrap());
         relink_album_artists(&ws.repo, track_id, &edits).unwrap();
@@ -1610,6 +1678,7 @@ mod tests {
             album_artists: Vec::new(),
             year: Some(2000),
             genres: Vec::new(),
+            cover: tag_writer::CoverEdit::Keep,
         };
         write_album_fields(&ws.repo, stray_id, &stray, &edits).unwrap();
         ws.repo.delete_orphaned_albums_and_artists().unwrap();
@@ -1662,6 +1731,7 @@ mod tests {
             album_artists: Vec::new(),
             year: Some(2001),
             genres: Vec::new(),
+            cover: tag_writer::CoverEdit::Keep,
         };
         assert!(
             !write_album_fields(&ws.repo, track_id, &path, &edits).unwrap(),
@@ -1709,6 +1779,7 @@ mod tests {
             album_artists: vec!["Band & Friends".into()],
             year: Some(2000),
             genres: vec!["Post-Rock".into()],
+            cover: tag_writer::CoverEdit::Keep,
         };
         assert_eq!(apply_album_tags(&ws.repo, &tracks, &edits).unwrap(), 2);
         let after_edit = ws.snapshot();
@@ -1805,13 +1876,173 @@ mod tests {
         );
     }
 
+    /// Three tracks, and the art goes on the middle one. The album has to end up
+    /// showing the *first* track's art both after the point update and after a rescan —
+    /// that is what makes per-track cover editing safe to offer at all.
+    #[test]
+    fn a_cover_set_on_one_track_settles_the_same_way_a_rescan_would() {
+        let ws = Workspace::new();
+        let paths: Vec<PathBuf> = (1..=3)
+            .map(|n| {
+                let path = ws.add_file(&format!("0{n}.flac"), "tagged_with_cover.flac");
+                let mut edits = edits_titled(&format!("Track {n}"));
+                edits.track_number = Some(n);
+                tag_writer::write_metadata(&path, &edits).unwrap();
+                path
+            })
+            .collect();
+        ws.scan();
+        let shared = ws.repo.albums().unwrap()[0]
+            .cover_art_id
+            .expect("all three start on the fixture's art");
+
+        let middle = ws.track_id(&paths[1]);
+        let mut edits = edits_titled("Track 2");
+        edits.track_number = Some(2);
+        edits.cover = tag_writer::CoverEdit::Replace {
+            bytes: cover_bytes(),
+        };
+        assert!(apply_track_tags(&ws.repo, middle, &paths[1], &edits).is_ok());
+
+        let after_edit = ws.snapshot();
+        assert_ne!(
+            ws.repo.track(middle).unwrap().unwrap().cover_art_id,
+            Some(shared),
+            "the edited track has to move to the new art"
+        );
+        assert_eq!(
+            ws.repo.albums().unwrap()[0].cover_art_id,
+            Some(shared),
+            "the album follows its lowest-numbered track, which was not edited"
+        );
+
+        ws.scan();
+        assert_eq!(after_edit, ws.snapshot());
+    }
+
+    /// The whole point of putting the picture in the tag: the tag outranks whatever the
+    /// heuristic found lying next to the file, so this is how a user overrides art that
+    /// was picked from the wrong image in the folder.
+    #[test]
+    fn a_cover_set_in_the_tag_wins_over_the_image_beside_the_file() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        std::fs::copy(
+            PathBuf::from(manifest).join("../../fixtures/cover_front.png"),
+            ws.folder.join("cover.png"),
+        )
+        .unwrap();
+        tag_writer::write_metadata(&path, &edits_titled("One")).unwrap();
+        ws.scan();
+
+        let track_id = ws.track_id(&path);
+        let from_folder = ws
+            .repo
+            .track(track_id)
+            .unwrap()
+            .unwrap()
+            .cover_art_id
+            .expect("the scan picks up cover.png");
+        assert!(
+            !ws.repo
+                .get_cover_art_source(from_folder)
+                .unwrap()
+                .unwrap()
+                .1,
+            "precondition: the art came from the folder, not from a tag"
+        );
+
+        let mut edits = edits_titled("One");
+        edits.cover = tag_writer::CoverEdit::Replace {
+            bytes: cover_bytes(),
+        };
+        assert!(apply_track_tags(&ws.repo, track_id, &path, &edits).is_ok());
+
+        let now = ws
+            .repo
+            .track(track_id)
+            .unwrap()
+            .unwrap()
+            .cover_art_id
+            .unwrap();
+        assert_ne!(now, from_folder, "the tag has to displace the folder image");
+        assert!(
+            ws.repo.get_cover_art_source(now).unwrap().unwrap().1,
+            "and the new art has to be recorded as embedded"
+        );
+
+        let after_edit = ws.snapshot();
+        ws.scan();
+        assert_eq!(
+            after_edit,
+            ws.snapshot(),
+            "cover.png is still on disk, and must stay outranked"
+        );
+    }
+
+    #[test]
+    fn removing_a_cover_clears_it_from_the_track_and_the_album() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_with_cover.flac");
+        tag_writer::write_metadata(&path, &edits_titled("One")).unwrap();
+        ws.scan();
+        let track_id = ws.track_id(&path);
+        let cover = ws.repo.albums().unwrap()[0].cover_art_id.unwrap();
+
+        let mut edits = edits_titled("One");
+        edits.cover = tag_writer::CoverEdit::Remove;
+        assert!(apply_track_tags(&ws.repo, track_id, &path, &edits).is_ok());
+
+        assert_eq!(ws.repo.track(track_id).unwrap().unwrap().cover_art_id, None);
+        assert_eq!(ws.repo.albums().unwrap()[0].cover_art_id, None);
+        assert!(
+            ws.repo.get_cover_art(cover).unwrap().is_none(),
+            "nothing references the old art any more, so it must be collected"
+        );
+        assert_eq!(ws.snapshot(), {
+            ws.scan();
+            ws.snapshot()
+        });
+    }
+
+    #[test]
+    fn an_album_save_that_keeps_the_cover_rewrites_no_file() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_with_cover.flac");
+        tag_writer::write_metadata(&path, &edits_titled("One")).unwrap();
+        ws.scan();
+        let album_id = ws.repo.albums().unwrap()[0].id;
+        let embedded = music_indexer::metadata::extract_embedded_cover(&path).unwrap();
+        let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        let tracks = ws.repo.tracks_for_album(album_id).unwrap();
+        let edits = AlbumTagEdits {
+            album: Some("Seed Album".into()),
+            album_artists: Vec::new(),
+            year: Some(2001),
+            genres: Vec::new(),
+            cover: tag_writer::CoverEdit::Replace { bytes: embedded },
+        };
+        assert_eq!(
+            apply_album_tags(&ws.repo, &tracks, &edits).unwrap(),
+            0,
+            "the art it already carries is not a change"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            before,
+            "an untouched mtime is what keeps the watcher quiet"
+        );
+    }
+
     #[test]
     fn a_renamed_album_keeps_the_cover_its_tracks_carry() {
         let ws = Workspace::new();
         let path = ws.add_file("one.flac", "tagged_with_cover.flac");
         tag_writer::write_metadata(&path, &edits_titled("One")).unwrap();
         ws.scan();
-        let track_id = ws.track_id(&path);
+        let album_id = ws.repo.albums().unwrap()[0].id;
         let cover = ws.repo.albums().unwrap()[0]
             .cover_art_id
             .expect("the fixture carries embedded art");
@@ -1821,9 +2052,10 @@ mod tests {
             album_artists: Vec::new(),
             year: Some(2001),
             genres: Vec::new(),
+            cover: tag_writer::CoverEdit::Keep,
         };
-        assert!(write_album_fields(&ws.repo, track_id, &path, &edits).unwrap());
-        ws.repo.delete_orphaned_albums_and_artists().unwrap();
+        let tracks = ws.repo.tracks_for_album(album_id).unwrap();
+        assert_eq!(apply_album_tags(&ws.repo, &tracks, &edits).unwrap(), 1);
 
         let albums = ws.repo.albums().unwrap();
         assert_eq!(albums.len(), 1);
