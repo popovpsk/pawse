@@ -44,6 +44,8 @@ const DIALOG_BOTTOM_MARGIN: f32 = 24.;
 const MIN_FORM_HEIGHT: f32 = 120.;
 const COVER_PREVIEW_SIZE: f32 = 84.;
 const COVER_PREVIEW_RADIUS: f32 = 6.;
+const SCROLLBAR_BAND_WIDTH: f32 = 16.;
+const FORM_RIGHT_GAP: f32 = 4.;
 
 enum Target {
     Track { track_id: i64, has_album: bool },
@@ -594,7 +596,7 @@ impl Render for TagEditorView {
                     .size_full()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
-                    .pr_2()
+                    .pr(px(SCROLLBAR_BAND_WIDTH + FORM_RIGHT_GAP))
                     .child(self.form(window, cx)),
             )
             .vertical_scrollbar(&self.scroll)
