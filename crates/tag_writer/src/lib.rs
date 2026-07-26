@@ -433,6 +433,19 @@ mod tests {
             .map(str::to_owned)
     }
 
+    /// A custom row for containers that take one, and nothing for those that do not —
+    /// so a test covering "everything at once" can still run against MP4.
+    fn custom_row_if_supported(path: &Path, value: &str) -> Vec<RawTag> {
+        if custom_tags_for(path).supported() {
+            vec![RawTag {
+                key: "MYCUSTOM".into(),
+                value: value.into(),
+            }]
+        } else {
+            Vec::new()
+        }
+    }
+
     fn full_edits() -> TrackTagEdits {
         TrackTagEdits {
             title: Some("New Title".into()),
@@ -500,6 +513,11 @@ mod tests {
     #[test]
     fn roundtrip_ogg() {
         roundtrip("tagged_ogg.ogg");
+    }
+
+    #[test]
+    fn roundtrip_m4a() {
+        roundtrip("tagged_m4a.m4a");
     }
 
     #[test]
@@ -678,6 +696,37 @@ mod tests {
                 "{fixture}: custom tags must not disturb the fields"
             );
         }
+    }
+
+    /// MP4 takes no custom rows, and the refusal has to come before the file is
+    /// touched. Not because the container cannot hold one — `----` freeform atoms
+    /// exist — but because lofty's generic-tag conversion does not emit them: an
+    /// ilst atom name is exactly four bytes, so a 4-character key is written as a
+    /// literal atom (which no player recognises) and every other length is dropped
+    /// with no error at all. Silence is the one outcome the UI cannot report, so the
+    /// whole container is refused up front instead.
+    #[test]
+    fn mp4_refuses_custom_rows_before_writing_anything() {
+        let dir = TempDir::new();
+        let path = copy_fixture(&dir, "tagged_m4a.m4a");
+        write_metadata(&path, &full_edits()).unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        assert!(!custom_tags_for(&path).supported());
+        let edits = TrackTagEdits {
+            title: Some("Never Written".into()),
+            added_tags: vec![RawTag {
+                key: "MYCUSTOM".into(),
+                value: "hello".into(),
+            }],
+            ..full_edits()
+        };
+        assert!(write_metadata(&path, &edits).is_err());
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "a refusal must not be a partial write"
+        );
     }
 
     #[test]
@@ -910,7 +959,12 @@ mod tests {
 
     #[test]
     fn multi_values_survive_per_container() {
-        for fixture in ["tagged_basic.flac", "tagged_ogg.ogg", "tagged_mp3.mp3"] {
+        for fixture in [
+            "tagged_basic.flac",
+            "tagged_ogg.ogg",
+            "tagged_mp3.mp3",
+            "tagged_m4a.m4a",
+        ] {
             let dir = TempDir::new();
             let path = copy_fixture(&dir, fixture);
 
@@ -1192,14 +1246,16 @@ mod tests {
 
     #[test]
     fn writing_the_same_edits_twice_changes_nothing() {
-        for fixture in ["tagged_basic.flac", "tagged_ogg.ogg", "tagged_mp3.mp3"] {
+        for fixture in [
+            "tagged_basic.flac",
+            "tagged_ogg.ogg",
+            "tagged_mp3.mp3",
+            "tagged_m4a.m4a",
+        ] {
             let dir = TempDir::new();
             let path = copy_fixture(&dir, fixture);
             let edits = TrackTagEdits {
-                added_tags: vec![RawTag {
-                    key: "MYCUSTOM".into(),
-                    value: "hello".into(),
-                }],
+                added_tags: custom_row_if_supported(&path, "hello"),
                 ..full_edits()
             };
 
@@ -1224,7 +1280,12 @@ mod tests {
 
     #[test]
     fn unicode_values_round_trip_per_container() {
-        for fixture in ["tagged_basic.flac", "tagged_ogg.ogg", "tagged_mp3.mp3"] {
+        for fixture in [
+            "tagged_basic.flac",
+            "tagged_ogg.ogg",
+            "tagged_mp3.mp3",
+            "tagged_m4a.m4a",
+        ] {
             let dir = TempDir::new();
             let path = copy_fixture(&dir, fixture);
 
@@ -1233,10 +1294,7 @@ mod tests {
                 artists: vec!["Кино".into(), "Аквариум".into()],
                 album: Some("Группа крови".into()),
                 genres: vec!["Пост-панк".into()],
-                added_tags: vec![RawTag {
-                    key: "MYCUSTOM".into(),
-                    value: "значение 🎧".into(),
-                }],
+                added_tags: custom_row_if_supported(&path, "значение 🎧"),
                 ..TrackTagEdits::default()
             };
             write_metadata(&path, &edits).unwrap();
@@ -1250,13 +1308,15 @@ mod tests {
                 "{fixture}"
             );
             assert_eq!(read.genres, edits.genres, "{fixture}");
-            assert!(
-                read_raw_tags(&path)
-                    .unwrap()
-                    .iter()
-                    .any(|t| t.value == "значение 🎧"),
-                "{fixture}: a unicode custom value"
-            );
+            if custom_tags_for(&path).supported() {
+                assert!(
+                    read_raw_tags(&path)
+                        .unwrap()
+                        .iter()
+                        .any(|t| t.value == "значение 🎧"),
+                    "{fixture}: a unicode custom value"
+                );
+            }
         }
     }
 

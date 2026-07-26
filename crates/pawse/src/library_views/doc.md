@@ -94,3 +94,21 @@ drive the `PlaybackQueue` on click.
   siblings re-keys the row and splits the album in two. They unlock only in the album
   editor, or for a track that belongs to no album at all — nothing shared to break,
   and no album editor it could be reached from.
+- **Cover art is not a tag-editor field, and re-keying an album must not lose it.**
+  A cover is derived, never typed: the scanner takes the embedded picture, or an
+  image file found next to the track, hashes it into `cover_art` and hangs the id off
+  both the track and the album (`ScanSession::resolve_album`, first cover wins).
+  Renaming an album therefore lands its tracks on a *new* `albums` row, which is born
+  with `cover_art_id NULL` — the tracks keep theirs, but the Albums list and the album
+  header read the album's own column and would go blank until some later full rescan.
+  `reindex_one` closes that by handing the new row the cover its track already carries,
+  through `set_album_cover_if_missing` — the same first-cover-wins statement the
+  scanner uses, so merging a track into an existing album never restyles it.
+- **The point-update path is checked against a real rescan, not field by field.**
+  `library_service`'s tests index a temp folder with the actual pipeline
+  (`music_indexer::run` + `open_scan_session`, no GPUI), apply a tag edit through the
+  same functions the spawned task calls (`apply_track_tags` / `apply_album_tags`),
+  then scan again and compare a snapshot of the whole library. The point update is
+  only an optimisation over that rescan, so anything it forgets shows up as a diff —
+  including columns nobody thought to assert, which is how the missing cover would
+  have been caught.

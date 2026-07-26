@@ -19,7 +19,8 @@ FIXTURES = \
 	$(FIXTURES_DIR)/tagged_with_cover.flac \
 	$(FIXTURES_DIR)/tagless.flac \
 	$(FIXTURES_DIR)/tagged_mp3.mp3 \
-	$(FIXTURES_DIR)/tagged_ogg.ogg
+	$(FIXTURES_DIR)/tagged_ogg.ogg \
+	$(FIXTURES_DIR)/tagged_m4a.m4a
 
 .PHONY: all generate clean bin-deps
 
@@ -141,6 +142,16 @@ $(FIXTURES_DIR)/tagged_ogg.ogg: | $(FIXTURES_DIR)
 		-metadata album="OGG Album" \
 		-metadata track="9" \
 		-codec:a libvorbis "$@"
+
+# --- Tagged M4A (MP4 ilst) ---
+
+$(FIXTURES_DIR)/tagged_m4a.m4a: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \
+		-metadata title="M4A Track" \
+		-metadata artist="M4A Artist" \
+		-metadata album="M4A Album" \
+		-metadata track="4" \
+		-codec:a aac "$@"
 
 clean:
 	rm -f $(FIXTURES)

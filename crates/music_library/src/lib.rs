@@ -813,6 +813,32 @@ mod tests {
     }
 
     #[test]
+    fn test_set_album_cover_if_missing_never_replaces_one() {
+        let (lib, _path) = create_test_db();
+        let kept = lib.save_cover_art(&make_test_jpeg(&[255, 0, 0])).unwrap();
+        let other = lib.save_cover_art(&make_test_jpeg(&[0, 255, 0])).unwrap();
+
+        let bare = lib.upsert_album("Bare", None, None).unwrap();
+        let dressed = lib.upsert_album("Dressed", None, Some(kept)).unwrap();
+
+        lib.set_album_cover_if_missing(bare, other).unwrap();
+        lib.set_album_cover_if_missing(dressed, other).unwrap();
+
+        let by_id: std::collections::HashMap<i64, Option<i64>> = lib
+            .albums()
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.id, a.cover_art_id))
+            .collect();
+        assert_eq!(by_id[&bare], Some(other), "an empty slot takes the cover");
+        assert_eq!(
+            by_id[&dressed],
+            Some(kept),
+            "first cover wins, so merging a track in must not restyle the album"
+        );
+    }
+
+    #[test]
     fn test_cover_art_deduplication_across_albums() {
         let (lib, _path) = create_test_db();
         let data = make_test_jpeg(&[255, 0, 0]);

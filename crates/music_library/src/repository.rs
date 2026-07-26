@@ -69,6 +69,9 @@ pub trait LibraryRepository: Send + Sync {
     fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>>;
     fn get_track_path_for_cover(&self, id: i64) -> Result<Option<String>>;
     fn album_has_artists(&self, album_id: i64) -> Result<bool>;
+    /// Give an album a cover only if it has none — the scanner's first-cover-wins
+    /// rule, reused by the point update that follows a tag edit.
+    fn set_album_cover_if_missing(&self, album_id: i64, cover_art_id: i64) -> Result<()>;
     fn artists(&self) -> Result<Vec<ArtistSummary>>;
     fn artist_name(&self, id: i64) -> Result<Option<String>>;
     fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;
@@ -84,6 +87,9 @@ pub trait LibraryRepository: Send + Sync {
     /// edit and a rescan converge on the same rows. Genres left without any
     /// track are dropped in the same transaction.
     fn set_track_genres(&self, track_id: i64, genres: &[String]) -> Result<()>;
+    /// The track's genres in `track_genres.position` order — the read side of
+    /// [`set_track_genres`](LibraryRepository::set_track_genres).
+    fn track_genres(&self, track_id: i64) -> Result<Vec<String>>;
 
     fn create_playlist(&self, name: &str) -> Result<i64>;
     fn delete_playlist(&self, playlist_id: i64) -> Result<()>;

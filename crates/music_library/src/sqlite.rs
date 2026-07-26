@@ -653,6 +653,22 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn track_genres(&self, track_id: i64) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT g.name
+            FROM genres g
+            JOIN track_genres tg ON tg.genre_id = g.id
+            WHERE tg.track_id = ?1
+            ORDER BY tg.position
+            "#,
+        )?;
+        let rows = stmt.query_map([track_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn album_artists(&self, album_id: i64) -> Result<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
@@ -839,6 +855,15 @@ impl LibraryRepository for SqliteLibrary {
             |row| row.get(0),
         )?;
         Ok(exists)
+    }
+
+    fn set_album_cover_if_missing(&self, album_id: i64, cover_art_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE albums SET cover_art_id = ?1 WHERE id = ?2 AND cover_art_id IS NULL",
+            rusqlite::params![cover_art_id, album_id],
+        )?;
+        Ok(())
     }
 
     fn artists(&self) -> Result<Vec<ArtistSummary>> {

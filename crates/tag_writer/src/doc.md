@@ -12,7 +12,15 @@ with its own round-trip tests. It knows nothing about SQLite or the UI.
 - `lib.rs` — the whole crate. `TrackTagEdits` (the editable field set),
   `write_metadata` (durable write), `RawTag` + `read_raw_tags` (the read-only
   "everything else in this file" list the tag-editor modal shows), and the
-  round-trip tests.
+  round-trip tests. Fixtures cover flac, ogg, mp3 and m4a (`make generate`); a
+  container without one is called out as unverified below rather than assumed.
+- `tests/raw_bytes.rs` — the same writes, checked against the bytes with a
+  hand-written FLAC/ID3v2 parser instead of lofty. The round-trip tests in `lib.rs`
+  write and read through the same library, so anything lofty gets wrong
+  *symmetrically* passes them and still breaks every other player; this is the only
+  place that can catch that. Keep it dependency-free — no external tagger is
+  installed anywhere this repo builds, and adding one would make the suite
+  platform-dependent.
 
 ## Non-obvious behavior
 
@@ -48,9 +56,10 @@ with its own round-trip tests. It knows nothing about SQLite or the UI.
   representation is a single NUL-separated frame, which lofty reads back as
   distinct items — so `set_multi` NUL-joins for `TagType::Id3v2` and pushes
   separate items for everything else. Vorbis Comments (flac, ogg) hold separate
-  fields natively. `multi_values_survive_per_container` locks this down for all
-  three; **MP4/m4a and APE are unverified** — there is no fixture for them, so add
-  one to the test loop before trusting multi-value edits there.
+  fields natively, and MP4 ilst holds several data atoms per key.
+  `multi_values_survive_per_container` locks this down for flac, ogg, mp3 and m4a.
+  **APE is still unverified** — no fixture — so add one to the test loop before
+  trusting multi-value edits there.
 
 - **Embedded art survives an edit**, including the custom-row path, which is the
   only one that ever rebuilt the tag. `embedded_cover_survives_a_custom_row` pins it
@@ -75,13 +84,21 @@ with its own round-trip tests. It knows nothing about SQLite or the UI.
   ID3v2, where one key is one frame: `two_custom_rows_can_share_a_key` and
   `a_custom_row_joins_a_key_the_file_already_has` both failed that way.
 
+- **A custom row is a `TXXX` frame on ID3v2, a plain field on Vorbis.** lofty wraps
+  an unknown key in `TXXX` (user-defined text, keyed by description), which is the
+  portable spelling — other editors show those rows under the name the user typed.
+  `ARTISTS` rides the same slot, since ID3v2 has no frame for it.
+  `a_custom_row_becomes_a_txxx_frame_on_mp3` pins this from the bytes.
+
 - **ID3v2 cannot take a 4-character custom name.** Frame ids are exactly four
-  characters, so lofty treats a 4-character unknown key as a literal frame id and
-  refuses it while writing (`Attempted to write an invalid frame. ID: "MOOD"`), which
-  would abort the save and take every other edit in it down too. `CustomTags` catches
-  it first, and the UI asks the same question when the row is typed — see the note
-  below. Vorbis has no such limit, which
-  `id3v2_refuses_a_four_character_custom_name` asserts from both sides.
+  characters, so lofty treats a 4-character unknown key as a literal frame id — no
+  `TXXX` wrapping — and refuses it while writing (`Attempted to write an invalid
+  frame. ID: "MOOD"`), which would abort the save and take every other edit in it
+  down too. `CustomTags` catches it first, and the UI asks the same question when the
+  row is typed — see the note below. Vorbis has no such limit, which
+  `id3v2_refuses_a_four_character_custom_name` asserts from both sides;
+  `a_four_character_custom_name_is_refused_without_touching_the_file` adds that the
+  refused save leaves the file byte-identical.
 
 - **Key validity is decided by the container, before the dialog closes.**
   `custom_tags_for(path)` resolves a file to a `CustomTags`, and
@@ -93,8 +110,20 @@ with its own round-trip tests. It knows nothing about SQLite or the UI.
   to every container; names the form already owns are refused too (checked against
   *both* vocabularies, so `TITLE` and `TIT2` go equally, whatever the file is tagged
   with); and `NoFrameIdLength` adds the ID3v2 rule above. `CustomTags::Unsupported`
-  (MP4, APE, RIFF — no fixture to verify against) makes the UI hide the add row
-  entirely rather than offer an input that only ever produces an error.
+  makes the UI hide the add row entirely rather than offer an input that only ever
+  produces an error.
+
+- **MP4 is `Unsupported`, and the reason is the mirror image of ID3v2's.** Not that
+  the container cannot hold a custom row — `----` freeform atoms exist — but that
+  lofty's generic-tag conversion never emits one. An ilst atom name is exactly four
+  bytes, so a 4-character key is written as a *literal* atom no player recognises,
+  and every other length is dropped **with no error at all**. Verified by probe: of
+  `MOOD`/`ENGINEER`/`MYTAG`/`ABCDE`/`AB`, only `MOOD` came back, and none of the
+  writes failed. A silent drop is the one outcome the UI cannot report, so the whole
+  container is refused up front —
+  `mp4_refuses_custom_rows_before_writing_anything`. Everything *else* about m4a is
+  verified and works: fields, multi-values, unicode, idempotence. APE and RIFF stay
+  `Unsupported` on the old grounds — no fixture to check against.
 
 - **The edit lists are diffed, not tracked.** `diff_raw_tags(original, current)`
   turns "the rows the file had" and "the rows on screen" into
