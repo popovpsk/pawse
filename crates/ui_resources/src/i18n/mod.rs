@@ -241,7 +241,33 @@ pub struct Strings {
     pub lyrics_text_size: SharedString,
     pub lyrics_text_size_desc: SharedString,
 
+    // --- Tag editor ---
+    pub edit_tags: SharedString,
+    pub edit_album_tags: SharedString,
+    pub tag_editor: SharedString,
+    pub tag_editor_desc: SharedString,
+    pub tag_save: SharedString,
+    pub tag_title: SharedString,
+    pub tag_artists: SharedString,
+    pub tag_album: SharedString,
+    pub tag_album_artists: SharedString,
+    pub tag_track_number: SharedString,
+    pub tag_disc_number: SharedString,
+    pub tag_year: SharedString,
+    pub tag_genres: SharedString,
+    pub tag_add_genre: SharedString,
+    pub tag_all_tags: SharedString,
+    pub tag_custom_key: SharedString,
+    pub tag_custom_value: SharedString,
+    pub tag_custom_invalid: SharedString,
+    pub tag_custom_invalid_len: SharedString,
+    pub tag_cue_readonly: SharedString,
+    pub tag_album_fields_hint: SharedString,
+    pub tags_saved: SharedString,
+    pub tag_write_failed_title: SharedString,
+
     // --- Templated (read via the accessor methods below) ---
+    pub tags_save_failed_t: SharedString,
     pub update_ready_t: SharedString,
     pub update_check_failed_t: SharedString,
     pub disc_t: SharedString,
@@ -394,6 +420,10 @@ impl Strings {
 
     pub fn update_check_failed(&self, err: &str) -> String {
         fill(&self.update_check_failed_t, &[err])
+    }
+
+    pub fn tags_save_failed(&self, err: &str) -> String {
+        fill(&self.tags_save_failed_t, &[err])
     }
 }
 

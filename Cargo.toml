@@ -17,7 +17,8 @@ members = [
     "crates/cue_parser",
     "crates/diagnostics",
     "crates/updater",
-    "crates/lyrics"
+    "crates/lyrics",
+    "crates/tag_writer"
 ]
 
 default-members = ["crates/pawse"]

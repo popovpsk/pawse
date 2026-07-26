@@ -30,6 +30,13 @@ so call sites have a single import; `mod.rs` re-exports the submodule items.
   frame, so the track list is captured behind an `Rc`.
 - `playlist_buttons.rs` — `add_to_playlist_button` (opens the global playlist popup)
   and `remove_from_playlist_button`.
+- `edit_tags_button.rs` — `edit_tags_button(Rc<Track>, &RowButtonColors)`, the pencil
+  that opens `crate::tag_editor_view` for one track, and
+  `edit_album_tags_button(album_id, …, cx)` for the album header (always visible, so
+  it resolves its own colors like `add_album_to_queue_button` does). Both are gated on
+  `SettingsStore::tag_editor_enabled`, which the *caller* reads once per frame — never
+  per row. The row button takes the whole `Rc<Track>` rather than an id because the
+  editor needs `path` and `is_cue`; the clone is a refcount bump.
 - `row_style.rs` — `current_row`, the styling applied to the currently-playing row.
 
 ## Conventions & non-obvious behavior

@@ -40,7 +40,7 @@ use crate::theme_colors::Colors;
 use ui_components::settings::SettingPage;
 
 const HEADER_HEIGHT: f32 = 44.;
-const FOOTER_HEIGHT: f32 = 80.;
+pub(crate) const FOOTER_HEIGHT: f32 = 80.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;

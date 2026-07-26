@@ -4950,6 +4950,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sys-locale",
+ "tag_writer",
  "ui_components",
  "ui_resources",
  "updater",
@@ -7082,6 +7083,15 @@ dependencies = [
  "grid",
  "serde",
  "slotmap",
+]
+
+[[package]]
+name = "tag_writer"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "lofty",
+ "music_indexer",
 ]
 
 [[package]]

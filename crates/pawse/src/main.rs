@@ -41,6 +41,7 @@ pub mod settings_view;
 pub mod shuffle_button;
 #[cfg(not(target_os = "macos"))]
 pub mod single_instance;
+pub mod tag_editor_view;
 pub mod theme_colors;
 pub mod track_list;
 pub mod track_progress_slider;

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, Window, div, px,
@@ -145,6 +146,20 @@ impl Render for AlbumInfo {
                             .into_any_element()
                     }),
             )
-            .child(add_album_to_queue_button(album_id, 42., 26., cx))
+            .child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .when(
+                        cx.global::<crate::settings_store::SettingsStore>()
+                            .tag_editor_enabled(),
+                        |el| {
+                            el.child(crate::track_list::edit_album_tags_button(
+                                album_id, 42., 22., cx,
+                            ))
+                        },
+                    )
+                    .child(add_album_to_queue_button(album_id, 42., 26., cx)),
+            )
     }
 }

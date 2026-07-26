@@ -444,6 +444,27 @@ fn interface_group(
             )
             .description(tr().playlists_desc.clone()),
         )
+        .item(
+            SettingItem::new(
+                tr().tag_editor.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().tag_editor_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("tag-editor-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_tag_editor_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().tag_editor_desc.clone()),
+        )
 }
 
 fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {

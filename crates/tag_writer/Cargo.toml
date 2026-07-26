@@ -1,0 +1,18 @@
+[package]
+name = "tag_writer"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+lofty = "0.22.0"
+
+[dev-dependencies]
+music_indexer = { path = "../music_indexer" }
+
+[lints]
+workspace = true

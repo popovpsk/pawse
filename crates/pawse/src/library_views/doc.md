@@ -81,3 +81,16 @@ drive the `PlaybackQueue` on click.
   constants, width is `px(0.)` (unused by the vertical list — kept zero on purpose).
 - Shared row controls (like / queue / playlist buttons, `current_row` styling) live
   in `crate::track_list`, not here.
+- **Tag editor**: the per-row pencil is wired only into `tracks_view` and
+  `artist_tracks_view` (the album and artist screens) — deliberately *not* into
+  `liked_view`, `playlist_tracks_view` or the queue, which are playback-ordering
+  screens. `album_info` carries the album-level pencil next to the add-album-to-queue
+  button. All of them are gated on `tag_editor_enabled`, read once per render into the
+  row `*Params` struct alongside `liked_enabled` / `playlists_enabled`. No
+  `observe_global::<SettingsStore>` is needed here: `MainView` already observes it and
+  re-rendering the parent re-renders these entities. Album title, album artist and
+  **year** are locked in the per-track modal: `albums` is keyed on `(title, year)`
+  (`ScanSession::resolve_album`), so editing any of the three from a track that has
+  siblings re-keys the row and splits the album in two. They unlock only in the album
+  editor, or for a track that belongs to no album at all — nothing shared to break,
+  and no album editor it could be reached from.

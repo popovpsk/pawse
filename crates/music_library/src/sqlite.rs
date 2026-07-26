@@ -653,6 +653,22 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn album_artists(&self, album_id: i64) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT ar.name
+            FROM album_artists aa
+            JOIN artists ar ON ar.id = aa.artist_id
+            WHERE aa.album_id = ?1
+            ORDER BY aa.position
+            "#,
+        )?;
+        let rows = stmt.query_map([album_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn album_genres_map(&self) -> Result<HashMap<i64, Vec<String>>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
@@ -970,6 +986,40 @@ impl LibraryRepository for SqliteLibrary {
                 )?;
             }
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn set_track_genres(&self, track_id: i64, genres: &[String]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM track_genres WHERE track_id = ?1", [track_id])?;
+
+        for (position, name) in genres.iter().enumerate() {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let key = name.to_lowercase();
+            tx.execute(
+                "INSERT OR IGNORE INTO genres (name, key) VALUES (?1, ?2)",
+                [name, key.as_str()],
+            )?;
+            let genre_id: i64 =
+                tx.query_row("SELECT id FROM genres WHERE key = ?1", [&key], |row| {
+                    row.get(0)
+                })?;
+            tx.execute(
+                "INSERT OR IGNORE INTO track_genres (track_id, genre_id, position) VALUES (?1, ?2, ?3)",
+                [track_id, genre_id, position as i64],
+            )?;
+        }
+
+        tx.execute(
+            "DELETE FROM genres WHERE NOT EXISTS \
+             (SELECT 1 FROM track_genres WHERE track_genres.genre_id = genres.id)",
+            [],
+        )?;
         tx.commit()?;
         Ok(())
     }

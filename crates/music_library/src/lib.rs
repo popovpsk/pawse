@@ -1670,4 +1670,265 @@ mod tests {
         let covers2 = lib.artist_album_covers().unwrap();
         assert!(!covers2.contains_key(&no_cover_artist));
     }
+
+    fn sorted_album_genres(lib: &SqliteLibrary, album_id: i64) -> Vec<String> {
+        let mut genres = lib.album_genres(album_id).unwrap();
+        genres.sort();
+        genres
+    }
+
+    #[test]
+    fn test_album_artists_in_position_order() {
+        let (lib, _path) = create_test_db();
+        let second = lib.upsert_artist("Bravo").unwrap();
+        let first = lib.upsert_artist("Alpha").unwrap();
+        let album_id = lib.upsert_album("Split", Some(2001), None).unwrap();
+        lib.set_album_artists(album_id, &[(second, 1), (first, 0)])
+            .unwrap();
+
+        assert_eq!(
+            lib.album_artists(album_id).unwrap(),
+            vec!["Alpha".to_string(), "Bravo".to_string()]
+        );
+        assert!(lib.album_artists(99_999).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_set_track_genres_replaces_links() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+
+        lib.set_track_genres(track_id, &["Ambient".into(), "Techno".into()])
+            .unwrap();
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Ambient".to_string(), "Techno".to_string()]
+        );
+
+        lib.set_track_genres(track_id, &["Jazz".into()]).unwrap();
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Jazz".to_string()],
+            "old genre links must be gone, not merged"
+        );
+
+        lib.set_track_genres(track_id, &[]).unwrap();
+        assert!(sorted_album_genres(&lib, album_id).is_empty());
+    }
+
+    #[test]
+    fn test_set_track_genres_dedups_case_insensitively() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+
+        lib.set_track_genres(
+            track_id,
+            &["Ambient".into(), "ambient".into(), "  Techno  ".into()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Ambient".to_string(), "Techno".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_set_track_genres_drops_orphaned_genres() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+
+        lib.set_track_genres(track_id, &["Ambient".into()]).unwrap();
+        lib.set_track_genres(track_id, &["Techno".into()]).unwrap();
+
+        let orphans = lib
+            .album_genres_map()
+            .unwrap()
+            .into_values()
+            .flatten()
+            .filter(|g| g == "Ambient")
+            .count();
+        assert_eq!(orphans, 0);
+    }
+
+    #[test]
+    fn test_upsert_track_preserves_id_liked_is_cue_and_cover() {
+        let (lib, _path) = create_test_db();
+        let jpeg = make_test_jpeg(&[10, 20, 30]);
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_cover("cover-hash", jpeg.clone(), jpeg, "/m/cover.jpg", false)
+            .unwrap();
+        session
+            .add_track(ScanTrack {
+                is_cue: true,
+                path: "/m/whole_album.flac".into(),
+                title: Some("Cue Track".into()),
+                album_title: Some("Cue Album".into()),
+                artist_names: vec!["Old Artist".into()],
+                album_artist_names: vec!["Old Artist".into()],
+                track_number: Some(1),
+                disc_number: Some(1),
+                year: Some(1999),
+                genres: vec!["Ambient".into()],
+                duration_ms: Some(1000),
+                cover_hash: Some("cover-hash".into()),
+                start_offset_ms: Some(5000),
+                bitrate: None,
+                lyrics: None,
+            })
+            .unwrap();
+        session.finish().unwrap();
+
+        let before = lib.all_tracks().unwrap().remove(0);
+        let cover_id = before.cover_art_id.expect("scan attached the cover");
+        lib.set_liked(before.id, true).unwrap();
+
+        let album_id = lib.upsert_album("Cue Album", Some(1999), None).unwrap();
+        let new_artist = lib.upsert_artist("New Artist").unwrap();
+        let updated = NewTrack {
+            path: "/m/whole_album.flac".into(),
+            title: Some("Renamed".into()),
+            album_title: Some("Cue Album".into()),
+            artist_names: vec!["New Artist".into()],
+            album_artist_names: vec!["New Artist".into()],
+            track_number: Some(4),
+            disc_number: Some(2),
+            year: Some(2001),
+            duration_ms: Some(1000),
+            cover_art_id: None,
+            start_offset_ms: Some(5000),
+            bitrate: None,
+        };
+        let same_id = lib
+            .upsert_track(&updated, Some(album_id), &[(new_artist, 0)])
+            .unwrap();
+
+        assert_eq!(same_id, before.id, "content key must keep the row id");
+
+        let after = lib.track(before.id).unwrap().unwrap();
+        assert_eq!(after.title, "Renamed");
+        assert_eq!(after.track_number, Some(4));
+        assert_eq!(after.disc_number, 2);
+        assert_eq!(after.year, Some(2001));
+        assert!(after.liked, "liked must survive a tag edit");
+        assert!(after.is_cue, "is_cue must survive a tag edit");
+        assert_eq!(
+            after.cover_art_id,
+            Some(cover_id),
+            "a None cover must not wipe the existing one"
+        );
+        assert_eq!(
+            lib.track_artists(before.id).unwrap(),
+            vec!["New Artist".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_set_track_genres_skips_blank_names() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+
+        lib.set_track_genres(
+            track_id,
+            &["".into(), "   ".into(), "Jazz".into(), "\t\n".into()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Jazz".to_string()],
+            "a blank name must not become a genre row"
+        );
+    }
+
+    #[test]
+    fn test_set_track_genres_leaves_other_tracks_alone() {
+        let (lib, _path) = create_test_db();
+        let first = seed_track(&lib, "One", "Album", "Artist");
+        let second = seed_track(&lib, "Two", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+
+        lib.set_track_genres(first, &["Jazz".into()]).unwrap();
+        lib.set_track_genres(second, &["Techno".into()]).unwrap();
+        lib.set_track_genres(first, &["Rock".into()]).unwrap();
+
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Rock".to_string(), "Techno".to_string()],
+            "replacing one track's genres must not touch its siblings"
+        );
+    }
+
+    #[test]
+    fn test_set_track_genres_keeps_a_genre_another_track_still_uses() {
+        let (lib, _path) = create_test_db();
+        let first = seed_track(&lib, "One", "Album", "Artist");
+        let second = seed_track(&lib, "Two", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+
+        lib.set_track_genres(first, &["Ambient".into()]).unwrap();
+        lib.set_track_genres(second, &["Ambient".into()]).unwrap();
+        lib.set_track_genres(first, &["Techno".into()]).unwrap();
+
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Ambient".to_string(), "Techno".to_string()],
+            "the orphan sweep must only take genres nothing links to"
+        );
+    }
+
+    #[test]
+    fn test_set_track_genres_reuses_an_existing_row_for_a_different_casing() {
+        let (lib, _path) = create_test_db();
+        let first = seed_track(&lib, "One", "Album", "Artist");
+        let second = seed_track(&lib, "Two", "Album", "Artist");
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+
+        lib.set_track_genres(first, &["Ambient".into()]).unwrap();
+        lib.set_track_genres(second, &["AMBIENT".into()]).unwrap();
+
+        assert_eq!(
+            sorted_album_genres(&lib, album_id),
+            vec!["Ambient".to_string()],
+            "genres resolve through the lowercase key, as a scan does"
+        );
+    }
+
+    #[test]
+    fn test_album_artists_survive_a_track_upsert() {
+        let (lib, _path) = create_test_db();
+        let credited = lib.upsert_artist("Album Artist").unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
+        lib.set_album_artists(album_id, &[(credited, 0)]).unwrap();
+
+        let performer = lib.upsert_artist("Guest").unwrap();
+        let track = NewTrack {
+            path: "/music/one.flac".into(),
+            title: Some("One".into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Guest".into()],
+            album_artist_names: vec!["Guest".into()],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(1000),
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        lib.upsert_track(&track, Some(album_id), &[(performer, 0)])
+            .unwrap();
+
+        assert_eq!(
+            lib.album_artists(album_id).unwrap(),
+            vec!["Album Artist".to_string()],
+            "a per-track write must not rewrite the row its siblings share"
+        );
+    }
 }

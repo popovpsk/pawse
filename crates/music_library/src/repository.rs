@@ -54,6 +54,10 @@ pub trait LibraryRepository: Send + Sync {
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
     fn album_title(&self, album_id: i64) -> Result<Option<String>>;
     fn album_genres(&self, album_id: i64) -> Result<Vec<String>>;
+    /// The album's credited artists in `album_artists.position` order. Mirrors
+    /// [`album_genres`](LibraryRepository::album_genres); needed where an album's
+    /// artists must be shown without walking every album summary.
+    fn album_artists(&self, album_id: i64) -> Result<Vec<String>>;
     fn album_genres_map(&self) -> Result<HashMap<i64, Vec<String>>>;
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;
@@ -74,6 +78,12 @@ pub trait LibraryRepository: Send + Sync {
     fn all_tracks(&self) -> Result<Vec<Track>>;
     fn track_count(&self) -> Result<i64>;
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()>;
+
+    /// Replace a track's genre links with `genres`, in order. Names resolve
+    /// case-insensitively through `genres.key`, exactly as a scan does, so an
+    /// edit and a rescan converge on the same rows. Genres left without any
+    /// track are dropped in the same transaction.
+    fn set_track_genres(&self, track_id: i64, genres: &[String]) -> Result<()>;
 
     fn create_playlist(&self, name: &str) -> Result<i64>;
     fn delete_playlist(&self, playlist_id: i64) -> Result<()>;

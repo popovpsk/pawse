@@ -423,6 +423,7 @@ impl Render for ArtistTracksView {
         let viewport = window.viewport_size();
         let liked_enabled = cx.global::<SettingsStore>().liked_enabled();
         let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+        let tag_editor_enabled = cx.global::<SettingsStore>().tag_editor_enabled();
 
         if self.tracks_all.is_empty() {
             return v_flex()
@@ -445,6 +446,7 @@ impl Render for ArtistTracksView {
             foreground,
             liked_enabled,
             playlists_enabled,
+            tag_editor_enabled,
             buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
@@ -767,6 +769,7 @@ struct ArtistTrackRowParams {
     foreground: gpui::Hsla,
     liked_enabled: bool,
     playlists_enabled: bool,
+    tag_editor_enabled: bool,
     buttons: RowButtonColors,
 }
 
@@ -825,6 +828,12 @@ fn artist_track_row(
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(track.base.title.clone()),
         )
+        .when(p.tag_editor_enabled, |el| {
+            el.child(crate::track_list::edit_tags_button(
+                track_for_queue.clone(),
+                &p.buttons,
+            ))
+        })
         .when(p.playlists_enabled, |el| {
             el.child(add_to_playlist_button(track_id, &p.buttons))
         })

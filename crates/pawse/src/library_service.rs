@@ -1,11 +1,25 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use music_indexer::{PreparedTrack, ScanEvent};
-use music_library::{LibraryRepository, LyricsRef, PlaylistTrackRef, ScanTrack, SqliteLibrary};
+use music_library::{
+    LibraryRepository, LyricsRef, NewTrack, PlaylistTrackRef, ScanTrack, SqliteLibrary,
+};
+
+/// The album-level fields of a tag edit, applied to every track of one album.
+/// Kept separate from [`tag_writer::TrackTagEdits`] because these describe a
+/// shared `albums` row: writing them into a single file would leave the album's
+/// other files disagreeing, and the next full rescan would undo the edit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AlbumTagEdits {
+    pub album: Option<String>,
+    pub album_artists: Vec<String>,
+    pub year: Option<i32>,
+    pub genres: Vec<String>,
+}
 
 const SCAN_DEBOUNCE: Duration = Duration::from_secs(2);
 
@@ -43,6 +57,12 @@ pub enum LibraryEvent {
     PlaybackModeChanged,
     LyricsChanged {
         track_id: i64,
+    },
+    TrackTagsChanged {
+        track_id: i64,
+    },
+    AlbumTagsChanged {
+        album_id: i64,
     },
 }
 
@@ -485,6 +505,101 @@ impl LibraryService {
             .detach();
     }
 
+    pub fn update_track_tags(
+        &self,
+        track_id: i64,
+        edits: tag_writer::TrackTagEdits,
+        folders: Vec<PathBuf>,
+    ) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        self.executor
+            .spawn(async move {
+                let Ok(Some(track)) = repo.track(track_id) else {
+                    log::error!("Tag edit requested for unknown track {}", track_id);
+                    return;
+                };
+                if track.is_cue {
+                    log::error!("Refusing to write tags for cue track {}", track_id);
+                    return;
+                }
+
+                let baseline = ScanBaseline::capture(&*repo, &folders);
+                let path = PathBuf::from(&track.path);
+
+                if let Err(e) = tag_writer::write_metadata(&path, &edits) {
+                    report_tag_error(&track.path, &e);
+                    return;
+                }
+
+                if let Err(e) = reindex_one(&*repo, track_id, &path) {
+                    log::error!("Failed to re-index {} after tag write: {}", track.path, e);
+                    force_rescan(repo, event_tx, executor, scan_state, folders);
+                    return;
+                }
+                if let Err(e) = repo.delete_orphaned_albums_and_artists() {
+                    log::error!("Failed to clean up after tag edit: {}", e);
+                }
+
+                let _ = event_tx.send(LibraryEvent::TrackTagsChanged { track_id });
+                baseline.rebaseline(&*repo, &folders);
+            })
+            .detach();
+    }
+
+    pub fn update_album_tags(&self, album_id: i64, edits: AlbumTagEdits, folders: Vec<PathBuf>) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        self.executor
+            .spawn(async move {
+                let tracks: Vec<music_library::Track> = repo
+                    .tracks_for_album(album_id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|t| !t.is_cue)
+                    .collect();
+                if tracks.is_empty() {
+                    log::error!("Album tag edit for {} has no editable tracks", album_id);
+                    return;
+                }
+
+                let baseline = ScanBaseline::capture(&*repo, &folders);
+                let mut written = 0usize;
+
+                for track in &tracks {
+                    let path = PathBuf::from(&track.path);
+                    match write_album_fields(&*repo, track.id, &path, &edits) {
+                        Ok(true) => written += 1,
+                        Ok(false) => {}
+                        Err(e) => {
+                            log::error!("Failed to update tags for {}: {}", track.path, e);
+                            report_tag_error(&track.path, &e);
+                            force_rescan(repo, event_tx, executor, scan_state, folders);
+                            return;
+                        }
+                    }
+                }
+
+                if let Err(e) = relink_album_artists(&*repo, tracks[0].id, &edits) {
+                    log::error!("Failed to relink album artists for {}: {}", album_id, e);
+                }
+                if let Err(e) = repo.delete_orphaned_albums_and_artists() {
+                    log::error!("Failed to clean up after album tag edit: {}", e);
+                }
+
+                log::info!("Album {} retagged, {} files written", album_id, written);
+                let _ = event_tx.send(LibraryEvent::AlbumTagsChanged { album_id });
+                if written > 0 {
+                    baseline.rebaseline(&*repo, &folders);
+                }
+            })
+            .detach();
+    }
+
     pub fn playlists(&self) -> Vec<music_library::PlaylistSummary> {
         self.repo.playlists().unwrap_or_default()
     }
@@ -587,6 +702,10 @@ impl LibraryService {
 
     pub fn album_title(&self, album_id: i64) -> Option<String> {
         self.repo.album_title(album_id).ok().flatten()
+    }
+
+    pub fn album_artists(&self, album_id: i64) -> Vec<String> {
+        self.repo.album_artists(album_id).unwrap_or_default()
     }
 
     pub fn album_genres(&self, album_id: i64) -> Vec<String> {
@@ -867,6 +986,190 @@ fn scan_outcome(ok: bool) -> LibraryEvent {
     }
 }
 
+/// Whether the library matched the disk *before* we wrote to it, captured so the
+/// fingerprint is only advanced when our own write is the sole delta. Advancing it
+/// otherwise would absorb an unrelated, not-yet-indexed change and the fast path
+/// would then skip it forever.
+struct ScanBaseline {
+    up_to_date: bool,
+    folders_key: String,
+}
+
+impl ScanBaseline {
+    fn capture(repo: &dyn LibraryRepository, folders: &[PathBuf]) -> Self {
+        let folders_key = serialize_folders(folders);
+        let pre = music_indexer::collect_sources(folders).fingerprint;
+        let up_to_date = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
+            && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
+        Self {
+            up_to_date,
+            folders_key,
+        }
+    }
+
+    fn rebaseline(&self, repo: &dyn LibraryRepository, folders: &[PathBuf]) {
+        if !self.up_to_date {
+            return;
+        }
+        let post = music_indexer::collect_sources(folders).fingerprint;
+        if let Err(e) = repo.set_scan_meta(&post, &self.folders_key) {
+            log::error!(
+                "Failed to re-baseline scan fingerprint after tag write: {}",
+                e
+            );
+        }
+    }
+}
+
+/// Re-read one file and patch its rows in place. Going back through
+/// `read_metadata` rather than mapping the edits straight into SQL is what keeps
+/// the row identical to what a full rescan would produce — normalization
+/// (genre splitting, year extraction, title fallback) stays in one place.
+fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyhow::Result<()> {
+    let scanned = music_indexer::metadata::read_metadata(path)?;
+
+    let mut artist_ids = Vec::with_capacity(scanned.artist_names.len());
+    for (position, name) in scanned.artist_names.iter().enumerate() {
+        artist_ids.push((repo.upsert_artist(name)?, position as i32));
+    }
+
+    let album_id = match scanned.album_title.as_deref() {
+        Some(title) => {
+            let album_id = repo.upsert_album(title, scanned.year, None)?;
+            // why: mirrors ScanSession, which links album artists only for the first track landing
+            // in an album — a per-track edit must not rewrite a row shared with its siblings
+            if !repo.album_has_artists(album_id)? {
+                let names = if scanned.album_artist_names.is_empty() {
+                    &scanned.artist_names
+                } else {
+                    &scanned.album_artist_names
+                };
+                let ids = resolve_artists(repo, names)?;
+                if !ids.is_empty() {
+                    repo.set_album_artists(album_id, &ids)?;
+                }
+            }
+            Some(album_id)
+        }
+        None => None,
+    };
+
+    let new_track = NewTrack {
+        path: scanned.path.to_string_lossy().into_owned(),
+        title: scanned.title.clone(),
+        album_title: scanned.album_title.clone(),
+        artist_names: scanned.artist_names.clone(),
+        album_artist_names: scanned.album_artist_names.clone(),
+        track_number: scanned.track_number,
+        disc_number: scanned.disc_number,
+        year: scanned.year,
+        duration_ms: scanned.duration_ms,
+        cover_art_id: None,
+        start_offset_ms: scanned.start_offset_ms,
+        bitrate: scanned.bitrate,
+    };
+
+    let upserted = repo.upsert_track(&new_track, album_id, &artist_ids)?;
+    if upserted != track_id {
+        log::error!(
+            "Tag write moved track {} to a different row ({}); content key changed unexpectedly",
+            track_id,
+            upserted
+        );
+    }
+    repo.set_track_genres(upserted, &scanned.genres)?;
+    Ok(())
+}
+
+/// Overwrite only the album-level fields of one file, keeping its per-track tags
+/// as they are on disk.
+fn write_album_fields(
+    repo: &dyn LibraryRepository,
+    track_id: i64,
+    path: &Path,
+    edits: &AlbumTagEdits,
+) -> anyhow::Result<bool> {
+    let current = music_indexer::metadata::read_metadata(path)?;
+    // why: every write bumps mtime and so feeds the fingerprint the whole design works around —
+    // a file the edit does not actually change must not be rewritten
+    if current.album_title == edits.album
+        && current.year == edits.year
+        && current.album_artist_names == edits.album_artists
+        && current.genres == edits.genres
+    {
+        return Ok(false);
+    }
+    let merged = tag_writer::TrackTagEdits {
+        title: current.title,
+        artists: current.artist_names,
+        album: edits.album.clone(),
+        album_artists: edits.album_artists.clone(),
+        track_number: current.track_number,
+        disc_number: current.disc_number,
+        year: edits.year,
+        genres: edits.genres.clone(),
+        removed_tags: Vec::new(),
+        added_tags: Vec::new(),
+    };
+    tag_writer::write_metadata(path, &merged)?;
+    reindex_one(repo, track_id, path)?;
+    Ok(true)
+}
+
+/// After a whole album was rewritten, its `(title, year)` key may have moved it
+/// to a different `albums` row, so resolve the row from a track that now lives in
+/// it and set the artists there.
+fn relink_album_artists(
+    repo: &dyn LibraryRepository,
+    track_id: i64,
+    edits: &AlbumTagEdits,
+) -> anyhow::Result<()> {
+    let Some(album_id) = repo.track(track_id)?.and_then(|t| t.album_id) else {
+        return Ok(());
+    };
+    // why: mirrors the scanner's fallback — an album without ALBUMARTIST is credited to its track
+    // artists, so clearing the field must land there instead of leaving the old row in place
+    let names = if edits.album_artists.is_empty() {
+        repo.track_artists(track_id)?
+    } else {
+        edits.album_artists.clone()
+    };
+    let ids = resolve_artists(repo, &names)?;
+    repo.set_album_artists(album_id, &ids)?;
+    Ok(())
+}
+
+fn resolve_artists(
+    repo: &dyn LibraryRepository,
+    names: &[String],
+) -> anyhow::Result<Vec<(i64, i32)>> {
+    let mut ids = Vec::with_capacity(names.len());
+    for (position, name) in names.iter().enumerate() {
+        ids.push((repo.upsert_artist(name)?, position as i32));
+    }
+    Ok(ids)
+}
+
+fn report_tag_error(path: &str, err: &anyhow::Error) {
+    log::error!("Failed to write tags for {}: {}", path, err);
+    let strings = crate::localization::tr();
+    diagnostics::notify_error(
+        strings.tag_write_failed_title.to_string(),
+        strings.tags_save_failed(&err.to_string()),
+    );
+}
+
+fn force_rescan(
+    repo: Arc<dyn LibraryRepository>,
+    event_tx: flume::Sender<LibraryEvent>,
+    executor: gpui::BackgroundExecutor,
+    scan_state: Arc<ScanState>,
+    folders: Vec<PathBuf>,
+) {
+    *scan_state.folders.lock().unwrap() = folders;
+    LibraryService::spawn_scan(repo, event_tx, executor, scan_state);
+}
+
 /// Serialize the scanned folder set into a stable key, so a fast-path skip only
 /// happens when the same folders are being scanned as last time.
 fn serialize_folders(paths: &[PathBuf]) -> String {
@@ -981,5 +1284,302 @@ fn cover_content_type(bytes: &[u8]) -> &'static str {
         "image/bmp"
     } else {
         "application/octet-stream"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use music_library::SqliteLibrary;
+
+    use super::*;
+
+    struct Workspace {
+        repo: SqliteLibrary,
+        folder: PathBuf,
+    }
+
+    impl Workspace {
+        fn new() -> Self {
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let folder = std::env::temp_dir().join(format!(
+                "pawse-tag-service-{}-{}",
+                std::process::id(),
+                n
+            ));
+            let _ = std::fs::remove_dir_all(&folder);
+            std::fs::create_dir_all(&folder).unwrap();
+            let repo = SqliteLibrary::open_at(folder.join("library.db")).unwrap();
+            Self { repo, folder }
+        }
+
+        fn add_file(&self, name: &str, fixture: &str) -> PathBuf {
+            let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+            let src = PathBuf::from(manifest).join("../../fixtures").join(fixture);
+            let dst = self.folder.join(name);
+            std::fs::copy(&src, &dst).unwrap();
+            dst
+        }
+
+        fn folders(&self) -> Vec<PathBuf> {
+            vec![self.folder.clone()]
+        }
+
+        /// Insert a file the way a scan would, without going through the code under
+        /// test — a seed built from `reindex_one` could not catch `reindex_one`
+        /// drifting.
+        fn seed(&self, path: &Path) -> i64 {
+            let scanned = music_indexer::metadata::read_metadata(path).unwrap();
+            let artist_ids = resolve_artists(&self.repo, &scanned.artist_names).unwrap();
+            let album_id = scanned.album_title.as_deref().map(|title| {
+                let id = self.repo.upsert_album(title, scanned.year, None).unwrap();
+                let names = if scanned.album_artist_names.is_empty() {
+                    &scanned.artist_names
+                } else {
+                    &scanned.album_artist_names
+                };
+                let ids = resolve_artists(&self.repo, names).unwrap();
+                if !ids.is_empty() {
+                    self.repo.set_album_artists(id, &ids).unwrap();
+                }
+                id
+            });
+            let new_track = NewTrack {
+                path: scanned.path.to_string_lossy().into_owned(),
+                title: scanned.title.clone(),
+                album_title: scanned.album_title.clone(),
+                artist_names: scanned.artist_names.clone(),
+                album_artist_names: scanned.album_artist_names.clone(),
+                track_number: scanned.track_number,
+                disc_number: scanned.disc_number,
+                year: scanned.year,
+                duration_ms: scanned.duration_ms,
+                cover_art_id: None,
+                start_offset_ms: scanned.start_offset_ms,
+                bitrate: scanned.bitrate,
+            };
+            let id = self
+                .repo
+                .upsert_track(&new_track, album_id, &artist_ids)
+                .unwrap();
+            self.repo.set_track_genres(id, &scanned.genres).unwrap();
+            id
+        }
+
+        fn mark_in_sync(&self) {
+            let fingerprint = music_indexer::collect_sources(&self.folders()).fingerprint;
+            self.repo
+                .set_scan_meta(&fingerprint, &serialize_folders(&self.folders()))
+                .unwrap();
+        }
+
+        fn disk_fingerprint(&self) -> String {
+            music_indexer::collect_sources(&self.folders()).fingerprint
+        }
+    }
+
+    fn edits_titled(title: &str) -> tag_writer::TrackTagEdits {
+        tag_writer::TrackTagEdits {
+            title: Some(title.to_string()),
+            artists: vec!["Seed Artist".into()],
+            album: Some("Seed Album".into()),
+            year: Some(2001),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_tag_edit_keeps_the_track_id_its_like_and_its_playlist() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        let track_id = ws.seed(&path);
+
+        ws.repo.set_liked(track_id, true).unwrap();
+        let playlist = ws.repo.create_playlist("Mix").unwrap();
+        ws.repo.add_track_to_playlist(playlist, track_id).unwrap();
+
+        tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
+        reindex_one(&ws.repo, track_id, &path).unwrap();
+
+        let track = ws.repo.track(track_id).unwrap().expect("row kept its id");
+        assert_eq!(track.title, "Renamed");
+        assert!(track.liked, "a like is not part of the file");
+        assert_eq!(
+            ws.repo.tracks_for_playlist(playlist).unwrap().len(),
+            1,
+            "playlist membership hangs off the track id"
+        );
+    }
+
+    #[test]
+    fn clearing_the_album_artists_falls_back_to_the_track_artists() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        tag_writer::write_metadata(
+            &path,
+            &tag_writer::TrackTagEdits {
+                title: Some("One".into()),
+                artists: vec!["Real Artist".into()],
+                album: Some("Comp".into()),
+                album_artists: vec!["Various Artists".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let track_id = ws.seed(&path);
+        let album_id = ws.repo.track(track_id).unwrap().unwrap().album_id.unwrap();
+        assert_eq!(
+            ws.repo.album_artists(album_id).unwrap(),
+            ["Various Artists"]
+        );
+
+        let edits = AlbumTagEdits {
+            album: Some("Comp".into()),
+            album_artists: Vec::new(),
+            year: None,
+            genres: Vec::new(),
+        };
+        assert!(write_album_fields(&ws.repo, track_id, &path, &edits).unwrap());
+        relink_album_artists(&ws.repo, track_id, &edits).unwrap();
+
+        let album_id = ws.repo.track(track_id).unwrap().unwrap().album_id.unwrap();
+        assert_eq!(
+            ws.repo.album_artists(album_id).unwrap(),
+            ["Real Artist"],
+            "the scanner credits an album with no ALBUMARTIST to its track artists"
+        );
+    }
+
+    #[test]
+    fn renaming_an_album_merges_it_into_the_one_it_now_matches() {
+        let ws = Workspace::new();
+        let keeper = ws.add_file("keeper.flac", "tagged_basic.flac");
+        let stray = ws.add_file("stray.flac", "tagged_basic.flac");
+        for (path, album) in [(&keeper, "Kid A"), (&stray, "Kid A (typo)")] {
+            tag_writer::write_metadata(
+                path,
+                &tag_writer::TrackTagEdits {
+                    title: Some("T".into()),
+                    artists: vec!["A".into()],
+                    album: Some(album.to_string()),
+                    year: Some(2000),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        ws.seed(&keeper);
+        let stray_id = ws.seed(&stray);
+        assert_eq!(ws.repo.albums().unwrap().len(), 2);
+
+        let edits = AlbumTagEdits {
+            album: Some("Kid A".into()),
+            album_artists: Vec::new(),
+            year: Some(2000),
+            genres: Vec::new(),
+        };
+        write_album_fields(&ws.repo, stray_id, &stray, &edits).unwrap();
+        ws.repo.delete_orphaned_albums_and_artists().unwrap();
+
+        let albums = ws.repo.albums().unwrap();
+        assert_eq!(
+            albums.len(),
+            1,
+            "the vacated row must not linger: {albums:?}"
+        );
+        assert_eq!(ws.repo.tracks_for_album(albums[0].id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_per_track_year_edit_would_split_the_album() {
+        let ws = Workspace::new();
+        let stay = ws.add_file("stay.flac", "tagged_basic.flac");
+        let move_me = ws.add_file("move.flac", "tagged_basic.flac");
+        for path in [&stay, &move_me] {
+            tag_writer::write_metadata(path, &edits_titled("T")).unwrap();
+        }
+        ws.seed(&stay);
+        let moved_id = ws.seed(&move_me);
+        assert_eq!(ws.repo.albums().unwrap().len(), 1);
+
+        let mut edits = edits_titled("T");
+        edits.year = Some(2002);
+        tag_writer::write_metadata(&move_me, &edits).unwrap();
+        reindex_one(&ws.repo, moved_id, &move_me).unwrap();
+
+        assert_eq!(
+            ws.repo.albums().unwrap().len(),
+            2,
+            "albums are keyed on (title, year), which is why the form locks the year \
+             for a track that has siblings"
+        );
+    }
+
+    #[test]
+    fn an_album_save_that_changes_nothing_rewrites_no_file() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        tag_writer::write_metadata(&path, &edits_titled("One")).unwrap();
+        let track_id = ws.seed(&path);
+        let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+
+        let edits = AlbumTagEdits {
+            album: Some("Seed Album".into()),
+            album_artists: Vec::new(),
+            year: Some(2001),
+            genres: Vec::new(),
+        };
+        assert!(
+            !write_album_fields(&ws.repo, track_id, &path, &edits).unwrap(),
+            "nothing to change, so nothing to write"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            before,
+            "an untouched mtime is what keeps the watcher quiet"
+        );
+    }
+
+    #[test]
+    fn a_current_library_is_re_baselined_so_the_watcher_rescan_stays_cheap() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        let track_id = ws.seed(&path);
+        ws.mark_in_sync();
+
+        let baseline = ScanBaseline::capture(&ws.repo, &ws.folders());
+        tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
+        reindex_one(&ws.repo, track_id, &path).unwrap();
+        baseline.rebaseline(&ws.repo, &ws.folders());
+
+        assert_eq!(
+            ws.repo.scan_fingerprint().unwrap().as_deref(),
+            Some(ws.disk_fingerprint().as_str()),
+            "the write moved mtime, so the stored fingerprint has to move with it"
+        );
+    }
+
+    #[test]
+    fn a_stale_library_is_left_stale_instead_of_being_marked_current() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        let track_id = ws.seed(&path);
+        ws.repo
+            .set_scan_meta("someone-else-changed-the-disk", "")
+            .unwrap();
+
+        let baseline = ScanBaseline::capture(&ws.repo, &ws.folders());
+        tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
+        reindex_one(&ws.repo, track_id, &path).unwrap();
+        baseline.rebaseline(&ws.repo, &ws.folders());
+
+        assert_eq!(
+            ws.repo.scan_fingerprint().unwrap().as_deref(),
+            Some("someone-else-changed-the-disk"),
+            "re-baselining a library that was already out of date would suppress the \
+             full rescan it still needs"
+        );
     }
 }

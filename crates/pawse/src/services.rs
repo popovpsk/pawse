@@ -71,7 +71,14 @@ impl Services {
                         if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
                             sync_queue_with_playlist(*playlist_id, cx);
                         }
-                        if let LibraryEvent::ScanComplete { changed: true } = &event {
+                        // why: tag edits keep track ids but rewrite titles/artists, so the queue's
+                        // cached Rc<Track>s must be re-fetched or the footer keeps the old name
+                        if matches!(
+                            &event,
+                            LibraryEvent::ScanComplete { changed: true }
+                                | LibraryEvent::TrackTagsChanged { .. }
+                                | LibraryEvent::AlbumTagsChanged { .. }
+                        ) {
                             remap_queue_after_rescan(cx);
                         }
                         if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
@@ -86,6 +93,8 @@ impl Services {
                                 | LibraryEvent::PlaylistsChanged
                                 | LibraryEvent::PlaylistTracksChanged { .. }
                                 | LibraryEvent::ScanComplete { changed: true }
+                                | LibraryEvent::TrackTagsChanged { .. }
+                                | LibraryEvent::AlbumTagsChanged { .. }
                         );
                         if library_changed {
                             cx.global::<Services>()
@@ -230,6 +239,9 @@ fn notify_scan_event(event: &LibraryEvent, cx: &mut App) {
         }
         LibraryEvent::ScanFailed => {
             Notification::error(crate::localization::tr().library_update_failed.clone())
+        }
+        LibraryEvent::TrackTagsChanged { .. } | LibraryEvent::AlbumTagsChanged { .. } => {
+            Notification::success(crate::localization::tr().tags_saved.clone())
         }
         _ => return,
     };

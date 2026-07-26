@@ -275,6 +275,8 @@ pub struct UserSettings {
     pub cover_show_controls: bool,
     #[serde(default)]
     pub queue_deduplication: bool,
+    #[serde(default)]
+    pub tag_editor_enabled: bool,
     #[serde(default = "default_true")]
     pub albums_show_year: bool,
     #[serde(default = "default_true")]
@@ -323,6 +325,7 @@ impl Default for UserSettings {
             cover_show_progress: true,
             cover_show_controls: true,
             queue_deduplication: false,
+            tag_editor_enabled: false,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
@@ -645,6 +648,15 @@ impl SettingsStore {
 
     pub fn set_queue_deduplication(&mut self, value: bool) -> anyhow::Result<()> {
         self.settings.queue_deduplication = value;
+        self.save()
+    }
+
+    pub fn tag_editor_enabled(&self) -> bool {
+        self.settings.tag_editor_enabled
+    }
+
+    pub fn set_tag_editor_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.tag_editor_enabled = enabled;
         self.save()
     }
 
@@ -972,6 +984,7 @@ mod tests {
             cover_show_progress: true,
             cover_show_controls: true,
             queue_deduplication: false,
+            tag_editor_enabled: false,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
