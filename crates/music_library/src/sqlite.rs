@@ -275,9 +275,6 @@ impl SqliteLibrary {
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     [new_id.to_string()],
                 )?;
-                // why: an existing DB may already have liked tracks; seed the
-                // hidden playlist from them in their current display order so the
-                // Liked view isn't empty on first run after this feature.
                 let liked_now = display_ordered_tracks(&tx, "WHERE t.liked = 1")?;
                 let mut insert = tx.prepare(
                     "INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
@@ -875,8 +872,6 @@ impl LibraryRepository for SqliteLibrary {
 
     fn resolve_album_covers(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        // why: the ORDER BY is total — disc, then track, then path — so the choice cannot depend
-        // on the order tracks arrived in from the parallel scan. `idx_tracks_album_sort` covers it.
         conn.execute(
             r#"
             UPDATE albums SET cover_art_id = (
@@ -1192,8 +1187,6 @@ impl LibraryRepository for SqliteLibrary {
         }
         let moved = ids.remove(from);
         ids.insert(to, moved);
-        // why: position is part of the PK, so an in-place shift would transiently
-        // collide; renumbering the whole list densely sidesteps it.
         tx.execute(
             "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
             [playlist_id],
@@ -1291,7 +1284,6 @@ impl LibraryRepository for SqliteLibrary {
                 not_found: true,
             }));
         }
-        // why: a corrupt blob decodes to None — treat as absent so the UI re-fetches rather than showing a blank
         Ok(decompress_lyrics(&blob).map(|text| StoredLyrics {
             source,
             text,
@@ -1376,7 +1368,6 @@ impl LibraryRepository for SqliteLibrary {
                 )
                 .optional()?;
             let Some(track_id) = track_id else { continue };
-            // why: OR IGNORE so a track the scan just gave fresh disk lyrics keeps them; we only fill tracks left without a row
             tx.execute(
                 "INSERT OR IGNORE INTO lyrics (track_id, source, text, not_found, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1450,8 +1441,6 @@ impl LibraryRepository for SqliteLibrary {
                 next_position += 1;
             }
         }
-        // why: clear() wiped tracks.liked; re-derive it from the restored hidden
-        // playlist membership so hearts elsewhere stay in sync with the Liked view.
         tx.execute(
             "UPDATE tracks SET liked = 1 WHERE id IN \
              (SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1)",

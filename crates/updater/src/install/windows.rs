@@ -26,7 +26,6 @@ pub fn launch_installer(installer: &Path, relaunch: bool) {
         ),
         _ => format!("\"{}\" /S", installer.display()),
     };
-    // why: cmd /C strips one outer quote pair; wrap the whole command so its inner quotes survive
     let raw = format!("/C \"{inner}\"");
 
     let _ = Command::new("cmd")

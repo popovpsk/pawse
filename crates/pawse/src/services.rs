@@ -71,8 +71,6 @@ impl Services {
                         if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
                             sync_queue_with_playlist(*playlist_id, cx);
                         }
-                        // why: tag edits keep track ids but rewrite titles/artists, so the queue's
-                        // cached Rc<Track>s must be re-fetched or the footer keeps the old name
                         if matches!(
                             &event,
                             LibraryEvent::ScanComplete { changed: true }
@@ -80,6 +78,13 @@ impl Services {
                                 | LibraryEvent::AlbumTagsChanged { .. }
                         ) {
                             remap_queue_after_rescan(cx);
+                        }
+                        if matches!(
+                            &event,
+                            LibraryEvent::TrackTagsChanged { .. }
+                                | LibraryEvent::AlbumTagsChanged { .. }
+                        ) {
+                            cx.global::<Services>().cover_art_cache.borrow_mut().clear();
                         }
                         if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
                             cx.global::<Services>()
@@ -383,7 +388,6 @@ fn notify_remote_error(cx: &mut App, port: u16, err: &str) {
     });
 }
 
-// why: play() with no track emits no event, leaving the is_playing mirror stuck true
 pub fn toggle_play_pause(cx: &mut App) -> Option<bool> {
     let services = cx.global::<Services>();
     services.playback_queue.borrow().current_track()?;

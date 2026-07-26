@@ -16,7 +16,6 @@ use gpui_component::{
 use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
 use ui_components::artist_avatar::artist_avatar;
-use ui_components::scrollbar_metrics::SCROLLBAR_GUTTER;
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
@@ -289,7 +288,6 @@ impl Render for ArtistsView {
                     },
                 )
                 .track_scroll(&self.scroll_handle)
-                .pr(SCROLLBAR_GUTTER)
                 .flex_1(),
             )
             .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)

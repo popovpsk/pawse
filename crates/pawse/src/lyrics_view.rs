@@ -142,7 +142,6 @@ impl LyricsView {
             return;
         }
         self.visible = visible;
-        // why: opening the panel on a track we haven't resolved yet kicks the (maybe network) load; a known not-found stays cached
         if visible && self.rows.is_empty() && !self.fetching && !self.loading && !self.not_found {
             self.load(cx);
         }
@@ -173,10 +172,8 @@ impl LyricsView {
         let changed = self.current_track_id != Some(ctx.id);
         self.current_track_id = Some(ctx.id);
         if changed {
-            // why: drop the previous track's lines at once so they don't linger under the new track during the background read
             self.reset_display();
         }
-        // why: show a blank rather than a flash of "No lyrics" while the background read runs, whenever nothing is on screen yet
         if self.rows.is_empty() && !self.fetching {
             self.loading = true;
         }
@@ -252,7 +249,6 @@ impl LyricsView {
         let access = self.access.clone();
         self._load_task = Some(cx.spawn(async move |this, cx| {
             let id = ctx.id;
-            // why: fetched lyrics render via the LyricsChanged reload, so the background task only writes; `emitted` tells us whether a render is coming or we must clear the spinner ourselves
             let emitted = cx
                 .background_spawn(async move {
                     let artist = access.first_artist(id).unwrap_or_default();
@@ -366,7 +362,6 @@ impl LyricsView {
         let Some(total) = self.track_duration_ms.filter(|&d| d > 0) else {
             return;
         };
-        // why: snap highlight to the clicked line so a position report rounding just below time_ms can't flash the previous line
         self.active_ix = Some(ix);
         cx.notify();
         let frac = (time_ms as f64 / total as f64).clamp(0.0, 1.0) as f32;
@@ -444,7 +439,6 @@ impl LyricsView {
         self._scroll_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SCROLL_ANIM).await;
             this.update(cx, |this, cx| {
-                // why: drop the animator once it has rested the offset at `to`, but only for the latest run so an interrupting scroll isn't clobbered
                 if this.scroll_seq == seq {
                     this.scroll_anim = None;
                     cx.notify();
@@ -482,7 +476,6 @@ impl LyricsView {
         let Some(raw) = self.current_raw.clone() else {
             return;
         };
-        // why: don't fake success — can_export clears only when the write lands and source flips to "lrc" via LyricsChanged, so a failed write keeps the button for retry
         let folders = cx.global::<SettingsStore>().music_folders().to_vec();
         cx.global::<Services>().library.save_lyrics_file(
             ctx.id,

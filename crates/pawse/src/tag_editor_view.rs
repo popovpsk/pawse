@@ -99,15 +99,15 @@ pub fn open_for_track(track: Rc<music_library::Track>, window: &mut Window, cx: 
 pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     let library = cx.global::<Services>().library.clone();
     let tracks = library.tracks_for_album(album_id);
-    // why: a fully-cue album has no writable file, but the dialog must still open
-    // read-only — silently doing nothing reads as a broken button
     let read_only = !tracks.iter().any(|t| !t.is_cue);
     let Some(track) = tracks.iter().find(|t| !t.is_cue).or_else(|| tracks.first()) else {
         return;
     };
-    let Some(loaded) = load(track, Path::new(&track.path), false, cx) else {
+    let Some(mut loaded) = load(track, Path::new(&track.path), false, cx) else {
         return;
     };
+    loaded.album_artists = library.album_artists(album_id);
+    loaded.genres = library.album_genres(album_id);
     let view =
         cx.new(|cx| TagEditorView::new(Target::Album { album_id }, read_only, loaded, window, cx));
     open_dialog(view, tr().edit_album_tags.clone(), window, cx);
@@ -133,7 +133,6 @@ struct Loaded {
 }
 
 fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> Option<Loaded> {
-    // why: only the track editor renders the raw list, and both of these are full file parses
     let (raw_tags, custom_tags) = if want_raw {
         (
             tag_writer::read_raw_tags(path)
@@ -147,8 +146,6 @@ fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> 
         (Vec::new(), tag_writer::CustomTags::default())
     };
 
-    // why: a cue track's fields come from the .cue text, not the shared audio file's tags — reading
-    // the file would show empty fields for values the library plainly knows
     if track.is_cue {
         let embedded = music_indexer::metadata::extract_embedded_cover(path);
         return Some(from_library(track, raw_tags, custom_tags, embedded, cx));
@@ -176,8 +173,6 @@ fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> 
         genres: scanned.genres,
         raw_tags,
         custom_tags,
-        // why: `embedded: false` means the art came from a file next to the track, so the
-        // tag itself is empty and the editor has to show it that way
         cover: match scanned.cover_art {
             Some(music_indexer::CoverArt::Bytes {
                 data,
@@ -244,8 +239,6 @@ fn open_dialog(
     // outlive that view long enough to fire during its teardown.
     cx.observe_release(&view, |this, cx| this.release_preview(cx))
         .detach();
-    // why: open_dialog's builder re-runs every frame, so the form's InputStates live in the entity
-    // above and the closure only clones the handle
     window.open_dialog(cx, move |dialog, _, _| {
         let saver = view.clone();
         dialog
@@ -382,9 +375,9 @@ impl TagEditorView {
         cx.notify();
     }
 
-    /// why: `drop_image` is the only thing that frees the sprite-atlas tile — `RenderImage`
-    /// has no `Drop` that does it — so every preview has to be released explicitly, both
-    /// when another file replaces it and when the dialog goes away.
+    /// `drop_image` is the only thing that frees the sprite-atlas tile — `RenderImage` has
+    /// no `Drop` that does it — so every preview has to be released explicitly, both when
+    /// another file replaces it and when the dialog goes away.
     fn release_preview(&mut self, cx: &mut App) {
         if let Some((old, _)) = self.cover_preview.take() {
             cx.drop_image(old, None);
@@ -436,8 +429,6 @@ impl TagEditorView {
         if key.is_empty() || value.is_empty() {
             return;
         }
-        // why: the writer refuses these too, but it runs after the dialog is gone and aborts the
-        // whole save — a row the container cannot take has to be caught while it is being typed
         if let Some(problem) = self.custom_tags.check_key(&key) {
             log::warn!("Custom tag rejected: {} ({:?})", key, problem);
             let message = match problem {
@@ -580,8 +571,6 @@ fn parse_number<T: std::str::FromStr>(
 
 impl Render for TagEditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // why: the dialog only constrains its width and grows to fit its content, so without an
-        // explicit cap a long tag list pushes it past the window and over the player footer
         let viewport = window.viewport_size().height;
         let reserved = viewport * DIALOG_TOP_FRACTION
             + px(crate::main_view::FOOTER_HEIGHT + DIALOG_BOTTOM_MARGIN + DIALOG_CHROME_HEIGHT);
@@ -672,8 +661,6 @@ impl TagEditorView {
                                     )
                                 }),
                         )
-                        // why: the picture is embedded verbatim into every file and never
-                        // resized, so its size is the one number that explains what Save costs
                         .when_some(shown, |el, (_, bytes)| {
                             el.child(div().text_xs().text_color(muted).child(format_size(*bytes)))
                         })
@@ -769,8 +756,6 @@ impl TagEditorView {
                 ))
             })
             .child(self.genre_section(muted, border, cx))
-            // why: raw tags belong to one file; the album editor writes N files, so a per-file tag
-            // list there would be a lie about what a deletion affects
             .when(
                 is_track && (!self.raw_tags.is_empty() || self.can_add_custom()),
                 |el| el.child(self.raw_section(muted, border, cx)),
@@ -923,8 +908,6 @@ impl TagEditorView {
                     })
                     .collect::<Vec<_>>(),
             )
-            // why: a container the writer cannot add rows to would offer an input that only ever
-            // produces an error toast
             .when(self.can_add_custom(), |el| {
                 el.child(
                     h_flex()

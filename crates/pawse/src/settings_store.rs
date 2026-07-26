@@ -727,8 +727,6 @@ pub fn apply_font_scale(scale: FontScale, cx: &mut App) {
     Theme::global_mut(cx).font_size = scale.px();
 }
 
-// why: Theme::change -> apply_config resets font_size on every theme switch, so
-// the chosen scale must be reasserted right after any theme application.
 fn reassert_font_scale(cx: &mut App) {
     if cx.has_global::<SettingsStore>() {
         apply_font_scale(cx.global::<SettingsStore>().font_scale(), cx);

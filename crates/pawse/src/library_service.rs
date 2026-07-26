@@ -471,7 +471,6 @@ impl LibraryService {
         self.executor
             .spawn(async move {
                 let folders_key = serialize_folders(&folders);
-                // why: snapshot disk state before our write so we only re-baseline when our .lrc is the sole delta — otherwise advancing the fingerprint would absorb an unrelated, not-yet-indexed change
                 let up_to_date = {
                     let pre = music_indexer::collect_sources(&folders).fingerprint;
                     matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
@@ -1024,8 +1023,6 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     let album_id = match scanned.album_title.as_deref() {
         Some(title) => {
             let album_id = repo.upsert_album(title, scanned.year, None)?;
-            // why: mirrors ScanSession, which links album artists only for the first track landing
-            // in an album — a per-track edit must not rewrite a row shared with its siblings
             if !repo.album_has_artists(album_id)? {
                 let names = if scanned.album_artist_names.is_empty() {
                     &scanned.artist_names
@@ -1066,9 +1063,6 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
         );
     }
     repo.set_track_genres(upserted, &scanned.genres)?;
-    // why: upsert_track COALESCEs cover_art_id, so it can only ever keep the old cover — the
-    // column has to be set on its own for a replaced or removed picture to land, and for the
-    // external-file heuristic to be re-run after one
     repo.set_track_cover(upserted, resolve_cover(repo, &scanned)?)?;
     Ok(())
 }
@@ -1113,9 +1107,6 @@ fn apply_track_tags(
     path: &Path,
     edits: &tag_writer::TrackTagEdits,
 ) -> std::result::Result<(), TagEditFailure> {
-    // why: N cue tracks share one audio file and take their fields from the .cue text, so
-    // writing tags here would edit the wrong thing for all of them. The modal is read-only
-    // for cue, but the guard belongs on the function that does the writing.
     match repo.track(track_id) {
         Ok(Some(track)) if track.is_cue => return Err(TagEditFailure::Refused("cue track")),
         Ok(Some(_)) => {}
@@ -1202,8 +1193,6 @@ fn write_album_fields(
     edits: &AlbumTagEdits,
 ) -> anyhow::Result<bool> {
     let current = music_indexer::metadata::read_metadata(path)?;
-    // why: every write bumps mtime and so feeds the fingerprint the whole design works around —
-    // a file the edit does not actually change must not be rewritten
     if current.album_title == edits.album
         && current.year == edits.year
         && current.album_artist_names == edits.album_artists
@@ -1241,8 +1230,6 @@ fn relink_album_artists(
     let Some(album_id) = repo.track(track_id)?.and_then(|t| t.album_id) else {
         return Ok(());
     };
-    // why: mirrors the scanner's fallback — an album without ALBUMARTIST is credited to its track
-    // artists, so clearing the field must land there instead of leaving the old row in place
     let names = if edits.album_artists.is_empty() {
         repo.track_artists(track_id)?
     } else {
@@ -2034,6 +2021,53 @@ mod tests {
             before,
             "an untouched mtime is what keeps the watcher quiet"
         );
+    }
+
+    /// An album edit replaces each file's genre list wholesale rather than merging, so
+    /// whatever the dialog was pre-filled with is what survives on disk. That makes the
+    /// pre-fill a correctness problem, not a cosmetic one: it has to be the aggregate the
+    /// album screens show (`album_genres`), because a genre carried by only some tracks
+    /// would otherwise be erased by a dialog that never displayed it.
+    #[test]
+    fn an_album_edit_overwrites_the_genres_of_every_track() {
+        let ws = Workspace::new();
+        let plain = ws.add_file("01.flac", "tagged_basic.flac");
+        let extra = ws.add_file("02.flac", "tagged_basic.flac");
+        for (path, n, genres) in [
+            (&plain, 1u32, vec!["Rock".to_string()]),
+            (&extra, 2, vec!["Rock".to_string(), "Jazz".to_string()]),
+        ] {
+            let mut edits = edits_titled(&format!("Track {n}"));
+            edits.track_number = Some(n);
+            edits.genres = genres;
+            tag_writer::write_metadata(path, &edits).unwrap();
+        }
+        ws.scan();
+        let album_id = ws.repo.albums().unwrap()[0].id;
+        assert_eq!(
+            ws.repo.album_genres(album_id).unwrap(),
+            ["Rock", "Jazz"],
+            "the album screens show the union, and so must the dialog"
+        );
+
+        let tracks = ws.repo.tracks_for_album(album_id).unwrap();
+        let edits = AlbumTagEdits {
+            album: Some("Seed Album".into()),
+            album_artists: Vec::new(),
+            year: Some(2001),
+            genres: ws.repo.album_genres(album_id).unwrap(),
+            cover: tag_writer::CoverEdit::Keep,
+        };
+        apply_album_tags(&ws.repo, &tracks, &edits).unwrap();
+
+        for path in [&plain, &extra] {
+            assert_eq!(
+                music_indexer::metadata::read_metadata(path).unwrap().genres,
+                ["Rock", "Jazz"],
+                "{}",
+                path.display()
+            );
+        }
     }
 
     #[test]

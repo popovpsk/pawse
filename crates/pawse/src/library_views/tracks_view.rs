@@ -27,7 +27,6 @@ use crate::localization::{LangChanged, tr};
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
-use ui_components::scrollbar_metrics::SCROLLBAR_GUTTER;
 
 const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 36.;
@@ -348,7 +347,6 @@ impl Render for TracksView {
                     },
                 )
                 .track_scroll(&self.scroll_handle)
-                .pr(SCROLLBAR_GUTTER)
                 .flex_1(),
             )
             .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)

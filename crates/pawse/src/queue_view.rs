@@ -22,7 +22,6 @@ use crate::track_list::{
     track_duration,
 };
 use ui_components::cover_placeholder::cover_placeholder;
-use ui_components::scrollbar_metrics::SCROLLBAR_GUTTER;
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::track_row::build_artist_map;
@@ -316,7 +315,6 @@ impl Render for QueueView {
                         },
                     )
                     .track_scroll(&self.scroll_handle)
-                    .pr(SCROLLBAR_GUTTER)
                     .flex_1(),
                 )
                 .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),

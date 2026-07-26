@@ -55,7 +55,6 @@ pub fn play_replacing_queue(
         replace_queue_and_play(tracks, index, source, cx);
         return;
     }
-    // why: the dialog builder runs per frame; Rc keeps the per-frame clones to refcount bumps
     let tracks = Rc::new(tracks);
     let clicked = tracks.get(index).cloned();
     window.open_dialog(cx, move |dialog, _, _| {

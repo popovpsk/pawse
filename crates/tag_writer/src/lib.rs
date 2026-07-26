@@ -50,8 +50,6 @@ pub struct RawTag {
 pub fn write_metadata(path: &Path, edits: &TrackTagEdits) -> anyhow::Result<()> {
     let mut tagged = lofty::read_from_path(path)?;
 
-    // why: the edited tag is built aside and put back with insert_tag — one owned copy keeps the
-    // whole function clear of borrowing `tagged` mutably while still reading its tag type
     let mut tag = match tagged.primary_tag().or_else(|| tagged.first_tag()) {
         Some(tag) => tag.clone(),
         None => Tag::new(target_tag_type(&tagged)),
@@ -93,18 +91,12 @@ fn with_custom(mut tag: Tag, added: &[RawTag]) -> anyhow::Result<Tag> {
         match support.check_key(&key) {
             None => {}
             Some(KeyProblem::Invalid) => anyhow::bail!("'{}' is not a usable tag name", key),
-            // why: ID3v2 frame ids are exactly 4 characters, so lofty reads a 4-character unknown
-            // key as a literal frame id and refuses it at write time ("Attempted to write an
-            // invalid frame"); the UI checks the same rule so a row is refused as it is typed
             Some(KeyProblem::FrameIdLength) => anyhow::bail!(
                 "ID3v2 cannot store '{}': custom names may not be 4 characters",
                 key
             ),
         }
 
-        // why: rows sharing a key have to be written in one go — set_multi replaces the key
-        // wholesale, so a second call would drop the first row along with whatever the file
-        // already had under that name
         let item_key = ItemKey::from_key(tag_type, &key);
         let mut merged: Vec<String> = tag.get_strings(&item_key).map(str::to_owned).collect();
         for value in values {
@@ -133,8 +125,6 @@ fn apply_cover(tag: &mut Tag, edit: &CoverEdit) -> anyhow::Result<()> {
         }
         CoverEdit::Replace { bytes } => bytes,
     };
-    // why: refuse before save_to_path — the writer runs long after the dialog closed, so an
-    // error here would take every other edit of the same save down with it
     let picture = read_cover(bytes)?;
     clear_pictures(tag);
     tag.push_picture(picture);
@@ -356,8 +346,6 @@ fn apply(tag: &mut Tag, edits: &TrackTagEdits) {
 
     let tag_type = tag.tag_type();
     for removed in &edits.removed_tags {
-        // why: Vorbis holds repeated fields natively, so a key can carry several rows —
-        // remove_key would take the ones the user kept along with the one they deleted
         let key = ItemKey::from_key(tag_type, &removed.key);
         tag.retain(|item| {
             *item.key() != key || item.value().text().map(str::trim) != Some(removed.value.as_str())
@@ -383,13 +371,9 @@ fn current_number(tag: &Tag, key: &ItemKey) -> Option<u32> {
 }
 
 fn set_year(tag: &mut Tag, year: Option<i32>) {
-    // why: the file may hold a full date, and the form only ever shows the year — leaving an
-    // untouched field alone is what keeps the month and day of a 2023-06-15
     if current_year(tag) == year {
         return;
     }
-    // why: read_year walks RecordingDate → Year → OriginalReleaseDate → ReleaseDate, so a stale
-    // value in any of them must go or a cleared year would silently resurrect from the fallback
     tag.remove_key(&ItemKey::Year);
     tag.remove_key(&ItemKey::OriginalReleaseDate);
     tag.remove_key(&ItemKey::ReleaseDate);
@@ -438,9 +422,6 @@ fn set_multi(tag: &mut Tag, key: ItemKey, values: &[String]) {
     }
 
     if tag.tag_type() == TagType::Id3v2 {
-        // why: lofty's ID3v2 writer keeps one frame per key, so separately pushed items collapse to
-        // the last one; ID3v2.4 stores multiple values as a single NUL-separated frame, which reads
-        // back as distinct items
         tag.insert_unchecked(TagItem::new(
             key,
             ItemValue::Text(cleaned.join(ID3V2_MULTI_SEPARATOR)),
@@ -892,9 +873,6 @@ mod tests {
         let pictures = before.primary_tag().unwrap().picture_count();
         assert!(pictures > 0, "fixture must carry a cover");
 
-        // why: write_metadata edits a copy of the tag and puts it back with insert_tag, replacing
-        // the original wholesale — anything the copy fails to carry, embedded art included, is
-        // gone without a word
         write_metadata(
             &path,
             &TrackTagEdits {
