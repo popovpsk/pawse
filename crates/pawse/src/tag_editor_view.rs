@@ -25,6 +25,7 @@ use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 use ui_components::cover_thumb::cover_thumb;
+use ui_components::scrollbar_metrics::SCROLLBAR_GUTTER;
 
 const DIALOG_WIDTH: f32 = 560.;
 const LIST_SEPARATOR: &str = "; ";
@@ -44,7 +45,8 @@ const DIALOG_BOTTOM_MARGIN: f32 = 24.;
 const MIN_FORM_HEIGHT: f32 = 120.;
 const COVER_PREVIEW_SIZE: f32 = 84.;
 const COVER_PREVIEW_RADIUS: f32 = 6.;
-const SCROLLBAR_BAND_WIDTH: f32 = 16.;
+/// List rows get their breathing room from their own horizontal padding; the form has
+/// none, so it adds this on top of [`SCROLLBAR_GUTTER`].
 const FORM_RIGHT_GAP: f32 = 4.;
 
 enum Target {
@@ -596,7 +598,7 @@ impl Render for TagEditorView {
                     .size_full()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
-                    .pr(px(SCROLLBAR_BAND_WIDTH + FORM_RIGHT_GAP))
+                    .pr(SCROLLBAR_GUTTER + px(FORM_RIGHT_GAP))
                     .child(self.form(window, cx)),
             )
             .vertical_scrollbar(&self.scroll)

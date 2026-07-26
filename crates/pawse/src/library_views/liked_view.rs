@@ -21,6 +21,7 @@ use crate::track_list::{
 };
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
+use ui_components::scrollbar_metrics::SCROLLBAR_GUTTER;
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
@@ -319,6 +320,7 @@ impl Render for LikedView {
                     },
                 )
                 .track_scroll(&self.scroll_handle)
+                .pr(SCROLLBAR_GUTTER)
                 .flex_1(),
             )
             .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical)

@@ -41,6 +41,7 @@ macOS · Windows · Linux
 - **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, and more.
 - **Instant fuzzy search** — find any album, artist or track as you type.
 - **Playlists & likes** — create, edit and drag-reorder playlists; like tracks.
+- **Tag editor** *(beta)* — edit tags in your files, per track or album.
 - **Lyrics** — time-synced lyrics from your files or fetched online.
 - **Remote control** — control playback from any device on your network through a built-in HTTP web view.
 - **System media integration** — control playback from your OS media controls and hardware media keys.

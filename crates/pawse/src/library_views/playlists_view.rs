@@ -22,6 +22,7 @@ use crate::localization::tr;
 use crate::services::Services;
 use crate::theme_colors::Colors;
 use crate::track_list::LIKE_ROW_GROUP;
+use ui_components::scrollbar_metrics::SCROLLBAR_GUTTER;
 
 #[derive(Clone, Debug)]
 pub struct PlaylistSelectedEvent {
@@ -323,6 +324,7 @@ impl Render for PlaylistsView {
                             },
                         )
                         .track_scroll(&self.scroll_handle)
+                        .pr(SCROLLBAR_GUTTER)
                         .flex_1(),
                     )
                     .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
