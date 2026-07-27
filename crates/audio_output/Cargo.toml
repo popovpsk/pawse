@@ -24,7 +24,7 @@ objc2-core-audio-types = "=0.3.2"
 [target.'cfg(target_os = "windows")'.dependencies]
 cpal = { version = "0.17.3", features = ["audio_thread_priority"] }
 audio_thread_priority = "0.34"
-windows = { version = "0.58", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Media_Audio",
