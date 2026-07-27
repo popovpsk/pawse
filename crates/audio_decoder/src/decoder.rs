@@ -4,13 +4,12 @@ use audio_common::{
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
-use symphonia::core::audio::{AudioBufferRef, SampleBuffer, Signal};
-use symphonia::core::codecs::CodecParameters;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::audio::{Audio, GenericAudioBufferRef};
+use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 // ============================================================================
 // APE source — uses ape-decoder crate for Monkey's Audio (.ape) files
@@ -177,9 +176,9 @@ impl AudioSource for ApeSource {
 
 struct SymphoniaDecoder {
     format: Box<dyn symphonia::core::formats::FormatReader>,
-    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    decoder: Box<dyn symphonia::core::codecs::audio::AudioDecoder>,
     track_id: u32,
-    codec_params: CodecParameters,
+    codec_params: AudioCodecParameters,
     duration: Option<Duration>,
 }
 
@@ -193,38 +192,41 @@ impl SymphoniaDecoder {
             hint.with_extension(ext.to_str().unwrap_or(""));
         }
 
-        let probed = symphonia::default::get_probe()
-            .format(
+        let format = symphonia::default::get_probe()
+            .probe(
                 &hint,
                 mss,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
             .map_err(|e| AudioError::Decoder(e.to_string()))?;
 
-        let format = probed.format;
-
         let track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .default_track(TrackType::Audio)
+            .or_else(|| format.first_track(TrackType::Audio))
             .ok_or(AudioError::Decoder("No audio track found".to_string()))?;
 
         let track_id = track.id;
-        let codec_params = track.codec_params.clone();
+        let num_frames = track.num_frames;
+        let codec_params = track
+            .codec_params
+            .as_ref()
+            .and_then(|params| params.audio())
+            .cloned()
+            .ok_or(AudioError::Decoder("No audio codec parameters".to_string()))?;
 
         let sample_rate = codec_params
             .sample_rate
             .ok_or(AudioError::Decoder("No sample rate".to_string()))?;
 
-        let duration = codec_params.n_frames.map(|frames| {
+        let duration = num_frames.map(|frames| {
             let secs = frames as f64 / sample_rate as f64;
             Duration::from_secs_f64(secs)
         });
 
-        let decoder_opts = DecoderOptions::default();
+        let decoder_opts = AudioDecoderOptions::default();
         let decoder = symphonia::default::get_codecs()
-            .make(&codec_params, &decoder_opts)
+            .make_audio_decoder(&codec_params, &decoder_opts)
             .map_err(|e| AudioError::Decoder(e.to_string()))?;
 
         Ok(Self {
@@ -239,7 +241,8 @@ impl SymphoniaDecoder {
     fn decode_next(&mut self) -> Result<Option<AudioBatch>, AudioError> {
         loop {
             let packet = match self.format.next_packet() {
-                Ok(p) => p,
+                Ok(Some(p)) => p,
+                Ok(None) => return Ok(None),
                 Err(symphonia::core::errors::Error::IoError(ref e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
@@ -248,6 +251,10 @@ impl SymphoniaDecoder {
                 Err(e) => return Err(AudioError::Decoder(e.to_string())),
             };
 
+            if packet.track_id != self.track_id {
+                continue;
+            }
+
             let decoded = match self.decoder.decode(&packet) {
                 Ok(decoded_buffer) => decoded_buffer,
                 Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
@@ -255,8 +262,8 @@ impl SymphoniaDecoder {
             };
 
             let symphonia_spec = decoded.spec();
-            let sample_rate = symphonia_spec.rate;
-            let channels = ChannelCount::from_u8(symphonia_spec.channels.count() as u8);
+            let sample_rate = symphonia_spec.rate();
+            let channels = ChannelCount::from_u8(symphonia_spec.channels().count() as u8);
 
             let audio_sample = map_audio_buffer_ref(decoded);
 
@@ -278,7 +285,8 @@ impl AudioSource for SymphoniaDecoder {
         let channels = self
             .codec_params
             .channels
-            .map(|c: symphonia::core::audio::Channels| ChannelCount::from_u8(c.count() as u8))
+            .as_ref()
+            .map(|c| ChannelCount::from_u8(c.count() as u8))
             .unwrap_or(ChannelCount::Stereo);
 
         let bit_depth = self.codec_params.bits_per_sample.unwrap_or(32);
@@ -293,7 +301,11 @@ impl AudioSource for SymphoniaDecoder {
     fn seek(&mut self, position: f32) -> Result<Duration, AudioError> {
         let duration = self.duration.unwrap().mul_f32(position);
 
-        let time: symphonia::core::units::Time = duration.into();
+        let time = symphonia::core::units::Time::try_new(
+            duration.as_secs() as i64,
+            duration.subsec_nanos(),
+        )
+        .ok_or_else(|| AudioError::Decoder("Seek position out of range".to_string()))?;
 
         let seeked = self
             .format
@@ -310,7 +322,7 @@ impl AudioSource for SymphoniaDecoder {
             .codec_params
             .sample_rate
             .ok_or_else(|| AudioError::Decoder("Sample rate unknown after seek".to_string()))?;
-        let actual_ts = seeked.actual_ts as f64 / sample_rate as f64;
+        let actual_ts = seeked.actual_ts.get() as f64 / sample_rate as f64;
         Ok(Duration::from_secs_f64(actual_ts))
     }
 
@@ -378,53 +390,36 @@ impl AudioSource for Decoder {
 // map_audio_buffer_ref — Symphonia planar → interleaved
 // ============================================================================
 
-fn map_audio_buffer_ref(decoded: AudioBufferRef<'_>) -> AudioSamples {
-    let spec = *decoded.spec();
+fn map_audio_buffer_ref(decoded: GenericAudioBufferRef<'_>) -> AudioSamples {
     let frames = decoded.frames();
-    let channels = spec.channels.count();
+    let channels = decoded.spec().channels().count();
     let total_samples = frames * channels;
 
     match decoded {
-        AudioBufferRef::S16(buf) => {
+        GenericAudioBufferRef::S16(buf) => {
             let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
+            interleaved.extend(buf.iter_interleaved());
             AudioSamples::S16(interleaved)
         }
-        AudioBufferRef::S24(buf) => {
+        GenericAudioBufferRef::S24(buf) => {
             let mut interleaved: Vec<I24> = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(I24::new(buf.chan(ch)[frame].inner()));
-                }
-            }
+            interleaved.extend(buf.iter_interleaved().map(|s| I24::new(s.inner())));
             AudioSamples::S24(interleaved)
         }
-        AudioBufferRef::S32(buf) => {
+        GenericAudioBufferRef::S32(buf) => {
             let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
+            interleaved.extend(buf.iter_interleaved());
             AudioSamples::S32(interleaved)
         }
-        AudioBufferRef::F32(buf) => {
+        GenericAudioBufferRef::F32(buf) => {
             let mut interleaved = Vec::with_capacity(total_samples);
-            for frame in 0..frames {
-                for ch in 0..channels {
-                    interleaved.push(buf.chan(ch)[frame]);
-                }
-            }
+            interleaved.extend(buf.iter_interleaved());
             AudioSamples::F32(interleaved)
         }
         _ => {
-            let mut sample_buf = SampleBuffer::<f32>::new(frames as u64, spec);
-            sample_buf.copy_interleaved_ref(decoded);
-            AudioSamples::F32(sample_buf.samples().to_vec())
+            let mut interleaved: Vec<f32> = Vec::with_capacity(total_samples);
+            decoded.copy_to_vec_interleaved(&mut interleaved);
+            AudioSamples::F32(interleaved)
         }
     }
 }

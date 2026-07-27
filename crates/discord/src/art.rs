@@ -16,10 +16,13 @@ impl ArtCache {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(10))
-            .timeout_read(Duration::from_secs(10))
-            .build();
+        let agent = Agent::new_with_config(
+            Agent::config_builder()
+                .timeout_connect(Some(Duration::from_secs(10)))
+                .timeout_recv_response(Some(Duration::from_secs(10)))
+                .timeout_recv_body(Some(Duration::from_secs(10)))
+                .build(),
+        );
         Self { path, agent, map }
     }
 
@@ -68,7 +71,8 @@ fn lookup(agent: &Agent, artist: &str, album: &str) -> Result<Option<String>, ()
         .query("limit", "1")
         .call()
         .map_err(|_| ())?
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|_| ())?;
     parse_artwork(&body)
 }

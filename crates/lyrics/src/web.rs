@@ -1,6 +1,8 @@
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 use std::time::Duration;
+use ureq::Body;
+use ureq::http::Response;
 
 const USER_AGENT: &str = "pawse music player (https://github.com/popovpsk/pawse)";
 const GET_URL: &str = "https://lrclib.net/api/get";
@@ -63,10 +65,14 @@ enum GetResult {
 }
 
 pub fn fetch(q: &LyricsQuery) -> Result<Option<RemoteLyrics>> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(10))
-        .timeout_read(Duration::from_secs(10))
-        .build();
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_recv_response(Some(Duration::from_secs(10)))
+            .timeout_recv_body(Some(Duration::from_secs(10)))
+            .http_status_as_error(false)
+            .build(),
+    );
 
     match get_exact(&agent, q, true)? {
         GetResult::Lyrics(found) => return Ok(Some(found)),
@@ -84,90 +90,107 @@ pub fn fetch(q: &LyricsQuery) -> Result<Option<RemoteLyrics>> {
 }
 
 fn get_exact(agent: &ureq::Agent, q: &LyricsQuery, with_album: bool) -> Result<GetResult> {
-    let mut req = agent
-        .get(GET_URL)
-        .set("User-Agent", USER_AGENT)
-        .query("artist_name", &q.artist)
-        .query("track_name", &q.title);
-    if with_album && let Some(album) = &q.album {
-        req = req.query("album_name", album);
-    }
-    if let Some(duration) = q.duration_secs {
-        req = req.query("duration", &duration.to_string());
-    }
+    let mut response = call_with_retry(|| {
+        let mut req = agent
+            .get(GET_URL)
+            .header("User-Agent", USER_AGENT)
+            .query("artist_name", &q.artist)
+            .query("track_name", &q.title);
+        if with_album && let Some(album) = &q.album {
+            req = req.query("album_name", album);
+        }
+        if let Some(duration) = q.duration_secs {
+            req = req.query("duration", duration.to_string());
+        }
+        req.call()
+    })
+    .context("LRCLIB get request failed")?;
 
-    match call_with_retry(req) {
-        Ok(response) => {
+    match response.status().as_u16() {
+        404 => Ok(GetResult::NotFound),
+        code if !(200..300).contains(&code) => {
+            Err(anyhow::anyhow!("LRCLIB get request failed: HTTP {code}"))
+        }
+        _ => {
             let body = response
-                .into_string()
+                .body_mut()
+                .read_to_string()
                 .context("reading LRCLIB get response")?;
             Ok(parse_get(&body))
         }
-        Err(e) => match *e {
-            ureq::Error::Status(404, _) => Ok(GetResult::NotFound),
-            e => Err(anyhow::Error::new(e).context("LRCLIB get request failed")),
-        },
     }
 }
 
 fn search(agent: &ureq::Agent, q: &LyricsQuery) -> Result<Option<RemoteLyrics>> {
-    let mut req = agent
-        .get(SEARCH_URL)
-        .set("User-Agent", USER_AGENT)
-        .query("track_name", &q.title)
-        .query("artist_name", &q.artist);
-    if let Some(album) = &q.album {
-        req = req.query("album_name", album);
-    }
+    let mut response = call_with_retry(|| {
+        let mut req = agent
+            .get(SEARCH_URL)
+            .header("User-Agent", USER_AGENT)
+            .query("track_name", &q.title)
+            .query("artist_name", &q.artist);
+        if let Some(album) = &q.album {
+            req = req.query("album_name", album);
+        }
+        req.call()
+    })
+    .context("LRCLIB search request failed")?;
 
-    match call_with_retry(req) {
-        Ok(response) => {
+    match response.status().as_u16() {
+        404 => Ok(None),
+        code if !(200..300).contains(&code) => {
+            Err(anyhow::anyhow!("LRCLIB search request failed: HTTP {code}"))
+        }
+        _ => {
             let body = response
-                .into_string()
+                .body_mut()
+                .read_to_string()
                 .context("reading LRCLIB search response")?;
             Ok(select_search_match(&body, q))
         }
-        Err(e) => match *e {
-            ureq::Error::Status(404, _) => Ok(None),
-            e => Err(anyhow::Error::new(e).context("LRCLIB search request failed")),
-        },
     }
 }
 
-fn call_with_retry(req: ureq::Request) -> Result<ureq::Response, Box<ureq::Error>> {
+fn call_with_retry(
+    send: impl Fn() -> Result<Response<Body>, ureq::Error>,
+) -> Result<Response<Body>, ureq::Error> {
     let mut attempt = 0u32;
     loop {
-        match req.clone().call() {
-            Ok(response) => return Ok(response),
-            Err(e) => {
-                attempt += 1;
-                if attempt >= MAX_ATTEMPTS || !is_retryable(&e) {
-                    return Err(Box::new(e));
-                }
-                std::thread::sleep(retry_delay(&e));
-            }
+        let result = send();
+        attempt += 1;
+        if attempt >= MAX_ATTEMPTS {
+            return result;
         }
+        let delay = match &result {
+            Ok(response) if retryable_status(response.status().as_u16()) => {
+                let retry_after = (response.status().as_u16() == 429)
+                    .then(|| retry_after_delay(header_str(response, "retry-after")))
+                    .flatten();
+                retry_after.unwrap_or(Duration::from_millis(RETRY_BACKOFF_MS))
+            }
+            Err(e) if is_retryable(e) => Duration::from_millis(RETRY_BACKOFF_MS),
+            _ => return result,
+        };
+        std::thread::sleep(delay);
     }
+}
+
+fn header_str<'a>(response: &'a Response<Body>, name: &str) -> Option<&'a str> {
+    response.headers().get(name).and_then(|v| v.to_str().ok())
 }
 
 fn is_retryable(e: &ureq::Error) -> bool {
-    match e {
-        ureq::Error::Status(code, _) => retryable_status(*code),
-        ureq::Error::Transport(_) => true,
-    }
+    matches!(
+        e,
+        ureq::Error::Io(_)
+            | ureq::Error::Timeout(_)
+            | ureq::Error::ConnectionFailed
+            | ureq::Error::HostNotFound
+            | ureq::Error::Protocol(_)
+    )
 }
 
 fn retryable_status(code: u16) -> bool {
     code == 429 || code >= 500
-}
-
-fn retry_delay(e: &ureq::Error) -> Duration {
-    if let ureq::Error::Status(429, resp) = e
-        && let Some(delay) = retry_after_delay(resp.header("retry-after"))
-    {
-        return delay;
-    }
-    Duration::from_millis(RETRY_BACKOFF_MS)
 }
 
 fn retry_after_delay(header: Option<&str>) -> Option<Duration> {

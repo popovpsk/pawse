@@ -18,10 +18,14 @@ pub struct LastfmClient {
 
 impl LastfmClient {
     pub fn new(api_key: String, api_secret: String) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(15))
-            .timeout_read(Duration::from_secs(20))
-            .build();
+        let agent = ureq::Agent::new_with_config(
+            ureq::Agent::config_builder()
+                .timeout_connect(Some(Duration::from_secs(15)))
+                .timeout_recv_response(Some(Duration::from_secs(20)))
+                .timeout_recv_body(Some(Duration::from_secs(20)))
+                .http_status_as_error(false)
+                .build(),
+        );
         Self {
             agent,
             api_key,
@@ -111,11 +115,11 @@ impl LastfmClient {
             read(
                 self.agent
                     .post(ENDPOINT)
-                    .set("User-Agent", USER_AGENT)
-                    .send_form(&form),
+                    .header("User-Agent", USER_AGENT)
+                    .send_form(form),
             )
         } else {
-            let mut req = self.agent.get(ENDPOINT).set("User-Agent", USER_AGENT);
+            let mut req = self.agent.get(ENDPOINT).header("User-Agent", USER_AGENT);
             for (k, v) in &params {
                 req = req.query(k, v);
             }
@@ -135,12 +139,12 @@ impl LastfmClient {
     }
 }
 
-fn read(result: Result<ureq::Response, ureq::Error>) -> Result<String> {
+fn read(result: Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<String> {
     match result {
-        Ok(resp) => resp.into_string().context("read last.fm response"),
-        Err(ureq::Error::Status(_, resp)) => {
-            resp.into_string().context("read last.fm error response")
-        }
+        Ok(mut resp) => resp
+            .body_mut()
+            .read_to_string()
+            .context("read last.fm response"),
         Err(e) => Err(anyhow!("last.fm request failed: {e}")),
     }
 }

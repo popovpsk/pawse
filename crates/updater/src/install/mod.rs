@@ -67,16 +67,18 @@ pub(crate) fn download_file(
     use sha2::{Digest as _, Sha256};
     use std::time::Duration;
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(30))
-        .timeout_read(Duration::from_secs(60))
-        .build();
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(30)))
+            .timeout_recv_response(Some(Duration::from_secs(60)))
+            .build(),
+    );
     let response = agent
         .get(url)
-        .set("User-Agent", "pawse-updater")
+        .header("User-Agent", "pawse-updater")
         .call()
         .context("download request failed")?;
-    let mut reader = response.into_reader();
+    let mut reader = response.into_body().into_reader();
     let file =
         std::fs::File::create(dest).with_context(|| format!("creating {}", dest.display()))?;
     let mut writer = HashingWriter {

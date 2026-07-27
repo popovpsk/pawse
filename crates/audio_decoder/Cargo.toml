@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 audio_common = { path = "../audio_common" }
 anyhow = { workspace = true }
-symphonia = { version = "0.5", features = ["all"] }
+symphonia = { version = "0.6", features = ["all"] }
 ape-decoder = "0.3.2"
 
 [dev-dependencies]

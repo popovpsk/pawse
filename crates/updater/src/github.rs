@@ -30,20 +30,24 @@ pub struct Found {
 
 pub fn fetch_latest() -> Result<Found> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(30))
-        .timeout_read(Duration::from_secs(30))
-        .build();
-    let response = agent
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(Duration::from_secs(30)))
+            .timeout_recv_response(Some(Duration::from_secs(30)))
+            .timeout_recv_body(Some(Duration::from_secs(30)))
+            .build(),
+    );
+    let mut response = agent
         .get(&url)
-        .set("User-Agent", USER_AGENT)
-        .set("Accept", "application/vnd.github+json")
-        .set("X-GitHub-Api-Version", "2022-11-28")
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
         .call()
         .context("GitHub releases request failed")?;
 
     let body = response
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .context("reading GitHub releases response")?;
     let release: Release =
         serde_json::from_str(&body).context("parsing GitHub releases response")?;

@@ -8,5 +8,5 @@ publish = false
 log = { workspace = true }
 serde_json = "1"
 flume = "0.12"
-ureq = "2"
+ureq = "3"
 discord-rich-presence = "1.1"
