@@ -231,6 +231,8 @@ pub static FR: Strings = lang! {
     tag_cover_unreadable: "Ce fichier n'a pas pu être lu.",
     tag_cover_bad_format: "Une pochette doit être au format JPEG ou PNG.",
     tag_cue_readonly: "Cette piste provient d’une feuille CUE. Ses tags se trouvent dans le fichier .cue et ne peuvent pas être modifiés ici.",
+    tag_playing_readonly: "C’est la piste en cours. L’enregistrement réécrirait le fichier ouvert par le lecteur — passez d’abord à une autre piste.",
+    tag_album_playing_readonly: "La piste en cours appartient à cet album. L’enregistrement réécrirait le fichier ouvert par le lecteur — passez d’abord à une autre piste.",
     tag_album_fields_hint: "Les champs d’album s’appliquent à tout l’album — modifiez-les dans l’éditeur de tags de l’album.",
     tags_saved: "Tags enregistrés",
     tag_write_failed_title: "Échec de l’écriture des tags",

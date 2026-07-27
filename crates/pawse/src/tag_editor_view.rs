@@ -56,7 +56,8 @@ enum Target {
 
 pub struct TagEditorView {
     target: Target,
-    read_only: bool,
+    read_only: Option<SharedString>,
+    files: Vec<PathBuf>,
     title: Entity<InputState>,
     artists: Entity<InputState>,
     album: Entity<InputState>,
@@ -92,14 +93,33 @@ pub fn open_for_track(track: Rc<music_library::Track>, window: &mut Window, cx: 
         track_id: track.id,
         has_album: track.album_id.is_some(),
     };
-    let view = cx.new(|cx| TagEditorView::new(target, track.is_cue, loaded, window, cx));
+    let files = if track.is_cue { Vec::new() } else { vec![path] };
+    let read_only = if track.is_cue {
+        Some(tr().tag_cue_readonly.clone())
+    } else if holds_open_file(&files, cx) {
+        Some(tr().tag_playing_readonly.clone())
+    } else {
+        None
+    };
+    let view = cx.new(|cx| TagEditorView::new(target, read_only, files, loaded, window, cx));
     open_dialog(view, tr().edit_tags.clone(), window, cx);
 }
 
 pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     let library = cx.global::<Services>().library.clone();
     let tracks = library.tracks_for_album(album_id);
-    let read_only = !tracks.iter().any(|t| !t.is_cue);
+    let files: Vec<PathBuf> = tracks
+        .iter()
+        .filter(|t| !t.is_cue)
+        .map(|t| PathBuf::from(&t.path))
+        .collect();
+    let read_only = if files.is_empty() {
+        Some(tr().tag_cue_readonly.clone())
+    } else if holds_open_file(&files, cx) {
+        Some(tr().tag_album_playing_readonly.clone())
+    } else {
+        None
+    };
     let Some(track) = tracks.iter().find(|t| !t.is_cue).or_else(|| tracks.first()) else {
         return;
     };
@@ -108,9 +128,24 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     };
     loaded.album_artists = library.album_artists(album_id);
     loaded.genres = library.album_genres(album_id);
-    let view =
-        cx.new(|cx| TagEditorView::new(Target::Album { album_id }, read_only, loaded, window, cx));
+    let view = cx.new(|cx| {
+        TagEditorView::new(
+            Target::Album { album_id },
+            read_only,
+            files,
+            loaded,
+            window,
+            cx,
+        )
+    });
     open_dialog(view, tr().edit_album_tags.clone(), window, cx);
+}
+
+fn holds_open_file(files: &[PathBuf], cx: &App) -> bool {
+    let queue = cx.global::<Services>().playback_queue.borrow();
+    queue
+        .current_track()
+        .is_some_and(|t| files.iter().any(|f| f.as_path() == Path::new(&t.path)))
 }
 
 struct Loaded {
@@ -259,7 +294,8 @@ fn open_dialog(
 impl TagEditorView {
     fn new(
         target: Target,
-        read_only: bool,
+        read_only: Option<SharedString>,
+        files: Vec<PathBuf>,
         loaded: Loaded,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -318,13 +354,21 @@ impl TagEditorView {
             cover_preview: loaded.cover,
             target,
             read_only,
+            files,
             _genre_subscription: genre_subscription,
             _custom_subscription: custom_subscription,
         }
     }
 
     fn read_only(&self) -> bool {
-        self.read_only
+        self.read_only.is_some()
+    }
+
+    fn playback_notice(&self) -> SharedString {
+        match self.target {
+            Target::Track { .. } => tr().tag_playing_readonly.clone(),
+            Target::Album { .. } => tr().tag_album_playing_readonly.clone(),
+        }
     }
 
     /// Ask for an image file, keep it in memory until Save. The format is checked here
@@ -391,13 +435,13 @@ impl TagEditorView {
     /// no shared row to break, and no album editor it could be reached from.
     fn album_fields_editable(&self) -> bool {
         match self.target {
-            Target::Album { .. } => !self.read_only,
-            Target::Track { has_album, .. } => !self.read_only && !has_album,
+            Target::Album { .. } => !self.read_only(),
+            Target::Track { has_album, .. } => !self.read_only() && !has_album,
         }
     }
 
     fn track_fields_editable(&self) -> bool {
-        !self.read_only && matches!(self.target, Target::Track { .. })
+        !self.read_only() && matches!(self.target, Target::Track { .. })
     }
 
     fn commit_genre(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -454,6 +498,12 @@ impl TagEditorView {
     fn save(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.read_only() {
             return true;
+        }
+        if holds_open_file(&self.files, cx) {
+            let notice = self.playback_notice();
+            log::warn!("Tag edit rejected: {}", notice);
+            diagnostics::notify_error(tr().tag_write_failed_title.to_string(), notice.to_string());
+            return false;
         }
 
         let track_number = match parse_number::<u32>(&self.track_number, cx) {
@@ -693,13 +743,8 @@ impl TagEditorView {
 
         v_flex()
             .gap_3()
-            .when(self.read_only(), |el| {
-                el.child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child(tr().tag_cue_readonly.clone()),
-                )
+            .when_some(self.read_only.clone(), |el, notice| {
+                el.child(div().text_sm().text_color(muted).child(notice))
             })
             .child(self.cover_row(muted, cx))
             .when(is_track, |el| {

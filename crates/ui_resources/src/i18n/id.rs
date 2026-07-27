@@ -231,6 +231,8 @@ pub static ID: Strings = lang! {
     tag_cover_unreadable: "Berkas itu tidak dapat dibaca.",
     tag_cover_bad_format: "Sampul harus berupa JPEG atau PNG.",
     tag_cue_readonly: "Trek ini berasal dari lembar CUE. Tag-nya ada di berkas .cue dan tidak dapat diedit di sini.",
+    tag_playing_readonly: "Ini trek yang sedang aktif. Menyimpan akan menulis ulang berkas yang sedang dibuka pemutar — ganti ke trek lain dulu.",
+    tag_album_playing_readonly: "Trek yang sedang aktif ada di album ini. Menyimpan akan menulis ulang berkas yang sedang dibuka pemutar — ganti ke trek lain dulu.",
     tag_album_fields_hint: "Kolom album berlaku untuk seluruh album — ubah di editor tag album.",
     tags_saved: "Tag disimpan",
     tag_write_failed_title: "Gagal menulis tag",

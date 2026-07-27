@@ -231,6 +231,8 @@ pub static ES: Strings = lang! {
     tag_cover_unreadable: "No se pudo leer el archivo.",
     tag_cover_bad_format: "La portada debe ser JPEG o PNG.",
     tag_cue_readonly: "Esta pista proviene de una hoja CUE. Sus etiquetas están en el archivo .cue y no se pueden editar aquí.",
+    tag_playing_readonly: "Esta es la pista actual. Guardar reescribiría el archivo que el reproductor tiene abierto: cambia primero a otra pista.",
+    tag_album_playing_readonly: "La pista actual pertenece a este álbum. Guardar reescribiría el archivo que el reproductor tiene abierto: cambia primero a otra pista.",
     tag_album_fields_hint: "Los campos del álbum se aplican a todo el álbum: edítalos en el editor de etiquetas del álbum.",
     tags_saved: "Etiquetas guardadas",
     tag_write_failed_title: "No se pudieron escribir las etiquetas",

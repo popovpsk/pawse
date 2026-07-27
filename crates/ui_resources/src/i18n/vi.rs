@@ -231,6 +231,8 @@ pub static VI: Strings = lang! {
     tag_cover_unreadable: "Không đọc được tệp này.",
     tag_cover_bad_format: "Ảnh bìa phải là JPEG hoặc PNG.",
     tag_cue_readonly: "Bản nhạc này đến từ một tệp CUE. Thẻ của nó nằm trong tệp .cue và không thể sửa ở đây.",
+    tag_playing_readonly: "Đây là bản nhạc hiện tại. Việc lưu sẽ ghi đè tệp mà trình phát đang mở — hãy chuyển sang bản khác trước.",
+    tag_album_playing_readonly: "Bản nhạc hiện tại thuộc album này. Việc lưu sẽ ghi đè tệp mà trình phát đang mở — hãy chuyển sang bản khác trước.",
     tag_album_fields_hint: "Các trường album áp dụng cho toàn album — hãy sửa chúng trong trình sửa thẻ album.",
     tags_saved: "Đã lưu thẻ",
     tag_write_failed_title: "Không thể ghi thẻ",

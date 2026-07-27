@@ -231,6 +231,8 @@ pub static SV: Strings = lang! {
     tag_cover_unreadable: "Filen kunde inte läsas.",
     tag_cover_bad_format: "Ett omslag måste vara JPEG eller PNG.",
     tag_cue_readonly: "Det här spåret kommer från ett CUE-ark. Taggarna finns i .cue-filen och kan inte redigeras här.",
+    tag_playing_readonly: "Det här är det aktuella spåret. Att spara skulle skriva om filen som spelaren har öppen — byt först till ett annat spår.",
+    tag_album_playing_readonly: "Det aktuella spåret hör till det här albumet. Att spara skulle skriva om filen som spelaren har öppen — byt först till ett annat spår.",
     tag_album_fields_hint: "Albumfälten gäller hela albumet — redigera dem i albumets taggredigerare.",
     tags_saved: "Taggar sparade",
     tag_write_failed_title: "Kunde inte skriva taggar",

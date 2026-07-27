@@ -231,6 +231,8 @@ pub static PL: Strings = lang! {
     tag_cover_unreadable: "Nie udało się odczytać pliku.",
     tag_cover_bad_format: "Okładka musi być plikiem JPEG lub PNG.",
     tag_cue_readonly: "Ten utwór pochodzi z arkusza CUE. Jego tagi znajdują się w pliku .cue i nie można ich tu edytować.",
+    tag_playing_readonly: "To bieżący utwór. Zapis nadpisałby plik otwarty przez odtwarzacz — najpierw przełącz się na inny utwór.",
+    tag_album_playing_readonly: "Bieżący utwór należy do tego albumu. Zapis nadpisałby plik otwarty przez odtwarzacz — najpierw przełącz się na inny utwór.",
     tag_album_fields_hint: "Pola albumu dotyczą całego albumu — edytuj je w edytorze tagów albumu.",
     tags_saved: "Tagi zapisane",
     tag_write_failed_title: "Nie udało się zapisać tagów",

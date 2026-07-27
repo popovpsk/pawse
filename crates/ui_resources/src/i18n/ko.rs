@@ -231,6 +231,8 @@ pub static KO: Strings = lang! {
     tag_cover_unreadable: "파일을 읽을 수 없습니다.",
     tag_cover_bad_format: "커버는 JPEG 또는 PNG여야 합니다.",
     tag_cue_readonly: "이 트랙은 CUE 시트에서 온 것입니다. 태그는 .cue 파일에 있으며 여기서는 편집할 수 없습니다.",
+    tag_playing_readonly: "현재 트랙입니다. 저장하면 플레이어가 열어 둔 파일을 다시 씁니다 — 먼저 다른 트랙으로 전환하세요.",
+    tag_album_playing_readonly: "현재 트랙이 이 앨범에 속해 있습니다. 저장하면 플레이어가 열어 둔 파일을 다시 씁니다 — 먼저 다른 트랙으로 전환하세요.",
     tag_album_fields_hint: "앨범 항목은 앨범 전체에 적용됩니다 — 앨범 태그 편집기에서 수정하세요.",
     tags_saved: "태그가 저장되었습니다",
     tag_write_failed_title: "태그를 쓸 수 없습니다",

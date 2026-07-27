@@ -231,6 +231,8 @@ pub static DE: Strings = lang! {
     tag_cover_unreadable: "Die Datei konnte nicht gelesen werden.",
     tag_cover_bad_format: "Ein Cover muss ein JPEG oder ein PNG sein.",
     tag_cue_readonly: "Dieser Titel stammt aus einem CUE-Sheet. Seine Tags liegen in der .cue-Datei und können hier nicht bearbeitet werden.",
+    tag_playing_readonly: "Das ist der aktuelle Titel. Beim Speichern würde die Datei überschrieben, die der Player geöffnet hat — wechsle zuerst zu einem anderen Titel.",
+    tag_album_playing_readonly: "Der aktuelle Titel gehört zu diesem Album. Beim Speichern würde die Datei überschrieben, die der Player geöffnet hat — wechsle zuerst zu einem anderen Titel.",
     tag_album_fields_hint: "Album-Felder gelten für das ganze Album — bearbeite sie im Album-Tag-Editor.",
     tags_saved: "Tags gespeichert",
     tag_write_failed_title: "Tags konnten nicht geschrieben werden",

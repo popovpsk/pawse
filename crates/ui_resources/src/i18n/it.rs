@@ -231,6 +231,8 @@ pub static IT: Strings = lang! {
     tag_cover_unreadable: "Non è stato possibile leggere il file.",
     tag_cover_bad_format: "La copertina deve essere JPEG o PNG.",
     tag_cue_readonly: "Questa traccia proviene da un foglio CUE. I suoi tag si trovano nel file .cue e non sono modificabili qui.",
+    tag_playing_readonly: "Questa è la traccia corrente. Il salvataggio riscriverebbe il file aperto dal lettore — passa prima a un’altra traccia.",
+    tag_album_playing_readonly: "La traccia corrente appartiene a questo album. Il salvataggio riscriverebbe il file aperto dal lettore — passa prima a un’altra traccia.",
     tag_album_fields_hint: "I campi dell’album valgono per tutto l’album — modificali nell’editor di tag dell’album.",
     tags_saved: "Tag salvati",
     tag_write_failed_title: "Impossibile scrivere i tag",

@@ -231,6 +231,8 @@ pub static CS: Strings = lang! {
     tag_cover_unreadable: "Soubor se nepodařilo přečíst.",
     tag_cover_bad_format: "Obal musí být JPEG nebo PNG.",
     tag_cue_readonly: "Tato skladba pochází z CUE listu. Její značky jsou v souboru .cue a nelze je zde upravovat.",
+    tag_playing_readonly: "Toto je aktuální skladba. Uložení by přepsalo soubor, který má přehrávač otevřený — nejprve přepněte na jinou skladbu.",
+    tag_album_playing_readonly: "Aktuální skladba patří do tohoto alba. Uložení by přepsalo soubor, který má přehrávač otevřený — nejprve přepněte na jinou skladbu.",
     tag_album_fields_hint: "Pole albumu platí pro celé album — upravte je v editoru značek albumu.",
     tags_saved: "Značky uloženy",
     tag_write_failed_title: "Značky se nepodařilo zapsat",

@@ -231,6 +231,8 @@ pub static EN: Strings = lang! {
     tag_cover_unreadable: "That file could not be read.",
     tag_cover_bad_format: "A cover has to be a JPEG or a PNG.",
     tag_cue_readonly: "This track comes from a CUE sheet. Its tags live in the .cue file and cannot be edited here.",
+    tag_playing_readonly: "This is the current track. Saving would rewrite the file the player has open — switch to another track first.",
+    tag_album_playing_readonly: "The current track is in this album. Saving would rewrite the file the player has open — switch to another track first.",
     tag_album_fields_hint: "Album fields apply to the whole album — edit them in the album tag editor.",
     tags_saved: "Tags saved",
     tag_write_failed_title: "Failed to write tags",

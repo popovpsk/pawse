@@ -231,6 +231,8 @@ pub static TR: Strings = lang! {
     tag_cover_unreadable: "Dosya okunamadı.",
     tag_cover_bad_format: "Kapak JPEG veya PNG olmalıdır.",
     tag_cue_readonly: "Bu parça bir CUE sayfasından geliyor. Etiketleri .cue dosyasında bulunur ve burada düzenlenemez.",
+    tag_playing_readonly: "Bu, geçerli parça. Kaydetmek çaların açık tuttuğu dosyayı yeniden yazar — önce başka bir parçaya geçin.",
+    tag_album_playing_readonly: "Geçerli parça bu albümde. Kaydetmek çaların açık tuttuğu dosyayı yeniden yazar — önce başka bir parçaya geçin.",
     tag_album_fields_hint: "Albüm alanları tüm albümü etkiler — bunları albüm etiket düzenleyicisinde değiştirin.",
     tags_saved: "Etiketler kaydedildi",
     tag_write_failed_title: "Etiketler yazılamadı",

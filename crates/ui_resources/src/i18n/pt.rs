@@ -231,6 +231,8 @@ pub static PT: Strings = lang! {
     tag_cover_unreadable: "Não foi possível ler o arquivo.",
     tag_cover_bad_format: "A capa precisa ser JPEG ou PNG.",
     tag_cue_readonly: "Esta faixa vem de uma folha CUE. As etiquetas estão no ficheiro .cue e não podem ser editadas aqui.",
+    tag_playing_readonly: "Esta é a faixa atual. Guardar reescreveria o ficheiro que o leitor tem aberto — mude primeiro para outra faixa.",
+    tag_album_playing_readonly: "A faixa atual pertence a este álbum. Guardar reescreveria o ficheiro que o leitor tem aberto — mude primeiro para outra faixa.",
     tag_album_fields_hint: "Os campos do álbum aplicam-se ao álbum inteiro — edite-os no editor de etiquetas do álbum.",
     tags_saved: "Etiquetas guardadas",
     tag_write_failed_title: "Falha ao escrever as etiquetas",

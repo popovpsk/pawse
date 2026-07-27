@@ -231,6 +231,8 @@ pub static NL: Strings = lang! {
     tag_cover_unreadable: "Dit bestand kon niet worden gelezen.",
     tag_cover_bad_format: "Een hoes moet een JPEG of een PNG zijn.",
     tag_cue_readonly: "Dit nummer komt uit een CUE-sheet. De tags staan in het .cue-bestand en zijn hier niet te bewerken.",
+    tag_playing_readonly: "Dit is het huidige nummer. Opslaan zou het bestand overschrijven dat de speler open heeft — schakel eerst naar een ander nummer.",
+    tag_album_playing_readonly: "Het huidige nummer hoort bij dit album. Opslaan zou het bestand overschrijven dat de speler open heeft — schakel eerst naar een ander nummer.",
     tag_album_fields_hint: "Albumvelden gelden voor het hele album — bewerk ze in de album-tag-editor.",
     tags_saved: "Tags opgeslagen",
     tag_write_failed_title: "Tags schrijven mislukt",

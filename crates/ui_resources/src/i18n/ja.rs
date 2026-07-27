@@ -231,6 +231,8 @@ pub static JA: Strings = lang! {
     tag_cover_unreadable: "ファイルを読み込めませんでした。",
     tag_cover_bad_format: "カバーは JPEG または PNG である必要があります。",
     tag_cue_readonly: "このトラックは CUE シート由来です。タグは .cue ファイルにあり、ここでは編集できません。",
+    tag_playing_readonly: "これは現在のトラックです。保存するとプレイヤーが開いているファイルを書き換えてしまいます — 先に別のトラックに切り替えてください。",
+    tag_album_playing_readonly: "現在のトラックはこのアルバムに含まれています。保存するとプレイヤーが開いているファイルを書き換えてしまいます — 先に別のトラックに切り替えてください。",
     tag_album_fields_hint: "アルバム項目はアルバム全体に適用されます — アルバムのタグエディターで編集してください。",
     tags_saved: "タグを保存しました",
     tag_write_failed_title: "タグの書き込みに失敗しました",

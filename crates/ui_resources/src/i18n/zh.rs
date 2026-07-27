@@ -231,6 +231,8 @@ pub static ZH: Strings = lang! {
     tag_cover_unreadable: "无法读取该文件。",
     tag_cover_bad_format: "封面必须是 JPEG 或 PNG 格式。",
     tag_cue_readonly: "此曲目来自 CUE 文件。它的标签保存在 .cue 文件中，无法在此编辑。",
+    tag_playing_readonly: "这是当前曲目。保存会重写播放器正在打开的文件 — 请先切换到其他曲目。",
+    tag_album_playing_readonly: "当前曲目属于这张专辑。保存会重写播放器正在打开的文件 — 请先切换到其他曲目。",
     tag_album_fields_hint: "专辑字段作用于整张专辑 — 请在专辑标签编辑器中修改。",
     tags_saved: "标签已保存",
     tag_write_failed_title: "无法写入标签",

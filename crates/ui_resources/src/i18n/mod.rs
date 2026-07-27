@@ -270,6 +270,8 @@ pub struct Strings {
     pub tag_cover_unreadable: SharedString,
     pub tag_cover_bad_format: SharedString,
     pub tag_cue_readonly: SharedString,
+    pub tag_playing_readonly: SharedString,
+    pub tag_album_playing_readonly: SharedString,
     pub tag_album_fields_hint: SharedString,
     pub tags_saved: SharedString,
     pub tag_write_failed_title: SharedString,
