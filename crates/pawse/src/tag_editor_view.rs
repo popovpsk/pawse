@@ -573,7 +573,7 @@ impl Render for TagEditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport = window.viewport_size().height;
         let reserved = viewport * DIALOG_TOP_FRACTION
-            + px(crate::main_view::FOOTER_HEIGHT + DIALOG_BOTTOM_MARGIN + DIALOG_CHROME_HEIGHT);
+            + px(crate::main_view::footer_height(cx) + DIALOG_BOTTOM_MARGIN + DIALOG_CHROME_HEIGHT);
         let max_height = (viewport - reserved).max(px(MIN_FORM_HEIGHT));
 
         div()

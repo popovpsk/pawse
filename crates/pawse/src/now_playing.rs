@@ -10,6 +10,7 @@ use gpui::{
 use gpui_component::{h_flex, v_flex};
 
 use crate::library_service::LibraryEvent;
+use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 use ui_components::fade::{FadeEdge, fade_overlay};
@@ -204,32 +205,44 @@ impl Render for NowPlaying {
         let album_id = self.album_id;
         let track_title = self.track_title.clone();
         let foreground = Colors::foreground(cx);
+        let scale = cx.global::<SettingsStore>().font_scale().ui_scale();
+        let cover_size = 56. * scale;
+        let cover_radius = 6. * scale;
 
         h_flex()
             .gap_3()
             .items_center()
-            .w(px(200.))
+            .w(px(200. * scale))
             .child({
                 if let Some(cover_img) = self.cover_image.clone() {
                     img(cover_img)
-                        .w(px(56.))
-                        .h(px(56.))
-                        .rounded(px(6.))
+                        .flex_shrink_0()
+                        .w(px(cover_size))
+                        .h(px(cover_size))
+                        .rounded(px(cover_radius))
                         .object_fit(gpui::ObjectFit::Cover)
                         .with_fallback({
                             let bg = Colors::secondary(cx);
                             let fg = Colors::muted_foreground(cx);
-                            move || cover_placeholder(56., 6., bg, fg).into_any_element()
+                            move || {
+                                cover_placeholder(cover_size, cover_radius, bg, fg)
+                                    .into_any_element()
+                            }
                         })
                         .into_any_element()
                 } else {
-                    cover_placeholder(56., 6., Colors::secondary(cx), Colors::muted_foreground(cx))
-                        .into_any_element()
+                    cover_placeholder(
+                        cover_size,
+                        cover_radius,
+                        Colors::secondary(cx),
+                        Colors::muted_foreground(cx),
+                    )
+                    .into_any_element()
                 }
             })
             .child(
                 v_flex()
-                    .w(px(132.))
+                    .w(px(132. * scale))
                     .items_start()
                     .child({
                         let title_inner = div()

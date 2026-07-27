@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt as _, AppContext, Context, DispatchPhase, DragMoveEvent, Empty, Entity,
-    EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, StatefulInteractiveElement,
-    Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
+    Animation, AnimationExt as _, App, AppContext, Context, DispatchPhase, DragMoveEvent, Empty,
+    Entity, EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render,
+    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
 };
 use gpui_component::{
     Icon, Root, Sizable, Size, StyledExt,
@@ -34,13 +34,13 @@ use crate::media_bridge::MediaBridge;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{SettingsStore, ui_scale};
 use crate::settings_view::{LangPickerState, LastfmUiState, ThemePickerState};
 use crate::theme_colors::Colors;
 use ui_components::settings::SettingPage;
 
 const HEADER_HEIGHT: f32 = 44.;
-pub(crate) const FOOTER_HEIGHT: f32 = 80.;
+const FOOTER_HEIGHT: f32 = 80.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
 const QUEUE_WIDTH_MAX: f32 = 560.;
@@ -48,6 +48,10 @@ const LYRICS_WIDTH_DEFAULT: f32 = 360.;
 const LYRICS_WIDTH_MIN: f32 = 280.;
 const LYRICS_WIDTH_MAX: f32 = 560.;
 const QUEUE_ANIM: Duration = Duration::from_millis(200);
+
+pub(crate) fn footer_height(cx: &App) -> f32 {
+    FOOTER_HEIGHT * ui_scale(cx)
+}
 
 #[derive(Clone, Copy)]
 struct TabColors {
@@ -652,6 +656,7 @@ impl Render for MainView {
         let settings = cx.global::<SettingsStore>();
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
+        let scale = settings.font_scale().ui_scale();
 
         let left_group = div()
             .flex_1()
@@ -659,7 +664,9 @@ impl Render for MainView {
             .items_center()
             .h_full()
             .gap_1()
-            .when(has_back, |d| d.child(back_button(foreground, muted, cx)))
+            .when(has_back, |d| {
+                d.child(back_button(foreground, muted, scale, cx))
+            })
             .when(!has_back, |d| {
                 d.child(tab_icon_button(
                     "tab_albums",
@@ -667,6 +674,7 @@ impl Render for MainView {
                     active_tab == Some(LibraryRootTab::Albums),
                     LibraryRootTab::Albums,
                     tab_colors,
+                    scale,
                     cx,
                 ))
                 .child(tab_icon_button(
@@ -675,6 +683,7 @@ impl Render for MainView {
                     active_tab == Some(LibraryRootTab::Artists),
                     LibraryRootTab::Artists,
                     tab_colors,
+                    scale,
                     cx,
                 ))
                 .when(liked_enabled, |d| {
@@ -684,6 +693,7 @@ impl Render for MainView {
                         active_tab == Some(LibraryRootTab::Liked),
                         LibraryRootTab::Liked,
                         tab_colors,
+                        scale,
                         cx,
                     ))
                 })
@@ -694,10 +704,11 @@ impl Render for MainView {
                         active_tab == Some(LibraryRootTab::Playlists),
                         LibraryRootTab::Playlists,
                         tab_colors,
+                        scale,
                         cx,
                     ))
                 })
-                .child(cover_mode_button(cover_mode, tab_colors, cx))
+                .child(cover_mode_button(cover_mode, tab_colors, scale, cx))
             });
 
         let update_ready = self
@@ -713,9 +724,9 @@ impl Render for MainView {
             .gap_2()
             .h_full()
             .when(update_ready && !show_settings, |d| {
-                d.child(update_button(cx))
+                d.child(update_button(scale, cx))
             })
-            .when(!show_settings, |d| d.child(settings_gear_button(cx)))
+            .when(!show_settings, |d| d.child(settings_gear_button(scale, cx)))
             .child(self.audio_settings.clone());
 
         div()
@@ -767,7 +778,7 @@ impl Render for MainView {
                 let header_bar = div()
                     .w_full()
                     .flex_shrink_0()
-                    .h(px(HEADER_HEIGHT))
+                    .h(px(HEADER_HEIGHT * scale))
                     .flex()
                     .items_center()
                     .pl_2()
@@ -965,7 +976,7 @@ impl Render for MainView {
                 let footer_bar = div()
                     .w_full()
                     .flex_shrink_0()
-                    .h(px(FOOTER_HEIGHT))
+                    .h(px(footer_height(cx)))
                     .child(self.footer.clone());
 
                 let show_chrome = !cover_mode || chrome_visible;
@@ -1017,14 +1028,18 @@ impl Render for MainView {
     }
 }
 
-fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
+fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
     Button::new("settings_button")
         .ghost()
         .compact()
         .rounded_full()
-        .w(px(40.))
-        .h(px(40.))
-        .icon(Icon::default().path("icons/settings.svg").size(px(20.)))
+        .w(px(40. * scale))
+        .h(px(40. * scale))
+        .icon(
+            Icon::default()
+                .path("icons/settings.svg")
+                .size(px(20. * scale)),
+        )
         .tooltip(tr().settings.clone())
         .on_click(cx.listener(|this, _, window, cx| {
             this.leave_overlays(window, cx);
@@ -1033,22 +1048,31 @@ fn settings_gear_button(cx: &mut Context<MainView>) -> impl IntoElement {
         }))
 }
 
-fn update_button(cx: &mut Context<MainView>) -> impl IntoElement {
+fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
     Button::new("update_button")
         .ghost()
         .compact()
         .rounded_full()
-        .w(px(40.))
-        .h(px(40.))
-        .icon(Icon::default().path("icons/update.svg").size(px(20.)))
+        .w(px(40. * scale))
+        .h(px(40. * scale))
+        .icon(
+            Icon::default()
+                .path("icons/update.svg")
+                .size(px(20. * scale)),
+        )
         .tooltip(tr().restart_to_update.clone())
         .on_click(cx.listener(|_, _, _, cx| updater::apply_and_restart(cx)))
 }
 
-fn back_button(fg: Hsla, hover_bg: Hsla, cx: &mut Context<MainView>) -> impl IntoElement {
+fn back_button(
+    fg: Hsla,
+    hover_bg: Hsla,
+    scale: f32,
+    cx: &mut Context<MainView>,
+) -> impl IntoElement {
     div()
         .id("back_button")
-        .size(px(36.))
+        .size(px(36. * scale))
         .flex()
         .items_center()
         .justify_center()
@@ -1063,7 +1087,12 @@ fn back_button(fg: Hsla, hover_bg: Hsla, cx: &mut Context<MainView>) -> impl Int
                 this.library_view.update(cx, |view, cx| view.go_back(cx));
             }
         }))
-        .child(svg().path("icons/back.svg").size(px(22.)).text_color(fg))
+        .child(
+            svg()
+                .path("icons/back.svg")
+                .size(px(22. * scale))
+                .text_color(fg),
+        )
 }
 
 fn tab_icon_button(
@@ -1072,6 +1101,7 @@ fn tab_icon_button(
     active: bool,
     tab: LibraryRootTab,
     colors: TabColors,
+    scale: f32,
     cx: &mut Context<MainView>,
 ) -> impl IntoElement {
     let fg = if active {
@@ -1084,7 +1114,7 @@ fn tab_icon_button(
 
     div()
         .id(id)
-        .size(px(36.))
+        .size(px(36. * scale))
         .flex()
         .items_center()
         .justify_center()
@@ -1097,7 +1127,7 @@ fn tab_icon_button(
                 .update(cx, |view, cx| view.select_tab(tab, cx));
             cx.notify();
         }))
-        .child(svg().path(icon_path).size(px(20.)).text_color(fg))
+        .child(svg().path(icon_path).size(px(20. * scale)).text_color(fg))
 }
 
 fn cover_chrome_button(
@@ -1202,6 +1232,7 @@ fn cover_lyrics_button(
 fn cover_mode_button(
     active: bool,
     colors: TabColors,
+    scale: f32,
     cx: &mut Context<MainView>,
 ) -> impl IntoElement {
     let fg = if active {
@@ -1214,7 +1245,7 @@ fn cover_mode_button(
 
     div()
         .id("tab_cover_mode")
-        .size(px(36.))
+        .size(px(36. * scale))
         .flex()
         .items_center()
         .justify_center()
@@ -1229,7 +1260,7 @@ fn cover_mode_button(
         .child(
             svg()
                 .path("icons/s1-cover.svg")
-                .size(px(20.))
+                .size(px(20. * scale))
                 .text_color(fg),
         )
 }

@@ -179,6 +179,14 @@ impl FontScale {
             FontScale::Large => px(22.),
         }
     }
+
+    pub fn ui_scale(self) -> f32 {
+        match self {
+            FontScale::Small => 1.0,
+            FontScale::Medium => 1.1,
+            FontScale::Large => 1.2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -718,6 +726,12 @@ impl SettingsStore {
         self.settings.onboarding_complete = complete;
         self.save()
     }
+}
+
+/// Multiplier for chrome sized in raw pixels (bar heights, icon hitboxes,
+/// cover art) so it tracks the [`FontScale`] the rem-relative text already follows.
+pub fn ui_scale(cx: &App) -> f32 {
+    cx.global::<SettingsStore>().font_scale().ui_scale()
 }
 
 /// Set the UI base font size (the rem unit) from a [`FontScale`]. `Root::render`

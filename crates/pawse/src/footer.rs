@@ -130,6 +130,7 @@ impl Footer {
 impl Render for Footer {
     fn render(&mut self, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let show_repeat_shuffle = self.show_repeat_shuffle;
+        let scale = cx.global::<SettingsStore>().font_scale().ui_scale();
         h_flex()
             .gap_4()
             .w_full()
@@ -175,7 +176,7 @@ impl Render for Footer {
                     Colors::muted_foreground(cx)
                 };
                 v_flex()
-                    .w(px(200.))
+                    .w(px(200. * scale))
                     .items_end()
                     .justify_center()
                     .gap_1()

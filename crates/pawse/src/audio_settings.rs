@@ -16,7 +16,7 @@ use gpui_component::{
 
 use crate::localization::tr;
 use crate::services::Services;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{SettingsStore, ui_scale};
 use crate::theme_colors::Colors;
 
 pub struct AudioSettings {
@@ -92,6 +92,7 @@ impl Render for AudioSettings {
                 .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }))
         });
         let show_hog = !cfg!(target_os = "linux") && cx.global::<SettingsStore>().show_hog_button();
+        let scale = ui_scale(cx);
         for evt in events {
             match evt {
                 OutputEvent::Recovered { message } => {
@@ -131,9 +132,9 @@ impl Render for AudioSettings {
                         .ghost()
                         .compact()
                         .rounded_full()
-                        .w(px(40.))
-                        .h(px(40.))
-                        .icon(Icon::new(icon_name).size(px(20.)))
+                        .w(px(40. * scale))
+                        .h(px(40. * scale))
+                        .icon(Icon::new(icon_name).size(px(20. * scale)))
                         .tooltip(tooltip_text),
                 )
             })
@@ -180,9 +181,9 @@ impl Render for AudioSettings {
                         .ghost()
                         .compact()
                         .rounded_full()
-                        .w(px(40.))
-                        .h(px(40.))
-                        .icon(Icon::default().path(icon_path).size(px(20.)))
+                        .w(px(40. * scale))
+                        .h(px(40. * scale))
+                        .icon(Icon::default().path(icon_path).size(px(20. * scale)))
                         .tooltip(tooltip)
                         .on_click(move |_, window: &mut Window, app_cx: &mut App| {
                             view.update(app_cx, |this, cx| {
@@ -222,9 +223,13 @@ impl Render for AudioSettings {
                             .ghost()
                             .compact()
                             .rounded_full()
-                            .w(px(40.))
-                            .h(px(40.))
-                            .icon(Icon::default().path("icons/devices.svg").size(px(20.)))
+                            .w(px(40. * scale))
+                            .h(px(40. * scale))
+                            .icon(
+                                Icon::default()
+                                    .path("icons/devices.svg")
+                                    .size(px(20. * scale)),
+                            )
                             .tooltip(tr().select_audio_device.clone()),
                     )
                     .content(move |_state, _window, pop_cx| {
