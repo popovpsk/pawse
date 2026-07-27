@@ -24,6 +24,7 @@ use super::render::{RenderCtx, STATE_IDLE, STATE_PLAYING, fill};
 use super::{Backend, DeviceSnapshot, ExclusiveEvent};
 use crate::cpal_stream::OutputConfig;
 use crate::ring_buffer::AudioRingBuffer;
+use crate::thread_priority::RenderThreadPriority;
 use format::SampleFmt;
 use sleep::SleepPreventer;
 
@@ -201,6 +202,7 @@ fn render_loop(shared: &WasapiShared, objs: ThreadObjects) {
     } = objs;
     let channels = shared.channels as usize;
     let frame_samples = buffer_frames as usize * channels;
+    let _priority = RenderThreadPriority::acquire(buffer_frames, shared.ctx.sample_rate);
     let mut scratch = vec![0f32; frame_samples];
     let mut sleep = SleepPreventer::new();
     let mut started = false;

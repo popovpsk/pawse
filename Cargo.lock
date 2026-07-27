@@ -589,7 +589,9 @@ dependencies = [
  "anyhow",
  "atomic_float",
  "audio_common",
+ "audio_thread_priority",
  "cpal",
+ "libc",
  "log",
  "objc2-core-audio",
  "objc2-core-audio-types",
@@ -598,6 +600,20 @@ dependencies = [
  "serde",
  "serde_json",
  "windows 0.58.0",
+]
+
+[[package]]
+name = "audio_thread_priority"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7203799cd8063907524460aa8b632a46baba80c50947295aa6b92d7793c26447"
+dependencies = [
+ "cfg-if",
+ "dbus 0.6.5",
+ "libc",
+ "log",
+ "mach2 0.4.3",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1445,12 +1461,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8942da362c0f0d895d7cac616263f2f9424edc5687364dfd1d25ef7eba506d7"
 dependencies = [
  "alsa",
+ "audio_thread_priority",
  "coreaudio-rs",
  "dasp_sample",
  "jni",
  "js-sys",
  "libc",
- "mach2",
+ "mach2 0.5.0",
  "ndk",
  "ndk-context",
  "num-derive",
@@ -1603,6 +1620,16 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "dbus"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48b5f0f36f1eebe901b0e6bee369a77ed3396334bf3f09abd46454a576f71819"
+dependencies = [
+ "libc",
+ "libdbus-sys",
+]
+
+[[package]]
+name = "dbus"
 version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b942602992bb7acfd1f51c49811c58a610ef9181b6e66f3e519d79b540a3bf73"
@@ -1618,7 +1645,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64bff0bd181fba667660276c6b7ebdc50cff37ce593e7adf9e734f89c8f444e8"
 dependencies = [
- "dbus",
+ "dbus 0.9.11",
 ]
 
 [[package]]
@@ -3915,6 +3942,15 @@ name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
+
+[[package]]
+name = "mach2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "mach2"
@@ -6517,7 +6553,7 @@ dependencies = [
  "block",
  "cocoa 0.24.1",
  "core-graphics 0.22.3",
- "dbus",
+ "dbus 0.9.11",
  "dbus-crossroads",
  "dispatch",
  "objc",

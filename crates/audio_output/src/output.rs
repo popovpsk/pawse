@@ -3,6 +3,7 @@ pub mod cpal_stream;
 pub mod device;
 pub mod exclusive;
 pub mod ring_buffer;
+pub mod thread_priority;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};

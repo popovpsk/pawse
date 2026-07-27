@@ -134,7 +134,13 @@ struct AudioEngineLoop {
 
 impl AudioEngineLoop {
     pub fn run(self) {
-        thread::spawn(move || self.run_loop());
+        thread::Builder::new()
+            .name("audio-engine".into())
+            .spawn(move || {
+                audio_output::thread_priority::boost_decoder_thread();
+                self.run_loop();
+            })
+            .expect("failed to spawn audio engine thread");
     }
 
     fn run_loop(mut self) {

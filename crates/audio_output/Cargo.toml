@@ -14,11 +14,16 @@ rb = "0.4"
 parking_lot = "0.12.5"
 atomic_float = "1.1.0"
 
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-core-audio = "=0.3.2"
 objc2-core-audio-types = "=0.3.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+cpal = { version = "0.17.3", features = ["audio_thread_priority"] }
+audio_thread_priority = "0.34"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Security",
