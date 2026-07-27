@@ -7,12 +7,11 @@ publish = false
 [dependencies]
 audio_common = { path = "../audio_common" }
 anyhow = { workspace = true }
-thiserror = "1.0"
 symphonia = { version = "0.5", features = ["all"] }
 ape-decoder = "0.3.2"
 
 [dev-dependencies]
-rstest = "0.21"
+rstest = "0.26"
 
 [lib]
 path = "src/decoder.rs"

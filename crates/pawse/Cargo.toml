@@ -30,7 +30,7 @@ notify = "7"
 anyhow.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-dirs = "5"
+dirs = "6"
 ui_components = { path = "../ui_components" }
 ui_resources = { path = "../ui_resources" }
 media_integration = { path = "../media_integration" }

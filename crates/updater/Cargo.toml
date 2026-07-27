@@ -24,7 +24,7 @@ ureq = "2"
 tempfile = "3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dirs = "5"
+dirs = "6"
 
 [lints]
 workspace = true

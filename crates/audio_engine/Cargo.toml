@@ -10,7 +10,6 @@ audio_decoder = { path = "../audio_decoder" }
 audio_output = { path = "../audio_output" }
 gpui.workspace = true
 log = { workspace = true }
-ringbuf = "0.4"
 anyhow = { workspace = true }
 flume = "0.12.0"
 parking_lot = "0.12.5"

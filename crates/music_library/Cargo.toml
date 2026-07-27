@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 rusqlite = { version = "0.34.0", features = ["bundled"] }
-thiserror = "1.0"
+thiserror = "2.0"
 dirs = "6.0"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 sha2 = "0.10"
