@@ -30,6 +30,10 @@ pub struct Volume {
     volume: f32,
     is_muted: bool,
     volume_before_mute: f32,
+    /// Exclusive mode takes the app gain out of the signal path entirely, so the
+    /// (disabled) slider is parked at unity while it lasts. `volume` keeps the
+    /// user's real level and comes back on the way out.
+    slider_pinned_to_unity: bool,
 }
 
 impl Render for Volume {
@@ -62,6 +66,12 @@ impl Render for Volume {
 
         self.slider
             .update(cx, |slider, cx| slider.set_disabled(is_exclusive, cx));
+        if self.slider_pinned_to_unity != is_exclusive {
+            self.slider_pinned_to_unity = is_exclusive;
+            let shown = if is_exclusive { 1.0 } else { self.volume };
+            self.slider
+                .update(cx, |slider, cx| slider.set_value_silent(shown, cx));
+        }
         container = container.child(div().w(px(100.)).child(self.slider.clone()));
 
         container.w_full().h_6()
@@ -111,6 +121,7 @@ impl Volume {
             volume: initial,
             is_muted: initial <= 0.0,
             volume_before_mute: if initial > 0.0 { initial } else { 1.0 },
+            slider_pinned_to_unity: false,
         }
     }
 
