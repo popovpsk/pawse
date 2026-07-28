@@ -35,7 +35,7 @@ macOS · Windows · Linux
 
 ## Features
 
-- **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an **exclusive output mode** on Windows and macOS for an untouched signal path (not available on Linux).
+- **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an untouched signal path on every platform: **exclusive output** on Windows and macOS, and **native sample rate** on Linux.
 - **Modern, fluid UI** — a clean, easy-to-use interface that stays smooth at 120+ fps.
 - **Themes & languages** — 20+ built-in themes and 20 UI languages.
 - **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, and more.

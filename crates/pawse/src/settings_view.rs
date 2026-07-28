@@ -333,13 +333,24 @@ fn interface_group(
         .description(tr().font_size_desc.clone()),
     );
 
-    // Exclusive (hog) mode is macOS/Windows-only; hide the toggle on Linux so it
-    // can't be enabled there (Linux exclusive output is unimplemented for now).
-    #[cfg(not(target_os = "linux"))]
-    {
+    // The untouched-signal-path toggle: exclusive on macOS/Windows, native
+    // sample rate on Linux. Hidden when the platform can't offer it at all
+    // (Linux without a running PipeWire server).
+    if audio_output::native_mode_available() {
+        let (label, description) = if cfg!(target_os = "linux") {
+            (
+                tr().native_rate_button.clone(),
+                tr().native_rate_button_desc.clone(),
+            )
+        } else {
+            (
+                tr().exclusive_mode_button.clone(),
+                tr().exclusive_mode_button_desc.clone(),
+            )
+        };
         group = group.item(
             SettingItem::new(
-                tr().exclusive_mode_button.clone(),
+                label,
                 SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_hog_button();
                     h_flex().items_center().justify_end().child(
@@ -356,7 +367,7 @@ fn interface_group(
                     )
                 }),
             )
-            .description(tr().exclusive_mode_button_desc.clone()),
+            .description(description),
         );
     }
 

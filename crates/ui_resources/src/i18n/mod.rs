@@ -129,6 +129,8 @@ pub struct Strings {
     pub language_desc: SharedString,
     pub exclusive_mode_button: SharedString,
     pub exclusive_mode_button_desc: SharedString,
+    pub native_rate_button: SharedString,
+    pub native_rate_button_desc: SharedString,
     pub repeat_shuffle: SharedString,
     pub repeat_shuffle_desc: SharedString,
     pub time_labels: SharedString,
@@ -183,6 +185,11 @@ pub struct Strings {
     pub select_audio_device: SharedString,
     pub exclusive_click_disable: SharedString,
     pub shared_click_enable: SharedString,
+    pub native_rate_title: SharedString,
+    pub native_rate_click_disable: SharedString,
+    pub native_rate_click_enable: SharedString,
+    pub bp_native_rate_off: SharedString,
+    pub why_not_bit_perfect: SharedString,
     pub default_suffix: SharedString,
 
     pub onboarding_title: SharedString,
@@ -285,6 +292,7 @@ pub struct Strings {
     pub bp_sample_rate_t: SharedString,
     pub bp_bit_depth_t: SharedString,
     pub failed_exclusive_t: SharedString,
+    pub native_rate_failed_t: SharedString,
     pub failed_switch_device_t: SharedString,
     pub failed_save_settings_t: SharedString,
     pub remote_start_failed_t: SharedString,
@@ -406,6 +414,10 @@ impl Strings {
 
     pub fn failed_exclusive(&self, err: &str) -> String {
         fill(&self.failed_exclusive_t, &[err])
+    }
+
+    pub fn failed_native_rate(&self, err: &str) -> String {
+        fill(&self.native_rate_failed_t, &[err])
     }
 
     pub fn failed_switch_device(&self, err: &str) -> String {

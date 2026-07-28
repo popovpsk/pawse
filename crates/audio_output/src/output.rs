@@ -46,6 +46,27 @@ pub enum OutputEvent {
     Failure { message: String },
 }
 
+/// Whether this platform can run the untouched-signal-path output mode —
+/// exclusive on macOS/Windows, native sample rate on Linux. Linux needs a
+/// running PipeWire server; the answer is cached because the UI asks on every
+/// render tick and a server that appears later needs an app restart anyway.
+pub fn native_mode_available() -> bool {
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+    *AVAILABLE.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        {
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .is_some_and(|dir| std::path::Path::new(&dir).join("pipewire-0").exists())
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            true
+        }
+    })
+}
+
 pub struct Output {
     host: Arc<cpal::Host>,
     device_manager: RwLock<DeviceManager>,

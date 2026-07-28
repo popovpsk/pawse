@@ -108,7 +108,7 @@ impl ExclusiveOutput {
 
         #[cfg(target_os = "linux")]
         {
-            let backend = linux::AlsaBackend::new(buffer, config, device_uid, original_rate)?;
+            let backend = linux::PipewireBackend::new(buffer, config, device_uid, original_rate)?;
             let rate = backend.original_rate();
             Ok(ExclusiveOutput {
                 backend: Box::new(backend),

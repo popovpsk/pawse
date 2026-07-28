@@ -1,16 +1,13 @@
-mod device;
-mod format;
-mod volume;
+mod pcm;
+mod status;
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use alsa::Direction;
-use alsa::mixer::{Mixer, SelemId};
 use alsa::pcm::PCM;
 use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError};
@@ -19,29 +16,24 @@ use super::render::{RenderCtx, STATE_IDLE, STATE_PLAYING, fill};
 use super::{Backend, DeviceSnapshot, ExclusiveEvent};
 use crate::cpal_stream::OutputConfig;
 use crate::ring_buffer::AudioRingBuffer;
-use format::{DeviceFormat, FmtKind};
+use pcm::DeviceFormat;
+use status::StatusShared;
 
 const MAX_EVENTS: usize = 32;
-/// Render iterations between mixer volume/mute refreshes (~twice a second at a
-/// ~1024-frame period).
-const VOLUME_REFRESH_EVERY: u32 = 20;
-const I32_SCALE: f32 = 2_147_483_647.0;
-const I16_SCALE: f32 = 32_767.0;
 
 struct LinuxInner {
-    thread: Option<JoinHandle<()>>,
+    writer: Option<JoinHandle<()>>,
+    monitor: Option<JoinHandle<()>>,
 }
 
 struct LinuxShared {
     events: Mutex<VecDeque<ExclusiveEvent>>,
     alive: AtomicBool,
-    hw_volume: AtomicF32,
-    hw_muted: AtomicBool,
-    device_sample_rate: AtomicU32,
     channels: u8,
     ctx: Arc<RenderCtx>,
     want_play: AtomicBool,
     running: AtomicBool,
+    status: Arc<StatusShared>,
     inner: Mutex<LinuxInner>,
 }
 
@@ -57,49 +49,11 @@ impl LinuxShared {
     }
 }
 
-// ----- Render-thread objects (owned solely by the thread) ---------------------
-
-struct ThreadObjects {
-    pcm: PCM,
-    fmt: DeviceFormat,
-    mixer: Option<(Mixer, SelemId)>,
-}
-
-fn setup(
-    shared: &LinuxShared,
-    uid: &str,
-    config: &OutputConfig,
-) -> Result<ThreadObjects, AudioError> {
-    let (pcm_name, ctl_name) = device::resolve_names(uid);
-
-    let pcm = PCM::new(&pcm_name, Direction::Playback, false)
-        .map_err(|e| AudioError::DeviceNotFound(format!("open '{}': {}", pcm_name, e)))?;
-    let fmt = format::configure(&pcm, config)?;
-
-    let mixer = volume::open(&ctl_name);
-    if let Some((m, id)) = &mixer {
-        shared
-            .hw_volume
-            .store(volume::read_volume(m, id), Ordering::Relaxed);
-        shared
-            .hw_muted
-            .store(volume::read_muted(m, id), Ordering::Relaxed);
-    }
-    shared
-        .device_sample_rate
-        .store(config.sample_rate, Ordering::Relaxed);
-
-    Ok(ThreadObjects { pcm, fmt, mixer })
-}
-
 /// Writes a full period, looping over short writes (`writei` can return fewer
 /// frames than requested, e.g. when interrupted by a signal). Returns on
 /// completion or propagates a hard error for the caller to recover from.
-fn write_all<S: Copy>(
-    io: &alsa::pcm::IO<'_, S>,
-    buf: &[S],
-    channels: usize,
-) -> Result<(), alsa::Error> {
+fn write_all(pcm: &PCM, buf: &[f32], channels: usize) -> Result<(), alsa::Error> {
+    let io = pcm.io_f32()?;
     let total = buf.len() / channels;
     let mut done = 0usize;
     while done < total {
@@ -112,64 +66,12 @@ fn write_all<S: Copy>(
     Ok(())
 }
 
-fn write_frames(
-    pcm: &PCM,
-    kind: FmtKind,
-    f32buf: &[f32],
-    i32buf: &mut [i32],
-    i16buf: &mut [i16],
-    channels: usize,
-) -> Result<(), alsa::Error> {
-    match kind {
-        FmtKind::F32 => write_all(&pcm.io_f32()?, f32buf, channels),
-        FmtKind::S32 => {
-            for (d, s) in i32buf.iter_mut().zip(f32buf) {
-                *d = (s.clamp(-1.0, 1.0) * I32_SCALE) as i32;
-            }
-            write_all(&pcm.io_i32()?, i32buf, channels)
-        }
-        FmtKind::S16 => {
-            for (d, s) in i16buf.iter_mut().zip(f32buf) {
-                *d = (s.clamp(-1.0, 1.0) * I16_SCALE) as i16;
-            }
-            write_all(&pcm.io_i16()?, i16buf, channels)
-        }
-    }
-}
-
-fn render_loop(shared: &LinuxShared, objs: ThreadObjects) {
-    let ThreadObjects { pcm, fmt, mixer } = objs;
+fn render_loop(shared: &LinuxShared, pcm: PCM, fmt: DeviceFormat) {
     let channels = shared.channels as usize;
-    let n = fmt.period_frames * channels;
-
-    let mut f32buf = vec![0.0f32; n];
-    let mut i32buf = if matches!(fmt.kind, FmtKind::S32) {
-        vec![0i32; n]
-    } else {
-        Vec::new()
-    };
-    let mut i16buf = if matches!(fmt.kind, FmtKind::S16) {
-        vec![0i16; n]
-    } else {
-        Vec::new()
-    };
-
+    let mut buf = vec![0.0f32; fmt.period_frames * channels];
     let mut started = false;
-    let mut tick: u32 = 0;
 
     while shared.running.load(Ordering::Relaxed) {
-        tick = tick.wrapping_add(1);
-        if tick.is_multiple_of(VOLUME_REFRESH_EVERY)
-            && let Some((m, id)) = &mixer
-        {
-            shared
-                .hw_volume
-                .store(volume::read_volume(m, id), Ordering::Relaxed);
-            shared
-                .hw_muted
-                .store(volume::read_muted(m, id), Ordering::Relaxed);
-        }
-
         if !shared.want_play.load(Ordering::Relaxed) {
             if started {
                 let _ = pcm.drop();
@@ -184,9 +86,9 @@ fn render_loop(shared: &LinuxShared, objs: ThreadObjects) {
             started = true;
         }
 
-        fill(&shared.ctx, &mut f32buf);
+        fill(&shared.ctx, &mut buf);
 
-        if let Err(e) = write_frames(&pcm, fmt.kind, &f32buf, &mut i32buf, &mut i16buf, channels)
+        if let Err(e) = write_all(&pcm, &buf, channels)
             && pcm.try_recover(e, true).is_err()
         {
             shared.alive.store(false, Ordering::SeqCst);
@@ -200,11 +102,11 @@ fn render_loop(shared: &LinuxShared, objs: ThreadObjects) {
 
 // ----- Backend ----------------------------------------------------------------
 
-pub(crate) struct AlsaBackend {
+pub(crate) struct PipewireBackend {
     shared: Arc<LinuxShared>,
 }
 
-impl AlsaBackend {
+impl PipewireBackend {
     pub(crate) fn new(
         buffer: Arc<AudioRingBuffer>,
         config: OutputConfig,
@@ -223,68 +125,77 @@ impl AlsaBackend {
         let shared = Arc::new(LinuxShared {
             events: Mutex::new(VecDeque::new()),
             alive: AtomicBool::new(true),
-            hw_volume: AtomicF32::new(1.0),
-            hw_muted: AtomicBool::new(false),
-            device_sample_rate: AtomicU32::new(0),
             channels: config.channels,
             ctx,
             want_play: AtomicBool::new(false),
             running: AtomicBool::new(true),
-            inner: Mutex::new(LinuxInner { thread: None }),
+            status: Arc::new(StatusShared::new()),
+            inner: Mutex::new(LinuxInner {
+                writer: None,
+                monitor: None,
+            }),
         });
 
         let (tx, rx) = mpsc::channel::<Result<(), AudioError>>();
         let thread_shared = shared.clone();
         let uid = device_uid.to_string();
-        let handle = std::thread::Builder::new()
-            .name("alsa-exclusive".into())
-            .spawn(move || match setup(&thread_shared, &uid, &config) {
-                Ok(objs) => {
+        let writer = std::thread::Builder::new()
+            .name("pw-exclusive".into())
+            .spawn(move || match pcm::open(&uid, &config) {
+                Ok((pcm, fmt)) => {
                     let _ = tx.send(Ok(()));
-                    render_loop(&thread_shared, objs);
+                    render_loop(&thread_shared, pcm, fmt);
                 }
                 Err(e) => {
                     let _ = tx.send(Err(e));
                 }
             })
-            .map_err(|e| AudioError::Output(format!("spawn alsa thread: {}", e)))?;
+            .map_err(|e| AudioError::Output(format!("spawn pipewire thread: {}", e)))?;
 
         match rx.recv() {
             Ok(Ok(())) => {
-                shared.inner.lock().unwrap().thread = Some(handle);
-                Ok(AlsaBackend { shared })
+                let node = device_uid.strip_prefix("pw:").unwrap_or("").to_string();
+                let monitor = status::spawn(shared.status.clone(), node, config.sample_rate);
+                if let Ok(mut inner) = shared.inner.lock() {
+                    inner.writer = Some(writer);
+                    inner.monitor = monitor;
+                }
+                Ok(PipewireBackend { shared })
             }
             Ok(Err(e)) => {
-                let _ = handle.join();
+                let _ = writer.join();
                 Err(e)
             }
             Err(_) => {
-                let _ = handle.join();
+                let _ = writer.join();
                 Err(AudioError::Output(
-                    "alsa setup thread exited unexpectedly".to_string(),
+                    "pipewire setup thread exited unexpectedly".to_string(),
                 ))
             }
         }
     }
 }
 
-impl Drop for AlsaBackend {
+impl Drop for PipewireBackend {
     fn drop(&mut self) {
         self.shared.running.store(false, Ordering::SeqCst);
+        self.shared.status.running.store(false, Ordering::SeqCst);
         self.shared.want_play.store(false, Ordering::SeqCst);
-        let handle = self
-            .shared
-            .inner
-            .lock()
-            .ok()
-            .and_then(|mut g| g.thread.take());
-        if let Some(h) = handle {
+
+        let (writer, monitor) = match self.shared.inner.lock() {
+            Ok(mut inner) => (inner.writer.take(), inner.monitor.take()),
+            Err(_) => (None, None),
+        };
+        if let Some(h) = writer {
+            let _ = h.join();
+        }
+        if let Some(h) = monitor {
             let _ = h.join();
         }
     }
 }
 
-impl Backend for AlsaBackend {
+impl Backend for PipewireBackend {
     fn write(&self, batch: &AudioBatch) -> usize {
         if !self.shared.alive.load(Ordering::Relaxed) {
             return 0;
@@ -334,6 +245,8 @@ impl Backend for AlsaBackend {
         self.shared.ctx.fade.reset();
     }
 
+    fn set_hw_volume(&self, _volume: f32) {}
+
     fn is_alive(&self) -> bool {
         self.shared.alive.load(Ordering::SeqCst)
     }
@@ -343,7 +256,7 @@ impl Backend for AlsaBackend {
     }
 
     fn original_rate(&self) -> f64 {
-        // Opening a hw: PCM does not persistently change device configuration.
+        // Playing through PipeWire does not persistently change device configuration.
         0.0
     }
 
@@ -352,9 +265,13 @@ impl Backend for AlsaBackend {
 
     fn device_snapshot(&self) -> DeviceSnapshot {
         DeviceSnapshot {
-            hw_volume: self.shared.hw_volume.load(Ordering::Relaxed),
-            hw_muted: self.shared.hw_muted.load(Ordering::Relaxed),
-            device_sample_rate: self.shared.device_sample_rate.load(Ordering::Relaxed),
+            hw_volume: self.shared.status.hw_volume.load(Ordering::Relaxed),
+            hw_muted: self.shared.status.hw_muted.load(Ordering::Relaxed),
+            device_sample_rate: self
+                .shared
+                .status
+                .device_sample_rate
+                .load(Ordering::Relaxed),
             app_volume: self.shared.ctx.volume.load(Ordering::Relaxed),
         }
     }

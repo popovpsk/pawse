@@ -213,7 +213,24 @@ impl DeviceManager {
     /// system default" selections, queries the host for the current default
     /// device's UID, so that exclusive mode tracks the system default if the
     /// user hasn't pinned a device.
+    ///
+    /// On Linux the exclusive path talks to PipeWire directly, so it needs the
+    /// sink node (`pw:<node>`) rather than a cpal device id — the cpal id of a
+    /// PipeWire-routed device is just `default`, which says nothing about which
+    /// sink we play to.
     pub fn resolve_uid(&mut self) -> Result<String, AudioError> {
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(uid) = self.selected_uid.as_deref()
+                && uid.starts_with("pw:")
+            {
+                return Ok(uid.to_string());
+            }
+            if let Some(node) = pulse_default_sink() {
+                return Ok(format!("pw:{}", node));
+            }
+        }
+
         let device = self.resolve_device()?;
         device_uid(&device)
     }
@@ -248,7 +265,11 @@ impl DeviceManager {
     /// UI path. Used when entering exclusive mode to ensure the shared-mode
     /// fallback on exit lands on the same physical device.
     pub fn set_selected_uid(&mut self, uid: String) {
-        if let Ok(Some(d)) = self.find_by_uid(&uid) {
+        // `pw:` UIDs are sound-server sinks, not cpal devices: looking them up
+        // would kick off cpal's ALSA enumeration (which spams "unable to open
+        // slave") and never match. Their display name comes from the sink list.
+        let is_sink = cfg!(target_os = "linux") && uid.starts_with("pw:");
+        if !is_sink && let Ok(Some(d)) = self.find_by_uid(&uid) {
             self.cached_name = device_display_name(&d);
         }
         self.selected_uid = Some(uid);
@@ -367,12 +388,18 @@ pub(crate) fn set_pipewire_node(node: Option<&str>) {
 /// A PipeWire/PulseAudio output sink, distilled to the fields we need.
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
-struct PulseSink {
+pub(crate) struct PulseSink {
     /// Human-readable name shown by the OS (e.g. "D50 III Headphones").
-    description: String,
+    pub(crate) description: String,
     /// PipeWire node name, e.g. "alsa_output.usb-Topping_D50_III-00...sink".
-    /// Used verbatim as the `PIPEWIRE_NODE` routing target.
-    node_name: String,
+    /// Used verbatim as the `PIPEWIRE_NODE` routing target and as the
+    /// `pipewire:NODE=` target of the native-rate output.
+    pub(crate) node_name: String,
+    pub(crate) volume: f32,
+    pub(crate) muted: bool,
+    pub(crate) card: Option<u32>,
+    pub(crate) device: Option<u32>,
+    pub(crate) rate: Option<u32>,
 }
 
 /// Shape of one entry in `pactl -f json list sinks`.
@@ -381,6 +408,23 @@ struct PulseSink {
 struct RawPulseSink {
     name: String,
     description: String,
+    // Optional so that a missing *or* null field can't cost us the whole
+    // enumeration — the device picker depends on this parse succeeding.
+    #[serde(default)]
+    mute: Option<bool>,
+    #[serde(default)]
+    volume: Option<HashMap<String, RawPulseVolume>>,
+    #[serde(default)]
+    properties: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default, alias = "sample_spec")]
+    sample_specification: Option<String>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Deserialize)]
+struct RawPulseVolume {
+    #[serde(default)]
+    value: u32,
 }
 
 /// Runs `pactl` to enumerate sinks. Returns `None` on any failure (binary
@@ -419,15 +463,55 @@ pub(crate) fn pulse_default_sink() -> Option<String> {
 /// `enum_pulse_sinks` so it can be unit-tested against a captured fixture.
 #[cfg(target_os = "linux")]
 fn parse_pulse_sinks(json: &str) -> Option<Vec<PulseSink>> {
+    const VOLUME_NORM: f32 = 65536.0;
+
     let raw: Vec<RawPulseSink> = serde_json::from_str(json).ok()?;
     let sinks = raw
         .into_iter()
-        .map(|s| PulseSink {
-            description: s.description,
-            node_name: s.name,
+        .map(|s| {
+            let props = s.properties.unwrap_or_default();
+            let peak = s.volume.unwrap_or_default().values().map(|v| v.value).max();
+            PulseSink {
+                description: s.description,
+                node_name: s.name,
+                volume: peak.map_or(1.0, |v| v as f32 / VOLUME_NORM),
+                muted: s.mute.unwrap_or(false),
+                card: prop_u32(&props, "alsa.card").or_else(|| alsa_path_card(&props)),
+                device: prop_u32(&props, "alsa.device"),
+                rate: parse_spec_rate(s.sample_specification.as_deref().unwrap_or_default()),
+            }
         })
         .collect();
     Some(sinks)
+}
+
+#[cfg(target_os = "linux")]
+fn prop_u32(props: &HashMap<String, serde_json::Value>, key: &str) -> Option<u32> {
+    props.get(key)?.as_str()?.trim().parse().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn alsa_path_card(props: &HashMap<String, serde_json::Value>) -> Option<u32> {
+    let path = props.get("api.alsa.path")?.as_str()?;
+    let after = path.split_once(':')?.1;
+    after.split(',').next()?.trim().parse().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn parse_spec_rate(spec: &str) -> Option<u32> {
+    spec.split_whitespace()
+        .find_map(|token| token.strip_suffix("Hz")?.parse().ok())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn sink_status(node: &str) -> Option<PulseSink> {
+    let sinks = enum_pulse_sinks()?;
+    let target = if node.is_empty() {
+        pulse_default_sink()?
+    } else {
+        node.to_string()
+    };
+    sinks.into_iter().find(|s| s.node_name == target)
 }
 
 /// Builds one entry per sink (no synthetic "System Default" — the sinks already
@@ -620,13 +704,21 @@ mod tests {
     const PACTL_FIXTURE: &str = r#"[
         {"index":53,"name":"alsa_output.pci-0000_00_1f.3.iec958-stereo",
          "description":"Built-in Audio Digital Stereo (IEC958)",
-         "properties":{"alsa.id":"PCH","api.alsa.path":"iec958:0"}},
+         "sample_specification":"s32le 2ch 48000Hz","mute":false,
+         "volume":{"front-left":{"value":65536,"value_percent":"100%"},
+                   "front-right":{"value":65536,"value_percent":"100%"}},
+         "properties":{"alsa.id":"PCH","api.alsa.path":"iec958:0",
+                       "alsa.card":"0","alsa.device":"1"}},
         {"index":52,"name":"alsa_output.usb-Topping_D50_III-00.HiFi__Headphones__sink",
          "description":"D50 III Headphones",
-         "properties":{"alsa.id":"III","api.alsa.path":"hw:III,0"}},
+         "sample_specification":"s32le 2ch 44100Hz","mute":true,
+         "volume":{"front-left":{"value":32768,"value_percent":"50%"},
+                   "front-right":{"value":49152,"value_percent":"75%"}},
+         "properties":{"alsa.id":"III","api.alsa.path":"hw:III,0",
+                       "alsa.card":"2","alsa.device":"0"}},
         {"index":51,"name":"alsa_output.pci-0000_04_00.1.hdmi-stereo-extra1",
          "description":"Navi 48 HDMI/DP Audio Controller Digital Stereo (HDMI 2)",
-         "properties":{"alsa.id":"HDMI","api.alsa.path":"hdmi:1,1"}}
+         "properties":{"alsa.id":"HDMI","api.alsa.path":"hw:1,3"}}
     ]"#;
 
     #[cfg(target_os = "linux")]
@@ -652,6 +744,51 @@ mod tests {
     #[test]
     fn parse_pulse_sinks_rejects_garbage() {
         assert!(parse_pulse_sinks("not json").is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parse_pulse_sinks_reads_volume_mute_rate_and_card() {
+        let sinks = parse_pulse_sinks(PACTL_FIXTURE).expect("fixture must parse");
+
+        assert_eq!(sinks[0].volume, 1.0);
+        assert!(!sinks[0].muted);
+        assert_eq!(sinks[0].rate, Some(48000));
+        assert_eq!(sinks[0].card, Some(0));
+        assert_eq!(sinks[0].device, Some(1));
+
+        // The loudest channel decides — a 50/75 pair is not unity gain.
+        assert_eq!(sinks[1].volume, 0.75);
+        assert!(sinks[1].muted);
+        assert_eq!(sinks[1].rate, Some(44100));
+        assert_eq!(sinks[1].card, Some(2));
+        assert_eq!(sinks[1].device, Some(0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn sinks_without_volume_or_rate_are_treated_as_unity_and_unknown() {
+        let sinks = parse_pulse_sinks(PACTL_FIXTURE).expect("fixture must parse");
+        assert_eq!(sinks[2].volume, 1.0);
+        assert!(!sinks[2].muted);
+        assert_eq!(sinks[2].rate, None);
+        assert_eq!(sinks[2].device, None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn card_falls_back_to_the_numeric_alsa_path() {
+        let sinks = parse_pulse_sinks(PACTL_FIXTURE).expect("fixture must parse");
+        assert_eq!(sinks[2].card, Some(1));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn spec_rate_is_read_from_a_sample_specification() {
+        assert_eq!(parse_spec_rate("s32le 2ch 44100Hz"), Some(44100));
+        assert_eq!(parse_spec_rate("float32le 2ch 192000Hz"), Some(192000));
+        assert_eq!(parse_spec_rate(""), None);
+        assert_eq!(parse_spec_rate("s16le 2ch"), None);
     }
 
     #[cfg(target_os = "linux")]

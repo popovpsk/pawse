@@ -1,4 +1,4 @@
-use audio_output::{BitPerfectIssue, BitPerfectStatus, OutputEvent};
+use audio_output::{BitPerfectIssue, BitPerfectStatus, OutputEvent, native_mode_available};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, Context, Corner, InteractiveElement, IntoElement, ParentElement, Render,
@@ -28,6 +28,44 @@ struct DeviceErrorNotif;
 struct StreamRecoveredNotif;
 struct StreamFailureNotif;
 
+/// On Linux the untouched-signal-path mode is "native sample rate" (we hand the
+/// output rate to PipeWire) rather than an exclusive grab of the device, so the
+/// same toggle speaks a different language there.
+const NATIVE_RATE_WORDING: bool = cfg!(target_os = "linux");
+
+#[cfg(target_os = "linux")]
+fn open_rate_docs(cx: &mut App) {
+    cx.open_url("https://github.com/popovpsk/pawse/blob/main/docs/native-sample-rate.md");
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_rate_docs(_cx: &mut App) {}
+
+fn mode_title() -> gpui::SharedString {
+    if NATIVE_RATE_WORDING {
+        tr().native_rate_title.clone()
+    } else {
+        tr().exclusive_mode_title.clone()
+    }
+}
+
+fn mode_tooltip(enabled: bool) -> gpui::SharedString {
+    match (NATIVE_RATE_WORDING, enabled) {
+        (true, true) => tr().native_rate_click_disable.clone(),
+        (true, false) => tr().native_rate_click_enable.clone(),
+        (false, true) => tr().exclusive_click_disable.clone(),
+        (false, false) => tr().shared_click_enable.clone(),
+    }
+}
+
+fn mode_failed(err: &str) -> String {
+    if NATIVE_RATE_WORDING {
+        tr().failed_native_rate(err)
+    } else {
+        tr().failed_exclusive(err)
+    }
+}
+
 fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
     let s = tr();
     if status.is_bit_perfect() {
@@ -36,6 +74,9 @@ fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
     let mut lines = vec![s.not_bit_perfect.to_string()];
     for issue in &status.issues {
         let line = match issue {
+            BitPerfectIssue::NotExclusive if NATIVE_RATE_WORDING => {
+                s.bp_native_rate_off.to_string()
+            }
             BitPerfectIssue::NotExclusive => s.bp_not_exclusive.to_string(),
             BitPerfectIssue::SystemVolumeNotUnity { current } => {
                 s.bp_system_volume(&format!("{:.2}", current))
@@ -85,7 +126,13 @@ impl Render for AudioSettings {
             let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
             (output.drain_events(), is_exclusive, bit_perfect)
         };
-        let show_hog = !cfg!(target_os = "linux") && cx.global::<SettingsStore>().show_hog_button();
+        let show_rate_help = NATIVE_RATE_WORDING
+            && bit_perfect.as_ref().is_some_and(|bp| {
+                bp.issues
+                    .iter()
+                    .any(|i| matches!(i, BitPerfectIssue::SampleRateMismatch { .. }))
+            });
+        let show_hog = native_mode_available() && cx.global::<SettingsStore>().show_hog_button();
         let scale = ui_scale(cx);
         for evt in events {
             match evt {
@@ -132,6 +179,15 @@ impl Render for AudioSettings {
                         .tooltip(tooltip_text),
                 )
             })
+            .when(show_rate_help, |el| {
+                el.child(
+                    Button::new("native-rate-help")
+                        .ghost()
+                        .compact()
+                        .label(tr().why_not_bit_perfect.clone())
+                        .on_click(|_, _, app_cx: &mut App| open_rate_docs(app_cx)),
+                )
+            })
             .when(show_hog, |el| {
                 el.child({
                     let view = cx.entity().clone();
@@ -140,11 +196,7 @@ impl Render for AudioSettings {
                     } else {
                         "icons/hog-off.svg"
                     };
-                    let tooltip = if self.is_exclusive {
-                        tr().exclusive_click_disable.clone()
-                    } else {
-                        tr().shared_click_enable.clone()
-                    };
+                    let tooltip = mode_tooltip(self.is_exclusive);
                     Button::new("exclusive-toggle")
                         .ghost()
                         .compact()
@@ -166,11 +218,9 @@ impl Render for AudioSettings {
                                         }
                                         Err(e) => {
                                             window.push_notification(
-                                                Notification::error(
-                                                    tr().failed_exclusive(&e.to_string()),
-                                                )
-                                                .title(tr().exclusive_mode_title.clone())
-                                                .id::<DeviceErrorNotif>(),
+                                                Notification::error(mode_failed(&e.to_string()))
+                                                    .title(mode_title())
+                                                    .id::<DeviceErrorNotif>(),
                                                 cx,
                                             );
                                         }
