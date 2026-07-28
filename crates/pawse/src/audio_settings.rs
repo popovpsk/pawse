@@ -7,7 +7,6 @@ use gpui::{
 use gpui_component::{
     Icon, IconName, WindowExt,
     button::{Button, ButtonVariants},
-    dialog::DialogButtonProps,
     h_flex,
     notification::Notification,
     popover::Popover,
@@ -86,11 +85,6 @@ impl Render for AudioSettings {
             let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
             (output.drain_events(), is_exclusive, bit_perfect)
         };
-        let has_hw_volume_issue = bit_perfect.as_ref().is_some_and(|bp| {
-            bp.issues
-                .iter()
-                .any(|i| matches!(i, BitPerfectIssue::SystemVolumeNotUnity { .. }))
-        });
         let show_hog = !cfg!(target_os = "linux") && cx.global::<SettingsStore>().show_hog_button();
         let scale = ui_scale(cx);
         for evt in events {
@@ -136,32 +130,6 @@ impl Render for AudioSettings {
                         .h(px(40. * scale))
                         .icon(Icon::new(icon_name).size(px(20. * scale)))
                         .tooltip(tooltip_text),
-                )
-            })
-            .when(self.is_exclusive && has_hw_volume_issue, |el| {
-                el.child(
-                    Button::new("fix-hw-volume")
-                        .ghost()
-                        .compact()
-                        .label(tr().fix_volume.clone())
-                        .tooltip(tr().fix_volume_tooltip.clone())
-                        .on_click(move |_, window: &mut Window, app_cx: &mut App| {
-                            window.open_dialog(app_cx, move |dialog, _window, _cx| {
-                                dialog
-                                    .confirm()
-                                    .title(tr().fix_volume_confirm_title.clone())
-                                    .child(div().child(tr().fix_volume_confirm_message.clone()))
-                                    .button_props(
-                                        DialogButtonProps::default()
-                                            .ok_text(tr().fix_volume.clone())
-                                            .cancel_text(tr().cancel.clone()),
-                                    )
-                                    .on_ok(|_, _, cx| {
-                                        cx.global::<Services>().output.set_hw_volume(1.0);
-                                        true
-                                    })
-                            });
-                        }),
                 )
             })
             .when(show_hog, |el| {

@@ -65,8 +65,6 @@ struct WasapiShared {
     ctx: Arc<RenderCtx>,
     /// Desired playback state, reconciled to IAudioClient Start/Stop by the thread.
     want_play: AtomicBool,
-    /// Pending hardware-volume write (NaN = none); applied by the render thread.
-    pending_hw_volume: AtomicF32,
     running: AtomicBool,
     event: EventHandle,
     inner: Mutex<WasapiInner>,
@@ -230,13 +228,6 @@ fn render_loop(shared: &WasapiShared, objs: ThreadObjects) {
             sleep.allow();
         }
 
-        let pending = shared.pending_hw_volume.swap(f32::NAN, Ordering::Relaxed);
-        if !pending.is_nan()
-            && let Some(ep) = &endpoint
-        {
-            volume::set_volume(ep, pending);
-        }
-
         if !started {
             unsafe { WaitForSingleObject(shared.event.0, 100) };
             continue;
@@ -312,7 +303,6 @@ impl WasapiBackend {
             channels: config.channels,
             ctx,
             want_play: AtomicBool::new(false),
-            pending_hw_volume: AtomicF32::new(f32::NAN),
             running: AtomicBool::new(true),
             event: EventHandle(event),
             inner: Mutex::new(WasapiInner { thread: None }),
@@ -426,13 +416,6 @@ impl Backend for WasapiBackend {
 
     fn reset_fade(&self) {
         self.shared.ctx.fade.reset();
-    }
-
-    fn set_hw_volume(&self, volume: f32) {
-        self.shared
-            .pending_hw_volume
-            .store(volume, Ordering::Relaxed);
-        self.shared.wake();
     }
 
     fn is_alive(&self) -> bool {

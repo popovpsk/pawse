@@ -19,7 +19,6 @@ impl Backend for UnsupportedBackend {
         None
     }
     fn reset_fade(&self) {}
-    fn set_hw_volume(&self, _: f32) {}
     fn is_alive(&self) -> bool {
         false
     }

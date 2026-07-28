@@ -41,7 +41,6 @@ struct LinuxShared {
     channels: u8,
     ctx: Arc<RenderCtx>,
     want_play: AtomicBool,
-    pending_hw_volume: AtomicF32,
     running: AtomicBool,
     inner: Mutex<LinuxInner>,
 }
@@ -159,15 +158,6 @@ fn render_loop(shared: &LinuxShared, objs: ThreadObjects) {
     let mut tick: u32 = 0;
 
     while shared.running.load(Ordering::Relaxed) {
-        // Hardware-volume writes and reads are applied regardless of play state,
-        // so adjusting device volume while paused takes effect immediately.
-        let pending = shared.pending_hw_volume.swap(f32::NAN, Ordering::Relaxed);
-        if !pending.is_nan()
-            && let Some((m, id)) = &mixer
-        {
-            volume::set_volume(m, id, pending);
-        }
-
         tick = tick.wrapping_add(1);
         if tick.is_multiple_of(VOLUME_REFRESH_EVERY)
             && let Some((m, id)) = &mixer
@@ -239,7 +229,6 @@ impl AlsaBackend {
             channels: config.channels,
             ctx,
             want_play: AtomicBool::new(false),
-            pending_hw_volume: AtomicF32::new(f32::NAN),
             running: AtomicBool::new(true),
             inner: Mutex::new(LinuxInner { thread: None }),
         });
@@ -343,12 +332,6 @@ impl Backend for AlsaBackend {
 
     fn reset_fade(&self) {
         self.shared.ctx.fade.reset();
-    }
-
-    fn set_hw_volume(&self, volume: f32) {
-        self.shared
-            .pending_hw_volume
-            .store(volume, Ordering::Relaxed);
     }
 
     fn is_alive(&self) -> bool {

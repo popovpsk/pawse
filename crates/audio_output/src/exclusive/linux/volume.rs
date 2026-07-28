@@ -50,16 +50,3 @@ pub(super) fn read_muted(mixer: &Mixer, id: &SelemId) -> bool {
         .map(|on| on == 0)
         .unwrap_or(false)
 }
-
-/// Writes the playback volume scalar (0.0–1.0) to all channels. Best-effort.
-pub(super) fn set_volume(mixer: &Mixer, id: &SelemId, volume: f32) {
-    let Some(s) = selem(mixer, id) else {
-        return;
-    };
-    if !s.has_playback_volume() {
-        return;
-    }
-    let (min, max) = s.get_playback_volume_range();
-    let val = min + ((max - min) as f32 * volume.clamp(0.0, 1.0)).round() as i64;
-    let _ = s.set_playback_volume_all(val);
-}

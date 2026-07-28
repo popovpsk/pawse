@@ -71,8 +71,6 @@ pub(super) struct MacosShared {
     pub(super) hw_muted: AtomicBool,
     /// Device sample rate as integer Hz. Updated by the format-change listener.
     pub(super) device_sample_rate: AtomicU32,
-    /// Channel count from the output config; used for per-channel volume writes.
-    pub(super) channels: u8,
     inner: Mutex<MacosInner>,
     iopc_ctx: Arc<RenderCtx>,
 }
@@ -235,7 +233,6 @@ impl MacosBackend {
             hw_volume: AtomicF32::new(1.0),
             hw_muted: AtomicBool::new(false),
             device_sample_rate: AtomicU32::new(init_device_rate),
-            channels: config.channels,
             inner: Mutex::new(inner),
             iopc_ctx,
         });
@@ -350,14 +347,6 @@ impl Backend for MacosBackend {
 
     fn reset_fade(&self) {
         self.shared.iopc_ctx.fade.reset();
-    }
-
-    fn set_hw_volume(&self, volume: f32) {
-        let device_id = match self.shared.inner.lock() {
-            Ok(g) => g.device_id,
-            Err(_) => return,
-        };
-        listeners::set_hw_volume(device_id, self.shared.channels, volume);
     }
 
     fn is_alive(&self) -> bool {

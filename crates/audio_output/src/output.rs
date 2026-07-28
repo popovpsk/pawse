@@ -440,14 +440,6 @@ impl Output {
         }
     }
 
-    /// Sets the hardware output volume to `volume` (0.0–1.0) via a CoreAudio
-    /// property write. Only valid in exclusive mode; silently ignored otherwise.
-    pub fn set_hw_volume(&self, volume: f32) {
-        if let Some(OutputMode::Exclusive(e)) = self.current.read().as_ref() {
-            e.set_hw_volume(volume);
-        }
-    }
-
     pub fn is_exclusive(&self) -> bool {
         matches!(*self.current.read(), Some(OutputMode::Exclusive(_)))
     }

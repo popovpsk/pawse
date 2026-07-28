@@ -18,9 +18,3 @@ pub(super) fn read_muted(endpoint: &IAudioEndpointVolume) -> bool {
         .map(|b| b.as_bool())
         .unwrap_or(false)
 }
-
-/// Writes the master volume scalar (0.0–1.0). Best-effort.
-pub(super) fn set_volume(endpoint: &IAudioEndpointVolume, volume: f32) {
-    let _ =
-        unsafe { endpoint.SetMasterVolumeLevelScalar(volume.clamp(0.0, 1.0), std::ptr::null()) };
-}

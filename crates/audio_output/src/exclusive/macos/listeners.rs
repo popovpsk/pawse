@@ -7,9 +7,9 @@ use std::sync::atomic::Ordering;
 use objc2_core_audio::{
     AudioObjectAddPropertyListener, AudioObjectGetPropertyData, AudioObjectHasProperty,
     AudioObjectID, AudioObjectPropertyAddress, AudioObjectRemovePropertyListener,
-    AudioObjectSetPropertyData, kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyMute,
-    kAudioDevicePropertyVolumeScalar, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeOutput,
+    kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyMute, kAudioDevicePropertyVolumeScalar,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeOutput,
 };
 
 use super::MacosShared;
@@ -217,40 +217,6 @@ fn read_hw_volume(device_id: u32, channels: u8) -> f32 {
         }
     }
     min_vol
-}
-
-/// Writes the hardware output volume scalar. Mirrors `read_hw_volume`: tries the
-/// main element first; falls back to writing all per-channel elements.
-pub(super) fn set_hw_volume(device_id: u32, channels: u8, volume: f32) {
-    let main_addr = vol_addr(kAudioObjectPropertyElementMain);
-    if unsafe { AudioObjectHasProperty(device_id, NonNull::from(&main_addr)) } {
-        unsafe {
-            AudioObjectSetPropertyData(
-                device_id,
-                NonNull::from(&main_addr),
-                0,
-                ptr::null(),
-                mem::size_of::<f32>() as u32,
-                NonNull::from(&volume).cast(),
-            );
-        }
-        return;
-    }
-    for ch in 1..=channels {
-        let addr = vol_addr(ch as u32);
-        if unsafe { AudioObjectHasProperty(device_id, NonNull::from(&addr)) } {
-            unsafe {
-                AudioObjectSetPropertyData(
-                    device_id,
-                    NonNull::from(&addr),
-                    0,
-                    ptr::null(),
-                    mem::size_of::<f32>() as u32,
-                    NonNull::from(&volume).cast(),
-                );
-            }
-        }
-    }
 }
 
 unsafe extern "C-unwind" fn vol_changed_cb(
