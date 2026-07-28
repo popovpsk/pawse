@@ -245,8 +245,6 @@ impl Backend for PipewireBackend {
         self.shared.ctx.fade.reset();
     }
 
-    fn set_hw_volume(&self, _volume: f32) {}
-
     fn is_alive(&self) -> bool {
         self.shared.alive.load(Ordering::SeqCst)
     }
