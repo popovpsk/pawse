@@ -192,7 +192,6 @@ pub static VI: Strings = lang! {
     n_tracks_few: "{} bài hát",
     n_tracks_other: "{} bài hát",
     bp_system_volume_t: "• Âm lượng hệ thống chưa tối đa: {}",
-    bp_app_volume_t: "• Âm lượng ứng dụng chưa tối đa: {}",
     bp_sample_rate_t: "• Tần số lấy mẫu không khớp: nguồn {} Hz → thiết bị {} Hz",
     bp_bit_depth_t: "• Độ sâu {} bit vượt quá vùng chứa f32 (24)",
     failed_exclusive_t: "Không thể bật chế độ độc quyền: {}",

@@ -192,7 +192,6 @@ pub static ZH: Strings = lang! {
     n_tracks_few: "{} 首曲目",
     n_tracks_other: "{} 首曲目",
     bp_system_volume_t: "• 系统音量未满：{}",
-    bp_app_volume_t: "• 应用音量未满：{}",
     bp_sample_rate_t: "• 采样率不匹配：音源 {} Hz → 设备 {} Hz",
     bp_bit_depth_t: "• 位深 {} 超出 f32 容器（24）",
     failed_exclusive_t: "无法启用独占模式：{}",

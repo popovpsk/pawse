@@ -192,7 +192,6 @@ pub static CS: Strings = lang! {
     n_tracks_few: "{} skladby",
     n_tracks_other: "{} skladeb",
     bp_system_volume_t: "• Hlasitost systému není na maximu: {}",
-    bp_app_volume_t: "• Hlasitost aplikace není na maximu: {}",
     bp_sample_rate_t: "• Neshoda vzorkovací frekvence: zdroj {} Hz → zařízení {} Hz",
     bp_bit_depth_t: "• Bitová hloubka {} překračuje kontejner f32 (24)",
     failed_exclusive_t: "Nepodařilo se zapnout exkluzivní režim: {}",

@@ -192,7 +192,6 @@ pub static KO: Strings = lang! {
     n_tracks_few: "트랙 {}개",
     n_tracks_other: "트랙 {}개",
     bp_system_volume_t: "• 시스템 볼륨이 최대가 아님: {}",
-    bp_app_volume_t: "• 앱 볼륨이 최대가 아님: {}",
     bp_sample_rate_t: "• 샘플레이트 불일치: 소스 {} Hz → 장치 {} Hz",
     bp_bit_depth_t: "• 비트 심도 {}이(가) f32 컨테이너(24)를 초과함",
     failed_exclusive_t: "독점 모드를 활성화하지 못했습니다: {}",

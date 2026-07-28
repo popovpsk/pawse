@@ -1,8 +1,7 @@
 /// Below this volume gap from unity (1.0) we still consider the signal path
-/// "bit-perfect". Must match the IOProc's skip-multiply threshold in
-/// `exclusive::macos::ioproc::ioproc_callback` — otherwise the indicator and
-/// the actual signal-path behaviour disagree at boundary volumes (e.g. vol=0.99
-/// where IOProc skips the multiply but the indicator would flag attenuation).
+/// "bit-perfect". Shared by the hardware-volume check and the skip-multiply
+/// shortcut in `cpal_stream::apply_fade_gain`, so the indicator and the actual
+/// signal-path behaviour cannot disagree at boundary volumes.
 pub const UNITY_VOLUME_TOLERANCE: f32 = 0.02;
 
 #[derive(Debug, Clone)]
@@ -51,8 +50,6 @@ pub enum BitPerfectIssue {
     SystemVolumeNotUnity { current: f32 },
     /// Device hardware mute is on.
     SystemMuted,
-    /// App-level digital volume < 1.0 (in-app slider attenuates).
-    AppVolumeNotUnity { current: f32 },
     /// Device sample rate doesn't match the source — CoreAudio is resampling.
     SampleRateMismatch { source: u32, device: u32 },
     /// Source bit depth exceeds what the f32 transport preserves (24 mantissa bits).

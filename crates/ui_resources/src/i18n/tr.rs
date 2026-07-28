@@ -192,7 +192,6 @@ pub static TR: Strings = lang! {
     n_tracks_few: "{} parça",
     n_tracks_other: "{} parça",
     bp_system_volume_t: "• Sistem sesi tam değil: {}",
-    bp_app_volume_t: "• Uygulama sesi tam değil: {}",
     bp_sample_rate_t: "• Örnekleme hızı uyumsuz: kaynak {} Hz → aygıt {} Hz",
     bp_bit_depth_t: "• {} bit derinliği f32 kapsayıcısını (24) aşıyor",
     failed_exclusive_t: "Özel mod etkinleştirilemedi: {}",

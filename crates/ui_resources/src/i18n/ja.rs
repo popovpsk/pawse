@@ -192,7 +192,6 @@ pub static JA: Strings = lang! {
     n_tracks_few: "{} 曲",
     n_tracks_other: "{} 曲",
     bp_system_volume_t: "• システム音量が最大ではありません: {}",
-    bp_app_volume_t: "• アプリ音量が最大ではありません: {}",
     bp_sample_rate_t: "• サンプルレート不一致: ソース {} Hz → デバイス {} Hz",
     bp_bit_depth_t: "• ビット深度 {} が f32 コンテナ（24）を超えています",
     failed_exclusive_t: "排他モードを有効にできませんでした: {}",

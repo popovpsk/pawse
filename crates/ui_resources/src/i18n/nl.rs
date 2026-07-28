@@ -192,7 +192,6 @@ pub static NL: Strings = lang! {
     n_tracks_few: "{} nummers",
     n_tracks_other: "{} nummers",
     bp_system_volume_t: "• Systeemvolume niet op maximum: {}",
-    bp_app_volume_t: "• App-volume niet op maximum: {}",
     bp_sample_rate_t: "• Samplerate komt niet overeen: bron {} Hz → apparaat {} Hz",
     bp_bit_depth_t: "• Bitdiepte {} overschrijdt f32-container (24)",
     failed_exclusive_t: "Kan exclusieve modus niet inschakelen: {}",

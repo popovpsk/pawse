@@ -192,7 +192,6 @@ pub static TH: Strings = lang! {
     n_tracks_few: "{} เพลง",
     n_tracks_other: "{} เพลง",
     bp_system_volume_t: "• ระดับเสียงระบบไม่เต็ม: {}",
-    bp_app_volume_t: "• ระดับเสียงแอปไม่เต็ม: {}",
     bp_sample_rate_t: "• แซมเปิลเรตไม่ตรงกัน: ต้นทาง {} Hz → อุปกรณ์ {} Hz",
     bp_bit_depth_t: "• ความลึกบิต {} เกินคอนเทนเนอร์ f32 (24)",
     failed_exclusive_t: "ไม่สามารถเปิดโหมดเอกสิทธิ์: {}",

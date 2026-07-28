@@ -192,7 +192,6 @@ pub static EN: Strings = lang! {
     n_tracks_few: "{} tracks",
     n_tracks_other: "{} tracks",
     bp_system_volume_t: "• System volume not at unity: {}",
-    bp_app_volume_t: "• App volume not at unity: {}",
     bp_sample_rate_t: "• Sample rate mismatch: source {} Hz → device {} Hz",
     bp_bit_depth_t: "• Bit depth {} exceeds f32 container (24)",
     failed_exclusive_t: "Failed to enable exclusive mode: {}",

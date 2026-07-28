@@ -211,7 +211,6 @@ impl MacosBackend {
 
         let iopc_ctx = Arc::new(RenderCtx {
             buffer,
-            volume: AtomicF32::new(1.0),
             playing: AtomicU8::new(STATE_IDLE),
             fade: crate::cpal_stream::FadeState::new(),
             sample_rate: config.sample_rate,
@@ -332,10 +331,6 @@ impl Backend for MacosBackend {
             .unwrap_or(false)
     }
 
-    fn set_volume(&self, volume: f32) {
-        self.shared.iopc_ctx.volume.store(volume, Ordering::Relaxed);
-    }
-
     fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
         let ctx = &self.shared.iopc_ctx;
         ctx.fade.begin(ctx.sample_rate, start, target, duration_ms);
@@ -382,7 +377,6 @@ impl Backend for MacosBackend {
             hw_volume: self.shared.hw_volume.load(Ordering::Relaxed),
             hw_muted: self.shared.hw_muted.load(Ordering::Relaxed),
             device_sample_rate: self.shared.device_sample_rate.load(Ordering::Relaxed),
-            app_volume: self.shared.iopc_ctx.volume.load(Ordering::Relaxed),
         }
     }
 }

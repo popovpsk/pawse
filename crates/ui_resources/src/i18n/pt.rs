@@ -192,7 +192,6 @@ pub static PT: Strings = lang! {
     n_tracks_few: "{} faixas",
     n_tracks_other: "{} faixas",
     bp_system_volume_t: "• Volume do sistema não está no máximo: {}",
-    bp_app_volume_t: "• Volume do app não está no máximo: {}",
     bp_sample_rate_t: "• Taxa de amostragem divergente: fonte {} Hz → dispositivo {} Hz",
     bp_bit_depth_t: "• Profundidade de {} bits excede o contêiner f32 (24)",
     failed_exclusive_t: "Falha ao ativar o modo exclusivo: {}",

@@ -40,8 +40,6 @@ pub(crate) struct DeviceSnapshot {
     pub hw_muted: bool,
     /// Device nominal sample rate in Hz; 0 if unknown.
     pub device_sample_rate: u32,
-    /// App-level digital volume scalar.
-    pub app_volume: f32,
 }
 
 pub(crate) trait Backend: Send + Sync {
@@ -50,7 +48,6 @@ pub(crate) trait Backend: Send + Sync {
     fn pause(&self);
     fn resume(&self);
     fn is_playing(&self) -> bool;
-    fn set_volume(&self, volume: f32);
     fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32);
     fn take_fade_event(&self) -> Option<crate::FadeEvent>;
     fn reset_fade(&self);
@@ -200,7 +197,7 @@ impl AudioOutput for ExclusiveOutput {
         self.backend.is_playing()
     }
 
-    fn set_volume(&self, volume: f32) {
-        self.backend.set_volume(volume);
-    }
+    /// No-op by design: exclusive mode keeps the digital path at unity gain,
+    /// so the in-app slider is locked and never reaches the device.
+    fn set_volume(&self, _: f32) {}
 }

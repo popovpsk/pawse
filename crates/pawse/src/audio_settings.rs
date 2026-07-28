@@ -82,9 +82,6 @@ fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
                 s.bp_system_volume(&format!("{:.2}", current))
             }
             BitPerfectIssue::SystemMuted => s.bp_system_muted.to_string(),
-            BitPerfectIssue::AppVolumeNotUnity { current } => {
-                s.bp_app_volume(&format!("{:.2}", current))
-            }
             BitPerfectIssue::SampleRateMismatch { source, device } => {
                 s.bp_sample_rate(*source, *device)
             }

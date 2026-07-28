@@ -192,7 +192,6 @@ pub static SV: Strings = lang! {
     n_tracks_few: "{} låtar",
     n_tracks_other: "{} låtar",
     bp_system_volume_t: "• Systemvolym inte på max: {}",
-    bp_app_volume_t: "• App-volym inte på max: {}",
     bp_sample_rate_t: "• Samplingsfrekvens stämmer inte: källa {} Hz → enhet {} Hz",
     bp_bit_depth_t: "• Bitdjup {} överskrider f32-behållaren (24)",
     failed_exclusive_t: "Det gick inte att aktivera exklusivt läge: {}",

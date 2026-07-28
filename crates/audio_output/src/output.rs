@@ -78,7 +78,8 @@ pub struct Output {
     source_sample_rate: AtomicU32,
     source_bit_depth: AtomicU8,
     source_present: AtomicBool,
-    // App-level digital volume — mirrored here so bit_perfect_status() can read it.
+    // App-level digital volume. Survives an exclusive round-trip (where it is
+    // not applied) so the shared stream comes back at the user's level.
     app_volume: AtomicF32,
 }
 
@@ -452,12 +453,10 @@ impl Output {
         self.app_volume.load(Ordering::Relaxed)
     }
 
+    /// Shared mode only — the exclusive path stays at unity gain by design.
     fn apply_current_volume(&self) {
-        let v = self.app_volume.load(Ordering::Relaxed);
-        match self.current.read().as_ref() {
-            Some(OutputMode::Shared(s)) => s.set_volume(v),
-            Some(OutputMode::Exclusive(e)) => e.set_volume(v),
-            None => {}
+        if let Some(OutputMode::Shared(s)) = self.current.read().as_ref() {
+            s.set_volume(self.app_volume.load(Ordering::Relaxed));
         }
     }
 
@@ -651,11 +650,6 @@ impl Output {
                 }
                 if snap.hw_muted {
                     issues.push(BitPerfectIssue::SystemMuted);
-                }
-                if snap.app_volume < 1.0 - UNITY_VOLUME_TOLERANCE {
-                    issues.push(BitPerfectIssue::AppVolumeNotUnity {
-                        current: snap.app_volume,
-                    });
                 }
                 if snap.device_sample_rate != 0 && snap.device_sample_rate != source_rate {
                     issues.push(BitPerfectIssue::SampleRateMismatch {

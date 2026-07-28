@@ -192,7 +192,6 @@ pub static ID: Strings = lang! {
     n_tracks_few: "{} lagu",
     n_tracks_other: "{} lagu",
     bp_system_volume_t: "• Volume sistem tidak maksimal: {}",
-    bp_app_volume_t: "• Volume aplikasi tidak maksimal: {}",
     bp_sample_rate_t: "• Sample rate tidak cocok: sumber {} Hz → perangkat {} Hz",
     bp_bit_depth_t: "• Kedalaman bit {} melebihi kontainer f32 (24)",
     failed_exclusive_t: "Gagal mengaktifkan mode eksklusif: {}",

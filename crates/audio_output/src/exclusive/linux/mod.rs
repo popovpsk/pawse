@@ -9,7 +9,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use alsa::pcm::PCM;
-use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError};
 
 use super::render::{RenderCtx, STATE_IDLE, STATE_PLAYING, fill};
@@ -115,7 +114,6 @@ impl PipewireBackend {
     ) -> Result<Self, AudioError> {
         let ctx = Arc::new(RenderCtx {
             buffer,
-            volume: AtomicF32::new(1.0),
             playing: AtomicU8::new(STATE_IDLE),
             fade: crate::cpal_stream::FadeState::new(),
             sample_rate: config.sample_rate,
@@ -228,10 +226,6 @@ impl Backend for PipewireBackend {
         self.shared.want_play.load(Ordering::Relaxed)
     }
 
-    fn set_volume(&self, volume: f32) {
-        self.shared.ctx.volume.store(volume, Ordering::Relaxed);
-    }
-
     fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
         let ctx = &self.shared.ctx;
         ctx.fade.begin(ctx.sample_rate, start, target, duration_ms);
@@ -270,7 +264,6 @@ impl Backend for PipewireBackend {
                 .status
                 .device_sample_rate
                 .load(Ordering::Relaxed),
-            app_volume: self.shared.ctx.volume.load(Ordering::Relaxed),
         }
     }
 }

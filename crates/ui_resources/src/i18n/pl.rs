@@ -192,7 +192,6 @@ pub static PL: Strings = lang! {
     n_tracks_few: "{} utwory",
     n_tracks_other: "{} utworów",
     bp_system_volume_t: "• Głośność systemu nie na maksimum: {}",
-    bp_app_volume_t: "• Głośność aplikacji nie na maksimum: {}",
     bp_sample_rate_t: "• Niezgodność częstotliwości: źródło {} Hz → urządzenie {} Hz",
     bp_bit_depth_t: "• Głębia {} bitów przekracza kontener f32 (24)",
     failed_exclusive_t: "Nie udało się włączyć trybu wyłącznego: {}",

@@ -288,7 +288,6 @@ pub struct Strings {
     pub n_tracks_few: SharedString,
     pub n_tracks_other: SharedString,
     pub bp_system_volume_t: SharedString,
-    pub bp_app_volume_t: SharedString,
     pub bp_sample_rate_t: SharedString,
     pub bp_bit_depth_t: SharedString,
     pub failed_exclusive_t: SharedString,
@@ -395,10 +394,6 @@ impl Strings {
 
     pub fn bp_system_volume(&self, value: &str) -> String {
         fill(&self.bp_system_volume_t, &[value])
-    }
-
-    pub fn bp_app_volume(&self, value: &str) -> String {
-        fill(&self.bp_app_volume_t, &[value])
     }
 
     pub fn bp_sample_rate(&self, source_hz: u32, device_hz: u32) -> String {

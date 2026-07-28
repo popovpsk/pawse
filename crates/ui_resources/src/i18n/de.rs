@@ -192,7 +192,6 @@ pub static DE: Strings = lang! {
     n_tracks_few: "{} Titel",
     n_tracks_other: "{} Titel",
     bp_system_volume_t: "• Systemlautstärke nicht auf Maximum: {}",
-    bp_app_volume_t: "• App-Lautstärke nicht auf Maximum: {}",
     bp_sample_rate_t: "• Abtastrate stimmt nicht überein: Quelle {} Hz → Gerät {} Hz",
     bp_bit_depth_t: "• Bittiefe {} überschreitet f32-Container (24)",
     failed_exclusive_t: "Exklusivmodus konnte nicht aktiviert werden: {}",

@@ -192,7 +192,6 @@ pub static FR: Strings = lang! {
     n_tracks_few: "{} titres",
     n_tracks_other: "{} titres",
     bp_system_volume_t: "• Volume système pas au maximum : {}",
-    bp_app_volume_t: "• Volume de l'app pas au maximum : {}",
     bp_sample_rate_t: "• Fréquence non concordante : source {} Hz → périphérique {} Hz",
     bp_bit_depth_t: "• Profondeur de {} bits dépasse le conteneur f32 (24)",
     failed_exclusive_t: "Impossible d'activer le mode exclusif : {}",

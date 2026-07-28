@@ -192,7 +192,6 @@ pub static HI: Strings = lang! {
     n_tracks_few: "{} ट्रैक",
     n_tracks_other: "{} ट्रैक",
     bp_system_volume_t: "• सिस्टम वॉल्यूम अधिकतम पर नहीं: {}",
-    bp_app_volume_t: "• ऐप वॉल्यूम अधिकतम पर नहीं: {}",
     bp_sample_rate_t: "• सैंपल रेट मेल नहीं खाता: स्रोत {} Hz → डिवाइस {} Hz",
     bp_bit_depth_t: "• बिट डेप्थ {} f32 कंटेनर (24) से अधिक है",
     failed_exclusive_t: "एक्सक्लूसिव मोड सक्षम करने में विफल: {}",

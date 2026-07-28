@@ -13,7 +13,6 @@ impl Backend for UnsupportedBackend {
     fn is_playing(&self) -> bool {
         false
     }
-    fn set_volume(&self, _: f32) {}
     fn begin_fade(&self, _: Option<f32>, _: f32, _: u32) {}
     fn take_fade_event(&self) -> Option<crate::FadeEvent> {
         None
@@ -35,7 +34,6 @@ impl Backend for UnsupportedBackend {
             hw_volume: 1.0,
             hw_muted: false,
             device_sample_rate: 0,
-            app_volume: 1.0,
         }
     }
 }
