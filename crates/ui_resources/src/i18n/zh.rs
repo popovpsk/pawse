@@ -206,6 +206,8 @@ pub static ZH: Strings = lang! {
     cover_progress_desc: "在封面视图中显示简约的进度条",
     cover_controls: "播放控制",
     cover_controls_desc: "在封面视图中显示播放、下一首和上一首按钮",
+    cover_blur: "模糊背景",
+    cover_blur_desc: "在封面视图中使用模糊的封面作为背景",
     edit_tags: "编辑标签",
     edit_album_tags: "编辑专辑标签",
     tag_editor: "标签编辑器 (beta)",

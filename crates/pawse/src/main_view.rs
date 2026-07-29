@@ -17,6 +17,7 @@ use gpui_component::{
 };
 
 use crate::audio_settings::AudioSettings;
+use crate::cover_backdrop;
 use crate::cover_mode_view::{CORNER_FADE, CoverModeView};
 use crate::cover_volume::CoverVolume;
 use crate::footer::{Footer, ToggleLyricsEvent, ToggleQueueEvent};
@@ -639,11 +640,20 @@ impl Render for MainView {
 
         let title_bar = Colors::title_bar(cx);
         let background = Colors::background(cx);
-        let title_bar_bg = if cover_mode && !chrome_visible {
-            background
-        } else {
-            title_bar
-        };
+        let backdrop = cover_mode
+            .then(|| self.cover_mode_view.read(cx).backdrop())
+            .flatten();
+        let has_backdrop = backdrop.is_some();
+        let title_bar_bg = cover_backdrop::chrome_bg(
+            if cover_mode && !chrome_visible {
+                background
+            } else {
+                title_bar
+            },
+            has_backdrop,
+        );
+        let bar_bg = cover_backdrop::chrome_bg(title_bar, has_backdrop);
+        let panel_bg = cover_backdrop::panel_bg(background, has_backdrop);
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
         let tab_colors = TabColors {
@@ -773,6 +783,10 @@ impl Render for MainView {
                         .update(cx, |view, cx| view.handle_mouse_move(cx));
                 }))
             })
+            .when(has_backdrop, |d| d.bg(background))
+            .when_some(backdrop, |d, image| {
+                d.child(cover_backdrop::layers(image, background))
+            })
             .child(crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg))
             .child({
                 let header_bar = div()
@@ -783,7 +797,7 @@ impl Render for MainView {
                     .items_center()
                     .pl_2()
                     .pr_2()
-                    .bg(title_bar)
+                    .bg(bar_bg)
                     .child(left_group)
                     .when(!show_settings && !cover_mode, |d| {
                         d.child(
@@ -802,7 +816,7 @@ impl Render for MainView {
                     .flex_1()
                     .overflow_hidden()
                     .flex()
-                    .bg(background)
+                    .when(!has_backdrop, |d| d.bg(background))
                     .child(
                         div()
                             .flex_1()
@@ -883,6 +897,7 @@ impl Render for MainView {
                                 .border_l(px(1.))
                                 .border_color(Colors::border(cx))
                                 .relative()
+                                .bg(panel_bg)
                                 .child(
                                     div()
                                         .size_full()
@@ -932,6 +947,7 @@ impl Render for MainView {
                                 .border_l(px(1.))
                                 .border_color(Colors::border(cx))
                                 .relative()
+                                .bg(panel_bg)
                                 .child(
                                     div()
                                         .size_full()
@@ -977,6 +993,7 @@ impl Render for MainView {
                     .w_full()
                     .flex_shrink_0()
                     .h(px(footer_height(cx)))
+                    .bg(bar_bg)
                     .child(self.footer.clone());
 
                 let show_chrome = !cover_mode || chrome_visible;

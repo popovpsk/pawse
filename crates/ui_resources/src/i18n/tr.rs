@@ -206,6 +206,8 @@ pub static TR: Strings = lang! {
     cover_progress_desc: "Kapak görünümünde minimal bir ilerleme çubuğu göster",
     cover_controls: "Oynatma denetimleri",
     cover_controls_desc: "Kapak görünümünde oynat, sonraki ve önceki düğmelerini göster",
+    cover_blur: "Bulanık arka plan",
+    cover_blur_desc: "Kapak görünümünde arka plan olarak bulanık kapak görselini kullan",
     edit_tags: "Etiketleri düzenle",
     edit_album_tags: "Albüm etiketlerini düzenle",
     tag_editor: "Etiket düzenleyici (beta)",

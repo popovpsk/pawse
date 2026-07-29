@@ -206,6 +206,8 @@ pub static TH: Strings = lang! {
     cover_progress_desc: "แสดงแถบความคืบหน้าแบบมินิมอลในมุมมองปก",
     cover_controls: "ปุ่มควบคุมการเล่น",
     cover_controls_desc: "แสดงปุ่มเล่น ถัดไป และก่อนหน้าในมุมมองปก",
+    cover_blur: "พื้นหลังเบลอ",
+    cover_blur_desc: "ใช้ปกที่เบลอเป็นพื้นหลังในมุมมองปก",
     edit_tags: "แก้ไขแท็ก",
     edit_album_tags: "แก้ไขแท็กอัลบั้ม",
     tag_editor: "ตัวแก้ไขแท็ก (beta)",

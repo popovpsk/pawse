@@ -206,6 +206,8 @@ pub static KO: Strings = lang! {
     cover_progress_desc: "커버 보기에 최소한의 진행 표시줄을 표시합니다",
     cover_controls: "재생 컨트롤",
     cover_controls_desc: "커버 보기에 재생, 다음, 이전 버튼을 표시합니다",
+    cover_blur: "흐린 배경",
+    cover_blur_desc: "커버 보기의 배경으로 흐리게 처리한 커버 아트를 사용합니다",
     edit_tags: "태그 편집",
     edit_album_tags: "앨범 태그 편집",
     tag_editor: "태그 편집기 (beta)",

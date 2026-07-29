@@ -206,6 +206,8 @@ pub static ID: Strings = lang! {
     cover_progress_desc: "Tampilkan bilah kemajuan minimal di tampilan sampul",
     cover_controls: "Kontrol pemutaran",
     cover_controls_desc: "Tampilkan tombol putar, berikutnya, dan sebelumnya di tampilan sampul",
+    cover_blur: "Latar buram",
+    cover_blur_desc: "Gunakan sampul yang diburamkan sebagai latar di tampilan sampul",
     edit_tags: "Edit tag",
     edit_album_tags: "Edit tag album",
     tag_editor: "Editor tag (beta)",

@@ -206,6 +206,8 @@ pub static IT: Strings = lang! {
     cover_progress_desc: "Mostra una barra di avanzamento minimale nella vista copertina",
     cover_controls: "Controlli di riproduzione",
     cover_controls_desc: "Mostra i pulsanti riproduci, successivo e precedente nella vista copertina",
+    cover_blur: "Sfondo sfocato",
+    cover_blur_desc: "Usa la copertina sfocata come sfondo nella vista copertina",
     edit_tags: "Modifica tag",
     edit_album_tags: "Modifica tag dell’album",
     tag_editor: "Editor di tag (beta)",

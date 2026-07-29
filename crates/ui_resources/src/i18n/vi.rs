@@ -206,6 +206,8 @@ pub static VI: Strings = lang! {
     cover_progress_desc: "Hiển thị thanh tiến trình tối giản trong chế độ xem bìa",
     cover_controls: "Điều khiển phát",
     cover_controls_desc: "Hiển thị nút phát, tiếp theo và trước đó trong chế độ xem bìa",
+    cover_blur: "Nền mờ",
+    cover_blur_desc: "Dùng ảnh bìa đã làm mờ làm nền trong chế độ xem bìa",
     edit_tags: "Sửa thẻ",
     edit_album_tags: "Sửa thẻ album",
     tag_editor: "Trình sửa thẻ (beta)",

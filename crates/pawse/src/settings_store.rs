@@ -281,6 +281,8 @@ pub struct UserSettings {
     pub cover_show_progress: bool,
     #[serde(default = "default_true")]
     pub cover_show_controls: bool,
+    #[serde(default = "default_true")]
+    pub cover_blur_background: bool,
     #[serde(default)]
     pub queue_deduplication: bool,
     #[serde(default)]
@@ -332,6 +334,7 @@ impl Default for UserSettings {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            cover_blur_background: true,
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,
@@ -647,6 +650,15 @@ impl SettingsStore {
 
     pub fn set_cover_show_controls(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.cover_show_controls = show;
+        self.save()
+    }
+
+    pub fn cover_blur_background(&self) -> bool {
+        self.settings.cover_blur_background
+    }
+
+    pub fn set_cover_blur_background(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.cover_blur_background = enabled;
         self.save()
     }
 
@@ -995,6 +1007,7 @@ mod tests {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            cover_blur_background: true,
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,

@@ -52,7 +52,7 @@ impl RenderOnce for WindowTitleBar {
         }
         gpui_component::TitleBar::new()
             .bg(bg)
-            .border_color(bg)
+            .border_color(gpui::transparent_black())
             .into_any_element()
     }
 }
@@ -191,7 +191,7 @@ impl RenderOnce for WindowTitleBar {
                 .h(px(HEIGHT))
                 .pl(px(12.))
                 .border_b_1()
-                .border_color(bg)
+                .border_color(gpui::transparent_black())
                 .bg(bg)
                 .on_double_click(|_, window, _| window.zoom_window())
                 .on_mouse_down_out(window.listener_for(&state, |state, _, _, _| {

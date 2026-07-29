@@ -206,6 +206,8 @@ pub static NL: Strings = lang! {
     cover_progress_desc: "Toon een minimale voortgangsbalk in hoesweergave",
     cover_controls: "Afspeelknoppen",
     cover_controls_desc: "Toon de knoppen afspelen, volgende en vorige in hoesweergave",
+    cover_blur: "Wazige achtergrond",
+    cover_blur_desc: "Gebruik de vervaagde hoes als achtergrond in hoesweergave",
     edit_tags: "Tags bewerken",
     edit_album_tags: "Albumtags bewerken",
     tag_editor: "Tag-editor (beta)",

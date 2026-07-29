@@ -154,6 +154,8 @@ pub struct Strings {
     pub cover_progress_desc: SharedString,
     pub cover_controls: SharedString,
     pub cover_controls_desc: SharedString,
+    pub cover_blur: SharedString,
+    pub cover_blur_desc: SharedString,
     pub queue_deduplication: SharedString,
     pub queue_deduplication_desc: SharedString,
     pub settings_albums_view: SharedString,

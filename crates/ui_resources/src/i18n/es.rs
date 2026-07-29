@@ -206,6 +206,8 @@ pub static ES: Strings = lang! {
     cover_progress_desc: "Mostrar una barra de progreso mínima en la vista de portada",
     cover_controls: "Controles de reproducción",
     cover_controls_desc: "Mostrar los botones de reproducción, siguiente y anterior en la vista de portada",
+    cover_blur: "Fondo desenfocado",
+    cover_blur_desc: "Usar la portada desenfocada como fondo en la vista de portada",
     edit_tags: "Editar etiquetas",
     edit_album_tags: "Editar etiquetas del álbum",
     tag_editor: "Editor de etiquetas (beta)",

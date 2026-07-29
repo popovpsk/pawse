@@ -206,6 +206,8 @@ pub static JA: Strings = lang! {
     cover_progress_desc: "カバー表示に最小限の進行状況バーを表示します",
     cover_controls: "再生コントロール",
     cover_controls_desc: "カバー表示に再生・次へ・前へボタンを表示します",
+    cover_blur: "背景をぼかす",
+    cover_blur_desc: "カバー表示の背景にぼかしたカバーアートを使います",
     edit_tags: "タグを編集",
     edit_album_tags: "アルバムのタグを編集",
     tag_editor: "タグエディター (beta)",

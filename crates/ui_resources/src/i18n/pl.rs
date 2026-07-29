@@ -206,6 +206,8 @@ pub static PL: Strings = lang! {
     cover_progress_desc: "Pokaż minimalny pasek postępu w widoku okładki",
     cover_controls: "Przyciski sterowania",
     cover_controls_desc: "Pokaż przyciski odtwarzania, następny i poprzedni w widoku okładki",
+    cover_blur: "Rozmyte tło",
+    cover_blur_desc: "Użyj rozmytej okładki jako tła w widoku okładki",
     edit_tags: "Edytuj tagi",
     edit_album_tags: "Edytuj tagi albumu",
     tag_editor: "Edytor tagów (beta)",

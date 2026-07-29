@@ -206,6 +206,8 @@ pub static CS: Strings = lang! {
     cover_progress_desc: "Zobrazit minimální ukazatel průběhu v zobrazení obalu",
     cover_controls: "Ovládání přehrávání",
     cover_controls_desc: "Zobrazit tlačítka přehrát, další a předchozí v zobrazení obalu",
+    cover_blur: "Rozostřené pozadí",
+    cover_blur_desc: "Použít rozostřený obal jako pozadí v zobrazení obalu",
     edit_tags: "Upravit značky",
     edit_album_tags: "Upravit značky albumu",
     tag_editor: "Editor značek (beta)",

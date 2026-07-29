@@ -206,6 +206,8 @@ pub static SV: Strings = lang! {
     cover_progress_desc: "Visa en minimal förloppsindikator i omslagsvyn",
     cover_controls: "Uppspelningskontroller",
     cover_controls_desc: "Visa knapparna spela, nästa och föregående i omslagsvyn",
+    cover_blur: "Suddig bakgrund",
+    cover_blur_desc: "Använd det suddiga omslaget som bakgrund i omslagsvyn",
     edit_tags: "Redigera taggar",
     edit_album_tags: "Redigera albumtaggar",
     tag_editor: "Taggredigerare (beta)",

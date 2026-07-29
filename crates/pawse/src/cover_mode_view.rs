@@ -11,6 +11,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex};
 
+use crate::cover_backdrop;
 use crate::library_service::LibraryEvent;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::services::Services;
@@ -45,6 +46,7 @@ pub struct CoverModeView {
     track_path: Option<String>,
     large_cover: Option<Arc<Image>>,
     full_cover: Option<Arc<RenderImage>>,
+    backdrop: Option<Arc<RenderImage>>,
     cover_aspect: Option<f32>,
     prev_large_cover: Option<Arc<Image>>,
     prev_full_cover: Option<Arc<RenderImage>>,
@@ -63,8 +65,10 @@ pub struct CoverModeView {
     show_artist: bool,
     show_progress: bool,
     show_controls: bool,
+    blur_background: bool,
     progress: Entity<TrackProgressSlider>,
     _full_cover_task: Option<Task<()>>,
+    _backdrop_task: Option<Task<()>>,
     _slide_task: Option<Task<()>>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
@@ -167,6 +171,7 @@ impl CoverModeView {
         let show_artist = settings.cover_show_artist();
         let show_progress = settings.cover_show_progress();
         let show_controls = settings.cover_show_controls();
+        let blur_background = settings.cover_blur_background();
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
             let settings = cx.global::<SettingsStore>();
             let vals = (
@@ -174,9 +179,18 @@ impl CoverModeView {
                 settings.cover_show_progress(),
                 settings.cover_show_controls(),
             );
+            let blur = settings.cover_blur_background();
             if vals != (this.show_artist, this.show_progress, this.show_controls) {
                 (this.show_artist, this.show_progress, this.show_controls) = vals;
                 cx.notify();
+            }
+            if blur != this.blur_background {
+                this.blur_background = blur;
+                if blur {
+                    this.load_backdrop(cx);
+                } else {
+                    this.release_backdrop(cx);
+                }
             }
         });
 
@@ -193,6 +207,7 @@ impl CoverModeView {
             track_path: None,
             large_cover: None,
             full_cover: None,
+            backdrop: None,
             cover_aspect: None,
             prev_large_cover: None,
             prev_full_cover: None,
@@ -211,8 +226,10 @@ impl CoverModeView {
             show_artist,
             show_progress,
             show_controls,
+            blur_background,
             progress,
             _full_cover_task: None,
+            _backdrop_task: None,
             _slide_task: None,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
@@ -230,6 +247,10 @@ impl CoverModeView {
 
     pub fn corner_hiding(&self) -> bool {
         self.corner_hiding
+    }
+
+    pub fn backdrop(&self) -> Option<Arc<RenderImage>> {
+        self.backdrop.clone()
     }
 
     pub fn toggle_chrome(&mut self, cx: &mut Context<Self>) {
@@ -318,6 +339,7 @@ impl CoverModeView {
         } else {
             self._full_cover_task = None;
             self.release_full_cover(cx);
+            self.release_backdrop(cx);
             self.end_cover_slide(cx);
         }
         cx.notify();
@@ -415,10 +437,14 @@ impl CoverModeView {
             self.cover_art_id = cover;
             self.large_cover = new_thumb;
             self.load_full_cover(cx);
+            self.load_backdrop(cx);
         } else {
             self.large_cover = new_thumb;
             if self.full_cover.is_none() {
                 self.load_full_cover(cx);
+            }
+            if self.backdrop.is_none() {
+                self.load_backdrop(cx);
             }
         }
         self.queue_index = index;
@@ -466,6 +492,53 @@ impl CoverModeView {
         }
     }
 
+    fn set_backdrop(&mut self, image: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+        if image.is_none() && self.backdrop.is_none() {
+            return;
+        }
+        if let Some(old) = std::mem::replace(&mut self.backdrop, image) {
+            cx.drop_image(old, None);
+        }
+        cx.notify();
+    }
+
+    fn release_backdrop(&mut self, cx: &mut Context<Self>) {
+        self._backdrop_task = None;
+        self.set_backdrop(None, cx);
+    }
+
+    fn load_backdrop(&mut self, cx: &mut Context<Self>) {
+        self._backdrop_task = None;
+        if !self.blur_background || !self.active {
+            return;
+        }
+        let Some(id) = self.cover_art_id else {
+            self.set_backdrop(None, cx);
+            return;
+        };
+        let services = cx.global::<Services>();
+        let thumbnail = services
+            .cover_art_cache
+            .borrow_mut()
+            .get_small(Some(id), &services.library);
+        let Some(thumbnail) = thumbnail else {
+            self.set_backdrop(None, cx);
+            return;
+        };
+        let render = cx
+            .background_executor()
+            .spawn(async move { cover_backdrop::from_thumbnail(&thumbnail) });
+        self._backdrop_task = Some(cx.spawn(async move |this, cx| {
+            let image = render.await;
+            let _ = this.update(cx, |view, cx| {
+                view._backdrop_task = None;
+                if view.active && view.blur_background && view.cover_art_id == Some(id) {
+                    view.set_backdrop(image, cx);
+                }
+            });
+        }));
+    }
+
     fn clear(&mut self, cx: &mut Context<Self>) {
         self.track_title = SharedString::default();
         self.artists.clear();
@@ -475,6 +548,7 @@ impl CoverModeView {
         self.large_cover = None;
         self.queue_index = None;
         self.release_full_cover(cx);
+        self.release_backdrop(cx);
         self.end_cover_slide(cx);
         self._full_cover_task = None;
     }
@@ -742,7 +816,6 @@ impl Render for CoverModeView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(Colors::background(cx))
             .child(
                 div()
                     .size_full()

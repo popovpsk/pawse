@@ -206,6 +206,8 @@ pub static PT: Strings = lang! {
     cover_progress_desc: "Mostrar uma barra de progresso mínima na visualização da capa",
     cover_controls: "Controles de reprodução",
     cover_controls_desc: "Mostrar os botões reproduzir, próximo e anterior na visualização da capa",
+    cover_blur: "Fundo desfocado",
+    cover_blur_desc: "Usar a capa desfocada como fundo na visualização da capa",
     edit_tags: "Editar etiquetas",
     edit_album_tags: "Editar etiquetas do álbum",
     tag_editor: "Editor de etiquetas (beta)",

@@ -206,6 +206,8 @@ pub static HI: Strings = lang! {
     cover_progress_desc: "कवर दृश्य में एक न्यूनतम प्रगति बार दिखाएँ",
     cover_controls: "प्लेबैक नियंत्रण",
     cover_controls_desc: "कवर दृश्य में चलाएँ, अगला और पिछला बटन दिखाएँ",
+    cover_blur: "धुंधली पृष्ठभूमि",
+    cover_blur_desc: "कवर दृश्य में पृष्ठभूमि के रूप में धुंधला कवर आर्ट उपयोग करें",
     edit_tags: "टैग संपादित करें",
     edit_album_tags: "एल्बम टैग संपादित करें",
     tag_editor: "टैग संपादक (beta)",

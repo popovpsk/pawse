@@ -1008,6 +1008,27 @@ fn cover_view_group() -> SettingGroup {
             )
             .description(tr().cover_controls_desc.clone()),
         )
+        .item(
+            SettingItem::new(
+                tr().cover_blur.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().cover_blur_background();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("cover-blur-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_cover_blur_background(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().cover_blur_desc.clone()),
+        )
 }
 
 fn queue_group() -> SettingGroup {

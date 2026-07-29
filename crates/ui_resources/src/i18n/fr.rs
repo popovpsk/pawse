@@ -206,6 +206,8 @@ pub static FR: Strings = lang! {
     cover_progress_desc: "Afficher une barre de progression minimale dans la vue pochette",
     cover_controls: "Commandes de lecture",
     cover_controls_desc: "Afficher les boutons lecture, suivant et précédent dans la vue pochette",
+    cover_blur: "Arrière-plan flou",
+    cover_blur_desc: "Utiliser la pochette floutée comme arrière-plan dans la vue pochette",
     edit_tags: "Modifier les tags",
     edit_album_tags: "Modifier les tags de l’album",
     tag_editor: "Éditeur de tags (beta)",

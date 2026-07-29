@@ -206,6 +206,8 @@ pub static DE: Strings = lang! {
     cover_progress_desc: "Eine minimale Fortschrittsleiste in der Cover-Ansicht anzeigen",
     cover_controls: "Wiedergabesteuerung",
     cover_controls_desc: "Wiedergabe-, Weiter- und Zurück-Tasten in der Cover-Ansicht anzeigen",
+    cover_blur: "Unscharfer Hintergrund",
+    cover_blur_desc: "Das unscharfe Cover als Hintergrund in der Cover-Ansicht verwenden",
     edit_tags: "Tags bearbeiten",
     edit_album_tags: "Album-Tags bearbeiten",
     tag_editor: "Tag-Editor (beta)",

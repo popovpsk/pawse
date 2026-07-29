@@ -206,6 +206,8 @@ pub static EN: Strings = lang! {
     cover_progress_desc: "Show a minimal progress bar in cover view",
     cover_controls: "Playback controls",
     cover_controls_desc: "Show play, next and previous buttons in cover view",
+    cover_blur: "Blurred background",
+    cover_blur_desc: "Use the blurred cover art as the background in cover view",
     edit_tags: "Edit tags",
     edit_album_tags: "Edit album tags",
     tag_editor: "Tag editor (beta)",
