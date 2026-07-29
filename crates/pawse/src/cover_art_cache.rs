@@ -1,9 +1,21 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use gpui::{Image, ImageFormat};
+use gpui::{App, Image, ImageFormat, RenderImage};
 
 use crate::library_service::LibraryService;
+
+/// Frees the sprite-atlas tile of a `RenderImage` that is no longer displayed.
+///
+/// Deferred on purpose: `App::drop_image` walks `App.windows`, and gpui takes the
+/// current window *out* of that map for the whole duration of a window update
+/// (`update_window_id`). Called straight from a click or key handler it would skip
+/// the only window we have and the tile would stay in the atlas forever — the
+/// atlas has no eviction of its own. Running it as a deferred effect puts the call
+/// after the window is back in the map, which works from every context.
+pub fn drop_atlas_tile(image: Arc<RenderImage>, cx: &mut App) {
+    cx.defer(move |cx| cx.drop_image(image, None));
+}
 
 pub struct CoverArtCache {
     small: HashMap<i64, Arc<Image>>,

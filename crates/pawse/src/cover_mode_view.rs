@@ -11,6 +11,7 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex};
 
+use crate::cover_art_cache::drop_atlas_tile;
 use crate::cover_backdrop;
 use crate::library_service::LibraryEvent;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
@@ -481,14 +482,14 @@ impl CoverModeView {
     fn release_prev_cover(&mut self, cx: &mut Context<Self>) {
         self.prev_large_cover = None;
         if let Some(old) = self.prev_full_cover.take() {
-            cx.drop_image(old, None);
+            drop_atlas_tile(old, cx);
         }
     }
 
     fn release_full_cover(&mut self, cx: &mut Context<Self>) {
         self.cover_aspect = None;
         if let Some(old) = self.full_cover.take() {
-            cx.drop_image(old, None);
+            drop_atlas_tile(old, cx);
         }
     }
 
@@ -497,7 +498,7 @@ impl CoverModeView {
             return;
         }
         if let Some(old) = std::mem::replace(&mut self.backdrop, image) {
-            cx.drop_image(old, None);
+            drop_atlas_tile(old, cx);
         }
         cx.notify();
     }

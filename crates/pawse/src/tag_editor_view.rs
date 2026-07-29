@@ -19,6 +19,7 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::cover_art_cache::drop_atlas_tile;
 use crate::library_service::AlbumTagEdits;
 use crate::localization::tr;
 use crate::services::Services;
@@ -419,12 +420,14 @@ impl TagEditorView {
         cx.notify();
     }
 
-    /// `drop_image` is the only thing that frees the sprite-atlas tile — `RenderImage` has
-    /// no `Drop` that does it — so every preview has to be released explicitly, both when
-    /// another file replaces it and when the dialog goes away.
+    /// Dropping the tile is the only thing that frees it — `RenderImage` has no `Drop`
+    /// that does it — so every preview has to be released explicitly, both when another
+    /// file replaces it and when the dialog goes away. Goes through
+    /// [`drop_atlas_tile`] rather than `App::drop_image` directly: `remove_cover` runs
+    /// inside a window update, where the direct call silently frees nothing.
     fn release_preview(&mut self, cx: &mut App) {
         if let Some((old, _)) = self.cover_preview.take() {
-            cx.drop_image(old, None);
+            drop_atlas_tile(old, cx);
         }
     }
 
