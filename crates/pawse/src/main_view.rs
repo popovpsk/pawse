@@ -17,7 +17,7 @@ use gpui_component::{
 };
 
 use crate::audio_settings::AudioSettings;
-use crate::cover_backdrop;
+use crate::cover_backdrop::{self, CoverBackdrop};
 use crate::cover_mode_view::{CORNER_FADE, CoverModeView};
 use crate::cover_volume::CoverVolume;
 use crate::footer::{Footer, ToggleLyricsEvent, ToggleQueueEvent};
@@ -35,7 +35,7 @@ use crate::media_bridge::MediaBridge;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
-use crate::settings_store::{SettingsStore, ui_scale};
+use crate::settings_store::{BlurBackground, SettingsStore, ui_scale};
 use crate::settings_view::{LangPickerState, LastfmUiState, ThemePickerState};
 use crate::theme_colors::Colors;
 use ui_components::settings::SettingPage;
@@ -92,6 +92,7 @@ pub struct MainView {
     show_settings: bool,
     cover_mode: bool,
     cover_mode_view: Entity<CoverModeView>,
+    cover_backdrop: Entity<CoverBackdrop>,
     cover_volume: Entity<CoverVolume>,
     show_queue: bool,
     queue_width: f32,
@@ -126,6 +127,7 @@ pub struct MainView {
     _cover_album_subscription: Subscription,
     _cover_artist_subscription: Subscription,
     _cover_observe_subscription: Subscription,
+    _cover_backdrop_observe: Subscription,
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
     _theme_picker_subscription: gpui::Subscription,
@@ -353,6 +355,9 @@ impl MainView {
                 });
             }
         });
+        let cover_backdrop = cx.new(CoverBackdrop::new);
+        let cover_backdrop_observe = cx.observe(&cover_backdrop, |_, _, cx| cx.notify());
+
         let cover_observe_subscription = cx.observe(&cover_mode_view, |this, view, cx| {
             let hidden = {
                 let v = view.read(cx);
@@ -443,6 +448,7 @@ impl MainView {
             show_settings: false,
             cover_mode: false,
             cover_mode_view,
+            cover_backdrop,
             cover_volume,
             show_queue: false,
             queue_width: QUEUE_WIDTH_DEFAULT,
@@ -477,6 +483,7 @@ impl MainView {
             _cover_album_subscription: cover_album_subscription,
             _cover_artist_subscription: cover_artist_subscription,
             _cover_observe_subscription: cover_observe_subscription,
+            _cover_backdrop_observe: cover_backdrop_observe,
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
             _theme_picker_subscription: theme_picker_subscription,
@@ -640,10 +647,13 @@ impl Render for MainView {
 
         let title_bar = Colors::title_bar(cx);
         let background = Colors::background(cx);
-        let backdrop = cover_mode
-            .then(|| self.cover_mode_view.read(cx).backdrop())
+        let blur = cx.global::<SettingsStore>().blur_background();
+        let backdrop = (!show_settings && (cover_mode || blur == BlurBackground::AllViews))
+            .then(|| self.cover_backdrop.read(cx).image())
             .flatten();
         let has_backdrop = backdrop.is_some();
+        let veil_content = has_backdrop && !cover_mode;
+        cover_backdrop::set_active(has_backdrop, cx);
         let title_bar_bg = cover_backdrop::chrome_bg(
             if cover_mode && !chrome_visible {
                 background
@@ -657,8 +667,8 @@ impl Render for MainView {
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
         let tab_colors = TabColors {
-            active_bg: Colors::secondary(cx),
-            hover_bg: muted,
+            active_bg: cover_backdrop::inset_bg(Colors::secondary(cx), has_backdrop),
+            hover_bg: cover_backdrop::inset_bg(muted, has_backdrop),
             primary: Colors::primary(cx),
             foreground,
         };
@@ -806,7 +816,7 @@ impl Render for MainView {
                                     .with_size(Size::Medium)
                                     .focus_bordered(false)
                                     .rounded_full()
-                                    .bg(title_bar),
+                                    .bg(cover_backdrop::field_bg(title_bar, has_backdrop)),
                             ),
                         )
                     })
@@ -817,6 +827,7 @@ impl Render for MainView {
                     .overflow_hidden()
                     .flex()
                     .when(!has_backdrop, |d| d.bg(background))
+                    .when(veil_content, |d| d.bg(panel_bg))
                     .child(
                         div()
                             .flex_1()
@@ -897,7 +908,7 @@ impl Render for MainView {
                                 .border_l(px(1.))
                                 .border_color(Colors::border(cx))
                                 .relative()
-                                .bg(panel_bg)
+                                .when(!veil_content, |d| d.bg(panel_bg))
                                 .child(
                                     div()
                                         .size_full()
@@ -947,7 +958,7 @@ impl Render for MainView {
                                 .border_l(px(1.))
                                 .border_color(Colors::border(cx))
                                 .relative()
-                                .bg(panel_bg)
+                                .when(!veil_content, |d| d.bg(panel_bg))
                                 .child(
                                     div()
                                         .size_full()

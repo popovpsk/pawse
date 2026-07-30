@@ -1,9 +1,15 @@
 use std::sync::Arc;
 
+use audio_engine::EngineEvent;
 use gpui::{
-    Div, Hsla, Image, ObjectFit, ParentElement, RenderImage, Styled, StyledImage, div, img,
-    linear_color_stop, linear_gradient,
+    App, Context, Div, Global, Hsla, Image, ObjectFit, ParentElement, RenderImage, Styled,
+    StyledImage, Subscription, Task, div, img, linear_color_stop, linear_gradient,
 };
+
+use crate::cover_art_cache::drop_atlas_tile;
+use crate::library_service::LibraryEvent;
+use crate::services::Services;
+use crate::settings_store::{BlurBackground, SettingsStore};
 
 const RASTER_SIZE: u32 = 96;
 const BLUR_SIGMA: f32 = 10.;
@@ -13,6 +19,142 @@ const VEIL_TOP: f32 = 0.15;
 const VEIL_BOTTOM: f32 = 0.6;
 const PANEL_VEIL: f32 = 0.55;
 const CHROME_VEIL: f32 = 0.45;
+const INSET_VEIL: f32 = 0.5;
+const FIELD_VEIL: f32 = 0.2;
+
+fn blur_enabled(cx: &App) -> bool {
+    cx.global::<SettingsStore>().blur_background() != BlurBackground::Off
+}
+
+struct Active(bool);
+
+impl Global for Active {}
+
+/// Whether the backdrop is painted on the window right now.
+///
+/// `MainView::render` is the only place that knows the answer — it depends on
+/// the setting, the current view and whether a raster has finished baking — so
+/// it publishes it here for the popovers and dropdowns that float above the
+/// window and cannot be handed the flag through their constructors.
+pub fn set_active(active: bool, cx: &mut App) {
+    if is_active(cx) != active {
+        cx.set_global(Active(active));
+    }
+}
+
+pub fn is_active(cx: &App) -> bool {
+    cx.try_global::<Active>().is_some_and(|state| state.0)
+}
+
+pub struct CoverBackdrop {
+    image: Option<Arc<RenderImage>>,
+    cover_art_id: Option<i64>,
+    enabled: bool,
+    _task: Option<Task<()>>,
+    _engine_subscription: Subscription,
+    _library_subscription: Subscription,
+    _settings_subscription: Subscription,
+}
+
+impl CoverBackdrop {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let services = cx.global::<Services>();
+        let engine_event_bus = services.engine_event_bus.clone();
+        let library_event_bus = services.library_event_bus.clone();
+        let engine_subscription =
+            cx.subscribe(&engine_event_bus, |this, _, event: &EngineEvent, cx| {
+                if matches!(
+                    event,
+                    EngineEvent::Loaded { .. } | EngineEvent::TrackEnded | EngineEvent::Stopped
+                ) {
+                    this.refresh(cx);
+                }
+            });
+        let library_subscription =
+            cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
+                if let LibraryEvent::ScanComplete { changed: true } = event {
+                    this.refresh(cx);
+                }
+            });
+        let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
+            let enabled = blur_enabled(cx);
+            if enabled != this.enabled {
+                this.enabled = enabled;
+                this.refresh(cx);
+            }
+        });
+
+        let mut this = Self {
+            image: None,
+            cover_art_id: None,
+            enabled: blur_enabled(cx),
+            _task: None,
+            _engine_subscription: engine_subscription,
+            _library_subscription: library_subscription,
+            _settings_subscription: settings_subscription,
+        };
+        this.refresh(cx);
+        this
+    }
+
+    pub fn image(&self) -> Option<Arc<RenderImage>> {
+        self.image.clone()
+    }
+
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let cover_art_id = {
+            let queue = cx.global::<Services>().playback_queue.borrow();
+            queue.current_track().and_then(|track| track.cover_art_id)
+        };
+        let changed = cover_art_id != self.cover_art_id;
+        self.cover_art_id = cover_art_id;
+        if !self.enabled {
+            self._task = None;
+            self.set_image(None, cx);
+        } else if changed || self.image.is_none() {
+            self.load(cx);
+        }
+    }
+
+    fn load(&mut self, cx: &mut Context<Self>) {
+        self._task = None;
+        let Some(id) = self.cover_art_id else {
+            self.set_image(None, cx);
+            return;
+        };
+        let services = cx.global::<Services>();
+        let thumbnail = services
+            .cover_art_cache
+            .borrow_mut()
+            .get_small(Some(id), &services.library);
+        let Some(thumbnail) = thumbnail else {
+            self.set_image(None, cx);
+            return;
+        };
+        let render = cx
+            .background_executor()
+            .spawn(async move { from_thumbnail(&thumbnail) });
+        self._task = Some(cx.spawn(async move |this, cx| {
+            let image = render.await;
+            let _ = this.update(cx, |this, cx| {
+                this._task = None;
+                if this.enabled && this.cover_art_id == Some(id) {
+                    this.set_image(image, cx);
+                }
+            });
+        }));
+    }
+
+    fn set_image(&mut self, image: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+        if image.is_none() && self.image.is_none() {
+            return;
+        }
+        if let Some(old) = std::mem::replace(&mut self.image, image) {
+            drop_atlas_tile(old, cx);
+        }
+        cx.notify();
+    }
+}
 
 pub fn from_thumbnail(thumbnail: &Image) -> Option<Arc<RenderImage>> {
     let source = image::ImageReader::new(std::io::Cursor::new(thumbnail.bytes()))
@@ -67,6 +209,22 @@ pub fn chrome_bg(color: Hsla, over_backdrop: bool) -> Hsla {
 pub fn panel_bg(color: Hsla, over_backdrop: bool) -> Hsla {
     if over_backdrop {
         color.opacity(PANEL_VEIL)
+    } else {
+        color
+    }
+}
+
+pub fn inset_bg(color: Hsla, over_backdrop: bool) -> Hsla {
+    if over_backdrop {
+        color.opacity(INSET_VEIL)
+    } else {
+        color
+    }
+}
+
+pub fn field_bg(color: Hsla, over_backdrop: bool) -> Hsla {
+    if over_backdrop {
+        color.opacity(FIELD_VEIL)
     } else {
         color
     }

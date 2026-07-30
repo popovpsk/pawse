@@ -191,6 +191,15 @@ impl FontScale {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum BlurBackground {
+    Off,
+    #[default]
+    CoverView,
+    AllViews,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum AlbumsArtistDisplay {
     #[default]
     Inline,
@@ -281,8 +290,8 @@ pub struct UserSettings {
     pub cover_show_progress: bool,
     #[serde(default = "default_true")]
     pub cover_show_controls: bool,
-    #[serde(default = "default_true")]
-    pub cover_blur_background: bool,
+    #[serde(default)]
+    pub blur_background: BlurBackground,
     #[serde(default)]
     pub queue_deduplication: bool,
     #[serde(default)]
@@ -334,7 +343,7 @@ impl Default for UserSettings {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
-            cover_blur_background: true,
+            blur_background: BlurBackground::default(),
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,
@@ -653,12 +662,12 @@ impl SettingsStore {
         self.save()
     }
 
-    pub fn cover_blur_background(&self) -> bool {
-        self.settings.cover_blur_background
+    pub fn blur_background(&self) -> BlurBackground {
+        self.settings.blur_background
     }
 
-    pub fn set_cover_blur_background(&mut self, enabled: bool) -> anyhow::Result<()> {
-        self.settings.cover_blur_background = enabled;
+    pub fn set_blur_background(&mut self, mode: BlurBackground) -> anyhow::Result<()> {
+        self.settings.blur_background = mode;
         self.save()
     }
 
@@ -1007,7 +1016,7 @@ mod tests {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
-            cover_blur_background: true,
+            blur_background: BlurBackground::default(),
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,

@@ -25,8 +25,8 @@ use ui_resources::i18n::Lang;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::{
-    AlbumsArtistDisplay, FontScale, LangChoice, SettingsStore, ThemeChoice, apply_font_scale,
-    apply_theme, notify_save_error,
+    AlbumsArtistDisplay, BlurBackground, FontScale, LangChoice, SettingsStore, ThemeChoice,
+    apply_font_scale, apply_theme, notify_save_error,
 };
 use crate::theme_colors::Colors;
 
@@ -331,6 +331,50 @@ fn interface_group(
             }),
         )
         .description(tr().font_size_desc.clone()),
+    );
+
+    group = group.item(
+        SettingItem::new(
+            tr().blur_background.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let current = cx.global::<SettingsStore>().blur_background();
+                h_flex().items_center().justify_end().child(
+                    ButtonGroup::new("blur-background-group")
+                        .small()
+                        .child(
+                            Button::new("blur-off")
+                                .label(tr().blur_background_off.clone())
+                                .selected(current == BlurBackground::Off),
+                        )
+                        .child(
+                            Button::new("blur-cover")
+                                .label(tr().blur_background_cover.clone())
+                                .selected(current == BlurBackground::CoverView),
+                        )
+                        .child(
+                            Button::new("blur-all")
+                                .label(tr().blur_background_all.clone())
+                                .selected(current == BlurBackground::AllViews),
+                        )
+                        .on_click(|clicks: &Vec<usize>, _, cx| {
+                            let Some(&ix) = clicks.first() else {
+                                return;
+                            };
+                            let mode = match ix {
+                                0 => BlurBackground::Off,
+                                2 => BlurBackground::AllViews,
+                                _ => BlurBackground::CoverView,
+                            };
+                            if let Err(e) =
+                                cx.global_mut::<SettingsStore>().set_blur_background(mode)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(tr().blur_background_desc.clone()),
     );
 
     // The untouched-signal-path toggle: exclusive on macOS/Windows, native
@@ -1007,27 +1051,6 @@ fn cover_view_group() -> SettingGroup {
                 }),
             )
             .description(tr().cover_controls_desc.clone()),
-        )
-        .item(
-            SettingItem::new(
-                tr().cover_blur.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let enabled = cx.global::<SettingsStore>().cover_blur_background();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("cover-blur-toggle").checked(enabled).on_click(
-                            |new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_cover_blur_background(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            },
-                        ),
-                    )
-                }),
-            )
-            .description(tr().cover_blur_desc.clone()),
         )
 }
 
