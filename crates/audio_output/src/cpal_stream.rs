@@ -217,12 +217,12 @@ fn negotiate_sample_format(device: &cpal::Device) -> SampleFormat {
 /// the shared `fill_f32` logic stays format-agnostic.
 fn build_converting_stream<T>(
     device: &cpal::Device,
-    config: StreamConfig,
+    config: &StreamConfig,
     buffer: Arc<AudioRingBuffer>,
     volume: Arc<AtomicF32>,
     fade: Arc<FadeState>,
     channels: usize,
-) -> Result<Stream, cpal::Error>
+) -> Result<Stream, cpal::BuildStreamError>
 where
     T: SizedSample + FromSample<f32>,
 {
@@ -270,12 +270,12 @@ impl CpalOutputStream {
 
         // F32 takes a direct path (no per-sample conversion); integer formats
         // go through the converting builder.
-        let build = || -> Result<Stream, cpal::Error> {
+        let build = || -> Result<Stream, cpal::BuildStreamError> {
             match format {
                 SampleFormat::F32 => {
                     let (buffer, volume, fade) = (buffer.clone(), volume.clone(), fade.clone());
                     dev.build_output_stream(
-                        stream_config,
+                        &stream_config,
                         move |data: &mut [f32], _: &OutputCallbackInfo| {
                             fill_f32(&fade, &buffer, &volume, channels, data);
                         },
@@ -285,7 +285,7 @@ impl CpalOutputStream {
                 }
                 SampleFormat::I32 => build_converting_stream::<i32>(
                     dev,
-                    stream_config,
+                    &stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -293,7 +293,7 @@ impl CpalOutputStream {
                 ),
                 SampleFormat::I16 => build_converting_stream::<i16>(
                     dev,
-                    stream_config,
+                    &stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -301,7 +301,7 @@ impl CpalOutputStream {
                 ),
                 SampleFormat::U16 => build_converting_stream::<u16>(
                     dev,
-                    stream_config,
+                    &stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -309,7 +309,7 @@ impl CpalOutputStream {
                 ),
                 SampleFormat::U8 => build_converting_stream::<u8>(
                     dev,
-                    stream_config,
+                    &stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -317,7 +317,7 @@ impl CpalOutputStream {
                 ),
                 // Formats we don't convert to (I24, I64, F64, …). Surface as an
                 // error; the caller installs a fallback rather than dying.
-                _ => Err(cpal::Error::new(cpal::ErrorKind::UnsupportedConfig)),
+                _ => Err(cpal::BuildStreamError::StreamConfigNotSupported),
             }
         };
 

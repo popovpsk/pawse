@@ -307,7 +307,7 @@ fn device_display_name(d: &cpal::Device) -> String {
 
 fn device_uid(d: &cpal::Device) -> Result<String, AudioError> {
     d.id()
-        .map(|id| id.id().to_string())
+        .map(|id| id.1)
         .map_err(|e| AudioError::DeviceNotFound(format!("Could not read device UID: {}", e)))
 }
 
