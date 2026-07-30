@@ -4,7 +4,7 @@
 
 # Pawse
 
-**A fast, native music player for your local library, built in Rust and GPUI**, with a buttery-smooth, customizable 120+ fps interface, exclusive (bit-perfect) output, and playlists.
+**A fast, native music player for your local library, built in Rust and GPUI**, with a buttery-smooth, customizable 120+ fps interface, exclusive (bit-perfect) output, and a rich feature set.
 
 macOS · Windows · Linux
 
