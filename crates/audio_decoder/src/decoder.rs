@@ -272,7 +272,7 @@ impl SymphoniaDecoder {
                 metadata: Metadata {
                     sample_rate,
                     channels,
-                    bit_depth: self.codec_params.bits_per_sample.unwrap_or(32) as u8,
+                    bit_depth: self.codec_params.bits_per_sample.unwrap_or(16) as u8,
                 },
             }));
         }
@@ -289,7 +289,7 @@ impl AudioSource for SymphoniaDecoder {
             .map(|c| ChannelCount::from_u8(c.count() as u8))
             .unwrap_or(ChannelCount::Stereo);
 
-        let bit_depth = self.codec_params.bits_per_sample.unwrap_or(32);
+        let bit_depth = self.codec_params.bits_per_sample.unwrap_or(16);
 
         StreamParams::new(sample_rate, channels, bit_depth as u8)
     }
