@@ -47,7 +47,24 @@ pub struct RawTag {
     pub value: String,
 }
 
+/// lofty has no DSF/DFF support — the `dsd` crate owns reading those tags
+/// (for indexing) but there is no write-back path yet, so editing is
+/// refused here with a clear message instead of surfacing lofty's generic
+/// "unrecognized format" error.
+fn is_dsd_path(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
+        Some("dsf") | Some("dff")
+    )
+}
+
 pub fn write_metadata(path: &Path, edits: &TrackTagEdits) -> anyhow::Result<()> {
+    if is_dsd_path(path) {
+        anyhow::bail!("editing tags on DSD (DSF/DFF) files is not supported yet");
+    }
     let mut tagged = lofty::read_from_path(path)?;
 
     let mut tag = match tagged.primary_tag().or_else(|| tagged.first_tag()) {
@@ -208,6 +225,9 @@ pub fn diff_raw_tags(original: &[RawTag], current: &[RawTag]) -> (Vec<RawTag>, V
 }
 
 pub fn read_raw_tags(path: &Path) -> anyhow::Result<Vec<RawTag>> {
+    if is_dsd_path(path) {
+        return Ok(Vec::new());
+    }
     let tagged = lofty::read_from_path(path)?;
     let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
         return Ok(Vec::new());
@@ -1711,6 +1731,31 @@ mod tests {
     fn writing_to_a_missing_file_is_an_error() {
         let dir = TempDir::new();
         assert!(write_metadata(&dir.path.join("nope.flac"), &full_edits()).is_err());
+    }
+
+    #[test]
+    fn writing_to_a_dsf_file_is_refused_with_a_clear_message() {
+        let dir = TempDir::new();
+        let path = dir.path.join("track.dsf");
+        std::fs::write(&path, b"DSD not a real dsf file").unwrap();
+        let err = write_metadata(&path, &full_edits()).unwrap_err();
+        assert!(err.to_string().contains("DSD"));
+    }
+
+    #[test]
+    fn reading_raw_tags_from_a_dff_file_is_empty_not_an_error() {
+        let dir = TempDir::new();
+        let path = dir.path.join("track.dff");
+        std::fs::write(&path, b"FRM8 not a real dff file").unwrap();
+        assert_eq!(read_raw_tags(&path).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn custom_tags_for_dsf_is_unsupported() {
+        let dir = TempDir::new();
+        let path = dir.path.join("track.dsf");
+        std::fs::write(&path, b"DSD not a real dsf file").unwrap();
+        assert_eq!(custom_tags_for(&path), CustomTags::Unsupported);
     }
 
     #[test]

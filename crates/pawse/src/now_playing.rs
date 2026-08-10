@@ -40,10 +40,21 @@ pub struct NowPlaying {
     _library_subscription: Subscription,
 }
 
-fn format_specs(sample_rate: Option<u32>, bit_depth: Option<u8>, bitrate: Option<u32>) -> String {
+fn format_specs(
+    sample_rate: Option<u32>,
+    bit_depth: Option<u8>,
+    bitrate: Option<u32>,
+    dsd_rate: Option<u32>,
+) -> String {
     use std::fmt::Write;
     let mut specs = String::new();
+    if let Some(dsd) = dsd_rate {
+        let _ = write!(specs, "DSD{}", dsd / 44_100);
+    }
     if let (Some(sr), Some(bd)) = (sample_rate, bit_depth) {
+        if !specs.is_empty() {
+            specs.push('\u{2192}');
+        }
         let khz = sr as f32 / 1000.0;
         if khz.fract().abs() < f32::EPSILON {
             let _ = write!(specs, "{} kHz \u{b7} {}-bit", khz as u32, bd);
@@ -51,7 +62,11 @@ fn format_specs(sample_rate: Option<u32>, bit_depth: Option<u8>, bitrate: Option
             let _ = write!(specs, "{:.1} kHz \u{b7} {}-bit", khz, bd);
         }
     }
-    if let Some(kbps) = bitrate {
+    // DSD has no meaningful compressed bitrate — the source is already fully
+    // disclosed by the DSD{n}→ prefix above.
+    if dsd_rate.is_none()
+        && let Some(kbps) = bitrate
+    {
         if !specs.is_empty() {
             specs.push_str(" \u{b7} ");
         }
@@ -69,7 +84,12 @@ impl NowPlaying {
                 &engine_event_bus,
                 |this, _, event: &EngineEvent, cx| match event {
                     EngineEvent::Loaded { params, .. } => {
-                        this.populate_current(Some(params.sample_rate), Some(params.bit_depth), cx);
+                        this.populate_current(
+                            Some(params.sample_rate),
+                            Some(params.bit_depth),
+                            params.dsd_rate,
+                            cx,
+                        );
                     }
                     EngineEvent::TrackEnded | EngineEvent::Stopped => {
                         let services = cx.global::<Services>();
@@ -95,7 +115,7 @@ impl NowPlaying {
                         .output
                         .source_format()
                         .map_or((None, None), |(sr, bd)| (Some(sr), Some(bd)));
-                    this.populate_current(sample_rate, bit_depth, cx);
+                    this.populate_current(sample_rate, bit_depth, None, cx);
                 }
             });
 
@@ -117,7 +137,7 @@ impl NowPlaying {
             .output
             .source_format()
             .map_or((None, None), |(sr, bd)| (Some(sr), Some(bd)));
-        this.populate_current(sample_rate, bit_depth, cx);
+        this.populate_current(sample_rate, bit_depth, None, cx);
         this
     }
 
@@ -125,6 +145,7 @@ impl NowPlaying {
         &mut self,
         sample_rate: Option<u32>,
         bit_depth: Option<u8>,
+        dsd_rate: Option<u32>,
         cx: &mut Context<Self>,
     ) {
         let services = cx.global::<Services>();
@@ -140,7 +161,7 @@ impl NowPlaying {
             self.shaped_title_w = None;
             self.cover_art_id = cover;
             self.album_id = album_id;
-            self.specs = SharedString::from(format_specs(sample_rate, bit_depth, bitrate));
+            self.specs = SharedString::from(format_specs(sample_rate, bit_depth, bitrate, dsd_rate));
             self.artists = services
                 .library
                 .unique_track_artists(track_id)
@@ -333,7 +354,7 @@ mod tests {
     #[test]
     fn integer_khz() {
         assert_eq!(
-            format_specs(Some(48000), Some(24), None),
+            format_specs(Some(48000), Some(24), None, None),
             "48 kHz \u{b7} 24-bit"
         );
     }
@@ -341,32 +362,73 @@ mod tests {
     #[test]
     fn fractional_khz() {
         assert_eq!(
-            format_specs(Some(44100), Some(16), None),
+            format_specs(Some(44100), Some(16), None, None),
             "44.1 kHz \u{b7} 16-bit"
         );
     }
 
     #[test]
     fn bitrate_only() {
-        assert_eq!(format_specs(None, None, Some(320)), "320 kbps");
+        assert_eq!(format_specs(None, None, Some(320), None), "320 kbps");
     }
 
     #[test]
     fn sample_rate_and_bitrate_combined() {
         assert_eq!(
-            format_specs(Some(96000), Some(24), Some(1411)),
+            format_specs(Some(96000), Some(24), Some(1411), None),
             "96 kHz \u{b7} 24-bit \u{b7} 1411 kbps"
         );
     }
 
     #[test]
     fn empty_when_nothing_known() {
-        assert_eq!(format_specs(None, None, None), "");
+        assert_eq!(format_specs(None, None, None, None), "");
     }
 
     #[test]
     fn needs_both_rate_and_depth() {
-        assert_eq!(format_specs(Some(48000), None, None), "");
-        assert_eq!(format_specs(None, Some(24), None), "");
+        assert_eq!(format_specs(Some(48000), None, None, None), "");
+        assert_eq!(format_specs(None, Some(24), None, None), "");
+    }
+
+    #[test]
+    fn dsd64_label_with_target_rate() {
+        assert_eq!(
+            format_specs(Some(352_800), Some(24), None, Some(2_822_400)),
+            "DSD64\u{2192}352.8 kHz \u{b7} 24-bit"
+        );
+    }
+
+    #[test]
+    fn dsd128_label_but_target_rate_stays_fixed() {
+        // Higher DSD multiples are cascaded down to DSD64's own 352.8kHz
+        // (see `dsd::source`) instead of handing out 705.6kHz+ PCM — the
+        // label still reflects the *source* multiplier, only the rate after
+        // the arrow stays constant across DSD64/128/256/512.
+        assert_eq!(
+            format_specs(Some(352_800), Some(24), None, Some(5_644_800)),
+            "DSD128\u{2192}352.8 kHz \u{b7} 24-bit"
+        );
+    }
+
+    #[test]
+    fn dsd256_label_but_target_rate_stays_fixed() {
+        assert_eq!(
+            format_specs(Some(352_800), Some(24), None, Some(11_289_600)),
+            "DSD256\u{2192}352.8 kHz \u{b7} 24-bit"
+        );
+    }
+
+    #[test]
+    fn dsd_suppresses_bitrate_even_if_present() {
+        assert_eq!(
+            format_specs(Some(352_800), Some(24), Some(1411), Some(2_822_400)),
+            "DSD64\u{2192}352.8 kHz \u{b7} 24-bit"
+        );
+    }
+
+    #[test]
+    fn dsd_label_alone_without_target_rate() {
+        assert_eq!(format_specs(None, None, None, Some(2_822_400)), "DSD64");
     }
 }

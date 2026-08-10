@@ -114,7 +114,62 @@ fn is_junk_genre(name: &str) -> bool {
     ) || lower.chars().all(|c| c.is_ascii_digit())
 }
 
+fn is_dsd_extension(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
+        Some("dsf") | Some("dff")
+    )
+}
+
+/// lofty has no DSF/DFF support, so DSD tracks never reach the lofty path
+/// below — the `dsd` crate owns container parsing *and* tag reading for
+/// them, the same way it owns decoding for playback.
+fn read_dsd_metadata(path: &Path, cache: Option<&CoverCache>) -> anyhow::Result<ScannedTrack> {
+    let tags = dsd::read_tags(path)?;
+
+    let cover_art = match tags.cover_art {
+        Some(data) => Some(CoverArt::Bytes {
+            data,
+            source_path: path.to_path_buf(),
+            embedded: true,
+        }),
+        None => match cache {
+            Some(cache) => cache.external_cover(path),
+            None => find_external_cover_art(path).map(|(data, source_path)| CoverArt::Bytes {
+                data,
+                source_path,
+                embedded: false,
+            }),
+        },
+    };
+
+    Ok(ScannedTrack {
+        path: path.to_path_buf(),
+        title: tags.title,
+        artist_names: tags.artists,
+        album_artist_names: tags.album_artists,
+        album_title: tags.album,
+        track_number: tags.track_number,
+        disc_number: tags.disc_number,
+        year: tags.year,
+        genres: normalize_genres(tags.genres.iter().map(String::as_str)),
+        duration_ms: tags.duration_ms,
+        cover_art,
+        start_offset_ms: None,
+        bitrate: None,
+        is_cue: false,
+        lyrics: read_lyrics(path, None),
+    })
+}
+
 fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Result<ScannedTrack> {
+    if is_dsd_extension(path) {
+        return read_dsd_metadata(path, cache);
+    }
+
     let tagged_file = lofty::read_from_path(path)?;
 
     let properties = tagged_file.properties();

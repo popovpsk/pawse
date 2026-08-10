@@ -9,6 +9,7 @@ audio_common = { path = "../audio_common" }
 anyhow = { workspace = true }
 symphonia = { version = "0.6", features = ["all"] }
 ape-decoder = "0.3.2"
+dsd = { path = "../dsd" }
 
 [dev-dependencies]
 rstest = "0.26"

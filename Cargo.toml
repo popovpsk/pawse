@@ -18,7 +18,8 @@ members = [
     "crates/diagnostics",
     "crates/updater",
     "crates/lyrics",
-    "crates/tag_writer"
+    "crates/tag_writer",
+    "crates/dsd"
 ]
 
 default-members = ["crates/pawse"]

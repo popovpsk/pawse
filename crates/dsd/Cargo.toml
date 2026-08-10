@@ -1,0 +1,17 @@
+[package]
+name = "dsd"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+thiserror = "2.0"
+
+[dev-dependencies]
+rstest = "0.26"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

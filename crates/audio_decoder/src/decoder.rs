@@ -171,6 +171,60 @@ impl AudioSource for ApeSource {
 }
 
 // ============================================================================
+// DSD source — uses the dsd crate for DSF/DFF (DSD -> PCM decimation)
+// ============================================================================
+
+struct DsdAdapter {
+    inner: dsd::DsdSource,
+}
+
+impl DsdAdapter {
+    fn open(path: &Path) -> Result<Self, AudioError> {
+        let inner = dsd::DsdSource::open(path).map_err(|e| AudioError::Decoder(e.to_string()))?;
+        Ok(Self { inner })
+    }
+}
+
+impl AudioSource for DsdAdapter {
+    fn params(&self) -> StreamParams {
+        let p = self.inner.params();
+        StreamParams::new(
+            p.pcm_sample_rate,
+            ChannelCount::from_u8(p.channels),
+            p.pcm_bit_depth,
+        )
+        .with_dsd_rate(p.dsd_rate)
+    }
+
+    fn next_buffer(&mut self) -> Result<Option<AudioBatch>, AudioError> {
+        let p = self.inner.params();
+        let interleaved = self
+            .inner
+            .next_buffer()
+            .map_err(|e| AudioError::Decoder(e.to_string()))?;
+
+        Ok(interleaved.map(|data| AudioBatch {
+            data: AudioSamples::F32(data),
+            metadata: Metadata {
+                sample_rate: p.pcm_sample_rate,
+                channels: ChannelCount::from_u8(p.channels),
+                bit_depth: p.pcm_bit_depth,
+            },
+        }))
+    }
+
+    fn seek(&mut self, position: f32) -> Result<Duration, AudioError> {
+        self.inner
+            .seek(position)
+            .map_err(|e| AudioError::Decoder(e.to_string()))
+    }
+
+    fn duration(&self) -> Option<Duration> {
+        self.inner.duration()
+    }
+}
+
+// ============================================================================
 // Symphonia decoder — handles all other formats via Symphonia
 // ============================================================================
 
@@ -339,6 +393,7 @@ impl AudioSource for SymphoniaDecoder {
 pub enum Decoder {
     Symphonia(Box<SymphoniaDecoder>),
     Ape(Box<ApeSource>),
+    Dsd(Box<DsdAdapter>),
 }
 
 impl Decoder {
@@ -351,6 +406,7 @@ impl Decoder {
             .as_str()
         {
             "ape" => Ok(Decoder::Ape(Box::new(ApeSource::open(path)?))),
+            "dsf" | "dff" => Ok(Decoder::Dsd(Box::new(DsdAdapter::open(path)?))),
             _ => Ok(Decoder::Symphonia(Box::new(SymphoniaDecoder::open(path)?))),
         }
     }
@@ -361,6 +417,7 @@ impl AudioSource for Decoder {
         match self {
             Decoder::Symphonia(d) => d.params(),
             Decoder::Ape(d) => d.params(),
+            Decoder::Dsd(d) => d.params(),
         }
     }
 
@@ -368,6 +425,7 @@ impl AudioSource for Decoder {
         match self {
             Decoder::Symphonia(d) => d.next_buffer(),
             Decoder::Ape(d) => d.next_buffer(),
+            Decoder::Dsd(d) => d.next_buffer(),
         }
     }
 
@@ -375,6 +433,7 @@ impl AudioSource for Decoder {
         match self {
             Decoder::Symphonia(d) => d.seek(position),
             Decoder::Ape(d) => d.seek(position),
+            Decoder::Dsd(d) => d.seek(position),
         }
     }
 
@@ -382,6 +441,7 @@ impl AudioSource for Decoder {
         match self {
             Decoder::Symphonia(d) => d.duration(),
             Decoder::Ape(d) => d.duration(),
+            Decoder::Dsd(d) => d.duration(),
         }
     }
 }
@@ -687,5 +747,71 @@ mod tests {
             }
             _ => panic!("Expected S32"),
         }
+    }
+
+    fn write_minimal_dsf(path: &std::path::Path, channels: u32, dsd_rate: u32) {
+        const BLOCK_SIZE: u32 = 64;
+        let sample_count = (BLOCK_SIZE * 8) as u64;
+        let data_size = BLOCK_SIZE as u64 * channels as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"DSD ");
+        buf.extend_from_slice(&28u64.to_le_bytes());
+        buf.extend_from_slice(&(28 + 52 + 12 + data_size).to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes());
+
+        buf.extend_from_slice(b"fmt ");
+        buf.extend_from_slice(&52u64.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&2u32.to_le_bytes());
+        buf.extend_from_slice(&channels.to_le_bytes());
+        buf.extend_from_slice(&dsd_rate.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&sample_count.to_le_bytes());
+        buf.extend_from_slice(&BLOCK_SIZE.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+
+        buf.extend_from_slice(b"data");
+        buf.extend_from_slice(&(12 + data_size).to_le_bytes());
+        buf.extend(std::iter::repeat_n(0x69u8, data_size as usize));
+
+        std::fs::write(path, buf).unwrap();
+    }
+
+    #[test]
+    fn test_dsd_decoder_reports_source_rate_and_target_pcm_rate() {
+        let path = std::env::temp_dir().join("pawse_audio_decoder_test.dsf");
+        write_minimal_dsf(&path, 2, 2_822_400);
+
+        let mut decoder = Decoder::open(&path).expect("open dsf");
+        let params = decoder.params();
+        assert_eq!(params.dsd_rate, Some(2_822_400));
+        assert_eq!(params.sample_rate, 352_800);
+        assert_eq!(params.channels, ChannelCount::Stereo);
+
+        let batch = decoder
+            .next_buffer()
+            .expect("decode")
+            .expect("at least one batch");
+        assert!(matches!(batch.data, AudioSamples::F32(_)));
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_dsd256_still_targets_dsd64s_native_pcm_rate_through_decoder() {
+        let path = std::env::temp_dir().join("pawse_audio_decoder_test_dsd256.dsf");
+        write_minimal_dsf(&path, 2, 2_822_400 * 4);
+
+        let decoder = Decoder::open(&path).expect("open dsf");
+        let params = decoder.params();
+        assert_eq!(params.dsd_rate, Some(11_289_600));
+        assert_eq!(
+            params.sample_rate, 352_800,
+            "DSD256 must reach the Decoder layer at the same fixed rate as DSD64"
+        );
+
+        std::fs::remove_file(&path).ok();
     }
 }

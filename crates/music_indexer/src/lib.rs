@@ -261,6 +261,92 @@ mod tests {
         assert_eq!(track.start_offset_ms, None);
     }
 
+    fn write_test_dsf(path: &Path, title: &str, artist: &str) {
+        let text_frame = |id: &[u8; 4], text: &str| -> Vec<u8> {
+            let mut payload = vec![0x03u8]; // UTF-8
+            payload.extend_from_slice(text.as_bytes());
+            let mut frame = Vec::new();
+            frame.extend_from_slice(id);
+            frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+            frame.extend_from_slice(&[0, 0]);
+            frame.extend_from_slice(&payload);
+            frame
+        };
+        let id3_body: Vec<u8> = [text_frame(b"TIT2", title), text_frame(b"TPE1", artist)].concat();
+        let mut id3 = Vec::new();
+        id3.extend_from_slice(b"ID3");
+        id3.extend_from_slice(&[3, 0, 0]);
+        let sz = id3_body.len() as u32;
+        id3.extend_from_slice(&[
+            ((sz >> 21) & 0x7F) as u8,
+            ((sz >> 14) & 0x7F) as u8,
+            ((sz >> 7) & 0x7F) as u8,
+            (sz & 0x7F) as u8,
+        ]);
+        id3.extend_from_slice(&id3_body);
+
+        const BLOCK_SIZE: u32 = 64;
+        let channels = 2u32;
+        let dsd_rate = 2_822_400u32;
+        let sample_count = (BLOCK_SIZE * 8) as u64;
+        let data_size = BLOCK_SIZE as u64 * channels as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"DSD ");
+        buf.extend_from_slice(&28u64.to_le_bytes());
+        buf.extend_from_slice(&(28 + 52 + 12 + data_size + id3.len() as u64).to_le_bytes());
+        buf.extend_from_slice(&(28 + 52 + 12 + data_size).to_le_bytes()); // id3 pointer
+
+        buf.extend_from_slice(b"fmt ");
+        buf.extend_from_slice(&52u64.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&2u32.to_le_bytes());
+        buf.extend_from_slice(&channels.to_le_bytes());
+        buf.extend_from_slice(&dsd_rate.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&sample_count.to_le_bytes());
+        buf.extend_from_slice(&BLOCK_SIZE.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+
+        buf.extend_from_slice(b"data");
+        buf.extend_from_slice(&(12 + data_size).to_le_bytes());
+        buf.extend(std::iter::repeat_n(0x69u8, data_size as usize));
+        buf.extend_from_slice(&id3);
+
+        std::fs::write(path, buf).unwrap();
+    }
+
+    #[test]
+    fn test_read_metadata_tagged_dsf() {
+        let tmp = TempDir::new();
+        let audio_path = tmp.path().join("test.dsf");
+        write_test_dsf(&audio_path, "DSD Title", "DSD Artist");
+
+        let track = read_metadata(&audio_path).expect("should read dsf metadata");
+        assert_eq!(track.title.as_deref(), Some("DSD Title"));
+        assert_eq!(track.artist_names, vec!["DSD Artist"]);
+        assert_eq!(track.bitrate, None);
+        assert!(track.duration_ms.is_some());
+    }
+
+    #[test]
+    fn test_scanner_recognizes_dsf_extension() {
+        let tmp = TempDir::new();
+        write_test_dsf(&tmp.path().join("track.dsf"), "T", "A");
+
+        let events = collect_scan_events(tmp.path());
+        let tracks: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                ScanEvent::Track(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tracks.len(), 1, "expected the .dsf file to be scanned as audio");
+        assert!(tracks[0].path.ends_with("track.dsf"));
+    }
+
     // ── read_metadata: error cases ────────────────────────────────────
 
     #[test]

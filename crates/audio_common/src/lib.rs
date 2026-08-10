@@ -30,6 +30,9 @@ pub struct StreamParams {
     pub sample_rate: u32,
     pub channels: ChannelCount,
     pub bit_depth: u8,
+    /// Raw DSD rate in Hz (e.g. 2_822_400 for DSD64) when this stream was
+    /// decimated from DSD; `None` for ordinary PCM sources.
+    pub dsd_rate: Option<u32>,
 }
 
 impl StreamParams {
@@ -38,7 +41,13 @@ impl StreamParams {
             sample_rate,
             channels,
             bit_depth,
+            dsd_rate: None,
         }
+    }
+
+    pub fn with_dsd_rate(mut self, dsd_rate: u32) -> Self {
+        self.dsd_rate = Some(dsd_rate);
+        self
     }
 
     pub fn channels_count(&self) -> u8 {
