@@ -38,7 +38,7 @@ macOS · Windows · Linux
 - **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an untouched signal path on every platform: **exclusive output** on Windows and macOS, and **native sample rate** on Linux.
 - **Modern, fluid UI** — a clean, easy-to-use interface that stays smooth at 120+ fps.
 - **Themes & languages** — 20+ built-in themes and 20 UI languages.
-- **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, and more.
+- **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, DSD (DSF/DFF, decoded to PCM), and more.
 - **Instant fuzzy search** — find any album, artist or track as you type.
 - **Playlists & likes** — create, edit and drag-reorder playlists; like tracks.
 - **Tag editor** *(beta)* — edit tags in your files, per track or album.
