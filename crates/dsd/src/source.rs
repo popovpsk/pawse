@@ -254,6 +254,7 @@ impl DsdSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f64::consts::PI;
     use std::io::Write;
 
     fn write_test_dsf(name: &str, channels: u32, dsd_rate: u32, blocks: u32) -> std::path::PathBuf {
@@ -392,5 +393,144 @@ mod tests {
         let path = write_test_dsf("pawse_dsd_test_sniff.dsf", 2, 2_822_400, 1);
         assert_eq!(sniff(&path), Some(DsdKind::Dsf));
         std::fs::remove_file(&path).ok();
+    }
+
+    // First-order delta-sigma modulator, same technique as
+    // `tests/golden_master.rs`'s `generate_sine_dsf` — a real (non-silence,
+    // non-symmetric) tone, not a fixture the filter could pass through
+    // trivially. `block_size` is the knob this test exists for: it controls
+    // how many bytes `next_block()` hands to `next_buffer()` per call
+    // without touching the underlying bitstream at all.
+    fn write_sine_dsf(
+        name: &str,
+        channels: u32,
+        dsd_rate: u32,
+        block_size: u32,
+        duration_secs: f64,
+    ) -> std::path::PathBuf {
+        let total_samples = (dsd_rate as f64 * duration_secs) as u64;
+        let bytes_per_channel = total_samples.div_ceil(8);
+        let total_blocks = bytes_per_channel.div_ceil(block_size as u64);
+        let padded_bits = total_blocks * block_size as u64 * 8;
+        let data_size = total_blocks * block_size as u64 * channels as u64;
+
+        let mut per_channel_bytes: Vec<Vec<u8>> = Vec::with_capacity(channels as usize);
+        for ch in 0..channels {
+            let freq_hz = 1000.0 + ch as f64 * 137.0;
+            let mut integrator = 0.0f64;
+            let mut prev = -1.0f64;
+            let mut bits: Vec<u8> = Vec::with_capacity(padded_bits as usize);
+            for n in 0..padded_bits {
+                let x = if n < total_samples {
+                    (2.0 * PI * freq_hz * (n as f64 / dsd_rate as f64)).sin() * 0.5
+                } else {
+                    0.0
+                };
+                integrator += x - prev;
+                let bit = if integrator > 0.0 { 1u8 } else { 0u8 };
+                prev = if bit == 1 { 1.0 } else { -1.0 };
+                bits.push(bit);
+            }
+            let bytes: Vec<u8> = bits
+                .chunks(8)
+                .map(|chunk| {
+                    let mut byte = 0u8;
+                    for (i, &b) in chunk.iter().enumerate() {
+                        if b == 1 {
+                            byte |= 1 << i;
+                        }
+                    }
+                    byte
+                })
+                .collect();
+            per_channel_bytes.push(bytes);
+        }
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"DSD ");
+        buf.extend_from_slice(&28u64.to_le_bytes());
+        buf.extend_from_slice(&(28 + 52 + 12 + data_size).to_le_bytes());
+        buf.extend_from_slice(&0u64.to_le_bytes());
+
+        buf.extend_from_slice(b"fmt ");
+        buf.extend_from_slice(&52u64.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&2u32.to_le_bytes());
+        buf.extend_from_slice(&channels.to_le_bytes());
+        buf.extend_from_slice(&dsd_rate.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&total_samples.to_le_bytes());
+        buf.extend_from_slice(&block_size.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+
+        buf.extend_from_slice(b"data");
+        buf.extend_from_slice(&(12 + data_size).to_le_bytes());
+
+        for block in 0..total_blocks as usize {
+            let start = block * block_size as usize;
+            let end = start + block_size as usize;
+            for channel_bytes in &per_channel_bytes {
+                buf.extend_from_slice(&channel_bytes[start..end]);
+            }
+        }
+
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, &buf).unwrap();
+        path
+    }
+
+    fn decode_all(path: &std::path::Path) -> Vec<f32> {
+        let mut source = DsdSource::open(path).unwrap();
+        let mut out = Vec::new();
+        while let Some(batch) = source.next_buffer().unwrap() {
+            out.extend(batch);
+        }
+        out
+    }
+
+    #[test]
+    fn chunked_vs_monolithic_decode_is_bit_exact() {
+        // Same underlying DSD bitstream, chunked into wildly different
+        // container block sizes, must decode to bit-identical PCM:
+        // `translate`'s FIFO and `HalfbandDecimator`'s ring/phase state
+        // carry losslessly across `next_buffer()` calls, so block size
+        // should only ever change how many calls it takes, never the
+        // output values. This guards the buffer-reuse refactor in
+        // `next_buffer()`: a reused-but-not-fully-overwritten scratch
+        // buffer would leave a stale tail exactly when a later call is
+        // shorter than an earlier one, which small-vs-large block sizes
+        // are guaranteed to trigger. Covers both the DSD64 path (no
+        // halfband stage) and DSD256 (2 cascaded halfband stages).
+        for dsd_rate in [2_822_400u32, 2_822_400 * 4] {
+            let small = write_sine_dsf(
+                &format!("pawse_dsd_test_chunked_small_{dsd_rate}.dsf"),
+                2,
+                dsd_rate,
+                8,
+                0.02,
+            );
+            let large = write_sine_dsf(
+                &format!("pawse_dsd_test_chunked_large_{dsd_rate}.dsf"),
+                2,
+                dsd_rate,
+                4096,
+                0.02,
+            );
+
+            let from_small_blocks = decode_all(&small);
+            let from_large_blocks = decode_all(&large);
+
+            let n = from_small_blocks.len().min(from_large_blocks.len());
+            assert!(n > 100, "too few samples to compare: {n}");
+            assert_eq!(
+                &from_small_blocks[..n],
+                &from_large_blocks[..n],
+                "chunking into different block sizes must not change decoded output (dsd_rate={dsd_rate})"
+            );
+
+            std::fs::remove_file(&small).ok();
+            std::fs::remove_file(&large).ok();
+        }
     }
 }

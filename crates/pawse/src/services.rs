@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -30,6 +30,12 @@ pub struct Services {
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
     pub current_position_ms: Arc<AtomicU64>,
     pub current_duration_ms: Arc<AtomicU64>,
+    /// Last-loaded track's DSD rate, cached outside the one-shot
+    /// `EngineEvent::Loaded` event so it survives window teardown/rebuild
+    /// (e.g. macOS close + dock-icon reopen, which recreates `NowPlaying`
+    /// without reloading the track). 0 means "not DSD" — `dsd_rate` is
+    /// never legitimately zero (`dsd::DsdSource::open` itself rejects it).
+    pub current_dsd_rate: Arc<AtomicU32>,
     pub is_playing: Arc<AtomicBool>,
     pub playlist_popup_bus: Entity<crate::playlist_popup::PlaylistPopupBus>,
     pub lang_event_bus: Entity<crate::localization::LangEventBus>,
@@ -163,6 +169,7 @@ impl Services {
             cover_art_cache: Rc::new(RefCell::new(CoverArtCache::new())),
             current_position_ms: Arc::new(AtomicU64::new(0)),
             current_duration_ms: Arc::new(AtomicU64::new(0)),
+            current_dsd_rate: Arc::new(AtomicU32::new(0)),
             is_playing: Arc::new(AtomicBool::new(false)),
             playlist_popup_bus,
             lang_event_bus,
@@ -775,12 +782,14 @@ impl LibraryEventsBus {}
 impl EventEmitter<LibraryEvent> for LibraryEventsBus {}
 impl Global for LibraryEventsBus {}
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_engine_events_bus(
     cx: &mut AsyncApp,
     engine_manager: Rc<EngineManager>,
     engine_event_bus: Entity<EngineEventsBus>,
     current_position_ms: Arc<AtomicU64>,
     current_duration_ms: Arc<AtomicU64>,
+    current_dsd_rate: Arc<AtomicU32>,
     is_playing: Arc<AtomicBool>,
     remote: pawse_remote::StateHandle,
 ) {
@@ -789,9 +798,10 @@ pub async fn run_engine_events_bus(
     let rx = engine_manager.events();
     while let Ok(event) = rx.recv_async().await {
         match &event {
-            EngineEvent::Loaded { duration, .. } => {
+            EngineEvent::Loaded { params, duration } => {
                 current_duration = Some(*duration);
                 current_duration_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
+                current_dsd_rate.store(params.dsd_rate.unwrap_or(0), Ordering::Relaxed);
                 prefetched = false;
                 publish_now_playing(cx);
             }
@@ -822,6 +832,7 @@ pub async fn run_engine_events_bus(
                 is_playing.store(false, Ordering::Relaxed);
                 current_position_ms.store(0, Ordering::Relaxed);
                 current_duration_ms.store(0, Ordering::Relaxed);
+                current_dsd_rate.store(0, Ordering::Relaxed);
                 publish_now_playing(cx);
             }
             _ => {}

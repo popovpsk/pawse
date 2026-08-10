@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
@@ -115,7 +116,15 @@ impl NowPlaying {
                         .output
                         .source_format()
                         .map_or((None, None), |(sr, bd)| (Some(sr), Some(bd)));
-                    this.populate_current(sample_rate, bit_depth, None, cx);
+                    let dsd_rate = match cx
+                        .global::<Services>()
+                        .current_dsd_rate
+                        .load(Ordering::Relaxed)
+                    {
+                        0 => None,
+                        v => Some(v),
+                    };
+                    this.populate_current(sample_rate, bit_depth, dsd_rate, cx);
                 }
             });
 
@@ -137,7 +146,21 @@ impl NowPlaying {
             .output
             .source_format()
             .map_or((None, None), |(sr, bd)| (Some(sr), Some(bd)));
-        this.populate_current(sample_rate, bit_depth, None, cx);
+        // `output.source_format()` reflects live audio-callback state, but the
+        // engine only emits `dsd_rate` once per track load (`EngineEvent::Loaded`)
+        // — on macOS, closing the window and reopening it via the dock icon
+        // rebuilds this view without reloading the track, so that event never
+        // refires. Read the last-loaded value cached on `Services` instead of
+        // hardcoding `None`, or the DSD{n}→ label silently drops after reopen.
+        let dsd_rate = match cx
+            .global::<Services>()
+            .current_dsd_rate
+            .load(Ordering::Relaxed)
+        {
+            0 => None,
+            v => Some(v),
+        };
+        this.populate_current(sample_rate, bit_depth, dsd_rate, cx);
         this
     }
 

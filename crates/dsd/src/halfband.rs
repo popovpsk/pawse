@@ -37,15 +37,24 @@ fn design_halfband(num_taps: usize) -> Vec<f32> {
 pub struct HalfbandDecimator {
     taps: Vec<f32>,
     ring: Vec<f32>,
+    mask: usize,
     pos: usize,
     emit: bool,
 }
 
 impl HalfbandDecimator {
     pub fn new(num_taps: usize) -> Self {
+        // Ring capacity is rounded up to a power of two (only `num_taps` of
+        // its slots are ever read) so `process`'s hot per-tap index math can
+        // use `& mask` instead of `% num_taps`: profiling showed the modulo
+        // by 31 (not a power of two) compiled to a real `udiv`/`msub` pair,
+        // executed on every tap of every emitted sample — the dominant cost
+        // in DSD128/256/512 decode. `ChannelState`'s FIFO already does this.
+        let capacity = num_taps.next_power_of_two();
         Self {
             taps: design_halfband(num_taps),
-            ring: vec![0.0; num_taps],
+            ring: vec![0.0; capacity],
+            mask: capacity - 1,
             pos: 0,
             emit: true,
         }
@@ -58,15 +67,15 @@ impl HalfbandDecimator {
     }
 
     pub fn process(&mut self, input: &[f32], output: &mut Vec<f32>) {
-        let n = self.taps.len();
+        let mask = self.mask;
         for &sample in input {
             self.ring[self.pos] = sample;
-            self.pos = (self.pos + 1) % n;
+            self.pos = (self.pos + 1) & mask;
 
             if self.emit {
                 let mut acc = 0f32;
                 for (i, &coeff) in self.taps.iter().enumerate() {
-                    let idx = (self.pos + n - 1 - i) % n;
+                    let idx = (self.pos + mask - i) & mask;
                     acc += coeff * self.ring[idx];
                 }
                 output.push(acc);

@@ -204,6 +204,7 @@ fn main() {
         let engine_event_bus = services.engine_event_bus.clone();
         let current_position_ms = services.current_position_ms.clone();
         let current_duration_ms = services.current_duration_ms.clone();
+        let current_dsd_rate = services.current_dsd_rate.clone();
         let is_playing = services.is_playing.clone();
         let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
@@ -317,6 +318,7 @@ fn main() {
                 engine_event_bus,
                 current_position_ms,
                 current_duration_ms,
+                current_dsd_rate,
                 is_playing,
                 remote_handle,
             )
