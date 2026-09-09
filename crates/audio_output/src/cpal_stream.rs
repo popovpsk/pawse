@@ -6,7 +6,7 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{FromSample, OutputCallbackInfo, SampleFormat, SizedSample, Stream, StreamConfig};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::FadeEvent;
 
@@ -58,6 +58,7 @@ pub struct CpalOutputStream {
     buffer: Arc<AudioRingBuffer>,
     volume: Arc<AtomicF32>,
     fade: Arc<FadeState>,
+    device_lost: Arc<AtomicBool>,
     pub config: OutputConfig,
 }
 
@@ -200,6 +201,13 @@ fn fill_f32(
     }
 }
 
+fn on_stream_error(err: cpal::StreamError, device_lost: &AtomicBool) {
+    log::error!("Audio stream error: {}", err);
+    if !matches!(err, cpal::StreamError::BufferUnderrun) {
+        device_lost.store(true, Ordering::SeqCst);
+    }
+}
+
 /// Picks the sample format to open the device with. Prefers the device's own
 /// default format: it's F32 on the common shared path (no conversion, keeps the
 /// signal intact) but is an integer format (e.g. I32/I16) on digital outputs
@@ -221,6 +229,7 @@ fn build_converting_stream<T>(
     buffer: Arc<AudioRingBuffer>,
     volume: Arc<AtomicF32>,
     fade: Arc<FadeState>,
+    device_lost: Arc<AtomicBool>,
     channels: usize,
 ) -> Result<Stream, cpal::BuildStreamError>
 where
@@ -244,7 +253,7 @@ where
                 *out = T::from_sample(*sample);
             }
         },
-        |err| log::error!("Audio stream error: {}", err),
+        move |err| on_stream_error(err, &device_lost),
         None,
     )
 }
@@ -257,6 +266,7 @@ impl CpalOutputStream {
     ) -> Result<Self, AudioError> {
         let volume = Arc::new(AtomicF32::new(1.0));
         let fade = Arc::new(FadeState::new());
+        let device_lost = Arc::new(AtomicBool::new(false));
         let channels = output_config.channels as usize;
 
         let stream_config = StreamConfig {
@@ -273,13 +283,18 @@ impl CpalOutputStream {
         let build = || -> Result<Stream, cpal::BuildStreamError> {
             match format {
                 SampleFormat::F32 => {
-                    let (buffer, volume, fade) = (buffer.clone(), volume.clone(), fade.clone());
+                    let (buffer, volume, fade, device_lost) = (
+                        buffer.clone(),
+                        volume.clone(),
+                        fade.clone(),
+                        device_lost.clone(),
+                    );
                     dev.build_output_stream(
                         &stream_config,
                         move |data: &mut [f32], _: &OutputCallbackInfo| {
                             fill_f32(&fade, &buffer, &volume, channels, data);
                         },
-                        |err| log::error!("Audio stream error: {}", err),
+                        move |err| on_stream_error(err, &device_lost),
                         None,
                     )
                 }
@@ -289,6 +304,7 @@ impl CpalOutputStream {
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
+                    device_lost.clone(),
                     channels,
                 ),
                 SampleFormat::I16 => build_converting_stream::<i16>(
@@ -297,6 +313,7 @@ impl CpalOutputStream {
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
+                    device_lost.clone(),
                     channels,
                 ),
                 SampleFormat::U16 => build_converting_stream::<u16>(
@@ -305,6 +322,7 @@ impl CpalOutputStream {
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
+                    device_lost.clone(),
                     channels,
                 ),
                 SampleFormat::U8 => build_converting_stream::<u8>(
@@ -313,6 +331,7 @@ impl CpalOutputStream {
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
+                    device_lost.clone(),
                     channels,
                 ),
                 // Formats we don't convert to (I24, I64, F64, …). Surface as an
@@ -333,7 +352,12 @@ impl CpalOutputStream {
             config: output_config,
             volume,
             fade,
+            device_lost,
         })
+    }
+
+    pub fn take_device_lost(&self) -> bool {
+        self.device_lost.swap(false, Ordering::SeqCst)
     }
 
     /// Starts a fade ramp toward `target` (0.0 = out, 1.0 = in) over
@@ -466,6 +490,41 @@ mod tests {
         let selected_device = SelectedOutputDevice { host: h, device: d };
         let output = CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device);
         assert!(output.is_ok(), "Should create default output");
+    }
+
+    #[test]
+    fn test_device_lost_flag_is_edge_triggered() {
+        let (h, d) = make_test_device();
+        let selected_device = SelectedOutputDevice { host: h, device: d };
+        let output =
+            CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
+
+        assert!(!output.take_device_lost());
+
+        output.device_lost.store(true, Ordering::SeqCst);
+        assert!(output.take_device_lost());
+        assert!(!output.take_device_lost());
+    }
+
+    #[test]
+    fn test_buffer_underrun_does_not_mark_device_lost() {
+        let flag = AtomicBool::new(false);
+        on_stream_error(cpal::StreamError::BufferUnderrun, &flag);
+        assert!(!flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_device_not_available_marks_device_lost() {
+        let flag = AtomicBool::new(false);
+        on_stream_error(cpal::StreamError::DeviceNotAvailable, &flag);
+        assert!(flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_stream_invalidated_marks_device_lost() {
+        let flag = AtomicBool::new(false);
+        on_stream_error(cpal::StreamError::StreamInvalidated, &flag);
+        assert!(flag.load(Ordering::SeqCst));
     }
 
     #[test]

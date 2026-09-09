@@ -711,12 +711,18 @@ impl AudioOutput for Output {
         let mut disconnect = false;
         {
             let current = self.current.read();
-            if let Some(OutputMode::Exclusive(excl)) = current.as_ref() {
-                while let Some(evt) = excl.take_event() {
-                    match evt {
-                        exclusive::ExclusiveEvent::DeviceDisconnected => disconnect = true,
+            match current.as_ref() {
+                Some(OutputMode::Exclusive(excl)) => {
+                    while let Some(evt) = excl.take_event() {
+                        match evt {
+                            exclusive::ExclusiveEvent::DeviceDisconnected => disconnect = true,
+                        }
                     }
                 }
+                Some(OutputMode::Shared(s)) if s.take_device_lost() => {
+                    disconnect = true;
+                }
+                Some(OutputMode::Shared(_)) | None => {}
             }
         }
         if disconnect {
