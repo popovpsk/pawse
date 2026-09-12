@@ -152,17 +152,19 @@ jobs:
           LDAI_UPDATE_INFORMATION: ${{ matrix.update_info }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
 
-      - name: Verify AppImage update information
+      - name: Collect AppImage update metadata
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          shopt -s nullglob
-          zsyncs=(target/release/*.AppImage.zsync)
-          if [ ${#zsyncs[@]} -eq 0 ]; then
+          found=$(find target/release -name '*.AppImage.zsync')
+          if [ -z "$found" ]; then
             echo "::error::no .zsync produced — appimagetool skips it silently when zsyncmake is missing or update information was not embedded"
             exit 1
           fi
-          ls -la "${zsyncs[@]}"
+          while IFS= read -r f; do
+            [ "$(dirname "$f")" = "target/release" ] || mv -f "$f" target/release/
+          done <<< "$found"
+          ls -la target/release/*.AppImage.zsync
 
       - name: Re-image dmg without signature
         if: runner.os == 'macOS'
