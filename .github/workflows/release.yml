@@ -35,9 +35,11 @@ jobs:
           - label: linux-x86_64
             os: ubuntu-22.04
             formats: appimage,deb
+            update_info: gh-releases-zsync|popovpsk|pawse|latest|pawse_*_x86_64.AppImage.zsync
           - label: linux-arm64
             os: ubuntu-22.04-arm
             formats: appimage,deb
+            update_info: gh-releases-zsync|popovpsk|pawse|latest|pawse_*_aarch64.AppImage.zsync
     steps:
       - uses: actions/checkout@v5
 
@@ -73,7 +75,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libfontconfig-dev libwayland-dev \
             libxkbcommon-x11-dev libssl-dev libzstd-dev libgit2-dev \
-            libfuse2 build-essential cmake clang
+            libfuse2 build-essential cmake clang zsync
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -147,7 +149,20 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          LDAI_UPDATE_INFORMATION: ${{ matrix.update_info }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
+
+      - name: Verify AppImage update information
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          zsyncs=(target/release/*.AppImage.zsync)
+          if [ ${#zsyncs[@]} -eq 0 ]; then
+            echo "::error::no .zsync produced — appimagetool skips it silently when zsyncmake is missing or update information was not embedded"
+            exit 1
+          fi
+          ls -la "${zsyncs[@]}"
 
       - name: Re-image dmg without signature
         if: runner.os == 'macOS'
@@ -172,6 +187,7 @@ jobs:
           for f in \
             target/release/*.dmg \
             target/release/*.AppImage \
+            target/release/*.AppImage.zsync \
             target/release/*.deb \
             target/release/*-setup.exe \
             target/release/nsis/*-setup.exe; do

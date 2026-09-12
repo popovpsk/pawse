@@ -1,6 +1,6 @@
 use anyhow::{Context as _, Result};
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn appimage_path() -> Option<PathBuf> {
     std::env::var_os("APPIMAGE").map(PathBuf::from)
@@ -9,6 +9,16 @@ pub fn appimage_path() -> Option<PathBuf> {
 pub fn install(url: &str, digest: Option<&str>) -> Result<()> {
     let target = appimage_path().context("not running as an AppImage")?;
     let parent = target.parent().context("AppImage path has no parent")?;
+    match replace(url, digest, &target, parent) {
+        Err(error) if denied_by_permissions(&error) => Err(anyhow::anyhow!(
+            "no write access to {} — update Pawse the same way it was installed",
+            parent.display()
+        )),
+        result => result,
+    }
+}
+
+fn replace(url: &str, digest: Option<&str>, target: &Path, parent: &Path) -> Result<()> {
     let file_name = target
         .file_name()
         .context("AppImage path has no file name")?
@@ -18,6 +28,13 @@ pub fn install(url: &str, digest: Option<&str>) -> Result<()> {
     super::download_file(url, &tmp, digest)?;
     std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
         .context("setting AppImage permissions")?;
-    std::fs::rename(&tmp, &target).context("replacing AppImage")?;
+    std::fs::rename(&tmp, target).context("replacing AppImage")?;
     Ok(())
+}
+
+fn denied_by_permissions(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
 }

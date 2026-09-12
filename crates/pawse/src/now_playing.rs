@@ -184,7 +184,8 @@ impl NowPlaying {
             self.shaped_title_w = None;
             self.cover_art_id = cover;
             self.album_id = album_id;
-            self.specs = SharedString::from(format_specs(sample_rate, bit_depth, bitrate, dsd_rate));
+            self.specs =
+                SharedString::from(format_specs(sample_rate, bit_depth, bitrate, dsd_rate));
             self.artists = services
                 .library
                 .unique_track_artists(track_id)

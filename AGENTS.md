@@ -54,9 +54,7 @@ All tests must pass.
 
 - **Planar → Interleaved conversion**: Symphonia outputs planar samples; always convert to interleaved for output
 - **Dynamic stream recreation**: Recreate output stream when metadata (sample rate, channels, bit_depth) changes
-- **Buffer duration**: Use `BUFFER_DURATION_MS = 128` for audio buffering
-- **Volume curve**: Apply cubic curve for volume < 10%, linear otherwise
-
+- 
 ### Error Handling
 
 - **`anyhow` + `thiserror`**: `thiserror` for library error types, `anyhow` for applications

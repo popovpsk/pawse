@@ -128,6 +128,11 @@ pub fn handle(cx: &App) -> Option<Entity<AutoUpdater>> {
     global(cx)
 }
 
+#[cfg(target_os = "linux")]
+fn managed_by_am(dir: &std::path::Path) -> bool {
+    dir.join("AM-updater").exists()
+}
+
 pub fn is_supported() -> bool {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
@@ -135,7 +140,12 @@ pub fn is_supported() -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        std::env::var_os("APPIMAGE").is_some()
+        static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *SUPPORTED.get_or_init(|| {
+            install::appimage_path()
+                .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+                .is_some_and(|dir| !managed_by_am(&dir))
+        })
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
