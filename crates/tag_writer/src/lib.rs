@@ -1029,7 +1029,12 @@ mod tests {
         let path = copy_fixture(&dir, "tagless.flac");
         let raw = read_raw_tags(&path).unwrap();
         assert_eq!(raw.len(), 1);
-        assert_eq!(raw[0].value, "Lavf61.7.100");
+        assert_eq!(raw[0].key, "ENCODER");
+        assert!(
+            raw[0].value.starts_with("Lavf"),
+            "encoder must be the muxer that wrote the fixture, got {:?}",
+            raw[0].value
+        );
     }
 
     #[test]

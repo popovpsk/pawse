@@ -16,8 +16,44 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfontconfig-dev libwayland-dev \
+            libxkbcommon-x11-dev libssl-dev libzstd-dev libgit2-dev \
+            build-essential cmake clang alsa-utils ffmpeg
+
+      - name: Load a virtual sound card
+        run: |
+          sudo modprobe snd-dummy || {
+            echo "::error::snd-dummy unavailable; audio_output tests open a real device and will fail without one"
+            exit 1
+          }
+          aplay -l
+
+      - name: Generate fixtures
+        run: make generate FFMPEG="$(command -v ffmpeg)"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-test
+          cache-on-failure: true
+
+      - name: Test
+        run: cargo test --workspace
+
   bundle:
     name: Bundle (${{ matrix.label }})
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
