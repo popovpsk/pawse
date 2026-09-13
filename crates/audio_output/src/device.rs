@@ -833,6 +833,11 @@ mod tests {
         let sinks = vec![PulseSink {
             description: "Ghost".into(),
             node_name: String::new(),
+            volume: 1.0,
+            muted: false,
+            card: None,
+            device: None,
+            rate: None,
         }];
         let list = build_pulse_list(&sinks, None);
         assert!(list.is_empty());
