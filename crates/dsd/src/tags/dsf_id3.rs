@@ -183,12 +183,14 @@ fn decode_utf16_with_bom(data: &[u8]) -> String {
 
 fn decode_utf16(data: &[u8], big_endian: bool) -> String {
     let units: Vec<u16> = data
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| {
             if big_endian {
-                u16::from_be_bytes([c[0], c[1]])
+                u16::from_be_bytes(*c)
             } else {
-                u16::from_le_bytes([c[0], c[1]])
+                u16::from_le_bytes(*c)
             }
         })
         .collect();

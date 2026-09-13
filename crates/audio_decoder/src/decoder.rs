@@ -68,14 +68,14 @@ fn pcm_to_samples(pcm: &[u8], bit_depth: u8) -> AudioSamples {
     match bit_depth {
         16 => {
             let mut samples = Vec::with_capacity(pcm.len() / 2);
-            for chunk in pcm.chunks_exact(2) {
-                samples.push(i16::from_le_bytes([chunk[0], chunk[1]]));
+            for chunk in pcm.as_chunks::<2>().0 {
+                samples.push(i16::from_le_bytes(*chunk));
             }
             AudioSamples::S16(samples)
         }
         24 => {
             let mut samples = Vec::with_capacity(pcm.len() / 3);
-            for chunk in pcm.chunks_exact(3) {
+            for chunk in pcm.as_chunks::<3>().0 {
                 let sign = if chunk[2] & 0x80 != 0 { 0xFFu8 } else { 0x00u8 };
                 let raw = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], sign]);
                 samples.push(I24::new(raw));
@@ -84,15 +84,15 @@ fn pcm_to_samples(pcm: &[u8], bit_depth: u8) -> AudioSamples {
         }
         32 => {
             let mut samples = Vec::with_capacity(pcm.len() / 4);
-            for chunk in pcm.chunks_exact(4) {
-                samples.push(i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            for chunk in pcm.as_chunks::<4>().0 {
+                samples.push(i32::from_le_bytes(*chunk));
             }
             AudioSamples::S32(samples)
         }
         _ => {
             let mut samples = Vec::with_capacity(pcm.len() / 2);
-            for chunk in pcm.chunks_exact(2) {
-                samples.push(i16::from_le_bytes([chunk[0], chunk[1]]));
+            for chunk in pcm.as_chunks::<2>().0 {
+                samples.push(i16::from_le_bytes(*chunk));
             }
             AudioSamples::S16(samples)
         }

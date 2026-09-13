@@ -168,7 +168,7 @@ pub fn from_thumbnail(thumbnail: &Image) -> Option<Arc<RenderImage>> {
             image::imageops::FilterType::Triangle,
         );
     let mut raster = image::imageops::fast_blur(&source.to_rgba8(), BLUR_SIGMA);
-    for pixel in raster.chunks_exact_mut(4) {
+    for pixel in raster.as_chunks_mut::<4>().0 {
         let luma = 0.299 * pixel[0] as f32 + 0.587 * pixel[1] as f32 + 0.114 * pixel[2] as f32;
         for channel in pixel.iter_mut().take(3) {
             *channel = (luma + (*channel as f32 - luma) * SATURATION).clamp(0., 255.) as u8;
