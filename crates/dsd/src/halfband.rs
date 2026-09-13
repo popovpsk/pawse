@@ -127,7 +127,9 @@ mod tests {
         // Alternating +1/-1 at the *input* sample rate is right at the old
         // Nyquist, well above the new one (fs/4) — must be crushed.
         let mut d = HalfbandDecimator::new(TAPS);
-        let input: Vec<f32> = (0..400).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        let input: Vec<f32> = (0..400)
+            .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+            .collect();
         let mut out = Vec::new();
         d.process(&input, &mut out);
         for &s in &out[50..] {

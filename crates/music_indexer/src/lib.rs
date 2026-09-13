@@ -343,7 +343,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(tracks.len(), 1, "expected the .dsf file to be scanned as audio");
+        assert_eq!(
+            tracks.len(),
+            1,
+            "expected the .dsf file to be scanned as audio"
+        );
         assert!(tracks[0].path.ends_with("track.dsf"));
     }
 
