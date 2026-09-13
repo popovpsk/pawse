@@ -29,6 +29,7 @@ use crate::settings_store::{
     apply_font_scale, apply_theme, notify_save_error,
 };
 use crate::theme_colors::Colors;
+use music_library::ArtistGrouping;
 
 fn reveal_in_file_manager(path: &std::path::Path) {
     #[cfg(target_os = "macos")]
@@ -207,6 +208,7 @@ pub fn build_settings_pages(
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(theme_picker, lang_picker))
             .group(albums_view_group())
+            .group(artists_view_group())
             .group(cover_view_group())
             .group(queue_group())
             .group(lyrics_group(lyrics_slider)),
@@ -893,6 +895,46 @@ fn sign_out_lastfm(cx: &mut App, state: Entity<LastfmUiState>) {
         s.error = None;
         cx.notify();
     });
+}
+
+fn artists_view_group() -> SettingGroup {
+    SettingGroup::new()
+        .title(tr().settings_artists_view.clone())
+        .item(SettingItem::new(
+            tr().artists_group_by_tag.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let current = cx.global::<SettingsStore>().artists_grouping();
+                h_flex().items_center().justify_end().child(
+                    ButtonGroup::new("artists-grouping-group")
+                        .small()
+                        .child(
+                            Button::new("artists-grouping-track-artist")
+                                .label("artist")
+                                .selected(current == ArtistGrouping::TrackArtist),
+                        )
+                        .child(
+                            Button::new("artists-grouping-album-artist")
+                                .label("album artist")
+                                .selected(current == ArtistGrouping::AlbumArtist),
+                        )
+                        .on_click(|clicks: &Vec<usize>, _, cx| {
+                            let Some(&ix) = clicks.first() else {
+                                return;
+                            };
+                            let grouping = match ix {
+                                1 => ArtistGrouping::AlbumArtist,
+                                _ => ArtistGrouping::TrackArtist,
+                            };
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_artists_grouping(grouping)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        ))
 }
 
 fn albums_view_group() -> SettingGroup {

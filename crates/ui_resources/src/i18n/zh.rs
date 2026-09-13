@@ -117,6 +117,8 @@ pub static ZH: Strings = lang! {
     albums_artist_inline: "行内",
     albums_artist_column: "列",
     albums_artist_hidden: "隐藏",
+    settings_artists_view: "艺术家视图",
+    artists_group_by_tag: "按标签分组",
     music_folders: "音乐文件夹",
     music_folders_desc: "用于扫描音乐文件的文件夹",
     no_folders_added: "未添加文件夹",

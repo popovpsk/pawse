@@ -117,6 +117,8 @@ pub static UK: Strings = lang! {
     albums_artist_inline: "У рядку",
     albums_artist_column: "Стовпець",
     albums_artist_hidden: "Сховано",
+    settings_artists_view: "Відображення виконавців",
+    artists_group_by_tag: "Групувати за тегом",
     music_folders: "Папки з музикою",
     music_folders_desc: "Папки, що скануються на наявність музичних файлів",
     no_folders_added: "Папки не додані",

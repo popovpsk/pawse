@@ -117,6 +117,8 @@ pub static FR: Strings = lang! {
     albums_artist_inline: "En ligne",
     albums_artist_column: "Colonne",
     albums_artist_hidden: "Masqué",
+    settings_artists_view: "Vue des artistes",
+    artists_group_by_tag: "Grouper par tag",
     music_folders: "Dossiers de musique",
     music_folders_desc: "Dossiers analysés pour trouver des fichiers de musique",
     no_folders_added: "Aucun dossier ajouté",

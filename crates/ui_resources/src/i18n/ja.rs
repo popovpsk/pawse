@@ -117,6 +117,8 @@ pub static JA: Strings = lang! {
     albums_artist_inline: "インライン",
     albums_artist_column: "列",
     albums_artist_hidden: "非表示",
+    settings_artists_view: "アーティスト表示",
+    artists_group_by_tag: "タグでグループ化",
     music_folders: "音楽フォルダ",
     music_folders_desc: "音楽ファイルをスキャンするフォルダ",
     no_folders_added: "フォルダが追加されていません",

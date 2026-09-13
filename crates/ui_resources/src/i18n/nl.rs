@@ -117,6 +117,8 @@ pub static NL: Strings = lang! {
     albums_artist_inline: "Inline",
     albums_artist_column: "Kolom",
     albums_artist_hidden: "Verborgen",
+    settings_artists_view: "Artiestenweergave",
+    artists_group_by_tag: "Groeperen op tag",
     music_folders: "Muziekmappen",
     music_folders_desc: "Mappen die worden gescand op muziekbestanden",
     no_folders_added: "Geen mappen toegevoegd",

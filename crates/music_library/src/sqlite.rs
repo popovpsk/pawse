@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -8,11 +8,12 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use rusqlite::{Connection, OptionalExtension};
 
+use crate::album_artists::{AlbumTrackArtists, derive_album_artists};
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, LyricsRef, NewTrack, PlaylistSummary,
-    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, LyricsRef, NewTrack,
+    PlaylistSummary, PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -57,6 +58,67 @@ fn display_ordered_tracks(conn: &Connection, where_clause: &str) -> Result<Vec<T
     let rows = stmt.query_map([], map_track_row)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(LibraryError::Database)
+}
+
+fn artist_membership_sql(grouping: ArtistGrouping) -> &'static str {
+    match grouping {
+        ArtistGrouping::TrackArtist => "SELECT artist_id, track_id, position FROM track_artists",
+        ArtistGrouping::AlbumArtist => {
+            "SELECT artist_id, track_id, position FROM track_album_artists \
+             UNION ALL \
+             SELECT aa.artist_id, t.id, aa.position FROM tracks t \
+             JOIN albums al ON al.id = t.album_id AND al.artist_known = 1 \
+             JOIN album_artists aa ON aa.album_id = al.id \
+             WHERE NOT EXISTS (SELECT 1 FROM track_album_artists x WHERE x.track_id = t.id) \
+             UNION ALL \
+             SELECT ta.artist_id, ta.track_id, ta.position FROM track_artists ta \
+             JOIN tracks t ON t.id = ta.track_id \
+             LEFT JOIN albums al ON al.id = t.album_id \
+             WHERE NOT EXISTS (SELECT 1 FROM track_album_artists x WHERE x.track_id = ta.track_id) \
+             AND COALESCE(al.artist_known, 0) = 0"
+        }
+    }
+}
+
+fn membership_ctes(grouping: ArtistGrouping) -> String {
+    let listed = artist_membership_sql(grouping);
+    let credited = match grouping {
+        ArtistGrouping::TrackArtist => "SELECT * FROM m".to_string(),
+        ArtistGrouping::AlbumArtist => {
+            "SELECT * FROM m UNION SELECT artist_id, track_id, position FROM track_artists"
+                .to_string()
+        }
+    };
+    format!("m AS ({listed}), u AS ({credited})")
+}
+
+fn map_artist_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<ArtistSummary> {
+    Ok(ArtistSummary {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        sort_name: row.get(2)?,
+        track_count: row.get(3)?,
+    })
+}
+
+fn no_metadata_artist(track_count: i64) -> ArtistSummary {
+    ArtistSummary {
+        id: crate::NO_METADATA_ARTIST_ID,
+        name: String::new(),
+        sort_name: String::new(),
+        track_count,
+    }
+}
+
+fn orphan_track_count(conn: &Connection, grouping: ArtistGrouping) -> Result<i64> {
+    let membership = artist_membership_sql(grouping);
+    let sql = format!(
+        "WITH m AS ({membership}) SELECT COUNT(*) FROM tracks t \
+         WHERE NOT EXISTS (SELECT 1 FROM m WHERE m.track_id = t.id)"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let count: i64 = stmt.query_row([], |row| row.get(0))?;
+    Ok(count)
 }
 
 pub struct SqliteLibrary {
@@ -361,8 +423,45 @@ impl LibraryRepository for SqliteLibrary {
                 [album_id, *artist_id, *position as i64],
             )?;
         }
+        tx.execute(
+            "UPDATE albums SET artist_known = ?2 WHERE id = ?1",
+            [album_id, !artist_ids.is_empty() as i64],
+        )?;
         tx.commit()?;
         Ok(())
+    }
+
+    fn set_track_album_artists(&self, track_id: i64, artist_ids: &[(i64, i32)]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM track_album_artists WHERE track_id = ?1",
+            [track_id],
+        )?;
+        for (artist_id, position) in artist_ids {
+            tx.execute(
+                "INSERT OR IGNORE INTO track_album_artists (track_id, artist_id, position) VALUES (?1, ?2, ?3)",
+                [track_id, *artist_id, *position as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn track_album_artists(&self, track_id: i64) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r#"
+            SELECT a.name
+            FROM artists a
+            JOIN track_album_artists x ON x.artist_id = a.id
+            WHERE x.track_id = ?1
+            ORDER BY x.position
+            "#,
+        )?;
+        let rows = stmt.query_map([track_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
     }
 
     fn upsert_track(
@@ -712,6 +811,7 @@ impl LibraryRepository for SqliteLibrary {
         // keep playlist definitions: a user's playlists survive a rescan.
         tx.execute("DELETE FROM playlist_tracks", [])?;
         tx.execute("DELETE FROM track_artists", [])?;
+        tx.execute("DELETE FROM track_album_artists", [])?;
         tx.execute("DELETE FROM track_genres", [])?;
         tx.execute("DELETE FROM album_artists", [])?;
         tx.execute("DELETE FROM tracks", [])?;
@@ -742,7 +842,8 @@ impl LibraryRepository for SqliteLibrary {
         )?;
         tx.execute(
             "DELETE FROM artists WHERE NOT EXISTS (SELECT 1 FROM album_artists WHERE album_artists.artist_id = artists.id)
-             AND NOT EXISTS (SELECT 1 FROM track_artists WHERE track_artists.artist_id = artists.id)",
+             AND NOT EXISTS (SELECT 1 FROM track_artists WHERE track_artists.artist_id = artists.id)
+             AND NOT EXISTS (SELECT 1 FROM track_album_artists WHERE track_album_artists.artist_id = artists.id)",
             [],
         )?;
         tx.execute(
@@ -860,16 +961,6 @@ impl LibraryRepository for SqliteLibrary {
         Ok(result)
     }
 
-    fn album_has_artists(&self, album_id: i64) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-        let exists: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM album_artists WHERE album_id = ?1)",
-            [album_id],
-            |row| row.get(0),
-        )?;
-        Ok(exists)
-    }
-
     fn resolve_album_covers(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -886,44 +977,174 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
-    fn artists(&self) -> Result<Vec<ArtistSummary>> {
+    fn resolve_album_artists(&self) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        let mut explicit: HashMap<i64, Vec<i64>> = HashMap::new();
+        {
+            let mut stmt = tx.prepare(
+                "SELECT track_id, artist_id FROM track_album_artists ORDER BY track_id, position",
+            )?;
+            let rows =
+                stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+            for row in rows {
+                let (track_id, artist_id) = row?;
+                explicit.entry(track_id).or_default().push(artist_id);
+            }
+        }
+        let mut credited: HashMap<i64, Vec<(i64, String)>> = HashMap::new();
+        {
+            let mut stmt = tx.prepare(
+                "SELECT ta.track_id, a.id, a.name FROM track_artists ta \
+                 JOIN artists a ON a.id = ta.artist_id ORDER BY ta.track_id, ta.position",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (track_id, artist_id, name) = row?;
+                credited
+                    .entry(track_id)
+                    .or_default()
+                    .push((artist_id, name));
+            }
+        }
+        let mut albums: Vec<(i64, Vec<AlbumTrackArtists>)> = Vec::new();
+        {
+            let mut stmt = tx.prepare(
+                "SELECT t.id, t.album_id FROM tracks t WHERE t.album_id IS NOT NULL \
+                 ORDER BY t.album_id, t.disc_number, COALESCE(t.track_number, 999999), t.path",
+            )?;
+            let rows =
+                stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
+            for row in rows {
+                let (track_id, album_id) = row?;
+                let entry = AlbumTrackArtists {
+                    explicit: explicit.remove(&track_id).unwrap_or_default(),
+                    artists: credited.remove(&track_id).unwrap_or_default(),
+                };
+                match albums.last_mut() {
+                    Some((id, tracks)) if *id == album_id => tracks.push(entry),
+                    _ => albums.push((album_id, vec![entry])),
+                }
+            }
+        }
+
+        tx.execute("DELETE FROM album_artists", [])?;
+        tx.execute("UPDATE albums SET artist_known = 0", [])?;
+        {
+            let mut insert = tx.prepare(
+                "INSERT OR IGNORE INTO album_artists (album_id, artist_id, position) VALUES (?1, ?2, ?3)",
+            )?;
+            let mut mark_known = tx.prepare("UPDATE albums SET artist_known = 1 WHERE id = ?1")?;
+            for (album_id, tracks) in &albums {
+                let derived = derive_album_artists(tracks);
+                for (position, artist_id) in derived.artist_ids.iter().enumerate() {
+                    insert.execute([*album_id, *artist_id, position as i64])?;
+                }
+                if derived.known {
+                    mark_known.execute([*album_id])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn album_artist_known(&self, album_id: i64) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            r#"
-            SELECT a.id, a.name, a.sort_name, COUNT(DISTINCT ta.track_id) AS track_count
-            FROM artists a
-            JOIN track_artists ta ON ta.artist_id = a.id
-            GROUP BY a.id
-            HAVING track_count > 0
-            ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE
-            "#,
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(ArtistSummary {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                sort_name: row.get(2)?,
-                track_count: row.get(3)?,
-            })
-        })?;
+        conn.query_row(
+            "SELECT artist_known FROM albums WHERE id = ?1",
+            [album_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map(|known| known.unwrap_or(0) != 0)
+        .map_err(LibraryError::Database)
+    }
+
+    fn artists(&self, grouping: ArtistGrouping) -> Result<Vec<ArtistSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let ctes = membership_ctes(grouping);
+        let sql = format!(
+            "WITH {ctes} \
+             SELECT a.id, a.name, a.sort_name, COUNT(DISTINCT u.track_id) AS track_count \
+             FROM artists a \
+             JOIN u ON u.artist_id = a.id \
+             WHERE EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id) \
+             GROUP BY a.id \
+             HAVING track_count > 0 \
+             ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE"
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map([], map_artist_summary)?;
         let mut artists = rows
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)?;
-        let orphan_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM tracks t \
-             WHERE NOT EXISTS (SELECT 1 FROM track_artists ta WHERE ta.track_id = t.id)",
-            [],
-            |row| row.get(0),
-        )?;
+        let orphan_count = orphan_track_count(&conn, grouping)?;
         if orphan_count > 0 {
-            artists.push(ArtistSummary {
-                id: crate::NO_METADATA_ARTIST_ID,
-                name: String::new(),
-                sort_name: String::new(),
-                track_count: orphan_count,
-            });
+            artists.push(no_metadata_artist(orphan_count));
         }
         Ok(artists)
+    }
+
+    fn artist_summary(&self, id: i64, grouping: ArtistGrouping) -> Result<Option<ArtistSummary>> {
+        let conn = self.conn.lock().unwrap();
+        if id == crate::NO_METADATA_ARTIST_ID {
+            let orphan_count = orphan_track_count(&conn, grouping)?;
+            return Ok((orphan_count > 0).then(|| no_metadata_artist(orphan_count)));
+        }
+        let ctes = membership_ctes(grouping);
+        let sql = format!(
+            "WITH {ctes} \
+             SELECT a.id, a.name, a.sort_name, COUNT(DISTINCT u.track_id) AS track_count \
+             FROM artists a \
+             JOIN u ON u.artist_id = a.id \
+             WHERE a.id = ?1 AND EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id) \
+             GROUP BY a.id \
+             HAVING track_count > 0"
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
+        stmt.query_row([id], map_artist_summary)
+            .optional()
+            .map_err(LibraryError::Database)
+    }
+
+    fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, String>> {
+        let conn = self.conn.lock().unwrap();
+        let ctes = membership_ctes(grouping);
+        let sql = match grouping {
+            ArtistGrouping::TrackArtist => format!(
+                "WITH {ctes} \
+                 SELECT a.id, a.name FROM artists a \
+                 WHERE EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id)"
+            ),
+            ArtistGrouping::AlbumArtist => format!(
+                "WITH {ctes} \
+                 SELECT a.id, a.name || ' ' || COALESCE(names.list, '') \
+                 FROM artists a \
+                 LEFT JOIN ( \
+                     SELECT u.artist_id, GROUP_CONCAT(DISTINCT art.name) AS list \
+                     FROM u \
+                     JOIN track_artists ta ON ta.track_id = u.track_id \
+                     JOIN artists art ON art.id = ta.artist_id \
+                     WHERE art.id != u.artist_id \
+                     GROUP BY u.artist_id \
+                 ) names ON names.artist_id = a.id \
+                 WHERE EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id)"
+            ),
+        };
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
     }
 
     fn artist_name(&self, id: i64) -> Result<Option<String>> {
@@ -935,13 +1156,15 @@ impl LibraryRepository for SqliteLibrary {
         .map_err(LibraryError::Database)
     }
 
-    fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>> {
+    fn tracks_by_artist(&self, artist_id: i64, grouping: ArtistGrouping) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
+        let listed = artist_membership_sql(grouping);
         if artist_id == crate::NO_METADATA_ARTIST_ID {
             let sql = format!(
-                "SELECT {TRACK_COLUMNS_T} FROM tracks t \
+                "WITH m AS ({listed}) \
+                 SELECT {TRACK_COLUMNS_T} FROM tracks t \
                  LEFT JOIN albums al ON al.id = t.album_id \
-                 WHERE NOT EXISTS (SELECT 1 FROM track_artists ta WHERE ta.track_id = t.id) \
+                 WHERE NOT EXISTS (SELECT 1 FROM m WHERE m.track_id = t.id) \
                  ORDER BY COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
             );
             let mut stmt = conn.prepare_cached(&sql)?;
@@ -950,11 +1173,13 @@ impl LibraryRepository for SqliteLibrary {
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(LibraryError::Database);
         }
+        let ctes = membership_ctes(grouping);
         let sql = format!(
-            "SELECT DISTINCT {TRACK_COLUMNS_T} FROM tracks t \
-             JOIN track_artists ta ON ta.track_id = t.id \
+            "WITH {ctes} \
+             SELECT DISTINCT {TRACK_COLUMNS_T} FROM tracks t \
+             JOIN u ON u.track_id = t.id \
              LEFT JOIN albums al ON al.id = t.album_id \
-             WHERE ta.artist_id = ?1 \
+             WHERE u.artist_id = ?1 \
              ORDER BY COALESCE(al.year, 0), al.title COLLATE NOCASE, t.disc_number, t.track_number, t.title",
         );
         let mut stmt = conn.prepare_cached(&sql)?;
@@ -1480,19 +1705,21 @@ impl LibraryRepository for SqliteLibrary {
         Ok(map)
     }
 
-    fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>> {
+    fn artist_album_covers(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, Vec<i64>>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            r#"
-            SELECT ta.artist_id, al.cover_art_id, COALESCE(al.year, 9999999999) AS sort_year
-            FROM track_artists ta
-            JOIN tracks t ON t.id = ta.track_id
-            JOIN albums al ON al.id = t.album_id
-            WHERE al.cover_art_id IS NOT NULL
-            GROUP BY ta.artist_id, al.id
-            ORDER BY ta.artist_id, sort_year ASC, al.title COLLATE NOCASE
-            "#,
-        )?;
+        let ctes = membership_ctes(grouping);
+        let sql = format!(
+            "WITH {ctes} \
+             SELECT u.artist_id, al.cover_art_id, COALESCE(al.year, 9999999999) AS sort_year \
+             FROM u \
+             JOIN tracks t ON t.id = u.track_id \
+             JOIN albums al ON al.id = t.album_id \
+             WHERE al.cover_art_id IS NOT NULL \
+             AND EXISTS (SELECT 1 FROM m WHERE m.artist_id = u.artist_id) \
+             GROUP BY u.artist_id, al.id \
+             ORDER BY u.artist_id, sort_year ASC, al.title COLLATE NOCASE"
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?;
         let mut map: HashMap<i64, Vec<i64>> = HashMap::new();
         for row in rows {
@@ -1575,7 +1802,6 @@ pub struct ScanSession {
     artist_cache: HashMap<String, i64>,
     genre_cache: HashMap<String, i64>,
     album_cache: HashMap<(String, Option<i32>), i64>,
-    album_artists_set: HashSet<i64>,
     cover_cache: HashMap<String, i64>,
     pending_by_hash: HashMap<String, Vec<ScanTrack>>,
 }
@@ -1606,7 +1832,6 @@ impl ScanSession {
             artist_cache: HashMap::new(),
             genre_cache: HashMap::new(),
             album_cache: HashMap::new(),
-            album_artists_set: HashSet::new(),
             cover_cache,
             pending_by_hash: HashMap::new(),
         };
@@ -1701,31 +1926,20 @@ impl ScanSession {
             artist_ids.push((id, pos as i64));
         }
 
+        let mut album_artist_ids = Vec::with_capacity(track.album_artist_names.len());
+        for (pos, name) in track.album_artist_names.iter().enumerate() {
+            let id = self.resolve_artist(name)?;
+            album_artist_ids.push((id, pos as i64));
+        }
+
         let mut genre_ids = Vec::with_capacity(track.genres.len());
         for name in &track.genres {
             genre_ids.push(self.resolve_genre(name)?);
         }
 
-        let album_id = if let Some(title) = &track.album_title {
-            let album_id = self.resolve_album(title, track.year)?;
-            if !self.album_artists_set.contains(&album_id) {
-                let names = if !track.album_artist_names.is_empty() {
-                    track.album_artist_names.clone()
-                } else {
-                    track.artist_names.clone()
-                };
-                for (pos, name) in names.iter().enumerate() {
-                    let artist_id = self.resolve_artist(name)?;
-                    self.conn.execute(
-                        "INSERT OR IGNORE INTO album_artists (album_id, artist_id, position) VALUES (?1, ?2, ?3)",
-                        [album_id, artist_id, pos as i64],
-                    )?;
-                }
-                self.album_artists_set.insert(album_id);
-            }
-            Some(album_id)
-        } else {
-            None
+        let album_id = match &track.album_title {
+            Some(title) => Some(self.resolve_album(title, track.year)?),
+            None => None,
         };
 
         let title = track
@@ -1773,6 +1987,13 @@ impl ScanSession {
             )?;
         }
 
+        for (artist_id, position) in &album_artist_ids {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO track_album_artists (track_id, artist_id, position) VALUES (?1, ?2, ?3)",
+                [track_id, *artist_id, *position],
+            )?;
+        }
+
         for (position, genre_id) in genre_ids.iter().enumerate() {
             self.conn.execute(
                 "INSERT OR IGNORE INTO track_genres (track_id, genre_id, position) VALUES (?1, ?2, ?3)",
@@ -1804,6 +2025,7 @@ impl ScanWrite for ScanSession {
         self.conn.execute_batch(
             "DELETE FROM playlist_tracks; \
              DELETE FROM track_artists; \
+             DELETE FROM track_album_artists; \
              DELETE FROM track_genres; \
              DELETE FROM album_artists; \
              DELETE FROM tracks; \

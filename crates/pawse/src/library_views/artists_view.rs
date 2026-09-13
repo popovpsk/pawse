@@ -21,6 +21,8 @@ use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
+use music_library::ArtistGrouping;
 
 #[derive(Clone, Debug)]
 pub struct ArtistSelectedEvent {
@@ -74,6 +76,8 @@ pub struct ArtistsView {
     artists_all: Vec<music_library::ArtistSummary>,
     rows: Vec<ArtistRow>,
     cover_ids: HashMap<i64, Vec<i64>>,
+    search_haystacks: HashMap<i64, String>,
+    grouping: ArtistGrouping,
     filter: String,
     matcher: Matcher,
     is_scanning: bool,
@@ -81,6 +85,7 @@ pub struct ArtistsView {
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
     _lang_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl ArtistsView {
@@ -89,9 +94,11 @@ impl ArtistsView {
         let library_event_bus = services.library_event_bus.clone();
         let lang_event_bus = services.lang_event_bus.clone();
         let library = services.library.clone();
+        let grouping = cx.global::<SettingsStore>().artists_grouping();
 
-        let artists_all = library.artists();
-        let cover_ids = library.artist_album_covers();
+        let artists_all = library.artists(grouping);
+        let cover_ids = library.artist_album_covers(grouping);
+        let search_haystacks = library.artist_search_haystacks(grouping);
         let rows = {
             let mut cache = services.cover_art_cache.borrow_mut();
             Self::build_rows(&artists_all, &cover_ids, &mut cache, &library)
@@ -109,13 +116,13 @@ impl ArtistsView {
                     LibraryEvent::ScanComplete { changed } => {
                         this.is_scanning = false;
                         if *changed {
-                            {
-                                let services = cx.global::<Services>();
-                                this.artists_all = services.library.artists();
-                                this.cover_ids = services.library.artist_album_covers();
-                            }
-                            this.recompute_visible(cx);
+                            this.reload_source(cx);
                         }
+                        cx.notify();
+                    }
+                    LibraryEvent::TrackTagsChanged { .. }
+                    | LibraryEvent::AlbumTagsChanged { .. } => {
+                        this.reload_source(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -130,10 +137,24 @@ impl ArtistsView {
             cx.notify();
         });
 
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            let grouping = cx.global::<SettingsStore>().artists_grouping();
+            if grouping == this.grouping {
+                return;
+            }
+            this.grouping = grouping;
+            this.reload_source(cx);
+            this.scroll_handle
+                .scroll_to_item(0, gpui::ScrollStrategy::Top);
+            cx.notify();
+        });
+
         Self {
             artists_all,
             rows,
             cover_ids,
+            search_haystacks,
+            grouping,
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             is_scanning: false,
@@ -141,7 +162,18 @@ impl ArtistsView {
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _lang_subscription: lang_subscription,
+            _settings_observer: settings_observer,
         }
+    }
+
+    fn reload_source(&mut self, cx: &mut Context<Self>) {
+        {
+            let library = &cx.global::<Services>().library;
+            self.artists_all = library.artists(self.grouping);
+            self.cover_ids = library.artist_album_covers(self.grouping);
+            self.search_haystacks = library.artist_search_haystacks(self.grouping);
+        }
+        self.recompute_visible(cx);
     }
 
     fn build_rows(
@@ -181,10 +213,14 @@ impl ArtistsView {
             let indices = fuzzy_sorted(
                 &mut self.matcher,
                 &self.filter,
-                self.artists_all
-                    .iter()
-                    .enumerate()
-                    .map(|(ix, a)| (ix, a.name.as_str())),
+                self.artists_all.iter().enumerate().map(|(ix, a)| {
+                    let hay = self
+                        .search_haystacks
+                        .get(&a.id)
+                        .map(String::as_str)
+                        .unwrap_or(a.name.as_str());
+                    (ix, hay)
+                }),
             );
             indices
                 .into_iter()

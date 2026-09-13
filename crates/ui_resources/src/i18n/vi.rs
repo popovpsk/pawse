@@ -117,6 +117,8 @@ pub static VI: Strings = lang! {
     albums_artist_inline: "Cùng dòng",
     albums_artist_column: "Cột",
     albums_artist_hidden: "Ẩn",
+    settings_artists_view: "Hiển thị nghệ sĩ",
+    artists_group_by_tag: "Nhóm theo thẻ",
     music_folders: "Thư mục nhạc",
     music_folders_desc: "Các thư mục được quét để tìm tệp nhạc",
     no_folders_added: "Chưa thêm thư mục",

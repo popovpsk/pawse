@@ -117,6 +117,8 @@ pub static KO: Strings = lang! {
     albums_artist_inline: "인라인",
     albums_artist_column: "열",
     albums_artist_hidden: "숨김",
+    settings_artists_view: "아티스트 보기",
+    artists_group_by_tag: "태그로 그룹화",
     music_folders: "음악 폴더",
     music_folders_desc: "음악 파일을 스캔할 폴더",
     no_folders_added: "추가된 폴더 없음",

@@ -117,6 +117,8 @@ pub static RU: Strings = lang! {
     albums_artist_inline: "В строке",
     albums_artist_column: "Колонка",
     albums_artist_hidden: "Скрыто",
+    settings_artists_view: "Отображение исполнителей",
+    artists_group_by_tag: "Группировать по тегу",
     music_folders: "Папки с музыкой",
     music_folders_desc: "Папки, сканируемые на наличие музыкальных файлов",
     no_folders_added: "Папки не добавлены",

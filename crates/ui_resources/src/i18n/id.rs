@@ -117,6 +117,8 @@ pub static ID: Strings = lang! {
     albums_artist_inline: "Sebaris",
     albums_artist_column: "Kolom",
     albums_artist_hidden: "Tersembunyi",
+    settings_artists_view: "Tampilan artis",
+    artists_group_by_tag: "Kelompokkan menurut tag",
     music_folders: "Folder musik",
     music_folders_desc: "Folder yang dipindai untuk berkas musik",
     no_folders_added: "Belum ada folder ditambahkan",

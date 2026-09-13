@@ -140,4 +140,22 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         ALTER TABLE tracks ADD COLUMN is_cue INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
+    (
+        6,
+        r#"
+        CREATE TABLE track_album_artists (
+            track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (track_id, artist_id)
+        );
+        CREATE INDEX idx_track_album_artists_artist_id ON track_album_artists(artist_id, track_id);
+        "#,
+    ),
+    (
+        7,
+        r#"
+        ALTER TABLE albums ADD COLUMN artist_known INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
 ];

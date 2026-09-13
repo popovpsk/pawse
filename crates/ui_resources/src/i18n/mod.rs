@@ -170,6 +170,8 @@ pub struct Strings {
     pub albums_artist_inline: SharedString,
     pub albums_artist_column: SharedString,
     pub albums_artist_hidden: SharedString,
+    pub settings_artists_view: SharedString,
+    pub artists_group_by_tag: SharedString,
     pub music_folders: SharedString,
     pub music_folders_desc: SharedString,
     pub no_folders_added: SharedString,

@@ -62,6 +62,8 @@ impl Services {
         let library = Arc::new(LibraryService::new(
             library_event_tx,
             cx.background_executor().clone(),
+            cx.global::<crate::settings_store::SettingsStore>()
+                .artists_grouping(),
         ));
         let library_event_bus = cx.new(|_| LibraryEventsBus);
         let library_event_bus_clone = library_event_bus.clone();

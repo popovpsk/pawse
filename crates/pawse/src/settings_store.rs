@@ -302,6 +302,8 @@ pub struct UserSettings {
     pub albums_show_genre: bool,
     #[serde(default)]
     pub albums_artist_display: AlbumsArtistDisplay,
+    #[serde(default)]
+    pub artists_grouping: music_library::ArtistGrouping,
     #[serde(default = "default_true")]
     pub auto_update: bool,
     #[serde(default = "default_true")]
@@ -349,6 +351,7 @@ impl Default for UserSettings {
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
+            artists_grouping: music_library::ArtistGrouping::default(),
             auto_update: true,
             lyrics_from_internet: true,
             remote_enabled: false,
@@ -719,6 +722,18 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn artists_grouping(&self) -> music_library::ArtistGrouping {
+        self.settings.artists_grouping
+    }
+
+    pub fn set_artists_grouping(
+        &mut self,
+        grouping: music_library::ArtistGrouping,
+    ) -> anyhow::Result<()> {
+        self.settings.artists_grouping = grouping;
+        self.save()
+    }
+
     pub fn font_scale(&self) -> FontScale {
         self.settings.font_scale
     }
@@ -1022,6 +1037,7 @@ mod tests {
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
+            artists_grouping: music_library::ArtistGrouping::TrackArtist,
             auto_update: true,
             lyrics_from_internet: true,
             remote_enabled: false,
@@ -1038,6 +1054,10 @@ mod tests {
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
         assert_eq!(back.font_scale, FontScale::Large);
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
+        assert_eq!(
+            back.artists_grouping,
+            music_library::ArtistGrouping::TrackArtist
+        );
         assert_eq!(back.playback.queue.len(), 1);
         assert_eq!(back.playback.queue[0], track);
         assert_eq!(back.playback.current_index, Some(0));

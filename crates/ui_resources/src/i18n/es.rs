@@ -117,6 +117,8 @@ pub static ES: Strings = lang! {
     albums_artist_inline: "En línea",
     albums_artist_column: "Columna",
     albums_artist_hidden: "Oculto",
+    settings_artists_view: "Vista de artistas",
+    artists_group_by_tag: "Agrupar por etiqueta",
     music_folders: "Carpetas de música",
     music_folders_desc: "Carpetas analizadas en busca de archivos de música",
     no_folders_added: "No se han añadido carpetas",

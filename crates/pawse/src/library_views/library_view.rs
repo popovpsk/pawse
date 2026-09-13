@@ -18,6 +18,7 @@ use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playback_queue::QueueSource;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
+use music_library::ArtistGrouping;
 
 #[derive(Clone, Debug)]
 pub enum LibraryViewEvent {
@@ -74,7 +75,8 @@ impl LibraryView {
 
         let artist_subscription =
             cx.subscribe(&artists_view, |this, _, event: &ArtistSelectedEvent, cx| {
-                this.show_artist_tracks(event.artist.clone(), cx);
+                let grouping = cx.global::<SettingsStore>().artists_grouping();
+                this.show_artist_tracks(event.artist.clone(), grouping, cx);
             });
 
         let playlist_subscription = cx.subscribe_in(
@@ -209,14 +211,17 @@ impl LibraryView {
     }
 
     pub fn navigate_to_artist(&mut self, artist_id: i64, cx: &mut Context<Self>) {
-        let services = cx.global::<Services>();
-        if let Some(artist) = services
-            .library
-            .artists()
+        let preferred = cx.global::<SettingsStore>().artists_grouping();
+        let library = &cx.global::<Services>().library;
+        let found = [preferred, ArtistGrouping::TrackArtist]
             .into_iter()
-            .find(|a| a.id == artist_id)
-        {
-            self.show_artist_tracks(artist, cx);
+            .find_map(|grouping| {
+                library
+                    .artist_summary(artist_id, grouping)
+                    .map(|artist| (artist, grouping))
+            });
+        if let Some((artist, grouping)) = found {
+            self.show_artist_tracks(artist, grouping, cx);
         }
     }
 
@@ -230,8 +235,13 @@ impl LibraryView {
         cx.notify();
     }
 
-    fn show_artist_tracks(&mut self, artist: music_library::ArtistSummary, cx: &mut Context<Self>) {
-        let view = cx.new(|cx| ArtistTracksView::new(&artist, cx));
+    fn show_artist_tracks(
+        &mut self,
+        artist: music_library::ArtistSummary,
+        grouping: ArtistGrouping,
+        cx: &mut Context<Self>,
+    ) {
+        let view = cx.new(|cx| ArtistTracksView::new(&artist, grouping, cx));
         let sub = cx.subscribe(&view, |this, _, event: &NavigateToAlbumRequested, cx| {
             this.navigate_to_album(event.album_id, cx);
         });

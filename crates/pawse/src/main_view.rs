@@ -388,6 +388,10 @@ impl MainView {
             let remote_port_input = remote_port_input.clone();
             let lastfm_ui = lastfm_ui.clone();
             move |this, cx| {
+                let grouping = cx.global::<SettingsStore>().artists_grouping();
+                cx.global::<crate::services::Services>()
+                    .library
+                    .set_artists_grouping(grouping);
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),

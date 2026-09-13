@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistSummary, CoverArt, LyricsRef, NewTrack, PlaylistSummary,
-    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, LyricsRef, NewTrack,
+    PlaylistSummary, PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -39,6 +39,8 @@ pub trait LibraryRepository: Send + Sync {
         cover_art_id: Option<i64>,
     ) -> Result<i64>;
     fn set_album_artists(&self, album_id: i64, artist_ids: &[(i64, i32)]) -> Result<()>;
+    fn set_track_album_artists(&self, track_id: i64, artist_ids: &[(i64, i32)]) -> Result<()>;
+    fn track_album_artists(&self, track_id: i64) -> Result<Vec<String>>;
     fn upsert_track(
         &self,
         track: &NewTrack,
@@ -76,17 +78,20 @@ pub trait LibraryRepository: Send + Sync {
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>>;
     fn get_track_path_for_cover(&self, id: i64) -> Result<Option<String>>;
-    fn album_has_artists(&self, album_id: i64) -> Result<bool>;
     /// Point every album at the cover of its lowest-numbered track that carries one,
     /// and at nothing when none does. The order is fully specified, so a scan and a
     /// point update land on the same row no matter which track either happened to
     /// process first — without that, an album whose tracks hold different art would
     /// change its cover between rescans.
     fn resolve_album_covers(&self) -> Result<()>;
-    fn artists(&self) -> Result<Vec<ArtistSummary>>;
+    fn resolve_album_artists(&self) -> Result<()>;
+    fn album_artist_known(&self, album_id: i64) -> Result<bool>;
+    fn artists(&self, grouping: ArtistGrouping) -> Result<Vec<ArtistSummary>>;
+    fn artist_summary(&self, id: i64, grouping: ArtistGrouping) -> Result<Option<ArtistSummary>>;
     fn artist_name(&self, id: i64) -> Result<Option<String>>;
-    fn artist_album_covers(&self) -> Result<HashMap<i64, Vec<i64>>>;
-    fn tracks_by_artist(&self, artist_id: i64) -> Result<Vec<Track>>;
+    fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, String>>;
+    fn artist_album_covers(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, Vec<i64>>>;
+    fn tracks_by_artist(&self, artist_id: i64, grouping: ArtistGrouping) -> Result<Vec<Track>>;
     fn track(&self, id: i64) -> Result<Option<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn all_tracks(&self) -> Result<Vec<Track>>;

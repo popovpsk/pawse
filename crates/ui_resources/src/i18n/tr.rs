@@ -117,6 +117,8 @@ pub static TR: Strings = lang! {
     albums_artist_inline: "Satır içi",
     albums_artist_column: "Sütun",
     albums_artist_hidden: "Gizli",
+    settings_artists_view: "Sanatçı görünümü",
+    artists_group_by_tag: "Etikete göre grupla",
     music_folders: "Müzik klasörleri",
     music_folders_desc: "Müzik dosyaları için taranan klasörler",
     no_folders_added: "Klasör eklenmedi",

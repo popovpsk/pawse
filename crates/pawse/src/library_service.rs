@@ -1,12 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use music_indexer::{PreparedTrack, ScanEvent};
 use music_library::{
-    LibraryRepository, LyricsRef, NewTrack, PlaylistTrackRef, ScanTrack, SqliteLibrary,
+    ArtistGrouping, LibraryRepository, LyricsRef, NewTrack, PlaylistTrackRef, ScanTrack,
+    SqliteLibrary,
 };
 
 /// The album-level fields of a tag edit, applied to every track of one album.
@@ -74,6 +75,21 @@ pub struct LibraryService {
     event_tx: flume::Sender<LibraryEvent>,
     executor: gpui::BackgroundExecutor,
     scan_state: Arc<ScanState>,
+    artists_grouping: Arc<AtomicU8>,
+}
+
+fn grouping_to_u8(grouping: ArtistGrouping) -> u8 {
+    match grouping {
+        ArtistGrouping::TrackArtist => 0,
+        ArtistGrouping::AlbumArtist => 1,
+    }
+}
+
+fn load_grouping(cell: &AtomicU8) -> ArtistGrouping {
+    match cell.load(Ordering::Relaxed) {
+        1 => ArtistGrouping::AlbumArtist,
+        _ => ArtistGrouping::TrackArtist,
+    }
 }
 
 /// A cloneable handle bundling the repo + event sender, so the lyrics view can run
@@ -87,6 +103,7 @@ pub struct LyricsAccess {
 #[derive(Clone)]
 pub struct LibraryAccess {
     repo: Arc<dyn LibraryRepository>,
+    artists_grouping: Arc<AtomicU8>,
 }
 
 impl pawse_remote::LibraryReader for LibraryAccess {
@@ -106,9 +123,10 @@ impl pawse_remote::LibraryReader for LibraryAccess {
     }
 
     fn artists(&self) -> Vec<pawse_remote::ArtistEntry> {
-        let covers = self.repo.artist_album_covers().unwrap_or_default();
+        let grouping = load_grouping(&self.artists_grouping);
+        let covers = self.repo.artist_album_covers(grouping).unwrap_or_default();
         self.repo
-            .artists()
+            .artists(grouping)
             .unwrap_or_default()
             .into_iter()
             .map(|artist| pawse_remote::ArtistEntry {
@@ -132,7 +150,11 @@ impl pawse_remote::LibraryReader for LibraryAccess {
         } else {
             self.repo.artist_name(artist_id).ok().flatten()?
         };
-        let base = self.repo.tracks_by_artist(artist_id).unwrap_or_default();
+        let grouping = load_grouping(&self.artists_grouping);
+        let base = self
+            .repo
+            .tracks_by_artist(artist_id, grouping)
+            .unwrap_or_default();
         let partial = artist_partial_albums(&*self.repo, &base);
         let tracks = if full {
             expand_partial_albums(&*self.repo, base, &partial)
@@ -252,8 +274,11 @@ pub fn artist_display_tracks(
     repo: &dyn LibraryRepository,
     artist_id: i64,
     full: bool,
+    grouping: ArtistGrouping,
 ) -> Vec<music_library::Track> {
-    let base = repo.tracks_by_artist(artist_id).unwrap_or_default();
+    let base = repo
+        .tracks_by_artist(artist_id, grouping)
+        .unwrap_or_default();
     if !full {
         return base;
     }
@@ -352,14 +377,28 @@ impl LyricsAccess {
 }
 
 impl LibraryService {
-    pub fn new(event_tx: flume::Sender<LibraryEvent>, executor: gpui::BackgroundExecutor) -> Self {
+    pub fn new(
+        event_tx: flume::Sender<LibraryEvent>,
+        executor: gpui::BackgroundExecutor,
+        artists_grouping: ArtistGrouping,
+    ) -> Self {
         let repo = Arc::new(SqliteLibrary::open().expect("open library db"));
         Self {
             repo,
             event_tx,
             executor,
             scan_state: Arc::new(ScanState::default()),
+            artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(artists_grouping))),
         }
+    }
+
+    pub fn artists_grouping(&self) -> ArtistGrouping {
+        load_grouping(&self.artists_grouping)
+    }
+
+    pub fn set_artists_grouping(&self, grouping: ArtistGrouping) {
+        self.artists_grouping
+            .store(grouping_to_u8(grouping), Ordering::Relaxed);
     }
 
     pub fn albums(&self) -> Vec<music_library::AlbumSummary> {
@@ -404,16 +443,38 @@ impl LibraryService {
         self.repo.track_artists_map(track_ids).unwrap_or_default()
     }
 
-    pub fn artists(&self) -> Vec<music_library::ArtistSummary> {
-        self.repo.artists().unwrap_or_default()
+    pub fn artists(&self, grouping: ArtistGrouping) -> Vec<music_library::ArtistSummary> {
+        self.repo.artists(grouping).unwrap_or_default()
     }
 
-    pub fn artist_album_covers(&self) -> HashMap<i64, Vec<i64>> {
-        self.repo.artist_album_covers().unwrap_or_default()
+    pub fn artist_summary(
+        &self,
+        artist_id: i64,
+        grouping: ArtistGrouping,
+    ) -> Option<music_library::ArtistSummary> {
+        self.repo
+            .artist_summary(artist_id, grouping)
+            .unwrap_or_default()
     }
 
-    pub fn tracks_by_artist(&self, artist_id: i64) -> Vec<music_library::Track> {
-        self.repo.tracks_by_artist(artist_id).unwrap_or_default()
+    pub fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> HashMap<i64, String> {
+        self.repo
+            .artist_search_haystacks(grouping)
+            .unwrap_or_default()
+    }
+
+    pub fn artist_album_covers(&self, grouping: ArtistGrouping) -> HashMap<i64, Vec<i64>> {
+        self.repo.artist_album_covers(grouping).unwrap_or_default()
+    }
+
+    pub fn tracks_by_artist(
+        &self,
+        artist_id: i64,
+        grouping: ArtistGrouping,
+    ) -> Vec<music_library::Track> {
+        self.repo
+            .tracks_by_artist(artist_id, grouping)
+            .unwrap_or_default()
     }
 
     pub fn liked_tracks(&self) -> Vec<music_library::Track> {
@@ -452,11 +513,12 @@ impl LibraryService {
     pub fn library_access(&self) -> LibraryAccess {
         LibraryAccess {
             repo: self.repo.clone(),
+            artists_grouping: self.artists_grouping.clone(),
         }
     }
 
     pub fn artist_display_tracks(&self, artist_id: i64, full: bool) -> Vec<music_library::Track> {
-        artist_display_tracks(&*self.repo, artist_id, full)
+        artist_display_tracks(&*self.repo, artist_id, full, self.artists_grouping())
     }
 
     pub fn save_lyrics_file(
@@ -1015,27 +1077,12 @@ impl ScanBaseline {
 fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyhow::Result<()> {
     let scanned = music_indexer::metadata::read_metadata(path)?;
 
-    let mut artist_ids = Vec::with_capacity(scanned.artist_names.len());
-    for (position, name) in scanned.artist_names.iter().enumerate() {
-        artist_ids.push((repo.upsert_artist(name)?, position as i32));
-    }
+    let artist_names = clean_artist_names(scanned.artist_names.clone());
+    let album_artist_names = clean_artist_names(scanned.album_artist_names.clone());
+    let artist_ids = resolve_artists(repo, &artist_names)?;
 
     let album_id = match scanned.album_title.as_deref() {
-        Some(title) => {
-            let album_id = repo.upsert_album(title, scanned.year, None)?;
-            if !repo.album_has_artists(album_id)? {
-                let names = if scanned.album_artist_names.is_empty() {
-                    &scanned.artist_names
-                } else {
-                    &scanned.album_artist_names
-                };
-                let ids = resolve_artists(repo, names)?;
-                if !ids.is_empty() {
-                    repo.set_album_artists(album_id, &ids)?;
-                }
-            }
-            Some(album_id)
-        }
+        Some(title) => Some(repo.upsert_album(title, scanned.year, None)?),
         None => None,
     };
 
@@ -1043,8 +1090,7 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
         path: scanned.path.to_string_lossy().into_owned(),
         title: scanned.title.clone(),
         album_title: scanned.album_title.clone(),
-        artist_names: scanned.artist_names.clone(),
-        album_artist_names: scanned.album_artist_names.clone(),
+        artist_names,
         track_number: scanned.track_number,
         disc_number: scanned.disc_number,
         year: scanned.year,
@@ -1055,6 +1101,8 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     };
 
     let upserted = repo.upsert_track(&new_track, album_id, &artist_ids)?;
+    let album_artist_ids = resolve_artists(repo, &album_artist_names)?;
+    repo.set_track_album_artists(upserted, &album_artist_ids)?;
     if upserted != track_id {
         log::error!(
             "Tag write moved track {} to a different row ({}); content key changed unexpectedly",
@@ -1136,9 +1184,6 @@ fn apply_album_tags(
             Err(e) => return Err((track.path.clone(), e)),
         }
     }
-    if let Err(e) = relink_album_artists(repo, tracks[0].id, edits) {
-        log::error!("Failed to relink album artists: {}", e);
-    }
     settle_derived_rows(repo, "album tag edit");
     Ok(written)
 }
@@ -1152,6 +1197,9 @@ fn apply_album_tags(
 fn settle_derived_rows(repo: &dyn LibraryRepository, what: &str) {
     if let Err(e) = repo.resolve_album_covers() {
         log::error!("Failed to resolve album covers after {}: {}", what, e);
+    }
+    if let Err(e) = repo.resolve_album_artists() {
+        log::error!("Failed to resolve album artists after {}: {}", what, e);
     }
     if let Err(e) = repo.delete_orphaned_albums_and_artists() {
         log::error!("Failed to clean up after {}: {}", what, e);
@@ -1219,27 +1267,6 @@ fn write_album_fields(
     Ok(true)
 }
 
-/// After a whole album was rewritten, its `(title, year)` key may have moved it
-/// to a different `albums` row, so resolve the row from a track that now lives in
-/// it and set the artists there.
-fn relink_album_artists(
-    repo: &dyn LibraryRepository,
-    track_id: i64,
-    edits: &AlbumTagEdits,
-) -> anyhow::Result<()> {
-    let Some(album_id) = repo.track(track_id)?.and_then(|t| t.album_id) else {
-        return Ok(());
-    };
-    let names = if edits.album_artists.is_empty() {
-        repo.track_artists(track_id)?
-    } else {
-        edits.album_artists.clone()
-    };
-    let ids = resolve_artists(repo, &names)?;
-    repo.set_album_artists(album_id, &ids)?;
-    Ok(())
-}
-
 fn resolve_artists(
     repo: &dyn LibraryRepository,
     names: &[String],
@@ -1282,13 +1309,35 @@ fn serialize_folders(paths: &[PathBuf]) -> String {
     items.join("\n")
 }
 
+fn is_placeholder_artist(name: &str) -> bool {
+    matches!(
+        name.to_lowercase().as_str(),
+        "" | "[no artist]"
+            | "no artist"
+            | "[unknown]"
+            | "<unknown>"
+            | "unknown"
+            | "unknown artist"
+            | "n/a"
+            | "none"
+    )
+}
+
+fn clean_artist_names(names: Vec<String>) -> Vec<String> {
+    names
+        .into_iter()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !is_placeholder_artist(name))
+        .collect()
+}
+
 fn to_scan_track(track: PreparedTrack) -> ScanTrack {
     ScanTrack {
         path: track.path.to_string_lossy().into_owned(),
         title: track.title,
         album_title: track.album_title,
-        artist_names: track.artist_names,
-        album_artist_names: track.album_artist_names,
+        artist_names: clean_artist_names(track.artist_names),
+        album_artist_names: clean_artist_names(track.album_artist_names),
         track_number: track.track_number,
         disc_number: track.disc_number,
         year: track.year,
@@ -1513,22 +1562,24 @@ mod tests {
             albums.sort_by(|a, b| (&a.title, a.year).cmp(&(&b.title, b.year)));
             for album in &albums {
                 out += &format!(
-                    "album {:?} year={:?} cover={:?} artists={:?} genres={:?}\n",
+                    "album {:?} year={:?} cover={:?} artists={:?} known={} genres={:?}\n",
                     album.title,
                     album.year,
                     album.cover_art_id,
                     self.repo.album_artists(album.id).unwrap(),
+                    self.repo.album_artist_known(album.id).unwrap(),
                     self.repo.album_genres(album.id).unwrap(),
                 );
                 let mut tracks = self.repo.tracks_for_album(album.id).unwrap();
                 tracks.sort_by(|a, b| a.path.cmp(&b.path));
                 for track in tracks {
                     out += &format!(
-                        "  {:?} title={:?} artists={:?} genres={:?} n={:?} disc={} \
+                        "  {:?} title={:?} artists={:?} album_artists={:?} genres={:?} n={:?} disc={} \
                          year={:?} cover={:?}\n",
                         Path::new(&track.path).file_name().unwrap(),
                         track.title,
                         self.repo.track_artists(track.id).unwrap(),
+                        self.repo.track_album_artists(track.id).unwrap(),
                         self.repo.track_genres(track.id).unwrap(),
                         track.track_number,
                         track.disc_number,
@@ -1598,6 +1649,202 @@ mod tests {
     }
 
     #[test]
+    fn an_untagged_album_is_grouped_under_the_artist_its_tracks_share() {
+        let ws = Workspace::new();
+        let plain = ws.add_file("01.flac", "tagged_basic.flac");
+        let featuring = ws.add_file("02.flac", "tagged_basic.flac");
+        let silence = ws.add_file("03.flac", "tagged_basic.flac");
+        for (path, n, artist) in [
+            (&plain, 1u32, "Band"),
+            (&featuring, 2, "Band Feat. Guest"),
+            (&silence, 3, "[no artist]"),
+        ] {
+            tag_writer::write_metadata(
+                path,
+                &tag_writer::TrackTagEdits {
+                    title: Some(format!("Track {n}")),
+                    artists: vec![artist.into()],
+                    album: Some("Record".into()),
+                    album_artists: Vec::new(),
+                    track_number: Some(n),
+                    year: Some(2020),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        ws.scan();
+
+        let names = |grouping: ArtistGrouping| {
+            let mut names: Vec<(String, i64)> = ws
+                .repo
+                .artists(grouping)
+                .unwrap()
+                .into_iter()
+                .map(|a| (a.name, a.track_count))
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(
+            names(ArtistGrouping::AlbumArtist),
+            vec![("Band".to_string(), 3)],
+            "every track of the album, the placeholder-tagged one included, follows Band"
+        );
+        assert_eq!(
+            names(ArtistGrouping::TrackArtist),
+            vec![
+                (String::new(), 1),
+                ("Band".to_string(), 1),
+                ("Band Feat. Guest".to_string(), 1)
+            ],
+            "[no artist] is no artist at all, so that track is 'no metadata' here"
+        );
+        let album_id = ws.repo.albums().unwrap()[0].id;
+        assert_eq!(ws.repo.album_artists(album_id).unwrap(), ["Band"]);
+        assert!(ws.repo.album_artist_known(album_id).unwrap());
+        let before = ws.snapshot();
+        ws.scan();
+        assert_eq!(before, ws.snapshot());
+    }
+
+    #[test]
+    fn a_various_artists_album_shows_up_as_partial_on_its_performers_page() {
+        let ws = Workspace::new();
+        let solo = ws.add_file("solo.flac", "tagged_basic.flac");
+        let credited = ws.add_file("comp1.flac", "tagged_basic.flac");
+        let other = ws.add_file("comp2.flac", "tagged_basic.flac");
+        for (path, album, album_artist, artist, n) in [
+            (&solo, "Old Blood", "Mick Gordon", "Mick Gordon", 1u32),
+            (
+                &credited,
+                "New Colossus",
+                "Various Artists",
+                "Mick Gordon",
+                1,
+            ),
+            (&other, "New Colossus", "Various Artists", "Other", 2),
+        ] {
+            tag_writer::write_metadata(
+                path,
+                &tag_writer::TrackTagEdits {
+                    title: Some(format!("{album} {n}")),
+                    artists: vec![artist.into()],
+                    album: Some(album.into()),
+                    album_artists: vec![album_artist.into()],
+                    track_number: Some(n),
+                    year: Some(2017),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        ws.scan();
+
+        let listed = ws.repo.artists(ArtistGrouping::AlbumArtist).unwrap();
+        let mut names: Vec<(String, i64)> = listed
+            .iter()
+            .map(|a| (a.name.clone(), a.track_count))
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                ("Mick Gordon".to_string(), 2),
+                ("Various Artists".to_string(), 2)
+            ]
+        );
+
+        let mick = listed.iter().find(|a| a.name == "Mick Gordon").unwrap().id;
+        let tracks = ws
+            .repo
+            .tracks_by_artist(mick, ArtistGrouping::AlbumArtist)
+            .unwrap();
+        assert_eq!(tracks.len(), 2);
+        let comp_id = ws
+            .repo
+            .track(ws.track_id(&credited))
+            .unwrap()
+            .unwrap()
+            .album_id
+            .unwrap();
+        assert_eq!(
+            artist_partial_albums(&ws.repo, &tracks),
+            HashSet::from([comp_id]),
+            "the compilation is partial on his page, so the Full albums toggle applies"
+        );
+        assert_eq!(
+            artist_display_tracks(&ws.repo, mick, true, ArtistGrouping::AlbumArtist).len(),
+            3
+        );
+    }
+
+    #[test]
+    fn an_untagged_track_follows_the_album_artist_its_siblings_carry() {
+        let ws = Workspace::new();
+        let tagged = ws.add_file("01.flac", "tagged_basic.flac");
+        let untagged = ws.add_file("02.mp3", "tagged_mp3.mp3");
+        tag_writer::write_metadata(
+            &tagged,
+            &tag_writer::TrackTagEdits {
+                title: Some("Opener".into()),
+                artists: vec!["Opener".into()],
+                album: Some("Same Album".into()),
+                album_artists: vec!["Headliner".into()],
+                track_number: Some(2),
+                year: Some(2020),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        tag_writer::write_metadata(
+            &untagged,
+            &tag_writer::TrackTagEdits {
+                title: Some("Guest Spot".into()),
+                artists: vec!["Guest".into()],
+                album: Some("Same Album".into()),
+                album_artists: Vec::new(),
+                track_number: Some(1),
+                year: Some(2020),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        ws.scan();
+
+        let names = |grouping: ArtistGrouping| {
+            let mut names: Vec<(String, i64)> = ws
+                .repo
+                .artists(grouping)
+                .unwrap()
+                .into_iter()
+                .map(|a| (a.name, a.track_count))
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(
+            names(ArtistGrouping::AlbumArtist),
+            vec![("Headliner".to_string(), 2)],
+            "the album's artist is known from the tagged track, so the untagged one follows it"
+        );
+        assert_eq!(
+            names(ArtistGrouping::TrackArtist),
+            vec![("Guest".to_string(), 1), ("Opener".to_string(), 1)]
+        );
+
+        let album_id = ws.repo.albums().unwrap()[0].id;
+        assert_eq!(
+            ws.repo.album_artists(album_id).unwrap(),
+            ["Headliner"],
+            "the track that carries the tag names the album, not the lower-numbered one"
+        );
+        let before = ws.snapshot();
+        ws.scan();
+        assert_eq!(before, ws.snapshot());
+    }
+
+    #[test]
     fn clearing_the_album_artists_falls_back_to_the_track_artists() {
         let ws = Workspace::new();
         let path = ws.add_file("one.flac", "tagged_basic.flac");
@@ -1628,7 +1875,7 @@ mod tests {
             cover: tag_writer::CoverEdit::Keep,
         };
         assert!(write_album_fields(&ws.repo, track_id, &path, &edits).unwrap());
-        relink_album_artists(&ws.repo, track_id, &edits).unwrap();
+        settle_derived_rows(&ws.repo, "album tag edit");
 
         let album_id = ws.repo.track(track_id).unwrap().unwrap().album_id.unwrap();
         assert_eq!(
@@ -2142,5 +2389,191 @@ mod tests {
             "re-baselining a library that was already out of date would suppress the \
              full rescan it still needs"
         );
+    }
+
+    #[test]
+    fn placeholder_credits_are_dropped_on_the_way_into_the_library() {
+        let prepared = PreparedTrack {
+            path: PathBuf::from("/m/01.flac"),
+            title: Some("Song".into()),
+            artist_names: vec![
+                "  Real Artist  ".into(),
+                "[no artist]".into(),
+                "Unknown Artist".into(),
+                "".into(),
+            ],
+            album_artist_names: vec!["none".into(), " Various Artists ".into()],
+            album_title: Some("Record".into()),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            genres: Vec::new(),
+            duration_ms: Some(1000),
+            cover_hash: None,
+            start_offset_ms: None,
+            bitrate: None,
+            is_cue: true,
+            lyrics: None,
+        };
+
+        let scanned = to_scan_track(prepared);
+
+        assert_eq!(scanned.artist_names, vec!["Real Artist".to_string()]);
+        assert_eq!(
+            scanned.album_artist_names,
+            vec!["Various Artists".to_string()],
+            "a real credit survives; only the placeholders go"
+        );
+    }
+
+    #[test]
+    fn the_remote_grouping_mirror_round_trips() {
+        for grouping in [ArtistGrouping::TrackArtist, ArtistGrouping::AlbumArtist] {
+            let cell = AtomicU8::new(grouping_to_u8(grouping));
+            assert_eq!(load_grouping(&cell), grouping);
+        }
+    }
+
+    #[test]
+    fn a_track_tag_edit_moves_it_between_artists_without_a_rescan() {
+        let ws = Workspace::new();
+        let moved = ws.add_file("01.flac", "tagged_basic.flac");
+        let sibling = ws.add_file("02.flac", "tagged_basic.flac");
+        for (path, n) in [(&moved, 1u32), (&sibling, 2)] {
+            tag_writer::write_metadata(
+                path,
+                &tag_writer::TrackTagEdits {
+                    title: Some(format!("Track {n}")),
+                    artists: vec!["Performer".into()],
+                    album: Some("Split".into()),
+                    album_artists: vec!["Headliner".into()],
+                    track_number: Some(n),
+                    year: Some(2020),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        ws.scan();
+        let track_id = ws.track_id(&moved);
+
+        let listed = |ws: &Workspace| {
+            let mut names: Vec<(String, i64)> = ws
+                .repo
+                .artists(ArtistGrouping::AlbumArtist)
+                .unwrap()
+                .into_iter()
+                .map(|a| (a.name, a.track_count))
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(listed(&ws), vec![("Headliner".to_string(), 2)]);
+
+        assert!(
+            apply_track_tags(
+                &ws.repo,
+                track_id,
+                &moved,
+                &tag_writer::TrackTagEdits {
+                    title: Some("Track 1".into()),
+                    artists: vec!["Performer".into()],
+                    album: Some("Split".into()),
+                    album_artists: vec!["Someone Else".into()],
+                    track_number: Some(1),
+                    year: Some(2020),
+                    ..Default::default()
+                },
+            )
+            .is_ok()
+        );
+
+        assert_eq!(
+            listed(&ws),
+            vec![
+                ("Headliner".to_string(), 1),
+                ("Someone Else".to_string(), 1)
+            ],
+            "the point update re-derives the grouping, so the tab moves with no scan"
+        );
+        assert_eq!(
+            ws.repo.track_album_artists(track_id).unwrap(),
+            ["Someone Else"]
+        );
+
+        let after_edit = ws.snapshot();
+        ws.scan();
+        assert_eq!(after_edit, ws.snapshot());
+    }
+
+    #[test]
+    fn the_remote_reader_follows_the_configured_grouping() {
+        use pawse_remote::LibraryReader;
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let folder = std::env::temp_dir().join(format!(
+            "pawse-remote-grouping-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let repo = SqliteLibrary::open_at(folder.join("library.db")).unwrap();
+
+        let headliner = repo.upsert_artist("Headliner").unwrap();
+        let guest = repo.upsert_artist("Guest").unwrap();
+        let album = repo.upsert_album("Record", Some(2020), None).unwrap();
+        let track = repo
+            .upsert_track(
+                &NewTrack {
+                    path: "/m/01.flac".into(),
+                    title: Some("Song".into()),
+                    album_title: Some("Record".into()),
+                    artist_names: vec!["Guest".into()],
+                    track_number: Some(1),
+                    disc_number: Some(1),
+                    ..Default::default()
+                },
+                Some(album),
+                &[(guest, 0)],
+            )
+            .unwrap();
+        repo.set_track_album_artists(track, &[(headliner, 0)])
+            .unwrap();
+        repo.resolve_album_artists().unwrap();
+
+        let access = LibraryAccess {
+            repo: Arc::new(repo),
+            artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(ArtistGrouping::AlbumArtist))),
+        };
+        let names = |access: &LibraryAccess| {
+            let mut names: Vec<String> = access.artists().into_iter().map(|a| a.name).collect();
+            names.sort();
+            names
+        };
+
+        assert_eq!(names(&access), vec!["Headliner".to_string()]);
+        assert_eq!(
+            access.artist_detail(headliner, false).unwrap().albums.len(),
+            1
+        );
+
+        access.artists_grouping.store(
+            grouping_to_u8(ArtistGrouping::TrackArtist),
+            Ordering::Relaxed,
+        );
+        assert_eq!(
+            names(&access),
+            vec!["Guest".to_string()],
+            "flipping the setting re-points the remote without rebuilding it"
+        );
+        assert!(
+            access
+                .artist_detail(headliner, false)
+                .unwrap()
+                .albums
+                .is_empty()
+        );
+
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

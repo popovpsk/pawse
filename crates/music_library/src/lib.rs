@@ -1,3 +1,4 @@
+pub mod album_artists;
 pub mod error;
 pub mod migrations;
 pub mod models;
@@ -7,9 +8,9 @@ pub mod thumbnail;
 
 pub use error::{LibraryError, Result};
 pub use models::{
-    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistSummary, CoverArt, LyricsRef, NewTrack,
-    Playlist, PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack, StoredLyrics, Track,
-    lyrics_source,
+    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
+    LyricsRef, NewTrack, Playlist, PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack,
+    StoredLyrics, Track, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -91,7 +92,6 @@ mod tests {
             title: Some("Airbag".into()),
             album_title: Some("OK Computer".into()),
             artist_names: vec!["Radiohead".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(1997),
@@ -141,7 +141,6 @@ mod tests {
                 title: Some(title.into()),
                 album_title: Some("Album".into()),
                 artist_names: vec!["Artist".into()],
-                album_artist_names: Vec::new(),
                 track_number: None,
                 disc_number: None,
                 year: None,
@@ -201,7 +200,6 @@ mod tests {
                 title: Some(title.into()),
                 album_title: Some(album.into()),
                 artist_names: vec![artist.into()],
-                album_artist_names: Vec::new(),
                 track_number: Some(no),
                 disc_number: Some(1),
                 year: None,
@@ -265,7 +263,6 @@ mod tests {
             title: Some("Come Together".into()),
             album_title: Some("Abbey Road".into()),
             artist_names: vec!["The Beatles".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
@@ -284,7 +281,7 @@ mod tests {
                 .any(|a| a.id == NO_METADATA_ALBUM_ID)
         );
         assert!(
-            !lib.artists()
+            !lib.artists(ArtistGrouping::TrackArtist)
                 .unwrap()
                 .iter()
                 .any(|a| a.id == NO_METADATA_ARTIST_ID)
@@ -295,7 +292,6 @@ mod tests {
             title: Some("track".into()),
             album_title: None,
             artist_names: Vec::new(),
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -312,10 +308,12 @@ mod tests {
         assert_eq!(album_tracks.len(), 1);
         assert_eq!(album_tracks[0].path, "/loose/track.flac");
 
-        let artists = lib.artists().unwrap();
+        let artists = lib.artists(ArtistGrouping::TrackArtist).unwrap();
         let no_meta_artist = artists.iter().find(|a| a.id == NO_METADATA_ARTIST_ID);
         assert_eq!(no_meta_artist.map(|a| a.track_count), Some(1));
-        let artist_tracks = lib.tracks_by_artist(NO_METADATA_ARTIST_ID).unwrap();
+        let artist_tracks = lib
+            .tracks_by_artist(NO_METADATA_ARTIST_ID, ArtistGrouping::TrackArtist)
+            .unwrap();
         assert_eq!(artist_tracks.len(), 1);
         assert_eq!(artist_tracks[0].path, "/loose/track.flac");
     }
@@ -335,7 +333,6 @@ mod tests {
                 title: Some(format!("T{i}")),
                 album_title: Some("Album".into()),
                 artist_names: vec!["Artist".into()],
-                album_artist_names: Vec::new(),
                 track_number: None,
                 disc_number: None,
                 year: None,
@@ -365,7 +362,6 @@ mod tests {
             title: Some("Song".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -394,7 +390,6 @@ mod tests {
             title: None,
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -425,7 +420,6 @@ mod tests {
             title: Some("Track One".into()),
             album_title: Some("Multi-Disc Album".into()),
             artist_names: vec!["Artist One".into()],
-            album_artist_names: vec!["Album Artist".into()],
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
@@ -439,7 +433,6 @@ mod tests {
             title: Some("Track Two".into()),
             album_title: Some("Multi-Disc Album".into()),
             artist_names: vec!["Artist Two".into()],
-            album_artist_names: vec!["Album Artist".into()],
             track_number: Some(1),
             disc_number: Some(2),
             year: Some(2020),
@@ -480,7 +473,6 @@ mod tests {
             title: Some("Track".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist One".into(), "Artist Two".into()],
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -528,13 +520,6 @@ mod tests {
     }
 
     #[test]
-    fn test_album_has_artists_false() {
-        let (lib, _path) = create_test_db();
-        let album_id = lib.upsert_album("Solo Album", None, None).unwrap();
-        assert!(!lib.album_has_artists(album_id).unwrap());
-    }
-
-    #[test]
     fn test_delete_orphaned_albums_and_artists() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Orphan Artist").unwrap();
@@ -544,7 +529,7 @@ mod tests {
         lib.delete_orphaned_albums_and_artists().unwrap();
 
         assert!(lib.album_title(album_id).unwrap().is_none());
-        assert!(!lib.album_has_artists(album_id).unwrap());
+        assert!(lib.album_artists(album_id).unwrap().is_empty());
     }
 
     #[test]
@@ -579,7 +564,6 @@ mod tests {
             title: Some("Song".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -617,7 +601,6 @@ mod tests {
             title: Some("Track".into()),
             album_title: Some("Compilation".into()),
             artist_names: vec!["Various".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: None,
             year: Some(2020),
@@ -643,7 +626,6 @@ mod tests {
             title: Some("Song".into()),
             album_title: None,
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -671,7 +653,6 @@ mod tests {
             title: Some("Track One".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: None,
             year: None,
@@ -685,7 +666,6 @@ mod tests {
             title: Some("Track Two".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(2),
             disc_number: None,
             year: None,
@@ -788,7 +768,6 @@ mod tests {
             title: Some("Song".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
@@ -832,7 +811,6 @@ mod tests {
                 title: Some(format!("Track {n}")),
                 album_title: Some("Album".into()),
                 artist_names: vec!["Artist".into()],
-                album_artist_names: Vec::new(),
                 track_number: Some(n),
                 disc_number: Some(1),
                 year: Some(2020),
@@ -867,7 +845,6 @@ mod tests {
             title: Some("One".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
@@ -905,7 +882,6 @@ mod tests {
             title: Some("Track 1".into()),
             album_title: Some("Album 1".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
@@ -919,7 +895,6 @@ mod tests {
             title: Some("Track 2".into()),
             album_title: Some("Album 2".into()),
             artist_names: vec!["Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
@@ -983,7 +958,6 @@ mod tests {
             title: Some("Test Track".into()),
             album_title: Some("Test Album".into()),
             artist_names: vec!["Test Artist".into()],
-            album_artist_names: Vec::new(),
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2024),
@@ -1029,7 +1003,6 @@ mod tests {
             title: Some(title.into()),
             album_title: Some(album.into()),
             artist_names: vec![artist.into()],
-            album_artist_names: vec![artist.into()],
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
@@ -1101,14 +1074,14 @@ mod tests {
         seed_track(&lib, "Song B", "Album X", "Artist Alpha");
         seed_track(&lib, "Song C", "Album Y", "Artist Beta");
 
-        let artists = lib.artists().unwrap();
+        let artists = lib.artists(ArtistGrouping::TrackArtist).unwrap();
         let alpha = artists.iter().find(|a| a.name == "Artist Alpha").unwrap();
         let beta = artists.iter().find(|a| a.name == "Artist Beta").unwrap();
         assert_eq!(alpha.track_count, 2);
         assert_eq!(beta.track_count, 1);
         // Artists with zero tracks should not appear.
         lib.upsert_artist("Lonely Artist").unwrap();
-        let artists2 = lib.artists().unwrap();
+        let artists2 = lib.artists(ArtistGrouping::TrackArtist).unwrap();
         assert!(artists2.iter().all(|a| a.name != "Lonely Artist"));
     }
 
@@ -1130,7 +1103,6 @@ mod tests {
             title: Some(title.into()),
             album_title: None,
             artist_names: vec![],
-            album_artist_names: vec![],
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2000),
@@ -1158,7 +1130,9 @@ mod tests {
         )
         .unwrap();
 
-        let tracks = lib.tracks_by_artist(radiohead).unwrap();
+        let tracks = lib
+            .tracks_by_artist(radiohead, ArtistGrouping::TrackArtist)
+            .unwrap();
         assert_eq!(tracks.len(), 2);
         // Ordered by album year ASC: OK Computer (1997) first, Kid A (2000) second.
         assert_eq!(tracks[0].title, "Airbag");
@@ -1178,7 +1152,6 @@ mod tests {
             title: Some("Track".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Lead".into(), "Feat".into()],
-            album_artist_names: Vec::new(),
             track_number: None,
             disc_number: None,
             year: None,
@@ -1410,9 +1383,10 @@ mod tests {
             .add_cover(&hash, thumbs.small, thumbs.large, "/music/a.flac", true)
             .unwrap();
         session.finish().unwrap();
-        // The album's cover is settled after the scan, not during it — see
-        // `resolve_album_covers`.
+        // The album's cover and artists are settled after the scan, not during
+        // it — see `resolve_album_covers` / `resolve_album_artists`.
         lib.resolve_album_covers().unwrap();
+        lib.resolve_album_artists().unwrap();
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
@@ -1423,6 +1397,10 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "A");
         assert_eq!(tracks[0].cover_art_id, albums[0].cover_art_id);
+        assert_eq!(
+            lib.track_album_artists(tracks[0].id).unwrap(),
+            vec!["Artist".to_string()]
+        );
     }
 
     #[test]
@@ -1707,7 +1685,6 @@ mod tests {
             title: Some("T".into()),
             album_title: None,
             artist_names: vec![],
-            album_artist_names: vec![],
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
@@ -1753,7 +1730,9 @@ mod tests {
         )
         .unwrap();
 
-        let covers = lib.artist_album_covers().unwrap();
+        let covers = lib
+            .artist_album_covers(ArtistGrouping::TrackArtist)
+            .unwrap();
 
         let artist_covers = covers.get(&artist).unwrap();
         // At most 3, oldest-first: cover1 (1990), cover2 (2000), cover3 (2010).
@@ -1773,7 +1752,9 @@ mod tests {
             &[(no_cover_artist, 0)],
         )
         .unwrap();
-        let covers2 = lib.artist_album_covers().unwrap();
+        let covers2 = lib
+            .artist_album_covers(ArtistGrouping::TrackArtist)
+            .unwrap();
         assert!(!covers2.contains_key(&no_cover_artist));
     }
 
@@ -1901,7 +1882,6 @@ mod tests {
             title: Some("Renamed".into()),
             album_title: Some("Cue Album".into()),
             artist_names: vec!["New Artist".into()],
-            album_artist_names: vec!["New Artist".into()],
             track_number: Some(4),
             disc_number: Some(2),
             year: Some(2001),
@@ -2019,7 +1999,6 @@ mod tests {
             title: Some("One".into()),
             album_title: Some("Album".into()),
             artist_names: vec!["Guest".into()],
-            album_artist_names: vec!["Guest".into()],
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
@@ -2036,5 +2015,414 @@ mod tests {
             vec!["Album Artist".to_string()],
             "a per-track write must not rewrite the row its siblings share"
         );
+    }
+
+    fn insert_album_track(
+        lib: &SqliteLibrary,
+        path: &str,
+        album_id: Option<i64>,
+        track_number: Option<u32>,
+        artist_ids: &[(i64, i32)],
+    ) -> i64 {
+        let track = NewTrack {
+            path: path.into(),
+            title: Some(path.into()),
+            album_title: None,
+            artist_names: Vec::new(),
+            track_number,
+            disc_number: Some(1),
+            year: None,
+            duration_ms: None,
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        lib.upsert_track(&track, album_id, artist_ids).unwrap()
+    }
+
+    fn count_of(artists: &[ArtistSummary], id: i64) -> Option<i64> {
+        artists.iter().find(|a| a.id == id).map(|a| a.track_count)
+    }
+
+    #[test]
+    fn album_artist_grouping_uses_the_tag_and_falls_back_to_the_track_artist() {
+        let (lib, _path) = create_test_db();
+        let band = lib.upsert_artist("Band").unwrap();
+        let guest = lib.upsert_artist("Guest").unwrap();
+        let album = lib.upsert_album("Split", Some(2020), None).unwrap();
+        let tagged = insert_album_track(&lib, "/m/01.flac", Some(album), Some(1), &[(guest, 0)]);
+        let untagged = insert_album_track(&lib, "/m/02.flac", Some(album), Some(2), &[(guest, 0)]);
+        lib.set_track_album_artists(tagged, &[(band, 0)]).unwrap();
+
+        let by_album = lib.artists(ArtistGrouping::AlbumArtist).unwrap();
+        assert_eq!(count_of(&by_album, band), Some(1));
+        assert_eq!(
+            count_of(&by_album, guest),
+            Some(2),
+            "listed through the untagged track, the page then carries every credit"
+        );
+
+        let by_track = lib.artists(ArtistGrouping::TrackArtist).unwrap();
+        assert_eq!(count_of(&by_track, band), None);
+        assert_eq!(count_of(&by_track, guest), Some(2));
+
+        let ids = |tracks: Vec<Track>| tracks.into_iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(lib
+                .tracks_by_artist(band, ArtistGrouping::AlbumArtist)
+                .unwrap()),
+            vec![tagged]
+        );
+        assert_eq!(
+            ids(lib
+                .tracks_by_artist(guest, ArtistGrouping::AlbumArtist)
+                .unwrap()),
+            vec![tagged, untagged]
+        );
+        assert_eq!(
+            ids(lib
+                .tracks_by_artist(guest, ArtistGrouping::TrackArtist)
+                .unwrap()),
+            vec![tagged, untagged]
+        );
+        assert_eq!(
+            lib.track_album_artists(tagged).unwrap(),
+            vec!["Band".to_string()]
+        );
+        assert!(lib.track_album_artists(untagged).unwrap().is_empty());
+    }
+
+    #[test]
+    fn artist_summary_follows_the_grouping() {
+        let (lib, _path) = create_test_db();
+        let band = lib.upsert_artist("Band").unwrap();
+        let guest = lib.upsert_artist("Guest").unwrap();
+        let album = lib.upsert_album("Split", Some(2020), None).unwrap();
+        let tagged = insert_album_track(&lib, "/m/01.flac", Some(album), Some(1), &[(guest, 0)]);
+        lib.set_track_album_artists(tagged, &[(band, 0)]).unwrap();
+
+        let summary = lib
+            .artist_summary(band, ArtistGrouping::AlbumArtist)
+            .unwrap()
+            .unwrap();
+        assert_eq!((summary.name.as_str(), summary.track_count), ("Band", 1));
+        assert!(
+            lib.artist_summary(band, ArtistGrouping::TrackArtist)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            lib.artist_summary(guest, ArtistGrouping::AlbumArtist)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            lib.artist_summary(guest, ArtistGrouping::TrackArtist)
+                .unwrap()
+                .map(|a| a.track_count),
+            Some(1)
+        );
+        assert!(
+            lib.artist_summary(NO_METADATA_ARTIST_ID, ArtistGrouping::AlbumArtist)
+                .unwrap()
+                .is_none()
+        );
+
+        insert_album_track(&lib, "/m/loose.flac", None, None, &[]);
+        for grouping in [ArtistGrouping::TrackArtist, ArtistGrouping::AlbumArtist] {
+            let orphan = lib
+                .artist_summary(NO_METADATA_ARTIST_ID, grouping)
+                .unwrap()
+                .unwrap();
+            assert_eq!((orphan.id, orphan.track_count), (NO_METADATA_ARTIST_ID, 1));
+            assert_eq!(
+                count_of(&lib.artists(grouping).unwrap(), NO_METADATA_ARTIST_ID),
+                Some(1)
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_album_artists_ignores_insertion_order() {
+        let (lib, _path) = create_test_db();
+        let alpha = lib.upsert_artist("Alpha").unwrap();
+        let zed = lib.upsert_artist("Zed").unwrap();
+        let compiler = lib.upsert_artist("Compiler").unwrap();
+
+        let comp = lib.upsert_album("Comp", Some(2021), None).unwrap();
+        let second = insert_album_track(&lib, "/c/02.flac", Some(comp), Some(2), &[(zed, 0)]);
+        lib.set_track_album_artists(second, &[(compiler, 0)])
+            .unwrap();
+        insert_album_track(&lib, "/c/01.flac", Some(comp), Some(1), &[(alpha, 0)]);
+        lib.set_album_artists(comp, &[(zed, 0)]).unwrap();
+
+        let plain = lib.upsert_album("Plain", Some(2022), None).unwrap();
+        insert_album_track(&lib, "/p/b.flac", Some(plain), Some(2), &[(zed, 0)]);
+        insert_album_track(&lib, "/p/a.flac", Some(plain), Some(1), &[(alpha, 0)]);
+
+        lib.resolve_album_artists().unwrap();
+        assert_eq!(
+            lib.album_artists(comp).unwrap(),
+            vec!["Compiler".to_string()]
+        );
+        assert_eq!(lib.album_artists(plain).unwrap(), vec!["Alpha".to_string()]);
+
+        lib.resolve_album_artists().unwrap();
+        assert_eq!(
+            lib.album_artists(comp).unwrap(),
+            vec!["Compiler".to_string()]
+        );
+        assert_eq!(lib.album_artists(plain).unwrap(), vec!["Alpha".to_string()]);
+    }
+
+    #[test]
+    fn orphan_cleanup_keeps_an_artist_only_named_as_a_track_album_artist() {
+        let (lib, _path) = create_test_db();
+        let alpha = lib.upsert_artist("Alpha").unwrap();
+        let only_tag = lib.upsert_artist("Only In Tag").unwrap();
+        let album = lib.upsert_album("Comp", Some(2021), None).unwrap();
+        insert_album_track(&lib, "/c/01.flac", Some(album), Some(1), &[(alpha, 0)]);
+        let second = insert_album_track(&lib, "/c/02.flac", Some(album), Some(2), &[(alpha, 0)]);
+        lib.set_track_album_artists(second, &[(only_tag, 0)])
+            .unwrap();
+
+        lib.resolve_album_artists().unwrap();
+        lib.delete_orphaned_albums_and_artists().unwrap();
+
+        assert_eq!(
+            lib.album_artists(album).unwrap(),
+            vec!["Only In Tag".to_string()]
+        );
+        assert_eq!(
+            lib.track_album_artists(second).unwrap(),
+            vec!["Only In Tag".to_string()]
+        );
+    }
+
+    #[test]
+    fn an_album_without_tags_is_credited_to_the_shared_primary_artist() {
+        let (lib, _path) = create_test_db();
+        let band = lib.upsert_artist("Band").unwrap();
+        let featuring = lib.upsert_artist("Band Feat. Guest").unwrap();
+        let album = lib.upsert_album("Record", Some(2020), None).unwrap();
+        insert_album_track(&lib, "/r/01.flac", Some(album), Some(1), &[(band, 0)]);
+        insert_album_track(&lib, "/r/02.flac", Some(album), Some(2), &[(featuring, 0)]);
+        insert_album_track(&lib, "/r/03.flac", Some(album), Some(3), &[]);
+
+        lib.resolve_album_artists().unwrap();
+        assert_eq!(lib.album_artists(album).unwrap(), vec!["Band".to_string()]);
+        assert!(lib.album_artist_known(album).unwrap());
+
+        let by_album = lib.artists(ArtistGrouping::AlbumArtist).unwrap();
+        assert_eq!(count_of(&by_album, band), Some(3));
+        assert_eq!(count_of(&by_album, featuring), None);
+        assert_eq!(count_of(&by_album, NO_METADATA_ARTIST_ID), None);
+        assert_eq!(
+            lib.tracks_by_artist(band, ArtistGrouping::AlbumArtist)
+                .unwrap()
+                .len(),
+            3
+        );
+
+        let by_track = lib.artists(ArtistGrouping::TrackArtist).unwrap();
+        assert_eq!(count_of(&by_track, band), Some(1));
+        assert_eq!(count_of(&by_track, featuring), Some(1));
+        assert_eq!(count_of(&by_track, NO_METADATA_ARTIST_ID), Some(1));
+    }
+
+    #[test]
+    fn a_mixed_album_without_tags_keeps_each_track_under_its_own_artist() {
+        let (lib, _path) = create_test_db();
+        let alpha = lib.upsert_artist("Alpha").unwrap();
+        let zed = lib.upsert_artist("Zed").unwrap();
+        let album = lib.upsert_album("Comp", Some(2020), None).unwrap();
+        insert_album_track(&lib, "/c/01.flac", Some(album), Some(1), &[(alpha, 0)]);
+        insert_album_track(&lib, "/c/02.flac", Some(album), Some(2), &[(zed, 0)]);
+
+        lib.resolve_album_artists().unwrap();
+        assert_eq!(lib.album_artists(album).unwrap(), vec!["Alpha".to_string()]);
+        assert!(!lib.album_artist_known(album).unwrap());
+
+        let by_album = lib.artists(ArtistGrouping::AlbumArtist).unwrap();
+        assert_eq!(count_of(&by_album, alpha), Some(1));
+        assert_eq!(count_of(&by_album, zed), Some(1));
+    }
+
+    #[test]
+    fn a_partly_tagged_album_pulls_its_untagged_tracks_under_the_tag() {
+        let (lib, _path) = create_test_db();
+        let band = lib.upsert_artist("Band").unwrap();
+        let guest = lib.upsert_artist("Guest").unwrap();
+        let album = lib.upsert_album("Split", Some(2020), None).unwrap();
+        let tagged = insert_album_track(&lib, "/m/01.flac", Some(album), Some(1), &[(guest, 0)]);
+        insert_album_track(&lib, "/m/02.flac", Some(album), Some(2), &[(guest, 0)]);
+        lib.set_track_album_artists(tagged, &[(band, 0)]).unwrap();
+
+        lib.resolve_album_artists().unwrap();
+        assert!(lib.album_artist_known(album).unwrap());
+        let by_album = lib.artists(ArtistGrouping::AlbumArtist).unwrap();
+        assert_eq!(count_of(&by_album, band), Some(2));
+        assert_eq!(count_of(&by_album, guest), None);
+    }
+
+    #[test]
+    fn a_listed_artists_page_also_holds_the_tracks_they_are_only_credited_on() {
+        let (lib, _path) = create_test_db();
+        let mick = lib.upsert_artist("Mick Gordon").unwrap();
+        let other = lib.upsert_artist("Other").unwrap();
+        let various = lib.upsert_artist("Various Artists").unwrap();
+        let solo = lib.upsert_album("Old Blood", Some(2015), None).unwrap();
+        let comp = lib.upsert_album("New Colossus", Some(2017), None).unwrap();
+        let solo_track = insert_album_track(&lib, "/s/01.flac", Some(solo), Some(1), &[(mick, 0)]);
+        let credited = insert_album_track(&lib, "/c/01.flac", Some(comp), Some(1), &[(mick, 0)]);
+        let others = insert_album_track(&lib, "/c/02.flac", Some(comp), Some(2), &[(other, 0)]);
+        lib.set_track_album_artists(credited, &[(various, 0)])
+            .unwrap();
+        lib.set_track_album_artists(others, &[(various, 0)])
+            .unwrap();
+        lib.resolve_album_artists().unwrap();
+
+        let listed = lib.artists(ArtistGrouping::AlbumArtist).unwrap();
+        assert_eq!(count_of(&listed, various), Some(2));
+        assert_eq!(
+            count_of(&listed, mick),
+            Some(2),
+            "his own album plus the credit"
+        );
+        assert_eq!(
+            count_of(&listed, other),
+            None,
+            "credits alone do not list an artist"
+        );
+
+        let ids = |tracks: Vec<Track>| tracks.into_iter().map(|t| t.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(lib
+                .tracks_by_artist(mick, ArtistGrouping::AlbumArtist)
+                .unwrap()),
+            vec![solo_track, credited]
+        );
+        assert_eq!(
+            lib.artist_summary(mick, ArtistGrouping::AlbumArtist)
+                .unwrap()
+                .map(|a| a.track_count),
+            Some(2)
+        );
+        assert!(
+            lib.artist_summary(other, ArtistGrouping::AlbumArtist)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            lib.artist_summary(other, ArtistGrouping::TrackArtist)
+                .unwrap()
+                .map(|a| a.track_count),
+            Some(1)
+        );
+
+        let haystacks = lib
+            .artist_search_haystacks(ArtistGrouping::AlbumArtist)
+            .unwrap();
+        let various_hay = &haystacks[&various];
+        assert!(various_hay.starts_with("Various Artists"));
+        assert!(various_hay.contains("Mick Gordon") && various_hay.contains("Other"));
+        assert_eq!(haystacks[&mick].trim(), "Mick Gordon");
+        assert!(
+            !haystacks.contains_key(&other),
+            "only listed artists are searchable"
+        );
+    }
+
+    #[test]
+    fn set_album_artists_marks_the_albums_artist_known() {
+        let (lib, _path) = create_test_db();
+        let band = lib.upsert_artist("Band").unwrap();
+        let album = lib.upsert_album("Record", Some(2020), None).unwrap();
+        assert!(!lib.album_artist_known(album).unwrap());
+
+        lib.set_album_artists(album, &[(band, 0)]).unwrap();
+        assert!(lib.album_artist_known(album).unwrap());
+
+        lib.set_album_artists(album, &[]).unwrap();
+        assert!(
+            !lib.album_artist_known(album).unwrap(),
+            "clearing the credits clears the flag, so the two can never disagree"
+        );
+    }
+
+    #[test]
+    fn avatar_covers_skip_artists_the_grouping_does_not_list() {
+        let (lib, _path) = create_test_db();
+        let cover = {
+            let img = image::RgbImage::from_pixel(4, 4, image::Rgb([9, 9, 9]));
+            let mut buf = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgb8(img)
+                .write_to(&mut buf, image::ImageFormat::Jpeg)
+                .unwrap();
+            lib.save_cover_art(&buf.into_inner(), "/c/01.flac", true)
+                .unwrap()
+        };
+        let headliner = lib.upsert_artist("Headliner").unwrap();
+        let guest = lib.upsert_artist("Guest Only").unwrap();
+        let various = lib.upsert_artist("Various Artists").unwrap();
+        let comp = lib.upsert_album("Comp", Some(2020), Some(cover)).unwrap();
+        let own = lib.upsert_album("Solo", Some(2021), Some(cover)).unwrap();
+        let on_comp = insert_album_track(&lib, "/c/01.flac", Some(comp), Some(1), &[(guest, 0)]);
+        lib.set_track_album_artists(on_comp, &[(various, 0)])
+            .unwrap();
+        let solo = insert_album_track(&lib, "/s/01.flac", Some(own), Some(1), &[(headliner, 0)]);
+        lib.set_track_album_artists(solo, &[(headliner, 0)])
+            .unwrap();
+        lib.resolve_album_artists().unwrap();
+
+        let covers = lib
+            .artist_album_covers(ArtistGrouping::AlbumArtist)
+            .unwrap();
+        assert!(covers.contains_key(&various));
+        assert!(covers.contains_key(&headliner));
+        assert!(
+            !covers.contains_key(&guest),
+            "an artist the tab does not list never has an avatar to draw"
+        );
+
+        let by_track = lib
+            .artist_album_covers(ArtistGrouping::TrackArtist)
+            .unwrap();
+        assert!(
+            by_track.contains_key(&guest),
+            "the other mode does list them"
+        );
+    }
+
+    #[test]
+    fn track_artist_grouping_searches_names_only() {
+        let (lib, _path) = create_test_db();
+        let band = lib.upsert_artist("Band").unwrap();
+        let guest = lib.upsert_artist("Guest").unwrap();
+        let album = lib.upsert_album("Record", Some(2020), None).unwrap();
+        let shared = insert_album_track(
+            &lib,
+            "/r/01.flac",
+            Some(album),
+            Some(1),
+            &[(band, 0), (guest, 1)],
+        );
+        lib.set_track_album_artists(shared, &[(band, 0)]).unwrap();
+        lib.resolve_album_artists().unwrap();
+
+        let by_track = lib
+            .artist_search_haystacks(ArtistGrouping::TrackArtist)
+            .unwrap();
+        assert_eq!(by_track[&band].trim(), "Band");
+        assert_eq!(by_track[&guest].trim(), "Guest");
+
+        let by_album = lib
+            .artist_search_haystacks(ArtistGrouping::AlbumArtist)
+            .unwrap();
+        assert!(
+            by_album[&band].contains("Guest"),
+            "searching for a guest must surface the artist whose page holds them"
+        );
+        assert!(!by_album.contains_key(&guest));
     }
 }

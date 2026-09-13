@@ -16,7 +16,10 @@ drive the `PlaybackQueue` on click.
   live drill view, and the album/artist cross-nav `Subscription` lives in the frame
   (so it dies with its view). `go_back` pops one frame; picking a tab resets the
   stack to `[Root(tab)]`; jumps from footer/now-playing/cover-mode push frames that
-  unwind on back. Only `stack.last()` renders and receives the header search query —
+  unwind on back. `navigate_to_artist` (those jumps, plus the album header's artist
+  link) resolves the id with `artist_summary` in the configured grouping and falls
+  back to `TrackArtist` — a featured performer with no album of their own is not in
+  the album-artist list, and the click must still land somewhere. Only `stack.last()` renders and receives the header search query —
   buried frames stay live (their like/track-change subscriptions keep them current)
   but unmounted, so they cost nothing per frame. `is_drilled_in() = stack.len() > 1`;
   `current_tab()` is `None` while drilled in (`MainView` keeps the prior tab lit).
@@ -33,9 +36,36 @@ drive the `PlaybackQueue` on click.
   Genre shows the most-common one + `…` when there are more, full list on hover.
   Album genres are batch-fetched once (`album_genres_map`) and cached, not queried
   per row — `recompute_visible` runs on every keystroke.
-- `artists_view.rs` — Artists tab: virtualized list of artists.
+- `artists_view.rs` — Artists tab: virtualized list of artists. Which relation the
+  list is built on is a setting (`artists_grouping`, Settings → Interface → Artists
+  view): `AlbumArtist` (default) attributes each track to its own album-artist tag;
+  a track without one follows its album's artist when that is *known*
+  (`albums.artist_known`, see the derived-artists note below), and only on a true
+  compilation falls back to its own track artists — so an untagged compilation
+  still shows each performer as a partial album; `TrackArtist` lists everyone
+  credited on a track. In `AlbumArtist` mode the *list* is who heads an album, but
+  a listed artist's page, count and avatar covers take the union with their
+  `track_artists` credits (the `m` / `u` CTE pair in `membership_ctes`, where `u`
+  selects from `m` rather than repeating it, so the union is evaluated once) — so a
+  "Various Artists" soundtrack still shows up (partial, with the Full-albums toggle)
+  on the page of a performer who has an album of their own, while a performer credited only on compilations stays out of
+  the list. The tab's filter matches each listed artist's name *plus* the names of
+  everyone credited on the tracks of their page (`artist_search_haystacks`, fetched
+  with the list and refreshed with it) — so "mick gordon" also surfaces "Various
+  Artists", and "xzibit" surfaces Limp Bizkit, without either guest becoming a row.
+  That expansion is `AlbumArtist`-only: in `TrackArtist` mode every performer is a row
+  of their own, so there is nobody to reach through somebody else's name and the
+  haystack is just the name. The buttons are labelled with the raw tag names
+  (`artist` / `album artist`) on purpose, untranslated. The view observes
+  `SettingsStore` and, when the grouping changes, re-fetches `artists` /
+  `artist_album_covers` (a data change, not just a repaint — unlike `albums_view`).
+  It re-fetches on `TrackTagsChanged` / `AlbumTagsChanged` too: a tag edit re-derives
+  every album's artist, so rows and counts here move with no scan.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
-- `artist_tracks_view.rs` — all tracks of one artist, grouped by album. An album
+- `artist_tracks_view.rs` — all tracks of one artist, grouped by album. It is
+  constructed with the `ArtistGrouping` it should use and keeps it for its lifetime
+  (`rebuild_source` re-queries with the same one); flipping the setting does not
+  rebuild an already open page, the list behind it reloads instead. An album
   the artist only partly appears on (their track count < the album's total) is
   "partial"; its queue button offers artist-tracks-only vs. the full album. When the
   artist has any partial album, the header shows a "Full albums" toggle (top-right):
@@ -94,6 +124,28 @@ drive the `PlaybackQueue` on click.
   siblings re-keys the row and splits the album in two. They unlock only in the album
   editor, or for a track that belongs to no album at all — nothing shared to break,
   and no album editor it could be reached from.
+- **An album's artists are derived, like its cover.** The scan and `reindex_one`
+  only write each track's own album-artist tag (`track_album_artists`);
+  `resolve_album_artists` in `settle_derived_rows` then runs
+  `music_library::album_artists::derive_album_artists` over the album's tracks in
+  `(disc, track, path)` order: the first track carrying a tag names the album; with
+  no tag anywhere, an artist that appears *standalone* on some track and is, on every
+  other track, followed by a *join marker* — punctuation (`/ & , ; + ( [ -`) or a
+  guest word (feat/ft/with/vs/and/x) — names it: "Limp Bizkit" over "Limp Bizkit
+  Feat. Xzibit", "Two Feathers" over "Two Feathers/Mikael Stanne". Matching is
+  case-insensitive. A bare space is deliberately not a marker, so "Queen" never
+  swallows "Queen Latifah" nor "Pink" "Pink Floyd", and a dash counts only when it is
+  spaced off ("Band - Guest"), so "Jay-Z", "Wu-Tang Clan" and "T-Pain" stay whole
+  names. Identical multi-value credits on every track are kept whole. Those cases set `albums.artist_known = 1`, and every untagged track
+  of the album follows it in the album-artist grouping. Anything else (two standalone
+  artists, no artists at all) leaves `artist_known = 0`: the album row still gets
+  the first track's artists for the Albums tab, but tracks keep their own artists.
+  `set_album_artists` sets the same flag, so the credited rows and the flag cannot
+  disagree whichever of the two wrote them.
+  The standalone requirement is what keeps "AC/DC" from being cut at the slash and
+  "Sonic Youth"/"Sonic Boom" from collapsing into "Sonic". Order-independent, so a
+  scan and a point update agree; the rescan-equivalence tests pin it through
+  `snapshot()`, which includes the flag.
 - **An album's cover is chosen deterministically, and the choice is re-made after
   every write.** A cover is derived, never typed: the scanner takes the embedded
   picture, or an image file found next to the track, and hashes it into `cover_art`

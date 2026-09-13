@@ -117,6 +117,8 @@ pub static HI: Strings = lang! {
     albums_artist_inline: "इनलाइन",
     albums_artist_column: "कॉलम",
     albums_artist_hidden: "छिपा हुआ",
+    settings_artists_view: "कलाकार दृश्य",
+    artists_group_by_tag: "टैग के अनुसार समूह",
     music_folders: "संगीत फ़ोल्डर",
     music_folders_desc: "संगीत फ़ाइलों के लिए स्कैन किए गए फ़ोल्डर",
     no_folders_added: "कोई फ़ोल्डर नहीं जोड़ा गया",

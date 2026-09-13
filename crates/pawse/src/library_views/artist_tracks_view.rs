@@ -32,6 +32,7 @@ use crate::localization::{LangChanged, tr};
 use crate::now_playing::NavigateToAlbumRequested;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
+use music_library::ArtistGrouping;
 
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const ALBUM_COVER_SIZE: f32 = 60.;
@@ -88,6 +89,7 @@ enum ItemKind {
 pub struct ArtistTracksView {
     artist_id: i64,
     artist_name: SharedString,
+    grouping: ArtistGrouping,
     tracks_all: Vec<Rc<music_library::Track>>,
     groups: Vec<AlbumGroup>,
     items: Vec<ItemKind>,
@@ -106,14 +108,18 @@ pub struct ArtistTracksView {
 }
 
 impl ArtistTracksView {
-    pub fn new(artist: &music_library::ArtistSummary, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        artist: &music_library::ArtistSummary,
+        grouping: ArtistGrouping,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let services = cx.global::<Services>();
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
         let lang_event_bus = services.lang_event_bus.clone();
         let tracks_all: Vec<Rc<_>> = services
             .library
-            .tracks_by_artist(artist.id)
+            .tracks_by_artist(artist.id, grouping)
             .into_iter()
             .map(Rc::new)
             .collect();
@@ -209,6 +215,7 @@ impl ArtistTracksView {
         Self {
             artist_id: artist.id,
             artist_name: artist.name.clone().into(),
+            grouping,
             tracks_all,
             groups,
             items,
@@ -371,7 +378,7 @@ impl ArtistTracksView {
     fn rebuild_source(&mut self, cx: &mut Context<Self>) {
         let library = cx.global::<Services>().library.clone();
         let artist_tracks: Vec<Rc<music_library::Track>> = library
-            .tracks_by_artist(self.artist_id)
+            .tracks_by_artist(self.artist_id, self.grouping)
             .into_iter()
             .map(Rc::new)
             .collect();

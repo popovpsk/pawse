@@ -56,6 +56,14 @@ pub struct AlbumSearchEntry {
     pub haystack: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtistGrouping {
+    TrackArtist,
+    #[default]
+    AlbumArtist,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtistSummary {
     pub id: i64,
@@ -70,7 +78,6 @@ pub struct NewTrack {
     pub title: Option<String>,
     pub album_title: Option<String>,
     pub artist_names: Vec<String>,
-    pub album_artist_names: Vec<String>,
     pub track_number: Option<u32>,
     pub disc_number: Option<u32>,
     pub year: Option<i32>,

@@ -117,6 +117,8 @@ pub static SV: Strings = lang! {
     albums_artist_inline: "Infogad",
     albums_artist_column: "Kolumn",
     albums_artist_hidden: "Dold",
+    settings_artists_view: "Artistvy",
+    artists_group_by_tag: "Gruppera efter tagg",
     music_folders: "Musikmappar",
     music_folders_desc: "Mappar som söks igenom efter musikfiler",
     no_folders_added: "Inga mappar tillagda",

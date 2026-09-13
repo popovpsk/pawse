@@ -51,8 +51,14 @@ own *parsing rules*. Either can change without touching the other.
   produced from the same files**, and every existing library reindexes once.
   (Image files are in the fingerprint so swapping cover art alone still triggers a
   rescan; `.lrc` sidecars are in it too so adding or editing words alone triggers
-  one; stray non-media files are not, to avoid noise.) The current version is **3**
-  (v3 added lyrics reading — `.lrc` sidecar then embedded tag); a `.lrc` is a
+  one; stray non-media files are not, to avoid noise.) The current version is **6**
+  (v3 added lyrics reading — `.lrc` sidecar then embedded tag; v6 stores each
+  track's own album-artist tag and derives every album's artist from those, so the
+  artist grouping no longer depends on scan order). Note what this crate does *not*
+  do: it reports tags verbatim, placeholder credits (`[no artist]`, `Unknown Artist`)
+  included, because `read_metadata` also pre-fills the tag editor — dropping them
+  here would make saving any other field write the emptied artist back to the file.
+  The library filters them on the way in instead (`library_service::clean_artist_names`); a `.lrc` is a
   fingerprint input only, never a track, so it stays out of `audio_files`/`cue_files`.
 
 - **CUE files may not be UTF-8.** EAC and similar rippers write Windows-1252

@@ -117,6 +117,8 @@ pub static TH: Strings = lang! {
     albums_artist_inline: "ในบรรทัด",
     albums_artist_column: "คอลัมน์",
     albums_artist_hidden: "ซ่อน",
+    settings_artists_view: "มุมมองศิลปิน",
+    artists_group_by_tag: "จัดกลุ่มตามแท็ก",
     music_folders: "โฟลเดอร์เพลง",
     music_folders_desc: "โฟลเดอร์ที่สแกนหาไฟล์เพลง",
     no_folders_added: "ยังไม่ได้เพิ่มโฟลเดอร์",

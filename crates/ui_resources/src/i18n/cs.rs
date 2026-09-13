@@ -117,6 +117,8 @@ pub static CS: Strings = lang! {
     albums_artist_inline: "V řádku",
     albums_artist_column: "Sloupec",
     albums_artist_hidden: "Skrytý",
+    settings_artists_view: "Zobrazení interpretů",
+    artists_group_by_tag: "Seskupit podle tagu",
     music_folders: "Hudební složky",
     music_folders_desc: "Složky prohledávané kvůli hudebním souborům",
     no_folders_added: "Nebyly přidány žádné složky",
