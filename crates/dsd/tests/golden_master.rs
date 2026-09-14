@@ -85,13 +85,7 @@ fn generate_sine_dsf(path: &Path, freq_hz: f64, dsd_rate: u32, channels: u8, dur
     std::fs::write(path, buf).unwrap();
 }
 
-/// Looks on PATH first, then falls back to the repo's own gitignored
-/// `./bin/ffmpeg` (a local dev-tool checkout some contributors keep there),
-/// so this test doesn't require a PATH-wide install to be useful.
 fn find_ffmpeg() -> Option<std::path::PathBuf> {
-    if Command::new("ffmpeg").arg("-version").output().is_ok() {
-        return Some("ffmpeg".into());
-    }
     let repo_bin = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
@@ -107,7 +101,10 @@ fn find_ffmpeg() -> Option<std::path::PathBuf> {
 #[test]
 fn matches_ffmpeg_reference_decode() {
     let Some(ffmpeg) = find_ffmpeg() else {
-        eprintln!("skipping golden-master test: no ffmpeg on PATH or in the repo's ./bin");
+        eprintln!(
+            "skipping golden-master test: ./bin/ffmpeg absent — the reference decode is only \
+             meaningful against the ffmpeg build the Makefile pins (run `make bin-deps`)"
+        );
         return;
     };
 
