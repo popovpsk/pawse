@@ -22,10 +22,11 @@ use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::albums_grid;
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
-use crate::settings_store::{AlbumsArtistDisplay, SettingsStore};
+use crate::settings_store::{AlbumsArtistDisplay, AlbumsLayout, SettingsStore};
 
 #[derive(Clone, Debug)]
 pub struct AlbumSelectedEvent {
@@ -40,16 +41,17 @@ enum AlbumItem {
     Album(usize),
 }
 
-struct AlbumRowData {
-    albums_all_ix: usize,
-    id: i64,
-    title: SharedString,
-    artist: SharedString,
-    display_inline: SharedString,
-    genre_inline: SharedString,
-    genre_tooltip: Option<SharedString>,
-    year: SharedString,
-    cover: Option<Arc<Image>>,
+pub(super) struct AlbumRowData {
+    pub(super) albums_all_ix: usize,
+    pub(super) id: i64,
+    pub(super) title: SharedString,
+    pub(super) artist: SharedString,
+    pub(super) display_inline: SharedString,
+    pub(super) subtitle_year: SharedString,
+    pub(super) genre_inline: SharedString,
+    pub(super) genre_tooltip: Option<SharedString>,
+    pub(super) year: SharedString,
+    pub(super) cover: Option<Arc<Image>>,
 }
 
 impl AlbumRowData {
@@ -59,6 +61,7 @@ impl AlbumRowData {
         cover_cache: &mut CoverArtCache,
         library: &crate::library_service::LibraryService,
         genres_map: &HashMap<i64, Vec<String>>,
+        layout: AlbumsLayout,
     ) -> Self {
         let (title, artist, year): (SharedString, SharedString, SharedString) =
             if album.id == music_library::NO_METADATA_ALBUM_ID {
@@ -79,6 +82,13 @@ impl AlbumRowData {
         } else {
             format!("{} - {}", artist, title).into()
         };
+        let subtitle_year: SharedString = if year.is_empty() {
+            artist.clone()
+        } else if artist.is_empty() {
+            year.clone()
+        } else {
+            format!("{} \u{00b7} {}", artist, year).into()
+        };
         let (genre_inline, genre_tooltip): (SharedString, Option<SharedString>) =
             match genres_map.get(&album.id) {
                 Some(genres) if genres.len() > 1 => (
@@ -94,10 +104,14 @@ impl AlbumRowData {
             title,
             artist,
             display_inline,
+            subtitle_year,
             genre_inline,
             genre_tooltip,
             year,
-            cover: cover_cache.get_small(album.cover_art_id, library),
+            cover: match layout {
+                AlbumsLayout::Grid => cover_cache.get_large(album.cover_art_id, library),
+                AlbumsLayout::List => cover_cache.get_small(album.cover_art_id, library),
+            },
         }
     }
 }
@@ -112,7 +126,7 @@ struct AlbumRowParams {
     artist_display: AlbumsArtistDisplay,
 }
 
-const TOP_PADDING: f32 = 12.;
+pub(super) const TOP_PADDING: f32 = 12.;
 const ALBUM_ROW_HEIGHT: f32 = 48.;
 const COVER_SIZE: f32 = 32.;
 const COVER_RADIUS: f32 = 4.;
@@ -121,17 +135,22 @@ const YEAR_COLUMN_WIDTH: f32 = 40.;
 const ARTIST_COLUMN_WIDTH: f32 = 160.;
 
 pub struct AlbumsView {
-    albums_all: Vec<music_library::AlbumSummary>,
+    pub(super) albums_all: Vec<music_library::AlbumSummary>,
     search_entries: Vec<music_library::AlbumSearchEntry>,
     id_to_ix: HashMap<i64, usize>,
     genres_map: HashMap<i64, Vec<String>>,
-    row_data: Vec<AlbumRowData>,
+    pub(super) row_data: Vec<AlbumRowData>,
     items: Vec<AlbumItem>,
     filter: String,
     matcher: Matcher,
     is_scanning: bool,
-    item_sizes: Rc<Vec<Size<Pixels>>>,
-    scroll_handle: VirtualListScrollHandle,
+    layout: AlbumsLayout,
+    pub(super) measured_width: Pixels,
+    pub(super) columns: usize,
+    pub(super) tile_width: f32,
+    pub(super) rem_size: f32,
+    pub(super) item_sizes: Rc<Vec<Size<Pixels>>>,
+    pub(super) scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
     _settings_observer: Subscription,
     _lang_subscription: Subscription,
@@ -139,6 +158,13 @@ pub struct AlbumsView {
 
 impl AlbumsView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (layout, rem_size) = {
+            let settings = cx.global::<SettingsStore>();
+            (
+                settings.albums_layout(),
+                f32::from(settings.font_scale().px()),
+            )
+        };
         let services = cx.global::<Services>();
         let library_event_bus = services.library_event_bus.clone();
         let lang_event_bus = services.lang_event_bus.clone();
@@ -148,14 +174,20 @@ impl AlbumsView {
         let search_entries = library.album_search_entries();
         let genres_map = library.album_genres_map();
         let id_to_ix = Self::id_index(&albums_all);
-        let (items, item_sizes) = Self::build_items(albums_all.len());
         let row_data = {
             let mut cover_cache = services.cover_art_cache.borrow_mut();
             albums_all
                 .iter()
                 .enumerate()
                 .map(|(ix, album)| {
-                    AlbumRowData::from_album(album, ix, &mut cover_cache, &library, &genres_map)
+                    AlbumRowData::from_album(
+                        album,
+                        ix,
+                        &mut cover_cache,
+                        &library,
+                        &genres_map,
+                        layout,
+                    )
                 })
                 .collect()
         };
@@ -186,7 +218,24 @@ impl AlbumsView {
                 },
             );
 
-        let settings_observer = cx.observe_global::<SettingsStore>(|_, cx| {
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            let (layout, rem_size) = {
+                let settings = cx.global::<SettingsStore>();
+                (
+                    settings.albums_layout(),
+                    f32::from(settings.font_scale().px()),
+                )
+            };
+            if this.rem_size != rem_size {
+                this.rem_size = rem_size;
+                this.rebuild_items();
+            }
+            if this.layout != layout {
+                this.layout = layout;
+                this.recompute_visible(cx);
+                this.scroll_handle
+                    .scroll_to_item(0, gpui::ScrollStrategy::Top);
+            }
             cx.notify();
         });
 
@@ -195,22 +244,29 @@ impl AlbumsView {
             cx.notify();
         });
 
-        Self {
+        let mut this = Self {
             albums_all,
             search_entries,
             genres_map,
             id_to_ix,
             row_data,
-            items,
+            items: Vec::new(),
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             is_scanning,
-            item_sizes: Rc::new(item_sizes),
+            layout,
+            measured_width: px(0.),
+            columns: 1,
+            tile_width: 0.,
+            rem_size,
+            item_sizes: Rc::new(Vec::new()),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
-        }
+        };
+        this.rebuild_items();
+        this
     }
 
     fn id_index(albums: &[music_library::AlbumSummary]) -> HashMap<i64, usize> {
@@ -221,14 +277,38 @@ impl AlbumsView {
             .collect()
     }
 
-    fn build_items(count: usize) -> (Vec<AlbumItem>, Vec<Size<Pixels>>) {
-        let mut items = vec![AlbumItem::TopPadding];
-        let mut sizes = vec![size(px(0.), px(TOP_PADDING))];
-        for ix in 0..count {
-            items.push(AlbumItem::Album(ix));
-            sizes.push(size(px(0.), px(ALBUM_ROW_HEIGHT + 1.)));
+    fn rebuild_items(&mut self) {
+        match self.layout {
+            AlbumsLayout::List => {
+                let mut items = vec![AlbumItem::TopPadding];
+                let mut sizes = vec![size(px(0.), px(TOP_PADDING))];
+                for ix in 0..self.row_data.len() {
+                    items.push(AlbumItem::Album(ix));
+                    sizes.push(size(px(0.), px(ALBUM_ROW_HEIGHT + 1.)));
+                }
+                self.items = items;
+                self.item_sizes = Rc::new(sizes);
+            }
+            AlbumsLayout::Grid => {
+                let rows = self.row_data.len().div_ceil(self.columns.max(1));
+                let height = px(albums_grid::row_height(self.tile_width, self.rem_size));
+                let mut sizes = Vec::with_capacity(rows + 1);
+                sizes.push(size(px(0.), px(TOP_PADDING)));
+                sizes.resize(rows + 1, size(px(0.), height));
+                self.items = Vec::new();
+                self.item_sizes = Rc::new(sizes);
+            }
         }
-        (items, sizes)
+    }
+
+    pub(super) fn set_grid_width(&mut self, width: Pixels) {
+        self.measured_width = width;
+        let (columns, tile_width) = albums_grid::grid_metrics(f32::from(width));
+        self.columns = columns;
+        self.tile_width = tile_width;
+        if self.layout == AlbumsLayout::Grid {
+            self.rebuild_items();
+        }
     }
 
     pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {
@@ -244,6 +324,7 @@ impl AlbumsView {
     }
 
     fn recompute_visible(&mut self, cx: &mut Context<Self>) {
+        let layout = self.layout;
         let services = cx.global::<Services>();
         let mut cover_cache = services.cover_art_cache.borrow_mut();
         let library = &services.library;
@@ -255,7 +336,14 @@ impl AlbumsView {
                 .iter()
                 .enumerate()
                 .map(|(ix, album)| {
-                    AlbumRowData::from_album(album, ix, &mut cover_cache, library, genres_map)
+                    AlbumRowData::from_album(
+                        album,
+                        ix,
+                        &mut cover_cache,
+                        library,
+                        genres_map,
+                        layout,
+                    )
                 })
                 .collect();
         } else {
@@ -277,13 +365,13 @@ impl AlbumsView {
                         &mut cover_cache,
                         library,
                         genres_map,
+                        layout,
                     ))
                 })
                 .collect();
         }
-        let (items, sizes) = Self::build_items(self.row_data.len());
-        self.items = items;
-        self.item_sizes = Rc::new(sizes);
+        drop(cover_cache);
+        self.rebuild_items();
     }
 }
 
@@ -335,6 +423,10 @@ impl Render for AlbumsView {
                 .size_full()
                 .gap_3()
                 .child(div().px_4().child(message));
+        }
+
+        if self.layout == AlbumsLayout::Grid {
+            return albums_grid::render_grid(self, cx);
         }
 
         let settings = cx.global::<SettingsStore>();

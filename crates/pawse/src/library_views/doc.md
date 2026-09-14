@@ -25,17 +25,89 @@ drive the `PlaybackQueue` on click.
   `current_tab()` is `None` while drilled in (`MainView` keeps the prior tab lit).
   Disabling Liked/Playlists in settings purges those frames, resetting to
   `[Root(Albums)]` if that breaks the `stack[0]`-is-`Root` invariant.
-- `albums_view.rs` — Albums tab: virtualized vertical list of albums. Genre and year
+- `albums_view.rs` — Albums tab. One entity, two layouts (`albums_layout`, Settings →
+  Interface → Albums view): `List` (default) renders here, `Grid` delegates to
+  `albums_grid.rs`. Data, filter, subscriptions and `row_data` are shared; only the
+  render branches. Row order is SQL-side (`artist, year, title`), not derived from the
+  text — independent of how the artist is shown.
+  **List**: virtualized vertical list of 48 px rows with a 32 px cover. Genre and year
   are fixed-width trailing columns (reserve their slot even when empty so rows don't
-  flex), each toggleable in Settings → Interface → Albums view (`albums_show_year` /
-  `albums_show_genre`, default on; the view observes `SettingsStore` so a toggle
-  re-renders); row order is SQL-side (`artist, year, title`), not derived from the
-  text — independent of how the artist is shown. The artist has a tri-state display
-  (`albums_artist_display`: `Inline` "artist - title" in the title cell, default;
-  `Column` a separate fixed-width column left of year; `Hidden` title only).
-  Genre shows the most-common one + `…` when there are more, full list on hover.
-  Album genres are batch-fetched once (`album_genres_map`) and cached, not queried
-  per row — `recompute_visible` runs on every keystroke.
+  flex), each toggleable in Settings (`albums_show_year` / `albums_show_genre`, default
+  on). The artist has a tri-state display (`albums_artist_display`: `Inline`
+  "artist - title" in the title cell, default; `Column` a separate fixed-width column
+  left of year; `Hidden` title only). Genre shows the most-common one + `…` when there
+  are more, full list on hover. Album genres are batch-fetched once
+  (`album_genres_map`) and cached, not queried per row — `recompute_visible` runs on
+  every keystroke.
+  **The layout picks the cover size**, so it is a data change, not just a repaint:
+  `AlbumRowData::from_album` takes the `AlbumsLayout` and loads `get_small` (128 px) for
+  the list, `get_large` (320 px) for the grid. The `observe_global::<SettingsStore>`
+  handler therefore compares before acting — it fires on *any* settings write, and an
+  unconditional `recompute_visible` would re-read every cover blob on each one. A layout
+  switch rebuilds `row_data` and scrolls back to the top (the old scroll offset means
+  nothing in the other geometry).
+  `AlbumRowData` precomputes *both* subtitle forms (`artist`, and `subtitle_year` =
+  "artist · year"); render only picks one. Formatting in the virtual-list closure is
+  banned — see `track_list/doc.md`.
+- `albums_grid.rs` — the `Grid` layout: a tile wall of album covers, the alternative
+  most popular players offer. Virtualized on the same `v_virtual_list`, where each item
+  is one `h_flex` strip of N tiles (the pattern gpui-component's own `virtual_list`
+  story uses); item 0 stays the shared top spacer, so `set_filter`'s
+  `scroll_to_item(0)` needs no special case. `items` is left empty in this mode — the
+  strip's slice is arithmetic on `columns`, so `AlbumItem` needs no grid variant.
+  **Geometry.** `grid_metrics(width)` is a pure function (unit-tested, no GPUI): columns
+  = how many `TILE_MIN_WIDTH` tiles fit, then the tiles *stretch* to divide the width
+  exactly, so there is no ragged right edge. Because the tile is square, its width sets
+  the row height — `item_sizes` is rebuilt whenever the measured width changes, not just
+  when the column count does. Below one minimum-width tile the single column *shrinks*
+  past `TILE_MIN_WIDTH` instead of clamping to it: the panel can be squeezed under 182 px
+  (window minimum 900 px against queue and lyrics at up to 560 px each), and a tile held
+  at 150 px there would overflow the content box and be silently clipped by the list's
+  `overflow_x_hidden`, with a row height computed for a width the tile never got.
+  **Caption geometry is derived, not a constant.** The virtual list needs the row height
+  up front, so the caption boxes carry a fixed `h(..)` — and a fixed box is only safe if
+  the line inside it is fixed too. gpui's default `line_height` is `phi()`, 1.618 × font
+  size (`style.rs`), so a 20 px box around `text_sm` clips at *every* font scale and loses
+  11 px at `FontScale::Large`. `caption_heights(rem)` therefore sizes both boxes from the
+  rem, and the tile sets `line_height` to that same number, so box and line are one value
+  by construction and gpui's default stops mattering. The rem comes from
+  `AlbumsView::rem_size` (`FontScale::px()`, what `Root::render` feeds the window), kept
+  current by the settings observer — a font-scale change rebuilds `item_sizes` exactly
+  like a width change. The coupling that remains is `TEXT_SM_REMS` / `TEXT_XS_REMS`
+  mirroring what `text_sm()` / `text_xs()` mean in gpui.
+  **Measuring.** The albums panel is narrower than the window (queue and lyrics panels
+  resize beside it), so `window.viewport_size()` is wrong here. The width comes from an
+  absolute `canvas` overlay in the grid container that compares `bounds.size.width`
+  against `measured_width` and, on a change, calls `set_grid_width` + schedules a
+  `cx.notify()` for the next frame — the same shape `cover_mode_view` uses. Until the
+  first measurement the container renders alone (one frame), which avoids laying the
+  grid out at a made-up width.
+  **Everything geometric is snapshotted into `TileParams`, `columns` included.** The two
+  halves of a frame do not see the same state: `render_grid` runs at render time, while
+  the `v_virtual_list` item closure runs in *prepaint* (`virtual_list.rs`), after the
+  measuring canvas — the container's first child — has already had its prepaint callback
+  run `set_grid_width`. Reading `view.columns` live inside `grid_row` therefore paired a
+  freshly updated column count with the tile width, row height and `item_sizes` captured
+  a moment earlier, on every frame where the width moved — i.e. for the whole duration of
+  a splitter drag or the queue/lyrics slide, not just once. Snapshotting `columns`
+  alongside the rest makes each frame internally consistent; the frame after the
+  `on_next_frame` notify is the one that shows the new geometry.
+  **Settings.** The three list options are about *columns*, so `albums_view_group` only
+  offers them when the layout is `List`: `albums_artist_display` (Inline/Column/Hidden is
+  meaningless on a tile — the artist is simply the caption's second line) and
+  `albums_show_genre` (no room on a tile) are hidden in `Grid`, and the grid ignores both.
+  `albums_show_year` survives into `Grid` and appends `· year` to the caption, but under a
+  wording that fits — `album_year` / `album_year_desc` instead of `year_column*`. Because
+  the group's *items* depend on the layout, `build_settings_pages` takes the current
+  `AlbumsLayout`; `MainView` already rebuilds the pages from `observe_global::<SettingsStore>`,
+  so flipping the layout re-renders the group with the right rows.
+  **Cost of `get_large`**: gpui keeps decoded `RenderImage`s in `App.loading_assets` and
+  their atlas tiles forever — neither is evicted (see the note atop `cover_art_cache.rs`).
+  A 320 px cover is ~6× a 128 px one, so a fully browsed 2000-album library costs roughly
+  1.5 GB in grid mode against ~250 MB in list mode. That was accepted over a blurry wall
+  of art on HiDPI; a bounded LRU that releases tiles through `drop_atlas_tile` is the
+  fix if it ever bites, and would help the list too. Related: the first `row_data` build
+  in grid mode reads every album's 320 px blob synchronously on the main thread.
 - `artists_view.rs` — Artists tab: virtualized list of artists. Which relation the
   list is built on is a setting (`artists_grouping`, Settings → Interface → Artists
   view): `AlbumArtist` (default) attributes each track to its own album-artist tag;

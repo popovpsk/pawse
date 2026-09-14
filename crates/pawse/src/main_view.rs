@@ -278,6 +278,7 @@ impl MainView {
                     lyrics_slider.clone(),
                     remote_port_input.clone(),
                     lastfm_ui.clone(),
+                    cx.global::<SettingsStore>().albums_layout(),
                 );
                 cx.notify();
             }
@@ -297,6 +298,7 @@ impl MainView {
             lyrics_slider.clone(),
             remote_port_input.clone(),
             lastfm_ui.clone(),
+            cx.global::<SettingsStore>().albums_layout(),
         );
 
         let footer = cx.new(|cx| Footer::new(window, cx));
@@ -398,6 +400,7 @@ impl MainView {
                     lyrics_slider.clone(),
                     remote_port_input.clone(),
                     lastfm_ui.clone(),
+                    cx.global::<SettingsStore>().albums_layout(),
                 );
                 cx.notify();
             }

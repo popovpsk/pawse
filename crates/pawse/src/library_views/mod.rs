@@ -1,4 +1,5 @@
 pub mod album_info;
+mod albums_grid;
 pub mod albums_view;
 pub mod artist_tracks_view;
 pub mod artists_view;

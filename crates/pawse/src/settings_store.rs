@@ -208,6 +208,14 @@ pub enum AlbumsArtistDisplay {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbumsLayout {
+    #[default]
+    List,
+    Grid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum QueueSourcePersist {
     #[default]
@@ -303,6 +311,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub albums_artist_display: AlbumsArtistDisplay,
     #[serde(default)]
+    pub albums_layout: AlbumsLayout,
+    #[serde(default)]
     pub artists_grouping: music_library::ArtistGrouping,
     #[serde(default = "default_true")]
     pub auto_update: bool,
@@ -351,6 +361,7 @@ impl Default for UserSettings {
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
+            albums_layout: AlbumsLayout::default(),
             artists_grouping: music_library::ArtistGrouping::default(),
             auto_update: true,
             lyrics_from_internet: true,
@@ -722,6 +733,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn albums_layout(&self) -> AlbumsLayout {
+        self.settings.albums_layout
+    }
+
+    pub fn set_albums_layout(&mut self, layout: AlbumsLayout) -> anyhow::Result<()> {
+        self.settings.albums_layout = layout;
+        self.save()
+    }
+
     pub fn artists_grouping(&self) -> music_library::ArtistGrouping {
         self.settings.artists_grouping
     }
@@ -1037,6 +1057,7 @@ mod tests {
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
+            albums_layout: AlbumsLayout::Grid,
             artists_grouping: music_library::ArtistGrouping::TrackArtist,
             auto_update: true,
             lyrics_from_internet: true,
@@ -1054,6 +1075,7 @@ mod tests {
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
         assert_eq!(back.font_scale, FontScale::Large);
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
+        assert_eq!(back.albums_layout, AlbumsLayout::Grid);
         assert_eq!(
             back.artists_grouping,
             music_library::ArtistGrouping::TrackArtist

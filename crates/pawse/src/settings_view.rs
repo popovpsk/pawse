@@ -25,8 +25,8 @@ use ui_resources::i18n::Lang;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::{
-    AlbumsArtistDisplay, BlurBackground, FontScale, LangChoice, SettingsStore, ThemeChoice,
-    apply_font_scale, apply_theme, notify_save_error,
+    AlbumsArtistDisplay, AlbumsLayout, BlurBackground, FontScale, LangChoice, SettingsStore,
+    ThemeChoice, apply_font_scale, apply_theme, notify_save_error,
 };
 use crate::theme_colors::Colors;
 use music_library::ArtistGrouping;
@@ -203,11 +203,12 @@ pub fn build_settings_pages(
     lyrics_slider: Entity<SliderState>,
     remote_port_input: Entity<InputState>,
     lastfm_ui: Entity<LastfmUiState>,
+    albums_layout: AlbumsLayout,
 ) -> Vec<SettingPage> {
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(theme_picker, lang_picker))
-            .group(albums_view_group())
+            .group(albums_view_group(albums_layout))
             .group(artists_view_group())
             .group(cover_view_group())
             .group(queue_group())
@@ -937,10 +938,50 @@ fn artists_view_group() -> SettingGroup {
         ))
 }
 
-fn albums_view_group() -> SettingGroup {
-    SettingGroup::new()
+fn albums_view_group(layout: AlbumsLayout) -> SettingGroup {
+    let list_mode = layout == AlbumsLayout::List;
+    let mut group = SettingGroup::new()
         .title(tr().settings_albums_view.clone())
         .item(
+            SettingItem::new(
+                tr().albums_layout.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let current = cx.global::<SettingsStore>().albums_layout();
+                    h_flex().items_center().justify_end().child(
+                        ButtonGroup::new("albums-layout-group")
+                            .small()
+                            .child(
+                                Button::new("albums-layout-list")
+                                    .label(tr().albums_layout_list.clone())
+                                    .selected(current == AlbumsLayout::List),
+                            )
+                            .child(
+                                Button::new("albums-layout-grid")
+                                    .label(tr().albums_layout_grid.clone())
+                                    .selected(current == AlbumsLayout::Grid),
+                            )
+                            .on_click(|clicks: &Vec<usize>, _, cx| {
+                                let Some(&ix) = clicks.first() else {
+                                    return;
+                                };
+                                let layout = match ix {
+                                    1 => AlbumsLayout::Grid,
+                                    _ => AlbumsLayout::List,
+                                };
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_albums_layout(layout)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().albums_layout_desc.clone()),
+        );
+
+    if list_mode {
+        group = group.item(
             SettingItem::new(
                 tr().artist_name.clone(),
                 SettingField::render(|_window, cx: &mut App| {
@@ -983,49 +1024,64 @@ fn albums_view_group() -> SettingGroup {
                 }),
             )
             .description(tr().albums_artist_desc.clone()),
+        );
+    }
+
+    group = group.item(
+        SettingItem::new(
+            if list_mode {
+                tr().year_column.clone()
+            } else {
+                tr().album_year.clone()
+            },
+            SettingField::render(|_window, cx: &mut App| {
+                let show = cx.global::<SettingsStore>().albums_show_year();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("albums-year-column-toggle")
+                        .checked(show)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_albums_show_year(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
         )
-        .item(
-            SettingItem::new(
-                tr().year_column.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let show = cx.global::<SettingsStore>().albums_show_year();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("albums-year-column-toggle")
-                            .checked(show)
-                            .on_click(|new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_albums_show_year(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            }),
-                    )
-                }),
-            )
-            .description(tr().year_column_desc.clone()),
+        .description(if list_mode {
+            tr().year_column_desc.clone()
+        } else {
+            tr().album_year_desc.clone()
+        }),
+    );
+
+    if !list_mode {
+        return group;
+    }
+
+    group.item(
+        SettingItem::new(
+            tr().genre_column.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let show = cx.global::<SettingsStore>().albums_show_genre();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("albums-genre-column-toggle")
+                        .checked(show)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_albums_show_genre(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
         )
-        .item(
-            SettingItem::new(
-                tr().genre_column.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let show = cx.global::<SettingsStore>().albums_show_genre();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("albums-genre-column-toggle")
-                            .checked(show)
-                            .on_click(|new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_albums_show_genre(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            }),
-                    )
-                }),
-            )
-            .description(tr().genre_column_desc.clone()),
-        )
+        .description(tr().genre_column_desc.clone()),
+    )
 }
 
 fn cover_view_group() -> SettingGroup {
