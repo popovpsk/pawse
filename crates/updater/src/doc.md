@@ -22,8 +22,12 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   on the main thread and passed into the installer.
 - `version.rs` — semver parse (strips a leading `v`) + `is_newer`. Unit-tested.
 - `github.rs` — `GET /repos/popovpsk/pawse/releases/latest` (blocking `ureq`,
-  rustls). Parses `tag_name` + picks the per-OS asset (`*.dmg` / `*-setup.exe`),
-  carrying the asset's `digest` (`sha256:…`) through to the downloader.
+  rustls). Parses `tag_name` + picks the per-OS asset, carrying the asset's `digest`
+  (`sha256:…`) through to the downloader. The per-OS rules are split into
+  `macos_asset` / `windows_asset` / `linux_asset`, which take the arch as an argument
+  and are compiled under `cfg(any(<os>, test))` so every platform's rule is exercised
+  by `cargo test` on any host — the Windows rule in particular must not go untested,
+  see the asset naming contract below.
 - `install/` — platform install backends (see `install/doc.md`).
 
 ## Non-obvious behavior / contract
@@ -50,11 +54,34 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   stamp the crate version to match the tag, or every check sees a newer build.
 - **Only published releases are seen.** GitHub's `/releases/latest` ignores drafts
   and prereleases, so a drafted release is invisible until published.
+- **Release asset naming contract — exactly one asset may end with `-setup.exe`, and
+  it must be the x64 installer.** GitHub returns release assets sorted by name (not by
+  upload order — verified on v0.5.6/0.5.7/0.5.8, where the ids are unordered but the
+  names are alphabetical), and `select_asset` takes the *first* match. Versions
+  shipped up to 0.5.8 match the Windows asset with a bare
+  `name.ends_with("-setup.exe")`. Adding a second `-setup.exe` therefore makes every
+  copy already in the field pick whichever sorts first: `arm64` sorts before `x64`, so
+  x64 users would silently download the arm64 installer, run it unattended from the
+  quit handler (`/S`), and end up with a binary their CPU cannot execute. The digest
+  check does not help — the wrong asset is a genuine asset. That is why the arm64
+  installer is renamed to `_arm64-installer.exe` in the release workflow's collect
+  step, and why `release.yml` fails the publish if a second `-setup.exe` (or a second
+  `.dmg`, which `macos_asset` matches by suffix alone) ever appears. Fixing the
+  matcher here only protects future versions; the copies already installed cannot be
+  fixed, so the naming is the real guarantee and must not be "tidied up" later.
+- **Windows portable builds opt out.** The portable zip ships a `portable.txt` next to
+  `pawse.exe`; `is_portable()` looks for it and makes `is_supported()` false, which
+  removes the menu item, the settings toggle and the poll loop. Running the NSIS
+  installer from an unpacked portable folder would install a second, separate copy and
+  leave the portable one untouched. Same shape as `managed_by_am` on Linux: a marker
+  file means somebody else owns updating this copy.
 - **Toasts are localized.** Runtime update notices (`up_to_date`, `update_ready_t`,
   `update_check_failed_t`) are read from `ui_resources::i18n::strings()` at toast
   time, so they follow the active language (including a live language switch). This
   is the one place the crate depends on `ui_resources`.
-- **Linux is out of scope.** The crate compiles on Linux (pawse builds there for
-  `.deb`/AppImage), but pawse `#[cfg]`-gates the `init` call, the menu item and the
-  setting off Linux, so nothing polls and the "Check for Updates" action isn't shown.
-  `select_asset` also matches nothing there as a backstop.
+- **Linux updates only the AppImage.** `is_supported()` is true there only when
+  `$APPIMAGE` is set *and* no `AM-updater` sits next to it, so a copy installed from
+  `.deb`, from the pacman/AUR package, or running inside Flatpak reports unsupported
+  and the whole update UI disappears — those are updated by whatever installed them.
+  This falls out of the `$APPIMAGE` check and needs no per-packaging-format code;
+  anything that changes the Linux branch must keep that property.

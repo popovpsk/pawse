@@ -1,0 +1,84 @@
+name: AUR
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released version without the v prefix (e.g. 0.5.9)."
+        required: true
+
+concurrency:
+  group: aur
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish pawse-bin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          INPUT: ${{ inputs.version }}
+        run: |
+          version="${INPUT:-${TAG#v}}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::not a semver version: '$version'"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Render PKGBUILD
+        id: render
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          AUR_KEY_PRESENT: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        run: |
+          base="https://github.com/popovpsk/pawse/releases/download/v${VERSION}"
+          for arch in x86_64 aarch64; do
+            url="${base}/pawse_${VERSION}_${arch}-pacman.tar.gz"
+            if ! curl -fSL --retry 5 --retry-all-errors -o "${arch}.tar.gz" "$url"; then
+              echo "::error::release asset missing or release still a draft: $url"
+              exit 1
+            fi
+          done
+          sed \
+            -e "s|__VERSION__|${VERSION}|g" \
+            -e "s|__SHA256_X86_64__|$(sha256sum x86_64.tar.gz | cut -d' ' -f1)|" \
+            -e "s|__SHA256_AARCH64__|$(sha256sum aarch64.tar.gz | cut -d' ' -f1)|" \
+            packaging/aur/PKGBUILD.tmpl > PKGBUILD
+          cat PKGBUILD
+          if grep -q '__' PKGBUILD; then
+            echo "::error::unsubstituted placeholder left in PKGBUILD"
+            exit 1
+          fi
+          if [ "$AUR_KEY_PRESENT" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "AUR_SSH_PRIVATE_KEY not set; rendered PKGBUILD only, skipping push"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: aur-pkgbuild
+          path: PKGBUILD
+          if-no-files-found: error
+
+      - name: Push to AUR
+        if: steps.render.outputs.publish == 'true'
+        uses: KSXGitHub/github-actions-deploy-aur@v4
+        with:
+          pkgname: pawse-bin
+          pkgbuild: PKGBUILD
+          commit_username: ${{ github.actor }}
+          commit_email: popov.psk@gmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "pawse-bin ${{ steps.version.outputs.version }}"

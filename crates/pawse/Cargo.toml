@@ -63,6 +63,16 @@ icons = [
     "../ui_resources/assets/app-icon/icon.ico",
 ]
 
+[package.metadata.packager.pacman]
+depends = [
+    "alsa-lib",
+    "fontconfig",
+    "libxkbcommon",
+    "wayland",
+    "libxcb",
+    "vulkan-icd-loader",
+]
+
 [package.metadata.packager.macos]
 minimum-system-version = "10.15"
 info-plist-path = "Info.plist"

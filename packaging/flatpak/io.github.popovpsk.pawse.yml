@@ -1,0 +1,52 @@
+id: io.github.popovpsk.pawse
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node20
+command: pawse
+
+finish-args:
+  - --device=dri
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --share=network
+  - --socket=pulseaudio
+  - --filesystem=xdg-run/pipewire-0
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=home
+  - --own-name=org.mpris.MediaPlayer2.pawse
+
+modules:
+  - name: pawse
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node20/bin
+      env:
+        CARGO_NET_OFFLINE: 'true'
+        CARGO_HOME: /run/build/pawse/cargo
+        npm_config_offline: 'true'
+    build-commands:
+      - npm ci --offline --cache flatpak-node/npm-cache --prefix web
+      - npm run build --prefix web
+      - cargo build --release --offline -p pawse
+      - install -Dm755 target/release/pawse /app/bin/pawse
+      - install -Dm644 packaging/flatpak/io.github.popovpsk.pawse.desktop
+        /app/share/applications/io.github.popovpsk.pawse.desktop
+      - install -Dm644 packaging/flatpak/io.github.popovpsk.pawse.metainfo.xml
+        /app/share/metainfo/io.github.popovpsk.pawse.metainfo.xml
+      - install -Dm644 crates/ui_resources/assets/app-icon/32x32.png
+        /app/share/icons/hicolor/32x32/apps/io.github.popovpsk.pawse.png
+      - install -Dm644 crates/ui_resources/assets/app-icon/128x128.png
+        /app/share/icons/hicolor/128x128/apps/io.github.popovpsk.pawse.png
+      - install -Dm644 crates/ui_resources/assets/app-icon/128x128@2x.png
+        /app/share/icons/hicolor/256x256/apps/io.github.popovpsk.pawse.png
+      - install -Dm644 LICENSE /app/share/licenses/io.github.popovpsk.pawse/LICENSE
+    sources:
+      - type: git
+        url: https://github.com/popovpsk/pawse.git
+        tag: v0.5.8
+      - cargo-sources.json
+      - node-sources.json

@@ -65,22 +65,131 @@ fn select_asset(assets: &[Asset]) -> Option<&Asset> {
     assets.iter().find(|asset| asset_matches(&asset.name))
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn macos_asset(name: &str) -> bool {
+    name.ends_with(".dmg")
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_asset(name: &str, arch: &str) -> bool {
+    match arch {
+        "x86_64" => name.ends_with("_x64-setup.exe"),
+        "aarch64" => name.ends_with("_arm64-installer.exe"),
+        _ => false,
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn linux_asset(name: &str, arch: &str) -> bool {
+    name.ends_with(".AppImage") && name.contains(arch)
+}
+
 #[cfg(target_os = "macos")]
 fn asset_matches(name: &str) -> bool {
-    name.ends_with(".dmg")
+    macos_asset(name)
 }
 
 #[cfg(target_os = "windows")]
 fn asset_matches(name: &str) -> bool {
-    name.ends_with("-setup.exe")
+    windows_asset(name, std::env::consts::ARCH)
 }
 
 #[cfg(target_os = "linux")]
 fn asset_matches(name: &str) -> bool {
-    name.ends_with(".AppImage") && name.contains(std::env::consts::ARCH)
+    linux_asset(name, std::env::consts::ARCH)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn asset_matches(_name: &str) -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RELEASE_ASSETS: &[&str] = &[
+        "pawse_1.0.0_aarch64-pacman.tar.gz",
+        "pawse_1.0.0_aarch64.AppImage",
+        "pawse_1.0.0_aarch64.AppImage.zsync",
+        "Pawse_1.0.0_aarch64.dmg",
+        "pawse_1.0.0_amd64.deb",
+        "pawse_1.0.0_arm64-installer.exe",
+        "pawse_1.0.0_arm64-portable.zip",
+        "pawse_1.0.0_arm64.deb",
+        "pawse_1.0.0_x64-portable.zip",
+        "pawse_1.0.0_x64-setup.exe",
+        "pawse_1.0.0_x86_64-pacman.tar.gz",
+        "pawse_1.0.0_x86_64.AppImage",
+        "pawse_1.0.0_x86_64.AppImage.zsync",
+    ];
+
+    fn assets() -> Vec<Asset> {
+        RELEASE_ASSETS
+            .iter()
+            .map(|name| Asset {
+                name: (*name).to_string(),
+                browser_download_url: format!("https://example.invalid/{name}"),
+                digest: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn exactly_one_setup_exe_per_release() {
+        let setups: Vec<&&str> = RELEASE_ASSETS
+            .iter()
+            .filter(|name| name.ends_with("-setup.exe"))
+            .collect();
+        assert_eq!(setups, vec![&"pawse_1.0.0_x64-setup.exe"]);
+    }
+
+    fn only_match(rule: impl Fn(&str) -> bool) -> &'static str {
+        let matched: Vec<&&str> = RELEASE_ASSETS.iter().filter(|name| rule(name)).collect();
+        assert_eq!(matched.len(), 1, "expected one match, got {matched:?}");
+        matched[0]
+    }
+
+    #[test]
+    fn windows_x86_64_never_picks_the_arm64_installer() {
+        assert_eq!(
+            only_match(|name| windows_asset(name, "x86_64")),
+            "pawse_1.0.0_x64-setup.exe"
+        );
+    }
+
+    #[test]
+    fn windows_aarch64_picks_the_arm64_installer() {
+        assert_eq!(
+            only_match(|name| windows_asset(name, "aarch64")),
+            "pawse_1.0.0_arm64-installer.exe"
+        );
+    }
+
+    #[test]
+    fn macos_picks_the_only_dmg() {
+        assert_eq!(only_match(macos_asset), "Pawse_1.0.0_aarch64.dmg");
+    }
+
+    #[test]
+    fn linux_picks_the_appimage_for_its_arch() {
+        assert_eq!(
+            only_match(|name| linux_asset(name, "x86_64")),
+            "pawse_1.0.0_x86_64.AppImage"
+        );
+        assert_eq!(
+            only_match(|name| linux_asset(name, "aarch64")),
+            "pawse_1.0.0_aarch64.AppImage"
+        );
+    }
+
+    #[test]
+    fn select_asset_is_order_independent() {
+        let mut assets = assets();
+        assets.reverse();
+        let reversed = select_asset(&assets).map(|asset| asset.name.clone());
+        let forward = select_asset(&self::assets()).map(|asset| asset.name.clone());
+        assert_eq!(reversed, forward);
+        assert!(forward.is_some());
+    }
 }

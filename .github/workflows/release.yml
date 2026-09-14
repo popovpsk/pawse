@@ -65,13 +65,18 @@ jobs:
           - label: windows-x86_64
             os: windows-latest
             formats: nsis
+            arch_tag: x64
+          - label: windows-arm64
+            os: windows-11-arm
+            formats: nsis
+            arch_tag: arm64
           - label: linux-x86_64
             os: ubuntu-22.04
-            formats: appimage,deb
+            formats: appimage,deb,pacman
             update_info: gh-releases-zsync|popovpsk|pawse|latest|pawse_*_x86_64.AppImage.zsync
           - label: linux-arm64
             os: ubuntu-22.04-arm
-            formats: appimage,deb
+            formats: appimage,deb,pacman
             update_info: gh-releases-zsync|popovpsk|pawse|latest|pawse_*_aarch64.AppImage.zsync
     steps:
       - uses: actions/checkout@v5
@@ -213,6 +218,20 @@ jobs:
             echo "re-imaged unsigned: $dmg"
           done
 
+      - name: Build portable archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $stage = Join-Path $env:RUNNER_TEMP 'portable'
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item target/release/pawse.exe $stage
+          Set-Content -Path (Join-Path $stage 'portable.txt') -Value 'Deleting this file makes Pawse update itself again.'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/pawse_${version}_${{ matrix.arch_tag }}-portable.zip"
+          Get-ChildItem dist
+
       - name: Collect artifacts
         shell: bash
         run: |
@@ -227,6 +246,24 @@ jobs:
             target/release/nsis/*-setup.exe; do
             cp "$f" dist/
           done
+          for f in dist/*_arm64-setup.exe; do
+            mv "$f" "${f%_arm64-setup.exe}_arm64-installer.exe"
+          done
+          ls -la dist
+
+      - name: Collect pacman archive
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          arch="$(uname -m)"
+          mapfile -t found < <(find target/release -name '*.tar.gz' -not -name '*-pacman.tar.gz')
+          if [ "${#found[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one pacman tarball under target/release, found: ${found[*]:-none}"
+            find target/release -maxdepth 2 -name 'PKGBUILD' -o -maxdepth 2 -name '*.tar.gz'
+            exit 1
+          fi
+          cp "${found[0]}" "dist/pawse_${version}_${arch}-pacman.tar.gz"
           ls -la dist
 
       - uses: actions/upload-artifact@v5
@@ -249,6 +286,23 @@ jobs:
       - name: List artifacts
         run: ls -la artifacts
 
+      - name: Enforce updater asset invariant
+        shell: bash
+        run: |
+          shopt -s nullglob
+          setups=(artifacts/*-setup.exe)
+          if [ "${#setups[@]}" -ne 1 ] || [[ "${setups[0]}" != *_x64-setup.exe ]]; then
+            echo "::error::Exactly one asset may end with -setup.exe and it must be the x64 installer; found: ${setups[*]:-none}."
+            echo "::error::Releases already in the field match that suffix with a plain ends_with() and take the first hit in GitHub's name-sorted asset list, so a second one silently installs the wrong architecture."
+            exit 1
+          fi
+          dmgs=(artifacts/*.dmg)
+          if [ "${#dmgs[@]}" -gt 1 ]; then
+            echo "::error::Shipped updaters match .dmg by suffix alone; a second dmg would be picked by sort order, not by architecture. Found: ${dmgs[*]}."
+            exit 1
+          fi
+          echo "Updater asset invariant holds: ${setups[0]}"
+
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
@@ -259,5 +313,5 @@ jobs:
             ## Installation
 
             - **macOS** — move `Pawse.app` to Applications and open it. If macOS blocks it, go to System Settings → Privacy & Security and click **Open Anyway**.
-            - **Windows** — in the SmartScreen dialog click **More info** → **Run anyway**.
-            - **Linux** — `chmod +x` the `.AppImage` and run it (it updates itself), or install the `.deb`. It's also in the [AM](https://github.com/ivan-hc/AM) catalog: `am -i pawse`, or `appman -i pawse` without root.
+            - **Windows** — run the installer for your CPU (`x64-setup.exe`, or `arm64-installer.exe` on Snapdragon machines). In the SmartScreen dialog click **More info** → **Run anyway**. The `-portable.zip` runs unpacked from anywhere and does not update itself.
+            - **Linux** — `chmod +x` the `.AppImage` and run it (it updates itself), or install the `.deb`. On Arch, `pawse-bin` is in the [AUR](https://aur.archlinux.org/packages/pawse-bin). It's also in the [AM](https://github.com/ivan-hc/AM) catalog: `am -i pawse`, or `appman -i pawse` without root.

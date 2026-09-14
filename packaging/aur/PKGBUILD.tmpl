@@ -1,0 +1,27 @@
+# Maintainer: Aleksandr Popov <popov.psk@gmail.com>
+pkgname=pawse-bin
+pkgver=__VERSION__
+pkgrel=1
+pkgdesc="A fast, native music player for your local library"
+arch=('x86_64' 'aarch64')
+url="https://github.com/popovpsk/pawse"
+license=('MIT')
+depends=('alsa-lib' 'fontconfig' 'libxkbcommon' 'wayland' 'libxcb' 'vulkan-icd-loader')
+provides=('pawse')
+conflicts=('pawse')
+options=('!strip')
+source_x86_64=("pawse-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/pawse_${pkgver}_x86_64-pacman.tar.gz")
+sha256sums_x86_64=('__SHA256_X86_64__')
+source_aarch64=("pawse-${pkgver}-aarch64.tar.gz::${url}/releases/download/v${pkgver}/pawse_${pkgver}_aarch64-pacman.tar.gz")
+sha256sums_aarch64=('__SHA256_AARCH64__')
+
+package() {
+  if [ ! -d "${srcdir}/usr" ]; then
+    echo "expected a usr/ tree in the release tarball; got:" >&2
+    find "${srcdir}" -maxdepth 2 >&2
+    return 1
+  fi
+  cp -a "${srcdir}/usr" "${pkgdir}/usr"
+  install -Dm644 "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE" 2>/dev/null || true
+}

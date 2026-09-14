@@ -43,8 +43,16 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   check-windows:
-    name: Check (windows)
-    runs-on: windows-latest
+    name: Check (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            os: windows-latest
+          - label: windows-arm64
+            os: windows-11-arm
     steps:
       - uses: actions/checkout@v5
 
@@ -52,7 +60,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ci-windows
+          shared-key: ci-${{ matrix.label }}
 
       - name: Check
         run: cargo check --workspace --all-targets

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.popovpsk.pawse</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Pawse</name>
+  <summary>Fast native music player for your local library</summary>
+
+  <developer id="io.github.popovpsk">
+    <name>Aleksandr Popov</name>
+  </developer>
+
+  <description>
+    <p>
+      Pawse is a native music player for local libraries, built in Rust. It keeps a
+      fluid 120+ fps interface and an untouched signal path, playing at your files'
+      own sample rate and bit depth with a live bit-perfect indicator.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Bit-perfect playback at the native sample rate</li>
+      <li>Wide format support: FLAC, ALAC, MP3, WAV, OGG and DSD</li>
+      <li>CUE sheets split single-file albums into tracks automatically</li>
+      <li>Instant fuzzy search across albums, artists and tracks</li>
+      <li>Time-synced lyrics from your files or fetched online</li>
+      <li>Tag editor for single tracks or whole albums</li>
+      <li>Remote control from any device on your network through a built-in web view</li>
+      <li>System media controls and hardware media keys</li>
+      <li>Over 20 built-in themes and 20 interface languages</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.popovpsk.pawse.desktop</launchable>
+
+  <url type="homepage">https://github.com/popovpsk/pawse</url>
+  <url type="bugtracker">https://github.com/popovpsk/pawse/issues</url>
+  <url type="vcs-browser">https://github.com/popovpsk/pawse</url>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#e8e6e3</color>
+    <color type="primary" scheme_preference="dark">#1c1b1a</color>
+  </branding>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Browsing the library by artist</caption>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/artists.webp</image>
+    </screenshot>
+    <screenshot>
+      <caption>An album with its track list</caption>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/album.webp</image>
+    </screenshot>
+    <screenshot>
+      <caption>Full-screen cover view</caption>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/cover_view.webp</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/settings.webp</image>
+    </screenshot>
+  </screenshots>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.5.8" date="2026-09-13">
+      <description>
+        <p>Artists are grouped by album artist, with a per-track fallback.</p>
+      </description>
+      <url type="details">https://github.com/popovpsk/pawse/releases/tag/v0.5.8</url>
+    </release>
+  </releases>
+</component>

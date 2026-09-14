@@ -53,7 +53,7 @@ macOS · Windows · Linux
 Grab the latest build from the [**Releases**](https://github.com/popovpsk/pawse/releases) page.
 
 - **macOS** — move `Pawse.app` to Applications and open it. On first launch, if macOS blocks it, go to **System Settings → Privacy & Security** and click **Open Anyway**.
-- **Windows** — in the SmartScreen dialog click *More info* → *Run anyway*.
+- **Windows** — run the installer for your CPU (`x64-setup.exe`, or `arm64-installer.exe` on Snapdragon machines). In the SmartScreen dialog click *More info* → *Run anyway*. There's also a `-portable.zip` that runs unpacked from anywhere; it doesn't update itself, so grab a new one when a release lands.
 - **Linux** — `chmod +x` the `.AppImage` and run it (it updates itself), or install the `.deb`. It's also in the [AM](https://github.com/ivan-hc/AM) catalog: `am -i pawse`, or `appman -i pawse` without root.
 
 ## Building from source
