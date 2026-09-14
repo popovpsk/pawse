@@ -28,15 +28,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libfontconfig-dev libwayland-dev \
             libxkbcommon-x11-dev libssl-dev libzstd-dev libgit2-dev \
-            build-essential cmake clang alsa-utils ffmpeg
+            build-essential cmake clang alsa-utils ffmpeg \
+            pulseaudio pulseaudio-utils libasound2-plugins
 
-      - name: Load a virtual sound card
+      - name: Start a virtual audio device
         run: |
-          sudo modprobe snd-dummy || {
-            echo "::error::snd-dummy unavailable; audio_output tests open a real device and will fail without one"
-            exit 1
-          }
-          aplay -l
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=ci_dummy
+          pactl set-default-sink ci_dummy
+          printf 'pcm.!default pulse\nctl.!default pulse\n' > "$HOME/.asoundrc"
+          pactl list short sinks
+          aplay -L | head
 
       - name: Generate fixtures
         run: make generate FFMPEG="$(command -v ffmpeg)"
