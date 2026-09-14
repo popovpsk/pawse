@@ -259,7 +259,7 @@ jobs:
         run: |
           version="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
           arch="$(uname -m)"
-          mapfile -t found < <(find target/release -name '*.tar.gz' -not -name '*-pacman.tar.gz')
+          mapfile -t found < <(find target/release -maxdepth 1 -name '*.tar.gz' -not -name '*-pacman.tar.gz')
           if [ "${#found[@]}" -ne 1 ]; then
             echo "::error::expected exactly one pacman tarball under target/release, found: ${found[*]:-none}"
             find target/release -maxdepth 2 -name 'PKGBUILD' -o -maxdepth 2 -name '*.tar.gz'
