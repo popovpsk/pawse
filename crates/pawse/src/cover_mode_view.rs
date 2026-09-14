@@ -44,10 +44,10 @@ pub struct CoverModeView {
     album_id: Option<i64>,
     cover_art_id: Option<i64>,
     track_path: Option<String>,
-    large_cover: Option<Arc<Image>>,
+    large_cover: Option<Arc<RenderImage>>,
     full_cover: Option<Arc<RenderImage>>,
     cover_aspect: Option<f32>,
-    prev_large_cover: Option<Arc<Image>>,
+    prev_large_cover: Option<Arc<RenderImage>>,
     prev_full_cover: Option<Arc<RenderImage>>,
     sliding: bool,
     slide_forward: bool,
@@ -403,10 +403,8 @@ impl CoverModeView {
             .into_iter()
             .map(|(id, name)| (id, SharedString::from(name)))
             .collect();
-        let new_thumb = services
-            .cover_art_cache
-            .borrow_mut()
-            .get_large(cover, &services.library);
+        let (cache, library) = (services.cover_art_cache.clone(), services.library.clone());
+        let new_thumb = cache.borrow_mut().get_large(cover, &library, cx);
         if self.cover_art_id != cover {
             if animate && (self.large_cover.is_some() || self.full_cover.is_some()) {
                 self.start_cover_slide(index, cx);
@@ -481,7 +479,7 @@ impl CoverModeView {
     }
 
     fn cover_layer(
-        thumb: Option<Arc<Image>>,
+        thumb: Option<Arc<RenderImage>>,
         full: Option<Arc<RenderImage>>,
         w: f32,
         h: f32,

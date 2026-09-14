@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -16,12 +16,12 @@ use gpui_component::{
     v_flex, v_virtual_list,
 };
 
-use crate::cover_art_cache::CoverArtCache;
+use crate::cover_art_cache::{CoverArtCache, capacity_for_peak_visible, decode_cover_tile};
 use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
-use crate::library_service::LibraryEvent;
+use crate::library_service::{LibraryAccess, LibraryEvent};
 use crate::library_views::albums_grid;
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
@@ -44,6 +44,7 @@ enum AlbumItem {
 pub(super) struct AlbumRowData {
     pub(super) albums_all_ix: usize,
     pub(super) id: i64,
+    pub(super) cover_art_id: Option<i64>,
     pub(super) title: SharedString,
     pub(super) artist: SharedString,
     pub(super) display_inline: SharedString,
@@ -101,6 +102,7 @@ impl AlbumRowData {
         Self {
             albums_all_ix,
             id: album.id,
+            cover_art_id: album.cover_art_id,
             title,
             artist,
             display_inline,
@@ -109,7 +111,7 @@ impl AlbumRowData {
             genre_tooltip,
             year,
             cover: match layout {
-                AlbumsLayout::Grid => cover_cache.get_large(album.cover_art_id, library),
+                AlbumsLayout::Grid => None,
                 AlbumsLayout::List => cover_cache.get_small(album.cover_art_id, library),
             },
         }
@@ -149,6 +151,10 @@ pub struct AlbumsView {
     pub(super) columns: usize,
     pub(super) tile_width: f32,
     pub(super) rem_size: f32,
+    covers_in_flight: HashSet<i64>,
+    covers_unavailable: HashSet<i64>,
+    visible_span_peak: usize,
+    library_access: LibraryAccess,
     pub(super) item_sizes: Rc<Vec<Size<Pixels>>>,
     pub(super) scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
@@ -170,6 +176,7 @@ impl AlbumsView {
         let lang_event_bus = services.lang_event_bus.clone();
         let library = services.library.clone();
 
+        let library_access = library.library_access();
         let albums_all = library.albums();
         let search_entries = library.album_search_entries();
         let genres_map = library.album_genres_map();
@@ -205,13 +212,21 @@ impl AlbumsView {
                         this.is_scanning = false;
                         if *changed {
                             let services = cx.global::<Services>();
-                            services.cover_art_cache.borrow_mut().clear();
+                            let cache = services.cover_art_cache.clone();
                             this.albums_all = services.library.albums();
                             this.search_entries = services.library.album_search_entries();
                             this.genres_map = services.library.album_genres_map();
+                            cache.borrow_mut().clear(cx);
                             this.id_to_ix = Self::id_index(&this.albums_all);
+                            this.covers_in_flight.clear();
+                            this.covers_unavailable.clear();
                             this.recompute_visible(cx);
                         }
+                        cx.notify();
+                    }
+                    LibraryEvent::TrackTagsChanged { .. }
+                    | LibraryEvent::AlbumTagsChanged { .. } => {
+                        this.covers_unavailable.clear();
                         cx.notify();
                     }
                     _ => {}
@@ -259,6 +274,10 @@ impl AlbumsView {
             columns: 1,
             tile_width: 0.,
             rem_size,
+            covers_in_flight: HashSet::new(),
+            covers_unavailable: HashSet::new(),
+            visible_span_peak: 0,
+            library_access,
             item_sizes: Rc::new(Vec::new()),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
@@ -299,6 +318,67 @@ impl AlbumsView {
                 self.item_sizes = Rc::new(sizes);
             }
         }
+    }
+
+    pub(super) fn ensure_grid_covers(
+        &mut self,
+        albums: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let cache = cx.global::<Services>().cover_art_cache.clone();
+        let capacity = capacity_for_peak_visible(&mut self.visible_span_peak, albums.len());
+        cache.borrow_mut().set_large_capacity(capacity, cx);
+        let mut wanted: Vec<i64> = {
+            let cache = cache.borrow();
+            albums
+                .filter_map(|ix| self.row_data.get(ix)?.cover_art_id)
+                .filter(|id| {
+                    !cache.holds_large(*id)
+                        && !self.covers_in_flight.contains(id)
+                        && !self.covers_unavailable.contains(id)
+                })
+                .collect()
+        };
+        if wanted.is_empty() {
+            return;
+        }
+        wanted.sort_unstable();
+        wanted.dedup();
+        for id in &wanted {
+            self.covers_in_flight.insert(*id);
+        }
+
+        let access = self.library_access.clone();
+        cx.spawn(async move |this, cx| {
+            for id in wanted {
+                let access = access.clone();
+                let decoded = cx
+                    .background_executor()
+                    .spawn(async move {
+                        access
+                            .cover_large(id)
+                            .and_then(|bytes| decode_cover_tile(&bytes))
+                    })
+                    .await;
+                let updated = this.update(cx, |view, cx| {
+                    view.covers_in_flight.remove(&id);
+                    let Some(image) = decoded else {
+                        view.covers_unavailable.insert(id);
+                        return;
+                    };
+                    cx.global::<Services>()
+                        .cover_art_cache
+                        .clone()
+                        .borrow_mut()
+                        .insert_large(id, image, cx);
+                    cx.notify();
+                });
+                if updated.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     pub(super) fn set_grid_width(&mut self, width: Pixels) {

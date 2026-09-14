@@ -26,7 +26,7 @@ drive the `PlaybackQueue` on click.
   Disabling Liked/Playlists in settings purges those frames, resetting to
   `[Root(Albums)]` if that breaks the `stack[0]`-is-`Root` invariant.
 - `albums_view.rs` — Albums tab. One entity, two layouts (`albums_layout`, Settings →
-  Interface → Albums view): `List` (default) renders here, `Grid` delegates to
+  Interface → Albums view): `List` renders here, `Grid` (default) delegates to
   `albums_grid.rs`. Data, filter, subscriptions and `row_data` are shared; only the
   render branches. Row order is SQL-side (`artist, year, title`), not derived from the
   text — independent of how the artist is shown.
@@ -101,13 +101,62 @@ drive the `PlaybackQueue` on click.
   the group's *items* depend on the layout, `build_settings_pages` takes the current
   `AlbumsLayout`; `MainView` already rebuilds the pages from `observe_global::<SettingsStore>`,
   so flipping the layout re-renders the group with the right rows.
-  **Cost of `get_large`**: gpui keeps decoded `RenderImage`s in `App.loading_assets` and
-  their atlas tiles forever — neither is evicted (see the note atop `cover_art_cache.rs`).
-  A 320 px cover is ~6× a 128 px one, so a fully browsed 2000-album library costs roughly
-  1.5 GB in grid mode against ~250 MB in list mode. That was accepted over a blurry wall
-  of art on HiDPI; a bounded LRU that releases tiles through `drop_atlas_tile` is the
-  fix if it ever bites, and would help the list too. Related: the first `row_data` build
-  in grid mode reads every album's 320 px blob synchronously on the main thread.
+  **Covers are bounded and lazy, because `Grid` is the default layout.** `img(Arc<Image>)`
+  lets gpui own the decode: it keeps the `RenderImage` in `App.loading_assets` and its
+  atlas tile forever, and neither is reachable for release. A wall of 320 px tiles made
+  that unaffordable — roughly 1.5 GB for a fully browsed 2000-album library — and eagerly
+  building `row_data` in grid mode read every album's blob on the main thread before the
+  window appeared. So `CoverArtCache.large` is an LRU of *decoded* `Arc<RenderImage>`
+  that hands each eviction to `drop_atlas_tile`, and the
+  grid never fills `AlbumRowData::cover` at all: it keeps `cover_art_id`, reads the cache
+  at render time through `peek_large`, and `ensure_grid_covers` loads what the visible
+  range is missing — one row of margin either side — on the background executor, decoding
+  there too, then inserting and notifying. `covers_in_flight` keeps a scroll from queueing
+  the same id twice.
+  **The capacity follows the viewport, it is not a constant.** A number big enough for an
+  unscaled 4K wall (~220 tiles on screen) never evicts anything on a laptop, where about
+  24 fit — and on a library smaller than the constant the bound is pure decoration.
+  `capacity_for_visible` instead takes the span `ensure_grid_covers` was asked for, which
+  *is* the visible tile count plus the margin, and keeps `LARGE_COVER_SCREENS` of them,
+  clamped to `LARGE_COVER_MIN_CAPACITY..=LARGE_COVER_MAX_CAPACITY`. The floor is what
+  cover mode and `album_info` live on when the grid is small or the layout is `List`. The
+  invariant that matters is capacity > visible: below that the cache evicts what is on
+  screen and thrashes reload → decode → evict, which is why it has its own test.
+  **Capacity only ever grows** (`capacity_for_peak_visible` against
+  `AlbumsView::visible_span_peak`), because the span the closure is handed is not always
+  the viewport. `VirtualList::measure_item` calls the same closure with `0..1` every frame
+  to size an item, and taking that literally dropped the capacity to the floor, evicted
+  everything above it, and made the grid flicker between cover and placeholder once per
+  frame — with only the most-recently-used entries surviving, which is exactly what it
+  looked like. A high-water mark ignores the measuring pass by construction. It is never
+  reset: re-learning on every width change would put the same thrash inside a splitter
+  drag, and the cost of holding the largest viewport the session ever had is bounded by
+  `LARGE_COVER_MAX_CAPACITY` anyway.
+  The same measuring pass is also why the *load* is gated on `visible_range.end > 1`: with
+  `0..1` the row arithmetic resolves to albums `0..columns` whatever the scroll offset, so
+  the first row of the library would be re-requested every frame — and once a long scroll
+  pushed it out of the LRU, each request meant another blob read, decode and `cx.notify()`
+  for tiles nowhere near the viewport. A range that short carries no tile rows at all
+  (item 0 is the spacer), so skipping it loses nothing.
+  A cover whose blob is missing or fails to decode goes into `covers_unavailable`.
+  Without it the id is in neither the cache nor `covers_in_flight`, so every frame would
+  queue another background load for a cover that will never arrive. It is cleared on tag
+  changes as well as rescans, since re-tagging is how a missing cover gets filled in.
+  `insert_large` keeps an entry that is already there rather than replacing it: the only
+  way to insert twice is a race between the grid's background load and a synchronous
+  `get_large` from `album_info` or cover mode, and the loser's copy would otherwise have
+  its atlas tile dropped while the winner is still painting it.
+  **Eviction skips covers another view still holds** (`Arc::strong_count == 1` is the test
+  for "only the cache has this"), which is what makes one cache safe to share: cover mode
+  holds `large_cover` for a whole track while the grid scrolls past hundreds of tiles.
+  Recency covers the other case — anything on screen is touched every frame, so the
+  visible set is never the coldest. If every entry is held, nothing is evicted and the
+  cache runs over capacity until someone lets go, which is the right failure direction.
+  Sharing also means the common path is a hit: clicking a tile opens `album_info`, whose
+  `get_large` finds the cover the grid just decoded.
+  `small` stays an unbounded `HashMap<i64, Arc<Image>>` — a 128 px cover is ~6× cheaper,
+  every list view uses it, and `cover_backdrop::from_thumbnail` needs the undecoded bytes.
+  Note `decode_cover_tile` swaps R and B: gpui's `RenderImage` is BGRA, `to_rgba8` is not.
 - `artists_view.rs` — Artists tab: virtualized list of artists. Which relation the
   list is built on is a setting (`artists_grouping`, Settings → Interface → Artists
   view): `AlbumArtist` (default) attributes each track to its own album-artist tag;

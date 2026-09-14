@@ -1,15 +1,18 @@
+use std::sync::Arc;
+
 use gpui::{
     AnyElement, Context, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, canvas, div, px,
+    RenderImage, StatefulInteractiveElement, Styled, canvas, div, px,
 };
 use gpui_component::{
     h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
     v_flex, v_virtual_list,
 };
-use ui_components::cover_thumb::cover_thumb;
+use ui_components::cover_thumb::cover_tile;
 
 use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, TOP_PADDING};
+use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
@@ -103,6 +106,15 @@ pub(super) fn render_grid(view: &mut AlbumsView, cx: &mut Context<AlbumsView>) -
                 "albums_grid",
                 item_sizes,
                 move |view, visible_range, _window, cx| {
+                    if visible_range.end > 1 {
+                        let margin = params.columns;
+                        let first = visible_range.start.saturating_sub(1) * params.columns;
+                        let last = visible_range.end.saturating_sub(1) * params.columns;
+                        view.ensure_grid_covers(
+                            first.saturating_sub(margin)..(last + margin).min(view.row_data.len()),
+                            cx,
+                        );
+                    }
                     visible_range
                         .map(|ix| match ix {
                             0 => div().w_full().h(px(TOP_PADDING)).into_any_element(),
@@ -119,20 +131,27 @@ pub(super) fn render_grid(view: &mut AlbumsView, cx: &mut Context<AlbumsView>) -
 }
 
 fn grid_row(
-    view: &AlbumsView,
+    view: &mut AlbumsView,
     row_ix: usize,
     p: &TileParams,
     cx: &mut Context<AlbumsView>,
 ) -> AnyElement {
     let start = row_ix * p.columns;
     let end = (start + p.columns).min(view.row_data.len());
+    let cache = cx.global::<Services>().cover_art_cache.clone();
+    let covers: Vec<Option<Arc<RenderImage>>> = {
+        let mut cache = cache.borrow_mut();
+        (start..end)
+            .map(|ix| cache.peek_large(view.row_data[ix].cover_art_id))
+            .collect()
+    };
     let mut row = h_flex()
         .w_full()
         .px(px(GRID_PAD_X))
         .gap(px(TILE_GAP))
         .items_start();
-    for ix in start..end {
-        row = row.child(grid_tile(view, ix, p, cx));
+    for (slot, ix) in (start..end).enumerate() {
+        row = row.child(grid_tile(view, ix, covers[slot].as_ref(), p, cx));
     }
     row.into_any_element()
 }
@@ -140,6 +159,7 @@ fn grid_row(
 fn grid_tile(
     view: &AlbumsView,
     ix: usize,
+    cover: Option<&Arc<RenderImage>>,
     p: &TileParams,
     cx: &mut Context<AlbumsView>,
 ) -> AnyElement {
@@ -153,8 +173,8 @@ fn grid_tile(
         .gap(px(TILE_TEXT_GAP))
         .rounded(px(TILE_RADIUS + TILE_PAD))
         .hover(|style| style.bg(p.list_hover))
-        .child(cover_thumb(
-            row.cover.as_ref(),
+        .child(cover_tile(
+            cover,
             p.cover_size,
             TILE_RADIUS,
             p.muted,

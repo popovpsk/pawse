@@ -106,6 +106,12 @@ pub struct LibraryAccess {
     artists_grouping: Arc<AtomicU8>,
 }
 
+impl LibraryAccess {
+    pub fn cover_large(&self, id: i64) -> Option<Vec<u8>> {
+        self.repo.get_cover_art_large(id).ok().flatten()
+    }
+}
+
 impl pawse_remote::LibraryReader for LibraryAccess {
     fn cover(&self, id: i64, size: pawse_remote::CoverSize) -> Option<Vec<u8>> {
         let result = match size {

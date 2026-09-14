@@ -92,7 +92,8 @@ impl Services {
                             LibraryEvent::TrackTagsChanged { .. }
                                 | LibraryEvent::AlbumTagsChanged { .. }
                         ) {
-                            cx.global::<Services>().cover_art_cache.borrow_mut().clear();
+                            let cache = cx.global::<Services>().cover_art_cache.clone();
+                            cache.borrow_mut().clear(cx);
                         }
                         if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
                             cx.global::<Services>()

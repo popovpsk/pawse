@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Render,
+    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, RenderImage,
     SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use crate::theme_colors::Colors;
-use ui_components::cover_thumb::cover_thumb;
+use ui_components::cover_thumb::cover_tile;
 
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
@@ -20,19 +20,21 @@ pub struct AlbumInfo {
     artist_name: SharedString,
     artist_id: Option<i64>,
     year: Option<i32>,
-    cover: Option<Arc<Image>>,
+    cover: Option<Arc<RenderImage>>,
     genres_inline: SharedString,
     genres_tooltip: Option<SharedString>,
 }
 
 impl AlbumInfo {
     pub fn new(album: &music_library::AlbumSummary, cx: &mut Context<Self>) -> Self {
-        let services = cx.global::<Services>();
-        let cover = services
-            .cover_art_cache
+        let (cache, library) = {
+            let services = cx.global::<Services>();
+            (services.cover_art_cache.clone(), services.library.clone())
+        };
+        let cover = cache
             .borrow_mut()
-            .get_large(album.cover_art_id, &services.library);
-        let all_genres = services.library.album_genres(album.id);
+            .get_large(album.cover_art_id, &library, cx);
+        let all_genres = library.album_genres(album.id);
         let shown = all_genres
             .iter()
             .take(3)
@@ -79,7 +81,7 @@ impl Render for AlbumInfo {
             .px_4()
             .gap_4()
             .items_start()
-            .child(cover_thumb(
+            .child(cover_tile(
                 self.cover.as_ref(),
                 150.,
                 6.,
