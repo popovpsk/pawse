@@ -152,7 +152,10 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             bin=target/release/pawse.exe
           fi
-          if ! grep -aq 'pawse-updater' "$bin"; then
+          cargo tree -p pawse -e normal -f '{p} {f}' | grep 'updater v' || true
+          hits=$(LC_ALL=C tr -c '[:print:]' '\n' < "$bin" | grep -c 'pawse-updater' || true)
+          echo "updater marker occurrences in $bin: $hits"
+          if [ "$hits" -eq 0 ]; then
             echo "::error::$bin carries no updater — every published installer must self-update; only the Windows portable zip is built with --no-default-features."
             exit 1
           fi
@@ -241,7 +244,9 @@ jobs:
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
         run: |
           cargo build --release -p pawse --no-default-features
-          if grep -aq 'pawse-updater' target/release/pawse.exe; then
+          hits=$(LC_ALL=C tr -c '[:print:]' '\n' < target/release/pawse.exe | grep -c 'pawse-updater' || true)
+          echo "updater marker occurrences in the portable binary: $hits"
+          if [ "$hits" -ne 0 ]; then
             echo "::error::the portable binary still links the updater — --no-default-features did not reach updater/self-update, or the build failed and left the installer binary in place."
             exit 1
           fi

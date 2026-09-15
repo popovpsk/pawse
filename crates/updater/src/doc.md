@@ -90,18 +90,24 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   supported, and the settings toggle is the only lever left for someone who wants a
   package manager to own updating. That is deliberate — a marker a user can create is
   also a marker a user can delete.
-- **The portable invariant is asserted, not assumed.** `release.yml` greps the built
+- **The portable invariant is asserted, not assumed.** `release.yml` scans the built
   binary for the `pawse-updater` user agent — it must be present in the installer
   build and absent from the portable one — so a wrong feature flag fails the run
-  instead of shipping. Both greps are `grep -aq` under `shell: bash`, never `findstr`:
-  findstr gives up with exit code 2 on the long lines inside an executable, and the
-  guards only distinguish "found" from "not found", so a findstr error would read as a
-  pass. `ci.yml` compiles the portable configuration on every push to `main` and every
-  pull request — clippy on ubuntu plus `cargo check` on both Windows runners. The
-  Windows leg is not redundant: the real `install::Staged` carries an `installer` field
-  only under `cfg(windows)`, so Windows is where the stubs can drift structurally.
-  Linux's `managed_by_am` stays a runtime check — there the external owner only appears
-  after the build.
+  instead of shipping. The scan is `LC_ALL=C tr -c '[:print:]' '\n' | grep -c`, and
+  deliberately neither `findstr` nor a plain `grep -a` on the file: both read an
+  executable as lines. `findstr` gives up with exit code 2 on the long lines inside a
+  binary, and a guard that only asks "found or not found" reads that error as a pass.
+  `grep -a` is worse in practice — on 2026-09-15 it reported no match in the macOS
+  release binary on the runner while the identical grep finds the identical string in
+  the identical build locally, and the cause was never pinned down. Splitting on every
+  non-printable byte first removes the question, and both steps print the occurrence
+  count plus the resolved `updater` feature line, so a future failure says whether the
+  scan found zero or the feature was never enabled. `ci.yml` compiles the portable
+  configuration on every push to `main` and every pull request — clippy on ubuntu plus
+  `cargo check` on both Windows runners. The Windows leg is not redundant: the real
+  `install::Staged` carries an `installer` field only under `cfg(windows)`, so Windows
+  is where the stubs can drift structurally. Linux's `managed_by_am` stays a runtime
+  check — there the external owner only appears after the build.
 - **Toasts are localized.** Runtime update notices (`up_to_date`, `update_ready_t`,
   `update_check_failed_t`) are read from `ui_resources::i18n::strings()` at toast
   time, so they follow the active language (including a live language switch). This
