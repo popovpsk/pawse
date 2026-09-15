@@ -145,6 +145,18 @@ jobs:
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
         run: cargo build --release -p pawse
 
+      - name: Verify the release binary keeps the updater
+        shell: bash
+        run: |
+          bin=target/release/pawse
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bin=target/release/pawse.exe
+          fi
+          if ! grep -aq 'pawse-updater' "$bin"; then
+            echo "::error::$bin carries no updater — every published installer must self-update; only the Windows portable zip is built with --no-default-features."
+            exit 1
+          fi
+
       - name: Enable macOS code signing
         if: runner.os == 'macOS'
         shell: bash
@@ -220,6 +232,20 @@ jobs:
             echo "re-imaged unsigned: $dmg"
           done
 
+      - name: Build the portable binary
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+        run: |
+          cargo build --release -p pawse --no-default-features
+          if grep -aq 'pawse-updater' target/release/pawse.exe; then
+            echo "::error::the portable binary still links the updater — --no-default-features did not reach updater/self-update, or the build failed and left the installer binary in place."
+            exit 1
+          fi
+
       - name: Build portable archive
         if: runner.os == 'Windows'
         shell: pwsh
@@ -229,7 +255,6 @@ jobs:
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $stage | Out-Null
           Copy-Item target/release/pawse.exe $stage
-          Set-Content -Path (Join-Path $stage 'portable.txt') -Value 'Deleting this file makes Pawse update itself again.'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/pawse_${version}_${{ matrix.arch_tag }}-portable.zip"
           Get-ChildItem dist

@@ -9,8 +9,18 @@ use semver::Version;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "self-update")]
 mod github;
+#[cfg(not(feature = "self-update"))]
+#[path = "disabled/github.rs"]
+mod github;
+
+#[cfg(feature = "self-update")]
 mod install;
+#[cfg(not(feature = "self-update"))]
+#[path = "disabled/install.rs"]
+mod install;
+
 mod version;
 
 use install::Staged;
@@ -128,43 +138,35 @@ pub fn handle(cx: &App) -> Option<Entity<AutoUpdater>> {
     global(cx)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "self-update"))]
 fn managed_by_am(dir: &std::path::Path) -> bool {
     dir.join("AM-updater").exists()
 }
 
-#[cfg(target_os = "windows")]
-fn is_portable() -> bool {
-    static PORTABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *PORTABLE.get_or_init(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
-            .is_some_and(|dir| dir.join("portable.txt").exists())
-    })
-}
-
 pub fn is_supported() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        true
-    }
-    #[cfg(target_os = "windows")]
-    {
-        !is_portable()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *SUPPORTED.get_or_init(|| {
-            install::appimage_path()
-                .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
-                .is_some_and(|dir| !managed_by_am(&dir))
-        })
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(feature = "self-update"))]
     {
         false
+    }
+    #[cfg(feature = "self-update")]
+    {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            true
+        }
+        #[cfg(target_os = "linux")]
+        {
+            static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *SUPPORTED.get_or_init(|| {
+                install::appimage_path()
+                    .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+                    .is_some_and(|dir| !managed_by_am(&dir))
+            })
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        {
+            false
+        }
     }
 }
 

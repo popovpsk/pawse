@@ -29,6 +29,8 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   by `cargo test` on any host — the Windows rule in particular must not go untested,
   see the asset naming contract below.
 - `install/` — platform install backends (see `install/doc.md`).
+- `disabled/` — API-compatible no-op `github` / `install` modules used when the
+  `self-update` feature is off (see `disabled/doc.md`).
 
 ## Non-obvious behavior / contract
 
@@ -69,12 +71,37 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   `.dmg`, which `macos_asset` matches by suffix alone) ever appears. Fixing the
   matcher here only protects future versions; the copies already installed cannot be
   fixed, so the naming is the real guarantee and must not be "tidied up" later.
-- **Windows portable builds opt out.** The portable zip ships a `portable.txt` next to
-  `pawse.exe`; `is_portable()` looks for it and makes `is_supported()` false, which
-  removes the menu item, the settings toggle and the poll loop. Running the NSIS
-  installer from an unpacked portable folder would install a second, separate copy and
-  leave the portable one untouched. Same shape as `managed_by_am` on Linux: a marker
-  file means somebody else owns updating this copy.
+- **Windows portable builds are a separate compilation, not a runtime flag.** The
+  portable zip is built with `cargo build --release -p pawse --no-default-features`,
+  which drops pawse's `self-update` feature and with it `updater/self-update`:
+  `github.rs` and `install/` are swapped for the stubs in `src/disabled/`, and
+  `is_supported()` becomes a compile-time `false`. The public API is identical either
+  way, so `crates/pawse` carries no `#[cfg]` of its own. Inside this crate the feature
+  appears in exactly three places — the `mod github` / `mod install` declarations at
+  the top of `lib.rs`, the outer split in `is_supported()`, and the gate on
+  `managed_by_am` — so a change to one has to be checked against the other two.
+  The earlier design used a `portable.txt` marker next to the exe and was dropped for
+  being fail-open: deleting the file, or copying just `pawse.exe` out of the zip,
+  turned updating back on, and running the NSIS installer from an unpacked folder
+  installs a *second* copy into `%LOCALAPPDATA%` while the portable one keeps running
+  the old build and finds the same update again on every launch. Code that is not
+  compiled in cannot be switched back on from outside. The flip side is that Windows
+  no longer has any file-based opt-out at all: an installed copy always reports
+  supported, and the settings toggle is the only lever left for someone who wants a
+  package manager to own updating. That is deliberate — a marker a user can create is
+  also a marker a user can delete.
+- **The portable invariant is asserted, not assumed.** `release.yml` greps the built
+  binary for the `pawse-updater` user agent — it must be present in the installer
+  build and absent from the portable one — so a wrong feature flag fails the run
+  instead of shipping. Both greps are `grep -aq` under `shell: bash`, never `findstr`:
+  findstr gives up with exit code 2 on the long lines inside an executable, and the
+  guards only distinguish "found" from "not found", so a findstr error would read as a
+  pass. `ci.yml` compiles the portable configuration on every push to `main` and every
+  pull request — clippy on ubuntu plus `cargo check` on both Windows runners. The
+  Windows leg is not redundant: the real `install::Staged` carries an `installer` field
+  only under `cfg(windows)`, so Windows is where the stubs can drift structurally.
+  Linux's `managed_by_am` stays a runtime check — there the external owner only appears
+  after the build.
 - **Toasts are localized.** Runtime update notices (`up_to_date`, `update_ready_t`,
   `update_check_failed_t`) are read from `ui_resources::i18n::strings()` at toast
   time, so they follow the active language (including a live language switch). This

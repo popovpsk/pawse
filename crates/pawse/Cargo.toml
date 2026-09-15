@@ -12,6 +12,10 @@ license = "MIT"
 name = "pawse"
 path = "src/main.rs"
 
+[features]
+default = ["self-update"]
+self-update = ["updater/self-update"]
+
 [dependencies]
 gpui.workspace = true
 gpui-component.workspace = true
@@ -36,7 +40,7 @@ ui_resources = { path = "../ui_resources" }
 media_integration = { path = "../media_integration" }
 scrobble = { path = "../scrobble" }
 discord = { path = "../discord" }
-updater = { path = "../updater" }
+updater = { path = "../updater", default-features = false }
 sys-locale = "0.3"
 nucleo-matcher = "0.3"
 rand = "0.9"

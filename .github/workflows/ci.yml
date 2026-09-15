@@ -42,6 +42,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Clippy (portable build, updater compiled out)
+        run: cargo clippy -p pawse --no-default-features --all-targets -- -D warnings
+
   check-windows:
     name: Check (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
@@ -64,3 +67,6 @@ jobs:
 
       - name: Check
         run: cargo check --workspace --all-targets
+
+      - name: Check (portable build, updater compiled out)
+        run: cargo check -p pawse --no-default-features --all-targets
