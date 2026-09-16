@@ -59,10 +59,16 @@ winresource = "0.1"
 product-name = "Pawse"
 identifier = "dev.pawse.app"
 category = "Music"
+long-description = """
+Pawse is a native music player for a local library: it indexes your folders, \
+browses by artist, album and playlist, and plays gapless with bit-perfect output \
+where the platform allows it. It also scrobbles to Last.fm, reports to Discord, \
+and serves a web remote on the local network.
+"""
 icons = [
     "../ui_resources/assets/app-icon/32x32.png",
     "../ui_resources/assets/app-icon/128x128.png",
-    "../ui_resources/assets/app-icon/128x128@2x.png",
+    "../ui_resources/assets/app-icon/256x256.png",
     "../ui_resources/assets/app-icon/icon.icns",
     "../ui_resources/assets/app-icon/icon.ico",
 ]
@@ -70,12 +76,35 @@ icons = [
 [package.metadata.packager.pacman]
 depends = [
     "alsa-lib",
+    "dbus",
     "fontconfig",
-    "libxkbcommon",
-    "wayland",
+    "hicolor-icon-theme",
     "libxcb",
+    "libxkbcommon",
+    "libxkbcommon-x11",
     "vulkan-icd-loader",
+    "wayland",
 ]
+
+[package.metadata.packager.pacman.files]
+"../../LICENSE" = "/usr/share/licenses/pawse-bin/LICENSE"
+
+[package.metadata.packager.deb]
+section = "sound"
+depends = [
+    "libasound2",
+    "libdbus-1-3",
+    "libvulkan1",
+    "libwayland-client0",
+    "libxcb1",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "fontconfig-config",
+    "hicolor-icon-theme",
+]
+
+[package.metadata.packager.deb.files]
+"../../LICENSE" = "/usr/share/doc/pawse/copyright"
 
 [package.metadata.packager.macos]
 minimum-system-version = "10.15"

@@ -22,6 +22,8 @@ package() {
     return 1
   fi
   cp -a "${srcdir}/usr" "${pkgdir}/usr"
-  install -Dm644 "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE" \
-    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE" 2>/dev/null || true
+  if [ ! -s "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE" ]; then
+    echo "the release tarball carries no LICENSE; check [package.metadata.packager.pacman.files]" >&2
+    return 1
+  fi
 }

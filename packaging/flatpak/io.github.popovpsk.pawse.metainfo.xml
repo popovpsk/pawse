@@ -60,25 +60,31 @@
   <screenshots>
     <screenshot type="default">
       <caption>Browsing the library by artist</caption>
-      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/artists.webp</image>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/f00e6ad25222abd5af452a51f0aaf6b81e25cbd7/.docs/screenshots/artists.webp</image>
     </screenshot>
     <screenshot>
       <caption>An album with its track list</caption>
-      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/album.webp</image>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/f00e6ad25222abd5af452a51f0aaf6b81e25cbd7/.docs/screenshots/album.webp</image>
     </screenshot>
     <screenshot>
       <caption>Full-screen cover view</caption>
-      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/cover_view.webp</image>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/f00e6ad25222abd5af452a51f0aaf6b81e25cbd7/.docs/screenshots/cover_view.webp</image>
     </screenshot>
     <screenshot>
       <caption>Settings</caption>
-      <image>https://raw.githubusercontent.com/popovpsk/pawse/v0.5.8/.docs/screenshots/settings.webp</image>
+      <image>https://raw.githubusercontent.com/popovpsk/pawse/f00e6ad25222abd5af452a51f0aaf6b81e25cbd7/.docs/screenshots/settings.webp</image>
     </screenshot>
   </screenshots>
 
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.6.0" date="2026-09-15">
+      <description>
+        <p>An album grid view with cached cover art, a Windows arm64 installer and a portable build, and pacman packaging for Arch.</p>
+      </description>
+      <url type="details">https://github.com/popovpsk/pawse/releases/tag/v0.6.0</url>
+    </release>
     <release version="0.5.8" date="2026-09-13">
       <description>
         <p>Artists are grouped by album artist, with a per-track fallback.</p>

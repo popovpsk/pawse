@@ -785,10 +785,13 @@ impl LibraryService {
 
     pub fn get_cover_art_path_for_media(&self, id: i64) -> Option<std::path::PathBuf> {
         let bytes = self.repo.get_cover_art_large(id).ok()??;
-        let temp_dir = std::env::temp_dir().join("pawse-artwork");
-        std::fs::create_dir_all(&temp_dir).ok()?;
-        let path = temp_dir.join(format!("{}.jpg", id));
-        if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+        let dir = dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("pawse")
+            .join("artwork");
+        std::fs::create_dir_all(&dir).ok()?;
+        let path = dir.join(format!("{}.jpg", id));
+        if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p != path && p.extension().and_then(|e| e.to_str()) == Some("jpg") {

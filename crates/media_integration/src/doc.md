@@ -88,6 +88,17 @@ Two directions cross this boundary:
   backend, when souvlaki fails to create or attach its controls, or when called off the
   main thread on macOS. The app then runs without any system media surface.
 
+- **The artwork file must live somewhere the host can read.** `NowPlayingInfo` carries a
+  filesystem path, and on Linux it is handed to MPRIS as `mpris:artUrl = file://…`, which
+  the desktop shell resolves **outside** our process. `LibraryService::get_cover_art_path_for_media`
+  therefore writes into `dirs::cache_dir()/pawse/artwork`, not `std::env::temp_dir()`.
+  Inside a Flatpak, `/tmp` is the sandbox's own private tmpfs: a `file:///tmp/pawse-artwork/5.jpg`
+  published from there points at nothing on the host, and if the host happened to hold a
+  file with the same id it would show **someone else's** cover. `cache_dir()` maps to
+  `~/.var/app/<id>/cache` in the sandbox and `~/.cache` natively — a real host path either
+  way. Windows SMTC and the macOS widget consume the same path, so this is not a
+  Linux-only concern.
+
 ## Lifetime
 
 The integration must outlive playback. On macOS it is app-lived (audio keeps running
