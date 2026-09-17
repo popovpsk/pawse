@@ -16,7 +16,8 @@ finish-args:
   - --socket=pulseaudio
   - --filesystem=xdg-run/pipewire-0
   - --filesystem=xdg-run/discord-ipc-0
-  - --filesystem=xdg-music
+  - --filesystem=home
+  - --filesystem=/run/media
   - --own-name=org.mpris.MediaPlayer2.pawse
 
 modules:
@@ -45,8 +46,16 @@ modules:
         /app/share/icons/hicolor/256x256/apps/io.github.popovpsk.pawse.png
       - install -Dm644 LICENSE /app/share/licenses/io.github.popovpsk.pawse/LICENSE
     sources:
-      - type: git
-        url: https://github.com/popovpsk/pawse.git
-        tag: v0.6.0
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .github
+          - target
+          - build
+          - repo
+          - .flatpak-builder
+          - web/node_modules
+          - web/dist
       - cargo-sources.json
       - node-sources.json

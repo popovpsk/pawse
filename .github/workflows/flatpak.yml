@@ -1,0 +1,186 @@
+name: Flatpak
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: flatpak-pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build and publish the Flatpak repository
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: io.github.popovpsk.pawse
+      BRANCH: stable
+      MANIFEST: packaging/flatpak/io.github.popovpsk.pawse.yml
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install flatpak-builder and the runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils
+          flatpak remote-add --if-not-exists --user flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub \
+            org.freedesktop.Platform//25.08 \
+            org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08 \
+            org.freedesktop.Sdk.Extension.node20//25.08
+
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::FLATPAK_GPG_PRIVATE_KEY is not set. An unsigned repository forces every user to pass --no-gpg-verify, so this workflow refuses to publish one."
+            exit 1
+          fi
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          key=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ { print $10; exit }')
+          echo "GPG_KEY_ID=$key" >> "$GITHUB_ENV"
+          echo "signing with $key"
+
+      - name: Stamp the release into the metainfo
+        env:
+          METAINFO: packaging/flatpak/io.github.popovpsk.pawse.metainfo.xml
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            [0-9]*.[0-9]*) ;;
+            *) echo "no release tag in $GITHUB_REF_NAME; leaving the metainfo alone"; exit 0 ;;
+          esac
+          ruby -rrexml/document -e '
+            version = ARGV[0]
+            path = ENV["METAINFO"]
+            doc = REXML::Document.new(File.read(path))
+            releases = REXML::XPath.first(doc, "//releases")
+            abort "no <releases> block in #{path}" unless releases
+            if REXML::XPath.first(releases, "release[@version=\"#{version}\"]")
+              puts "metainfo already lists #{version}"
+              exit 0
+            end
+            entry = REXML::Element.new("release")
+            entry.add_attribute("version", version)
+            entry.add_attribute("date", Time.now.utc.strftime("%Y-%m-%d"))
+            url = entry.add_element("url", {"type" => "details"})
+            url.text = "https://github.com/popovpsk/pawse/releases/tag/v#{version}"
+            releases.insert_before(releases.elements[1], entry)
+            File.write(path, doc.to_s)
+            puts "metainfo now leads with #{version}"
+          ' "$version"
+          grep -m2 '<release ' "$METAINFO"
+
+      - name: Bake the integration keys into the manifest
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+        run: |
+          ruby -ryaml -e '
+            m = YAML.load_file(ENV["MANIFEST"])
+            env = m["modules"][0]["build-options"]["env"]
+            %w[LASTFM_API_KEY LASTFM_API_SECRET DISCORD_CLIENT_ID].each do |k|
+              v = ENV[k].to_s
+              next if v.empty?
+              env[k] = v
+            end
+            File.write(ENV["MANIFEST"], m.to_yaml)
+            puts "baked: #{env.keys.grep(/LASTFM|DISCORD/).join(", ")}"
+          '
+
+      - name: Build into the repository
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --force-clean \
+            --repo=repo --gpg-sign="$GPG_KEY_ID" \
+            --default-branch="$BRANCH" \
+            build "$MANIFEST"
+
+      - name: Update the repository metadata
+        run: |
+          flatpak build-update-repo \
+            --title="Pawse" \
+            --generate-static-deltas \
+            --prune --prune-depth=1 \
+            --gpg-sign="$GPG_KEY_ID" \
+            repo
+          du -sh repo
+
+      - name: Assemble the site
+        run: |
+          gpg --export "$GPG_KEY_ID" | base64 | tr -d "\n" > /tmp/key.b64
+          base="https://popovpsk.github.io/pawse"
+          mkdir -p site
+          cp -a repo site/repo
+          {
+            echo "[Flatpak Ref]"
+            echo "Name=$APP_ID"
+            echo "Branch=$BRANCH"
+            echo "Title=Pawse"
+            echo "Url=$base/repo"
+            echo "SuggestRemoteName=pawse"
+            echo "Homepage=https://github.com/popovpsk/pawse"
+            echo "Icon=$base/icon.png"
+            echo "RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo"
+            echo "IsRuntime=false"
+            echo "GPGKey=$(cat /tmp/key.b64)"
+          } > site/pawse.flatpakref
+          {
+            echo "[Flatpak Repo]"
+            echo "Title=Pawse"
+            echo "Url=$base/repo"
+            echo "Homepage=https://github.com/popovpsk/pawse"
+            echo "GPGKey=$(cat /tmp/key.b64)"
+          } > site/pawse.flatpakrepo
+          cp crates/ui_resources/assets/app-icon/256x256.png site/icon.png
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Pawse for Linux</title>
+          <style>
+            body{max-width:40rem;margin:0 auto;padding:3rem 1.25rem;
+                 font:16px/1.6 system-ui,sans-serif;color:#1c1b1a;background:#e8e6e3}
+            code,pre{font-family:ui-monospace,Menlo,Consolas,monospace}
+            pre{background:#f5f3f0;border:1px solid #d3cec8;padding:1rem;overflow-x:auto}
+            a{color:#0d6494}
+            @media (prefers-color-scheme:dark){
+              body{color:#e8e6e3;background:#1c1b1a}
+              pre{background:#262523;border-color:#383533}
+              a{color:#56b4e3}}
+          </style>
+          <h1>Pawse</h1>
+          <p>A fast, native music player for your local library.</p>
+          <pre>flatpak install --user https://popovpsk.github.io/pawse/pawse.flatpakref</pre>
+          <p>Updates arrive through <code>flatpak update</code> like any other remote.</p>
+          <p><a href="https://github.com/popovpsk/pawse">Source and other downloads</a></p>
+          HTML
+          ls -la site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

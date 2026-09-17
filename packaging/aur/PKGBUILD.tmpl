@@ -10,9 +10,9 @@ depends=('alsa-lib' 'dbus' 'fontconfig' 'hicolor-icon-theme' 'libxcb' 'libxkbcom
 provides=('pawse')
 conflicts=('pawse')
 options=('!strip')
-source_x86_64=("pawse-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/pawse_${pkgver}_x86_64-pacman.tar.gz")
+source_x86_64=("pawse-${pkgver}-${CARCH}.tar.gz::${url}/releases/download/v${pkgver}/pawse_${pkgver}_${CARCH}-pacman.tar.gz")
 sha256sums_x86_64=('__SHA256_X86_64__')
-source_aarch64=("pawse-${pkgver}-aarch64.tar.gz::${url}/releases/download/v${pkgver}/pawse_${pkgver}_aarch64-pacman.tar.gz")
+source_aarch64=("pawse-${pkgver}-${CARCH}.tar.gz::${url}/releases/download/v${pkgver}/pawse_${pkgver}_${CARCH}-pacman.tar.gz")
 sha256sums_aarch64=('__SHA256_AARCH64__')
 
 package() {
