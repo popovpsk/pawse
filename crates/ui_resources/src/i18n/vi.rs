@@ -147,7 +147,6 @@ pub static VI: Strings = lang! {
     native_rate_click_disable: "Tần số lấy mẫu gốc — nhấp để tắt",
     native_rate_click_enable: "Tần số lấy mẫu gốc đang tắt — nhấp để bật",
     bp_native_rate_off: "• Tần số lấy mẫu gốc đang tắt",
-    why_not_bit_perfect: "Tại sao?",
     default_suffix: " (mặc định)",
 
     onboarding_title: "Chào mừng đến với Pawse",

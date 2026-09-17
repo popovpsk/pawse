@@ -147,7 +147,6 @@ pub static JA: Strings = lang! {
     native_rate_click_disable: "ネイティブサンプルレート — クリックで無効化",
     native_rate_click_enable: "ネイティブサンプルレートは無効 — クリックで有効化",
     bp_native_rate_off: "• ネイティブサンプルレートが無効です",
-    why_not_bit_perfect: "なぜ？",
     default_suffix: "（既定）",
 
     onboarding_title: "Pawse へようこそ",

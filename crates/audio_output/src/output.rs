@@ -651,7 +651,10 @@ impl Output {
                 if snap.hw_muted {
                     issues.push(BitPerfectIssue::SystemMuted);
                 }
-                if snap.device_sample_rate != 0 && snap.device_sample_rate != source_rate {
+                if excl.is_playing()
+                    && snap.device_sample_rate != 0
+                    && snap.device_sample_rate != source_rate
+                {
                     issues.push(BitPerfectIssue::SampleRateMismatch {
                         source: source_rate,
                         device: snap.device_sample_rate,

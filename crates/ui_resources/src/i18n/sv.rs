@@ -147,7 +147,6 @@ pub static SV: Strings = lang! {
     native_rate_click_disable: "Native samplingsfrekvens — klicka för att stänga av",
     native_rate_click_enable: "Native samplingsfrekvens är av — klicka för att slå på",
     bp_native_rate_off: "• Native samplingsfrekvens är av",
-    why_not_bit_perfect: "Varför?",
     default_suffix: " (standard)",
 
     onboarding_title: "Välkommen till Pawse",

@@ -147,7 +147,6 @@ pub static ID: Strings = lang! {
     native_rate_click_disable: "Laju sampel asli — klik untuk menonaktifkan",
     native_rate_click_enable: "Laju sampel asli nonaktif — klik untuk mengaktifkan",
     bp_native_rate_off: "• Laju sampel asli nonaktif",
-    why_not_bit_perfect: "Mengapa?",
     default_suffix: " (bawaan)",
 
     onboarding_title: "Selamat datang di Pawse",

@@ -147,7 +147,6 @@ pub static HI: Strings = lang! {
     native_rate_click_disable: "मूल सैंपल दर — बंद करने के लिए क्लिक करें",
     native_rate_click_enable: "मूल सैंपल दर बंद है — चालू करने के लिए क्लिक करें",
     bp_native_rate_off: "• मूल सैंपल दर बंद है",
-    why_not_bit_perfect: "क्यों?",
     default_suffix: " (डिफ़ॉल्ट)",
 
     onboarding_title: "Pawse में आपका स्वागत है",

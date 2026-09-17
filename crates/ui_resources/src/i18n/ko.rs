@@ -147,7 +147,6 @@ pub static KO: Strings = lang! {
     native_rate_click_disable: "네이티브 샘플 레이트 — 클릭하면 해제",
     native_rate_click_enable: "네이티브 샘플 레이트 꺼짐 — 클릭하면 활성화",
     bp_native_rate_off: "• 네이티브 샘플 레이트가 꺼져 있습니다",
-    why_not_bit_perfect: "왜?",
     default_suffix: " (기본값)",
 
     onboarding_title: "Pawse에 오신 것을 환영합니다",

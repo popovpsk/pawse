@@ -147,7 +147,6 @@ pub static FR: Strings = lang! {
     native_rate_click_disable: "Fréquence native — cliquez pour désactiver",
     native_rate_click_enable: "Fréquence native désactivée — cliquez pour activer",
     bp_native_rate_off: "• La fréquence native est désactivée",
-    why_not_bit_perfect: "Pourquoi ?",
     default_suffix: " (par défaut)",
 
     onboarding_title: "Bienvenue dans Pawse",

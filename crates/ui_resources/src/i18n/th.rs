@@ -147,7 +147,6 @@ pub static TH: Strings = lang! {
     native_rate_click_disable: "อัตราสุ่มตัวอย่างดั้งเดิม — คลิกเพื่อปิด",
     native_rate_click_enable: "อัตราสุ่มตัวอย่างดั้งเดิมปิดอยู่ — คลิกเพื่อเปิด",
     bp_native_rate_off: "• อัตราสุ่มตัวอย่างดั้งเดิมปิดอยู่",
-    why_not_bit_perfect: "ทำไม?",
     default_suffix: " (ค่าเริ่มต้น)",
 
     onboarding_title: "ยินดีต้อนรับสู่ Pawse",

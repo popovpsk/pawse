@@ -147,7 +147,6 @@ pub static TR: Strings = lang! {
     native_rate_click_disable: "Doğal örnekleme hızı — kapatmak için tıklayın",
     native_rate_click_enable: "Doğal örnekleme hızı kapalı — açmak için tıklayın",
     bp_native_rate_off: "• Doğal örnekleme hızı kapalı",
-    why_not_bit_perfect: "Neden?",
     default_suffix: " (varsayılan)",
 
     onboarding_title: "Pawse'a hoş geldin",

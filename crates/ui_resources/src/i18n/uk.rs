@@ -147,7 +147,6 @@ pub static UK: Strings = lang! {
     native_rate_click_disable: "Рідна частота — натисніть, щоб вимкнути",
     native_rate_click_enable: "Рідна частота вимкнена — натисніть, щоб увімкнути",
     bp_native_rate_off: "• Рідна частота вимкнена",
-    why_not_bit_perfect: "Чому?",
     default_suffix: " (за замовчуванням)",
 
     onboarding_title: "Ласкаво просимо до Pawse",

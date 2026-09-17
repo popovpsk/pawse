@@ -4,7 +4,7 @@ The Linux arm of `exclusive::Backend`. It is *not* an exclusive grab of the
 hardware (there is no raw `hw:` access here, and no ALSA mixer): it plays through
 PipeWire and makes PipeWire run the graph — and therefore the device — at the
 source rate, so nothing along the chain resamples. The user-facing name is
-"Native sample rate"; `docs/native-sample-rate.md` is the page the UI links to.
+"Native sample rate".
 
 ## Files
 
@@ -41,6 +41,21 @@ not depend on `PIPEWIRE_NODE` at all — unlike the shared cpal path, which stil
 does. An empty or non-`pw:` UID falls back to the plain `pipewire` PCM, i.e. the
 default sink.
 
+## Reported device rate
+
+A sink backed by an ALSA card is measured from `/proc/asound/.../hw_params` only.
+Pause calls `pcm.drop()`, the substream closes, and the file then reads `closed` —
+that means *unknown*, so the status thread stores `0` and no rate is claimed.
+Falling back to the sink's `pactl` sample spec there would report the rate the
+idle PipeWire node fell back to, which is not what the DAC does while playing and
+showed up as a phantom sample-rate mismatch on every pause. The `pactl` rate is
+still used for sinks with no ALSA card (Bluetooth and other non-card sinks), where
+it is the only reading available.
+
+`Output::bit_perfect_status` additionally ignores the rate while playback is
+stopped: an idle non-card sink keeps reporting its idle rate, and a device that
+is not running cannot be resampling anything.
+
 ## Why f32 only
 
 The graph is f32 and our pipeline is f32, so `Format::FloatLE` means zero
@@ -54,8 +69,7 @@ converting.
   never reads files.
 - status: 1 s tick, `pactl` every other tick. Split out precisely so process
   spawns can't stall playback. It logs one warning (with `pw-metadata -n settings`
-  attached) when the device rate stops matching the source, which is the case
-  `docs/native-sample-rate.md` explains to the user.
+  attached) when the device rate stops matching the source.
 
 Both are joined in `Drop`; each has its own `running` flag (`LinuxShared` for the
 writer, `StatusShared` for the status thread) and both are cleared there.

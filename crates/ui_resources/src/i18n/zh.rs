@@ -147,7 +147,6 @@ pub static ZH: Strings = lang! {
     native_rate_click_disable: "原生采样率 — 点击以关闭",
     native_rate_click_enable: "原生采样率已关闭 — 点击以开启",
     bp_native_rate_off: "• 原生采样率已关闭",
-    why_not_bit_perfect: "为什么？",
     default_suffix: "（默认）",
 
     onboarding_title: "欢迎使用 Pawse",

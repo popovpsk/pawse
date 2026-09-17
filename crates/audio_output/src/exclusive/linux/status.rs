@@ -68,11 +68,11 @@ fn poll_loop(shared: &StatusShared, node: &str, source_rate: u32) {
         }
 
         let hw = sink.as_ref().and_then(read_hw_params);
-        let rate = hw
-            .as_ref()
-            .map(|p| p.rate)
-            .or_else(|| sink.as_ref().and_then(|s| s.rate))
-            .unwrap_or(0);
+        let rate = match sink.as_ref() {
+            Some(s) if s.card.is_some() => hw.as_ref().map_or(0, |p| p.rate),
+            Some(s) => s.rate.unwrap_or(0),
+            None => 0,
+        };
         shared.device_sample_rate.store(rate, Ordering::Relaxed);
 
         if rate != 0 && rate != source_rate {

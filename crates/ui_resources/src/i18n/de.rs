@@ -147,7 +147,6 @@ pub static DE: Strings = lang! {
     native_rate_click_disable: "Native Abtastrate — zum Deaktivieren klicken",
     native_rate_click_enable: "Native Abtastrate ist aus — zum Aktivieren klicken",
     bp_native_rate_off: "• Native Abtastrate ist aus",
-    why_not_bit_perfect: "Warum?",
     default_suffix: " (Standard)",
 
     onboarding_title: "Willkommen bei Pawse",

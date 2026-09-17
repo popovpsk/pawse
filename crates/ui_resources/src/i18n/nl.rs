@@ -147,7 +147,6 @@ pub static NL: Strings = lang! {
     native_rate_click_disable: "Native samplefrequentie — klik om uit te schakelen",
     native_rate_click_enable: "Native samplefrequentie staat uit — klik om in te schakelen",
     bp_native_rate_off: "• Native samplefrequentie staat uit",
-    why_not_bit_perfect: "Waarom?",
     default_suffix: " (standaard)",
 
     onboarding_title: "Welkom bij Pawse",

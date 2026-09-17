@@ -147,7 +147,6 @@ pub static EN: Strings = lang! {
     native_rate_click_disable: "Native sample rate — click to disable",
     native_rate_click_enable: "Native sample rate is off — click to enable",
     bp_native_rate_off: "• Native sample rate is off",
-    why_not_bit_perfect: "Why?",
     default_suffix: " (default)",
 
     onboarding_title: "Welcome to Pawse",

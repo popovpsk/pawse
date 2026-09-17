@@ -147,7 +147,6 @@ pub static PT: Strings = lang! {
     native_rate_click_disable: "Taxa nativa — clique para desativar",
     native_rate_click_enable: "Taxa nativa desativada — clique para ativar",
     bp_native_rate_off: "• A taxa nativa está desativada",
-    why_not_bit_perfect: "Por quê?",
     default_suffix: " (padrão)",
 
     onboarding_title: "Boas-vindas ao Pawse",

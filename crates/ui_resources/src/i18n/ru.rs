@@ -147,7 +147,6 @@ pub static RU: Strings = lang! {
     native_rate_click_disable: "Родная частота — нажмите, чтобы отключить",
     native_rate_click_enable: "Родная частота выключена — нажмите, чтобы включить",
     bp_native_rate_off: "• Родная частота выключена",
-    why_not_bit_perfect: "Почему?",
     default_suffix: " (по умолчанию)",
 
     onboarding_title: "Добро пожаловать в Pawse",

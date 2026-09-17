@@ -33,14 +33,6 @@ struct StreamFailureNotif;
 /// same toggle speaks a different language there.
 const NATIVE_RATE_WORDING: bool = cfg!(target_os = "linux");
 
-#[cfg(target_os = "linux")]
-fn open_rate_docs(cx: &mut App) {
-    cx.open_url("https://github.com/popovpsk/pawse/blob/main/docs/native-sample-rate.md");
-}
-
-#[cfg(not(target_os = "linux"))]
-fn open_rate_docs(_cx: &mut App) {}
-
 fn mode_title() -> gpui::SharedString {
     if NATIVE_RATE_WORDING {
         tr().native_rate_title.clone()
@@ -123,12 +115,6 @@ impl Render for AudioSettings {
             let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
             (output.drain_events(), is_exclusive, bit_perfect)
         };
-        let show_rate_help = NATIVE_RATE_WORDING
-            && bit_perfect.as_ref().is_some_and(|bp| {
-                bp.issues
-                    .iter()
-                    .any(|i| matches!(i, BitPerfectIssue::SampleRateMismatch { .. }))
-            });
         let show_hog = native_mode_available() && cx.global::<SettingsStore>().show_hog_button();
         let scale = ui_scale(cx);
         for evt in events {
@@ -174,15 +160,6 @@ impl Render for AudioSettings {
                         .h(px(40. * scale))
                         .icon(Icon::new(icon_name).size(px(20. * scale)))
                         .tooltip(tooltip_text),
-                )
-            })
-            .when(show_rate_help, |el| {
-                el.child(
-                    Button::new("native-rate-help")
-                        .ghost()
-                        .compact()
-                        .label(tr().why_not_bit_perfect.clone())
-                        .on_click(|_, _, app_cx: &mut App| open_rate_docs(app_cx)),
                 )
             })
             .when(show_hog, |el| {

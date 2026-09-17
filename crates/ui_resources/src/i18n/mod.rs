@@ -202,7 +202,6 @@ pub struct Strings {
     pub native_rate_click_disable: SharedString,
     pub native_rate_click_enable: SharedString,
     pub bp_native_rate_off: SharedString,
-    pub why_not_bit_perfect: SharedString,
     pub default_suffix: SharedString,
 
     pub onboarding_title: SharedString,

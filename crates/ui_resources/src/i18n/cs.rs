@@ -147,7 +147,6 @@ pub static CS: Strings = lang! {
     native_rate_click_disable: "Nativní vzorkovací frekvence — klepnutím vypnete",
     native_rate_click_enable: "Nativní vzorkovací frekvence je vypnutá — klepnutím zapnete",
     bp_native_rate_off: "• Nativní vzorkovací frekvence je vypnutá",
-    why_not_bit_perfect: "Proč?",
     default_suffix: " (výchozí)",
 
     onboarding_title: "Vítejte v Pawse",
