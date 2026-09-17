@@ -74,7 +74,7 @@ jobs:
 
       - name: Push to AUR
         if: steps.render.outputs.publish == 'true'
-        uses: KSXGitHub/github-actions-deploy-aur@v4
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
         with:
           pkgname: pawse-bin
           pkgbuild: PKGBUILD
