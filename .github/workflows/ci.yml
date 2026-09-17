@@ -76,6 +76,23 @@ jobs:
           fi
           echo "cargo: $(wc -l < /tmp/cargo-lock.txt) crates, node: $(wc -l < /tmp/node-lock.txt) packages — both in sync"
 
+      - name: AUR template depends match the packager metadata
+        run: |
+          tmpl=$(grep '^depends=' packaging/aur/PKGBUILD.tmpl \
+            | sed "s/^depends=(//; s/)$//; s/'//g" | tr ' ' '\n' | sed '/^$/d' | sort)
+          toml=$(awk '
+            /^\[package\.metadata\.packager\.pacman\]$/ { f = 1 }
+            f && /^depends = \[/ { d = 1; next }
+            d && /^\]/ { exit }
+            d { gsub(/[",]/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if ($0 != "") print }
+          ' crates/pawse/Cargo.toml | sort)
+          if [ "$tmpl" != "$toml" ]; then
+            echo "::error::packaging/aur/PKGBUILD.tmpl and [package.metadata.packager.pacman].depends disagree. The template is what reaches AUR users; the packager metadata only shapes the tarball's own generated PKGBUILD, which is discarded."
+            diff <(echo "$toml") <(echo "$tmpl") || true
+            exit 1
+          fi
+          echo "pacman depends in sync: $(echo "$tmpl" | tr '\n' ' ')"
+
   check-windows:
     name: Check (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
