@@ -1242,26 +1242,70 @@ fn queue_group() -> SettingGroup {
 }
 
 fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
-    SettingGroup::new().title(tr().lyrics.clone()).item(
-        SettingItem::new(
-            tr().lyrics_text_size.clone(),
-            SettingField::render(move |_window, cx: &mut App| {
-                let size = slider.read(cx).value().start();
-                h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .w(px(38.))
-                            .text_sm()
-                            .text_color(Colors::muted_foreground(cx))
-                            .child(format!("{} px", size as i32)),
-                    )
-                    .child(div().w(px(160.)).child(Slider::new(&slider)))
-            }),
+    SettingGroup::new()
+        .title(tr().lyrics.clone())
+        .item(
+            SettingItem::new(
+                tr().lyrics_text_size.clone(),
+                SettingField::render(move |_window, cx: &mut App| {
+                    let size = slider.read(cx).value().start();
+                    h_flex()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .w(px(38.))
+                                .text_sm()
+                                .text_color(Colors::muted_foreground(cx))
+                                .child(format!("{} px", size as i32)),
+                        )
+                        .child(div().w(px(160.)).child(Slider::new(&slider)))
+                }),
+            )
+            .description(tr().lyrics_text_size_desc.clone()),
         )
-        .description(tr().lyrics_text_size_desc.clone()),
-    )
+        .item(
+            SettingItem::new(
+                tr().lyrics_karaoke.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().lyrics_karaoke_fill();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("lyrics-karaoke-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_lyrics_karaoke_fill(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().lyrics_karaoke_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                tr().lyrics_dim_inactive.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().lyrics_dim_inactive();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("lyrics-dim-inactive-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_lyrics_dim_inactive(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().lyrics_dim_inactive_desc.clone()),
+        )
 }
 
 fn library_group() -> SettingGroup {

@@ -198,6 +198,10 @@ pub static TR: Strings = lang! {
     open_in_browser: "Tarayıcıda aç",
     lyrics_text_size: "Metin boyutu",
     lyrics_text_size_desc: "Şarkı sözü metninin boyutu",
+    lyrics_karaoke: "Karaoke dolgusu",
+    lyrics_karaoke_desc: "Çalarken geçerli satırı doldur",
+    lyrics_dim_inactive: "Diğer satırları soluklaştır",
+    lyrics_dim_inactive_desc: "Çalmayan satırları soluklaştır",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",

@@ -198,6 +198,10 @@ pub static ID: Strings = lang! {
     open_in_browser: "Buka di peramban",
     lyrics_text_size: "Ukuran teks",
     lyrics_text_size_desc: "Ukuran teks lirik",
+    lyrics_karaoke: "Isian karaoke",
+    lyrics_karaoke_desc: "Isi baris yang sedang diputar",
+    lyrics_dim_inactive: "Redupkan baris lain",
+    lyrics_dim_inactive_desc: "Buramkan baris yang tidak sedang diputar",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",

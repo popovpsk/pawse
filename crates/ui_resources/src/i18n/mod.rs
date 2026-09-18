@@ -255,6 +255,10 @@ pub struct Strings {
     pub discord_share_desc: SharedString,
     pub lyrics_text_size: SharedString,
     pub lyrics_text_size_desc: SharedString,
+    pub lyrics_karaoke: SharedString,
+    pub lyrics_karaoke_desc: SharedString,
+    pub lyrics_dim_inactive: SharedString,
+    pub lyrics_dim_inactive_desc: SharedString,
 
     // --- Tag editor ---
     pub edit_tags: SharedString,

@@ -1,32 +1,27 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt, AppContext, Context, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Task, Window, div, ease_out_quint, px, svg,
+    Animation, AnimationExt, AppContext, Context, Entity, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString, Size,
+    StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div, ease_out_quint,
+    px, svg,
 };
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
 use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
+use crate::lyrics_fill::{self, FillPlan, LineShape};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
-const ACTIVE_TOLERANCE_MS: u32 = 50;
 const SCROLL_ANIM: Duration = Duration::from_millis(360);
+const FRAME_MIN_MS: f32 = 30.;
 const CENTER_BIAS: f32 = 0.4;
 const SCROLL_EPS: Pixels = px(1.);
-
-#[derive(PartialEq)]
-struct LyricRow {
-    text: SharedString,
-    time_ms: Option<u32>,
-    label: Option<SharedString>,
-}
 
 #[derive(Clone)]
 struct TrackContext {
@@ -54,7 +49,7 @@ enum LoadOutcome {
 
 pub struct LyricsView {
     current_track_id: Option<i64>,
-    rows: Vec<LyricRow>,
+    rows: Vec<lyrics_fill::LyricRow>,
     synced: bool,
     source: String,
     track_duration_ms: Option<u64>,
@@ -71,8 +66,19 @@ pub struct LyricsView {
     autoscroll: bool,
     scroll_seq: usize,
     scroll_anim: Option<(Pixels, Pixels)>,
+    pos_base_ms: u64,
+    pos_base_at: Instant,
+    playing: bool,
+    measured: Size<Pixels>,
+    measured_ix: Option<usize>,
+    shape: Option<LineShape>,
+    shape_key: Option<(SharedString, Pixels, f32)>,
+    fill_step_ms: f32,
+    viewport: Size<Pixels>,
+    recenter: bool,
     access: LyricsAccess,
     _scroll_task: Option<Task<()>>,
+    _frame_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
     _subscription: Subscription,
     _library_subscription: Subscription,
@@ -84,6 +90,12 @@ impl LyricsView {
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
         let access = services.library.lyrics_access();
+        let playing = services
+            .is_playing
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let pos_base_ms = services
+            .current_position_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         let subscription =
             cx.subscribe(
@@ -94,8 +106,14 @@ impl LyricsView {
                         this.load(cx);
                     }
                     EngineEvent::PositionChanged(pos) => this.update_active(*pos, cx),
-                    EngineEvent::Stopped => this.clear(cx),
-                    _ => {}
+                    EngineEvent::Playing => this.set_playing(true, cx),
+                    EngineEvent::Paused | EngineEvent::TrackEnded | EngineEvent::Error(_) => {
+                        this.set_playing(false, cx)
+                    }
+                    EngineEvent::Stopped => {
+                        this.set_playing(false, cx);
+                        this.clear(cx)
+                    }
                 },
             );
 
@@ -127,8 +145,19 @@ impl LyricsView {
             autoscroll: true,
             scroll_seq: 0,
             scroll_anim: None,
+            pos_base_ms,
+            pos_base_at: Instant::now(),
+            playing,
+            measured: Size::default(),
+            measured_ix: None,
+            shape: None,
+            shape_key: None,
+            fill_step_ms: 0.,
+            viewport: Size::default(),
+            recenter: false,
             access,
             _scroll_task: None,
+            _frame_task: None,
             _load_task: None,
             _subscription: subscription,
             _library_subscription: library_subscription,
@@ -142,6 +171,9 @@ impl LyricsView {
             return;
         }
         self.visible = visible;
+        if visible {
+            self.recenter = true;
+        }
         if visible && self.rows.is_empty() && !self.fetching && !self.loading && !self.not_found {
             self.load(cx);
         }
@@ -286,15 +318,7 @@ impl LyricsView {
 
     fn apply_text(&mut self, raw: &str, source: &str, cx: &mut Context<Self>) {
         let parsed = lyrics::parse_lrc(raw);
-        let rows: Vec<LyricRow> = parsed
-            .lines
-            .iter()
-            .map(|l| LyricRow {
-                text: SharedString::from(l.text.clone()),
-                time_ms: l.time_ms,
-                label: l.time_ms.map(format_ms),
-            })
-            .collect();
+        let rows = lyrics_fill::build_rows(&parsed, self.track_duration_ms);
         let rows_changed = rows != self.rows;
         self.synced = parsed.synced;
         self.rows = rows;
@@ -308,6 +332,7 @@ impl LyricsView {
         if rows_changed {
             self.active_ix = None;
             self.hovered_ix = None;
+            self.invalidate_fill();
             self.autoscroll = true;
             self.scroll_anim = None;
             self.scroll_handle.scroll_to_item(0);
@@ -324,6 +349,9 @@ impl LyricsView {
         self.can_export = false;
         self.current_raw = None;
         self.scroll_anim = None;
+        self.pos_base_ms = 0;
+        self.pos_base_at = Instant::now();
+        self.invalidate_fill();
     }
 
     fn reset_display(&mut self) {
@@ -363,6 +391,8 @@ impl LyricsView {
             return;
         };
         self.active_ix = Some(ix);
+        self.pos_base_ms = time_ms as u64;
+        self.pos_base_at = Instant::now();
         cx.notify();
         let frac = (time_ms as f64 / total as f64).clamp(0.0, 1.0) as f32;
         cx.global::<Services>().engine_manager.seek(frac);
@@ -383,34 +413,117 @@ impl LyricsView {
         cx.notify();
     }
 
-    fn update_active(&mut self, pos: Duration, cx: &mut Context<Self>) {
-        if !self.synced || self.rows.is_empty() {
+    fn invalidate_fill(&mut self) {
+        self.measured = Size::default();
+        self.measured_ix = None;
+        self.shape = None;
+        self.shape_key = None;
+    }
+
+    fn now_ms(&self) -> u64 {
+        if self.playing {
+            self.pos_base_ms + self.pos_base_at.elapsed().as_millis() as u64
+        } else {
+            self.pos_base_ms
+        }
+    }
+
+    fn display_ms(&self) -> u64 {
+        self.now_ms() + lyrics_fill::ACTIVE_TOLERANCE_MS as u64
+    }
+
+    fn set_playing(&mut self, playing: bool, cx: &mut Context<Self>) {
+        if self.playing == playing {
             return;
         }
-        let pos_ms = pos.as_millis() as u32 + ACTIVE_TOLERANCE_MS;
-        let mut new_active: Option<usize> = None;
-        let mut lo = 0usize;
-        let mut hi = self.rows.len();
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            match self.rows[mid].time_ms {
-                Some(t) if t <= pos_ms => {
-                    new_active = Some(mid);
-                    lo = mid + 1;
-                }
-                _ => hi = mid,
-            }
+        self.pos_base_ms = self.now_ms();
+        self.pos_base_at = Instant::now();
+        self.playing = playing;
+        cx.notify();
+    }
+
+    fn active_for(&self, pos_ms: u64) -> Option<usize> {
+        if !self.synced {
+            return None;
         }
-        if new_active == self.active_ix {
-            return;
+        lyrics_fill::active_row(&self.rows, pos_ms)
+    }
+
+    fn set_active(&mut self, ix: Option<usize>, cx: &mut Context<Self>) -> bool {
+        if ix == self.active_ix {
+            return false;
         }
-        self.active_ix = new_active;
+        self.active_ix = ix;
         if self.autoscroll
-            && let Some(ix) = new_active
+            && let Some(ix) = ix
         {
             self.start_autoscroll(ix, cx);
         }
-        cx.notify();
+        true
+    }
+
+    fn update_active(&mut self, pos: Duration, cx: &mut Context<Self>) {
+        self.pos_base_ms = pos.as_millis() as u64;
+        self.pos_base_at = Instant::now();
+        let next = self.active_for(self.pos_base_ms);
+        let changed = self.set_active(next, cx);
+        if self.visible
+            && (changed || (self.synced && cx.global::<SettingsStore>().lyrics_karaoke_fill()))
+        {
+            cx.notify();
+        }
+    }
+
+    fn active_plan(
+        &mut self,
+        window: &mut Window,
+        karaoke: bool,
+        font_size: f32,
+    ) -> Option<FillPlan> {
+        let ix = self.active_ix;
+        if self.measured_ix != ix {
+            self.measured_ix = ix;
+            self.measured = Size::default();
+            self.shape = None;
+            self.shape_key = None;
+        }
+        if !karaoke || !self.synced {
+            return None;
+        }
+        let ix = ix?;
+        let text = self.rows.get(ix)?.text.clone();
+        if text.is_empty() {
+            return None;
+        }
+        let Size { width, height } = self.measured;
+        if width <= px(0.) || height <= px(0.) {
+            return None;
+        }
+        let key = (text.clone(), width, font_size);
+        if self.shape_key.as_ref() != Some(&key) {
+            self.shape = lyrics_fill::shape_line(window, &text, width, px(font_size));
+            self.shape_key = Some(key);
+        }
+        let (start, span) = lyrics_fill::fill_span(&self.rows, ix, self.track_duration_ms)?;
+        let t = lyrics_fill::progress(self.display_ms(), start, span);
+        let shape = self.shape.as_ref()?;
+        if shape.rows.is_empty() {
+            return None;
+        }
+        let pitch = height / shape.rows.len() as f32;
+        if pitch < px(font_size * 0.9) || pitch > px(font_size * 2.2) {
+            return None;
+        }
+        self.fill_step_ms = span as f32 / f32::from(shape.total).max(1.);
+        Some(lyrics_fill::fill_plan(shape, width, pitch, t))
+    }
+
+    fn active_fills(&self) -> bool {
+        let Some(ix) = self.active_ix else {
+            return false;
+        };
+        self.rows.get(ix).is_some_and(|row| !row.text.is_empty())
+            && lyrics_fill::fill_span(&self.rows, ix, self.track_duration_ms).is_some()
     }
 
     fn centered_offset(&self, ix: usize) -> Option<Pixels> {
@@ -422,6 +535,19 @@ impl LyricsView {
         let max = self.scroll_handle.max_offset().height;
         let target = vp.top() + vp.size.height * CENTER_BIAS - item.size.height * 0.5 - item.top();
         Some(target.clamp(-max, px(0.)))
+    }
+
+    fn recenter_to(&mut self, ix: usize) {
+        let Some(to) = self.centered_offset(ix) else {
+            return;
+        };
+        let mut offset = self.scroll_handle.offset();
+        if (offset.y - to).abs() < SCROLL_EPS {
+            return;
+        }
+        offset.y = to;
+        self.scroll_handle.set_offset(offset);
+        self.scroll_anim = None;
     }
 
     fn start_autoscroll(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -494,13 +620,49 @@ fn pick_remote(remote: lyrics::RemoteLyrics) -> Option<String> {
 }
 
 impl Render for LyricsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let foreground = Colors::foreground(cx);
         let muted_foreground = Colors::muted_foreground(cx);
         let primary = Colors::primary(cx);
         let muted = Colors::muted(cx);
-        let lyrics_font_size = cx.global::<SettingsStore>().lyrics_font_size();
+        let settings = cx.global::<SettingsStore>();
+        let lyrics_font_size = settings.lyrics_font_size();
+        let karaoke = settings.lyrics_karaoke_fill();
+        let dim_inactive = settings.lyrics_dim_inactive();
         let synced = self.synced;
+
+        if synced && self.playing {
+            let next = self.active_for(self.now_ms());
+            self.set_active(next, cx);
+        }
+
+        let viewport = self.scroll_handle.bounds().size;
+        if self.viewport != viewport {
+            self.viewport = viewport;
+            self.recenter = true;
+        }
+        if self.recenter && viewport.height > px(0.) {
+            self.recenter = false;
+            if self.autoscroll
+                && let Some(ix) = self.active_ix
+            {
+                self.recenter_to(ix);
+            }
+        }
+
+        let entity = cx.entity();
+        let plan = self.active_plan(window, karaoke, lyrics_font_size);
+        let karaoke_active = karaoke && self.active_fills();
+        if self.playing && plan.as_ref().is_some_and(|p| p.t < 1.) {
+            let wait = Duration::from_millis(self.fill_step_ms.max(FRAME_MIN_MS) as u64);
+            self._frame_task = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(wait).await;
+                this.update(cx, |_, cx| cx.notify()).ok();
+            }));
+        } else {
+            self._frame_task = None;
+        }
+
         let active_ix = self.active_ix;
         let hovered_ix = self.hovered_ix;
         let show_sync = synced && active_ix.is_some() && !self.autoscroll;
@@ -585,8 +747,12 @@ impl Render for LyricsView {
                 .py_2()
                 .children(self.rows.iter().enumerate().map(|(ix, row)| {
                     let is_active = Some(ix) == active_ix;
-                    let color = if synced && is_active {
-                        primary
+                    let color = if !synced {
+                        foreground
+                    } else if is_active {
+                        if karaoke_active { foreground } else { primary }
+                    } else if dim_inactive {
+                        muted_foreground
                     } else {
                         foreground
                     };
@@ -604,6 +770,7 @@ impl Render for LyricsView {
                                 div()
                                     .id(("lyrics_line", ix))
                                     .max_w_full()
+                                    .relative()
                                     .cursor_pointer()
                                     .when(Some(ix) == hovered_ix, |d| d.underline())
                                     .tooltip(move |window, cx| {
@@ -615,7 +782,19 @@ impl Render for LyricsView {
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.seek_to_line(ix, time_ms, cx)
                                     }))
-                                    .child(row.text.clone()),
+                                    .child(row.text.clone())
+                                    .when(is_active && karaoke, |d| {
+                                        d.child(measure_canvas(entity.clone()))
+                                    })
+                                    .children(match (is_active, plan.as_ref()) {
+                                        (true, Some(plan)) => lyrics_fill::fill_children(
+                                            plan,
+                                            &row.text,
+                                            px(lyrics_font_size),
+                                            primary,
+                                        ),
+                                        _ => Vec::new(),
+                                    }),
                             )
                             .into_any_element(),
                         _ => line.child(row.text.clone()).into_any_element(),
@@ -657,9 +836,20 @@ impl Render for LyricsView {
     }
 }
 
-fn format_ms(ms: u32) -> SharedString {
-    let total_secs = ms / 1000;
-    SharedString::from(format!("{:02}:{:02}", total_secs / 60, total_secs % 60))
+fn measure_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
+    canvas(
+        move |bounds, window, cx| {
+            if entity.read(cx).measured != bounds.size {
+                entity.update(cx, |this, _| this.measured = bounds.size);
+                window.on_next_frame(move |_, cx| {
+                    entity.update(cx, |_, cx| cx.notify());
+                });
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full()
 }
 
 fn centered_message(message: SharedString, color: Hsla) -> gpui::Div {

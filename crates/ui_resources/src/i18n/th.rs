@@ -198,6 +198,10 @@ pub static TH: Strings = lang! {
     open_in_browser: "เปิดในเบราว์เซอร์",
     lyrics_text_size: "ขนาดข้อความ",
     lyrics_text_size_desc: "ขนาดข้อความเนื้อเพลง",
+    lyrics_karaoke: "ไล่สีคาราโอเกะ",
+    lyrics_karaoke_desc: "ไล่สีบรรทัดปัจจุบันตามการเล่น",
+    lyrics_dim_inactive: "หรี่บรรทัดอื่น",
+    lyrics_dim_inactive_desc: "ทำให้บรรทัดที่ยังไม่เล่นจางลง",
 
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",

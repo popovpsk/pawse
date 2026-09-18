@@ -198,6 +198,10 @@ pub static HI: Strings = lang! {
     open_in_browser: "ब्राउज़र में खोलें",
     lyrics_text_size: "टेक्स्ट का आकार",
     lyrics_text_size_desc: "बोल के टेक्स्ट का आकार",
+    lyrics_karaoke: "कराओके भराव",
+    lyrics_karaoke_desc: "चलने के साथ मौजूदा पंक्ति को भरें",
+    lyrics_dim_inactive: "अन्य पंक्तियाँ मंद करें",
+    lyrics_dim_inactive_desc: "जो पंक्तियाँ नहीं चल रहीं उन्हें फीका करें",
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",

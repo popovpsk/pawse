@@ -198,6 +198,10 @@ pub static PL: Strings = lang! {
     open_in_browser: "Otwórz w przeglądarce",
     lyrics_text_size: "Rozmiar tekstu",
     lyrics_text_size_desc: "Rozmiar tekstu piosenki",
+    lyrics_karaoke: "Wypełnienie karaoke",
+    lyrics_karaoke_desc: "Wypełniaj bieżący wiersz w trakcie odtwarzania",
+    lyrics_dim_inactive: "Przygaś pozostałe wiersze",
+    lyrics_dim_inactive_desc: "Wyszarz wiersze, które nie są odtwarzane",
 
     disc_t: "Płyta {}",
     n_tracks_one: "{} utwór",

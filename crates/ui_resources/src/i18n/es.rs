@@ -198,6 +198,10 @@ pub static ES: Strings = lang! {
     open_in_browser: "Abrir en el navegador",
     lyrics_text_size: "Tamaño del texto",
     lyrics_text_size_desc: "Tamaño del texto de la letra",
+    lyrics_karaoke: "Relleno de karaoke",
+    lyrics_karaoke_desc: "Rellenar la línea actual mientras suena",
+    lyrics_dim_inactive: "Atenuar las demás líneas",
+    lyrics_dim_inactive_desc: "Atenuar las líneas que no están sonando",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} canción",

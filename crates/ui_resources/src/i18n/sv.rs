@@ -198,6 +198,10 @@ pub static SV: Strings = lang! {
     open_in_browser: "Öppna i webbläsare",
     lyrics_text_size: "Textstorlek",
     lyrics_text_size_desc: "Storlek på låttexten",
+    lyrics_karaoke: "Karaokefyllning",
+    lyrics_karaoke_desc: "Fyll den aktuella raden medan den spelas",
+    lyrics_dim_inactive: "Dämpa övriga rader",
+    lyrics_dim_inactive_desc: "Tona ned rader som inte spelas",
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",

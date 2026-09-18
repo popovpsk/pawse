@@ -332,6 +332,10 @@ pub struct UserSettings {
     pub font_scale: FontScale,
     #[serde(default = "default_lyrics_font_size")]
     pub lyrics_font_size: f32,
+    #[serde(default = "default_true")]
+    pub lyrics_karaoke_fill: bool,
+    #[serde(default = "default_true")]
+    pub lyrics_dim_inactive: bool,
     #[serde(default)]
     pub onboarding_complete: bool,
 }
@@ -372,6 +376,8 @@ impl Default for UserSettings {
             discord_enabled: false,
             font_scale: FontScale::default(),
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
+            lyrics_karaoke_fill: true,
+            lyrics_dim_inactive: true,
             onboarding_complete: false,
         }
     }
@@ -774,6 +780,24 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn lyrics_karaoke_fill(&self) -> bool {
+        self.settings.lyrics_karaoke_fill
+    }
+
+    pub fn set_lyrics_karaoke_fill(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_karaoke_fill = enabled;
+        self.save()
+    }
+
+    pub fn lyrics_dim_inactive(&self) -> bool {
+        self.settings.lyrics_dim_inactive
+    }
+
+    pub fn set_lyrics_dim_inactive(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_dim_inactive = enabled;
+        self.save()
+    }
+
     pub fn onboarding_complete(&self) -> bool {
         self.settings.onboarding_complete
     }
@@ -1068,6 +1092,8 @@ mod tests {
             discord_enabled: false,
             font_scale: FontScale::Large,
             lyrics_font_size: 20.,
+            lyrics_karaoke_fill: true,
+            lyrics_dim_inactive: true,
             onboarding_complete: false,
         };
         let json = serde_json::to_string(&settings).unwrap();

@@ -198,6 +198,10 @@ pub static ZH: Strings = lang! {
     open_in_browser: "在浏览器中打开",
     lyrics_text_size: "文字大小",
     lyrics_text_size_desc: "歌词文字大小",
+    lyrics_karaoke: "卡拉OK填充",
+    lyrics_karaoke_desc: "随播放进度填充当前歌词行",
+    lyrics_dim_inactive: "淡化其他行",
+    lyrics_dim_inactive_desc: "让未播放的歌词行变暗",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",

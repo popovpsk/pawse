@@ -198,6 +198,10 @@ pub static EN: Strings = lang! {
     open_in_browser: "Open in browser",
     lyrics_text_size: "Text size",
     lyrics_text_size_desc: "Size of the lyrics text",
+    lyrics_karaoke: "Karaoke fill",
+    lyrics_karaoke_desc: "Fill the current line as it plays",
+    lyrics_dim_inactive: "Dim other lines",
+    lyrics_dim_inactive_desc: "Fade the lines that are not playing",
 
     disc_t: "Disc {}",
     n_tracks_one: "{} track",

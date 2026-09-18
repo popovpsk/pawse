@@ -198,6 +198,10 @@ pub static KO: Strings = lang! {
     open_in_browser: "브라우저에서 열기",
     lyrics_text_size: "텍스트 크기",
     lyrics_text_size_desc: "가사 텍스트 크기",
+    lyrics_karaoke: "가라오케 채우기",
+    lyrics_karaoke_desc: "재생에 맞춰 현재 줄을 채웁니다",
+    lyrics_dim_inactive: "다른 줄 흐리게",
+    lyrics_dim_inactive_desc: "재생 중이 아닌 줄을 흐리게 표시합니다",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",

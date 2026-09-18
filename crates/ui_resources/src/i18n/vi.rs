@@ -198,6 +198,10 @@ pub static VI: Strings = lang! {
     open_in_browser: "Mở trong trình duyệt",
     lyrics_text_size: "Cỡ chữ",
     lyrics_text_size_desc: "Cỡ chữ của lời bài hát",
+    lyrics_karaoke: "Tô màu karaoke",
+    lyrics_karaoke_desc: "Tô dần dòng đang phát",
+    lyrics_dim_inactive: "Làm mờ các dòng khác",
+    lyrics_dim_inactive_desc: "Làm mờ những dòng không phát",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",

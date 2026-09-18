@@ -198,6 +198,10 @@ pub static CS: Strings = lang! {
     open_in_browser: "Otevřít v prohlížeči",
     lyrics_text_size: "Velikost textu",
     lyrics_text_size_desc: "Velikost textu písně",
+    lyrics_karaoke: "Karaoke výplň",
+    lyrics_karaoke_desc: "Vyplňovat aktuální řádek během přehrávání",
+    lyrics_dim_inactive: "Ztlumit ostatní řádky",
+    lyrics_dim_inactive_desc: "Zeslabit řádky, které právě nehrají",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",

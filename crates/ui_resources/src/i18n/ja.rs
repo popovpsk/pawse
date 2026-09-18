@@ -198,6 +198,10 @@ pub static JA: Strings = lang! {
     open_in_browser: "ブラウザーで開く",
     lyrics_text_size: "文字サイズ",
     lyrics_text_size_desc: "歌詞の文字サイズ",
+    lyrics_karaoke: "カラオケ塗り",
+    lyrics_karaoke_desc: "再生に合わせて現在の行を塗りつぶす",
+    lyrics_dim_inactive: "他の行を暗くする",
+    lyrics_dim_inactive_desc: "再生していない行を薄く表示する",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",

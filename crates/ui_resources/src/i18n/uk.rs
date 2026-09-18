@@ -198,6 +198,10 @@ pub static UK: Strings = lang! {
     open_in_browser: "Відкрити у браузері",
     lyrics_text_size: "Розмір тексту",
     lyrics_text_size_desc: "Розмір тексту пісні",
+    lyrics_karaoke: "Караоке-заливка",
+    lyrics_karaoke_desc: "Заповнювати поточний рядок під час відтворення",
+    lyrics_dim_inactive: "Приглушувати інші рядки",
+    lyrics_dim_inactive_desc: "Затемнювати рядки, які зараз не звучать",
 
     disc_t: "Диск {}",
     n_tracks_one: "{} трек",

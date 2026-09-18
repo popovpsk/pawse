@@ -198,6 +198,10 @@ pub static NL: Strings = lang! {
     open_in_browser: "Openen in browser",
     lyrics_text_size: "Tekstgrootte",
     lyrics_text_size_desc: "Grootte van de songtekst",
+    lyrics_karaoke: "Karaoke-vulling",
+    lyrics_karaoke_desc: "Vul de huidige regel tijdens het afspelen",
+    lyrics_dim_inactive: "Andere regels dimmen",
+    lyrics_dim_inactive_desc: "Regels die niet spelen vervagen",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",

@@ -198,6 +198,10 @@ pub static DE: Strings = lang! {
     open_in_browser: "Im Browser öffnen",
     lyrics_text_size: "Textgröße",
     lyrics_text_size_desc: "Größe des Liedtextes",
+    lyrics_karaoke: "Karaoke-Füllung",
+    lyrics_karaoke_desc: "Die aktuelle Zeile während der Wiedergabe füllen",
+    lyrics_dim_inactive: "Andere Zeilen abdunkeln",
+    lyrics_dim_inactive_desc: "Zeilen abschwächen, die gerade nicht laufen",
 
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",
