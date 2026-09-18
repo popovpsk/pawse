@@ -18,7 +18,7 @@ use gpui_component::{
 
 use crate::audio_settings::AudioSettings;
 use crate::cover_backdrop::{self, CoverBackdrop};
-use crate::cover_mode_view::{CORNER_FADE, CoverModeView};
+use crate::cover_mode_view::CoverModeView;
 use crate::cover_volume::CoverVolume;
 use crate::footer::{Footer, ToggleLyricsEvent, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
@@ -127,6 +127,8 @@ pub struct MainView {
     _cover_album_subscription: Subscription,
     _cover_artist_subscription: Subscription,
     _cover_observe_subscription: Subscription,
+    _cover_lyrics_toggle_subscription: Subscription,
+    _cover_queue_toggle_subscription: Subscription,
     _cover_backdrop_observe: Subscription,
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
@@ -338,7 +340,21 @@ impl MainView {
         let queue_view = cx.new(|cx| QueueView::new(window, cx));
         let lyrics_view = cx.new(|cx| LyricsView::new(window, cx));
 
-        let cover_mode_view = cx.new(|cx| CoverModeView::new(window, cx));
+        let cover_mode_view = cx.new(|cx| CoverModeView::new(cover_volume.clone(), window, cx));
+        let cover_lyrics_toggle_subscription = cx.subscribe(
+            &cover_mode_view,
+            |this, _, event: &ToggleLyricsEvent, cx| {
+                this.footer
+                    .update(cx, |f, cx| f.set_show_lyrics(event.show, cx));
+                this.set_lyrics_visible(event.show, cx);
+            },
+        );
+        let cover_queue_toggle_subscription =
+            cx.subscribe(&cover_mode_view, |this, _, event: &ToggleQueueEvent, cx| {
+                this.footer
+                    .update(cx, |f, cx| f.set_show_queue(event.show, cx));
+                this.set_queue_visible(event.show, cx);
+            });
         let cover_album_subscription = cx.subscribe(&cover_mode_view, {
             let library_view = library_view.clone();
             move |this: &mut MainView, _, event: &NavigateToAlbumRequested, cx| {
@@ -361,10 +377,7 @@ impl MainView {
         let cover_backdrop_observe = cx.observe(&cover_backdrop, |_, _, cx| cx.notify());
 
         let cover_observe_subscription = cx.observe(&cover_mode_view, |this, view, cx| {
-            let hidden = {
-                let v = view.read(cx);
-                !v.corner_visible() && !v.corner_hiding()
-            };
+            let hidden = !view.read(cx).controls_shown();
             if hidden {
                 this.cover_volume.update(cx, |cv, cx| cv.collapse(cx));
             }
@@ -490,6 +503,8 @@ impl MainView {
             _cover_album_subscription: cover_album_subscription,
             _cover_artist_subscription: cover_artist_subscription,
             _cover_observe_subscription: cover_observe_subscription,
+            _cover_lyrics_toggle_subscription: cover_lyrics_toggle_subscription,
+            _cover_queue_toggle_subscription: cover_queue_toggle_subscription,
             _cover_backdrop_observe: cover_backdrop_observe,
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
@@ -568,18 +583,6 @@ impl MainView {
         cx.notify();
     }
 
-    fn toggle_cover_queue(&mut self, cx: &mut Context<Self>) {
-        let show = !self.show_queue;
-        self.footer.update(cx, |f, cx| f.set_show_queue(show, cx));
-        self.set_queue_visible(show, cx);
-    }
-
-    fn toggle_cover_lyrics(&mut self, cx: &mut Context<Self>) {
-        let show = !self.show_lyrics;
-        self.footer.update(cx, |f, cx| f.set_show_lyrics(show, cx));
-        self.set_lyrics_visible(show, cx);
-    }
-
     fn set_queue_visible(&mut self, show: bool, cx: &mut Context<Self>) {
         if self.show_queue == show {
             return;
@@ -643,13 +646,14 @@ impl Render for MainView {
         let has_back = show_settings || self.is_drilled_in;
         let cover_mode = self.cover_mode;
         let active_tab = (!cover_mode).then_some(self.current_tab);
-        let (chrome_visible, corner_visible, corner_hiding) = {
+        if cover_mode {
+            let (lyrics, queue) = (self.show_lyrics, self.show_queue);
+            self.cover_mode_view
+                .update(cx, |view, _| view.set_panels(lyrics, queue));
+        }
+        let (chrome_visible, controls_t) = {
             let view = self.cover_mode_view.read(cx);
-            (
-                view.chrome_visible(),
-                view.corner_visible(),
-                view.corner_hiding(),
-            )
+            (view.chrome_visible(), view.controls_progress())
         };
 
         let title_bar = Colors::title_bar(cx);
@@ -858,53 +862,17 @@ impl Render for MainView {
                             } else {
                                 self.library_view.clone().into_any_element()
                             })
-                            .when(
-                                cover_mode && (chrome_visible || corner_visible || corner_hiding),
-                                |d| {
-                                    let immersive = !chrome_visible;
-                                    let hiding = corner_hiding;
-                                    let buttons = div()
+                            .when(cover_mode && (chrome_visible || controls_t > 0.), |d| {
+                                d.relative().child(
+                                    div()
                                         .absolute()
                                         .top_0()
                                         .left_0()
                                         .size_full()
-                                        .child(cover_chrome_button(chrome_visible, tab_colors, cx))
-                                        .when(immersive, |d| {
-                                            d.child(cover_lyrics_button(
-                                                self.show_lyrics,
-                                                tab_colors,
-                                                cx,
-                                            ))
-                                            .child(cover_queue_button(
-                                                self.show_queue,
-                                                tab_colors,
-                                                cx,
-                                            ))
-                                            .child(self.cover_volume.clone())
-                                        });
-                                    d.relative().child(if immersive {
-                                        buttons
-                                            .with_animation(
-                                                if hiding {
-                                                    "cover-corner-out"
-                                                } else {
-                                                    "cover-corner-in"
-                                                },
-                                                Animation::new(CORNER_FADE),
-                                                move |b, delta| {
-                                                    b.opacity(if hiding {
-                                                        1.0 - delta
-                                                    } else {
-                                                        delta
-                                                    })
-                                                },
-                                            )
-                                            .into_any_element()
-                                    } else {
-                                        buttons.into_any_element()
-                                    })
-                                },
-                            ),
+                                        .when(!chrome_visible, |d| d.opacity(controls_t))
+                                        .child(cover_chrome_button(chrome_visible, tab_colors, cx)),
+                                )
+                            }),
                     )
                     .when(self.show_lyrics || self.lyrics_closing, |d| {
                         let lyrics_width = self.lyrics_width;
@@ -1196,72 +1164,6 @@ fn cover_chrome_button(
             this.cover_volume.update(cx, |v, cx| v.collapse(cx));
         }))
         .child(svg().path(icon).size(px(20.)).text_color(fg))
-}
-
-fn cover_queue_button(
-    show_queue: bool,
-    colors: TabColors,
-    cx: &mut Context<MainView>,
-) -> impl IntoElement {
-    let fg = if show_queue {
-        colors.primary
-    } else {
-        colors.foreground
-    };
-    let hover_bg = colors.hover_bg;
-
-    div()
-        .id("cover_queue_toggle")
-        .absolute()
-        .bottom(px(12.))
-        .right(px(12.))
-        .size(px(36.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .tooltip(|window, cx| Tooltip::new(tr().queue.clone()).build(window, cx))
-        .hover(move |s| s.bg(hover_bg))
-        .on_click(cx.listener(|this, _, _, cx| this.toggle_cover_queue(cx)))
-        .child(
-            svg()
-                .path("icons/s2-queue.svg")
-                .size(px(20.))
-                .text_color(fg),
-        )
-}
-
-fn cover_lyrics_button(
-    show_lyrics: bool,
-    colors: TabColors,
-    cx: &mut Context<MainView>,
-) -> impl IntoElement {
-    let fg = if show_lyrics {
-        colors.primary
-    } else {
-        colors.foreground
-    };
-    let hover_bg = colors.hover_bg;
-
-    div()
-        .id("cover_lyrics_toggle")
-        .absolute()
-        .bottom(px(12.))
-        .right(px(56.))
-        .size(px(36.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .tooltip(|window, cx| Tooltip::new(tr().lyrics.clone()).build(window, cx))
-        .hover(move |s| s.bg(hover_bg))
-        .on_click(cx.listener(|this, _, _, cx| this.toggle_cover_lyrics(cx)))
-        .child(
-            svg()
-                .path("icons/s2-lyrics.svg")
-                .size(px(20.))
-                .text_color(fg),
-        )
 }
 
 fn cover_mode_button(

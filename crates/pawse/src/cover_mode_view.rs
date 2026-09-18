@@ -7,12 +7,18 @@ use gpui::{
     Animation, AnimationExt, AppContext, BoxShadow, ClickEvent, Context, Div, Entity, EventEmitter,
     Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
     RenderImage, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription,
-    Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px, size, svg,
+    Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px, quadratic, size,
+    svg,
 };
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
 
 use crate::cover_art_cache::drop_atlas_tile;
+use crate::cover_backdrop;
+use crate::cover_volume::CoverVolume;
+use crate::footer::{ToggleLyricsEvent, ToggleQueueEvent};
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -28,13 +34,18 @@ const COVER_PROGRESS_GAP: f32 = 14.;
 const COVER_PROGRESS_H: f32 = 16.;
 const COVER_PROGRESS_W_FRAC: f32 = 0.75;
 const COVER_GROUP_DROP: f32 = 28.;
-const COVER_CTRL_BG_OPACITY: f32 = 0.55;
-const COVER_CTRL_SIZE: f32 = 44.;
-const COVER_CTRL_ICON: f32 = 26.;
-const COVER_PLAY_SIZE: f32 = 64.;
-const COVER_PLAY_ICON: f32 = 34.;
-const CORNER_HIDE_DELAY: Duration = Duration::from_secs(3);
-pub const CORNER_FADE: Duration = Duration::from_millis(200);
+const COVER_CTRL_SIZE: f32 = 36.;
+const COVER_CTRL_ICON: f32 = 22.;
+const COVER_PLAY_SIZE: f32 = 40.;
+const COVER_PLAY_ICON: f32 = 32.;
+const COVER_AUX_SIZE: f32 = 34.;
+const COVER_AUX_ICON: f32 = 22.;
+const COVER_BAR_H: f32 = 44.;
+const COVER_BAR_GAP: f32 = 16.;
+const COVER_BAR_MIN_W: f32 = 400.;
+const CONTROLS_HIDE_DELAY: Duration = Duration::from_secs(3);
+const CONTROLS_SLIDE_IN: Duration = Duration::from_millis(320);
+const CONTROLS_SLIDE_OUT: Duration = Duration::from_millis(200);
 const COVER_SLIDE: Duration = Duration::from_millis(300);
 const COVER_SLIDE_GAP: f32 = 40.;
 
@@ -57,13 +68,17 @@ pub struct CoverModeView {
     chrome_visible: bool,
     measured: Size<Pixels>,
     is_playing: bool,
-    corner_visible: bool,
-    corner_hiding: bool,
-    corner_hide_at: Instant,
-    corner_hide_task: Option<Task<()>>,
+    controls_shown: bool,
+    controls_from: f32,
+    controls_at: Instant,
+    controls_hide_at: Instant,
+    controls_hide_task: Option<Task<()>>,
     show_artist: bool,
     show_progress: bool,
     show_controls: bool,
+    show_lyrics: bool,
+    show_queue: bool,
+    cover_volume: Entity<CoverVolume>,
     progress: Entity<TrackProgressSlider>,
     _full_cover_task: Option<Task<()>>,
     _slide_task: Option<Task<()>>,
@@ -72,8 +87,20 @@ pub struct CoverModeView {
     _settings_subscription: Subscription,
 }
 
+#[derive(Clone, Copy)]
+struct BarColors {
+    fg: Hsla,
+    accent: Hsla,
+    hover: Hsla,
+    play_bg: Hsla,
+    play_hover: Hsla,
+    play_fg: Hsla,
+}
+
 impl EventEmitter<NavigateToAlbumRequested> for CoverModeView {}
 impl EventEmitter<NavigateToArtistRequested> for CoverModeView {}
+impl EventEmitter<ToggleLyricsEvent> for CoverModeView {}
+impl EventEmitter<ToggleQueueEvent> for CoverModeView {}
 
 pub(crate) fn sniff_image_format(bytes: &[u8]) -> Option<ImageFormat> {
     if bytes.starts_with(&[0xFF, 0xD8]) {
@@ -103,6 +130,11 @@ fn image_aspect(bytes: &[u8]) -> Option<f32> {
     Some(w as f32 / h as f32)
 }
 
+fn placeholder_icon_size(w: f32, h: f32) -> f32 {
+    const STEP: f32 = 24.;
+    ((w.min(h) * 0.5 / STEP).round() * STEP).max(STEP)
+}
+
 fn fit_cover_box(aspect: Option<f32>, max_w: f32, max_h: f32) -> (f32, f32) {
     match aspect {
         Some(a) if a.is_finite() && a > 0. => {
@@ -122,7 +154,11 @@ fn fit_cover_box(aspect: Option<f32>, max_w: f32, max_h: f32) -> (f32, f32) {
 }
 
 impl CoverModeView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        cover_volume: Entity<CoverVolume>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
@@ -205,13 +241,17 @@ impl CoverModeView {
             chrome_visible: true,
             measured: size(px(0.), px(0.)),
             is_playing,
-            corner_visible: false,
-            corner_hiding: false,
-            corner_hide_at: Instant::now(),
-            corner_hide_task: None,
+            controls_shown: false,
+            controls_from: 0.,
+            controls_at: Instant::now(),
+            controls_hide_at: Instant::now(),
+            controls_hide_task: None,
             show_artist,
             show_progress,
             show_controls,
+            show_lyrics: false,
+            show_queue: false,
+            cover_volume,
             progress,
             _full_cover_task: None,
             _slide_task: None,
@@ -225,19 +265,43 @@ impl CoverModeView {
         self.chrome_visible
     }
 
-    pub fn corner_visible(&self) -> bool {
-        self.corner_visible
+    pub fn controls_shown(&self) -> bool {
+        self.controls_shown
     }
 
-    pub fn corner_hiding(&self) -> bool {
-        self.corner_hiding
+    pub fn controls_progress(&self) -> f32 {
+        let target = if self.controls_shown { 1. } else { 0. };
+        let span = (target - self.controls_from).abs();
+        if span <= f32::EPSILON {
+            return target;
+        }
+        let full = if self.controls_shown {
+            CONTROLS_SLIDE_IN
+        } else {
+            CONTROLS_SLIDE_OUT
+        };
+        let duration = full.as_secs_f32() * span;
+        let elapsed = self.controls_at.elapsed().as_secs_f32();
+        if elapsed >= duration {
+            return target;
+        }
+        let delta = elapsed / duration;
+        let eased = if self.controls_shown {
+            ease_out_quint()(delta)
+        } else {
+            quadratic(delta)
+        };
+        self.controls_from + (target - self.controls_from) * eased
+    }
+
+    pub fn set_panels(&mut self, lyrics: bool, queue: bool) {
+        self.show_lyrics = lyrics;
+        self.show_queue = queue;
     }
 
     pub fn toggle_chrome(&mut self, cx: &mut Context<Self>) {
         self.chrome_visible = !self.chrome_visible;
-        self.corner_visible = false;
-        self.corner_hiding = false;
-        self.corner_hide_task = None;
+        self.reset_controls();
         cx.notify();
     }
 
@@ -245,22 +309,38 @@ impl CoverModeView {
         if !self.active || self.chrome_visible {
             return;
         }
-        self.corner_hide_at = Instant::now() + CORNER_HIDE_DELAY;
-        if !self.corner_visible {
-            self.corner_visible = true;
-            self.corner_hiding = false;
-            cx.notify();
-        }
-        if self.corner_hide_task.is_none() {
-            self.spawn_corner_hide(cx);
+        self.controls_hide_at = Instant::now() + CONTROLS_HIDE_DELAY;
+        self.set_controls_shown(true, cx);
+        if self.controls_hide_task.is_none() {
+            self.spawn_controls_hide(cx);
         }
     }
 
-    fn spawn_corner_hide(&mut self, cx: &mut Context<Self>) {
-        self.corner_hide_task = Some(cx.spawn(async move |this, cx| {
+    fn reset_controls(&mut self) {
+        self.controls_shown = false;
+        self.controls_from = 0.;
+        self.controls_at = Instant::now();
+        self.controls_hide_task = None;
+    }
+
+    fn set_controls_shown(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if self.controls_shown == shown {
+            return;
+        }
+        self.controls_from = self.controls_progress();
+        self.controls_shown = shown;
+        self.controls_at = Instant::now();
+        cx.notify();
+    }
+
+    fn spawn_controls_hide(&mut self, cx: &mut Context<Self>) {
+        self.controls_hide_task = Some(cx.spawn(async move |this, cx| {
             loop {
-                let Ok(remaining) = this.read_with(cx, |view, _| {
-                    view.corner_hide_at
+                let Ok(remaining) = this.update(cx, |view, cx| {
+                    if view.cover_volume.read(cx).is_expanded() {
+                        view.controls_hide_at = Instant::now() + CONTROLS_HIDE_DELAY;
+                    }
+                    view.controls_hide_at
                         .saturating_duration_since(Instant::now())
                 }) else {
                     return;
@@ -269,37 +349,12 @@ impl CoverModeView {
                     cx.background_executor().timer(remaining).await;
                     continue;
                 }
-                let fading = this
-                    .update(cx, |view, cx| {
-                        if view.active && view.corner_visible {
-                            view.corner_visible = false;
-                            view.corner_hiding = true;
-                            cx.notify();
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                    .unwrap_or(false);
-                if fading {
-                    cx.background_executor().timer(CORNER_FADE).await;
-                    let reshown = this
-                        .update(cx, |view, cx| {
-                            if view.corner_visible {
-                                return true;
-                            }
-                            if view.corner_hiding {
-                                view.corner_hiding = false;
-                                cx.notify();
-                            }
-                            false
-                        })
-                        .unwrap_or(false);
-                    if reshown {
-                        continue;
+                let _ = this.update(cx, |view, cx| {
+                    if view.active {
+                        view.set_controls_shown(false, cx);
                     }
-                }
-                let _ = this.update(cx, |view, _| view.corner_hide_task = None);
+                    view.controls_hide_task = None;
+                });
                 return;
             }
         }));
@@ -311,9 +366,7 @@ impl CoverModeView {
         }
         self.active = active;
         self.chrome_visible = true;
-        self.corner_visible = false;
-        self.corner_hiding = false;
-        self.corner_hide_task = None;
+        self.reset_controls();
         if active {
             self.populate_current(false, cx);
         } else {
@@ -339,40 +392,163 @@ impl CoverModeView {
         crate::services::play_next(cx);
     }
 
+    fn on_lyrics_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(ToggleLyricsEvent {
+            show: !self.show_lyrics,
+        });
+    }
+
+    fn on_queue_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(ToggleQueueEvent {
+            show: !self.show_queue,
+        });
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn control_button(
+    fn bar_button(
         id: &'static str,
         icon: &'static str,
+        label: SharedString,
         flipped: bool,
         btn_size: f32,
         icon_size: f32,
-        bg: Hsla,
+        bg: Option<Hsla>,
         hover: Hsla,
         fg: Hsla,
         handler: fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>),
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div().rounded_full().bg(bg).child(
-            div()
-                .id(id)
-                .size(px(btn_size))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .cursor_pointer()
-                .hover(move |s| s.bg(hover))
-                .on_click(cx.listener(handler))
-                .child(
-                    svg()
-                        .path(icon)
-                        .size(px(icon_size))
-                        .when(flipped, |s| {
-                            s.with_transformation(Transformation::scale(size(-1.0, 1.0)))
-                        })
-                        .text_color(fg),
-                ),
-        )
+        div()
+            .id(id)
+            .size(px(btn_size))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .cursor_pointer()
+            .when_some(bg, |d, c| d.bg(c))
+            .hover(move |s| s.bg(hover))
+            .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
+            .on_click(cx.listener(handler))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(icon_size))
+                    .when(flipped, |s| {
+                        s.with_transformation(Transformation::scale(size(-1.0, 1.0)))
+                    })
+                    .text_color(fg),
+            )
+    }
+
+    fn controls_row(
+        &self,
+        colors: BarColors,
+        play_icon: &'static str,
+        play_label: SharedString,
+        show_controls: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let lyrics_fg = if self.show_lyrics {
+            colors.accent
+        } else {
+            colors.fg
+        };
+        let queue_fg = if self.show_queue {
+            colors.accent
+        } else {
+            colors.fg
+        };
+        h_flex()
+            .h(px(COVER_BAR_H))
+            .items_center()
+            .child(div().flex_1())
+            .when(show_controls, |d| {
+                d.child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .items_center()
+                        .gap_2()
+                        .child(Self::bar_button(
+                            "cm_prev",
+                            "icons/next.svg",
+                            tr().previous.clone(),
+                            true,
+                            COVER_CTRL_SIZE,
+                            COVER_CTRL_ICON,
+                            None,
+                            colors.hover,
+                            colors.fg,
+                            Self::on_prev_click,
+                            cx,
+                        ))
+                        .child(Self::bar_button(
+                            "cm_play",
+                            play_icon,
+                            play_label,
+                            false,
+                            COVER_PLAY_SIZE,
+                            COVER_PLAY_ICON,
+                            Some(colors.play_bg),
+                            colors.play_hover,
+                            colors.play_fg,
+                            Self::on_play_click,
+                            cx,
+                        ))
+                        .child(Self::bar_button(
+                            "cm_next",
+                            "icons/next.svg",
+                            tr().next.clone(),
+                            false,
+                            COVER_CTRL_SIZE,
+                            COVER_CTRL_ICON,
+                            None,
+                            colors.hover,
+                            colors.fg,
+                            Self::on_next_click,
+                            cx,
+                        )),
+                )
+            })
+            .child(
+                h_flex()
+                    .flex_1()
+                    .items_center()
+                    .justify_end()
+                    .gap_1()
+                    .child(
+                        div()
+                            .relative()
+                            .size(px(COVER_AUX_SIZE))
+                            .child(self.cover_volume.clone()),
+                    )
+                    .child(Self::bar_button(
+                        "cm_lyrics",
+                        "icons/s2-lyrics.svg",
+                        tr().lyrics.clone(),
+                        false,
+                        COVER_AUX_SIZE,
+                        COVER_AUX_ICON,
+                        None,
+                        colors.hover,
+                        lyrics_fg,
+                        Self::on_lyrics_click,
+                        cx,
+                    ))
+                    .child(Self::bar_button(
+                        "cm_queue",
+                        "icons/s2-queue.svg",
+                        tr().queue.clone(),
+                        false,
+                        COVER_AUX_SIZE,
+                        COVER_AUX_ICON,
+                        None,
+                        colors.hover,
+                        queue_fg,
+                        Self::on_queue_click,
+                        cx,
+                    )),
+            )
     }
 
     fn populate_current(&mut self, animate: bool, cx: &mut Context<Self>) {
@@ -513,7 +689,7 @@ impl CoverModeView {
                 (None, None) => d.flex().items_center().justify_center().child(
                     svg()
                         .path("icons/placeholder-notes.svg")
-                        .size(px(w.min(h) * 0.5))
+                        .size(px(placeholder_icon_size(w, h)))
                         .text_color(placeholder_fg),
                 ),
             })
@@ -576,27 +752,49 @@ impl Render for CoverModeView {
         let show_artist = self.show_artist;
         let show_progress = self.show_progress;
         let show_controls = self.show_controls;
-        let ctrl_bg = Colors::background(cx).opacity(COVER_CTRL_BG_OPACITY);
-        let ctrl_hover = Colors::muted(cx);
-        let play_icon = if self.is_playing {
-            "icons/pause.svg"
+        let bar_colors = BarColors {
+            fg: title_color,
+            accent: Colors::primary(cx),
+            hover: cover_backdrop::inset_bg(Colors::muted(cx), cover_backdrop::is_active(cx)),
+            play_bg: Colors::primary(cx),
+            play_hover: Colors::primary_hover(cx),
+            play_fg: Colors::primary_foreground(cx),
+        };
+        let (play_icon, play_label) = if self.is_playing {
+            ("icons/pause.svg", tr().pause.clone())
         } else {
-            "icons/play.svg"
+            ("icons/play.svg", tr().play.clone())
         };
 
         let show_text = has_track && !self.chrome_visible;
         let show_progress_bar = show_text && show_progress;
-        let below = if show_text {
-            COVER_TEXT_GAP
-                + COVER_TEXT_LINE
-                + if show_progress_bar {
-                    COVER_PROGRESS_GAP + COVER_PROGRESS_H
-                } else {
-                    0.
-                }
+        let controls_t = self.controls_progress();
+        let settled = if self.controls_shown {
+            controls_t >= 1.
+        } else {
+            controls_t <= 0.
+        };
+        if !settled {
+            window.request_animation_frame();
+        }
+        let show_bar = !self.chrome_visible && controls_t > 0.;
+        let bar_reserve = if show_bar {
+            (COVER_BAR_GAP + COVER_BAR_H) * controls_t
         } else {
             0.
         };
+        let below = bar_reserve
+            + if show_text {
+                COVER_TEXT_GAP
+                    + COVER_TEXT_LINE
+                    + if show_progress_bar {
+                        COVER_PROGRESS_GAP + COVER_PROGRESS_H
+                    } else {
+                        0.
+                    }
+            } else {
+                0.
+            };
         let max_w = (avail_w - COVER_MARGIN * 2.).max(COVER_MIN_SIDE);
         let max_h = (avail_h - COVER_MARGIN * 2. - below).max(COVER_MIN_SIDE);
         let (cover_w, cover_h) = fit_cover_box(self.cover_aspect, max_w, max_h);
@@ -608,65 +806,21 @@ impl Render for CoverModeView {
             spread_radius: px(0.),
         }];
 
-        let controls = (show_text && show_controls && (self.corner_visible || self.corner_hiding))
-            .then(|| {
-                let hiding = self.corner_hiding;
-                h_flex()
-                    .absolute()
-                    .bottom(px(16.))
-                    .left(px(0.))
-                    .right(px(0.))
-                    .items_center()
-                    .justify_center()
-                    .gap_3()
-                    .child(Self::control_button(
-                        "cm_prev",
-                        "icons/next.svg",
-                        true,
-                        COVER_CTRL_SIZE,
-                        COVER_CTRL_ICON,
-                        ctrl_bg,
-                        ctrl_hover,
-                        title_color,
-                        Self::on_prev_click,
-                        cx,
-                    ))
-                    .child(Self::control_button(
-                        "cm_play",
-                        play_icon,
-                        false,
-                        COVER_PLAY_SIZE,
-                        COVER_PLAY_ICON,
-                        ctrl_bg,
-                        ctrl_hover,
-                        title_color,
-                        Self::on_play_click,
-                        cx,
-                    ))
-                    .child(Self::control_button(
-                        "cm_next",
-                        "icons/next.svg",
-                        false,
-                        COVER_CTRL_SIZE,
-                        COVER_CTRL_ICON,
-                        ctrl_bg,
-                        ctrl_hover,
-                        title_color,
-                        Self::on_next_click,
-                        cx,
-                    ))
-                    .with_animation(
-                        if hiding {
-                            "cm-corner-out"
-                        } else {
-                            "cm-corner-in"
-                        },
-                        Animation::new(CORNER_FADE),
-                        move |controls, delta| {
-                            controls.opacity(if hiding { 1.0 - delta } else { delta })
-                        },
-                    )
-            });
+        let bar = show_bar.then(|| {
+            let row = self.controls_row(bar_colors, play_icon, play_label, show_controls, cx);
+            div()
+                .relative()
+                .flex_shrink_0()
+                .w(px(cover_w.max(COVER_BAR_MIN_W).min(max_w)))
+                .h(px(bar_reserve))
+                .child(
+                    row.absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom(px(-COVER_BAR_H * (1. - controls_t)))
+                        .opacity(controls_t),
+                )
+        });
 
         let cover_square = if self.sliding {
             let forward = self.slide_forward;
@@ -696,34 +850,29 @@ impl Render for CoverModeView {
             } else {
                 (incoming, outgoing)
             };
-            div()
-                .relative()
-                .w(px(cover_w))
-                .h(px(cover_h))
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .h(px(cover_h))
-                        .flex()
-                        .flex_row()
-                        .gap(px(slide_gap))
-                        .child(first.flex_shrink_0())
-                        .child(second.flex_shrink_0())
-                        .with_animation(
-                            ("cm-cover-slide", seq),
-                            Animation::new(COVER_SLIDE).with_easing(ease_out_quint()),
-                            move |strip, delta| {
-                                let left = if forward {
-                                    -page * delta
-                                } else {
-                                    -page * (1.0 - delta)
-                                };
-                                strip.left(px(left))
-                            },
-                        ),
-                )
-                .when_some(controls, |d, c| d.child(c))
+            div().relative().w(px(cover_w)).h(px(cover_h)).child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .h(px(cover_h))
+                    .flex()
+                    .flex_row()
+                    .gap(px(slide_gap))
+                    .child(first.flex_shrink_0())
+                    .child(second.flex_shrink_0())
+                    .with_animation(
+                        ("cm-cover-slide", seq),
+                        Animation::new(COVER_SLIDE).with_easing(ease_out_quint()),
+                        move |strip, delta| {
+                            let left = if forward {
+                                -page * delta
+                            } else {
+                                -page * (1.0 - delta)
+                            };
+                            strip.left(px(left))
+                        },
+                    ),
+            )
         } else {
             Self::cover_layer(
                 thumb_img,
@@ -734,7 +883,6 @@ impl Render for CoverModeView {
                 placeholder_fg,
             )
             .shadow(shadow)
-            .when_some(controls, |d, c| d.child(c))
         };
 
         div()
@@ -825,7 +973,8 @@ impl Render for CoverModeView {
                             );
                         }
                         d.child(group)
-                    }),
+                    })
+                    .when_some(bar, |d, b| d.child(b)),
             )
             .child({
                 let entity = cx.entity();

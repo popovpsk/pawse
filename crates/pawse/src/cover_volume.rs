@@ -7,13 +7,14 @@ use gpui::{
 
 use gpui_component::tooltip::Tooltip;
 
+use crate::cover_backdrop;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::theme_colors::Colors;
 use crate::volume::{VOLUME_STEP, Volume, volume_icon};
 use ui_components::slider::{Slider, SliderEvent};
 
-const ICON_SIZE: f32 = 36.;
+const ICON_SIZE: f32 = 34.;
 const PANEL_H: f32 = 132.;
 
 pub struct CoverVolume {
@@ -63,6 +64,10 @@ impl CoverVolume {
         }
     }
 
+    pub fn is_expanded(&self) -> bool {
+        self.expanded
+    }
+
     pub fn collapse(&mut self, cx: &mut Context<Self>) {
         if self.expanded {
             self.expanded = false;
@@ -102,7 +107,7 @@ impl Render for CoverVolume {
         let icon = volume_icon(is_exclusive, muted, value);
 
         let fg = Colors::foreground(cx);
-        let hover_bg = Colors::muted(cx);
+        let hover_bg = cover_backdrop::inset_bg(Colors::muted(cx), cover_backdrop::is_active(cx));
         let expanded = self.expanded && !is_exclusive;
 
         self.slider
@@ -111,8 +116,9 @@ impl Render for CoverVolume {
         div()
             .id("cover_volume")
             .absolute()
-            .bottom(px(12.))
-            .right(px(100.))
+            .bottom_0()
+            .left_0()
+            .w(px(ICON_SIZE))
             .flex()
             .flex_col()
             .items_center()
@@ -141,6 +147,7 @@ impl Render for CoverVolume {
                 )
                 .child(
                     div()
+                        .block_mouse_except_scroll()
                         .h(px(PANEL_H))
                         .w(px(ICON_SIZE))
                         .flex()
@@ -172,7 +179,7 @@ impl Render for CoverVolume {
                     .hover(move |s| s.bg(hover_bg))
                     .tooltip(|window, cx| Tooltip::new(tr().volume.clone()).build(window, cx))
                     .on_click(cx.listener(Self::on_icon_click))
-                    .child(svg().path(icon).size(px(20.)).text_color(fg)),
+                    .child(svg().path(icon).size(px(22.)).text_color(fg)),
             )
     }
 }
