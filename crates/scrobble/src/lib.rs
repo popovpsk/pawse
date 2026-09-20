@@ -7,7 +7,7 @@ mod worker;
 pub use accumulator::{PlayAccumulator, should_scrobble};
 pub use target::{ScrobbleTarget, SubmitError, TargetId};
 pub use targets::audioscrobbler::{AudioscrobblerClient, LovedTrack, Profile, SessionError};
-pub use targets::csv_log::CsvLog;
+pub use targets::csv_log::{CsvLog, is_pawse_log};
 pub use targets::listenbrainz::{DEFAULT_ROOT as LISTENBRAINZ_ROOT, ListenBrainzClient};
 pub use worker::{ScrobbleHandle, StatusEvent};
 

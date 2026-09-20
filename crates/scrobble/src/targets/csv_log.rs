@@ -1,12 +1,33 @@
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use crate::target::{ScrobbleTarget, SubmitError, TargetId};
 use crate::{NowPlaying, Scrobble};
 
 const HEADER: &str = "timeHuman,timeMs,artist,track,album,albumArtist,durationMs,mediaPlayerPackage,mediaPlayerName,mediaPlayerVersion,event";
 const PLAYER: &str = "pawse";
+
+pub fn is_pawse_log(path: &Path) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    let mut head = Vec::with_capacity(HEADER.len() + 1);
+    if file
+        .take(HEADER.len() as u64 + 1)
+        .read_to_end(&mut head)
+        .is_err()
+    {
+        return false;
+    }
+    if head.is_empty() {
+        return true;
+    }
+    if head.len() < HEADER.len() || &head[..HEADER.len()] != HEADER.as_bytes() {
+        return false;
+    }
+    head.len() == HEADER.len() || head[HEADER.len()] == b'\n' || head[HEADER.len()] == b'\r'
+}
 
 pub struct CsvLog {
     path: PathBuf,
@@ -209,6 +230,51 @@ mod tests {
         assert_eq!(lines[0], HEADER);
         assert_eq!(contents.matches(HEADER).count(), 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_empty_or_pawse_written_file_may_be_continued() {
+        let empty = temp_path("is-log-empty");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(is_pawse_log(&empty));
+
+        let bare = temp_path("is-log-bare");
+        std::fs::write(&bare, HEADER.as_bytes()).unwrap();
+        assert!(is_pawse_log(&bare));
+
+        let written = temp_path("is-log-written");
+        let log = CsvLog::new(written.clone(), "1.0".to_string());
+        log.submit(&[scrobble("One")]).unwrap();
+        assert!(is_pawse_log(&written));
+
+        for path in [empty, bare, written] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn a_foreign_file_is_never_appended_to() {
+        let prose = temp_path("is-log-prose");
+        std::fs::write(&prose, b"Dear Mum,\nwe had a lovely time.\n").unwrap();
+        assert!(!is_pawse_log(&prose));
+
+        let binary = temp_path("is-log-binary");
+        std::fs::write(&binary, [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]).unwrap();
+        assert!(!is_pawse_log(&binary));
+
+        let truncated = temp_path("is-log-truncated");
+        std::fs::write(&truncated, &HEADER.as_bytes()[..20]).unwrap();
+        assert!(!is_pawse_log(&truncated));
+
+        let prefixed = temp_path("is-log-prefixed");
+        std::fs::write(&prefixed, format!("{HEADER}extra\n").as_bytes()).unwrap();
+        assert!(!is_pawse_log(&prefixed));
+
+        assert!(!is_pawse_log(&temp_path("is-log-missing")));
+
+        for path in [prose, binary, truncated, prefixed] {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     #[test]

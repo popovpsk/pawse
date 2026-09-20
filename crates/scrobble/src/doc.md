@@ -49,6 +49,8 @@ failures are retried) lives here once, and every destination is a
   root, so a self-hosted instance is just a different `api_root`.
 - `targets/csv_log.rs` — appends one RFC 4180 row per event to a local file.
   The header matches Pano Scrobbler's file format, so its converter reads ours.
+  `is_pawse_log` is the guard the settings UI runs before pointing the log at a
+  file the user already has.
 - `targets/mod.rs` — the shared `ureq` agent config and response reader.
 
 ## Non-obvious behavior
@@ -128,6 +130,16 @@ failures are retried) lives here once, and every destination is a
   memory is cleared on `configure`, so a retry after the user changed something
   speaks up again. `Transient` stays silent — it is the offline case and heals
   itself.
+- **The CSV target never overwrites and never adopts a stranger's file.** It
+  opens with `create(true).append(true)` and writes the header only when the file
+  is missing or zero-length, so pointing it at a log from an earlier run just
+  continues that log. Because "open an existing file" therefore has to be
+  offered, `is_pawse_log` gates it: empty is fine, the exact header is fine,
+  anything else is refused, so a mis-click on a document cannot get scrobble rows
+  appended to it. It reads at most `HEADER.len() + 1` bytes, so picking a huge or
+  binary file costs nothing. A file that is damaged *after* it was chosen is not
+  a problem worth guarding: appending still works, and if it is deleted the next
+  write recreates it with a header.
 - **No artificial delay between batches.** The queue write is `write` + `fsync`
   + `rename`, and nothing sleeps on the worker thread, so a flush is bounded by
   the HTTP timeouts alone.

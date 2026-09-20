@@ -36,6 +36,7 @@ pub struct ScrobbleUiState {
     pub lastfm: ServiceUi,
     pub librefm: ServiceUi,
     pub listenbrainz: ServiceUi,
+    pub csv: ServiceUi,
     pub import_busy: bool,
     pub import_result: Option<SharedString>,
 }
@@ -168,6 +169,7 @@ pub fn scrobble_page(
 
     page = page.group(web_auth_group(WebAuthService::Librefm, scrobble_ui.clone()));
 
+    let csv_ui = scrobble_ui.clone();
     page = page.group(
         SettingGroup::new()
             .title(tr().scrobble_csv.clone())
@@ -180,7 +182,9 @@ pub fn scrobble_page(
             .item(
                 SettingItem::new(
                     tr().scrobble_file.clone(),
-                    SettingField::render(|_window, cx: &mut App| csv_log_field(cx)),
+                    SettingField::render(move |_window, cx: &mut App| {
+                        csv_log_field(csv_ui.clone(), cx)
+                    }),
                 )
                 .layout(Axis::Vertical)
                 .description(tr().scrobble_csv_desc.clone()),
@@ -351,8 +355,7 @@ fn identity_line(name: Option<SharedString>, status: SharedString, cx: &App) -> 
         None => div()
             .flex_1()
             .min_w(px(0.))
-            .overflow_hidden()
-            .text_ellipsis()
+            .max_w_full()
             .text_sm()
             .text_color(Colors::muted_foreground(cx))
             .child(status)
@@ -721,7 +724,7 @@ fn connect_listenbrainz(
     .detach();
 }
 
-fn csv_log_field(cx: &mut App) -> AnyElement {
+fn csv_log_field(state: Entity<ScrobbleUiState>, cx: &mut App) -> AnyElement {
     let settings = cx.global::<SettingsStore>().scrobble().clone();
     let has_path = !settings.csv_log.path.is_empty();
     let status = if has_path {
@@ -729,17 +732,33 @@ fn csv_log_field(cx: &mut App) -> AnyElement {
     } else {
         tr().lastfm_status_disconnected.clone()
     };
+    let error = state.read(cx).csv.error.clone();
 
-    let choose = Button::new("scrobble-csv-choose")
+    let open = Button::new("scrobble-csv-open")
         .small()
-        .label(tr().scrobble_choose_file.clone())
-        .on_click(|_, _, cx| pick_csv_path(cx))
+        .label(tr().scrobble_file_open.clone())
+        .on_click({
+            let state = state.clone();
+            move |_, _, cx| open_csv_path(cx, state.clone())
+        })
         .into_any_element();
 
-    service_row(identity_line(None, status, cx), vec![choose], None, cx)
+    let create = Button::new("scrobble-csv-new")
+        .small()
+        .label(tr().scrobble_file_new.clone())
+        .on_click(move |_, _, cx| create_csv_path(cx, state.clone()))
+        .into_any_element();
+
+    service_row(
+        identity_line(None, status, cx),
+        vec![open, create],
+        error,
+        cx,
+    )
 }
 
-fn pick_csv_path(cx: &mut App) {
+fn create_csv_path(cx: &mut App, state: Entity<ScrobbleUiState>) {
+    clear_csv_error(cx, &state);
     cx.spawn(async move |cx| {
         let picked = rfd::AsyncFileDialog::new()
             .set_file_name("pawse-scrobbles.csv")
@@ -749,16 +768,56 @@ fn pick_csv_path(cx: &mut App) {
         let Some(handle) = picked else {
             return;
         };
-        let path = handle.path().to_string_lossy().to_string();
+        let path = handle.path().to_path_buf();
+        cx.update(|cx| store_csv_path(cx, path)).ok();
+    })
+    .detach();
+}
+
+fn open_csv_path(cx: &mut App, state: Entity<ScrobbleUiState>) {
+    clear_csv_error(cx, &state);
+    cx.spawn(async move |cx| {
+        let picked = rfd::AsyncFileDialog::new()
+            .add_filter("CSV", &["csv"])
+            .pick_file()
+            .await;
+        let Some(handle) = picked else {
+            return;
+        };
+        let path = handle.path().to_path_buf();
+        let probe = path.clone();
+        let usable = cx
+            .background_spawn(async move { scrobble::is_pawse_log(&probe) })
+            .await;
         cx.update(|cx| {
-            update_scrobble(cx, move |s| {
-                s.csv_log.path = path;
-                s.csv_log.enabled = true;
-            })
+            if usable {
+                store_csv_path(cx, path);
+            } else {
+                state.update(cx, |s, cx| {
+                    s.csv.error = Some(tr().scrobble_not_a_log.clone());
+                    cx.notify();
+                });
+            }
         })
         .ok();
     })
     .detach();
+}
+
+fn store_csv_path(cx: &mut App, path: std::path::PathBuf) {
+    let path = path.to_string_lossy().to_string();
+    update_scrobble(cx, move |s| {
+        s.csv_log.path = path;
+        s.csv_log.enabled = true;
+    });
+}
+
+fn clear_csv_error(cx: &mut App, state: &Entity<ScrobbleUiState>) {
+    state.update(cx, |s, cx| {
+        if s.csv.error.take().is_some() {
+            cx.notify();
+        }
+    });
 }
 
 fn import_loves_field(state: Entity<ScrobbleUiState>, cx: &mut App) -> AnyElement {
