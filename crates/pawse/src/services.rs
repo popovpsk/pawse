@@ -95,15 +95,17 @@ impl Services {
                             let cache = cx.global::<Services>().cover_art_cache.clone();
                             cache.borrow_mut().clear(cx);
                         }
-                        if let LibraryEvent::TrackLikedChanged { track_id, liked } = &event {
-                            cx.global::<Services>()
-                                .playback_queue
-                                .borrow_mut()
-                                .set_track_liked(*track_id, *liked);
+                        if let Some((ids, liked)) = event.liked_update() {
+                            let queue = cx.global::<Services>().playback_queue.clone();
+                            let mut queue = queue.borrow_mut();
+                            for id in ids {
+                                queue.set_track_liked(id, liked);
+                            }
                         }
                         let library_changed = matches!(
                             &event,
                             LibraryEvent::TrackLikedChanged { .. }
+                                | LibraryEvent::LikesImported { .. }
                                 | LibraryEvent::PlaylistsChanged
                                 | LibraryEvent::PlaylistTracksChanged { .. }
                                 | LibraryEvent::ScanComplete { changed: true }

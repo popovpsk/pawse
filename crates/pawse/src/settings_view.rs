@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use gpui::{
-    AnyElement, App, AppContext, Axis, Entity, FocusHandle, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, point,
-    prelude::FluentBuilder, px,
+    AnyElement, App, Axis, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
@@ -202,9 +201,11 @@ pub fn build_settings_pages(
     lang_picker: Entity<LangPickerState>,
     lyrics_slider: Entity<SliderState>,
     remote_port_input: Entity<InputState>,
-    lastfm_ui: Entity<LastfmUiState>,
-    albums_layout: AlbumsLayout,
+    scrobble_ui: Entity<crate::scrobble_settings::ScrobbleUiState>,
+    scrobble_inputs: crate::scrobble_settings::ScrobbleInputs,
+    cx: &App,
 ) -> Vec<SettingPage> {
+    let albums_layout = cx.global::<SettingsStore>().albums_layout();
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(theme_picker, lang_picker))
@@ -214,13 +215,16 @@ pub fn build_settings_pages(
             .group(queue_group())
             .group(lyrics_group(lyrics_slider)),
     ];
-    let mut general = SettingPage::new(tr().settings_general.clone())
-        .group(general_group(remote_port_input))
-        .group(lastfm_group(lastfm_ui));
+    let mut general =
+        SettingPage::new(tr().settings_general.clone()).group(general_group(remote_port_input));
     if discord::is_available() {
         general = general.group(discord_group());
     }
     pages.push(general);
+    pages.push(crate::scrobble_settings::scrobble_page(
+        scrobble_ui,
+        scrobble_inputs,
+    ));
     pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
     pages
 }
@@ -625,65 +629,6 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
     )
 }
 
-#[derive(Default)]
-pub enum LastfmPhase {
-    #[default]
-    Idle,
-    Awaiting(String),
-}
-
-#[derive(Default)]
-pub struct LastfmUiState {
-    pub phase: LastfmPhase,
-    pub busy: bool,
-    pub error: Option<SharedString>,
-}
-
-impl LastfmUiState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-fn lastfm_group(lastfm_ui: Entity<LastfmUiState>) -> SettingGroup {
-    let group = SettingGroup::new()
-        .title(SharedString::from("Last.fm"))
-        .item(
-            SettingItem::new(
-                tr().lastfm_scrobble.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let store = cx.global::<SettingsStore>();
-                    let can_toggle = scrobble::is_available() && store.lastfm_session().is_some();
-                    let enabled = can_toggle && store.lastfm_enabled();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("lastfm-enabled-toggle")
-                            .checked(enabled)
-                            .disabled(!can_toggle)
-                            .on_click(|new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_lastfm_enabled(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            }),
-                    )
-                }),
-            )
-            .description(tr().lastfm_scrobble_desc.clone()),
-        );
-
-    group.item(
-        SettingItem::new(
-            tr().lastfm_account.clone(),
-            SettingField::render(move |_window, cx: &mut App| {
-                lastfm_account_field(lastfm_ui.clone(), cx)
-            }),
-        )
-        .layout(Axis::Vertical),
-    )
-}
-
 fn discord_group() -> SettingGroup {
     SettingGroup::new()
         .title(SharedString::from("Discord"))
@@ -709,193 +654,6 @@ fn discord_group() -> SettingGroup {
             )
             .description(tr().discord_share_desc.clone()),
         )
-}
-
-fn lastfm_account_field(state: Entity<LastfmUiState>, cx: &mut App) -> AnyElement {
-    if !scrobble::is_available() {
-        return div()
-            .text_sm()
-            .text_color(Colors::muted_foreground(cx))
-            .child(tr().lastfm_unavailable.clone())
-            .into_any_element();
-    }
-
-    let session = cx.global::<SettingsStore>().lastfm_session();
-    let (busy, awaiting, error) = {
-        let ui = state.read(cx);
-        (
-            ui.busy,
-            matches!(ui.phase, LastfmPhase::Awaiting(_)),
-            ui.error.clone(),
-        )
-    };
-
-    let status = if session.is_some() {
-        tr().lastfm_status_connected.clone()
-    } else if awaiting {
-        tr().lastfm_status_awaiting.clone()
-    } else {
-        tr().lastfm_status_disconnected.clone()
-    };
-
-    let button = if session.is_some() {
-        let state = state.clone();
-        Button::new("lastfm-sign-out")
-            .ghost()
-            .label(tr().lastfm_sign_out.clone())
-            .disabled(busy)
-            .on_click(move |_, _, cx| sign_out_lastfm(cx, state.clone()))
-    } else if awaiting {
-        let state = state.clone();
-        Button::new("lastfm-confirm")
-            .label(tr().lastfm_confirm.clone())
-            .disabled(busy)
-            .on_click(move |_, _, cx| {
-                let LastfmPhase::Awaiting(token) = &state.read(cx).phase else {
-                    return;
-                };
-                let token = token.clone();
-                confirm_lastfm_sign_in(cx, state.clone(), token);
-            })
-    } else {
-        let state = state.clone();
-        Button::new("lastfm-sign-in")
-            .label(tr().lastfm_sign_in.clone())
-            .disabled(busy)
-            .on_click(move |_, _, cx| start_lastfm_sign_in(cx, state.clone()))
-    };
-
-    let name = session.map(|s| SharedString::from(s.name));
-
-    let identity = match name {
-        Some(name) => h_flex()
-            .flex_1()
-            .min_w(px(0.))
-            .items_baseline()
-            .gap_1p5()
-            .child(
-                div()
-                    .flex_shrink()
-                    .min_w(px(0.))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_sm()
-                    .text_color(Colors::foreground(cx))
-                    .child(name),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .text_color(Colors::muted_foreground(cx))
-                    .child(SharedString::from(format!("· {status}"))),
-            )
-            .into_any_element(),
-        None => div()
-            .text_sm()
-            .text_color(Colors::muted_foreground(cx))
-            .child(status)
-            .into_any_element(),
-    };
-
-    v_flex()
-        .gap_1()
-        .child(
-            h_flex()
-                .w_full()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .child(identity)
-                .child(button),
-        )
-        .when_some(error, |this, error| {
-            this.child(div().text_sm().text_color(Colors::danger(cx)).child(error))
-        })
-        .into_any_element()
-}
-
-fn start_lastfm_sign_in(cx: &mut App, state: Entity<LastfmUiState>) {
-    let Some((api_key, _)) = scrobble::creds() else {
-        return;
-    };
-    state.update(cx, |s, cx| {
-        s.busy = true;
-        s.error = None;
-        cx.notify();
-    });
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_spawn(async move {
-                let client = scrobble::client_from_creds()
-                    .ok_or_else(|| anyhow::anyhow!("Last.fm is not configured"))?;
-                client.get_token()
-            })
-            .await;
-        cx.update(|cx| match result {
-            Ok(token) => {
-                cx.open_url(&format!(
-                    "https://www.last.fm/api/auth/?api_key={api_key}&token={token}"
-                ));
-                state.update(cx, |s, cx| {
-                    s.busy = false;
-                    s.phase = LastfmPhase::Awaiting(token);
-                    cx.notify();
-                });
-            }
-            Err(e) => state.update(cx, |s, cx| {
-                s.busy = false;
-                s.error = Some(SharedString::from(e.to_string()));
-                cx.notify();
-            }),
-        })
-        .ok();
-    })
-    .detach();
-}
-
-fn confirm_lastfm_sign_in(cx: &mut App, state: Entity<LastfmUiState>, token: String) {
-    state.update(cx, |s, cx| {
-        s.busy = true;
-        s.error = None;
-        cx.notify();
-    });
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_spawn(async move {
-                let client = scrobble::client_from_creds()
-                    .ok_or_else(|| anyhow::anyhow!("Last.fm is not configured"))?;
-                client.get_session(&token)
-            })
-            .await;
-        cx.update(|cx| match result {
-            Ok(session) => {
-                crate::scrobble_bridge::set_session(cx, Some(session));
-                state.update(cx, |s, cx| {
-                    s.busy = false;
-                    s.phase = LastfmPhase::Idle;
-                    s.error = None;
-                    cx.notify();
-                });
-            }
-            Err(e) => state.update(cx, |s, cx| {
-                s.busy = false;
-                s.error = Some(SharedString::from(e.to_string()));
-                cx.notify();
-            }),
-        })
-        .ok();
-    })
-    .detach();
-}
-
-fn sign_out_lastfm(cx: &mut App, state: Entity<LastfmUiState>) {
-    crate::scrobble_bridge::set_session(cx, None);
-    state.update(cx, |s, cx| {
-        s.phase = LastfmPhase::Idle;
-        s.error = None;
-        cx.notify();
-    });
 }
 
 fn artists_view_group() -> SettingGroup {

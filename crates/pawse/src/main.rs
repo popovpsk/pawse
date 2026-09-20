@@ -37,6 +37,8 @@ pub mod prev_button;
 pub mod queue_view;
 pub mod repeat_button;
 pub mod scrobble_bridge;
+mod scrobble_import;
+mod scrobble_settings;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
@@ -300,6 +302,8 @@ fn main() {
         cx.activate(true);
         crate::app_menu::set_menus(cx);
 
+        crate::scrobble_bridge::setup(cx);
+
         open_initial_window(cx, true);
 
         #[cfg(not(target_os = "macos"))]
@@ -307,8 +311,6 @@ fn main() {
 
         #[cfg(target_os = "macos")]
         crate::media_bridge::setup(cx);
-
-        crate::scrobble_bridge::setup(cx);
 
         crate::discord_bridge::setup(cx);
 

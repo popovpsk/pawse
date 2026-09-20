@@ -175,11 +175,14 @@ impl QueueView {
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
                 match event {
-                    LibraryEvent::TrackLikedChanged { track_id, liked } => {
+                    LibraryEvent::TrackLikedChanged { .. } | LibraryEvent::LikesImported { .. } => {
+                        let Some((ids, liked)) = event.liked_update() else {
+                            return;
+                        };
                         let mut changed = false;
                         for t in this.tracks.iter_mut() {
-                            if t.base.id == *track_id && t.base.liked != *liked {
-                                t.base.liked = *liked;
+                            if ids.contains(&t.base.id) && t.base.liked != liked {
+                                t.base.liked = liked;
                                 changed = true;
                             }
                         }

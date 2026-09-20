@@ -1068,6 +1068,34 @@ mod tests {
     }
 
     #[test]
+    fn test_like_many_appends_in_order_and_skips_duplicates() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        let b = seed_track(&lib, "B", "Album", "Artist");
+        let c = seed_track(&lib, "C", "Album", "Artist");
+        lib.set_liked(a, true).unwrap();
+
+        lib.like_many(&[b, c, a]).unwrap();
+
+        let liked: Vec<i64> = lib.liked_tracks().unwrap().iter().map(|t| t.id).collect();
+        assert_eq!(liked, vec![a, b, c]);
+        assert!(lib.liked_tracks().unwrap().iter().all(|t| t.liked));
+
+        lib.set_liked(b, false).unwrap();
+        let liked: Vec<i64> = lib.liked_tracks().unwrap().iter().map(|t| t.id).collect();
+        assert_eq!(liked, vec![a, c]);
+    }
+
+    #[test]
+    fn test_like_many_on_an_empty_slice_is_a_no_op() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        lib.like_many(&[]).unwrap();
+        assert!(lib.liked_tracks().unwrap().is_empty());
+        assert!(!lib.track(a).unwrap().unwrap().liked);
+    }
+
+    #[test]
     fn test_artists_enumerates_with_track_counts() {
         let (lib, _path) = create_test_db();
         seed_track(&lib, "Song A", "Album X", "Artist Alpha");

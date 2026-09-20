@@ -217,10 +217,13 @@ drive the `PlaybackQueue` on click.
   reordered. Each `TrackRow` stores `track_all_ix` so a click maps back to the
   unfiltered index — clicking a track replaces the queue with the *whole* source
   list (not the filtered subset) starting at that index.
-- **Like updates** arrive as `LibraryEvent::TrackLikedChanged` and are applied by
-  mutating the matching `TrackRow` in place (no full rebuild); the `tracks_all`
-  entry is updated via `Rc::make_mut` (copy-on-write only if shared). `liked_view`
-  instead re-fetches, since unliking removes the row.
+- **Like updates** arrive as `LibraryEvent::TrackLikedChanged`, or as one
+  `LibraryEvent::LikesImported` carrying a whole batch (the Last.fm loved-tracks
+  import). `LibraryEvent::liked_update` normalizes both into an id set, which is
+  applied by mutating the matching `TrackRow`s in place (no full rebuild); the
+  `tracks_all` entries are updated via `Rc::make_mut` (copy-on-write only if
+  shared). `liked_view` instead re-fetches, since unliking removes the row and an
+  import adds many.
 - **Liked ordering**: likes are backed by a hidden playlist in `music_library`, so
   the liked set has a persisted manual order (newest like appended last). The
   `tracks.liked` boolean stays the source of truth for the heart icon; the hidden

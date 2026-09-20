@@ -162,17 +162,17 @@ impl TracksView {
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::TrackLikedChanged { track_id, liked } = event {
+                if let Some((ids, liked)) = event.liked_update() {
                     let mut changed = false;
                     for t in this.tracks_all.iter_mut() {
-                        if t.id == *track_id && t.liked != *liked {
-                            Rc::make_mut(t).liked = *liked;
+                        if ids.contains(&t.id) && t.liked != liked {
+                            Rc::make_mut(t).liked = liked;
                             changed = true;
                         }
                     }
                     for r in this.row_data.iter_mut() {
-                        if r.base.id == *track_id && r.base.liked != *liked {
-                            r.base.liked = *liked;
+                        if ids.contains(&r.base.id) && r.base.liked != liked {
+                            r.base.liked = liked;
                             changed = true;
                         }
                     }

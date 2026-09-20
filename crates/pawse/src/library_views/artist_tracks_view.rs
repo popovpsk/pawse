@@ -173,18 +173,18 @@ impl ArtistTracksView {
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::TrackLikedChanged { track_id, liked } = event {
+                if let Some((ids, liked)) = event.liked_update() {
                     let mut changed = false;
                     for t in this.tracks_all.iter_mut() {
-                        if t.id == *track_id && t.liked != *liked {
-                            Rc::make_mut(t).liked = *liked;
+                        if ids.contains(&t.id) && t.liked != liked {
+                            Rc::make_mut(t).liked = liked;
                             changed = true;
                         }
                     }
                     for g in this.groups.iter_mut() {
                         for t in g.tracks.iter_mut() {
-                            if t.base.id == *track_id && t.base.liked != *liked {
-                                t.base.liked = *liked;
+                            if ids.contains(&t.base.id) && t.base.liked != liked {
+                                t.base.liked = liked;
                                 changed = true;
                             }
                         }

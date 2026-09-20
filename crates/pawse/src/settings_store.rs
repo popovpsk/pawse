@@ -322,10 +322,12 @@ pub struct UserSettings {
     pub remote_enabled: bool,
     #[serde(default = "default_remote_port")]
     pub remote_port: u16,
-    #[serde(default = "default_true")]
-    pub lastfm_enabled: bool,
     #[serde(default)]
-    pub lastfm_session: Option<scrobble::Session>,
+    pub scrobble: ScrobbleSettings,
+    #[serde(default, rename = "lastfm_enabled", skip_serializing)]
+    legacy_lastfm_enabled: Option<bool>,
+    #[serde(default, rename = "lastfm_session", skip_serializing)]
+    legacy_lastfm_session: Option<scrobble::Session>,
     #[serde(default)]
     pub discord_enabled: bool,
     #[serde(default)]
@@ -371,8 +373,9 @@ impl Default for UserSettings {
             lyrics_from_internet: true,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
-            lastfm_enabled: true,
-            lastfm_session: None,
+            scrobble: ScrobbleSettings::default(),
+            legacy_lastfm_enabled: None,
+            legacy_lastfm_session: None,
             discord_enabled: false,
             font_scale: FontScale::default(),
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
@@ -381,6 +384,96 @@ impl Default for UserSettings {
             onboarding_complete: false,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceState {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub session: Option<scrobble::Session>,
+}
+
+impl Default for ServiceState {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            session: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListenBrainzState {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub user: String,
+    #[serde(default = "default_listenbrainz_root")]
+    pub api_root: String,
+}
+
+impl Default for ListenBrainzState {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            token: String::new(),
+            user: String::new(),
+            api_root: default_listenbrainz_root(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CsvLogState {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScrobbleSettings {
+    #[serde(default)]
+    pub lastfm: ServiceState,
+    #[serde(default)]
+    pub librefm: ServiceState,
+    #[serde(default)]
+    pub listenbrainz: ListenBrainzState,
+    #[serde(default)]
+    pub csv_log: CsvLogState,
+    #[serde(default = "default_true")]
+    pub first_artist_only: bool,
+}
+
+impl Default for ScrobbleSettings {
+    fn default() -> Self {
+        Self {
+            lastfm: ServiceState::default(),
+            librefm: ServiceState::default(),
+            listenbrainz: ListenBrainzState::default(),
+            csv_log: CsvLogState::default(),
+            first_artist_only: true,
+        }
+    }
+}
+
+fn default_listenbrainz_root() -> String {
+    scrobble::LISTENBRAINZ_ROOT.to_string()
+}
+
+fn migrate_scrobble(settings: &mut UserSettings) {
+    let legacy_enabled = settings.legacy_lastfm_enabled.take();
+    let legacy_session = settings.legacy_lastfm_session.take();
+    if settings.scrobble.lastfm.session.is_some() {
+        return;
+    }
+    if let Some(enabled) = legacy_enabled {
+        settings.scrobble.lastfm.enabled = enabled;
+    }
+    settings.scrobble.lastfm.session = legacy_session;
 }
 
 pub struct SettingsStore {
@@ -408,10 +501,11 @@ impl SettingsStore {
     }
 
     pub fn load_from(path: PathBuf) -> Self {
-        let settings = std::fs::read_to_string(&path)
+        let mut settings: UserSettings = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        migrate_scrobble(&mut settings);
         Self {
             settings,
             path,
@@ -565,21 +659,15 @@ impl SettingsStore {
         self.save()
     }
 
-    pub fn lastfm_enabled(&self) -> bool {
-        self.settings.lastfm_enabled
+    pub fn scrobble(&self) -> &ScrobbleSettings {
+        &self.settings.scrobble
     }
 
-    pub fn set_lastfm_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
-        self.settings.lastfm_enabled = enabled;
-        self.save()
-    }
-
-    pub fn lastfm_session(&self) -> Option<scrobble::Session> {
-        self.settings.lastfm_session.clone()
-    }
-
-    pub fn set_lastfm_session(&mut self, session: Option<scrobble::Session>) -> anyhow::Result<()> {
-        self.settings.lastfm_session = session;
+    pub fn update_scrobble(
+        &mut self,
+        edit: impl FnOnce(&mut ScrobbleSettings),
+    ) -> anyhow::Result<()> {
+        edit(&mut self.settings.scrobble);
         self.save()
     }
 
@@ -1087,8 +1175,9 @@ mod tests {
             lyrics_from_internet: true,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
-            lastfm_enabled: true,
-            lastfm_session: None,
+            scrobble: ScrobbleSettings::default(),
+            legacy_lastfm_enabled: None,
+            legacy_lastfm_session: None,
             discord_enabled: false,
             font_scale: FontScale::Large,
             lyrics_font_size: 20.,
@@ -1157,5 +1246,105 @@ mod tests {
             let back: ThemeChoice = serde_json::from_str(&s).unwrap();
             assert_eq!(choice, back);
         }
+    }
+
+    #[test]
+    fn legacy_lastfm_fields_move_into_the_scrobble_section() {
+        let path = tmp_settings_path();
+        fs::write(
+            &path,
+            r#"{"lastfm_enabled":false,"lastfm_session":{"key":"abc","name":"listener"}}"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load_from(path.clone());
+        let lastfm = &store.scrobble().lastfm;
+        assert_eq!(lastfm.session.as_ref().map(|s| s.key.as_str()), Some("abc"));
+        assert_eq!(
+            lastfm.session.as_ref().map(|s| s.name.as_str()),
+            Some("listener")
+        );
+        assert!(!lastfm.enabled);
+        assert!(store.scrobble().first_artist_only);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn saving_drops_the_legacy_lastfm_keys() {
+        let path = tmp_settings_path();
+        fs::write(
+            &path,
+            r#"{"lastfm_session":{"key":"abc","name":"listener"}}"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load_from(path.clone());
+        store.save().unwrap();
+
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(!written.contains("lastfm_session"));
+        assert!(!written.contains("lastfm_enabled"));
+        assert!(written.contains("\"scrobble\""));
+
+        let reloaded = SettingsStore::load_from(path.clone());
+        assert_eq!(
+            reloaded
+                .scrobble()
+                .lastfm
+                .session
+                .as_ref()
+                .map(|s| s.key.as_str()),
+            Some("abc")
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_legacy_disable_survives_without_a_session() {
+        let path = tmp_settings_path();
+        fs::write(&path, r#"{"lastfm_enabled":false}"#).unwrap();
+
+        let store = SettingsStore::load_from(path.clone());
+        assert!(!store.scrobble().lastfm.enabled);
+        assert!(store.scrobble().lastfm.session.is_none());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_fresh_install_keeps_the_defaults() {
+        let path = tmp_settings_path();
+        fs::write(&path, "{}").unwrap();
+
+        let store = SettingsStore::load_from(path.clone());
+        assert!(store.scrobble().lastfm.enabled);
+        assert!(store.scrobble().first_artist_only);
+        assert!(!store.scrobble().csv_log.enabled);
+        assert_eq!(
+            store.scrobble().listenbrainz.api_root,
+            scrobble::LISTENBRAINZ_ROOT
+        );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn the_scrobble_section_wins_over_stale_legacy_keys() {
+        let path = tmp_settings_path();
+        fs::write(
+            &path,
+            r#"{"lastfm_session":{"key":"old","name":"old"},"scrobble":{"lastfm":{"enabled":true,"session":{"key":"new","name":"new"}}}}"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load_from(path.clone());
+        assert_eq!(
+            store
+                .scrobble()
+                .lastfm
+                .session
+                .as_ref()
+                .map(|s| s.key.as_str()),
+            Some("new")
+        );
+        cleanup(&path);
     }
 }

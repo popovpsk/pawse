@@ -241,9 +241,6 @@ pub struct Strings {
     pub remote_port: SharedString,
     pub remote_port_desc: SharedString,
     pub open_in_browser: SharedString,
-    pub lastfm_account: SharedString,
-    pub lastfm_scrobble: SharedString,
-    pub lastfm_scrobble_desc: SharedString,
     pub lastfm_status_disconnected: SharedString,
     pub lastfm_status_awaiting: SharedString,
     pub lastfm_status_connected: SharedString,
@@ -251,6 +248,28 @@ pub struct Strings {
     pub lastfm_sign_out: SharedString,
     pub lastfm_confirm: SharedString,
     pub lastfm_unavailable: SharedString,
+    pub settings_scrobbling: SharedString,
+    pub scrobble_account: SharedString,
+    pub scrobble_enabled: SharedString,
+    pub scrobble_file: SharedString,
+    pub scrobble_first_artist: SharedString,
+    pub scrobble_first_artist_desc: SharedString,
+    pub scrobble_csv: SharedString,
+    pub scrobble_csv_desc: SharedString,
+    pub scrobble_choose_file: SharedString,
+    pub scrobble_token: SharedString,
+    pub scrobble_server: SharedString,
+    pub scrobble_connect: SharedString,
+    pub scrobble_auth_expired: SharedString,
+    pub scrobble_auth_restart: SharedString,
+    pub scrobble_auth_pending: SharedString,
+    pub scrobble_auth_link_expired: SharedString,
+    pub scrobble_import_loves: SharedString,
+    pub scrobble_import_loves_desc: SharedString,
+    pub scrobble_import_run: SharedString,
+    pub scrobble_import_result_t: SharedString,
+    pub scrobble_importing: SharedString,
+    pub scrobble_queued: SharedString,
     pub discord_share: SharedString,
     pub discord_share_desc: SharedString,
     pub lyrics_text_size: SharedString,
@@ -441,6 +460,13 @@ impl Strings {
 
     pub fn remote_start_failed(&self, port: u16, err: &str) -> String {
         fill(&self.remote_start_failed_t, &[&port.to_string(), err])
+    }
+
+    pub fn scrobble_import_result(&self, found: usize, total: usize) -> String {
+        fill(
+            &self.scrobble_import_result_t,
+            &[&found.to_string(), &total.to_string()],
+        )
     }
 
     pub fn update_ready(&self, version: &str) -> String {

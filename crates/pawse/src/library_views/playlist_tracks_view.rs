@@ -129,17 +129,20 @@ impl PlaylistTracksView {
                 LibraryEvent::ScanComplete { changed } if *changed => {
                     this.reload_tracks(cx);
                 }
-                LibraryEvent::TrackLikedChanged { track_id, liked } => {
+                LibraryEvent::TrackLikedChanged { .. } | LibraryEvent::LikesImported { .. } => {
+                    let Some((ids, liked)) = event.liked_update() else {
+                        return;
+                    };
                     let mut changed = false;
                     for t in this.tracks_all.iter_mut() {
-                        if t.id == *track_id && t.liked != *liked {
-                            Rc::make_mut(t).liked = *liked;
+                        if ids.contains(&t.id) && t.liked != liked {
+                            Rc::make_mut(t).liked = liked;
                             changed = true;
                         }
                     }
                     for r in this.row_data.iter_mut() {
-                        if r.base.id == *track_id && r.base.liked != *liked {
-                            r.base.liked = *liked;
+                        if ids.contains(&r.base.id) && r.base.liked != liked {
+                            r.base.liked = liked;
                         }
                     }
                     if changed {

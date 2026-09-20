@@ -114,6 +114,9 @@ impl LikedView {
                 LibraryEvent::ScanComplete { changed } if *changed => {
                     this.reload(cx);
                 }
+                LibraryEvent::LikesImported { .. } => {
+                    this.reload(cx);
+                }
                 LibraryEvent::TrackLikedChanged { track_id, liked } => {
                     if *liked {
                         if !this.tracks_all.iter().any(|t| t.id == *track_id) {

@@ -1260,6 +1260,35 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
+    fn like_many(&self, track_ids: &[i64]) -> Result<()> {
+        if track_ids.is_empty() {
+            return Ok(());
+        }
+        let liked_playlist_id = self.liked_playlist_id;
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut next_position: i64 = tx
+            .query_row(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
+                [liked_playlist_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        for track_id in track_ids {
+            tx.execute(
+                "UPDATE tracks SET liked = 1 WHERE id = ?1",
+                rusqlite::params![track_id],
+            )?;
+            let inserted = tx.execute(
+                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+                rusqlite::params![liked_playlist_id, next_position, track_id],
+            )?;
+            next_position += inserted as i64;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn set_track_genres(&self, track_id: i64, genres: &[String]) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;

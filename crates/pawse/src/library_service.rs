@@ -53,6 +53,9 @@ pub enum LibraryEvent {
         track_id: i64,
         liked: bool,
     },
+    LikesImported {
+        track_ids: Arc<Vec<i64>>,
+    },
     PlaylistsChanged,
     PlaylistTracksChanged {
         playlist_id: i64,
@@ -68,6 +71,20 @@ pub enum LibraryEvent {
     AlbumTagsChanged {
         album_id: i64,
     },
+}
+
+impl LibraryEvent {
+    pub fn liked_update(&self) -> Option<(HashSet<i64>, bool)> {
+        match self {
+            LibraryEvent::TrackLikedChanged { track_id, liked } => {
+                Some((HashSet::from([*track_id]), *liked))
+            }
+            LibraryEvent::LikesImported { track_ids } => {
+                Some((track_ids.iter().copied().collect(), true))
+            }
+            _ => None,
+        }
+    }
 }
 
 pub struct LibraryService {
@@ -507,6 +524,20 @@ impl LibraryService {
         let _ = self
             .event_tx
             .send(LibraryEvent::TrackLikedChanged { track_id, liked });
+    }
+
+    pub fn like_many(&self, track_ids: Vec<i64>) -> music_library::Result<()> {
+        if track_ids.is_empty() {
+            return Ok(());
+        }
+        if let Err(e) = self.repo.like_many(&track_ids) {
+            log::error!("Failed to like {} track(s): {}", track_ids.len(), e);
+            return Err(e);
+        }
+        let _ = self.event_tx.send(LibraryEvent::LikesImported {
+            track_ids: Arc::new(track_ids),
+        });
+        Ok(())
     }
 
     pub fn lyrics_access(&self) -> LyricsAccess {

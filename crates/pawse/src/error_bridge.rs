@@ -1,5 +1,5 @@
 use diagnostics::{Notice, Severity};
-use gpui::{App, AsyncApp};
+use gpui::{App, AsyncApp, SharedString};
 use gpui_component::WindowExt;
 use gpui_component::notification::Notification;
 
@@ -25,4 +25,23 @@ fn push_notice(cx: &mut App, notice: Notice) {
         };
         window.push_notification(notification.title(notice.title), cx);
     });
+}
+
+pub fn push_background_error(
+    cx: &mut App,
+    title: impl Into<SharedString>,
+    message: impl Into<SharedString>,
+) -> bool {
+    let Some(handle) = cx.active_window().or_else(|| cx.windows().first().copied()) else {
+        return false;
+    };
+    let (title, message) = (title.into(), message.into());
+    handle
+        .update(cx, |_, window, cx| {
+            window.push_notification(
+                Notification::error(message).title(title).autohide(false),
+                cx,
+            );
+        })
+        .is_ok()
 }

@@ -97,6 +97,7 @@ pub trait LibraryRepository: Send + Sync {
     fn all_tracks(&self) -> Result<Vec<Track>>;
     fn track_count(&self) -> Result<i64>;
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()>;
+    fn like_many(&self, track_ids: &[i64]) -> Result<()>;
 
     /// Replace a track's genre links with `genres`, in order. Names resolve
     /// case-insensitively through `genres.key`, exactly as a scan does, so an
