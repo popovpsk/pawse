@@ -213,7 +213,7 @@ fn create_integration(
 
 async fn run_command_loop(cx: &mut AsyncApp, rx: flume::Receiver<MediaCommand>) {
     while let Ok(command) = rx.recv_async().await {
-        let result = cx.update(|cx| match command {
+        cx.update(|cx| match command {
             MediaCommand::Play => crate::services::play(cx),
             MediaCommand::Pause => crate::services::pause(cx),
             MediaCommand::TogglePlayPause => {
@@ -225,9 +225,6 @@ async fn run_command_loop(cx: &mut AsyncApp, rx: flume::Receiver<MediaCommand>) 
                 crate::services::seek_to_ms(cx, (position_secs.max(0.0) * 1000.0) as u64)
             }
         });
-        if result.is_err() {
-            break;
-        }
     }
 }
 

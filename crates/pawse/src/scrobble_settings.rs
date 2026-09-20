@@ -360,7 +360,7 @@ fn identity_line(name: Option<SharedString>, status: SharedString, cx: &App) -> 
             .gap_1p5()
             .child(
                 div()
-                    .flex_shrink()
+                    .flex_shrink_1()
                     .min_w(px(0.))
                     .overflow_hidden()
                     .text_ellipsis()
@@ -513,8 +513,7 @@ fn start_web_sign_in(cx: &mut App, service: WebAuthService, state: Entity<Scrobb
                 ui.error = Some(SharedString::from(format!("{e:#}")));
                 cx.notify();
             }),
-        })
-        .ok();
+        });
     })
     .detach();
 }
@@ -565,8 +564,7 @@ fn confirm_web_sign_in(
                 });
                 cx.notify();
             }),
-        })
-        .ok();
+        });
     })
     .detach();
 }
@@ -742,8 +740,7 @@ fn connect_listenbrainz(
                 s.listenbrainz.error = Some(SharedString::from(format!("{e:#}")));
                 cx.notify();
             }),
-        })
-        .ok();
+        });
     })
     .detach();
 }
@@ -793,7 +790,7 @@ fn create_csv_path(cx: &mut App, state: Entity<ScrobbleUiState>) {
             return;
         };
         let path = handle.path().to_path_buf();
-        cx.update(|cx| store_csv_path(cx, path)).ok();
+        cx.update(|cx| store_csv_path(cx, path));
     })
     .detach();
 }
@@ -822,8 +819,7 @@ fn open_csv_path(cx: &mut App, state: Entity<ScrobbleUiState>) {
                     cx.notify();
                 });
             }
-        })
-        .ok();
+        });
     })
     .detach();
 }

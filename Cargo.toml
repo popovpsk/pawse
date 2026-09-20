@@ -31,8 +31,13 @@ version = "1.0.0"
 edition = "2024"
 
 [workspace.dependencies]
-gpui = "0.2.2"
-gpui-component = "0.5.1"
+gpui = { package = "gpui-pre", version = "=0.3.5" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.5", features = [
+    "font-kit",
+    "x11",
+    "wayland",
+] }
+gpui-component = "=0.6.4"
 anyhow = "1.0"
 rust-embed = "8"
 log = "0.4"

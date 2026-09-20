@@ -532,7 +532,7 @@ impl LyricsView {
         if vp.size.height <= px(0.) {
             return None;
         }
-        let max = self.scroll_handle.max_offset().height;
+        let max = self.scroll_handle.max_offset().y;
         let target = vp.top() + vp.size.height * CENTER_BIAS - item.size.height * 0.5 - item.top();
         Some(target.clamp(-max, px(0.)))
     }

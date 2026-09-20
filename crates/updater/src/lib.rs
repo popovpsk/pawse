@@ -236,7 +236,7 @@ impl AutoUpdater {
                         cx.notify();
                     })
                     .ok();
-                    cx.update(|cx| toast_ready(cx, &toast_version)).ok();
+                    cx.update(|cx| toast_ready(cx, &toast_version));
                 }
                 Ok(None) => {
                     this.update(cx, |this, cx| {
@@ -251,8 +251,7 @@ impl AutoUpdater {
                                 ui_resources::i18n::strings().up_to_date.clone(),
                                 NotificationType::Info,
                             )
-                        })
-                        .ok();
+                        });
                     }
                 }
                 Err(error) => {
@@ -270,8 +269,7 @@ impl AutoUpdater {
                                     .update_check_failed(&error.to_string()),
                                 NotificationType::Error,
                             )
-                        })
-                        .ok();
+                        });
                     }
                 }
             }
@@ -300,7 +298,7 @@ async fn check_and_stage(
     })
     .ok();
 
-    let app_bundle = cx.update(|cx| cx.app_path().ok())?;
+    let app_bundle = cx.update(|cx| cx.app_path().ok());
     let url = found.url.clone();
     let digest = found.digest.clone();
     let staged = cx

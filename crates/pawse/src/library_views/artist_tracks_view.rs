@@ -5,7 +5,7 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, ClickEvent, Context, Corner, Div, ElementId, EventEmitter, FontWeight, Hsla, Image,
+    Anchor, App, ClickEvent, Context, Div, ElementId, EventEmitter, FontWeight, Hsla, Image,
     InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
     SharedString, Size, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
     anchored, deferred, div, point, px, size, svg,
@@ -701,7 +701,7 @@ fn album_menu_overlay(
     let anchor = point(menu.anchor.x, menu.anchor.y + px(8.));
     let menu_layer = deferred(
         anchored()
-            .anchor(Corner::TopRight)
+            .anchor(Anchor::TopRight)
             .snap_to_window_with_margin(px(8.))
             .position(anchor)
             .child(div().occlude().child(content)),

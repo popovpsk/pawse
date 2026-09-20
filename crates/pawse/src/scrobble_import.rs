@@ -143,8 +143,7 @@ pub fn start(cx: &mut App, ui: Entity<ScrobbleUiState>, source: ImportSource) {
                         state.import_result = Some((source, SharedString::from(format!("{e:#}"))));
                         cx.notify();
                     })
-                })
-                .ok();
+                });
                 return;
             }
         };
@@ -160,8 +159,7 @@ pub fn start(cx: &mut App, ui: Entity<ScrobbleUiState>, source: ImportSource) {
                 state.import_result = Some((source, text));
                 cx.notify();
             })
-        })
-        .ok();
+        });
     })
     .detach();
 }

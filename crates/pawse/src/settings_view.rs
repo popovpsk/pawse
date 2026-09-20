@@ -8,7 +8,7 @@ use gpui::{
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
-    dialog::DialogButtonProps,
+    dialog::{Cancel, Confirm, DialogFooter},
     h_flex,
     input::{Input, InputState},
     scroll::ScrollableElement,
@@ -242,7 +242,7 @@ pub fn pick_and_add_folder(cx: &mut App) {
     cx.spawn(async move |cx| {
         if let Some(handle) = rfd::AsyncFileDialog::new().pick_folder().await {
             let path = handle.path().to_path_buf();
-            cx.update(|cx| add_folder_and_rescan(path, cx)).ok();
+            cx.update(|cx| add_folder_and_rescan(path, cx));
         }
     })
     .detach();
@@ -1115,7 +1115,6 @@ fn library_group() -> SettingGroup {
                                 )
                                 .child(
                                     Button::new(SharedString::from(finder_id))
-                                        .ghost()
                                         .label(tr().reveal_folder.clone())
                                         .on_click(move |_, _, _| {
                                             reveal_in_file_manager(&path_for_finder);
@@ -1123,7 +1122,6 @@ fn library_group() -> SettingGroup {
                                 )
                                 .child(
                                     Button::new(SharedString::from(remove_id))
-                                        .ghost()
                                         .label(tr().remove.clone())
                                         .on_click(
                                             move |_, window: &mut Window, app_cx: &mut App| {
@@ -1133,15 +1131,37 @@ fn library_group() -> SettingGroup {
                                                     move |dialog, _window, _cx| {
                                                         let path = path.clone();
                                                         dialog
-                                                    .confirm()
+                                                    .overlay_closable(false)
+                                                    .close_button(false)
                                                     .title(tr().remove_folder_confirm_title.clone())
                                                     .child(div().child(
                                                         tr().remove_folder_confirm_message.clone(),
                                                     ))
-                                                    .button_props(
-                                                        DialogButtonProps::default()
-                                                            .ok_text(tr().remove.clone())
-                                                            .cancel_text(tr().cancel.clone()),
+                                                    .footer(
+                                                        DialogFooter::new()
+                                                            .child(
+                                                                Button::new("cancel")
+                                                                    .label(tr().cancel.clone())
+                                                                    .on_click(|_, window, cx| {
+                                                                        window.dispatch_action(
+                                                                            Box::new(Cancel),
+                                                                            cx,
+                                                                        )
+                                                                    }),
+                                                            )
+                                                            .child(
+                                                                Button::new("ok")
+                                                                    .label(tr().remove.clone())
+                                                                    .primary()
+                                                                    .on_click(|_, window, cx| {
+                                                                        window.dispatch_action(
+                                                                            Box::new(Confirm {
+                                                                                secondary: false,
+                                                                            }),
+                                                                            cx,
+                                                                        )
+                                                                    }),
+                                                            ),
                                                     )
                                                     .on_ok(move |_, _, cx| {
                                                         remove_folder_and_rescan(path.clone(), cx);
@@ -1166,7 +1186,6 @@ fn library_group() -> SettingGroup {
                         )
                         .child(
                             Button::new("rescan-library")
-                                .ghost()
                                 .disabled(is_scanning)
                                 .label(tr().rescan_library.clone())
                                 .on_click(|_, _, cx| force_rescan(cx)),
@@ -1253,7 +1272,7 @@ pub fn theme_picker_dropdown(
                     }
                     cx.notify();
                 });
-                focus_handle.focus(window);
+                focus_handle.focus(window, cx);
             })
     };
 
@@ -1480,7 +1499,7 @@ pub fn lang_picker_dropdown(
                     }
                     cx.notify();
                 });
-                focus_handle.focus(window);
+                focus_handle.focus(window, cx);
             })
     };
 

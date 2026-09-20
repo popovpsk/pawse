@@ -93,7 +93,7 @@ pub fn setup(cx: &mut App) {
     let notify_state = state.clone();
     cx.spawn(async move |cx| {
         while let Ok(event) = status_rx.recv_async().await {
-            let updated = status.update(cx, |status, cx| {
+            status.update(cx, |status, cx| {
                 match event {
                     StatusEvent::AuthFailed { target, message } => {
                         status.auth_failed.insert(target);
@@ -105,9 +105,6 @@ pub fn setup(cx: &mut App) {
                 }
                 cx.notify();
             });
-            if updated.is_err() {
-                break;
-            }
         }
     })
     .detach();

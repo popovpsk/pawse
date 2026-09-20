@@ -18,6 +18,7 @@ self-update = ["updater/self-update"]
 
 [dependencies]
 gpui.workspace = true
+gpui_platform.workspace = true
 gpui-component.workspace = true
 audio_engine = { path = "../audio_engine" }
 audio_output = { path = "../audio_output" }

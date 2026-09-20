@@ -156,7 +156,8 @@ fn main() {
         single_instance::Acquire::First(listener) => listener,
     };
 
-    let app = Application::new().with_assets(ui_resources::assets::Assets);
+    let app = Application::with_platform(gpui_platform::current_platform(false))
+        .with_assets(ui_resources::assets::Assets);
 
     #[cfg(target_os = "macos")]
     app.on_reopen(|cx| {
@@ -238,7 +239,7 @@ fn main() {
 
         crate::services::apply_remote_state(cx);
 
-        cx.on_window_closed(|cx| {
+        cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 #[cfg(not(target_os = "macos"))]
                 cx.quit();

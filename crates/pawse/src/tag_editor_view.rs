@@ -11,8 +11,8 @@ use gpui::{
 };
 use gpui_component::{
     Sizable, WindowExt,
-    button::Button,
-    dialog::DialogButtonProps,
+    button::{Button, ButtonVariants},
+    dialog::{Cancel, Confirm, DialogFooter},
     h_flex,
     input::{Input, InputEvent, InputState},
     scroll::ScrollableElement,
@@ -282,11 +282,21 @@ fn open_dialog(
             .close_button(false)
             .title(title.clone())
             .child(view.clone())
-            .footer(|ok, cancel, window, cx| vec![cancel(window, cx), ok(window, cx)])
-            .button_props(
-                DialogButtonProps::default()
-                    .ok_text(tr().tag_save.clone())
-                    .cancel_text(tr().cancel.clone()),
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        Button::new("cancel")
+                            .label(tr().cancel.clone())
+                            .on_click(|_, window, cx| window.dispatch_action(Box::new(Cancel), cx)),
+                    )
+                    .child(
+                        Button::new("ok")
+                            .label(tr().tag_save.clone())
+                            .primary()
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(Confirm { secondary: false }), cx)
+                            }),
+                    ),
             )
             .on_ok(move |_, window, cx| saver.update(cx, |this, cx| this.save(window, cx)))
     });
@@ -629,7 +639,7 @@ impl Render for TagEditorView {
             + px(crate::main_view::footer_height(cx) + DIALOG_BOTTOM_MARGIN + DIALOG_CHROME_HEIGHT);
         let max_height = (viewport - reserved).max(px(MIN_FORM_HEIGHT));
 
-        div()
+        v_flex()
             .relative()
             .overflow_hidden()
             .max_h(max_height)
@@ -637,7 +647,8 @@ impl Render for TagEditorView {
             .child(
                 v_flex()
                     .id("tag-editor-form")
-                    .size_full()
+                    .flex_1()
+                    .min_h(px(0.))
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
                     .pr(SCROLLBAR_GUTTER + px(FORM_RIGHT_GAP))
@@ -1075,7 +1086,7 @@ fn format_size(bytes: usize) -> String {
 async fn decode_preview(bytes: &[u8], cx: &mut gpui::AsyncApp) -> Option<Arc<RenderImage>> {
     let format = crate::cover_mode_view::sniff_image_format(bytes)?;
     let owned = bytes.to_vec();
-    let renderer = cx.update(|cx| cx.svg_renderer()).ok()?;
+    let renderer = cx.update(|cx| cx.svg_renderer());
     cx.background_executor()
         .spawn(async move {
             Image::from_bytes(format, owned)

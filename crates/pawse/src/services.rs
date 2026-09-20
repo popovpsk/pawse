@@ -70,61 +70,56 @@ impl Services {
 
         cx.spawn(async move |cx| {
             while let Ok(event) = library_event_rx.recv_async().await {
-                if cx
-                    .update(|cx| {
-                        // If a playlist that's currently backing the playback
-                        // queue has its track list changed, sync the queue first
-                        // so subscribers (queue_view, etc.) see fresh state when
-                        // they receive the emitted event below.
-                        if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
-                            sync_queue_with_playlist(*playlist_id, cx);
+                cx.update(|cx| {
+                    // If a playlist that's currently backing the playback
+                    // queue has its track list changed, sync the queue first
+                    // so subscribers (queue_view, etc.) see fresh state when
+                    // they receive the emitted event below.
+                    if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
+                        sync_queue_with_playlist(*playlist_id, cx);
+                    }
+                    if matches!(
+                        &event,
+                        LibraryEvent::ScanComplete { changed: true }
+                            | LibraryEvent::TrackTagsChanged { .. }
+                            | LibraryEvent::AlbumTagsChanged { .. }
+                    ) {
+                        remap_queue_after_rescan(cx);
+                    }
+                    if matches!(
+                        &event,
+                        LibraryEvent::TrackTagsChanged { .. }
+                            | LibraryEvent::AlbumTagsChanged { .. }
+                    ) {
+                        let cache = cx.global::<Services>().cover_art_cache.clone();
+                        cache.borrow_mut().clear(cx);
+                    }
+                    if let Some((ids, liked)) = event.liked_update() {
+                        let queue = cx.global::<Services>().playback_queue.clone();
+                        let mut queue = queue.borrow_mut();
+                        for id in ids {
+                            queue.set_track_liked(id, liked);
                         }
-                        if matches!(
-                            &event,
-                            LibraryEvent::ScanComplete { changed: true }
-                                | LibraryEvent::TrackTagsChanged { .. }
-                                | LibraryEvent::AlbumTagsChanged { .. }
-                        ) {
-                            remap_queue_after_rescan(cx);
-                        }
-                        if matches!(
-                            &event,
-                            LibraryEvent::TrackTagsChanged { .. }
-                                | LibraryEvent::AlbumTagsChanged { .. }
-                        ) {
-                            let cache = cx.global::<Services>().cover_art_cache.clone();
-                            cache.borrow_mut().clear(cx);
-                        }
-                        if let Some((ids, liked)) = event.liked_update() {
-                            let queue = cx.global::<Services>().playback_queue.clone();
-                            let mut queue = queue.borrow_mut();
-                            for id in ids {
-                                queue.set_track_liked(id, liked);
-                            }
-                        }
-                        let library_changed = matches!(
-                            &event,
-                            LibraryEvent::TrackLikedChanged { .. }
-                                | LibraryEvent::LikesImported { .. }
-                                | LibraryEvent::PlaylistsChanged
-                                | LibraryEvent::PlaylistTracksChanged { .. }
-                                | LibraryEvent::ScanComplete { changed: true }
-                                | LibraryEvent::TrackTagsChanged { .. }
-                                | LibraryEvent::AlbumTagsChanged { .. }
-                        );
-                        if library_changed {
-                            cx.global::<Services>()
-                                .library_rev
-                                .fetch_add(1, Ordering::Relaxed);
-                            publish_remote_state(cx);
-                        }
-                        notify_scan_event(&event, cx);
-                        library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
-                    })
-                    .is_err()
-                {
-                    break;
-                }
+                    }
+                    let library_changed = matches!(
+                        &event,
+                        LibraryEvent::TrackLikedChanged { .. }
+                            | LibraryEvent::LikesImported { .. }
+                            | LibraryEvent::PlaylistsChanged
+                            | LibraryEvent::PlaylistTracksChanged { .. }
+                            | LibraryEvent::ScanComplete { changed: true }
+                            | LibraryEvent::TrackTagsChanged { .. }
+                            | LibraryEvent::AlbumTagsChanged { .. }
+                    );
+                    if library_changed {
+                        cx.global::<Services>()
+                            .library_rev
+                            .fetch_add(1, Ordering::Relaxed);
+                        publish_remote_state(cx);
+                    }
+                    notify_scan_event(&event, cx);
+                    library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
+                });
             }
         })
         .detach();
@@ -133,18 +128,13 @@ impl Services {
         let watcher_library = library.clone();
         cx.spawn(async move |cx| {
             while watcher_ping_rx.recv_async().await.is_ok() {
-                if cx
-                    .update(|cx| {
-                        let folders = cx
-                            .global::<crate::settings_store::SettingsStore>()
-                            .music_folders()
-                            .to_vec();
-                        watcher_library.request_rescan(folders, false, false);
-                    })
-                    .is_err()
-                {
-                    break;
-                }
+                cx.update(|cx| {
+                    let folders = cx
+                        .global::<crate::settings_store::SettingsStore>()
+                        .music_folders()
+                        .to_vec();
+                    watcher_library.request_rescan(folders, false, false);
+                });
             }
         })
         .detach();
@@ -157,9 +147,7 @@ impl Services {
 
         cx.spawn(async move |cx| {
             while let Ok(command) = remote_command_rx.recv_async().await {
-                if cx.update(|cx| apply_remote_command(cx, command)).is_err() {
-                    break;
-                }
+                cx.update(|cx| apply_remote_command(cx, command));
             }
         })
         .detach();
@@ -381,7 +369,7 @@ pub fn apply_remote_state(cx: &mut App) {
     if let Some(ready) = ready {
         cx.spawn(async move |cx| {
             if let Ok(Err(err)) = ready.await {
-                let _ = cx.update(|cx| notify_remote_error(cx, port, &err));
+                cx.update(|cx| notify_remote_error(cx, port, &err));
             }
         })
         .detach();
@@ -830,7 +818,7 @@ pub async fn run_engine_events_bus(
             }
             EngineEvent::TrackEnded => {
                 is_playing.store(false, Ordering::Relaxed);
-                let _ = cx.update(advance_on_track_end);
+                cx.update(advance_on_track_end);
                 publish_now_playing(cx);
             }
             EngineEvent::Stopped => {
@@ -842,17 +830,12 @@ pub async fn run_engine_events_bus(
             }
             _ => {}
         }
-        if cx
-            .update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)))
-            .is_err()
-        {
-            break;
-        }
+        cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)));
     }
 }
 
 fn publish_now_playing(cx: &mut AsyncApp) {
-    let _ = cx.update(publish_remote_state);
+    cx.update(publish_remote_state);
 }
 
 fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
@@ -969,17 +952,13 @@ fn maybe_prefetch_next_track(
     }
     *prefetched = true;
 
-    let Some(path) = cx
-        .update(|cx| {
-            cx.global::<Services>()
-                .playback_queue
-                .borrow()
-                .peek_next()
-                .map(|t| std::path::PathBuf::from(&t.path))
-        })
-        .ok()
-        .flatten()
-    else {
+    let Some(path) = cx.update(|cx| {
+        cx.global::<Services>()
+            .playback_queue
+            .borrow()
+            .peek_next()
+            .map(|t| std::path::PathBuf::from(&t.path))
+    }) else {
         return;
     };
 

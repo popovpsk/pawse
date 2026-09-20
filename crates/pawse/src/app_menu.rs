@@ -45,6 +45,7 @@ pub fn app_menus() -> Vec<Menu> {
         Menu {
             name: "Pawse".into(),
             items: pawse_items,
+            disabled: false,
         },
         #[cfg(target_os = "macos")]
         Menu {
@@ -53,10 +54,12 @@ pub fn app_menus() -> Vec<Menu> {
                 MenuItem::action(s.minimize.clone(), Minimize),
                 MenuItem::action(s.zoom.clone(), Zoom),
             ],
+            disabled: false,
         },
         Menu {
             name: s.menu_help.clone(),
             items: vec![MenuItem::action(s.repository.clone(), OpenRepository)],
+            disabled: false,
         },
     ]
 }

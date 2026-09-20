@@ -162,6 +162,7 @@ impl Render for CoverVolume {
                             offset: point(px(0.), px(6.)),
                             blur_radius: px(16.),
                             spread_radius: px(0.),
+                            inset: false,
                         }])
                         .child(self.slider.clone()),
                 )

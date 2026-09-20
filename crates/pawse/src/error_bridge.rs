@@ -6,9 +6,7 @@ use gpui_component::notification::Notification;
 pub fn spawn_notice_forwarder(cx: &mut App, notices: flume::Receiver<Notice>) {
     cx.spawn(async move |cx: &mut AsyncApp| {
         while let Ok(notice) = notices.recv_async().await {
-            if cx.update(|cx| push_notice(cx, notice)).is_err() {
-                break;
-            }
+            cx.update(|cx| push_notice(cx, notice));
         }
     })
     .detach();

@@ -4,7 +4,7 @@ use gpui::{App, BackgroundExecutor, Global, Pixels, px};
 use gpui_component::{
     WindowExt,
     notification::Notification,
-    scroll::ScrollbarShow,
+    scroll::ScrollbarMode,
     theme::{Theme, ThemeRegistry},
 };
 use music_library::Track;
@@ -924,7 +924,7 @@ pub fn apply_theme(choice: &ThemeChoice, cx: &mut App) {
         ThemeChoice::System => Theme::sync_system_appearance(None, cx),
         ThemeChoice::Named(name) => apply_named_theme(name, cx),
     }
-    Theme::global_mut(cx).scrollbar_show = ScrollbarShow::Scrolling;
+    Theme::global_mut(cx).scrollbar_mode = ScrollbarMode::Scrolling;
     reassert_font_scale(cx);
 }
 

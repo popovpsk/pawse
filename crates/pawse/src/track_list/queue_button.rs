@@ -3,7 +3,12 @@ use std::rc::Rc;
 use gpui::{
     App, ElementId, IntoElement, ParentElement, StatefulInteractiveElement, Window, div, px,
 };
-use gpui_component::{WindowExt, button::Button, dialog::DialogButtonProps, tooltip::Tooltip};
+use gpui_component::{
+    WindowExt,
+    button::{Button, ButtonVariants},
+    dialog::{Cancel, Confirm, DialogFooter},
+    tooltip::Tooltip,
+};
 use music_library::Track;
 
 use crate::theme_colors::Colors;
@@ -61,30 +66,36 @@ pub fn play_replacing_queue(
         let tracks = tracks.clone();
         let clicked = clicked.clone();
         dialog
-            .confirm()
+            .overlay_closable(false)
+            .close_button(false)
             .w(px(640.))
             .title(tr().replace_queue_confirm_title.clone())
             .child(div().child(tr().replace_queue_confirm_message.clone()))
-            .footer(move |ok, cancel, window, cx| {
-                let clicked = clicked.clone();
-                vec![
-                    Button::new("dialog-add-to-queue")
-                        .label(tr().add_to_queue.clone())
-                        .on_click(move |_, window, cx| {
-                            if let Some(track) = clicked.clone() {
-                                append_tracks_to_queue(vec![track], cx);
-                            }
-                            window.close_dialog(cx);
-                        })
-                        .into_any_element(),
-                    cancel(window, cx),
-                    ok(window, cx),
-                ]
-            })
-            .button_props(
-                DialogButtonProps::default()
-                    .ok_text(tr().replace_queue.clone())
-                    .cancel_text(tr().cancel.clone()),
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        Button::new("dialog-add-to-queue")
+                            .label(tr().add_to_queue.clone())
+                            .on_click(move |_, window, cx| {
+                                if let Some(track) = clicked.clone() {
+                                    append_tracks_to_queue(vec![track], cx);
+                                }
+                                window.close_dialog(cx);
+                            }),
+                    )
+                    .child(
+                        Button::new("cancel")
+                            .label(tr().cancel.clone())
+                            .on_click(|_, window, cx| window.dispatch_action(Box::new(Cancel), cx)),
+                    )
+                    .child(
+                        Button::new("ok")
+                            .label(tr().replace_queue.clone())
+                            .primary()
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(Confirm { secondary: false }), cx)
+                            }),
+                    ),
             )
             .on_ok(move |_, _, cx| {
                 replace_queue_and_play((*tracks).clone(), index, source, cx);

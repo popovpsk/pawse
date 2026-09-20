@@ -155,7 +155,7 @@ impl PlaylistPopup {
         self.create_input
             .update(cx, |s, cx| s.set_value("", window, cx));
         self.refresh_lists(cx);
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 

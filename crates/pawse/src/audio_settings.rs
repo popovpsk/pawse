@@ -1,7 +1,7 @@
 use audio_output::{BitPerfectIssue, BitPerfectStatus, OutputEvent, native_mode_available};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, Context, Corner, InteractiveElement, IntoElement, ParentElement, Render,
+    Anchor, AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_component::{
@@ -209,7 +209,7 @@ impl Render for AudioSettings {
             .child({
                 let view = cx.entity().clone();
                 Popover::new("audio-device-popover")
-                    .anchor(Corner::TopRight)
+                    .anchor(Anchor::TopRight)
                     .trigger(
                         Button::new("audio-device-trigger")
                             .ghost()

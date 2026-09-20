@@ -173,7 +173,7 @@ impl MainView {
             cx.new(|cx| InputState::new(window, cx).placeholder(tr().search_placeholder.clone()));
 
         let focus_handle = cx.focus_handle();
-        focus_handle.focus(window);
+        focus_handle.focus(window, cx);
 
         let search_subscription = cx.subscribe_in(&search_input, window, {
             let library_view = library_view.clone();
@@ -187,7 +187,7 @@ impl MainView {
                     // else took it; otherwise we'd steal focus from a popup or
                     // picker opened while the search box was focused.
                     if window.focused(cx).is_none() => {
-                        this.focus_handle.focus(window);
+                        this.focus_handle.focus(window, cx);
                     }
                 _ => {}
             }
@@ -223,7 +223,9 @@ impl MainView {
         let lyrics_slider_observe = cx.observe(&lyrics_slider, |_, _, cx| cx.notify());
         let lyrics_slider_subscription =
             cx.subscribe(&lyrics_slider, |this, _, event: &SliderEvent, cx| {
-                let SliderEvent::Change(value) = event;
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
                 if let Err(e) = cx
                     .global_mut::<SettingsStore>()
                     .set_lyrics_font_size(value.start())
@@ -570,7 +572,7 @@ impl MainView {
             .update(cx, |s, cx| s.set_value("", window, cx));
         let library_view = self.library_view.clone();
         library_view.update(cx, |v, cx| v.apply_search("", cx));
-        self.focus_handle.focus(window);
+        self.focus_handle.focus(window, cx);
     }
 
     fn on_seek_forward(&mut self, _: &SeekForward, _: &mut Window, cx: &mut Context<Self>) {
