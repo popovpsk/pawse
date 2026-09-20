@@ -8,6 +8,7 @@ use gpui::{
     deferred, div, point, px, svg,
 };
 use gpui_component::{
+    button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     v_flex,
 };
@@ -233,8 +234,6 @@ impl gpui::Render for PlaylistPopup {
 
         let popover_bg = Colors::popover(cx);
         let border_color = Colors::border(cx);
-        let accent = Colors::accent(cx);
-        let accent_fg = Colors::accent_foreground(cx);
         let secondary = Colors::secondary(cx);
         let muted_fg = Colors::muted_foreground(cx);
         let foreground = Colors::foreground(cx);
@@ -337,16 +336,8 @@ impl gpui::Render for PlaylistPopup {
                         .gap_2()
                         .justify_end()
                         .child(
-                            div()
-                                .id("playlist-popup-cancel")
-                                .px_2()
-                                .py_1()
-                                .text_sm()
-                                .text_color(muted_fg)
-                                .cursor_pointer()
-                                .rounded(px(4.))
-                                .hover(|s| s.bg(secondary))
-                                .child(tr().cancel.clone())
+                            Button::new("playlist-popup-cancel")
+                                .label(tr().cancel.clone())
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(move |_, _, cx| {
                                     cancel_popup.update(cx, |state, cx| {
@@ -356,16 +347,9 @@ impl gpui::Render for PlaylistPopup {
                                 }),
                         )
                         .child(
-                            div()
-                                .id("playlist-popup-create-confirm")
-                                .px_2()
-                                .py_1()
-                                .text_sm()
-                                .text_color(accent_fg)
-                                .bg(accent)
-                                .cursor_pointer()
-                                .rounded(px(4.))
-                                .child(tr().create.clone())
+                            Button::new("playlist-popup-create-confirm")
+                                .label(tr().create.clone())
+                                .primary()
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .on_click(move |_, _, cx| {
                                     popup.update(cx, |state, cx| state.commit_create(cx));

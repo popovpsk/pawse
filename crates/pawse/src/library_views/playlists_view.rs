@@ -222,22 +222,19 @@ impl Render for PlaylistsView {
                         ),
                     ))
                     .child(
-                        Button::new("playlists-confirm-create")
-                            .primary()
-                            .compact()
-                            .label(tr().create.clone())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.commit_create(cx);
-                            })),
-                    )
-                    .child(
                         Button::new("playlists-cancel-create")
-                            .ghost()
-                            .compact()
                             .label(tr().cancel.clone())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.creating = false;
                                 cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("playlists-confirm-create")
+                            .label(tr().create.clone())
+                            .primary()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.commit_create(cx);
                             })),
                     ),
             )
@@ -245,12 +242,6 @@ impl Render for PlaylistsView {
             v_flex().px_4().py_3().child(
                 h_flex().child(
                     Button::new("playlists-new")
-                        .outline()
-                        .compact()
-                        .bg(crate::cover_backdrop::inset_bg(
-                            Colors::background(cx),
-                            crate::cover_backdrop::is_active(cx),
-                        ))
                         .label(tr().new_playlist.clone())
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.creating = true;
