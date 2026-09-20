@@ -941,12 +941,15 @@ pub fn apply_named_theme(name: &str, cx: &mut App) {
         return;
     };
     let mode = config.mode;
+    let default_theme = Theme::default();
     let theme = cx.global_mut::<Theme>();
     if mode.is_dark() {
         theme.dark_theme = config;
     } else {
         theme.light_theme = config;
     }
+    theme.radius = default_theme.radius;
+    theme.radius_lg = default_theme.radius_lg;
     Theme::change(mode, None, cx);
     reassert_font_scale(cx);
 }
