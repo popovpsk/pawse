@@ -127,7 +127,6 @@ impl Render for OnboardingView {
                         )
                         .child(
                             Button::new(SharedString::from(remove_id))
-                                .ghost()
                                 .label(s.remove.clone())
                                 .on_click(move |_, _, cx| {
                                     remove_folder_and_rescan(path_for_remove.clone(), cx)
