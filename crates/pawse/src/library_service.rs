@@ -415,6 +415,10 @@ impl LibraryService {
         }
     }
 
+    pub fn repo(&self) -> Arc<dyn LibraryRepository> {
+        self.repo.clone()
+    }
+
     pub fn artists_grouping(&self) -> ArtistGrouping {
         load_grouping(&self.artists_grouping)
     }

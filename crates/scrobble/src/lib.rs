@@ -1,10 +1,11 @@
 mod accumulator;
-mod queue;
+mod store;
 mod target;
 mod targets;
 mod worker;
 
 pub use accumulator::{PlayAccumulator, should_scrobble};
+pub use store::{Love, Outcome, Play, ScrobbleStore, StoreError, StoreResult};
 pub use target::{ScrobbleTarget, SubmitError, TargetId};
 pub use targets::audioscrobbler::{AudioscrobblerClient, LovedTrack, Profile, SessionError};
 pub use targets::csv_log::{CsvLog, is_pawse_log};

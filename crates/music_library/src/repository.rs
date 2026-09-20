@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, LyricsRef, NewTrack,
-    PlaylistSummary, PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
+    LyricsRef, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
+    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -160,4 +161,13 @@ pub trait LibraryRepository: Send + Sync {
     fn set_scan_meta(&self, fingerprint: &str, folders: &str) -> Result<()>;
 
     fn vacuum(&self) -> Result<()>;
+
+    fn record_play(&self, play: &NewPlay, targets: &[&str]) -> Result<i64>;
+    fn record_love(&self, love: &NewLove, targets: &[&str]) -> Result<i64>;
+    fn pending_plays(&self, target: &str, max: usize) -> Result<Vec<PendingPlay>>;
+    fn pending_loves(&self, target: &str, max: usize) -> Result<Vec<PendingLove>>;
+    fn settle_plays(&self, ids: &[i64], target: &str, outcome: &DeliveryOutcome) -> Result<()>;
+    fn settle_loves(&self, ids: &[i64], target: &str, outcome: &DeliveryOutcome) -> Result<()>;
+    fn pending_scrobble_count(&self, targets: &[&str]) -> Result<usize>;
+    fn trim_pending_deliveries(&self, cap: usize) -> Result<usize>;
 }

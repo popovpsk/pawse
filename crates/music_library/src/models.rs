@@ -189,3 +189,60 @@ pub struct LyricsRef {
     pub not_found: bool,
     pub updated_at: i64,
 }
+
+pub mod delivery_state {
+    pub const PENDING: i64 = 0;
+    pub const SENT: i64 = 1;
+    pub const DROPPED: i64 = 2;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewPlay {
+    pub track_id: Option<i64>,
+    pub artist: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<u32>,
+    pub duration_secs: Option<u64>,
+    pub played_secs: Option<u64>,
+    pub started_at: u64,
+    pub qualified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewLove {
+    pub track_id: Option<i64>,
+    pub artist: String,
+    pub title: String,
+    pub loved: bool,
+    pub at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingPlay {
+    pub id: i64,
+    pub artist: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<u32>,
+    pub duration_secs: Option<u64>,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingLove {
+    pub id: i64,
+    pub artist: String,
+    pub title: String,
+    pub loved: bool,
+    pub at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeliveryOutcome {
+    Sent,
+    Dropped(String),
+    Deferred(String),
+}

@@ -2,6 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 
 use crate::target::{ScrobbleTarget, SubmitError, TargetId};
+use crate::targets::audioscrobbler::LovedTrack;
 use crate::targets::{agent, read};
 use crate::{NowPlaying, Scrobble};
 
@@ -10,6 +11,49 @@ pub const DEFAULT_ROOT: &str = "https://api.listenbrainz.org";
 const CLIENT: &str = "pawse";
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BATCH: usize = 50;
+
+fn urlencode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+fn parse_feedback(body: &str) -> Result<(Vec<LovedTrack>, usize)> {
+    let parsed: Value = serde_json::from_str(body)
+        .with_context(|| format!("parse listenbrainz feedback: {body}"))?;
+    let total = parsed
+        .get("total_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let tracks = parsed
+        .get("feedback")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let meta = item.get("track_metadata")?;
+                    let artist = meta.get("artist_name").and_then(Value::as_str)?.trim();
+                    let title = meta.get("track_name").and_then(Value::as_str)?.trim();
+                    if artist.is_empty() || title.is_empty() {
+                        return None;
+                    }
+                    Some(LovedTrack {
+                        artist: artist.to_string(),
+                        title: title.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok((tracks, total))
+}
 
 pub struct ListenBrainzClient {
     agent: ureq::Agent,
@@ -30,6 +74,30 @@ impl ListenBrainzClient {
             root,
             token,
         }
+    }
+
+    pub fn loved_tracks(
+        &self,
+        user: &str,
+        count: usize,
+        offset: usize,
+    ) -> Result<(Vec<LovedTrack>, usize)> {
+        let url = format!(
+            "{}/1/feedback/user/{}/get-feedback?score=1&metadata=true&count={count}&offset={offset}",
+            self.root,
+            urlencode(user)
+        );
+        let (status, body) = read(
+            self.agent
+                .get(&url)
+                .header("Authorization", self.auth())
+                .call(),
+        )
+        .map_err(|e| anyhow!("listenbrainz {e}"))?;
+        if status >= 400 {
+            return Err(anyhow!("listenbrainz feedback failed: http {status}"));
+        }
+        parse_feedback(&body)
     }
 
     pub fn validate(&self) -> Result<String> {
@@ -106,7 +174,11 @@ impl ScrobbleTarget for ListenBrainzClient {
         self.post(&listens_payload(items))
     }
 
-    fn love(&self, _artist: &str, _title: &str, _love: bool) -> Result<(), SubmitError> {
+    fn accepts_loves(&self) -> bool {
+        false
+    }
+
+    fn love(&self, _artist: &str, _title: &str, _love: bool, _at: u64) -> Result<(), SubmitError> {
         Err(SubmitError::Unsupported)
     }
 }
@@ -304,5 +376,51 @@ mod tests {
         assert!(matches!(classify(429, ""), Some(SubmitError::Transient(_))));
         assert!(matches!(classify(503, ""), Some(SubmitError::Transient(_))));
         assert!(classify(200, r#"{"status":"ok"}"#).is_none());
+    }
+}
+
+#[cfg(test)]
+mod feedback_tests {
+    use super::*;
+
+    #[test]
+    fn feedback_with_metadata_yields_loved_tracks() {
+        let body = r#"{"count":2,"total_count":7,"offset":0,"feedback":[
+            {"score":1,"recording_mbid":"m1","track_metadata":{"artist_name":"Tool","track_name":"Pneuma"}},
+            {"score":1,"recording_mbid":"m2","track_metadata":{"artist_name":"Gojira","track_name":"Stranded"}}
+        ]}"#;
+        let (tracks, total) = parse_feedback(body).unwrap();
+        assert_eq!(total, 7);
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].artist, "Tool");
+        assert_eq!(tracks[1].title, "Stranded");
+    }
+
+    #[test]
+    fn feedback_without_metadata_is_skipped_not_fatal() {
+        let body = r#"{"count":2,"total_count":2,"offset":0,"feedback":[
+            {"score":1,"recording_mbid":"m1"},
+            {"score":1,"recording_mbid":"m2","track_metadata":{"artist_name":"Tool","track_name":"Pneuma"}}
+        ]}"#;
+        let (tracks, _) = parse_feedback(body).unwrap();
+        assert_eq!(
+            tracks.len(),
+            1,
+            "an entry we cannot match to a local track is skipped, the rest still import"
+        );
+    }
+
+    #[test]
+    fn an_empty_feedback_page_is_not_an_error() {
+        let (tracks, total) =
+            parse_feedback(r#"{"count":0,"total_count":0,"feedback":[]}"#).unwrap();
+        assert!(tracks.is_empty());
+        assert_eq!(total, 0);
+    }
+
+    #[test]
+    fn a_user_name_with_spaces_is_escaped() {
+        assert_eq!(urlencode("a b/c"), "a%20b%2Fc");
+        assert_eq!(urlencode("plain-name_1.0~"), "plain-name_1.0~");
     }
 }

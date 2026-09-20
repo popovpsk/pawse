@@ -12,8 +12,9 @@ use crate::album_artists::{AlbumTrackArtists, derive_album_artists};
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, LyricsRef, NewTrack,
-    PlaylistSummary, PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
+    LyricsRef, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
+    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -123,6 +124,7 @@ fn orphan_track_count(conn: &Connection, grouping: ArtistGrouping) -> Result<i64
 
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
+    scrobble_conn: Mutex<Connection>,
     db_path: PathBuf,
     liked_playlist_id: i64,
 }
@@ -136,6 +138,18 @@ fn remove_db_files(db_path: &Path) {
         sidecar.push(suffix);
         let _ = std::fs::remove_file(PathBuf::from(sidecar));
     }
+}
+
+fn premigration_schema(db_path: &Path) -> bool {
+    let Ok(conn) = Connection::open(db_path) else {
+        return false;
+    };
+    let Ok(version) = conn.query_row("SELECT user_version FROM pragma_user_version", [], |row| {
+        row.get::<_, i64>(0)
+    }) else {
+        return false;
+    };
+    version == 0
 }
 
 fn apply_pragmas(conn: &Connection) -> Result<()> {
@@ -189,7 +203,7 @@ impl SqliteLibrary {
         std::fs::create_dir_all(&db_dir)?;
 
         let db_path = db_dir.join("library.db");
-        if db_path.exists() {
+        if db_path.exists() && premigration_schema(&db_path) {
             let check = Connection::open(&db_path);
             if let Ok(check_conn) = check {
                 let has_cover_art: bool = check_conn
@@ -255,8 +269,11 @@ impl SqliteLibrary {
 
         let conn = Connection::open(&db_path)?;
         apply_pragmas(&conn)?;
+        let scrobble_conn = Connection::open(&db_path)?;
+        apply_pragmas(&scrobble_conn)?;
         let mut lib = Self {
             conn: Mutex::new(conn),
+            scrobble_conn: Mutex::new(scrobble_conn),
             db_path,
             liked_playlist_id: 0,
         };
@@ -271,8 +288,11 @@ impl SqliteLibrary {
         std::fs::create_dir_all(db_dir)?;
         let conn = Connection::open(path)?;
         apply_pragmas(&conn)?;
+        let scrobble_conn = Connection::open(path)?;
+        apply_pragmas(&scrobble_conn)?;
         let mut lib = Self {
             conn: Mutex::new(conn),
+            scrobble_conn: Mutex::new(scrobble_conn),
             db_path: path.to_path_buf(),
             liked_playlist_id: 0,
         };
@@ -1805,9 +1825,252 @@ impl LibraryRepository for SqliteLibrary {
         conn.execute_batch("VACUUM; ANALYZE;")?;
         Ok(())
     }
+
+    fn record_play(&self, play: &NewPlay, targets: &[&str]) -> Result<i64> {
+        let mut conn = self.scrobble_conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let id: i64 = tx.query_row(
+            "INSERT INTO plays (track_id, artist, title, album, album_artist, track_number, \
+             duration_secs, played_secs, started_at, qualified) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+             ON CONFLICT(started_at, artist, title) DO UPDATE SET \
+             played_secs = MAX(COALESCE(played_secs, 0), COALESCE(excluded.played_secs, 0)), \
+             qualified = MAX(qualified, excluded.qualified) \
+             RETURNING id",
+            rusqlite::params![
+                play.track_id,
+                play.artist,
+                play.title,
+                play.album,
+                play.album_artist,
+                play.track_number.map(i64::from),
+                play.duration_secs.map(|secs| secs as i64),
+                play.played_secs.map(|secs| secs as i64),
+                play.started_at as i64,
+                play.qualified as i64,
+            ],
+            |row| row.get(0),
+        )?;
+        if play.qualified {
+            let now = unix_now();
+            let mut stmt = tx.prepare(
+                "INSERT OR IGNORE INTO play_deliveries (play_id, target, state, attempts, \
+                 last_error, updated_at) VALUES (?1, ?2, 0, 0, NULL, ?3)",
+            )?;
+            for target in targets {
+                stmt.execute(rusqlite::params![id, target, now])?;
+            }
+            drop(stmt);
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    fn record_love(&self, love: &NewLove, targets: &[&str]) -> Result<i64> {
+        let mut conn = self.scrobble_conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO loves (track_id, artist, title, loved, at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                love.track_id,
+                love.artist,
+                love.title,
+                love.loved as i64,
+                love.at as i64,
+            ],
+        )?;
+        let id = tx.last_insert_rowid();
+        let now = unix_now();
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR IGNORE INTO love_deliveries (love_id, target, state, attempts, \
+                 last_error, updated_at) VALUES (?1, ?2, 0, 0, NULL, ?3)",
+            )?;
+            for target in targets {
+                stmt.execute(rusqlite::params![id, target, now])?;
+            }
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    fn pending_plays(&self, target: &str, max: usize) -> Result<Vec<PendingPlay>> {
+        let conn = self.scrobble_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT p.id, p.artist, p.title, p.album, p.album_artist, p.track_number, \
+             p.duration_secs, p.started_at FROM play_deliveries d \
+             JOIN plays p ON p.id = d.play_id \
+             WHERE d.target = ?1 AND d.state = 0 ORDER BY d.play_id LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![target, max as i64], |row| {
+            Ok(PendingPlay {
+                id: row.get(0)?,
+                artist: row.get(1)?,
+                title: row.get(2)?,
+                album: row.get(3)?,
+                album_artist: row.get(4)?,
+                track_number: row.get::<_, Option<i64>>(5)?.map(|n| n as u32),
+                duration_secs: row.get::<_, Option<i64>>(6)?.map(|n| n as u64),
+                started_at: row.get::<_, i64>(7)? as u64,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn pending_loves(&self, target: &str, max: usize) -> Result<Vec<PendingLove>> {
+        let conn = self.scrobble_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT l.id, l.artist, l.title, l.loved, l.at FROM love_deliveries d \
+             JOIN loves l ON l.id = d.love_id \
+             WHERE d.target = ?1 AND d.state = 0 ORDER BY d.love_id LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![target, max as i64], |row| {
+            Ok(PendingLove {
+                id: row.get(0)?,
+                artist: row.get(1)?,
+                title: row.get(2)?,
+                loved: row.get::<_, i64>(3)? != 0,
+                at: row.get::<_, i64>(4)? as u64,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn settle_plays(&self, ids: &[i64], target: &str, outcome: &DeliveryOutcome) -> Result<()> {
+        self.settle_deliveries("play_deliveries", "play_id", ids, target, outcome)
+    }
+
+    fn settle_loves(&self, ids: &[i64], target: &str, outcome: &DeliveryOutcome) -> Result<()> {
+        self.settle_deliveries("love_deliveries", "love_id", ids, target, outcome)
+    }
+
+    fn pending_scrobble_count(&self, targets: &[&str]) -> Result<usize> {
+        if targets.is_empty() {
+            return Ok(0);
+        }
+        let placeholders = (1..=targets.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT (SELECT COUNT(DISTINCT play_id) FROM play_deliveries \
+             WHERE state = 0 AND target IN ({placeholders})) \
+             + (SELECT COUNT(DISTINCT love_id) FROM love_deliveries \
+             WHERE state = 0 AND target IN ({placeholders}))"
+        );
+        let conn = self.scrobble_conn.lock().unwrap();
+        let count: i64 =
+            conn.query_row(&sql, rusqlite::params_from_iter(targets.iter()), |row| {
+                row.get(0)
+            })?;
+        Ok(count.max(0) as usize)
+    }
+
+    fn trim_pending_deliveries(&self, cap: usize) -> Result<usize> {
+        let mut conn = self.scrobble_conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let total: i64 = tx.query_row(
+            "SELECT (SELECT COUNT(DISTINCT play_id) FROM play_deliveries WHERE state = 0) \
+             + (SELECT COUNT(DISTINCT love_id) FROM love_deliveries WHERE state = 0)",
+            [],
+            |row| row.get(0),
+        )?;
+        let cap = cap as i64;
+        if total <= cap {
+            tx.commit()?;
+            return Ok(0);
+        }
+        let now = unix_now();
+        let mut remaining = total - cap;
+        let mut dropped = drop_oldest_items(&tx, "play_deliveries", "play_id", remaining, now)?;
+        remaining -= dropped;
+        if remaining > 0 {
+            dropped += drop_oldest_items(&tx, "love_deliveries", "love_id", remaining, now)?;
+        }
+        tx.commit()?;
+        Ok(dropped.max(0) as usize)
+    }
+}
+
+fn drop_oldest_items(
+    tx: &rusqlite::Transaction<'_>,
+    table: &str,
+    key: &str,
+    limit: i64,
+    now: i64,
+) -> Result<i64> {
+    if limit <= 0 {
+        return Ok(0);
+    }
+    let victims =
+        format!("SELECT DISTINCT {key} FROM {table} WHERE state = 0 ORDER BY {key} LIMIT ?1");
+    let ids: Vec<i64> = {
+        let mut stmt = tx.prepare(&victims)?;
+        let rows = stmt.query_map([limit], |row| row.get(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let sql = format!(
+        "UPDATE {table} SET state = 2, last_error = 'queue overflow', updated_at = ?1 \
+         WHERE {key} = ?2 AND state = 0"
+    );
+    let mut stmt = tx.prepare(&sql)?;
+    for id in &ids {
+        stmt.execute(rusqlite::params![now, id])?;
+    }
+    Ok(ids.len() as i64)
 }
 
 impl SqliteLibrary {
+    fn settle_deliveries(
+        &self,
+        table: &str,
+        key: &str,
+        ids: &[i64],
+        target: &str,
+        outcome: &DeliveryOutcome,
+    ) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let sql = match outcome {
+            DeliveryOutcome::Sent => format!(
+                "UPDATE {table} SET state = 1, attempts = attempts + 1, last_error = NULL, \
+                 updated_at = ?2 WHERE {key} = ?1 AND target = ?3 AND state = 0"
+            ),
+            DeliveryOutcome::Dropped(_) => format!(
+                "UPDATE {table} SET state = 2, attempts = attempts + 1, last_error = ?4, \
+                 updated_at = ?2 WHERE {key} = ?1 AND target = ?3 AND state = 0"
+            ),
+            DeliveryOutcome::Deferred(_) => format!(
+                "UPDATE {table} SET attempts = attempts + 1, last_error = ?4, updated_at = ?2 \
+                 WHERE {key} = ?1 AND target = ?3 AND state = 0"
+            ),
+        };
+        let message = match outcome {
+            DeliveryOutcome::Sent => None,
+            DeliveryOutcome::Dropped(msg) | DeliveryOutcome::Deferred(msg) => Some(msg.as_str()),
+        };
+        let now = unix_now();
+        let mut conn = self.scrobble_conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(&sql)?;
+            for id in ids {
+                match message {
+                    Some(msg) => stmt.execute(rusqlite::params![id, now, target, msg])?,
+                    None => stmt.execute(rusqlite::params![id, now, target])?,
+                };
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn scan_meta_value(&self, key: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let value = conn

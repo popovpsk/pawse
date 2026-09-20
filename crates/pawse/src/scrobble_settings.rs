@@ -14,6 +14,7 @@ use scrobble::{SessionError, TargetId};
 use ui_components::settings::{SettingField, SettingGroup, SettingItem, SettingPage};
 
 use crate::localization::tr;
+use crate::scrobble_import::ImportSource;
 use crate::settings_store::{ScrobbleSettings, ServiceState, SettingsStore, notify_save_error};
 use crate::theme_colors::Colors;
 
@@ -37,8 +38,8 @@ pub struct ScrobbleUiState {
     pub librefm: ServiceUi,
     pub listenbrainz: ServiceUi,
     pub csv: ServiceUi,
-    pub import_busy: bool,
-    pub import_result: Option<SharedString>,
+    pub import_busy: Option<ImportSource>,
+    pub import_result: Option<(ImportSource, SharedString)>,
 }
 
 impl ScrobbleUiState {
@@ -68,7 +69,7 @@ impl WebAuthService {
         }
     }
 
-    fn element_ids(self) -> [&'static str; 5] {
+    fn element_ids(self) -> [&'static str; 6] {
         match self {
             WebAuthService::Lastfm => [
                 "scrobble-toggle-lastfm",
@@ -76,6 +77,7 @@ impl WebAuthService {
                 "scrobble-confirm-lastfm",
                 "scrobble-sign-out-lastfm",
                 "scrobble-restart-lastfm",
+                "scrobble-loves-lastfm",
             ],
             WebAuthService::Librefm => [
                 "scrobble-toggle-librefm",
@@ -83,6 +85,7 @@ impl WebAuthService {
                 "scrobble-confirm-librefm",
                 "scrobble-sign-out-librefm",
                 "scrobble-restart-librefm",
+                "scrobble-loves-librefm",
             ],
         }
     }
@@ -147,6 +150,7 @@ pub fn scrobble_page(
     page = page.group(web_auth_group(WebAuthService::Lastfm, scrobble_ui.clone()));
 
     let ui = scrobble_ui.clone();
+    let import_ui = scrobble_ui.clone();
     page = page.group(
         SettingGroup::new()
             .title(SharedString::from("ListenBrainz"))
@@ -161,6 +165,20 @@ pub fn scrobble_page(
                     tr().scrobble_account.clone(),
                     SettingField::render(move |_window, cx: &mut App| {
                         listenbrainz_field(ui.clone(), scrobble_inputs.clone(), cx)
+                    }),
+                )
+                .layout(Axis::Vertical),
+            )
+            .item(
+                SettingItem::new(
+                    tr().scrobble_import_loves.clone(),
+                    SettingField::render(move |_window, cx: &mut App| {
+                        import_loves_field(
+                            import_ui.clone(),
+                            ImportSource::ListenBrainz,
+                            "scrobble-import-listenbrainz",
+                            cx,
+                        )
                     }),
                 )
                 .layout(Axis::Vertical),
@@ -210,22 +228,7 @@ pub fn scrobble_page(
                     }),
                 )
                 .description(tr().scrobble_first_artist_desc.clone()),
-            )
-            .item(SettingItem::new(
-                tr().scrobble_queued.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let pending = cx
-                        .try_global::<crate::scrobble_bridge::ScrobbleService>()
-                        .map(|service| service.status().read(cx).pending)
-                        .unwrap_or(0);
-                    h_flex().items_center().justify_end().child(
-                        div()
-                            .text_sm()
-                            .text_color(Colors::muted_foreground(cx))
-                            .child(SharedString::from(pending.to_string())),
-                    )
-                }),
-            )),
+            ),
     )
 }
 
@@ -248,18 +251,39 @@ fn web_auth_group(service: WebAuthService, scrobble_ui: Entity<ScrobbleUiState>)
             )
             .layout(Axis::Vertical),
         );
-    if service == WebAuthService::Lastfm {
-        group = group.item(
-            SettingItem::new(
-                tr().scrobble_import_loves.clone(),
-                SettingField::render(move |_window, cx: &mut App| {
-                    import_loves_field(scrobble_ui.clone(), cx)
-                }),
-            )
-            .layout(Axis::Vertical),
-        );
-    }
-    group
+    group = group.item(
+        SettingItem::new(
+            tr().scrobble_send_loves.clone(),
+            SettingField::render(move |_window, cx: &mut App| {
+                let settings = cx.global::<SettingsStore>().scrobble();
+                let ready = service.state(settings).session.is_some();
+                let checked = ready && service.state(settings).send_loves;
+                h_flex().items_center().justify_end().child(
+                    Switch::new(service.element_ids()[5])
+                        .checked(checked)
+                        .disabled(!ready)
+                        .on_click(move |new_val, _, cx| {
+                            let value = *new_val;
+                            update_scrobble(cx, move |s| service.state_mut(s).send_loves = value);
+                        }),
+                )
+            }),
+        )
+        .description(tr().scrobble_send_loves_desc.clone()),
+    );
+    let (source, import_id) = match service {
+        WebAuthService::Lastfm => (ImportSource::Lastfm, "scrobble-import-lastfm"),
+        WebAuthService::Librefm => (ImportSource::Librefm, "scrobble-import-librefm"),
+    };
+    group.item(
+        SettingItem::new(
+            tr().scrobble_import_loves.clone(),
+            SettingField::render(move |_window, cx: &mut App| {
+                import_loves_field(scrobble_ui.clone(), source, import_id, cx)
+            }),
+        )
+        .layout(Axis::Vertical),
+    )
 }
 
 fn enabled_item(
@@ -400,7 +424,7 @@ fn web_auth_field(
         tr().lastfm_status_disconnected.clone()
     };
 
-    let [_, sign_in_id, confirm_id, sign_out_id, restart_id] = service.element_ids();
+    let [_, sign_in_id, confirm_id, sign_out_id, restart_id, _] = service.element_ids();
 
     let controls: Vec<AnyElement> = if session.is_some() {
         let state = state.clone();
@@ -820,16 +844,28 @@ fn clear_csv_error(cx: &mut App, state: &Entity<ScrobbleUiState>) {
     });
 }
 
-fn import_loves_field(state: Entity<ScrobbleUiState>, cx: &mut App) -> AnyElement {
-    let connected = cx
-        .global::<SettingsStore>()
-        .scrobble()
-        .lastfm
-        .session
-        .is_some();
-    let (busy, result) = {
+fn import_loves_field(
+    state: Entity<ScrobbleUiState>,
+    source: ImportSource,
+    id: &'static str,
+    cx: &mut App,
+) -> AnyElement {
+    let settings = cx.global::<SettingsStore>().scrobble();
+    let connected = match source {
+        ImportSource::Lastfm => settings.lastfm.session.is_some(),
+        ImportSource::Librefm => settings.librefm.session.is_some(),
+        ImportSource::ListenBrainz => !settings.listenbrainz.user.is_empty(),
+    };
+    let (busy, any_running, result) = {
         let ui = state.read(cx);
-        (ui.import_busy, ui.import_result.clone())
+        (
+            ui.import_busy == Some(source),
+            ui.import_busy.is_some(),
+            ui.import_result
+                .as_ref()
+                .filter(|(from, _)| *from == source)
+                .map(|(_, text)| text.clone()),
+        )
     };
     let status = if busy {
         tr().scrobble_importing.clone()
@@ -837,12 +873,12 @@ fn import_loves_field(state: Entity<ScrobbleUiState>, cx: &mut App) -> AnyElemen
         result.unwrap_or_else(|| tr().scrobble_import_loves_desc.clone())
     };
 
-    let button = Button::new("scrobble-import-loves")
+    let button = Button::new(id)
         .small()
         .label(tr().scrobble_import_run.clone())
         .loading(busy)
-        .disabled(!connected || busy)
-        .on_click(move |_, _, cx| crate::scrobble_import::start(cx, state.clone()))
+        .disabled(!connected || any_running)
+        .on_click(move |_, _, cx| crate::scrobble_import::start(cx, state.clone(), source))
         .into_any_element();
 
     service_row(identity_line(None, status, cx), vec![button], None, cx)

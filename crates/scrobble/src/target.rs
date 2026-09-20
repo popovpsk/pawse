@@ -22,6 +22,15 @@ impl TargetId {
         }
     }
 
+    pub fn key(self) -> &'static str {
+        match self {
+            TargetId::Lastfm => "lastfm",
+            TargetId::Librefm => "librefm",
+            TargetId::ListenBrainz => "listen_brainz",
+            TargetId::CsvLog => "csv_log",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             TargetId::Lastfm => "last.fm",
@@ -60,7 +69,11 @@ pub trait ScrobbleTarget: Send {
 
     fn submit(&self, items: &[Scrobble]) -> Result<(), SubmitError>;
 
-    fn love(&self, artist: &str, title: &str, love: bool) -> Result<(), SubmitError>;
+    fn love(&self, artist: &str, title: &str, love: bool, at: u64) -> Result<(), SubmitError>;
+
+    fn accepts_loves(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

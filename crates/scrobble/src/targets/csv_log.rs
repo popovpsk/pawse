@@ -124,10 +124,10 @@ impl ScrobbleTarget for CsvLog {
         self.append(&rows)
     }
 
-    fn love(&self, artist: &str, title: &str, love: bool) -> Result<(), SubmitError> {
+    fn love(&self, artist: &str, title: &str, love: bool, at: u64) -> Result<(), SubmitError> {
         let event = if love { "love" } else { "unlove" };
         let row = self.row(Row {
-            timestamp: now_secs(),
+            timestamp: at,
             artist,
             title,
             album: None,
@@ -155,13 +155,6 @@ fn escape(field: &str) -> String {
     } else {
         field.to_string()
     }
-}
-
-fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
 }
 
 fn format_utc(timestamp: u64) -> String {
@@ -309,10 +302,25 @@ mod tests {
     fn love_writes_its_own_event_row() {
         let path = temp_path("love");
         let log = CsvLog::new(path.clone(), "1.0".to_string());
-        log.love("A", "T", false).unwrap();
+        log.love("A", "T", false, 1_700_000_000).unwrap();
 
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.lines().nth(1).unwrap().ends_with(",unlove"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn love_is_stamped_with_when_it_happened_not_when_it_was_flushed() {
+        let path = temp_path("love-time");
+        let log = CsvLog::new(path.clone(), "1.0".to_string());
+        log.love("A", "T", true, 1_700_000_000).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let row = contents.lines().nth(1).unwrap();
+        assert!(
+            row.contains("1700000000000"),
+            "the like time must survive an offline queue, got {row}"
+        );
         let _ = std::fs::remove_file(&path);
     }
 

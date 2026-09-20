@@ -39,6 +39,7 @@ pub mod repeat_button;
 pub mod scrobble_bridge;
 mod scrobble_import;
 mod scrobble_settings;
+pub mod scrobble_store;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
@@ -246,7 +247,7 @@ fn main() {
         .detach();
 
         cx.on_app_quit(|cx| {
-            crate::scrobble_bridge::finalize_on_quit(cx);
+            let scrobble = crate::scrobble_bridge::finalize_on_quit(cx);
             crate::discord_bridge::finalize_on_quit(cx);
             let state = cx.global::<Services>().snapshot_playback();
             let _ = cx
@@ -254,7 +255,11 @@ fn main() {
                 .save_playback_blocking(state);
             cx.global::<Services>().shutdown();
             diagnostics::flush();
-            async {}
+            async move {
+                if let Some(scrobble) = scrobble {
+                    scrobble.await;
+                }
+            }
         })
         .detach();
 

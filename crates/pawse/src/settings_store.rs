@@ -392,6 +392,8 @@ pub struct ServiceState {
     pub enabled: bool,
     #[serde(default)]
     pub session: Option<scrobble::Session>,
+    #[serde(default = "default_true")]
+    pub send_loves: bool,
 }
 
 impl Default for ServiceState {
@@ -399,6 +401,7 @@ impl Default for ServiceState {
         Self {
             enabled: true,
             session: None,
+            send_loves: true,
         }
     }
 }

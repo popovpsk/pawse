@@ -2453,4 +2453,348 @@ mod tests {
         );
         assert!(!by_album.contains_key(&guest));
     }
+
+    fn a_play_at(qualified: bool, started_at: u64) -> models::NewPlay {
+        models::NewPlay {
+            started_at,
+            ..a_play(qualified)
+        }
+    }
+
+    fn a_play(qualified: bool) -> models::NewPlay {
+        models::NewPlay {
+            track_id: None,
+            artist: "Tool".into(),
+            title: "Pneuma".into(),
+            album: Some("Fear Inoculum".into()),
+            album_artist: Some("Tool".into()),
+            track_number: Some(2),
+            duration_secs: Some(713),
+            played_secs: Some(400),
+            started_at: 1_700_000_000,
+            qualified,
+        }
+    }
+
+    fn a_love() -> models::NewLove {
+        models::NewLove {
+            track_id: None,
+            artist: "Tool".into(),
+            title: "Pneuma".into(),
+            loved: true,
+            at: 1_700_000_500,
+        }
+    }
+
+    fn count_rows(db_path: &PathBuf, sql: &str) -> i64 {
+        let conn = rusqlite::Connection::open(db_path).unwrap();
+        conn.query_row(sql, [], |row| row.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_play_is_recorded_even_with_no_target_configured() {
+        let (lib, path) = create_test_db();
+        lib.record_play(&a_play(true), &[]).unwrap();
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM plays"), 1);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM play_deliveries"), 0);
+        assert_eq!(lib.pending_scrobble_count(&["lastfm"]).unwrap(), 0);
+    }
+
+    #[test]
+    fn an_unqualified_play_is_history_only() {
+        let (lib, path) = create_test_db();
+        lib.record_play(&a_play(false), &["lastfm", "csv_log"])
+            .unwrap();
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM plays WHERE qualified = 0"),
+            1
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM play_deliveries"), 0);
+    }
+
+    #[test]
+    fn settling_one_target_keeps_the_play_pending_for_the_others() {
+        let (lib, _path) = create_test_db();
+        let id = lib
+            .record_play(&a_play(true), &["lastfm", "listen_brainz"])
+            .unwrap();
+
+        lib.settle_plays(&[id], "lastfm", &models::DeliveryOutcome::Sent)
+            .unwrap();
+
+        assert!(lib.pending_plays("lastfm", 10).unwrap().is_empty());
+        assert_eq!(lib.pending_plays("listen_brainz", 10).unwrap().len(), 1);
+        assert_eq!(
+            lib.pending_scrobble_count(&["lastfm", "listen_brainz"])
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn pending_count_counts_an_item_once_and_ignores_unlisted_targets() {
+        let (lib, _path) = create_test_db();
+        lib.record_play(&a_play_at(true, 1), &["lastfm", "listen_brainz"])
+            .unwrap();
+        lib.record_play(&a_play_at(true, 2), &["csv_log"]).unwrap();
+
+        assert_eq!(
+            lib.pending_scrobble_count(&["lastfm", "listen_brainz"])
+                .unwrap(),
+            1
+        );
+        assert_eq!(lib.pending_scrobble_count(&["csv_log"]).unwrap(), 1);
+        assert_eq!(
+            lib.pending_scrobble_count(&["lastfm", "csv_log"]).unwrap(),
+            2
+        );
+        assert_eq!(lib.pending_scrobble_count(&[]).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_deferred_delivery_stays_pending_and_keeps_its_error() {
+        let (lib, path) = create_test_db();
+        let id = lib.record_play(&a_play(true), &["listen_brainz"]).unwrap();
+
+        lib.settle_plays(
+            &[id],
+            "listen_brainz",
+            &models::DeliveryOutcome::Deferred("unverified email".into()),
+        )
+        .unwrap();
+
+        assert_eq!(lib.pending_plays("listen_brainz", 10).unwrap().len(), 1);
+        assert_eq!(
+            count_rows(
+                &path,
+                "SELECT attempts FROM play_deliveries WHERE last_error = 'unverified email'"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn a_dropped_delivery_leaves_the_queue_but_not_the_history() {
+        let (lib, path) = create_test_db();
+        let id = lib.record_play(&a_play(true), &["lastfm"]).unwrap();
+
+        lib.settle_plays(
+            &[id],
+            "lastfm",
+            &models::DeliveryOutcome::Dropped("bad params".into()),
+        )
+        .unwrap();
+
+        assert!(lib.pending_plays("lastfm", 10).unwrap().is_empty());
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM plays"), 1);
+        assert_eq!(
+            count_rows(&path, "SELECT state FROM play_deliveries"),
+            models::delivery_state::DROPPED
+        );
+    }
+
+    #[test]
+    fn loves_round_trip_with_their_own_timestamp() {
+        let (lib, _path) = create_test_db();
+        let id = lib.record_love(&a_love(), &["lastfm"]).unwrap();
+
+        let pending = lib.pending_loves("lastfm", 10).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, id);
+        assert!(pending[0].loved);
+        assert_eq!(pending[0].at, 1_700_000_500);
+        assert_eq!(lib.pending_scrobble_count(&["lastfm"]).unwrap(), 1);
+
+        lib.settle_loves(&[id], "lastfm", &models::DeliveryOutcome::Sent)
+            .unwrap();
+        assert_eq!(lib.pending_scrobble_count(&["lastfm"]).unwrap(), 0);
+    }
+
+    #[test]
+    fn trimming_drops_the_oldest_deliveries_but_never_the_history() {
+        let (lib, path) = create_test_db();
+        for n in 0..5 {
+            lib.record_play(&a_play_at(true, n), &["lastfm"]).unwrap();
+        }
+
+        let dropped = lib.trim_pending_deliveries(2).unwrap();
+
+        assert_eq!(dropped, 3);
+        assert_eq!(lib.pending_plays("lastfm", 10).unwrap().len(), 2);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM plays"), 5);
+        assert_eq!(
+            count_rows(
+                &path,
+                "SELECT COUNT(*) FROM play_deliveries WHERE last_error = 'queue overflow'"
+            ),
+            3
+        );
+    }
+
+    #[test]
+    fn trimming_under_the_cap_changes_nothing() {
+        let (lib, _path) = create_test_db();
+        lib.record_play(&a_play(true), &["lastfm"]).unwrap();
+        assert_eq!(lib.trim_pending_deliveries(5000).unwrap(), 0);
+        assert_eq!(lib.pending_plays("lastfm", 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn pending_plays_come_back_oldest_first() {
+        let (lib, _path) = create_test_db();
+        for n in 0..3u64 {
+            let mut play = a_play(true);
+            play.started_at = 1_700_000_000 + n;
+            lib.record_play(&play, &["lastfm"]).unwrap();
+        }
+        let pending = lib.pending_plays("lastfm", 2).unwrap();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0].started_at, 1_700_000_000);
+        assert_eq!(pending[1].started_at, 1_700_000_001);
+    }
+
+    #[test]
+    fn history_survives_a_track_disappearing_from_the_library() {
+        let (lib, path) = create_test_db();
+        let artist = lib.upsert_artist("Tool").unwrap();
+        let new_track = NewTrack {
+            path: "/m/pneuma.flac".into(),
+            title: Some("Pneuma".into()),
+            album_title: None,
+            artist_names: vec!["Tool".into()],
+            track_number: Some(2),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: Some(713_000),
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        let track = lib.upsert_track(&new_track, None, &[(artist, 0)]).unwrap();
+        let mut play = a_play(true);
+        play.track_id = Some(track);
+        lib.record_play(&play, &[]).unwrap();
+
+        lib.clear().unwrap();
+
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM plays"), 1);
+        assert_eq!(
+            count_rows(
+                &path,
+                "SELECT COUNT(*) FROM plays WHERE track_id IS NULL AND artist = 'Tool'"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn the_cap_counts_items_not_delivery_rows() {
+        let (lib, path) = create_test_db();
+        let targets = ["lastfm", "listen_brainz", "csv_log"];
+        for n in 0..5 {
+            lib.record_play(&a_play_at(true, n), &targets).unwrap();
+        }
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM play_deliveries"),
+            15
+        );
+
+        let dropped = lib.trim_pending_deliveries(4).unwrap();
+
+        assert_eq!(dropped, 1, "one play over the cap of four");
+        assert_eq!(
+            lib.pending_scrobble_count(&targets).unwrap(),
+            4,
+            "the cap must mean plays, the same unit the badge reports"
+        );
+        assert_eq!(
+            count_rows(
+                &path,
+                "SELECT COUNT(*) FROM play_deliveries WHERE state = 0"
+            ),
+            12,
+            "all three delivery rows of the dropped play go together"
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM plays"), 5);
+    }
+
+    #[test]
+    fn recording_the_same_listen_twice_merges_and_never_shrinks_it() {
+        let (lib, path) = create_test_db();
+        let mut early = a_play(true);
+        early.played_secs = Some(200);
+        let first = lib.record_play(&early, &["lastfm"]).unwrap();
+
+        let mut total = a_play(true);
+        total.played_secs = Some(500);
+        let second = lib.record_play(&total, &["lastfm"]).unwrap();
+
+        assert_eq!(first, second, "one listen is one row");
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM plays"), 1);
+        assert_eq!(count_rows(&path, "SELECT played_secs FROM plays"), 500);
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM play_deliveries"),
+            1,
+            "and it is owed to last.fm once, not twice"
+        );
+
+        let mut shorter = a_play(true);
+        shorter.played_secs = Some(120);
+        lib.record_play(&shorter, &["lastfm"]).unwrap();
+        assert_eq!(
+            count_rows(&path, "SELECT played_secs FROM plays"),
+            500,
+            "a late commit must never shrink what was already recorded"
+        );
+    }
+
+    #[test]
+    fn an_unqualified_listen_can_be_upgraded_when_it_later_qualifies() {
+        let (lib, path) = create_test_db();
+        lib.record_play(&a_play(false), &["lastfm"]).unwrap();
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM play_deliveries"), 0);
+
+        lib.record_play(&a_play(true), &["lastfm"]).unwrap();
+
+        assert_eq!(count_rows(&path, "SELECT qualified FROM plays"), 1);
+        assert_eq!(lib.pending_scrobble_count(&["lastfm"]).unwrap(), 1);
+    }
+
+    #[test]
+    fn a_settled_delivery_is_not_reopened_by_a_late_settle() {
+        let (lib, path) = create_test_db();
+        let id = lib.record_play(&a_play(true), &["lastfm"]).unwrap();
+        lib.settle_plays(&[id], "lastfm", &models::DeliveryOutcome::Sent)
+            .unwrap();
+
+        lib.settle_plays(
+            &[id],
+            "lastfm",
+            &models::DeliveryOutcome::Dropped("late".into()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            count_rows(&path, "SELECT state FROM play_deliveries"),
+            models::delivery_state::SENT
+        );
+        assert_eq!(count_rows(&path, "SELECT attempts FROM play_deliveries"), 1);
+    }
+
+    #[test]
+    fn both_history_tables_have_an_index_for_their_foreign_key() {
+        let (_lib, path) = create_test_db();
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name = ?1")
+            .unwrap();
+        for index in ["idx_plays_track", "idx_loves_track"] {
+            let found = stmt.exists([index]).unwrap();
+            assert!(
+                found,
+                "{index} is missing: a rescan deletes every track, and without it SQLite \
+                 full-scans the history table once per deleted row"
+            );
+        }
+    }
 }

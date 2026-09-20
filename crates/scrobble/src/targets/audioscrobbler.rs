@@ -52,6 +52,7 @@ pub struct AudioscrobblerClient {
     agent: ureq::Agent,
     profile: Profile,
     session: Option<String>,
+    send_loves: bool,
 }
 
 impl AudioscrobblerClient {
@@ -60,11 +61,17 @@ impl AudioscrobblerClient {
             agent: agent(),
             profile,
             session: None,
+            send_loves: true,
         }
     }
 
     pub fn with_session(mut self, session: String) -> Self {
         self.session = Some(session);
+        self
+    }
+
+    pub fn with_loves(mut self, send_loves: bool) -> Self {
+        self.send_loves = send_loves;
         self
     }
 
@@ -213,7 +220,14 @@ impl ScrobbleTarget for AudioscrobblerClient {
         self.post(scrobble_params(self.session()?, items))
     }
 
-    fn love(&self, artist: &str, title: &str, love: bool) -> Result<(), SubmitError> {
+    fn accepts_loves(&self) -> bool {
+        self.send_loves
+    }
+
+    fn love(&self, artist: &str, title: &str, love: bool, _at: u64) -> Result<(), SubmitError> {
+        if !self.send_loves {
+            return Err(SubmitError::Unsupported);
+        }
         self.post(love_params(self.session()?, artist, title, love))
     }
 }

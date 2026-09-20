@@ -158,4 +158,58 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         ALTER TABLE albums ADD COLUMN artist_known INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
+    (
+        8,
+        r#"
+        CREATE TABLE plays (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
+            artist TEXT NOT NULL,
+            title TEXT NOT NULL,
+            album TEXT,
+            album_artist TEXT,
+            track_number INTEGER,
+            duration_secs INTEGER,
+            played_secs INTEGER,
+            started_at INTEGER NOT NULL,
+            qualified INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX idx_plays_identity ON plays(started_at, artist, title);
+        CREATE INDEX idx_plays_started_at ON plays(started_at);
+        CREATE INDEX idx_plays_track ON plays(track_id) WHERE track_id IS NOT NULL;
+
+        CREATE TABLE loves (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
+            artist TEXT NOT NULL,
+            title TEXT NOT NULL,
+            loved INTEGER NOT NULL,
+            at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_loves_at ON loves(at);
+        CREATE INDEX idx_loves_track ON loves(track_id) WHERE track_id IS NOT NULL;
+
+        CREATE TABLE play_deliveries (
+            play_id INTEGER NOT NULL REFERENCES plays(id) ON DELETE CASCADE,
+            target TEXT NOT NULL,
+            state INTEGER NOT NULL DEFAULT 0,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (play_id, target)
+        );
+        CREATE INDEX idx_play_deliveries_pending ON play_deliveries(target, play_id) WHERE state = 0;
+
+        CREATE TABLE love_deliveries (
+            love_id INTEGER NOT NULL REFERENCES loves(id) ON DELETE CASCADE,
+            target TEXT NOT NULL,
+            state INTEGER NOT NULL DEFAULT 0,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (love_id, target)
+        );
+        CREATE INDEX idx_love_deliveries_pending ON love_deliveries(target, love_id) WHERE state = 0;
+        "#,
+    ),
 ];
