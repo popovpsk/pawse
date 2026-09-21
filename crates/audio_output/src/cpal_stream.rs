@@ -258,6 +258,25 @@ where
     )
 }
 
+#[cfg(target_os = "linux")]
+const TARGET_PERIOD_MS: u32 = 20;
+
+#[cfg(target_os = "linux")]
+fn preferred_period(device: &cpal::Device, config: &OutputConfig) -> Option<u32> {
+    use cpal::traits::DeviceTrait;
+
+    let frames = (config.sample_rate * TARGET_PERIOD_MS / 1000).next_power_of_two();
+    match device.default_output_config().ok()?.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => Some(frames.clamp(*min, *max)),
+        cpal::SupportedBufferSize::Unknown => None,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn preferred_period(_device: &cpal::Device, _config: &OutputConfig) -> Option<u32> {
+    None
+}
+
 impl CpalOutputStream {
     pub fn new(
         buffer: Arc<AudioRingBuffer>,
@@ -269,10 +288,10 @@ impl CpalOutputStream {
         let device_lost = Arc::new(AtomicBool::new(false));
         let channels = output_config.channels as usize;
 
-        let stream_config = StreamConfig {
+        let stream_config = |buffer_size: cpal::BufferSize| StreamConfig {
             channels: output_config.channels as u16,
             sample_rate: output_config.sample_rate,
-            buffer_size: cpal::BufferSize::Default,
+            buffer_size,
         };
 
         let dev = &device.device;
@@ -280,7 +299,7 @@ impl CpalOutputStream {
 
         // F32 takes a direct path (no per-sample conversion); integer formats
         // go through the converting builder.
-        let build = || -> Result<Stream, cpal::BuildStreamError> {
+        let build = |stream_config: &StreamConfig| -> Result<Stream, cpal::BuildStreamError> {
             match format {
                 SampleFormat::F32 => {
                     let (buffer, volume, fade, device_lost) = (
@@ -290,7 +309,7 @@ impl CpalOutputStream {
                         device_lost.clone(),
                     );
                     dev.build_output_stream(
-                        &stream_config,
+                        stream_config,
                         move |data: &mut [f32], _: &OutputCallbackInfo| {
                             fill_f32(&fade, &buffer, &volume, channels, data);
                         },
@@ -300,7 +319,7 @@ impl CpalOutputStream {
                 }
                 SampleFormat::I32 => build_converting_stream::<i32>(
                     dev,
-                    &stream_config,
+                    stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -309,7 +328,7 @@ impl CpalOutputStream {
                 ),
                 SampleFormat::I16 => build_converting_stream::<i16>(
                     dev,
-                    &stream_config,
+                    stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -318,7 +337,7 @@ impl CpalOutputStream {
                 ),
                 SampleFormat::U16 => build_converting_stream::<u16>(
                     dev,
-                    &stream_config,
+                    stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -327,7 +346,7 @@ impl CpalOutputStream {
                 ),
                 SampleFormat::U8 => build_converting_stream::<u8>(
                     dev,
-                    &stream_config,
+                    stream_config,
                     buffer.clone(),
                     volume.clone(),
                     fade.clone(),
@@ -340,8 +359,23 @@ impl CpalOutputStream {
             }
         };
 
-        let output_stream =
-            build().map_err(|e| AudioError::Output(format!("{e} (sample format {format:?})")))?;
+        let fixed = preferred_period(dev, &output_config).and_then(|frames| {
+            match build(&stream_config(cpal::BufferSize::Fixed(frames))) {
+                Ok(stream) => Some(stream),
+                Err(e) => {
+                    log::warn!(
+                        "audio output: device rejected a {frames}-frame period ({e}); falling back to its default"
+                    );
+                    None
+                }
+            }
+        });
+
+        let output_stream = match fixed {
+            Some(stream) => stream,
+            None => build(&stream_config(cpal::BufferSize::Default))
+                .map_err(|e| AudioError::Output(format!("{e} (sample format {format:?})")))?,
+        };
 
         Ok(Self {
             inner: RwLock::new(CpalOutputStreamInner {
