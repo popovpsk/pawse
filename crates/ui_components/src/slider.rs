@@ -365,8 +365,9 @@ impl Render for Slider {
                                 if event.button != MouseButton::Left {
                                     return;
                                 }
-                                entity_for_paint
-                                    .update(cx, |this, cx| this.end_interaction(event.position, cx));
+                                entity_for_paint.update(cx, |this, cx| {
+                                    this.end_interaction(event.position, cx)
+                                });
                             }
                         });
                     },
