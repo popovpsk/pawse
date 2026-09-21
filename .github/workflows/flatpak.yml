@@ -50,14 +50,29 @@ jobs:
           echo "GPG_KEY_ID=$key" >> "$GITHUB_ENV"
           echo "signing with $key"
 
-      - name: Stamp the release into the metainfo
+      - name: Resolve the release version
         env:
-          METAINFO: packaging/flatpak/io.github.popovpsk.pawse.metainfo.xml
+          GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           case "$version" in
             [0-9]*.[0-9]*) ;;
-            *) echo "no release tag in $GITHUB_REF_NAME; leaving the metainfo alone"; exit 0 ;;
+            *)
+              version=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name || true)
+              version="${version#v}"
+              ;;
+          esac
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "building from ${GITHUB_REF_NAME} as ${version:-<unresolved>}"
+
+      - name: Stamp the release into the metainfo
+        env:
+          METAINFO: packaging/flatpak/io.github.popovpsk.pawse.metainfo.xml
+        run: |
+          version="$VERSION"
+          case "$version" in
+            [0-9]*.[0-9]*) ;;
+            *) echo "no release version resolved from $GITHUB_REF_NAME; leaving the metainfo alone"; exit 0 ;;
           esac
           ruby -rrexml/document -e '
             version = ARGV[0]
@@ -164,7 +179,58 @@ jobs:
           <p>Updates arrive through <code>flatpak update</code> like any other remote.</p>
           <p><a href="https://github.com/popovpsk/pawse">Source and other downloads</a></p>
           HTML
-          ls -la site
+          mkdir -p site/dl
+          cat > site/dl/go.js <<'JS'
+          const FALLBACK = "https://github.com/popovpsk/pawse/releases/latest";
+          const suffix = document.documentElement.dataset.asset;
+          const go = (url) => location.replace(url);
+          fetch("https://api.github.com/repos/popovpsk/pawse/releases/latest", {
+            headers: { Accept: "application/vnd.github+json" },
+          })
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+            .then((release) => {
+              const asset = (release.assets || []).find((a) => a.name.endsWith(suffix));
+              go(asset ? asset.browser_download_url : FALLBACK);
+            })
+            .catch(() => go(FALLBACK));
+          JS
+          while IFS='|' read -r slug suffix; do
+            [ -n "$slug" ] || continue
+            mkdir -p "site/dl/$slug"
+            cat > "site/dl/$slug/index.html" <<HTML
+          <!doctype html>
+          <html lang="en" data-asset="$suffix">
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Downloading Pawse</title>
+          <noscript><meta http-equiv="refresh" content="0;url=https://github.com/popovpsk/pawse/releases/latest"></noscript>
+          <style>
+            body{max-width:30rem;margin:0 auto;padding:4rem 1.25rem;
+                 font:16px/1.6 system-ui,sans-serif;color:#1c1b1a;background:#e8e6e3}
+            a{color:#0d6494}
+            @media (prefers-color-scheme:dark){
+              body{color:#e8e6e3;background:#1c1b1a}
+              a{color:#56b4e3}}
+          </style>
+          <p>Fetching the latest Pawse release&hellip;</p>
+          <p><a href="https://github.com/popovpsk/pawse/releases/latest">All downloads</a></p>
+          <script src="../go.js"></script>
+          HTML
+            echo "dl/$slug -> *$suffix"
+          done <<'SLUGS'
+          macos-arm64|aarch64.dmg
+          windows-x64|x64-setup.exe
+          windows-arm64|arm64-installer.exe
+          windows-x64-portable|x64-portable.zip
+          windows-arm64-portable|arm64-portable.zip
+          linux-x86_64-appimage|x86_64.AppImage
+          linux-arm64-appimage|aarch64.AppImage
+          linux-x86_64-deb|amd64.deb
+          linux-arm64-deb|arm64.deb
+          linux-x86_64-pacman|x86_64-pacman.tar.gz
+          linux-arm64-pacman|aarch64-pacman.tar.gz
+          SLUGS
+          ls -la site site/dl
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
