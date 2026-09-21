@@ -243,6 +243,10 @@ impl Render for PlaylistsView {
                 h_flex().child(
                     Button::new("playlists-new")
                         .label(tr().new_playlist.clone())
+                        .bg(crate::cover_backdrop::popover_bg(
+                            Colors::popover(cx),
+                            crate::cover_backdrop::veil_factor(cx),
+                        ))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.creating = true;
                             this.create_input.update(cx, |s, cx| {

@@ -75,7 +75,7 @@ pub fn install(cx: &mut App, listener: Option<LocalSocketListener>) {
 
     cx.spawn(async move |cx| {
         while rx.recv_async().await.is_ok() {
-            let _ = cx.update(raise_to_front);
+            cx.update(raise_to_front);
         }
     })
     .detach();

@@ -232,7 +232,10 @@ impl gpui::Render for PlaylistPopup {
             return div().into_any_element();
         }
 
-        let popover_bg = Colors::popover(cx);
+        let popover_bg = crate::cover_backdrop::popover_bg(
+            Colors::popover(cx),
+            crate::cover_backdrop::veil_factor(cx),
+        );
         let border_color = Colors::border(cx);
         let secondary = Colors::secondary(cx);
         let muted_fg = Colors::muted_foreground(cx);

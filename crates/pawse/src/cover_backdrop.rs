@@ -20,6 +20,7 @@ const PANEL_VEIL: f32 = 0.55;
 const CHROME_VEIL: f32 = 0.45;
 const INSET_VEIL: f32 = 0.5;
 const FIELD_VEIL: f32 = 0.2;
+const POPOVER_VEIL: f32 = 0.85;
 
 fn blur_enabled(cx: &App) -> bool {
     cx.global::<SettingsStore>().blur_background() != BlurBackground::Off
@@ -238,6 +239,13 @@ pub fn inset_bg(color: Hsla, veil: Option<f32>) -> Hsla {
 pub fn field_bg(color: Hsla, veil: Option<f32>) -> Hsla {
     match veil {
         Some(factor) => color.opacity((FIELD_VEIL * factor).clamp(0., 1.)),
+        None => color,
+    }
+}
+
+pub fn popover_bg(color: Hsla, veil: Option<f32>) -> Hsla {
+    match veil {
+        Some(factor) => color.opacity((POPOVER_VEIL * factor).clamp(0., 1.)),
         None => color,
     }
 }

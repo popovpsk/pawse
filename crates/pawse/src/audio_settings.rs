@@ -210,6 +210,7 @@ impl Render for AudioSettings {
                 let view = cx.entity().clone();
                 Popover::new("audio-device-popover")
                     .anchor(Anchor::TopRight)
+                    .appearance(false)
                     .trigger(
                         Button::new("audio-device-trigger")
                             .ghost()
@@ -277,7 +278,21 @@ impl Render for AudioSettings {
                                     .into_any_element(),
                             );
                         }
-                        v_flex().gap_1().min_w(px(220.)).children(children)
+                        v_flex()
+                            .id("audio-device-popup")
+                            .bg(crate::cover_backdrop::popover_bg(
+                                Colors::popover(pop_cx),
+                                crate::cover_backdrop::veil_factor(pop_cx),
+                            ))
+                            .border_1()
+                            .border_color(Colors::border(pop_cx))
+                            .rounded(px(6.))
+                            .shadow_md()
+                            .p_3()
+                            .occlude()
+                            .gap_1()
+                            .min_w(px(220.))
+                            .children(children)
                     })
             })
     }
