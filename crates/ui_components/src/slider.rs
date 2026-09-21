@@ -181,13 +181,16 @@ impl Slider {
 
     /// End the current interaction. Emits `Change` in `live_update = false` mode.
     /// Guarded by `interacting` flag — safe to call from multiple handlers (deduplication).
-    fn end_interaction(&mut self, cx: &mut Context<Self>) {
+    fn end_interaction(&mut self, release_position: Point<Pixels>, cx: &mut Context<Self>) {
         if !self.interacting {
             return;
         }
         self.interacting = false;
         if !self.live_update {
             cx.emit(SliderEvent::Change(self.value));
+        }
+        if !self.track_bounds.contains(&release_position) {
+            self.hover_value = None;
         }
         cx.notify();
     }
@@ -281,8 +284,9 @@ impl Render for Slider {
             // covers all drag-release scenarios. The `interacting` flag deduplicates.
             .on_drop::<DragSlider>({
                 let entity = cx.entity();
-                move |_, _, cx| {
-                    entity.update(cx, |this, cx| this.end_interaction(cx));
+                move |_, window, cx| {
+                    let position = window.mouse_position();
+                    entity.update(cx, |this, cx| this.end_interaction(position, cx));
                 }
             })
             .on_hover({
@@ -361,7 +365,8 @@ impl Render for Slider {
                                 if event.button != MouseButton::Left {
                                     return;
                                 }
-                                entity_for_paint.update(cx, |this, cx| this.end_interaction(cx));
+                                entity_for_paint
+                                    .update(cx, |this, cx| this.end_interaction(event.position, cx));
                             }
                         });
                     },

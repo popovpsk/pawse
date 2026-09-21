@@ -402,18 +402,10 @@ fn interface_group(
         group = group.item(
             SettingItem::new(
                 tr().blur_intensity.clone(),
-                SettingField::render(move |_window, cx: &mut App| {
-                    let value = blur_intensity_slider.read(cx).value().start();
+                SettingField::render(move |_window, _cx: &mut App| {
                     h_flex()
                         .items_center()
-                        .gap_3()
-                        .child(
-                            div()
-                                .w(px(38.))
-                                .text_sm()
-                                .text_color(Colors::muted_foreground(cx))
-                                .child(format!("{} px", value as i32)),
-                        )
+                        .justify_end()
                         .child(div().w(px(160.)).child(Slider::new(&blur_intensity_slider)))
                 }),
             )

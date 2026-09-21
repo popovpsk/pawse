@@ -66,6 +66,15 @@ Release is covered by two handlers, deduplicated via `interacting` flag:
 - Thumb hidden when `!disabled && (hovered \|\| interacting)`.
 - Disabled → `opacity(0.4)`, `on_mouse_down` returns immediately.
 
+### Tooltip vs. drag-release-outside-bounds
+
+Mid-drag, GPUI treats the drag preview as the topmost hit target, so `on_hover(false)`
+fires on the slider even while the cursor sits over it; `hover_value` keeps getting
+refreshed by `on_drag_move` regardless. If the release lands outside `track_bounds`, no
+further hover transition occurs to clear `hover_value`, so both `end_interaction` call
+sites (`on_drop`, the capture-phase `on_mouse_event`) pass the release position and
+`end_interaction` clears `hover_value` itself when that position falls outside the track.
+
 ### Track progress integration
 
 `crates/pawse/src/track_progress_slider.rs` wraps the slider with `live_update = false`.
