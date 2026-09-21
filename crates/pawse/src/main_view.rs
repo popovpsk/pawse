@@ -37,7 +37,7 @@ use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::scrobble_settings::{ScrobbleInputs, ScrobbleUiState};
 use crate::settings_store::{BlurBackground, SettingsStore, ui_scale};
-use crate::settings_view::{LangPickerState, ThemePickerState};
+use crate::settings_view::{LangPickerState, SettingsSliders, ThemePickerState};
 use crate::theme_colors::Colors;
 use ui_components::settings::SettingPage;
 
@@ -108,6 +108,9 @@ pub struct MainView {
     _lyrics_slider: Entity<SliderState>,
     _lyrics_slider_observe: Subscription,
     _lyrics_slider_subscription: Subscription,
+    _blur_intensity_slider: Entity<SliderState>,
+    _blur_intensity_slider_observe: Subscription,
+    _blur_intensity_slider_subscription: Subscription,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _remote_port_input: Entity<InputState>,
@@ -235,6 +238,29 @@ impl MainView {
                 this.lyrics_view.update(cx, |_, cx| cx.notify());
             });
 
+        let saved_blur_intensity = cx.global::<SettingsStore>().blur_intensity();
+        let blur_intensity_slider: Entity<SliderState> = cx.new(|_| {
+            SliderState::new()
+                .min(crate::settings_store::BLUR_INTENSITY_MIN)
+                .max(crate::settings_store::BLUR_INTENSITY_MAX)
+                .step(1.)
+                .default_value(saved_blur_intensity)
+        });
+        let blur_intensity_slider_observe =
+            cx.observe(&blur_intensity_slider, |_, _, cx| cx.notify());
+        let blur_intensity_slider_subscription =
+            cx.subscribe(&blur_intensity_slider, |_, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                if let Err(e) = cx
+                    .global_mut::<SettingsStore>()
+                    .set_blur_intensity(value.start())
+                {
+                    crate::settings_store::notify_save_error(cx, e);
+                }
+            });
+
         let remote_port_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(cx.global::<SettingsStore>().remote_port().to_string())
@@ -307,6 +333,7 @@ impl MainView {
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
+            let blur_intensity_slider = blur_intensity_slider.clone();
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
@@ -318,7 +345,10 @@ impl MainView {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),
-                    lyrics_slider.clone(),
+                    SettingsSliders {
+                        lyrics: lyrics_slider.clone(),
+                        blur_intensity: blur_intensity_slider.clone(),
+                    },
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
@@ -339,7 +369,10 @@ impl MainView {
         let settings_pages = crate::settings_view::build_settings_pages(
             theme_picker.clone(),
             lang_picker.clone(),
-            lyrics_slider.clone(),
+            SettingsSliders {
+                lyrics: lyrics_slider.clone(),
+                blur_intensity: blur_intensity_slider.clone(),
+            },
             remote_port_input.clone(),
             scrobble_ui.clone(),
             scrobble_inputs.clone(),
@@ -443,6 +476,7 @@ impl MainView {
             let theme_picker = theme_picker.clone();
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
+            let blur_intensity_slider = blur_intensity_slider.clone();
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
@@ -454,7 +488,10 @@ impl MainView {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     theme_picker.clone(),
                     lang_picker.clone(),
-                    lyrics_slider.clone(),
+                    SettingsSliders {
+                        lyrics: lyrics_slider.clone(),
+                        blur_intensity: blur_intensity_slider.clone(),
+                    },
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
@@ -528,6 +565,9 @@ impl MainView {
             _lyrics_slider: lyrics_slider,
             _lyrics_slider_observe: lyrics_slider_observe,
             _lyrics_slider_subscription: lyrics_slider_subscription,
+            _blur_intensity_slider: blur_intensity_slider,
+            _blur_intensity_slider_observe: blur_intensity_slider_observe,
+            _blur_intensity_slider_subscription: blur_intensity_slider_subscription,
             settings_pages,
             search_input,
             _remote_port_input: remote_port_input,

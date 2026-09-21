@@ -133,6 +133,14 @@ fn default_lyrics_font_size() -> f32 {
     LYRICS_FONT_SIZE_DEFAULT
 }
 
+pub const BLUR_INTENSITY_MIN: f32 = 0.;
+pub const BLUR_INTENSITY_MAX: f32 = 20.;
+pub const BLUR_INTENSITY_DEFAULT: f32 = 10.;
+
+fn default_blur_intensity() -> f32 {
+    BLUR_INTENSITY_DEFAULT
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RepeatModePersist {
@@ -300,6 +308,8 @@ pub struct UserSettings {
     pub cover_show_controls: bool,
     #[serde(default)]
     pub blur_background: BlurBackground,
+    #[serde(default = "default_blur_intensity")]
+    pub blur_intensity: f32,
     #[serde(default)]
     pub queue_deduplication: bool,
     #[serde(default)]
@@ -362,6 +372,7 @@ impl Default for UserSettings {
             cover_show_progress: true,
             cover_show_controls: true,
             blur_background: BlurBackground::default(),
+            blur_intensity: BLUR_INTENSITY_DEFAULT,
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,
@@ -782,6 +793,17 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn blur_intensity(&self) -> f32 {
+        self.settings
+            .blur_intensity
+            .clamp(BLUR_INTENSITY_MIN, BLUR_INTENSITY_MAX)
+    }
+
+    pub fn set_blur_intensity(&mut self, value: f32) -> anyhow::Result<()> {
+        self.settings.blur_intensity = value.clamp(BLUR_INTENSITY_MIN, BLUR_INTENSITY_MAX);
+        self.save()
+    }
+
     pub fn queue_deduplication(&self) -> bool {
         self.settings.queue_deduplication
     }
@@ -1170,6 +1192,7 @@ mod tests {
             cover_show_progress: true,
             cover_show_controls: true,
             blur_background: BlurBackground::default(),
+            blur_intensity: 12.5,
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,

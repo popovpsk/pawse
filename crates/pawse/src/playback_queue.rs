@@ -103,6 +103,10 @@ impl PlaybackQueue {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.set_tracks(Vec::new());
+    }
+
     /// Set tracks and immediately mark `index` as the current position,
     /// so that `apply_shuffle` anchors the clicked track to slot 0 when
     /// shuffle is enabled. Callers pass the index into the *natural* order.

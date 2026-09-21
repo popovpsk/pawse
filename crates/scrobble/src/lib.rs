@@ -7,7 +7,10 @@ mod worker;
 pub use accumulator::{PlayAccumulator, should_scrobble};
 pub use store::{Love, Outcome, Play, ScrobbleStore, StoreError, StoreResult};
 pub use target::{ScrobbleTarget, SubmitError, TargetId};
-pub use targets::audioscrobbler::{AudioscrobblerClient, LovedTrack, Profile, SessionError};
+pub use targets::audioscrobbler::{
+    AudioscrobblerClient, CALLBACK_TIMEOUT, LovedTrack, Profile, SessionError,
+    bind_callback_listener, wait_for_callback, wait_for_callback_async,
+};
 pub use targets::csv_log::{CsvLog, is_pawse_log};
 pub use targets::listenbrainz::{DEFAULT_ROOT as LISTENBRAINZ_ROOT, ListenBrainzClient};
 pub use worker::{ScrobbleHandle, StatusEvent};

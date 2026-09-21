@@ -290,8 +290,7 @@ impl QueueView {
 
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let foreground = Colors::foreground(cx);
-        let header = queue_header(foreground);
+        let header = queue_header(cx, !self.tracks.is_empty());
 
         if self.tracks.is_empty() {
             return queue_empty_state(cx, header);
@@ -532,20 +531,57 @@ fn queue_empty_state(cx: &Context<QueueView>, header: Div) -> Div {
     )
 }
 
-fn queue_header(foreground: Hsla) -> Div {
-    h_flex()
+fn queue_header(cx: &mut Context<QueueView>, has_tracks: bool) -> Div {
+    let header = h_flex()
         .w_full()
         .h(px(40.))
         .flex_shrink_0()
         .px_4()
         .items_center()
+        .justify_between()
         .child(
             div()
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(foreground)
+                .text_color(Colors::foreground(cx))
                 .child(tr().queue.clone()),
-        )
+        );
+
+    if !has_tracks {
+        return header;
+    }
+
+    header.child(
+        div()
+            .id("clear-queue")
+            .flex_shrink_0()
+            .size(rems(26. / 16.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .cursor(gpui::CursorStyle::PointingHand)
+            .hover(|s| s.bg(Colors::muted(cx)))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new(tr().clear_queue.clone()).build(window, cx)
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                let services = cx.global::<Services>();
+                services.playback_queue.borrow_mut().clear();
+                services
+                    .current_position_ms
+                    .store(0, std::sync::atomic::Ordering::Relaxed);
+                services.engine_manager.stop();
+                this.refresh_tracks(cx);
+                crate::services::queue_mutated(cx);
+            }))
+            .child(
+                gpui::svg()
+                    .path("icons/s1-trash.svg")
+                    .size(rems(14. / 16.))
+                    .text_color(Colors::muted_foreground(cx)),
+            ),
+    )
 }
 
 fn album_cover_cell(params: &QueueRowParams, cover_img: Option<Arc<Image>>) -> AnyElement {

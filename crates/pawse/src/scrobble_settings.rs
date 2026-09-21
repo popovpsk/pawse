@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use gpui::{
     AnyElement, App, AppContext, Axis, Entity, IntoElement, ParentElement, SharedString, Styled,
     div, prelude::FluentBuilder, px,
@@ -22,7 +25,8 @@ use crate::theme_colors::Colors;
 pub enum AuthPhase {
     #[default]
     Idle,
-    Awaiting(String),
+    Opening,
+    Connecting(Arc<AtomicBool>),
 }
 
 #[derive(Default)]
@@ -69,22 +73,20 @@ impl WebAuthService {
         }
     }
 
-    fn element_ids(self) -> [&'static str; 6] {
+    fn element_ids(self) -> [&'static str; 5] {
         match self {
             WebAuthService::Lastfm => [
                 "scrobble-toggle-lastfm",
                 "scrobble-sign-in-lastfm",
-                "scrobble-confirm-lastfm",
+                "scrobble-cancel-lastfm",
                 "scrobble-sign-out-lastfm",
-                "scrobble-restart-lastfm",
                 "scrobble-loves-lastfm",
             ],
             WebAuthService::Librefm => [
                 "scrobble-toggle-librefm",
                 "scrobble-sign-in-librefm",
-                "scrobble-confirm-librefm",
+                "scrobble-cancel-librefm",
                 "scrobble-sign-out-librefm",
-                "scrobble-restart-librefm",
                 "scrobble-loves-librefm",
             ],
         }
@@ -259,7 +261,7 @@ fn web_auth_group(service: WebAuthService, scrobble_ui: Entity<ScrobbleUiState>)
                 let ready = service.state(settings).session.is_some();
                 let checked = ready && service.state(settings).send_loves;
                 h_flex().items_center().justify_end().child(
-                    Switch::new(service.element_ids()[5])
+                    Switch::new(service.element_ids()[4])
                         .checked(checked)
                         .disabled(!ready)
                         .on_click(move |new_val, _, cx| {
@@ -405,11 +407,11 @@ fn web_auth_field(
     let session = stored.session.clone();
     let expired = auth_expired(cx, service.target());
 
-    let (busy, awaiting, error) = {
+    let (opening, connecting, error) = {
         let ui = service.ui(state.read(cx));
         (
-            ui.busy,
-            matches!(ui.phase, AuthPhase::Awaiting(_)),
+            matches!(ui.phase, AuthPhase::Opening),
+            matches!(ui.phase, AuthPhase::Connecting(_)),
             ui.error.clone(),
         )
     };
@@ -418,13 +420,13 @@ fn web_auth_field(
         tr().scrobble_auth_expired.clone()
     } else if session.is_some() {
         tr().lastfm_status_connected.clone()
-    } else if awaiting {
+    } else if connecting {
         tr().lastfm_status_awaiting.clone()
     } else {
         tr().lastfm_status_disconnected.clone()
     };
 
-    let [_, sign_in_id, confirm_id, sign_out_id, restart_id, _] = service.element_ids();
+    let [_, sign_in_id, cancel_id, sign_out_id, _] = service.element_ids();
 
     let controls: Vec<AnyElement> = if session.is_some() {
         let state = state.clone();
@@ -432,33 +434,16 @@ fn web_auth_field(
             Button::new(sign_out_id)
                 .small()
                 .label(tr().lastfm_sign_out.clone())
-                .disabled(busy)
                 .on_click(move |_, _, cx| sign_out_web(cx, service, state.clone()))
                 .into_any_element(),
         ]
-    } else if awaiting {
-        let restart_state = state.clone();
-        let confirm_state = state.clone();
+    } else if connecting {
+        let state = state.clone();
         vec![
-            Button::new(restart_id)
+            Button::new(cancel_id)
                 .small()
-                .label(tr().scrobble_auth_restart.clone())
-                .disabled(busy)
-                .on_click(move |_, _, cx| start_web_sign_in(cx, service, restart_state.clone()))
-                .into_any_element(),
-            Button::new(confirm_id)
-                .small()
-                .label(tr().lastfm_confirm.clone())
-                .loading(busy)
-                .disabled(busy)
-                .on_click(move |_, _, cx| {
-                    let AuthPhase::Awaiting(token) = &service.ui(confirm_state.read(cx)).phase
-                    else {
-                        return;
-                    };
-                    let token = token.clone();
-                    confirm_web_sign_in(cx, service, confirm_state.clone(), token);
-                })
+                .label(tr().scrobble_auth_cancel.clone())
+                .on_click(move |_, _, cx| cancel_web_sign_in(cx, service, state.clone()))
                 .into_any_element(),
         ]
     } else {
@@ -467,8 +452,8 @@ fn web_auth_field(
             Button::new(sign_in_id)
                 .small()
                 .label(tr().lastfm_sign_in.clone())
-                .loading(busy)
-                .disabled(busy)
+                .loading(opening)
+                .disabled(opening)
                 .on_click(move |_, _, cx| start_web_sign_in(cx, service, state.clone()))
                 .into_any_element(),
         ]
@@ -481,85 +466,89 @@ fn web_auth_field(
 fn start_web_sign_in(cx: &mut App, service: WebAuthService, state: Entity<ScrobbleUiState>) {
     state.update(cx, |s, cx| {
         let ui = service.ui_mut(s);
-        ui.busy = true;
+        ui.phase = AuthPhase::Opening;
         ui.error = None;
         cx.notify();
     });
     cx.spawn(async move |cx| {
-        let result = cx
+        let opened = cx
             .background_spawn(async move {
                 let client = service
                     .client()
                     .ok_or_else(|| anyhow::anyhow!("service is not configured"))?;
-                let token = client.get_token()?;
-                let url = client.auth_url(&token);
-                anyhow::Ok((token, url))
+                let (listener, port, callback_state) = scrobble::bind_callback_listener()?;
+                let url = client.auth_url(port, &callback_state);
+                anyhow::Ok((listener, callback_state, url))
             })
             .await;
-        cx.update(|cx| match result {
-            Ok((token, url)) => {
-                cx.open_url(&url);
-                state.update(cx, |s, cx| {
-                    let ui = service.ui_mut(s);
-                    ui.busy = false;
-                    ui.phase = AuthPhase::Awaiting(token);
-                    cx.notify();
-                });
-            }
-            Err(e) => state.update(cx, |s, cx| {
-                let ui = service.ui_mut(s);
-                ui.busy = false;
-                ui.phase = AuthPhase::Idle;
-                ui.error = Some(SharedString::from(format!("{e:#}")));
-                cx.notify();
-            }),
-        });
-    })
-    .detach();
-}
 
-fn confirm_web_sign_in(
-    cx: &mut App,
-    service: WebAuthService,
-    state: Entity<ScrobbleUiState>,
-    token: String,
-) {
-    state.update(cx, |s, cx| {
-        let ui = service.ui_mut(s);
-        ui.busy = true;
-        ui.error = None;
-        cx.notify();
-    });
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_spawn(async move {
-                let client = service
-                    .client()
-                    .ok_or_else(|| anyhow::anyhow!("service is not configured"))?;
-                client.get_session(&token)
-            })
-            .await;
+        let (listener, callback_state, cancel) = match opened {
+            Ok((listener, callback_state, url)) => {
+                let cancel = Arc::new(AtomicBool::new(false));
+                cx.update(|cx| {
+                    cx.open_url(&url);
+                    state.update(cx, |s, cx| {
+                        let ui = service.ui_mut(s);
+                        ui.phase = AuthPhase::Connecting(cancel.clone());
+                        cx.notify();
+                    });
+                });
+                (listener, callback_state, cancel)
+            }
+            Err(e) => {
+                cx.update(|cx| {
+                    state.update(cx, |s, cx| {
+                        let ui = service.ui_mut(s);
+                        ui.phase = AuthPhase::Idle;
+                        ui.error = Some(SharedString::from(format!("{e:#}")));
+                        cx.notify();
+                    });
+                });
+                return;
+            }
+        };
+
+        let wait_rx = scrobble::wait_for_callback_async(
+            listener,
+            callback_state,
+            scrobble::CALLBACK_TIMEOUT,
+            cancel.clone(),
+        );
+        let token_result = wait_rx.recv_async().await.unwrap_or_else(|_| {
+            Err(SessionError::Other(anyhow::anyhow!(
+                "the sign-in listener stopped unexpectedly"
+            )))
+        });
+
+        let result: Result<scrobble::Session, SessionError> = match token_result {
+            Ok(token) => {
+                cx.background_spawn(async move {
+                    let client = service.client().ok_or_else(|| {
+                        SessionError::Other(anyhow::anyhow!("service is not configured"))
+                    })?;
+                    client.get_session(&token)
+                })
+                .await
+            }
+            Err(e) => Err(e),
+        };
+
         cx.update(|cx| match result {
             Ok(session) => {
-                update_scrobble(cx, move |s| {
-                    let stored = service.state_mut(s);
-                    stored.session = Some(session);
-                    stored.enabled = true;
-                });
-                state.update(cx, |s, cx| {
-                    let ui = service.ui_mut(s);
-                    ui.busy = false;
-                    ui.phase = AuthPhase::Idle;
-                    ui.error = None;
-                    cx.notify();
-                });
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+                apply_session(cx, service, &state, session)
             }
+            Err(SessionError::Cancelled) => {}
             Err(e) => state.update(cx, |s, cx| {
                 let ui = service.ui_mut(s);
-                ui.busy = false;
+                ui.phase = AuthPhase::Idle;
                 ui.error = Some(match e {
-                    SessionError::NotAuthorized => tr().scrobble_auth_pending.clone(),
-                    SessionError::TokenExpired => tr().scrobble_auth_link_expired.clone(),
+                    SessionError::TokenExpired
+                    | SessionError::TimedOut
+                    | SessionError::NotAuthorized
+                    | SessionError::Denied => tr().scrobble_auth_link_expired.clone(),
                     other => SharedString::from(format!("{other:#}")),
                 });
                 cx.notify();
@@ -567,6 +556,37 @@ fn confirm_web_sign_in(
         });
     })
     .detach();
+}
+
+fn apply_session(
+    cx: &mut App,
+    service: WebAuthService,
+    state: &Entity<ScrobbleUiState>,
+    session: scrobble::Session,
+) {
+    update_scrobble(cx, move |s| {
+        let stored = service.state_mut(s);
+        stored.session = Some(session);
+        stored.enabled = true;
+    });
+    state.update(cx, |s, cx| {
+        let ui = service.ui_mut(s);
+        ui.phase = AuthPhase::Idle;
+        ui.error = None;
+        cx.notify();
+    });
+}
+
+fn cancel_web_sign_in(cx: &mut App, service: WebAuthService, state: Entity<ScrobbleUiState>) {
+    state.update(cx, |s, cx| {
+        let ui = service.ui_mut(s);
+        if let AuthPhase::Connecting(cancel) = &ui.phase {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        ui.phase = AuthPhase::Idle;
+        ui.error = None;
+        cx.notify();
+    });
 }
 
 fn sign_out_web(cx: &mut App, service: WebAuthService, state: Entity<ScrobbleUiState>) {

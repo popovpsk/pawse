@@ -7046,6 +7046,7 @@ dependencies = [
  "flume",
  "log",
  "md-5",
+ "percent-encoding",
  "serde",
  "serde_json",
  "thiserror 2.0.19",

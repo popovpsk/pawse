@@ -12,7 +12,6 @@ use crate::services::Services;
 use crate::settings_store::{BlurBackground, SettingsStore};
 
 const RASTER_SIZE: u32 = 96;
-const BLUR_SIGMA: f32 = 10.;
 const SATURATION: f32 = 1.5;
 const IMAGE_OPACITY: f32 = 0.55;
 const VEIL_TOP: f32 = 0.15;
@@ -24,6 +23,10 @@ const FIELD_VEIL: f32 = 0.2;
 
 fn blur_enabled(cx: &App) -> bool {
     cx.global::<SettingsStore>().blur_background() != BlurBackground::Off
+}
+
+fn blur_sigma(cx: &App) -> f32 {
+    cx.global::<SettingsStore>().blur_intensity()
 }
 
 struct Active(bool);
@@ -50,6 +53,7 @@ pub struct CoverBackdrop {
     image: Option<Arc<RenderImage>>,
     cover_art_id: Option<i64>,
     enabled: bool,
+    sigma: f32,
     _task: Option<Task<()>>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
@@ -78,9 +82,15 @@ impl CoverBackdrop {
             });
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
             let enabled = blur_enabled(cx);
-            if enabled != this.enabled {
-                this.enabled = enabled;
+            let sigma = blur_sigma(cx);
+            let enabled_changed = enabled != this.enabled;
+            let sigma_changed = sigma != this.sigma;
+            this.enabled = enabled;
+            this.sigma = sigma;
+            if enabled_changed {
                 this.refresh(cx);
+            } else if sigma_changed && this.enabled {
+                this.load(cx);
             }
         });
 
@@ -88,6 +98,7 @@ impl CoverBackdrop {
             image: None,
             cover_art_id: None,
             enabled: blur_enabled(cx),
+            sigma: blur_sigma(cx),
             _task: None,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
@@ -131,9 +142,10 @@ impl CoverBackdrop {
             self.set_image(None, cx);
             return;
         };
+        let sigma = self.sigma;
         let render = cx
             .background_executor()
-            .spawn(async move { from_thumbnail(&thumbnail) });
+            .spawn(async move { from_thumbnail(&thumbnail, sigma) });
         self._task = Some(cx.spawn(async move |this, cx| {
             let image = render.await;
             let _ = this.update(cx, |this, cx| {
@@ -156,7 +168,7 @@ impl CoverBackdrop {
     }
 }
 
-pub fn from_thumbnail(thumbnail: &Image) -> Option<Arc<RenderImage>> {
+pub fn from_thumbnail(thumbnail: &Image, sigma: f32) -> Option<Arc<RenderImage>> {
     let source = image::ImageReader::new(std::io::Cursor::new(thumbnail.bytes()))
         .with_guessed_format()
         .ok()?
@@ -167,7 +179,7 @@ pub fn from_thumbnail(thumbnail: &Image) -> Option<Arc<RenderImage>> {
             RASTER_SIZE,
             image::imageops::FilterType::Triangle,
         );
-    let mut raster = image::imageops::fast_blur(&source.to_rgba8(), BLUR_SIGMA);
+    let mut raster = image::imageops::fast_blur(&source.to_rgba8(), sigma);
     for pixel in raster.as_chunks_mut::<4>().0 {
         let luma = 0.299 * pixel[0] as f32 + 0.587 * pixel[1] as f32 + 0.114 * pixel[2] as f32;
         for channel in pixel.iter_mut().take(3) {
@@ -235,6 +247,8 @@ mod tests {
     use super::{RASTER_SIZE, from_thumbnail};
     use gpui::{Image, ImageFormat};
 
+    const TEST_SIGMA: f32 = 10.;
+
     fn encoded(pixels: image::RgbImage) -> Image {
         let mut bytes = Vec::new();
         image::DynamicImage::ImageRgb8(pixels)
@@ -257,7 +271,7 @@ mod tests {
             120,
             image::Rgb([10, 120, 200]),
         ));
-        let raster = from_thumbnail(&wide).expect("raster");
+        let raster = from_thumbnail(&wide, TEST_SIGMA).expect("raster");
         let size = raster.size(0);
         assert_eq!(u32::from(size.width), RASTER_SIZE);
         assert_eq!(u32::from(size.height), RASTER_SIZE);
@@ -265,14 +279,14 @@ mod tests {
 
     #[test]
     fn channels_are_stored_in_the_bgra_order_gpui_uploads() {
-        let raster = from_thumbnail(&solid(255, 0, 0)).expect("raster");
+        let raster = from_thumbnail(&solid(255, 0, 0), TEST_SIGMA).expect("raster");
         let bytes = raster.as_bytes(0).expect("frame");
         assert_eq!(&bytes[..4], &[0, 0, 255, 255]);
     }
 
     #[test]
     fn saturation_pushes_a_muted_source_further_from_gray() {
-        let raster = from_thumbnail(&solid(160, 100, 100)).expect("raster");
+        let raster = from_thumbnail(&solid(160, 100, 100), TEST_SIGMA).expect("raster");
         let bytes = raster.as_bytes(0).expect("frame");
         let (blue, green, red) = (bytes[0] as i32, bytes[1] as i32, bytes[2] as i32);
         assert!(red > 160, "red {red} should be pushed up from 160");
@@ -290,7 +304,7 @@ mod tests {
                 image::Rgb([255, 255, 255])
             };
         }
-        let raster = from_thumbnail(&encoded(split)).expect("raster");
+        let raster = from_thumbnail(&encoded(split), TEST_SIGMA).expect("raster");
         let bytes = raster.as_bytes(0).expect("frame");
         let row = (RASTER_SIZE / 2) as usize * RASTER_SIZE as usize * 4;
         let seam = bytes[row + (RASTER_SIZE / 2) as usize * 4] as i32;
@@ -303,6 +317,6 @@ mod tests {
     #[test]
     fn undecodable_bytes_yield_no_backdrop() {
         let garbage = Image::from_bytes(ImageFormat::Png, b"not an image".to_vec());
-        assert!(from_thumbnail(&garbage).is_none());
+        assert!(from_thumbnail(&garbage, TEST_SIGMA).is_none());
     }
 }

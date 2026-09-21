@@ -1,7 +1,16 @@
 use std::collections::BTreeMap;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use md5::{Digest, Md5};
+use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::Deserialize;
 
 use crate::target::{ScrobbleTarget, SubmitError, TargetId};
@@ -10,6 +19,96 @@ use crate::{NowPlaying, Scrobble, Session};
 
 const USER_AGENT: &str = "pawse-scrobbler";
 const LIBREFM_KEY: &str = "pawse";
+const CALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(50);
+pub const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
+const CALLBACK_PATH: &str = "/pawse-auth";
+
+const CALLBACK_SUCCESS_PAGE: &str = r#"<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>pawse</title><style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #fafafa;
+    color: #16181d;
+}
+@media (prefers-color-scheme: dark) {
+    body { background: #16181d; color: #f2f2f2; }
+}
+.card { text-align: center; padding: 48px; }
+.check {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: #22c55e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+}
+h1 { font-size: 26px; font-weight: 600; margin: 0 0 8px; }
+p { font-size: 16px; margin: 0; opacity: 0.65; }
+</style></head>
+<body>
+<div class="card">
+    <div class="check">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="white"
+            stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12l5 5L20 7"/>
+        </svg>
+    </div>
+    <h1>You're signed in</h1>
+    <p>You can close this tab and go back to pawse.</p>
+</div>
+</body>
+</html>"#;
+
+const CALLBACK_WAITING_PAGE: &str = r#"<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>pawse</title><style>
+:root { color-scheme: light dark; }
+html, body { height: 100%; margin: 0; }
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #fafafa;
+    color: #16181d;
+}
+@media (prefers-color-scheme: dark) {
+    body { background: #16181d; color: #f2f2f2; }
+}
+p { font-size: 16px; opacity: 0.65; }
+</style></head>
+<body><p>Waiting for the pawse sign-in redirect…</p></body>
+</html>"#;
+
+const CALLBACK_DENIED_PAGE: &str = r#"<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>pawse</title><style>
+:root { color-scheme: light dark; }
+html, body { height: 100%; margin: 0; }
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #fafafa;
+    color: #16181d;
+}
+@media (prefers-color-scheme: dark) {
+    body { background: #16181d; color: #f2f2f2; }
+}
+p { font-size: 16px; opacity: 0.65; }
+</style></head>
+<body><p>Sign-in was not approved. You can close this tab and try again in pawse.</p></body>
+</html>"#;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
@@ -75,18 +174,15 @@ impl AudioscrobblerClient {
         self
     }
 
-    pub fn auth_url(&self, token: &str) -> String {
+    pub fn auth_url(&self, callback_port: u16, callback_state: &str) -> String {
+        let callback =
+            format!("http://127.0.0.1:{callback_port}{CALLBACK_PATH}?state={callback_state}");
         format!(
-            "{}?api_key={}&token={token}",
-            self.profile.auth_url, self.profile.api_key
+            "{}?api_key={}&cb={}",
+            self.profile.auth_url,
+            self.profile.api_key,
+            percent_encode(&callback)
         )
-    }
-
-    pub fn get_token(&self) -> Result<String> {
-        let mut params = BTreeMap::new();
-        params.insert("method".to_string(), "auth.getToken".to_string());
-        let body = self.request(params, false, true)?;
-        parse::<TokenResp>(&body).map(|t| t.token)
     }
 
     pub fn get_session(&self, token: &str) -> Result<Session, SessionError> {
@@ -288,12 +384,167 @@ fn love_params(session: &str, artist: &str, title: &str, love: bool) -> BTreeMap
     params
 }
 
+pub fn bind_callback_listener() -> std::io::Result<(TcpListener, u16, String)> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    listener.set_nonblocking(true)?;
+    let port = listener.local_addr()?.port();
+    Ok((listener, port, random_state()))
+}
+
+fn random_state() -> String {
+    let a = RandomState::new().build_hasher().finish();
+    let b = RandomState::new().build_hasher().finish();
+    format!("{a:016x}{b:016x}")
+}
+
+pub fn wait_for_callback(
+    listener: TcpListener,
+    expected_state: &str,
+    timeout: Duration,
+    cancel: &AtomicBool,
+) -> Result<String, SessionError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(SessionError::Cancelled);
+        }
+        if Instant::now() >= deadline {
+            return Err(SessionError::TimedOut);
+        }
+        match listener.accept() {
+            Ok((mut stream, _)) => match handle_callback_connection(&mut stream, expected_state) {
+                CallbackHit::Token(token) => return Ok(token),
+                CallbackHit::Denied => return Err(SessionError::Denied),
+                CallbackHit::Stray => {}
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(CALLBACK_POLL_INTERVAL);
+            }
+            Err(e) => {
+                return Err(SessionError::Other(anyhow!(
+                    "callback listener failed: {e}"
+                )));
+            }
+        }
+    }
+}
+
+pub fn wait_for_callback_async(
+    listener: TcpListener,
+    expected_state: String,
+    timeout: Duration,
+    cancel: Arc<AtomicBool>,
+) -> flume::Receiver<Result<String, SessionError>> {
+    let (tx, rx) = flume::bounded(1);
+    thread::spawn(move || {
+        let result = wait_for_callback(listener, &expected_state, timeout, &cancel);
+        let _ = tx.send(result);
+    });
+    rx
+}
+
+enum CallbackHit {
+    Token(String),
+    Denied,
+    Stray,
+}
+
+fn handle_callback_connection(stream: &mut TcpStream, expected_state: &str) -> CallbackHit {
+    let Some(request) = read_request_line(stream) else {
+        return CallbackHit::Stray;
+    };
+    let Some(parsed) = parse_callback_request(&request) else {
+        respond(stream, CALLBACK_WAITING_PAGE);
+        return CallbackHit::Stray;
+    };
+    if parsed.path != CALLBACK_PATH || parsed.state.as_deref() != Some(expected_state) {
+        respond(stream, CALLBACK_WAITING_PAGE);
+        return CallbackHit::Stray;
+    }
+    match parsed.token {
+        Some(token) => {
+            respond(stream, CALLBACK_SUCCESS_PAGE);
+            CallbackHit::Token(token)
+        }
+        None => {
+            respond(stream, CALLBACK_DENIED_PAGE);
+            CallbackHit::Denied
+        }
+    }
+}
+
+fn read_request_line(stream: &mut TcpStream) -> Option<String> {
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 512];
+    for _ in 0..8 {
+        let n = stream.read(&mut chunk).ok()?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.windows(2).any(|w| w == b"\r\n") || buf.len() >= 8192 {
+            break;
+        }
+    }
+    if buf.is_empty() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn respond(stream: &mut TcpStream, body: &str) {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    let _ = stream.write_all(response.as_bytes());
+    let _ = stream.flush();
+}
+
+fn percent_encode(value: &str) -> String {
+    utf8_percent_encode(value, NON_ALPHANUMERIC).to_string()
+}
+
+struct CallbackRequest {
+    path: String,
+    token: Option<String>,
+    state: Option<String>,
+}
+
+fn parse_callback_request(request: &str) -> Option<CallbackRequest> {
+    let request_line = request.lines().next()?;
+    let target = request_line.split_whitespace().nth(1)?;
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let mut token = None;
+    let mut state = None;
+    for pair in query.split('&') {
+        if let Some(value) = pair.strip_prefix("token=") {
+            token = Some(percent_decode_str(value).decode_utf8_lossy().into_owned());
+        } else if let Some(value) = pair.strip_prefix("state=") {
+            state = Some(percent_decode_str(value).decode_utf8_lossy().into_owned());
+        }
+    }
+    Some(CallbackRequest {
+        path: path.to_string(),
+        token,
+        state,
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
     #[error("the token has not been authorized yet")]
     NotAuthorized,
     #[error("the authorization token is no longer valid")]
     TokenExpired,
+    #[error("sign-in was cancelled")]
+    Cancelled,
+    #[error("timed out waiting for authorization")]
+    TimedOut,
+    #[error("sign-in was not approved")]
+    Denied,
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -363,11 +614,6 @@ fn parse_loved(body: &str) -> Result<(Vec<LovedTrack>, u32)> {
         })
         .collect();
     Ok((tracks, total_pages))
-}
-
-#[derive(Deserialize)]
-struct TokenResp {
-    token: String,
 }
 
 #[derive(Deserialize)]
@@ -612,5 +858,64 @@ mod tests {
         assert_eq!(profile.id, TargetId::Librefm);
         assert!(!profile.api_key.is_empty());
         assert!(profile.endpoint.starts_with("https://libre.fm"));
+    }
+
+    #[test]
+    fn callback_url_carries_an_encoded_callback_with_the_state() {
+        let url = client().auth_url(12345, "thestate");
+        let cb_encoded = url.split("cb=").nth(1).expect("cb param present");
+        let cb = percent_decode_str(cb_encoded)
+            .decode_utf8_lossy()
+            .into_owned();
+        assert_eq!(cb, "http://127.0.0.1:12345/pawse-auth?state=thestate");
+        assert!(!url.contains("token="));
+    }
+
+    #[test]
+    fn two_random_states_are_not_the_same() {
+        assert_ne!(random_state(), random_state());
+    }
+
+    #[test]
+    fn token_and_state_are_parsed_from_the_callback_request_line() {
+        let request = "GET /pawse-auth?state=xyz&token=abc123 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        let parsed = parse_callback_request(request).unwrap();
+        assert_eq!(parsed.path, "/pawse-auth");
+        assert_eq!(parsed.token.as_deref(), Some("abc123"));
+        assert_eq!(parsed.state.as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn token_is_found_even_when_not_the_first_query_param() {
+        let request = "GET /pawse-auth?foo=bar&state=xyz&token=abc123 HTTP/1.1\r\n\r\n";
+        let parsed = parse_callback_request(request).unwrap();
+        assert_eq!(parsed.token.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn a_denied_request_carries_the_state_but_no_token() {
+        let request = "GET /pawse-auth?state=xyz HTTP/1.1\r\n\r\n";
+        let parsed = parse_callback_request(request).unwrap();
+        assert_eq!(parsed.state.as_deref(), Some("xyz"));
+        assert!(parsed.token.is_none());
+    }
+
+    #[test]
+    fn a_stray_request_never_matches_the_callback_path_or_state() {
+        let favicon = parse_callback_request("GET /favicon.ico HTTP/1.1\r\n\r\n").unwrap();
+        assert_ne!(favicon.path, CALLBACK_PATH);
+
+        let request = "GET /pawse-auth?state=other&token=abc123 HTTP/1.1\r\n\r\n";
+        let parsed = parse_callback_request(request).unwrap();
+        assert_ne!(parsed.state.as_deref(), Some("expected"));
+
+        assert!(parse_callback_request("").is_none());
+    }
+
+    #[test]
+    fn the_token_is_percent_decoded() {
+        let request = "GET /pawse-auth?state=xyz&token=a%2Fb%3Dc HTTP/1.1\r\n\r\n";
+        let parsed = parse_callback_request(request).unwrap();
+        assert_eq!(parsed.token.as_deref(), Some("a/b=c"));
     }
 }

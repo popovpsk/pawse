@@ -50,8 +50,9 @@ failures are retried) lives here once, and every destination is a
   `ureq`, parameterized by `Profile` (endpoint, auth URL, key, secret) so
   Last.fm and Libre.fm/GNU FM share one implementation. `sign` hashes the sorted
   `key+value` pairs then the shared secret (`format`/`api_sig` excluded). Also
-  hosts the auth flow (`get_token`/`auth_url`/`get_session`, the latter over
-  `SessionError`) and `loved_tracks` for the like import.
+  hosts the auth flow (`auth_url`/`get_session` over `SessionError`, plus the
+  loopback callback listener `bind_callback_listener`/`wait_for_callback` pawse
+  drives sign-in through) and `loved_tracks` for the like import.
 - `targets/listenbrainz.rs` — `submit-listens` over `Authorization: Token`, plus
   `validate` for the login screen. Works against any ListenBrainz-compatible
   root, so a self-hosted instance is just a different `api_root`.
@@ -213,14 +214,49 @@ cannot be rebuilt by rescanning the disk.
   `LibraryEvent::LikesImported`; the bridge only reacts to `TrackLikedChanged`,
   so an import never bounces back out as a `track.love` — to Last.fm or to any
   other target.
-- **The browser auth flow reports its own failures.** `get_session` returns
-  `SessionError`, not a flat string, because the two common outcomes are things
-  the user has to fix in the browser: `NotAuthorized` (Last.fm 14 — Confirm was
-  pressed before approving the page) and `TokenExpired` (4/15 — the token went
-  stale, or the page was closed and a new one is needed). The settings UI turns
-  those into an instruction and keeps `AuthPhase::Awaiting` so its "open again"
-  button, which just re-runs `get_token` + `auth_url`, stays reachable. Anything
-  else keeps its server text.
+- **Sign-in never calls `auth.getToken`.** `auth_url` only ever sends
+  `api_key` and `cb=http://127.0.0.1:<port>/pawse-auth?state=<state>` — no
+  pre-fetched token. Last.fm/Libre.fm mint the token themselves and hand it
+  back as a query param on the redirect to that loopback URL once the user
+  approves, which `wait_for_callback` is waiting on — this is the API's "web
+  application" flow, not its "desktop" one. Mixing this with a separately
+  fetched `auth.getToken` token (the previous, desktop-flow design) silently
+  breaks the redirect — the two flows aren't meant to be combined, and the
+  failure mode is the browser just never coming back, not an error.
+- **The callback listener trusts nothing that doesn't carry its own random
+  `state`.** `bind_callback_listener` mints one per sign-in attempt
+  (`random_state`, two independently-seeded `RandomState` hashes — no `rand`
+  dependency needed for a value that only has to be unguessable by another
+  local process for up to `CALLBACK_TIMEOUT`) and `handle_callback_connection`
+  only accepts a request whose path is `CALLBACK_PATH` *and* whose `state`
+  matches; anything else (a stray favicon fetch, another localhost process
+  probing the ephemeral port) is answered and ignored rather than treated as
+  the real callback. A matching request with no `token` is Last.fm/Libre.fm's
+  own denial redirect, not noise — it fails the sign-in immediately
+  (`SessionError::Denied`) instead of leaving the UI parked on "Connecting…"
+  for the full `CALLBACK_TIMEOUT`.
+  `SessionError::NotAuthorized`/`TokenExpired` still exist because
+  `get_session` can in principle report either, but the ordinary path never
+  hits them: `get_session` only runs after the redirect already proves
+  approval. `Cancelled` and `TimedOut` come from `wait_for_callback` itself
+  (a "Cancel" click, or nothing arriving inside `CALLBACK_TIMEOUT`) and reset
+  the UI to `AuthPhase::Idle` rather than staying stuck waiting; the settings
+  UI folds `NotAuthorized`/`Denied` into the same localized "link expired,
+  sign in again" message rather than leaving them as untranslated Rust text.
+- **The wait runs on its own OS thread, not gpui's background-executor
+  pool.** `wait_for_callback_async` spawns a plain `std::thread` and hands
+  the result back over a `flume` channel the caller `.recv_async().await`s,
+  so a sign-in attempt left dangling for up to five minutes never occupies a
+  pool worker that other incidental background work (thumbnail decode,
+  library scans) shares. `wait_for_callback` itself stays synchronous and
+  independently testable; only the call site changed.
+- **`apply_session` rechecks the cancel flag, not just the error.** The gap
+  between `wait_for_callback` returning a token and `get_session` completing
+  (up to `targets/mod.rs`'s `ureq` timeouts, tens of seconds in the worst
+  case) is a window where a "Cancel" click can't abort an in-flight request,
+  so `start_web_sign_in` checks `cancel` again right before applying the
+  result — a session that arrives after Cancel was pressed is discarded
+  locally rather than silently signing the account in.
 - **A failure the server explained reaches the user, once.** `AuthFailed` and
   `Rejected` carry the server's message, not just a target id, because the useful
   part is usually an instruction ("verify your email at metabrainz.org"). The

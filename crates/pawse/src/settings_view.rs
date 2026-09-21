@@ -192,6 +192,12 @@ fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
     cx.refresh_windows();
 }
 
+#[derive(Clone)]
+pub struct SettingsSliders {
+    pub lyrics: Entity<SliderState>,
+    pub blur_intensity: Entity<SliderState>,
+}
+
 /// Build the list of `SettingPage`s for the Settings widget.
 ///
 /// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
@@ -199,21 +205,27 @@ fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
 pub fn build_settings_pages(
     theme_picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
-    lyrics_slider: Entity<SliderState>,
+    sliders: SettingsSliders,
     remote_port_input: Entity<InputState>,
     scrobble_ui: Entity<crate::scrobble_settings::ScrobbleUiState>,
     scrobble_inputs: crate::scrobble_settings::ScrobbleInputs,
     cx: &App,
 ) -> Vec<SettingPage> {
     let albums_layout = cx.global::<SettingsStore>().albums_layout();
+    let blur_mode = cx.global::<SettingsStore>().blur_background();
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
-            .group(interface_group(theme_picker, lang_picker))
+            .group(interface_group(
+                theme_picker,
+                lang_picker,
+                blur_mode,
+                sliders.blur_intensity,
+            ))
             .group(albums_view_group(albums_layout))
             .group(artists_view_group())
             .group(cover_view_group())
             .group(queue_group())
-            .group(lyrics_group(lyrics_slider)),
+            .group(lyrics_group(sliders.lyrics)),
     ];
     let mut general =
         SettingPage::new(tr().settings_general.clone()).group(general_group(remote_port_input));
@@ -282,6 +294,8 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
 fn interface_group(
     picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
+    blur_mode: BlurBackground,
+    blur_intensity_slider: Entity<SliderState>,
 ) -> SettingGroup {
     let mut group = SettingGroup::new().item(
         SettingItem::new(
@@ -383,6 +397,29 @@ fn interface_group(
         )
         .description(tr().blur_background_desc.clone()),
     );
+
+    if blur_mode != BlurBackground::Off {
+        group = group.item(
+            SettingItem::new(
+                tr().blur_intensity.clone(),
+                SettingField::render(move |_window, cx: &mut App| {
+                    let value = blur_intensity_slider.read(cx).value().start();
+                    h_flex()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .w(px(38.))
+                                .text_sm()
+                                .text_color(Colors::muted_foreground(cx))
+                                .child(format!("{} px", value as i32)),
+                        )
+                        .child(div().w(px(160.)).child(Slider::new(&blur_intensity_slider)))
+                }),
+            )
+            .description(tr().blur_intensity_desc.clone()),
+        );
+    }
 
     // The untouched-signal-path toggle: exclusive on macOS/Windows, native
     // sample rate on Linux. Hidden when the platform can't offer it at all
