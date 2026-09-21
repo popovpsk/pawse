@@ -217,7 +217,7 @@ impl Render for PlaylistsView {
                         Input::new(&self.create_input).small().cleanable(false).bg(
                             crate::cover_backdrop::field_bg(
                                 Colors::background(cx),
-                                crate::cover_backdrop::is_active(cx),
+                                crate::cover_backdrop::veil_factor(cx),
                             ),
                         ),
                     ))

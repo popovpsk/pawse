@@ -107,7 +107,7 @@ impl Render for CoverVolume {
         let icon = volume_icon(is_exclusive, muted, value);
 
         let fg = Colors::foreground(cx);
-        let hover_bg = cover_backdrop::inset_bg(Colors::muted(cx), cover_backdrop::is_active(cx));
+        let hover_bg = cover_backdrop::inset_bg(Colors::muted(cx), cover_backdrop::veil_factor(cx));
         let expanded = self.expanded && !is_exclusive;
 
         self.slider

@@ -111,6 +111,9 @@ pub struct MainView {
     _blur_intensity_slider: Entity<SliderState>,
     _blur_intensity_slider_observe: Subscription,
     _blur_intensity_slider_subscription: Subscription,
+    _blur_interface_opacity_slider: Entity<SliderState>,
+    _blur_interface_opacity_slider_observe: Subscription,
+    _blur_interface_opacity_slider_subscription: Subscription,
     settings_pages: Vec<SettingPage>,
     search_input: Entity<InputState>,
     _remote_port_input: Entity<InputState>,
@@ -261,6 +264,31 @@ impl MainView {
                 }
             });
 
+        let saved_blur_interface_opacity = cx.global::<SettingsStore>().blur_interface_opacity();
+        let blur_interface_opacity_slider: Entity<SliderState> = cx.new(|_| {
+            SliderState::new()
+                .min(crate::settings_store::BLUR_INTERFACE_OPACITY_MIN)
+                .max(crate::settings_store::BLUR_INTERFACE_OPACITY_MAX)
+                .step(1.)
+                .default_value(saved_blur_interface_opacity)
+        });
+        let blur_interface_opacity_slider_observe =
+            cx.observe(&blur_interface_opacity_slider, |_, _, cx| cx.notify());
+        let blur_interface_opacity_slider_subscription = cx.subscribe(
+            &blur_interface_opacity_slider,
+            |_, _, event: &SliderEvent, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                if let Err(e) = cx
+                    .global_mut::<SettingsStore>()
+                    .set_blur_interface_opacity(value.start())
+                {
+                    crate::settings_store::notify_save_error(cx, e);
+                }
+            },
+        );
+
         let remote_port_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(cx.global::<SettingsStore>().remote_port().to_string())
@@ -334,6 +362,7 @@ impl MainView {
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
+            let blur_interface_opacity_slider = blur_interface_opacity_slider.clone();
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
@@ -348,6 +377,7 @@ impl MainView {
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
+                        blur_interface_opacity: blur_interface_opacity_slider.clone(),
                     },
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
@@ -372,6 +402,7 @@ impl MainView {
             SettingsSliders {
                 lyrics: lyrics_slider.clone(),
                 blur_intensity: blur_intensity_slider.clone(),
+                blur_interface_opacity: blur_interface_opacity_slider.clone(),
             },
             remote_port_input.clone(),
             scrobble_ui.clone(),
@@ -477,6 +508,7 @@ impl MainView {
             let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
+            let blur_interface_opacity_slider = blur_interface_opacity_slider.clone();
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
@@ -491,6 +523,7 @@ impl MainView {
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
+                        blur_interface_opacity: blur_interface_opacity_slider.clone(),
                     },
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
@@ -568,6 +601,9 @@ impl MainView {
             _blur_intensity_slider: blur_intensity_slider,
             _blur_intensity_slider_observe: blur_intensity_slider_observe,
             _blur_intensity_slider_subscription: blur_intensity_slider_subscription,
+            _blur_interface_opacity_slider: blur_interface_opacity_slider,
+            _blur_interface_opacity_slider_observe: blur_interface_opacity_slider_observe,
+            _blur_interface_opacity_slider_subscription: blur_interface_opacity_slider_subscription,
             settings_pages,
             search_input,
             _remote_port_input: remote_port_input,
@@ -753,21 +789,22 @@ impl Render for MainView {
         let has_backdrop = backdrop.is_some();
         let veil_content = has_backdrop && !cover_mode;
         cover_backdrop::set_active(has_backdrop, cx);
+        let veil = cover_backdrop::veil_factor(cx);
         let title_bar_bg = cover_backdrop::chrome_bg(
             if cover_mode && !chrome_visible {
                 background
             } else {
                 title_bar
             },
-            has_backdrop,
+            veil,
         );
-        let bar_bg = cover_backdrop::chrome_bg(title_bar, has_backdrop);
-        let panel_bg = cover_backdrop::panel_bg(background, has_backdrop);
+        let bar_bg = cover_backdrop::chrome_bg(title_bar, veil);
+        let panel_bg = cover_backdrop::panel_bg(background, veil);
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
         let tab_colors = TabColors {
-            active_bg: cover_backdrop::inset_bg(Colors::secondary(cx), has_backdrop),
-            hover_bg: cover_backdrop::inset_bg(muted, has_backdrop),
+            active_bg: cover_backdrop::inset_bg(Colors::secondary(cx), veil),
+            hover_bg: cover_backdrop::inset_bg(muted, veil),
             primary: Colors::primary(cx),
             foreground,
         };
@@ -915,7 +952,7 @@ impl Render for MainView {
                                     .with_size(Size::Medium)
                                     .focus_bordered(false)
                                     .rounded_full()
-                                    .bg(cover_backdrop::field_bg(title_bar, has_backdrop)),
+                                    .bg(cover_backdrop::field_bg(title_bar, veil)),
                             ),
                         )
                     })

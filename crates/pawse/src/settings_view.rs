@@ -196,6 +196,7 @@ fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
 pub struct SettingsSliders {
     pub lyrics: Entity<SliderState>,
     pub blur_intensity: Entity<SliderState>,
+    pub blur_interface_opacity: Entity<SliderState>,
 }
 
 /// Build the list of `SettingPage`s for the Settings widget.
@@ -220,6 +221,7 @@ pub fn build_settings_pages(
                 lang_picker,
                 blur_mode,
                 sliders.blur_intensity,
+                sliders.blur_interface_opacity,
             ))
             .group(albums_view_group(albums_layout))
             .group(artists_view_group())
@@ -296,6 +298,7 @@ fn interface_group(
     lang_picker: Entity<LangPickerState>,
     blur_mode: BlurBackground,
     blur_intensity_slider: Entity<SliderState>,
+    blur_interface_opacity_slider: Entity<SliderState>,
 ) -> SettingGroup {
     let mut group = SettingGroup::new().item(
         SettingItem::new(
@@ -410,6 +413,20 @@ fn interface_group(
                 }),
             )
             .description(tr().blur_intensity_desc.clone()),
+        );
+
+        group = group.item(
+            SettingItem::new(
+                tr().blur_interface_opacity.clone(),
+                SettingField::render(move |_window, _cx: &mut App| {
+                    h_flex().items_center().justify_end().child(
+                        div()
+                            .w(px(160.))
+                            .child(Slider::new(&blur_interface_opacity_slider)),
+                    )
+                }),
+            )
+            .description(tr().blur_interface_opacity_desc.clone()),
         );
     }
 

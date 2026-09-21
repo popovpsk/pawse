@@ -141,6 +141,14 @@ fn default_blur_intensity() -> f32 {
     BLUR_INTENSITY_DEFAULT
 }
 
+pub const BLUR_INTERFACE_OPACITY_MIN: f32 = 0.;
+pub const BLUR_INTERFACE_OPACITY_MAX: f32 = 200.;
+pub const BLUR_INTERFACE_OPACITY_DEFAULT: f32 = 100.;
+
+fn default_blur_interface_opacity() -> f32 {
+    BLUR_INTERFACE_OPACITY_DEFAULT
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RepeatModePersist {
@@ -310,6 +318,8 @@ pub struct UserSettings {
     pub blur_background: BlurBackground,
     #[serde(default = "default_blur_intensity")]
     pub blur_intensity: f32,
+    #[serde(default = "default_blur_interface_opacity")]
+    pub blur_interface_opacity: f32,
     #[serde(default)]
     pub queue_deduplication: bool,
     #[serde(default)]
@@ -373,6 +383,7 @@ impl Default for UserSettings {
             cover_show_controls: true,
             blur_background: BlurBackground::default(),
             blur_intensity: BLUR_INTENSITY_DEFAULT,
+            blur_interface_opacity: BLUR_INTERFACE_OPACITY_DEFAULT,
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,
@@ -804,6 +815,18 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn blur_interface_opacity(&self) -> f32 {
+        self.settings
+            .blur_interface_opacity
+            .clamp(BLUR_INTERFACE_OPACITY_MIN, BLUR_INTERFACE_OPACITY_MAX)
+    }
+
+    pub fn set_blur_interface_opacity(&mut self, value: f32) -> anyhow::Result<()> {
+        self.settings.blur_interface_opacity =
+            value.clamp(BLUR_INTERFACE_OPACITY_MIN, BLUR_INTERFACE_OPACITY_MAX);
+        self.save()
+    }
+
     pub fn queue_deduplication(&self) -> bool {
         self.settings.queue_deduplication
     }
@@ -1193,6 +1216,7 @@ mod tests {
             cover_show_controls: true,
             blur_background: BlurBackground::default(),
             blur_intensity: 12.5,
+            blur_interface_opacity: 140.,
             queue_deduplication: false,
             tag_editor_enabled: false,
             albums_show_year: true,

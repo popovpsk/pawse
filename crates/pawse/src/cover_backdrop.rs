@@ -29,6 +29,10 @@ fn blur_sigma(cx: &App) -> f32 {
     cx.global::<SettingsStore>().blur_intensity()
 }
 
+pub fn veil_factor(cx: &App) -> Option<f32> {
+    is_active(cx).then(|| cx.global::<SettingsStore>().blur_interface_opacity() / 100.)
+}
+
 struct Active(bool);
 
 impl Global for Active {}
@@ -210,35 +214,31 @@ pub fn layers(image: Arc<RenderImage>, background: Hsla) -> Div {
         )))
 }
 
-pub fn chrome_bg(color: Hsla, over_backdrop: bool) -> Hsla {
-    if over_backdrop {
-        color.opacity(CHROME_VEIL)
-    } else {
-        color
+pub fn chrome_bg(color: Hsla, veil: Option<f32>) -> Hsla {
+    match veil {
+        Some(factor) => color.opacity((CHROME_VEIL * factor).clamp(0., 1.)),
+        None => color,
     }
 }
 
-pub fn panel_bg(color: Hsla, over_backdrop: bool) -> Hsla {
-    if over_backdrop {
-        color.opacity(PANEL_VEIL)
-    } else {
-        color
+pub fn panel_bg(color: Hsla, veil: Option<f32>) -> Hsla {
+    match veil {
+        Some(factor) => color.opacity((PANEL_VEIL * factor).clamp(0., 1.)),
+        None => color,
     }
 }
 
-pub fn inset_bg(color: Hsla, over_backdrop: bool) -> Hsla {
-    if over_backdrop {
-        color.opacity(INSET_VEIL)
-    } else {
-        color
+pub fn inset_bg(color: Hsla, veil: Option<f32>) -> Hsla {
+    match veil {
+        Some(factor) => color.opacity((INSET_VEIL * factor).clamp(0., 1.)),
+        None => color,
     }
 }
 
-pub fn field_bg(color: Hsla, over_backdrop: bool) -> Hsla {
-    if over_backdrop {
-        color.opacity(FIELD_VEIL)
-    } else {
-        color
+pub fn field_bg(color: Hsla, veil: Option<f32>) -> Hsla {
+    match veil {
+        Some(factor) => color.opacity((FIELD_VEIL * factor).clamp(0., 1.)),
+        None => color,
     }
 }
 

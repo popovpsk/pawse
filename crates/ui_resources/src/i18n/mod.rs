@@ -148,6 +148,8 @@ pub struct Strings {
     pub blur_background_all: SharedString,
     pub blur_intensity: SharedString,
     pub blur_intensity_desc: SharedString,
+    pub blur_interface_opacity: SharedString,
+    pub blur_interface_opacity_desc: SharedString,
     pub liked_tracks: SharedString,
     pub liked_tracks_desc: SharedString,
     pub playlists_desc: SharedString,

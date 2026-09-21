@@ -755,7 +755,7 @@ impl Render for CoverModeView {
         let bar_colors = BarColors {
             fg: title_color,
             accent: Colors::primary(cx),
-            hover: cover_backdrop::inset_bg(Colors::muted(cx), cover_backdrop::is_active(cx)),
+            hover: cover_backdrop::inset_bg(Colors::muted(cx), cover_backdrop::veil_factor(cx)),
             play_bg: Colors::primary(cx),
             play_hover: Colors::primary_hover(cx),
             play_fg: Colors::primary_foreground(cx),
