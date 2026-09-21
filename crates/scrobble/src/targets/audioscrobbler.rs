@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -22,6 +22,8 @@ const LIBREFM_KEY: &str = "pawse";
 const CALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 const CALLBACK_PATH: &str = "/pawse-auth";
+const CALLBACK_READ_TIMEOUT: Duration = Duration::from_secs(2);
+const CALLBACK_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
 const CALLBACK_SUCCESS_PAGE: &str = r#"<!doctype html>
 <html>
@@ -412,11 +414,14 @@ pub fn wait_for_callback(
             return Err(SessionError::TimedOut);
         }
         match listener.accept() {
-            Ok((mut stream, _)) => match handle_callback_connection(&mut stream, expected_state) {
-                CallbackHit::Token(token) => return Ok(token),
-                CallbackHit::Denied => return Err(SessionError::Denied),
-                CallbackHit::Stray => {}
-            },
+            Ok((mut stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                match handle_callback_connection(&mut stream, expected_state) {
+                    CallbackHit::Token(token) => return Ok(token),
+                    CallbackHit::Denied => return Err(SessionError::Denied),
+                    CallbackHit::Stray => {}
+                }
+            }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(CALLBACK_POLL_INTERVAL);
             }
@@ -474,16 +479,18 @@ fn handle_callback_connection(stream: &mut TcpStream, expected_state: &str) -> C
 }
 
 fn read_request_line(stream: &mut TcpStream) -> Option<String> {
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream.set_read_timeout(Some(CALLBACK_READ_TIMEOUT)).ok()?;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 512];
     for _ in 0..8 {
-        let n = stream.read(&mut chunk).ok()?;
+        let Ok(n) = stream.read(&mut chunk) else {
+            break;
+        };
         if n == 0 {
             break;
         }
         buf.extend_from_slice(&chunk[..n]);
-        if buf.windows(2).any(|w| w == b"\r\n") || buf.len() >= 8192 {
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() >= 8192 {
             break;
         }
     }
@@ -501,6 +508,26 @@ fn respond(stream: &mut TcpStream, body: &str) {
     );
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
+    close_gracefully(stream);
+}
+
+fn close_gracefully(stream: &mut TcpStream) {
+    let _ = stream.shutdown(Shutdown::Write);
+    if stream
+        .set_read_timeout(Some(CALLBACK_DRAIN_TIMEOUT))
+        .is_err()
+    {
+        return;
+    }
+    let mut sink = [0u8; 512];
+    let deadline = Instant::now() + CALLBACK_DRAIN_TIMEOUT;
+    while Instant::now() < deadline {
+        match stream.read(&mut sink) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
 }
 
 fn percent_encode(value: &str) -> String {
@@ -910,6 +937,85 @@ mod tests {
         assert_ne!(parsed.state.as_deref(), Some("expected"));
 
         assert!(parse_callback_request("").is_none());
+    }
+
+    fn browser_request(state: &str, token: Option<&str>) -> String {
+        let query = match token {
+            Some(t) => format!("state={state}&token={t}"),
+            None => format!("state={state}"),
+        };
+        let padding = "x".repeat(900);
+        format!(
+            "GET {CALLBACK_PATH}?{query} HTTP/1.1\r\n\
+             Host: 127.0.0.1\r\n\
+             Connection: keep-alive\r\n\
+             Upgrade-Insecure-Requests: 1\r\n\
+             Referer: https://www.last.fm/\r\n\
+             Accept-Encoding: gzip, deflate, br\r\n\
+             Accept-Language: en-US,en;q=0.9\r\n\
+             User-Agent: {padding}\r\n\r\n"
+        )
+    }
+
+    #[test]
+    fn the_success_page_reaches_the_browser_in_full() {
+        let (listener, port, state) = bind_callback_listener().unwrap();
+        let rx = wait_for_callback_async(
+            listener,
+            state.clone(),
+            Duration::from_secs(5),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        client
+            .write_all(browser_request(&state, Some("abc123")).as_bytes())
+            .unwrap();
+
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.ends_with(CALLBACK_SUCCESS_PAGE));
+        assert_eq!(
+            response.len(),
+            response.find("\r\n\r\n").unwrap() + 4 + CALLBACK_SUCCESS_PAGE.len()
+        );
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap(),
+            "abc123"
+        );
+    }
+
+    #[test]
+    fn a_stray_request_is_answered_and_the_wait_continues() {
+        let (listener, port, state) = bind_callback_listener().unwrap();
+        let rx = wait_for_callback_async(
+            listener,
+            state.clone(),
+            Duration::from_secs(5),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let mut stray = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stray
+            .write_all(browser_request("wrong-state", Some("nope")).as_bytes())
+            .unwrap();
+        let mut stray_response = String::new();
+        stray.read_to_string(&mut stray_response).unwrap();
+        assert!(stray_response.ends_with(CALLBACK_WAITING_PAGE));
+
+        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        client
+            .write_all(browser_request(&state, Some("abc123")).as_bytes())
+            .unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.ends_with(CALLBACK_SUCCESS_PAGE));
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap(),
+            "abc123"
+        );
     }
 
     #[test]

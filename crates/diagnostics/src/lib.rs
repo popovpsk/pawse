@@ -27,7 +27,10 @@ pub struct Config {
     pub level: LevelFilter,
     pub also_stderr: bool,
     pub max_bytes: u64,
+    pub target_levels: Vec<(String, LevelFilter)>,
 }
+
+const NOISY_TARGETS: &[(&str, LevelFilter)] = &[("gpui::window::a11y", LevelFilter::Warn)];
 
 impl Default for Config {
     fn default() -> Self {
@@ -36,6 +39,10 @@ impl Default for Config {
             level: LevelFilter::Info,
             also_stderr: cfg!(debug_assertions),
             max_bytes: 5 * 1024 * 1024,
+            target_levels: NOISY_TARGETS
+                .iter()
+                .map(|(target, level)| ((*target).to_string(), *level))
+                .collect(),
         }
     }
 }
@@ -52,12 +59,21 @@ pub fn init(config: Config) -> flume::Receiver<Notice> {
     let _ = LINE_TX.set(line_tx.clone());
     spawn_writer(path, config.max_bytes, config.also_stderr, line_rx);
 
+    let max_level = config
+        .target_levels
+        .iter()
+        .map(|(_, level)| *level)
+        .chain(std::iter::once(config.level))
+        .max()
+        .unwrap_or(config.level);
+
     let logger = FileLogger {
         tx: line_tx,
         level: config.level,
+        target_levels: config.target_levels,
     };
     if log::set_boxed_logger(Box::new(logger)).is_ok() {
-        log::set_max_level(config.level);
+        log::set_max_level(max_level);
     }
 
     install_panic_hook();
@@ -109,11 +125,29 @@ fn push_notice(severity: Severity, title: String, message: String) {
 struct FileLogger {
     tx: flume::Sender<String>,
     level: LevelFilter,
+    target_levels: Vec<(String, LevelFilter)>,
+}
+
+fn target_matches(target: &str, prefix: &str) -> bool {
+    target == prefix
+        || (target.len() > prefix.len()
+            && target.starts_with(prefix)
+            && target[prefix.len()..].starts_with("::"))
+}
+
+impl FileLogger {
+    fn level_for(&self, target: &str) -> LevelFilter {
+        self.target_levels
+            .iter()
+            .filter(|(prefix, _)| target_matches(target, prefix))
+            .max_by_key(|(prefix, _)| prefix.len())
+            .map_or(self.level, |(_, level)| *level)
+    }
 }
 
 impl Log for FileLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= self.level
+        metadata.level() <= self.level_for(metadata.target())
     }
 
     fn log(&self, record: &Record) {
@@ -265,6 +299,39 @@ mod tests {
         let mut s = String::new();
         File::open(path).unwrap().read_to_string(&mut s).unwrap();
         s
+    }
+
+    fn logger(target_levels: Vec<(String, LevelFilter)>) -> FileLogger {
+        FileLogger {
+            tx: flume::unbounded().0,
+            level: LevelFilter::Info,
+            target_levels,
+        }
+    }
+
+    #[test]
+    fn target_override_silences_subtree() {
+        let logger = logger(vec![("gpui::window::a11y".to_string(), LevelFilter::Warn)]);
+        assert_eq!(logger.level_for("gpui::window::a11y"), LevelFilter::Warn);
+        assert_eq!(
+            logger.level_for("gpui::window::a11y::debug"),
+            LevelFilter::Warn
+        );
+        assert_eq!(logger.level_for("gpui::window"), LevelFilter::Info);
+        assert_eq!(
+            logger.level_for("gpui::window::a11yextra"),
+            LevelFilter::Info
+        );
+    }
+
+    #[test]
+    fn longest_matching_prefix_wins() {
+        let logger = logger(vec![
+            ("gpui".to_string(), LevelFilter::Error),
+            ("gpui::window".to_string(), LevelFilter::Debug),
+        ]);
+        assert_eq!(logger.level_for("gpui::window::a11y"), LevelFilter::Debug);
+        assert_eq!(logger.level_for("gpui::app"), LevelFilter::Error);
     }
 
     #[test]

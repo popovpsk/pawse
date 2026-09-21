@@ -243,6 +243,24 @@ cannot be rebuilt by rescanning the disk.
   the UI to `AuthPhase::Idle` rather than staying stuck waiting; the settings
   UI folds `NotAuthorized`/`Denied` into the same localized "link expired,
   sign in again" message rather than leaving them as untranslated Rust text.
+- **The callback socket is closed gracefully, or Windows eats the page.**
+  `respond` ends in `close_gracefully`: `shutdown(Write)` to send a FIN, then
+  drain whatever is still in the receive buffer until EOF or
+  `CALLBACK_DRAIN_TIMEOUT`. Dropping the socket with unread request bytes still
+  queued makes the stack close abortively (RST) instead, and Windows then
+  discards the already-delivered response sitting in the browser's receive
+  buffer — the browser shows a connection error while the app has the token and
+  reports a successful sign-in. macOS hands buffered data to the app before
+  reporting the reset, which is why the same code looked fine there.
+  `read_request_line` reads to `\r\n\r\n` rather than the first `\r\n` for the
+  same reason (a real browser request does not fit in one 512-byte chunk), and
+  falls back to whatever it has on a read error so a truncated stray request is
+  still answered.
+- **The accepted socket is put back into blocking mode explicitly.** The
+  listener is non-blocking so `wait_for_callback` can poll `cancel`/the
+  deadline; whether `accept` hands that mode down to the connection is
+  platform-dependent, and an inherited non-blocking socket turns the
+  read-then-respond exchange into silently-swallowed `WouldBlock`s.
 - **The wait runs on its own OS thread, not gpui's background-executor
   pool.** `wait_for_callback_async` spawns a plain `std::thread` and hands
   the result back over a `flume` channel the caller `.recv_async().await`s,

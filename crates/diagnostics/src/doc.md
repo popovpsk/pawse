@@ -25,7 +25,8 @@ through the `log` facade without pulling in the UI framework.
     in-flight-at-exit gap. Panics don't need it (`write_sync` is synchronous).
   - `FileLogger` (`log::Log`): formats `{rfc3339} {LEVEL} {target}: {msg}` and sends
     the line down a channel — no file lock on the caller, so the audio callback's
-    rare error path never blocks.
+    rare error path never blocks. `level_for` resolves the per-target override
+    before the global `Config.level`.
   - writer thread (`spawn_writer` / `write_line`): owns the `BufWriter<File>`, flushes
     every line, and does size-based rotation to `pawse.log.1`.
   - panic hook (`install_panic_hook` / `format_panic` / `write_sync`): writes the
@@ -41,6 +42,17 @@ through the `log` facade without pulling in the UI framework.
   `dirs::data_dir()/pawse/logs`) — the crate stays free of path conventions.
 - `also_stderr` defaults to `cfg!(debug_assertions)`: dev keeps a console echo,
   release writes file-only.
+- `Config.target_levels` caps individual `log` targets below the global level, with
+  the longest matching `::`-boundary prefix winning. It defaults to `NOISY_TARGETS`,
+  currently just `gpui::window::a11y` at `Warn`: since the gpui 0.6 bump that module
+  logs at `Info` on every focus change to an element that has an `.id()` but no
+  `.role()`, and pawse sets no roles, so on Windows (where a11y actually activates)
+  it was ~77% of the log and pushed real records out through the 5 MB rotation.
+  Dropping it here rather than disabling a11y keeps `Application::new_inaccessible`
+  off the table and leaves gpui-component's own roles working.
+- `log::set_max_level` takes the *most permissive* of the global level and every
+  target override, otherwise an override above the global level would be filtered
+  out by the facade before `enabled` ever runs.
 - `log::set_boxed_logger` can only succeed once per process; `init` is a no-op for the
   logger on a second call (tests exercise `write_line` directly rather than `init`).
 - The writer thread is never joined (the logger is intentionally `'static`/leaked);
