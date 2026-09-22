@@ -225,6 +225,16 @@ pub enum AlbumsArtistDisplay {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum NowPlayingDetails {
+    #[default]
+    Specs,
+    Year,
+    Album,
+    Hidden,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum AlbumsLayout {
     List,
     #[default]
@@ -300,6 +310,8 @@ pub struct UserSettings {
     pub show_repeat_shuffle: bool,
     #[serde(default = "default_true")]
     pub show_time_labels: bool,
+    #[serde(default)]
+    pub now_playing_details: NowPlayingDetails,
     #[serde(default = "default_true")]
     pub liked_enabled: bool,
     #[serde(default = "default_true")]
@@ -376,6 +388,7 @@ impl Default for UserSettings {
             show_hog_button: false,
             show_repeat_shuffle: true,
             show_time_labels: true,
+            now_playing_details: NowPlayingDetails::default(),
             liked_enabled: true,
             playlists_enabled: true,
             show_track_duration: true,
@@ -875,6 +888,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn now_playing_details(&self) -> NowPlayingDetails {
+        self.settings.now_playing_details
+    }
+
+    pub fn set_now_playing_details(&mut self, details: NowPlayingDetails) -> anyhow::Result<()> {
+        self.settings.now_playing_details = details;
+        self.save()
+    }
+
     pub fn albums_artist_display(&self) -> AlbumsArtistDisplay {
         self.settings.albums_artist_display
     }
@@ -1219,6 +1241,7 @@ mod tests {
             show_hog_button: true,
             show_repeat_shuffle: true,
             show_time_labels: true,
+            now_playing_details: NowPlayingDetails::Album,
             liked_enabled: true,
             playlists_enabled: true,
             show_track_duration: true,
@@ -1255,6 +1278,7 @@ mod tests {
         let back: UserSettings = serde_json::from_str(&json).unwrap();
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
         assert_eq!(back.font_scale, FontScale::Large);
+        assert_eq!(back.now_playing_details, NowPlayingDetails::Album);
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
         assert_eq!(back.albums_layout, AlbumsLayout::Grid);
         assert_eq!(

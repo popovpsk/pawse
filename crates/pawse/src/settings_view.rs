@@ -24,8 +24,8 @@ use ui_resources::i18n::Lang;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::{
-    AlbumsArtistDisplay, AlbumsLayout, BlurBackground, FontScale, LangChoice, SettingsStore,
-    ThemeChoice, apply_font_scale, apply_theme, notify_save_error,
+    AlbumsArtistDisplay, AlbumsLayout, BlurBackground, FontScale, LangChoice, NowPlayingDetails,
+    SettingsStore, ThemeChoice, apply_font_scale, apply_theme, notify_save_error,
 };
 use crate::theme_colors::Colors;
 use music_library::ArtistGrouping;
@@ -229,7 +229,8 @@ pub fn build_settings_pages(
             .group(artists_view_group())
             .group(cover_view_group())
             .group(queue_group())
-            .group(lyrics_group(sliders.lyrics)),
+            .group(lyrics_group(sliders.lyrics))
+            .group(now_playing_group()),
     ];
     let mut general =
         SettingPage::new(tr().settings_general.clone()).group(general_group(remote_port_input));
@@ -734,6 +735,61 @@ fn discord_group() -> SettingGroup {
                 }),
             )
             .description(tr().discord_share_desc.clone()),
+        )
+}
+
+fn now_playing_group() -> SettingGroup {
+    SettingGroup::new()
+        .title(tr().settings_now_playing.clone())
+        .item(
+            SettingItem::new(
+                tr().now_playing_details.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let current = cx.global::<SettingsStore>().now_playing_details();
+                    h_flex().items_center().justify_end().child(
+                        ButtonGroup::new("now-playing-details-group")
+                            .small()
+                            .child(
+                                Button::new("now-playing-details-specs")
+                                    .label(tr().now_playing_details_specs.clone())
+                                    .selected(current == NowPlayingDetails::Specs),
+                            )
+                            .child(
+                                Button::new("now-playing-details-year")
+                                    .label(tr().album_year.clone())
+                                    .selected(current == NowPlayingDetails::Year),
+                            )
+                            .child(
+                                Button::new("now-playing-details-album")
+                                    .label(tr().now_playing_details_album.clone())
+                                    .selected(current == NowPlayingDetails::Album),
+                            )
+                            .child(
+                                Button::new("now-playing-details-hidden")
+                                    .label(tr().albums_artist_hidden.clone())
+                                    .selected(current == NowPlayingDetails::Hidden),
+                            )
+                            .on_click(|clicks: &Vec<usize>, _, cx| {
+                                let Some(&ix) = clicks.first() else {
+                                    return;
+                                };
+                                let details = match ix {
+                                    1 => NowPlayingDetails::Year,
+                                    2 => NowPlayingDetails::Album,
+                                    3 => NowPlayingDetails::Hidden,
+                                    _ => NowPlayingDetails::Specs,
+                                };
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_now_playing_details(details)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().now_playing_details_desc.clone()),
         )
 }
 

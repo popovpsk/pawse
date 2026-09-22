@@ -22,6 +22,19 @@ const SLIDER_MAX_W: f32 = 400.0;
 // now_playing(200) + queue+vol(200) + footer px_4(32) + gaps(32) + slider row px_4(32)
 const FOOTER_FIXED_W: f32 = 496.0;
 
+fn labels_width(rem: f32, show_labels: bool) -> f32 {
+    if show_labels {
+        2.0 * (rem * 2.6) + 2.0 * (rem * 0.75)
+    } else {
+        0.0
+    }
+}
+
+pub fn row_content_width(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
+    let labels_w = labels_width(rem, show_labels);
+    labels_w + (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W)
+}
+
 pub struct TrackProgressSlider {
     duration_secs: f32,
     duration_str: SharedString,
@@ -45,12 +58,8 @@ impl Render for TrackProgressSlider {
         let viewport_w = f32::from(window.viewport_size().width);
         let rem = f32::from(window.rem_size());
         let label_w = rem * 2.6;
-        let labels_w = if show_labels {
-            2.0 * label_w + 2.0 * (rem * 0.75)
-        } else {
-            0.0
-        };
-        let slider_w = (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W);
+        let labels_w = labels_width(rem, show_labels);
+        let slider_w = row_content_width(viewport_w, rem, show_labels) - labels_w;
         let text_secondary = Colors::muted_foreground(cx);
         h_flex()
             .gap_3()

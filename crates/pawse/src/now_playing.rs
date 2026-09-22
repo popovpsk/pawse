@@ -2,16 +2,15 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use audio_engine::EngineEvent;
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
-    px,
+    AnyElement, Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
+    div, img, px,
 };
 use gpui_component::{h_flex, v_flex};
 
 use crate::library_service::LibraryEvent;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{NowPlayingDetails, SettingsStore};
 use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
 
@@ -31,6 +30,8 @@ pub struct NowPlaying {
     track_title: SharedString,
     artists: Vec<(i64, SharedString)>,
     album_id: Option<i64>,
+    album_title: SharedString,
+    year: Option<SharedString>,
     cover_art_id: Option<i64>,
     cover_image: Option<Arc<Image>>,
     specs: SharedString,
@@ -129,6 +130,8 @@ impl NowPlaying {
             track_title: SharedString::default(),
             artists: Vec::new(),
             album_id: None,
+            album_title: SharedString::default(),
+            year: None,
             cover_art_id: None,
             cover_image: None,
             specs: SharedString::default(),
@@ -174,10 +177,16 @@ impl NowPlaying {
             let cover = track.cover_art_id;
             let album_id = track.album_id;
             let bitrate = track.bitrate;
+            let year = track.year;
             drop(queue);
             self.track_title = title.into();
             self.cover_art_id = cover;
             self.album_id = album_id;
+            self.album_title = album_id
+                .and_then(|id| services.library.album_title(id))
+                .map(SharedString::from)
+                .unwrap_or_default();
+            self.year = year.map(|y| SharedString::from(y.to_string()));
             self.specs =
                 SharedString::from(format_specs(sample_rate, bit_depth, bitrate, dsd_rate));
             self.artists = services
@@ -197,10 +206,65 @@ impl NowPlaying {
         cx.notify();
     }
 
+    fn details_line(
+        &self,
+        details: NowPlayingDetails,
+        max_w: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let muted_fg = Colors::muted_foreground(cx);
+        let line = |text: SharedString| {
+            div()
+                .max_w(px(max_w))
+                .text_xs()
+                .text_color(muted_fg)
+                .truncate()
+                .child(text)
+        };
+        match details {
+            NowPlayingDetails::Specs => (!self.specs.is_empty()).then(|| {
+                div()
+                    .max_w(px(max_w))
+                    .text_xs()
+                    .text_color(muted_fg)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(self.specs.clone())
+                    .into_any_element()
+            }),
+            NowPlayingDetails::Year => self.year.clone().map(|year| line(year).into_any_element()),
+            NowPlayingDetails::Album => {
+                let album_id = self.album_id?;
+                if self.album_title.is_empty() {
+                    return None;
+                }
+                Some(
+                    div()
+                        .id("np_album")
+                        .max_w(px(max_w))
+                        .text_xs()
+                        .text_color(muted_fg)
+                        .truncate()
+                        .cursor_pointer()
+                        .border_b(px(1.))
+                        .hover(|s| s.border_color(muted_fg))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.emit(NavigateToAlbumRequested { album_id });
+                        }))
+                        .child(self.album_title.clone())
+                        .into_any_element(),
+                )
+            }
+            NowPlayingDetails::Hidden => None,
+        }
+    }
+
     fn clear(&mut self) {
         self.track_title = SharedString::default();
         self.artists.clear();
         self.album_id = None;
+        self.album_title = SharedString::default();
+        self.year = None;
         self.cover_art_id = None;
         self.cover_image = None;
         self.specs = SharedString::default();
@@ -215,12 +279,34 @@ impl Render for NowPlaying {
         let album_id = self.album_id;
         let track_title = self.track_title.clone();
         let foreground = Colors::foreground(cx);
-        let scale = cx.global::<SettingsStore>().font_scale().ui_scale();
+        let settings = cx.global::<SettingsStore>();
+        let scale = settings.font_scale().ui_scale();
+        let show_time_labels = settings.show_time_labels();
+        let transport_buttons = if settings.show_repeat_shuffle() {
+            5.
+        } else {
+            3.
+        };
+        let details = settings.now_playing_details();
         let viewport_w = f32::from(window.viewport_size().width);
-        let text_w = ((viewport_w - 800.0) * 0.5 + 220.0)
-            .clamp(220.0, 460.0)
-            .max(132. * scale);
+        let rem = f32::from(window.rem_size());
         let cover_size = 56. * scale;
+        let left_of = |x: f32, margin: f32| {
+            (x - rem - cover_size - rem * 0.75 - margin).clamp(96. * scale, 460.)
+        };
+        let progress_left = (viewport_w
+            - crate::track_progress_slider::row_content_width(viewport_w, rem, show_time_labels))
+            * 0.5;
+        let buttons_left =
+            (viewport_w - (transport_buttons * 36. + (transport_buttons - 1.) * rem * 0.5)) * 0.5;
+        let text_w = left_of(buttons_left, rem * 0.5);
+        let line_w = left_of(progress_left, rem * 0.75);
+        let details_line = self.details_line(details, line_w, cx);
+        let artists_w = if details_line.is_some() {
+            text_w
+        } else {
+            line_w
+        };
         let cover_radius = 6. * scale;
 
         h_flex()
@@ -292,39 +378,40 @@ impl Render for NowPlaying {
                                 .truncate()
                                 .into_any_element()
                         } else {
-                            let mut row = h_flex().overflow_hidden().flex_wrap();
+                            let mut row = h_flex().overflow_hidden().max_w(px(artists_w));
+                            let last = self.artists.len() - 1;
                             for (i, (artist_id, name)) in self.artists.iter().enumerate() {
                                 if i > 0 {
-                                    row =
-                                        row.child(div().text_xs().text_color(muted_fg).child(", "));
+                                    row = row.child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .text_xs()
+                                            .text_color(muted_fg)
+                                            .child(", "),
+                                    );
                                 }
                                 let artist_id = *artist_id;
-                                row = row.child(
-                                    div()
-                                        .id(("np_artist", artist_id as u64))
-                                        .text_xs()
-                                        .text_color(muted_fg)
-                                        .cursor_pointer()
-                                        .border_b(px(1.))
-                                        .hover(|s| s.border_color(muted_fg))
-                                        .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.emit(NavigateToArtistRequested { artist_id });
-                                        }))
-                                        .child(name.clone()),
-                                );
+                                let item = div()
+                                    .id(("np_artist", artist_id as u64))
+                                    .text_xs()
+                                    .text_color(muted_fg)
+                                    .cursor_pointer()
+                                    .border_b(px(1.))
+                                    .hover(|s| s.border_color(muted_fg))
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.emit(NavigateToArtistRequested { artist_id });
+                                    }))
+                                    .child(name.clone());
+                                row = row.child(if i == last {
+                                    item.min_w(px(0.)).overflow_hidden().text_ellipsis()
+                                } else {
+                                    item.flex_shrink_0()
+                                });
                             }
                             row.into_any_element()
                         }
                     })
-                    .when(!self.specs.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .text_color(Colors::muted_foreground(cx))
-                                .truncate()
-                                .child(self.specs.clone()),
-                        )
-                    }),
+                    .children(details_line),
             )
     }
 }
