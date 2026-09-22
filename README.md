@@ -36,7 +36,7 @@ macOS · Windows · Linux
 ## Features
 
 - **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an untouched signal path on every platform: **exclusive output** on Windows and macOS, and **native sample rate** on Linux.
-- **Modern, fluid UI** — a clean, easy-to-use interface that stays smooth at 120+ fps.
+- **Modern, fluid, customizable UI** — a clean, easy-to-use interface that stays smooth at 120+ fps, and strips down to your taste: hide the controls, labels and columns you never use, element by element.
 - **Themes & languages** — 20+ built-in themes and 20 UI languages.
 - **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, DSD (DSF/DFF, decoded to PCM), and more.
 - **CUE sheets** — single-file albums are split into individual tracks automatically.
@@ -45,8 +45,9 @@ macOS · Windows · Linux
 - **Lyrics** — time-synced lyrics from your files or fetched online.
 - **Remote control** — control playback from any device on your network through a built-in HTTP web view.
 - **System media integration** — control playback from your OS media controls and hardware media keys.
-- **Last.fm & Discord** — scrobble everything you play to Last.fm, and show what you're listening to as your Discord status.
-- **The little things** — click-free fades on pause and seek, artist grouping by album artist (with per-track fallback), keyboard shortcuts, a blurred cover backdrop, queue de-duplication, and a UI you can strip down element by element — small comforts that add up to a player you actually want to live in.
+- **Scrobbling** — Last.fm, Libre.fm, ListenBrainz (including a custom server) and a local CSV log, all at once, each enabled and configured on its own. Import loved tracks from a service into Liked, or optionally sync your likes back to it.
+- **Discord** — show what you're listening to as your Discord status.
+- **The little things** — click-free fades on pause and seek, artist grouping by album artist (with per-track fallback), keyboard shortcuts, a blurred cover backdrop, and queue de-duplication — small comforts that add up to a player you actually want to live in.
 
 ## Download
 
