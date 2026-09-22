@@ -2,6 +2,7 @@ use gpui::{Hsla, IntoElement, ParentElement, Styled, div, px, svg};
 
 pub fn cover_placeholder(size: f32, radius: f32, bg: Hsla, fg: Hsla) -> impl IntoElement {
     div()
+        .flex_shrink_0()
         .w(px(size))
         .h(px(size))
         .rounded(px(radius))

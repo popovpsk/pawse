@@ -27,6 +27,7 @@ pub struct NavigateToArtistRequested {
 }
 
 pub struct NowPlaying {
+    has_track: bool,
     track_title: SharedString,
     artists: Vec<(i64, SharedString)>,
     album_id: Option<i64>,
@@ -127,6 +128,7 @@ impl NowPlaying {
             });
 
         let mut this = Self {
+            has_track: false,
             track_title: SharedString::default(),
             artists: Vec::new(),
             album_id: None,
@@ -179,6 +181,7 @@ impl NowPlaying {
             let bitrate = track.bitrate;
             let year = track.year;
             drop(queue);
+            self.has_track = true;
             self.track_title = title.into();
             self.cover_art_id = cover;
             self.album_id = album_id;
@@ -260,6 +263,7 @@ impl NowPlaying {
     }
 
     fn clear(&mut self) {
+        self.has_track = false;
         self.track_title = SharedString::default();
         self.artists.clear();
         self.album_id = None;
@@ -281,6 +285,9 @@ impl Render for NowPlaying {
         let foreground = Colors::foreground(cx);
         let settings = cx.global::<SettingsStore>();
         let scale = settings.font_scale().ui_scale();
+        if !self.has_track {
+            return h_flex().w(px(200. * scale)).into_any_element();
+        }
         let show_time_labels = settings.show_time_labels();
         let transport_buttons = if settings.show_repeat_shuffle() {
             5.
@@ -413,6 +420,7 @@ impl Render for NowPlaying {
                     })
                     .children(details_line),
             )
+            .into_any_element()
     }
 }
 
