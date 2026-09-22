@@ -76,9 +76,17 @@ Unsigned here too: in the SmartScreen dialog click *More info* → *Run anyway*.
 
 ### Linux
 
-**AppImage** — recommended: one file, runs on any distro, needs no install, and updates itself. Grab [**x86_64**](https://popovpsk.github.io/pawse/dl/linux-x86_64-appimage) or [**ARM64**](https://popovpsk.github.io/pawse/dl/linux-arm64-appimage), then `chmod +x` it and launch.
+|  | x86_64 | ARM64 |
+|---|---|---|
+| **AppImage** *(recommended, self-updating)* — one file, runs on any distro | [**download**](https://popovpsk.github.io/pawse/dl/linux-x86_64-appimage) | [**download**](https://popovpsk.github.io/pawse/dl/linux-arm64-appimage) |
+| **.deb** — Debian, Ubuntu, Mint | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-deb) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-deb) |
+| **pacman `.tar.gz`** — Arch, via `pacman -U` | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-pacman) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-pacman) |
 
-**Flatpak** — signed and sandboxed, updated together with everything else on your system. No self-update inside the app; it arrives with `flatpak update`.
+`chmod +x` the AppImage and launch it — it checks for new releases and updates itself. The `.deb` and pacman files are plain one-off packages, not a repository, so grab a new one when a release lands.
+
+Prefer something your system manages?
+
+**Flatpak** — signed and sandboxed, updated together with everything else. No self-update inside the app; it arrives with `flatpak update`.
 
 ```sh
 flatpak install --user https://popovpsk.github.io/pawse/pawse.flatpakref
@@ -86,13 +94,6 @@ flatpak run io.github.popovpsk.pawse
 ```
 
 **[AM](https://github.com/ivan-hc/AM)** catalog — `am -i pawse`, or `appman -i pawse` without root.
-
-Or a distro package, if you'd rather have it managed:
-
-|  | x86_64 | ARM64 |
-|---|---|---|
-| **.deb** — Debian, Ubuntu, Mint | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-deb) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-deb) |
-| **pacman `.tar.gz`** — Arch, via `pacman -U` | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-pacman) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-pacman) |
 
 ## Building from source
 
