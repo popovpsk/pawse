@@ -8,7 +8,7 @@
 
 macOS · Windows · Linux
 
-[Download](https://github.com/popovpsk/pawse/releases) · [Build from source](#building-from-source)
+[Download](#download) · [Build from source](#building-from-source)
 
 </div>
 
@@ -50,11 +50,49 @@ macOS · Windows · Linux
 
 ## Download
 
-Grab the latest build from the [**Releases**](https://github.com/popovpsk/pawse/releases) page.
+### macOS
 
-- **macOS** — move `Pawse.app` to Applications and open it. On first launch, if macOS blocks it, go to **System Settings → Privacy & Security** and click **Open Anyway**.
-- **Windows** — run the installer for your CPU (`x64-setup.exe`, or `arm64-installer.exe` on Snapdragon machines). In the SmartScreen dialog click *More info* → *Run anyway*. There's also a `-portable.zip` that runs unpacked from anywhere; it doesn't update itself, so grab a new one when a release lands.
-- **Linux** — `chmod +x` the `.AppImage` and run it (it updates itself), or install the `.deb`. It's also in the [AM](https://github.com/ivan-hc/AM) catalog: `am -i pawse`, or `appman -i pawse` without root.
+**Apple Silicon (M1 and newer)** — [**Pawse.dmg**](https://popovpsk.github.io/pawse/dl/macos-arm64)
+
+Open the dmg and move `Pawse.app` to Applications. Builds are unsigned, so macOS blocks the first launch — clear it either way:
+
+- Launch Pawse, then open **System Settings → Privacy & Security**, find the message about Pawse near the bottom and click **Open Anyway**.
+- Or drop the quarantine flag from a terminal and launch normally:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Pawse.app
+  ```
+
+After that it opens like any other app, and updates install themselves.
+
+### Windows
+
+|  | Installer *(recommended, self-updating)* | Portable *(no install, no updates)* |
+|---|---|---|
+| **x64** — almost every PC | [**x64-setup.exe**](https://popovpsk.github.io/pawse/dl/windows-x64) | [x64-portable.zip](https://popovpsk.github.io/pawse/dl/windows-x64-portable) |
+| **ARM64** — Snapdragon laptops | [**arm64-installer.exe**](https://popovpsk.github.io/pawse/dl/windows-arm64) | [arm64-portable.zip](https://popovpsk.github.io/pawse/dl/windows-arm64-portable) |
+
+Unsigned here too: in the SmartScreen dialog click *More info* → *Run anyway*. The portable zip runs unpacked from anywhere but never updates itself, so grab a new one when a release lands.
+
+### Linux
+
+**AppImage** — recommended: one file, runs on any distro, needs no install, and updates itself. Grab [**x86_64**](https://popovpsk.github.io/pawse/dl/linux-x86_64-appimage) or [**ARM64**](https://popovpsk.github.io/pawse/dl/linux-arm64-appimage), then `chmod +x` it and launch.
+
+**Flatpak** — signed and sandboxed, updated together with everything else on your system. No self-update inside the app; it arrives with `flatpak update`.
+
+```sh
+flatpak install --user https://popovpsk.github.io/pawse/pawse.flatpakref
+flatpak run io.github.popovpsk.pawse
+```
+
+**[AM](https://github.com/ivan-hc/AM)** catalog — `am -i pawse`, or `appman -i pawse` without root.
+
+Or a distro package, if you'd rather have it managed:
+
+|  | x86_64 | ARM64 |
+|---|---|---|
+| **.deb** — Debian, Ubuntu, Mint | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-deb) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-deb) |
+| **pacman `.tar.gz`** — Arch, via `pacman -U` | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-pacman) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-pacman) |
 
 ## Building from source
 
