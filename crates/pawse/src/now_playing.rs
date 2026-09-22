@@ -4,9 +4,9 @@ use std::sync::atomic::Ordering;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img,
-    px, rems,
+    px,
 };
 use gpui_component::{h_flex, v_flex};
 
@@ -14,7 +14,6 @@ use crate::library_service::LibraryEvent;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 use ui_components::cover_placeholder::cover_placeholder;
-use ui_components::fade::{FadeEdge, fade_overlay};
 
 use crate::services::Services;
 
@@ -34,8 +33,6 @@ pub struct NowPlaying {
     album_id: Option<i64>,
     cover_art_id: Option<i64>,
     cover_image: Option<Arc<Image>>,
-    shaped_title_w: Option<Pixels>,
-    shaped_at_rem: Pixels,
     specs: SharedString,
     _subscription: Subscription,
     _library_subscription: Subscription,
@@ -134,8 +131,6 @@ impl NowPlaying {
             album_id: None,
             cover_art_id: None,
             cover_image: None,
-            shaped_title_w: None,
-            shaped_at_rem: px(0.),
             specs: SharedString::default(),
             _subscription: subscription,
             _library_subscription: library_subscription,
@@ -181,7 +176,6 @@ impl NowPlaying {
             let bitrate = track.bitrate;
             drop(queue);
             self.track_title = title.into();
-            self.shaped_title_w = None;
             self.cover_art_id = cover;
             self.album_id = album_id;
             self.specs =
@@ -205,7 +199,6 @@ impl NowPlaying {
 
     fn clear(&mut self) {
         self.track_title = SharedString::default();
-        self.shaped_title_w = None;
         self.artists.clear();
         self.album_id = None;
         self.cover_art_id = None;
@@ -219,38 +212,14 @@ impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let viewport_w = f32::from(window.viewport_size().width);
-        let title_max_w = ((viewport_w - 800.0) * 0.5 + 220.0).clamp(220.0, 460.0);
-
-        let title_overflows = if self.track_title.is_empty() {
-            false
-        } else {
-            let rem_size = window.rem_size();
-            let shaped_w = match self.shaped_title_w {
-                Some(w) if self.shaped_at_rem == rem_size => w,
-                _ => {
-                    let font_size = rems(0.875).to_pixels(rem_size);
-                    let mut text_style = window.text_style();
-                    text_style.font_weight = gpui::FontWeight::SEMIBOLD;
-                    let run = text_style.to_run(self.track_title.len());
-                    let shaped = window.text_system().shape_line(
-                        self.track_title.clone(),
-                        font_size,
-                        &[run],
-                        None,
-                    );
-                    self.shaped_title_w = Some(shaped.width);
-                    self.shaped_at_rem = rem_size;
-                    shaped.width
-                }
-            };
-            shaped_w > px(title_max_w)
-        };
-
         let album_id = self.album_id;
         let track_title = self.track_title.clone();
         let foreground = Colors::foreground(cx);
         let scale = cx.global::<SettingsStore>().font_scale().ui_scale();
+        let viewport_w = f32::from(window.viewport_size().width);
+        let text_w = ((viewport_w - 800.0) * 0.5 + 220.0)
+            .clamp(220.0, 460.0)
+            .max(132. * scale);
         let cover_size = 56. * scale;
         let cover_radius = 6. * scale;
 
@@ -287,42 +256,31 @@ impl Render for NowPlaying {
             })
             .child(
                 v_flex()
-                    .w(px(132. * scale))
+                    .flex_shrink_0()
+                    .w(px(text_w))
                     .items_start()
                     .child({
-                        let title_inner = div()
-                            .whitespace_nowrap()
+                        let title = div()
+                            .max_w_full()
+                            .truncate()
                             .text_sm()
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(track_title);
 
-                        let title_container = div()
-                            .relative()
-                            .max_w(px(title_max_w))
-                            .overflow_hidden()
-                            .child(title_inner)
-                            .when(title_overflows, |this| {
-                                this.child(fade_overlay(
-                                    FadeEdge::Right,
-                                    Colors::background(cx),
-                                    20.0,
-                                    0.0,
-                                ))
-                            });
-
                         if let Some(aid) = album_id {
                             div()
                                 .id("np_title")
+                                .max_w_full()
                                 .cursor_pointer()
                                 .border_b(px(1.))
                                 .hover(|s| s.border_color(foreground))
                                 .on_click(cx.listener(move |_, _, _, cx| {
                                     cx.emit(NavigateToAlbumRequested { album_id: aid });
                                 }))
-                                .child(title_container)
+                                .child(title)
                                 .into_any_element()
                         } else {
-                            title_container.into_any_element()
+                            title.into_any_element()
                         }
                     })
                     .child({

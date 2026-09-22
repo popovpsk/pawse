@@ -10,7 +10,6 @@ can depend on it without cycles.
 - `slider.rs` — Horizontal slider with `live_update` and non-live modes, tooltip, thumb visibility.
 - `artist_avatar.rs` — Stacked 3‑cover composite (up to 3 `Arc<Image>` layers, oldest on top).
 - `cover_placeholder.rs` — `cover_placeholder(size, radius, bg, fg)` — inline SVG placeholder for missing album art.
-- `fade.rs` — `FadeEdge` + `fade_overlay(edge, color, size_px, offset_px)` — gradient overlay pinned to one edge of a `relative` container, hides scrolling content.
 
 ---
 

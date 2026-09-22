@@ -40,7 +40,7 @@ impl Colors {
     pub fn muted(cx: &App) -> Hsla {
         cx.theme().muted
     }
-    /// Central content area and fade overlays.
+    /// Central content area.
     pub fn background(cx: &App) -> Hsla {
         cx.theme().background
     }
