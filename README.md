@@ -37,7 +37,7 @@ macOS · Windows · Linux
 
 - **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an untouched signal path on every platform: **exclusive output** on Windows and macOS, and **native sample rate** on Linux.
 - **Modern, fluid, customizable UI** — a clean, easy-to-use interface that stays smooth at 120+ fps, and strips down to your taste: hide the controls, labels and columns you never use, element by element.
-- **Themes & languages** — 20+ built-in themes and 20 UI languages.
+- **Themes & languages** — 20+ built-in themes and 20 UI languages, with an option for any theme to follow the cover art.
 - **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, DSD (DSF/DFF, decoded to PCM), and more.
 - **CUE sheets** — single-file albums are split into individual tracks automatically.
 - **Instant fuzzy search** — find any album, artist or track as you type.
