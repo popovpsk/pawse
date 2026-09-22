@@ -52,7 +52,7 @@ macOS · Windows · Linux
 
 ### macOS
 
-**Apple Silicon (M1 and newer)** — [**Pawse.dmg**](https://popovpsk.github.io/pawse/dl/macos-arm64)
+**Apple Silicon (M1 and newer)** — [`arm64-dmg`](https://popovpsk.github.io/pawse/dl/macos-arm64)
 
 Open the dmg and move `Pawse.app` to Applications. Builds are unsigned, so macOS blocks the first launch — clear it either way:
 
@@ -67,20 +67,20 @@ After that it opens like any other app, and updates install themselves.
 
 ### Windows
 
-|  | Installer *(recommended, self-updating)* | Portable *(no install, no updates)* |
+|  | x64 *(almost every PC)* | ARM64 *(Snapdragon laptops)* |
 |---|---|---|
-| **x64** — almost every PC | [**x64-setup.exe**](https://popovpsk.github.io/pawse/dl/windows-x64) | [x64-portable.zip](https://popovpsk.github.io/pawse/dl/windows-x64-portable) |
-| **ARM64** — Snapdragon laptops | [**arm64-installer.exe**](https://popovpsk.github.io/pawse/dl/windows-arm64) | [arm64-portable.zip](https://popovpsk.github.io/pawse/dl/windows-arm64-portable) |
+| **Installer** *(recommended, self-updating)* | [`x64-installer`](https://popovpsk.github.io/pawse/dl/windows-x64) | [`arm64-installer`](https://popovpsk.github.io/pawse/dl/windows-arm64) |
+| **Portable** — runs unpacked from anywhere | [`x64-portable`](https://popovpsk.github.io/pawse/dl/windows-x64-portable) | [`arm64-portable`](https://popovpsk.github.io/pawse/dl/windows-arm64-portable) |
 
-Unsigned here too: in the SmartScreen dialog click *More info* → *Run anyway*. The portable zip runs unpacked from anywhere but never updates itself, so grab a new one when a release lands.
+Unsigned here too: in the SmartScreen dialog click *More info* → *Run anyway*. The portable zip never updates itself, so grab a new one when a release lands.
 
 ### Linux
 
 |  | x86_64 | ARM64 |
 |---|---|---|
-| **AppImage** *(recommended, self-updating)* — one file, runs on any distro | [**download**](https://popovpsk.github.io/pawse/dl/linux-x86_64-appimage) | [**download**](https://popovpsk.github.io/pawse/dl/linux-arm64-appimage) |
-| **.deb** — Debian, Ubuntu, Mint | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-deb) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-deb) |
-| **pacman `.tar.gz`** — Arch, via `pacman -U` | [download](https://popovpsk.github.io/pawse/dl/linux-x86_64-pacman) | [download](https://popovpsk.github.io/pawse/dl/linux-arm64-pacman) |
+| **AppImage** *(recommended, self-updating)* — one file, runs on any distro | [`x86_64-appimage`](https://popovpsk.github.io/pawse/dl/linux-x86_64-appimage) | [`arm64-appimage`](https://popovpsk.github.io/pawse/dl/linux-arm64-appimage) |
+| **Debian package** — Debian, Ubuntu, Mint | [`x86_64-deb`](https://popovpsk.github.io/pawse/dl/linux-x86_64-deb) | [`arm64-deb`](https://popovpsk.github.io/pawse/dl/linux-arm64-deb) |
+| **pacman package** — Arch, via `pacman -U` | [`x86_64-pacman`](https://popovpsk.github.io/pawse/dl/linux-x86_64-pacman) | [`arm64-pacman`](https://popovpsk.github.io/pawse/dl/linux-arm64-pacman) |
 
 `chmod +x` the AppImage and launch it — it checks for new releases and updates itself. The `.deb` and pacman files are plain one-off packages, not a repository, so grab a new one when a release lands.
 
