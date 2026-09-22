@@ -77,6 +77,8 @@ pub static EN: Strings = lang! {
     settings_library: "Library",
     theme: "Theme",
     theme_desc: "Color scheme for the application",
+    dynamic_theme: "Adapt theme to cover art",
+    dynamic_theme_desc: "Recolours the interface to match the current album cover — light or dark scheme and the accent. Covers with no distinct colour keep your chosen theme.",
     system: "System",
     language: "Language",
     language_desc: "Language for the application interface",
@@ -173,6 +175,7 @@ pub static EN: Strings = lang! {
     check_for_updates: "Check for Updates...",
     automatic_updates: "Automatic updates",
     automatic_updates_desc: "Automatically check for updates on launch",
+    version: "Version",
     restart_to_update: "Restart to update",
     up_to_date: "Pawse is up to date",
 

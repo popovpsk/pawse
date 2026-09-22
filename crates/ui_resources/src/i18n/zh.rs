@@ -77,6 +77,8 @@ pub static ZH: Strings = lang! {
     settings_library: "音乐库",
     theme: "主题",
     theme_desc: "应用程序的配色方案",
+    dynamic_theme: "主题跟随封面",
+    dynamic_theme_desc: "根据当前专辑封面调整界面配色：明亮或暗色方案以及强调色。封面没有明显主色时，将保留你选择的主题。",
     system: "跟随系统",
     language: "语言",
     language_desc: "应用程序界面语言",
@@ -173,6 +175,7 @@ pub static ZH: Strings = lang! {
     check_for_updates: "检查更新...",
     automatic_updates: "自动更新",
     automatic_updates_desc: "启动时自动检查更新",
+    version: "版本",
     restart_to_update: "重启以更新",
     up_to_date: "Pawse 已是最新版本",
 

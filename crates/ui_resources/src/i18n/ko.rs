@@ -77,6 +77,8 @@ pub static KO: Strings = lang! {
     settings_library: "라이브러리",
     theme: "테마",
     theme_desc: "애플리케이션 색상 구성표",
+    dynamic_theme: "커버에 맞춘 테마",
+    dynamic_theme_desc: "재생 중인 앨범 커버에 맞춰 인터페이스 색상(밝은/어두운 배색과 강조색)을 조정합니다. 뚜렷한 색이 없는 커버에서는 선택한 테마가 그대로 유지됩니다.",
     system: "시스템",
     language: "언어",
     language_desc: "애플리케이션 인터페이스 언어",
@@ -173,6 +175,7 @@ pub static KO: Strings = lang! {
     check_for_updates: "업데이트 확인...",
     automatic_updates: "자동 업데이트",
     automatic_updates_desc: "시작 시 자동으로 업데이트 확인",
+    version: "버전",
     restart_to_update: "업데이트하려면 다시 시작",
     up_to_date: "Pawse가 최신 상태입니다",
 

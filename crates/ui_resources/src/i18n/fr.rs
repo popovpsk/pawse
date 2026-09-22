@@ -77,6 +77,8 @@ pub static FR: Strings = lang! {
     settings_library: "Bibliothèque",
     theme: "Thème",
     theme_desc: "Palette de couleurs de l'application",
+    dynamic_theme: "Thème d'après la pochette",
+    dynamic_theme_desc: "Adapte les couleurs de l'interface à la pochette de l'album en cours : schéma clair ou sombre et couleur d'accent. Si la pochette n'a pas de couleur marquée, le thème choisi est conservé.",
     system: "Système",
     language: "Langue",
     language_desc: "Langue de l'interface de l'application",
@@ -173,6 +175,7 @@ pub static FR: Strings = lang! {
     check_for_updates: "Rechercher des mises à jour...",
     automatic_updates: "Mises à jour automatiques",
     automatic_updates_desc: "Rechercher automatiquement les mises à jour au démarrage",
+    version: "Version",
     restart_to_update: "Redémarrer pour mettre à jour",
     up_to_date: "Pawse est à jour",
 

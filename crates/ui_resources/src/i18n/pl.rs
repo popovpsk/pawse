@@ -77,6 +77,8 @@ pub static PL: Strings = lang! {
     settings_library: "Biblioteka",
     theme: "Motyw",
     theme_desc: "Schemat kolorów aplikacji",
+    dynamic_theme: "Motyw według okładki",
+    dynamic_theme_desc: "Dopasowuje kolory interfejsu do okładki bieżącego albumu — jasny lub ciemny schemat oraz kolor akcentu. Przy okładkach bez wyrazistego koloru pozostaje wybrany motyw.",
     system: "Systemowy",
     language: "Język",
     language_desc: "Język interfejsu aplikacji",
@@ -173,6 +175,7 @@ pub static PL: Strings = lang! {
     check_for_updates: "Sprawdź aktualizacje...",
     automatic_updates: "Aktualizacje automatyczne",
     automatic_updates_desc: "Automatycznie sprawdzaj aktualizacje przy uruchamianiu",
+    version: "Wersja",
     restart_to_update: "Uruchom ponownie, aby zaktualizować",
     up_to_date: "Pawse jest aktualny",
 

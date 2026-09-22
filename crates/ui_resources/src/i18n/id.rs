@@ -77,6 +77,8 @@ pub static ID: Strings = lang! {
     settings_library: "Pustaka",
     theme: "Tema",
     theme_desc: "Skema warna aplikasi",
+    dynamic_theme: "Tema mengikuti sampul",
+    dynamic_theme_desc: "Menyesuaikan warna antarmuka dengan sampul album yang sedang diputar — skema terang atau gelap dan warna aksen. Sampul tanpa warna yang menonjol tetap memakai tema pilihan Anda.",
     system: "Sistem",
     language: "Bahasa",
     language_desc: "Bahasa antarmuka aplikasi",
@@ -173,6 +175,7 @@ pub static ID: Strings = lang! {
     check_for_updates: "Periksa pembaruan...",
     automatic_updates: "Pembaruan otomatis",
     automatic_updates_desc: "Periksa pembaruan secara otomatis saat memulai",
+    version: "Versi",
     restart_to_update: "Mulai ulang untuk memperbarui",
     up_to_date: "Pawse sudah versi terbaru",
 

@@ -77,6 +77,8 @@ pub static SV: Strings = lang! {
     settings_library: "Bibliotek",
     theme: "Tema",
     theme_desc: "Färgschema för applikationen",
+    dynamic_theme: "Tema efter omslaget",
+    dynamic_theme_desc: "Anpassar gränssnittets färger efter det aktuella albumets omslag – ljust eller mörkt schema och accentfärg. Omslag utan tydlig färg behåller ditt valda tema.",
     system: "System",
     language: "Språk",
     language_desc: "Språk för applikationens gränssnitt",
@@ -173,6 +175,7 @@ pub static SV: Strings = lang! {
     check_for_updates: "Sök efter uppdateringar...",
     automatic_updates: "Automatiska uppdateringar",
     automatic_updates_desc: "Sök automatiskt efter uppdateringar vid start",
+    version: "Version",
     restart_to_update: "Starta om för att uppdatera",
     up_to_date: "Pawse är uppdaterat",
 

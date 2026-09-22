@@ -77,6 +77,8 @@ pub static UK: Strings = lang! {
     settings_library: "Медіатека",
     theme: "Тема",
     theme_desc: "Колірна схема застосунку",
+    dynamic_theme: "Тема за обкладинкою",
+    dynamic_theme_desc: "Добирає кольори інтерфейсу до обкладинки поточного альбому — світлу чи темну схему та акцент. Якщо в обкладинці немає виразного кольору, залишиться вибрана тема.",
     system: "Системна",
     language: "Мова",
     language_desc: "Мова інтерфейсу застосунку",
@@ -173,6 +175,7 @@ pub static UK: Strings = lang! {
     check_for_updates: "Перевірити оновлення...",
     automatic_updates: "Автоматичні оновлення",
     automatic_updates_desc: "Автоматично перевіряти оновлення під час запуску",
+    version: "Версія",
     restart_to_update: "Перезапустити для оновлення",
     up_to_date: "Встановлено останню версію Pawse",
 

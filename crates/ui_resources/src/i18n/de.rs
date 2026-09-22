@@ -77,6 +77,8 @@ pub static DE: Strings = lang! {
     settings_library: "Bibliothek",
     theme: "Design",
     theme_desc: "Farbschema der Anwendung",
+    dynamic_theme: "Theme an Cover anpassen",
+    dynamic_theme_desc: "Färbt die Oberfläche passend zum Cover des aktuellen Albums – helles oder dunkles Schema und Akzentfarbe. Bei Covern ohne markante Farbe bleibt das gewählte Theme erhalten.",
     system: "System",
     language: "Sprache",
     language_desc: "Sprache der Benutzeroberfläche",
@@ -173,6 +175,7 @@ pub static DE: Strings = lang! {
     check_for_updates: "Nach Updates suchen...",
     automatic_updates: "Automatische Updates",
     automatic_updates_desc: "Beim Start automatisch nach Updates suchen",
+    version: "Version",
     restart_to_update: "Zum Aktualisieren neu starten",
     up_to_date: "Pawse ist aktuell",
 

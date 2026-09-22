@@ -77,6 +77,8 @@ pub static IT: Strings = lang! {
     settings_library: "Libreria",
     theme: "Tema",
     theme_desc: "Schema di colori dell'applicazione",
+    dynamic_theme: "Tema in base alla copertina",
+    dynamic_theme_desc: "Adatta i colori dell'interfaccia alla copertina dell'album in riproduzione: schema chiaro o scuro e colore d'accento. Le copertine senza un colore evidente mantengono il tema scelto.",
     system: "Sistema",
     language: "Lingua",
     language_desc: "Lingua dell'interfaccia dell'applicazione",
@@ -173,6 +175,7 @@ pub static IT: Strings = lang! {
     check_for_updates: "Controlla aggiornamenti...",
     automatic_updates: "Aggiornamenti automatici",
     automatic_updates_desc: "Controlla automaticamente gli aggiornamenti all'avvio",
+    version: "Versione",
     restart_to_update: "Riavvia per aggiornare",
     up_to_date: "Pawse è aggiornato",
 

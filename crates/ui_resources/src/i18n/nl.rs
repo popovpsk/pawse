@@ -77,6 +77,8 @@ pub static NL: Strings = lang! {
     settings_library: "Bibliotheek",
     theme: "Thema",
     theme_desc: "Kleurenschema van de applicatie",
+    dynamic_theme: "Thema volgt de hoes",
+    dynamic_theme_desc: "Past de interfacekleuren aan de hoes van het huidige album aan: licht of donker schema en accentkleur. Hoezen zonder uitgesproken kleur behouden je gekozen thema.",
     system: "Systeem",
     language: "Taal",
     language_desc: "Taal van de gebruikersinterface",
@@ -173,6 +175,7 @@ pub static NL: Strings = lang! {
     check_for_updates: "Controleren op updates...",
     automatic_updates: "Automatische updates",
     automatic_updates_desc: "Bij het opstarten automatisch op updates controleren",
+    version: "Versie",
     restart_to_update: "Herstart om bij te werken",
     up_to_date: "Pawse is up-to-date",
 

@@ -77,6 +77,8 @@ pub static JA: Strings = lang! {
     settings_library: "ライブラリ",
     theme: "テーマ",
     theme_desc: "アプリのカラースキーム",
+    dynamic_theme: "カバーに合わせたテーマ",
+    dynamic_theme_desc: "再生中のアルバムのカバーに合わせて画面の色（明るい／暗い配色とアクセント）を変更します。はっきりした色がないカバーでは、選択中のテーマのままです。",
     system: "システム",
     language: "言語",
     language_desc: "アプリのインターフェース言語",
@@ -173,6 +175,7 @@ pub static JA: Strings = lang! {
     check_for_updates: "アップデートを確認...",
     automatic_updates: "自動アップデート",
     automatic_updates_desc: "起動時に自動的にアップデートを確認する",
+    version: "バージョン",
     restart_to_update: "再起動して更新",
     up_to_date: "Pawse は最新です",
 

@@ -14,6 +14,7 @@ pub mod audio_settings;
 pub mod cover_art_cache;
 pub mod cover_backdrop;
 pub mod cover_mode_view;
+pub mod cover_skin;
 pub mod cover_volume;
 pub mod discord_bridge;
 pub mod error_bridge;

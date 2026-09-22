@@ -77,6 +77,8 @@ pub static TR: Strings = lang! {
     settings_library: "Kitaplık",
     theme: "Tema",
     theme_desc: "Uygulamanın renk şeması",
+    dynamic_theme: "Temayı kapağa uyarla",
+    dynamic_theme_desc: "Arayüz renklerini çalan albümün kapağına uyarlar: açık veya koyu şema ve vurgu rengi. Belirgin rengi olmayan kapaklarda seçtiğiniz tema korunur.",
     system: "Sistem",
     language: "Dil",
     language_desc: "Uygulama arayüzü dili",
@@ -173,6 +175,7 @@ pub static TR: Strings = lang! {
     check_for_updates: "Güncellemeleri denetle...",
     automatic_updates: "Otomatik güncellemeler",
     automatic_updates_desc: "Başlangıçta güncellemeleri otomatik denetle",
+    version: "Sürüm",
     restart_to_update: "Güncellemek için yeniden başlat",
     up_to_date: "Pawse güncel",
 

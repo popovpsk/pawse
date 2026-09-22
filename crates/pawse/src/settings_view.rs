@@ -104,6 +104,7 @@ fn close_with_revert(state: &mut ThemePickerState, cx: &mut App) {
     }
     if let Some(snapshot) = state.snapshot.take() {
         apply_theme(&snapshot, cx);
+        crate::cover_skin::reapply(cx);
     }
     state.open = false;
     state.highlight_index = None;
@@ -118,6 +119,7 @@ fn confirm_save(key: &SharedString, state: &mut ThemePickerState, cx: &mut App) 
         notify_save_error(cx, e);
     }
     apply_theme(&choice, cx);
+    crate::cover_skin::reapply(cx);
     state.open = false;
     state.snapshot = None;
     state.highlight_index = None;
@@ -300,7 +302,9 @@ fn interface_group(
     blur_intensity_slider: Entity<SliderState>,
     blur_interface_opacity_slider: Entity<SliderState>,
 ) -> SettingGroup {
-    let mut group = SettingGroup::new().item(
+    let mut group = SettingGroup::new().item(language_field(lang_picker));
+
+    group = group.item(
         SettingItem::new(
             tr().theme.clone(),
             SettingField::render({
@@ -311,7 +315,26 @@ fn interface_group(
         .description(tr().theme_desc.clone()),
     );
 
-    group = group.item(language_field(lang_picker));
+    group = group.item(
+        SettingItem::new(
+            tr().dynamic_theme.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().dynamic_theme();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("dynamic-theme-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) =
+                                cx.global_mut::<SettingsStore>().set_dynamic_theme(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(tr().dynamic_theme_desc.clone()),
+    );
 
     group = group.item(
         SettingItem::new(
@@ -645,7 +668,7 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
         .description(tr().remote_control_desc.clone()),
     );
 
-    group.item(
+    group = group.item(
         SettingItem::new(
             tr().remote_port.clone(),
             SettingField::render(move |_window, cx: &mut App| {
@@ -672,7 +695,19 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
             }),
         )
         .description(tr().remote_port_desc.clone()),
-    )
+    );
+
+    group.item(SettingItem::new(
+        tr().version.clone(),
+        SettingField::render(|_window, cx: &mut App| {
+            h_flex().items_center().justify_end().child(
+                div()
+                    .text_sm()
+                    .text_color(Colors::muted_foreground(cx))
+                    .child(env!("CARGO_PKG_VERSION")),
+            )
+        }),
+    ))
 }
 
 fn discord_group() -> SettingGroup {

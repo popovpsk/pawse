@@ -19,6 +19,7 @@ use gpui_component::{
 use crate::audio_settings::AudioSettings;
 use crate::cover_backdrop::{self, CoverBackdrop};
 use crate::cover_mode_view::CoverModeView;
+use crate::cover_skin::CoverSkin;
 use crate::cover_volume::CoverVolume;
 use crate::footer::{Footer, ToggleLyricsEvent, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
@@ -95,6 +96,7 @@ pub struct MainView {
     cover_mode_view: Entity<CoverModeView>,
     cover_backdrop: Entity<CoverBackdrop>,
     cover_volume: Entity<CoverVolume>,
+    _cover_skin: Entity<CoverSkin>,
     show_queue: bool,
     queue_width: f32,
     queue_resize_origin: Option<(Pixels, f32)>,
@@ -482,6 +484,7 @@ impl MainView {
         });
         let cover_backdrop = cx.new(CoverBackdrop::new);
         let cover_backdrop_observe = cx.observe(&cover_backdrop, |_, _, cx| cx.notify());
+        let cover_skin = cx.new(CoverSkin::new);
 
         let cover_observe_subscription = cx.observe(&cover_mode_view, |this, view, cx| {
             let hidden = !view.read(cx).controls_shown();
@@ -585,6 +588,7 @@ impl MainView {
             cover_mode_view,
             cover_backdrop,
             cover_volume,
+            _cover_skin: cover_skin,
             show_queue: false,
             queue_width: QUEUE_WIDTH_DEFAULT,
             queue_resize_origin: None,

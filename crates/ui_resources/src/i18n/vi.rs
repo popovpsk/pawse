@@ -77,6 +77,8 @@ pub static VI: Strings = lang! {
     settings_library: "Thư viện",
     theme: "Chủ đề",
     theme_desc: "Bảng màu của ứng dụng",
+    dynamic_theme: "Giao diện theo ảnh bìa",
+    dynamic_theme_desc: "Đổi màu giao diện theo ảnh bìa của album đang phát — bảng sáng hoặc tối và màu nhấn. Những ảnh bìa không có màu nổi bật sẽ giữ nguyên chủ đề bạn đã chọn.",
     system: "Hệ thống",
     language: "Ngôn ngữ",
     language_desc: "Ngôn ngữ giao diện ứng dụng",
@@ -173,6 +175,7 @@ pub static VI: Strings = lang! {
     check_for_updates: "Kiểm tra cập nhật...",
     automatic_updates: "Tự động cập nhật",
     automatic_updates_desc: "Tự động kiểm tra cập nhật khi khởi động",
+    version: "Phiên bản",
     restart_to_update: "Khởi động lại để cập nhật",
     up_to_date: "Pawse đã là bản mới nhất",
 

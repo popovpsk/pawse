@@ -125,6 +125,8 @@ pub struct Strings {
     pub settings_library: SharedString,
     pub theme: SharedString,
     pub theme_desc: SharedString,
+    pub dynamic_theme: SharedString,
+    pub dynamic_theme_desc: SharedString,
     pub system: SharedString,
     pub language: SharedString,
     pub language_desc: SharedString,
@@ -229,6 +231,7 @@ pub struct Strings {
     pub check_for_updates: SharedString,
     pub automatic_updates: SharedString,
     pub automatic_updates_desc: SharedString,
+    pub version: SharedString,
     pub restart_to_update: SharedString,
     pub up_to_date: SharedString,
 

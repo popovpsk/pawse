@@ -77,6 +77,8 @@ pub static HI: Strings = lang! {
     settings_library: "लाइब्रेरी",
     theme: "थीम",
     theme_desc: "एप्लिकेशन की रंग योजना",
+    dynamic_theme: "कवर के अनुसार थीम",
+    dynamic_theme_desc: "इंटरफ़ेस के रंगों को मौजूदा एल्बम के कवर के अनुसार बदलता है — हल्की या गहरी योजना और एक्सेंट रंग। जिन कवर में कोई स्पष्ट रंग नहीं होता, वहाँ चुनी हुई थीम बनी रहती है।",
     system: "सिस्टम",
     language: "भाषा",
     language_desc: "एप्लिकेशन इंटरफ़ेस की भाषा",
@@ -173,6 +175,7 @@ pub static HI: Strings = lang! {
     check_for_updates: "अपडेट जांचें...",
     automatic_updates: "स्वचालित अपडेट",
     automatic_updates_desc: "शुरू होने पर स्वचालित रूप से अपडेट जांचें",
+    version: "संस्करण",
     restart_to_update: "अपडेट के लिए पुनः आरंभ करें",
     up_to_date: "Pawse अप टू डेट है",
 

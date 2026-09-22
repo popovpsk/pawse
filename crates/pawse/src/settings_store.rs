@@ -285,6 +285,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub theme: ThemeChoice,
     #[serde(default)]
+    pub dynamic_theme: bool,
+    #[serde(default)]
     pub language: LangChoice,
     #[serde(default)]
     pub music_folders: Vec<PathBuf>,
@@ -366,6 +368,7 @@ impl Default for UserSettings {
     fn default() -> Self {
         Self {
             theme: ThemeChoice::default(),
+            dynamic_theme: false,
             language: LangChoice::default(),
             music_folders: Vec::new(),
             volume: 1.0,
@@ -588,6 +591,15 @@ impl SettingsStore {
 
     pub fn set_theme(&mut self, theme: ThemeChoice) -> anyhow::Result<()> {
         self.settings.theme = theme;
+        self.save()
+    }
+
+    pub fn dynamic_theme(&self) -> bool {
+        self.settings.dynamic_theme
+    }
+
+    pub fn set_dynamic_theme(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.dynamic_theme = enabled;
         self.save()
     }
 
@@ -1190,6 +1202,7 @@ mod tests {
         };
         let settings = UserSettings {
             theme: ThemeChoice::System,
+            dynamic_theme: false,
             language: LangChoice::System,
             music_folders: vec![],
             volume: 0.42,

@@ -77,6 +77,8 @@ pub static PT: Strings = lang! {
     settings_library: "Biblioteca",
     theme: "Tema",
     theme_desc: "Esquema de cores do aplicativo",
+    dynamic_theme: "Tema conforme a capa",
+    dynamic_theme_desc: "Adapta as cores da interface à capa do álbum atual: esquema claro ou escuro e cor de destaque. Capas sem uma cor marcante mantêm o tema escolhido.",
     system: "Sistema",
     language: "Idioma",
     language_desc: "Idioma da interface do aplicativo",
@@ -173,6 +175,7 @@ pub static PT: Strings = lang! {
     check_for_updates: "Procurar atualizações...",
     automatic_updates: "Atualizações automáticas",
     automatic_updates_desc: "Procurar atualizações automaticamente ao iniciar",
+    version: "Versão",
     restart_to_update: "Reiniciar para atualizar",
     up_to_date: "O Pawse está atualizado",
 

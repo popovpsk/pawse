@@ -77,6 +77,8 @@ pub static ES: Strings = lang! {
     settings_library: "Biblioteca",
     theme: "Tema",
     theme_desc: "Esquema de colores de la aplicación",
+    dynamic_theme: "Tema según la portada",
+    dynamic_theme_desc: "Adapta los colores de la interfaz a la portada del álbum actual: esquema claro u oscuro y color de acento. Si la portada no tiene un color definido, se mantiene el tema elegido.",
     system: "Sistema",
     language: "Idioma",
     language_desc: "Idioma de la interfaz de la aplicación",
@@ -173,6 +175,7 @@ pub static ES: Strings = lang! {
     check_for_updates: "Buscar actualizaciones...",
     automatic_updates: "Actualizaciones automáticas",
     automatic_updates_desc: "Buscar actualizaciones automáticamente al iniciar",
+    version: "Versión",
     restart_to_update: "Reiniciar para actualizar",
     up_to_date: "Pawse está actualizado",
 

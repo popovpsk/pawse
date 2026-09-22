@@ -77,6 +77,8 @@ pub static CS: Strings = lang! {
     settings_library: "Knihovna",
     theme: "Motiv",
     theme_desc: "Barevné schéma aplikace",
+    dynamic_theme: "Motiv podle obalu",
+    dynamic_theme_desc: "Přizpůsobí barvy rozhraní obalu aktuálního alba — světlé nebo tmavé schéma a zvýraznění. U obalů bez výrazné barvy zůstane vybraný motiv.",
     system: "Systém",
     language: "Jazyk",
     language_desc: "Jazyk rozhraní aplikace",
@@ -173,6 +175,7 @@ pub static CS: Strings = lang! {
     check_for_updates: "Zkontrolovat aktualizace...",
     automatic_updates: "Automatické aktualizace",
     automatic_updates_desc: "Automaticky kontrolovat aktualizace při spuštění",
+    version: "Verze",
     restart_to_update: "Restartovat pro aktualizaci",
     up_to_date: "Pawse je aktuální",
 

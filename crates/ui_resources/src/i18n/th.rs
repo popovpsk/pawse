@@ -77,6 +77,8 @@ pub static TH: Strings = lang! {
     settings_library: "คลัง",
     theme: "ธีม",
     theme_desc: "ชุดสีของแอปพลิเคชัน",
+    dynamic_theme: "ธีมตามปกอัลบั้ม",
+    dynamic_theme_desc: "ปรับสีของอินเทอร์เฟซให้เข้ากับปกอัลบั้มที่กำลังเล่น ทั้งโทนสว่างหรือมืดและสีเน้น ปกที่ไม่มีสีเด่นชัดจะยังคงใช้ธีมที่คุณเลือกไว้",
     system: "ระบบ",
     language: "ภาษา",
     language_desc: "ภาษาของอินเทอร์เฟซแอปพลิเคชัน",
@@ -173,6 +175,7 @@ pub static TH: Strings = lang! {
     check_for_updates: "ตรวจหาการอัปเดต...",
     automatic_updates: "อัปเดตอัตโนมัติ",
     automatic_updates_desc: "ตรวจหาการอัปเดตโดยอัตโนมัติเมื่อเริ่มทำงาน",
+    version: "เวอร์ชัน",
     restart_to_update: "รีสตาร์ทเพื่ออัปเดต",
     up_to_date: "Pawse เป็นเวอร์ชันล่าสุดแล้ว",
 
