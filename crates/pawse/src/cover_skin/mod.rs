@@ -2,8 +2,10 @@ mod color;
 mod palette;
 mod scheme;
 
+use std::time::{Duration, Instant};
+
 use audio_engine::EngineEvent;
-use gpui::{App, Context, Global, Subscription, Task, WeakEntity};
+use gpui::{App, Context, Global, Subscription, Task, WeakEntity, ease_in_out};
 use gpui_component::theme::{Theme, ThemeColor, ThemeMode, ThemeTokens};
 
 use crate::library_service::LibraryEvent;
@@ -11,18 +13,24 @@ use crate::services::Services;
 use crate::settings_store::{SettingsStore, ThemeChoice, apply_theme};
 use color::to_oklch;
 use palette::palette_from_thumbnail;
-use scheme::{LIGHT_COVER, MIN_TINT_STRENGTH, Tint, anchors, relit, tinted};
+use scheme::{LIGHT_COVER, MIN_TINT_STRENGTH, Tint, anchors, matches, mix, relit, tinted};
+
+const FADE: Duration = Duration::from_millis(320);
+const FADE_FRAME: Duration = Duration::from_millis(16);
+const FADE_STEPS: usize = 16;
 
 pub struct CoverSkin {
     enabled: bool,
     theme_choice: ThemeChoice,
     base: ThemeColor,
     staged: ThemeColor,
+    live: ThemeColor,
     cover_l: Option<f32>,
     current: Tint,
     cover_art_id: Option<i64>,
     evaluated: bool,
     _task: Option<Task<()>>,
+    _fade: Option<Task<()>>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
@@ -44,8 +52,14 @@ pub fn reapply(cx: &mut App) {
             return;
         }
         let current = this.current;
-        this.apply(this.cover_l, current, cx);
+        this.apply(this.cover_l, current, false, cx);
     });
+}
+
+fn fade_frames(from: ThemeColor, to: ThemeColor) -> Vec<ThemeColor> {
+    (0..=FADE_STEPS)
+        .map(|step| mix(&from, &to, ease_in_out(step as f32 / FADE_STEPS as f32)))
+        .collect()
 }
 
 impl CoverSkin {
@@ -54,14 +68,14 @@ impl CoverSkin {
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
             |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => this.refresh(cx),
+                EngineEvent::Loaded { .. } => this.refresh(true, cx),
                 EngineEvent::TrackEnded | EngineEvent::Stopped => {
                     let idle = {
                         let queue = cx.global::<Services>().playback_queue.borrow();
                         queue.current_track().is_none()
                     };
                     if idle {
-                        this.restore(cx);
+                        this.restore(true, cx);
                     }
                 }
                 _ => {}
@@ -72,7 +86,7 @@ impl CoverSkin {
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
                 if let LibraryEvent::ScanComplete { changed: true } = event {
                     this.evaluated = false;
-                    this.refresh(cx);
+                    this.refresh(true, cx);
                 }
             });
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
@@ -83,14 +97,14 @@ impl CoverSkin {
             if enabled != this.enabled {
                 this.enabled = enabled;
                 if enabled {
-                    this.refresh(cx);
+                    this.refresh(false, cx);
                 } else {
                     this.forget();
                     apply_theme(&choice, cx);
                 }
             } else if enabled && choice != this.theme_choice {
                 let current = this.current;
-                this.apply(this.cover_l, current, cx);
+                this.apply(this.cover_l, current, false, cx);
             }
         });
 
@@ -99,18 +113,20 @@ impl CoverSkin {
             theme_choice: cx.global::<SettingsStore>().theme(),
             base: Theme::global(cx).colors,
             staged: Theme::global(cx).colors,
+            live: Theme::global(cx).colors,
             cover_l: None,
             current: Tint::none(),
             cover_art_id: None,
             evaluated: false,
             _task: None,
+            _fade: None,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
         };
         let handle = Handle(cx.weak_entity());
         cx.set_global(handle);
-        this.refresh(cx);
+        this.refresh(false, cx);
         this
     }
 
@@ -120,6 +136,7 @@ impl CoverSkin {
         self.cover_art_id = None;
         self.evaluated = false;
         self._task = None;
+        self._fade = None;
     }
 
     fn rebase(&mut self, cx: &mut Context<Self>) {
@@ -129,9 +146,8 @@ impl CoverSkin {
         self.staged = self.base;
     }
 
-    fn write(&mut self, tint: Tint, cx: &mut Context<Self>) {
-        self.current = tint;
-        let colors = tinted(&self.staged, tint);
+    fn commit(&mut self, colors: ThemeColor, cx: &mut Context<Self>) {
+        self.live = colors;
         let dark = to_oklch(colors.background).l <= LIGHT_COVER;
         {
             let theme = Theme::global_mut(cx);
@@ -147,16 +163,52 @@ impl CoverSkin {
         cx.refresh_windows();
     }
 
-    fn apply(&mut self, cover_l: Option<f32>, target: Tint, cx: &mut Context<Self>) {
+    fn write(&mut self, tint: Tint, animate: bool, cx: &mut Context<Self>) {
+        self.current = tint;
+        let target = tinted(&self.staged, tint);
+        let from = self.live;
+        if !animate || matches(&from, &target) {
+            self._fade = None;
+            self.commit(target, cx);
+            return;
+        }
+        self.commit(from, cx);
+        let frames = cx
+            .background_executor()
+            .spawn(async move { fade_frames(from, target) });
+        self._fade = Some(cx.spawn(async move |this, cx| {
+            let frames = frames.await;
+            let last = frames.len() - 1;
+            let started = Instant::now();
+            loop {
+                let progress = started.elapsed().as_secs_f32() / FADE.as_secs_f32();
+                let step = ((progress * last as f32) as usize).min(last);
+                let running = this.update(cx, |this, cx| {
+                    if !matches(&Theme::global(cx).colors, &this.live) {
+                        return false;
+                    }
+                    this.commit(frames[step], cx);
+                    true
+                });
+                if !running.unwrap_or(false) || step == last {
+                    break;
+                }
+                cx.background_executor().timer(FADE_FRAME).await;
+            }
+        }));
+    }
+
+    fn apply(&mut self, cover_l: Option<f32>, target: Tint, animate: bool, cx: &mut Context<Self>) {
+        self.live = Theme::global(cx).colors;
         self.rebase(cx);
         self.cover_l = cover_l;
         if let Some(cover_l) = cover_l {
             self.staged = relit(&self.base, anchors(&self.base, cover_l));
         }
-        self.write(target, cx);
+        self.write(target, animate, cx);
     }
 
-    fn refresh(&mut self, cx: &mut Context<Self>) {
+    fn refresh(&mut self, animate: bool, cx: &mut Context<Self>) {
         if !self.enabled {
             return;
         }
@@ -177,7 +229,7 @@ impl CoverSkin {
             .borrow_mut()
             .get_small(cover_art_id, &services.library);
         let Some(thumbnail) = thumbnail else {
-            self.restore(cx);
+            self.restore(animate, cx);
             return;
         };
 
@@ -208,18 +260,18 @@ impl CoverSkin {
                     target.strength,
                     cover_l.unwrap_or_default()
                 );
-                this.apply(cover_l, target, cx);
+                this.apply(cover_l, target, animate, cx);
             });
         }));
     }
 
-    fn restore(&mut self, cx: &mut Context<Self>) {
+    fn restore(&mut self, animate: bool, cx: &mut Context<Self>) {
         if !self.enabled {
             return;
         }
         self.cover_art_id = None;
         self.evaluated = false;
         let target = self.current.faded();
-        self.apply(None, target, cx);
+        self.apply(None, target, animate, cx);
     }
 }

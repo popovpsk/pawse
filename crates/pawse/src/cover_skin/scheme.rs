@@ -14,6 +14,11 @@ const FOREGROUND_LIMIT: (f32, f32) = (0.08, 0.97);
 const LIGHTNESS_LIMIT: (f32, f32) = (0.02, 0.995);
 const SURFACE_CHROMA_DARK: f32 = 0.022;
 const SURFACE_CHROMA_LIGHT: f32 = 0.012;
+const TEXT_CHROMA_DARK: f32 = 0.032;
+const TEXT_CHROMA_LIGHT: f32 = 0.022;
+const RATIO_LIMIT: (f32, f32) = (0.6, 1.8);
+const FLAT_CHROMA: f32 = 0.004;
+const CHROMA_DIP: f32 = 0.5;
 const ACCENT_DARK: (f32, f32) = (0.78, 0.13);
 const ACCENT_LIGHT: (f32, f32) = (0.52, 0.15);
 const ACCENT_LIMIT: (f32, f32) = (0.25, 0.92);
@@ -45,6 +50,11 @@ impl Tint {
     }
 }
 
+fn as_color(value: &serde_json::Value) -> Option<Hsla> {
+    let hex = serde_json::Value::from(value.as_str()?);
+    serde_json::from_value::<Hsla>(hex).ok()
+}
+
 fn map_colors(colors: &ThemeColor, transform: impl Fn(Hsla) -> Hsla) -> ThemeColor {
     let Ok(serde_json::Value::Object(fields)) = serde_json::to_value(colors) else {
         return *colors;
@@ -52,11 +62,8 @@ fn map_colors(colors: &ThemeColor, transform: impl Fn(Hsla) -> Hsla) -> ThemeCol
     let mapped = fields
         .into_iter()
         .map(|(key, value)| {
-            let color = value
-                .as_str()
-                .map(serde_json::Value::from)
-                .and_then(|hex| serde_json::from_value::<Hsla>(hex).ok())
-                .and_then(|color| serde_json::to_value(transform(color)).ok());
+            let color =
+                as_color(&value).and_then(|color| serde_json::to_value(transform(color)).ok());
             match color {
                 Some(color) => (key, color),
                 None => (key, value),
@@ -64,6 +71,45 @@ fn map_colors(colors: &ThemeColor, transform: impl Fn(Hsla) -> Hsla) -> ThemeCol
         })
         .collect();
     serde_json::from_value(serde_json::Value::Object(mapped)).unwrap_or(*colors)
+}
+
+fn mixed(from: Hsla, to: Hsla, t: f32) -> Hsla {
+    let (start, end) = (to_oklch(from), to_oklch(to));
+    let (start_radians, end_radians) = (start.h.to_radians(), end.h.to_radians());
+    let (start_a, start_b) = (start.c * start_radians.cos(), start.c * start_radians.sin());
+    let (end_a, end_b) = (end.c * end_radians.cos(), end.c * end_radians.sin());
+    let a = start_a + (end_a - start_a) * t;
+    let b = start_b + (end_b - start_b) * t;
+    to_hsla(
+        Oklch {
+            l: start.l + (end.l - start.l) * t,
+            c: (a * a + b * b).sqrt(),
+            h: b.atan2(a).to_degrees().rem_euclid(360.),
+        },
+        from.a + (to.a - from.a) * t,
+    )
+}
+
+pub fn mix(from: &ThemeColor, to: &ThemeColor, t: f32) -> ThemeColor {
+    let (Ok(serde_json::Value::Object(source)), Ok(serde_json::Value::Object(target))) =
+        (serde_json::to_value(from), serde_json::to_value(to))
+    else {
+        return *to;
+    };
+    let mapped = source
+        .into_iter()
+        .map(|(key, value)| {
+            let color = as_color(&value)
+                .zip(target.get(&key).and_then(as_color))
+                .map(|(from, to)| mixed(from, to, t))
+                .and_then(|color| serde_json::to_value(color).ok());
+            match color {
+                Some(color) => (key, color),
+                None => (key, value),
+            }
+        })
+        .collect();
+    serde_json::from_value(serde_json::Value::Object(mapped)).unwrap_or(*to)
 }
 
 pub fn anchors(base: &ThemeColor, cover_l: f32) -> (f32, f32) {
@@ -136,19 +182,33 @@ fn on_accent(color: Hsla, hue: f32, accent_l: f32) -> Hsla {
     )
 }
 
-fn surface_tint(color: Hsla, hue: f32, strength: f32, target: f32) -> Hsla {
+fn blend(color: Hsla, hue: f32, strength: f32, target: f32, anchor: f32) -> Hsla {
     let base = to_oklch(color);
-    let (from, to) = (base.h.to_radians(), hue.to_radians());
-    let a = base.c * from.cos() + (target * to.cos() - base.c * from.cos()) * strength;
-    let b = base.c * from.sin() + (target * to.sin() - base.c * from.sin()) * strength;
+    let goal = if anchor < NEUTRAL_CHROMA {
+        target
+    } else {
+        target * (base.c / anchor).clamp(RATIO_LIMIT.0, RATIO_LIMIT.1)
+    };
+    let mut delta = (hue - base.h).rem_euclid(360.);
+    if delta > 180. {
+        delta -= 360.;
+    }
+    let carried = (base.c / FLAT_CHROMA).clamp(0., 1.);
+    let rotation = strength + (1. - strength) * (1. - carried);
+    let travel = delta.abs() / 180. * carried;
+    let dip = 1. - CHROMA_DIP * travel * (std::f32::consts::PI * strength).sin().max(0.);
     to_hsla(
         Oklch {
             l: base.l,
-            c: (a * a + b * b).sqrt(),
-            h: b.atan2(a).to_degrees().rem_euclid(360.),
+            c: (base.c + (goal - base.c) * strength) * dip,
+            h: (base.h + delta * rotation).rem_euclid(360.),
         },
         color.a,
     )
+}
+
+pub fn matches(a: &ThemeColor, b: &ThemeColor) -> bool {
+    a.background == b.background && a.foreground == b.foreground && a.primary == b.primary
 }
 
 macro_rules! tint_accents {
@@ -163,9 +223,9 @@ macro_rules! tint_on_accents {
     };
 }
 
-macro_rules! tint_surfaces {
-    ($colors:expr, $hue:expr, $strength:expr, $target:expr, $($field:ident),+ $(,)?) => {
-        $($colors.$field = surface_tint($colors.$field, $hue, $strength, $target);)+
+macro_rules! tint_blends {
+    ($colors:expr, $hue:expr, $strength:expr, $target:expr, $anchor:expr, $($field:ident),+ $(,)?) => {
+        $($colors.$field = blend($colors.$field, $hue, $strength, $target, $anchor);)+
     };
 }
 
@@ -175,11 +235,13 @@ pub fn tinted(base: &ThemeColor, tint: Tint) -> ThemeColor {
         return colors;
     }
     let light = to_oklch(base.background).l > LIGHT_COVER;
-    let surface = if light {
-        SURFACE_CHROMA_LIGHT
+    let (surface, text) = if light {
+        (SURFACE_CHROMA_LIGHT, TEXT_CHROMA_LIGHT)
     } else {
-        SURFACE_CHROMA_DARK
+        (SURFACE_CHROMA_DARK, TEXT_CHROMA_DARK)
     };
+    let surface_anchor = to_oklch(base.background).c;
+    let text_anchor = to_oklch(base.foreground).c;
     let target = if light { ACCENT_LIGHT } else { ACCENT_DARK };
     let anchor = to_oklch(base.primary);
     tint_on_accents!(
@@ -216,11 +278,12 @@ pub fn tinted(base: &ThemeColor, tint: Tint) -> ThemeColor {
         drag_border,
         sidebar_primary,
     );
-    tint_surfaces!(
+    tint_blends!(
         colors,
         tint.hue,
         tint.strength,
         surface,
+        surface_anchor,
         background,
         title_bar,
         title_bar_border,
@@ -266,13 +329,35 @@ pub fn tinted(base: &ThemeColor, tint: Tint) -> ThemeColor {
         skeleton,
         drop_target,
     );
+    tint_blends!(
+        colors,
+        tint.hue,
+        tint.strength,
+        text,
+        text_anchor,
+        foreground,
+        muted_foreground,
+        accent_foreground,
+        popover_foreground,
+        secondary_foreground,
+        button_foreground,
+        button_secondary_foreground,
+        group_box_foreground,
+        description_list_label_foreground,
+        sidebar_foreground,
+        sidebar_accent_foreground,
+        tab_foreground,
+        tab_active_foreground,
+        table_head_foreground,
+        table_foot_foreground,
+    );
     colors
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::color::{Oklch, to_hsla, to_oklch};
-    use super::{ACCENT_DARK, MIN_SPAN, Tint, anchors, map_colors, relit, tinted};
+    use super::{ACCENT_DARK, MIN_SPAN, Tint, anchors, map_colors, mix, relit, tinted};
     use gpui_component::theme::ThemeColor;
 
     fn dark_theme() -> ThemeColor {
@@ -482,12 +567,113 @@ mod tests {
             .background,
         );
         assert!(
-            (nudged.h - 290.).abs() < 20.,
+            (nudged.h - 290.).abs() < 30.,
             "hue {} jumped off the theme on a 16% tint",
             nudged.h
         );
+        assert!(
+            nudged.c > 0.045,
+            "chroma {} collapsed on a 16% tint",
+            nudged.c
+        );
         let full = to_oklch(tinted(&saturated, full(140.)).background);
         assert!((full.h - 140.).abs() < 5., "hue {}", full.h);
+    }
+
+    #[test]
+    fn a_cover_opposite_the_theme_never_greys_the_surfaces_out() {
+        let base = dark_theme();
+        let opposite = to_oklch(base.background).h + 180.;
+        for strength in [0.3, 0.5, 0.7] {
+            let background = to_oklch(
+                tinted(
+                    &base,
+                    Tint {
+                        hue: opposite,
+                        strength,
+                    },
+                )
+                .background,
+            );
+            assert!(
+                background.c > 0.01,
+                "strength {strength}: chroma {} cancelled out",
+                background.c
+            );
+        }
+        let full = to_oklch(tinted(&base, full(opposite)).background);
+        assert!(full.c > 0.02, "a full tint dipped, chroma {}", full.c);
+        assert!(
+            (full.h - opposite.rem_euclid(360.)).abs() < 3.,
+            "hue {}",
+            full.h
+        );
+    }
+
+    #[test]
+    fn two_near_neutral_surfaces_do_not_split_onto_different_hues() {
+        let sample = |chroma: f32| {
+            let base = ThemeColor {
+                background: to_hsla(
+                    Oklch {
+                        l: 0.22,
+                        c: chroma,
+                        h: 264.,
+                    },
+                    1.,
+                ),
+                ..dark_theme()
+            };
+            to_oklch(
+                tinted(
+                    &base,
+                    Tint {
+                        hue: 120.,
+                        strength: 0.5,
+                    },
+                )
+                .background,
+            )
+        };
+        let below = sample(0.0039);
+        let above = sample(0.0045);
+        assert!(
+            (below.h - above.h).abs() < 15.,
+            "hue {} vs {} across the flat-chroma threshold",
+            below.h,
+            above.h
+        );
+        assert!(
+            (below.c - above.c).abs() < 0.003,
+            "chroma {} vs {}",
+            below.c,
+            above.c
+        );
+    }
+
+    #[test]
+    fn surfaces_keep_their_relative_colourfulness() {
+        let base = ThemeColor {
+            secondary: to_hsla(
+                Oklch {
+                    l: 0.4,
+                    c: 0.04,
+                    h: 264.,
+                },
+                1.,
+            ),
+            ..dark_theme()
+        };
+        let tinted = tinted(&base, full(30.));
+        let background = to_oklch(tinted.background);
+        let secondary = to_oklch(tinted.secondary);
+        assert!(
+            secondary.c > background.c * 1.2,
+            "secondary {} lost its lift over the background {}",
+            secondary.c,
+            background.c
+        );
+        assert!((secondary.h - 30.).abs() < 3., "hue {}", secondary.h);
     }
 
     #[test]
@@ -514,12 +700,90 @@ mod tests {
     }
 
     #[test]
-    fn tinting_never_touches_body_text() {
+    fn tinting_never_touches_semantic_colours() {
         let base = dark_theme();
         let tinted = tinted(&base, full(30.));
-        assert_eq!(tinted.foreground, base.foreground);
-        assert_eq!(tinted.muted_foreground, base.muted_foreground);
         assert_eq!(tinted.danger, base.danger);
+        assert_eq!(tinted.success, base.success);
+        assert_eq!(tinted.warning, base.warning);
+        assert_eq!(tinted.info, base.info);
+        assert_eq!(tinted.chart_bullish, base.chart_bullish);
+    }
+
+    #[test]
+    fn body_text_follows_the_cover_without_moving_its_lightness() {
+        let base = ThemeColor {
+            muted_foreground: to_hsla(
+                Oklch {
+                    l: 0.7,
+                    c: 0.03,
+                    h: 264.,
+                },
+                1.,
+            ),
+            ..dark_theme()
+        };
+        let tinted = tinted(&base, full(30.));
+        for (generated, original) in [
+            (tinted.foreground, base.foreground),
+            (tinted.muted_foreground, base.muted_foreground),
+        ] {
+            let (generated, original) = (to_oklch(generated), to_oklch(original));
+            assert!((generated.h - 30.).abs() < 3., "hue {}", generated.h);
+            assert!(
+                (generated.l - original.l).abs() < 0.01,
+                "lightness moved from {} to {}",
+                original.l,
+                generated.l
+            );
+        }
+    }
+
+    #[test]
+    fn muted_text_stays_less_colourful_than_body_text() {
+        let base = ThemeColor {
+            muted_foreground: to_hsla(
+                Oklch {
+                    l: 0.7,
+                    c: 0.02,
+                    h: 264.,
+                },
+                1.,
+            ),
+            foreground: to_hsla(
+                Oklch {
+                    l: 0.9,
+                    c: 0.05,
+                    h: 264.,
+                },
+                1.,
+            ),
+            ..dark_theme()
+        };
+        let tinted = tinted(&base, full(30.));
+        assert!(to_oklch(tinted.muted_foreground).c < to_oklch(tinted.foreground).c);
+    }
+
+    #[test]
+    fn a_mix_walks_from_one_theme_to_the_other() {
+        let base = dark_theme();
+        let warm = tinted(&base, full(30.));
+        let (from, to) = (to_oklch(base.background), to_oklch(warm.background));
+        let start = to_oklch(mix(&base, &warm, 0.).background);
+        let end = to_oklch(mix(&base, &warm, 1.).background);
+        assert!((start.h - from.h).abs() < 2., "hue {}", start.h);
+        assert!((end.h - to.h).abs() < 2., "hue {}", end.h);
+        let half = to_oklch(mix(&base, &warm, 0.5).background);
+        assert!(
+            (half.l - (from.l + to.l) * 0.5).abs() < 0.01,
+            "lightness {}",
+            half.l
+        );
+        assert!(
+            half.c < from.c.max(to.c),
+            "a half mix should pass through less chroma, got {}",
+            half.c
+        );
     }
 
     #[test]

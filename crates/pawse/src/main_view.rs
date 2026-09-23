@@ -788,11 +788,19 @@ impl Render for MainView {
         let background = Colors::background(cx);
         let blur = cx.global::<SettingsStore>().blur_background();
         let backdrop = (!show_settings && (cover_mode || blur == BlurBackground::AllViews))
-            .then(|| self.cover_backdrop.read(cx).image())
+            .then(|| self.cover_backdrop.read(cx).frame())
             .flatten();
         let has_backdrop = backdrop.is_some();
+        if backdrop.as_ref().is_some_and(|frame| frame.progress < 1.) {
+            window.request_animation_frame();
+        }
         let veil_content = has_backdrop && !cover_mode;
-        cover_backdrop::set_active(has_backdrop, cx);
+        cover_backdrop::set_active(
+            backdrop
+                .as_ref()
+                .map_or(0., cover_backdrop::Backdrop::presence),
+            cx,
+        );
         let veil = cover_backdrop::veil_factor(cx);
         let title_bar_bg = cover_backdrop::chrome_bg(
             if cover_mode && !chrome_visible {
@@ -934,8 +942,8 @@ impl Render for MainView {
                 }))
             })
             .when(has_backdrop, |d| d.bg(background))
-            .when_some(backdrop, |d, image| {
-                d.child(cover_backdrop::layers(image, background))
+            .when_some(backdrop, |d, frame| {
+                d.child(cover_backdrop::layers(frame, background))
             })
             .child(crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg))
             .child({

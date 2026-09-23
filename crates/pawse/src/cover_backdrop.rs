@@ -1,9 +1,11 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use audio_engine::EngineEvent;
+use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Context, Div, Global, Hsla, Image, ObjectFit, ParentElement, RenderImage, Styled,
-    StyledImage, Subscription, Task, div, img, linear_color_stop, linear_gradient,
+    StyledImage, Subscription, Task, div, ease_in_out, img, linear_color_stop, linear_gradient,
 };
 
 use crate::cover_art_cache::drop_atlas_tile;
@@ -14,6 +16,7 @@ use crate::settings_store::{BlurBackground, SettingsStore};
 const RASTER_SIZE: u32 = 96;
 const SATURATION: f32 = 1.5;
 const IMAGE_OPACITY: f32 = 0.55;
+const FADE: Duration = Duration::from_millis(320);
 const VEIL_TOP: f32 = 0.15;
 const VEIL_BOTTOM: f32 = 0.6;
 const PANEL_VEIL: f32 = 0.55;
@@ -30,11 +33,25 @@ fn blur_sigma(cx: &App) -> f32 {
     cx.global::<SettingsStore>().blur_intensity()
 }
 
-pub fn veil_factor(cx: &App) -> Option<f32> {
-    is_active(cx).then(|| cx.global::<SettingsStore>().blur_interface_opacity() / 100.)
+#[derive(Clone, Copy)]
+pub struct Veil {
+    factor: f32,
+    weight: f32,
 }
 
-struct Active(bool);
+pub fn veil_factor(cx: &App) -> Option<Veil> {
+    let weight = presence(cx);
+    (weight > 0.).then(|| Veil {
+        factor: cx.global::<SettingsStore>().blur_interface_opacity() / 100.,
+        weight,
+    })
+}
+
+fn presence(cx: &App) -> f32 {
+    cx.try_global::<Active>().map_or(0., |state| state.0)
+}
+
+struct Active(f32);
 
 impl Global for Active {}
 
@@ -44,22 +61,41 @@ impl Global for Active {}
 /// the setting, the current view and whether a raster has finished baking — so
 /// it publishes it here for the popovers and dropdowns that float above the
 /// window and cannot be handed the flag through their constructors.
-pub fn set_active(active: bool, cx: &mut App) {
-    if is_active(cx) != active {
-        cx.set_global(Active(active));
+pub fn set_active(weight: f32, cx: &mut App) {
+    if presence(cx) != weight {
+        cx.set_global(Active(weight));
     }
 }
 
 pub fn is_active(cx: &App) -> bool {
-    cx.try_global::<Active>().is_some_and(|state| state.0)
+    presence(cx) > 0.
+}
+
+pub struct Backdrop {
+    pub image: Option<Arc<RenderImage>>,
+    pub previous: Option<Arc<RenderImage>>,
+    pub progress: f32,
+}
+
+impl Backdrop {
+    pub fn presence(&self) -> f32 {
+        match (self.image.is_some(), self.previous.is_some()) {
+            (true, true) => 1.,
+            (true, false) => self.progress,
+            _ => 1. - self.progress,
+        }
+    }
 }
 
 pub struct CoverBackdrop {
     image: Option<Arc<RenderImage>>,
+    previous: Option<Arc<RenderImage>>,
+    swapped: Option<Instant>,
     cover_art_id: Option<i64>,
     enabled: bool,
     sigma: f32,
     _task: Option<Task<()>>,
+    _fade: Option<Task<()>>,
     _engine_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
@@ -76,13 +112,13 @@ impl CoverBackdrop {
                     event,
                     EngineEvent::Loaded { .. } | EngineEvent::TrackEnded | EngineEvent::Stopped
                 ) {
-                    this.refresh(cx);
+                    this.refresh(true, cx);
                 }
             });
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
                 if let LibraryEvent::ScanComplete { changed: true } = event {
-                    this.refresh(cx);
+                    this.refresh(true, cx);
                 }
             });
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
@@ -93,31 +129,48 @@ impl CoverBackdrop {
             this.enabled = enabled;
             this.sigma = sigma;
             if enabled_changed {
-                this.refresh(cx);
+                this.refresh(false, cx);
             } else if sigma_changed && this.enabled {
-                this.load(cx);
+                this.load(false, cx);
             }
         });
 
         let mut this = Self {
             image: None,
+            previous: None,
+            swapped: None,
             cover_art_id: None,
             enabled: blur_enabled(cx),
             sigma: blur_sigma(cx),
             _task: None,
+            _fade: None,
             _engine_subscription: engine_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
         };
-        this.refresh(cx);
+        this.refresh(false, cx);
         this
     }
 
-    pub fn image(&self) -> Option<Arc<RenderImage>> {
-        self.image.clone()
+    pub fn frame(&self) -> Option<Backdrop> {
+        let progress = match self.swapped {
+            Some(at) => {
+                ease_in_out((at.elapsed().as_secs_f32() / FADE.as_secs_f32()).clamp(0., 1.))
+            }
+            None => 1.,
+        };
+        let previous = (progress < 1.).then(|| self.previous.clone()).flatten();
+        if self.image.is_none() && previous.is_none() {
+            return None;
+        }
+        Some(Backdrop {
+            image: self.image.clone(),
+            previous,
+            progress,
+        })
     }
 
-    fn refresh(&mut self, cx: &mut Context<Self>) {
+    fn refresh(&mut self, animate: bool, cx: &mut Context<Self>) {
         let cover_art_id = {
             let queue = cx.global::<Services>().playback_queue.borrow();
             queue.current_track().and_then(|track| track.cover_art_id)
@@ -126,16 +179,16 @@ impl CoverBackdrop {
         self.cover_art_id = cover_art_id;
         if !self.enabled {
             self._task = None;
-            self.set_image(None, cx);
+            self.set_image(None, false, cx);
         } else if changed || self.image.is_none() {
-            self.load(cx);
+            self.load(changed && animate, cx);
         }
     }
 
-    fn load(&mut self, cx: &mut Context<Self>) {
+    fn load(&mut self, fade: bool, cx: &mut Context<Self>) {
         self._task = None;
         let Some(id) = self.cover_art_id else {
-            self.set_image(None, cx);
+            self.set_image(None, fade, cx);
             return;
         };
         let services = cx.global::<Services>();
@@ -144,7 +197,7 @@ impl CoverBackdrop {
             .borrow_mut()
             .get_small(Some(id), &services.library);
         let Some(thumbnail) = thumbnail else {
-            self.set_image(None, cx);
+            self.set_image(None, fade, cx);
             return;
         };
         let sigma = self.sigma;
@@ -156,18 +209,39 @@ impl CoverBackdrop {
             let _ = this.update(cx, |this, cx| {
                 this._task = None;
                 if this.enabled && this.cover_art_id == Some(id) {
-                    this.set_image(image, cx);
+                    this.set_image(image, fade, cx);
                 }
             });
         }));
     }
 
-    fn set_image(&mut self, image: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+    fn set_image(&mut self, image: Option<Arc<RenderImage>>, fade: bool, cx: &mut Context<Self>) {
         if image.is_none() && self.image.is_none() {
             return;
         }
-        if let Some(old) = std::mem::replace(&mut self.image, image) {
-            drop_atlas_tile(old, cx);
+        let replaced = std::mem::replace(&mut self.image, image);
+        if let Some(stale) = self.previous.take() {
+            drop_atlas_tile(stale, cx);
+        }
+        self._fade = None;
+        if fade {
+            self.previous = replaced;
+            self.swapped = Some(Instant::now());
+            self._fade = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(FADE).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.swapped = None;
+                    if let Some(stale) = this.previous.take() {
+                        drop_atlas_tile(stale, cx);
+                    }
+                    cx.notify();
+                });
+            }));
+        } else {
+            self.swapped = None;
+            if let Some(old) = replaced {
+                drop_atlas_tile(old, cx);
+            }
         }
         cx.notify();
     }
@@ -195,19 +269,46 @@ pub fn from_thumbnail(thumbnail: &Image, sigma: f32) -> Option<Arc<RenderImage>>
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(raster)])))
 }
 
-pub fn layers(image: Arc<RenderImage>, background: Hsla) -> Div {
+fn blend_opacity(progress: f32, layered: bool) -> (f32, f32) {
+    let top = IMAGE_OPACITY * progress;
+    let under = if layered {
+        IMAGE_OPACITY * (1. - progress) / (1. - IMAGE_OPACITY * progress)
+    } else {
+        IMAGE_OPACITY * (1. - progress)
+    };
+    (top, under)
+}
+
+pub fn layers(backdrop: Backdrop, background: Hsla) -> Div {
+    let Backdrop {
+        image,
+        previous,
+        progress,
+    } = backdrop;
+    let (top, under) = blend_opacity(progress, image.is_some());
     div()
         .absolute()
         .top_0()
         .left_0()
         .size_full()
-        .child(
-            img(image)
-                .absolute()
-                .size_full()
-                .object_fit(ObjectFit::Cover)
-                .opacity(IMAGE_OPACITY),
-        )
+        .when_some(previous, |this, old| {
+            this.child(
+                img(old)
+                    .absolute()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .opacity(under),
+            )
+        })
+        .when_some(image, |this, current| {
+            this.child(
+                img(current)
+                    .absolute()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .opacity(top),
+            )
+        })
         .child(div().absolute().size_full().bg(linear_gradient(
             180.,
             linear_color_stop(background.opacity(VEIL_TOP), 0.),
@@ -215,39 +316,31 @@ pub fn layers(image: Arc<RenderImage>, background: Hsla) -> Div {
         )))
 }
 
-pub fn chrome_bg(color: Hsla, veil: Option<f32>) -> Hsla {
+fn veiled(color: Hsla, veil: Option<Veil>, share: f32) -> Hsla {
     match veil {
-        Some(factor) => color.opacity((CHROME_VEIL * factor).clamp(0., 1.)),
+        Some(veil) => color.opacity((1. - veil.weight * (1. - share * veil.factor)).clamp(0., 1.)),
         None => color,
     }
 }
 
-pub fn panel_bg(color: Hsla, veil: Option<f32>) -> Hsla {
-    match veil {
-        Some(factor) => color.opacity((PANEL_VEIL * factor).clamp(0., 1.)),
-        None => color,
-    }
+pub fn chrome_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
+    veiled(color, veil, CHROME_VEIL)
 }
 
-pub fn inset_bg(color: Hsla, veil: Option<f32>) -> Hsla {
-    match veil {
-        Some(factor) => color.opacity((INSET_VEIL * factor).clamp(0., 1.)),
-        None => color,
-    }
+pub fn panel_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
+    veiled(color, veil, PANEL_VEIL)
 }
 
-pub fn field_bg(color: Hsla, veil: Option<f32>) -> Hsla {
-    match veil {
-        Some(factor) => color.opacity((FIELD_VEIL * factor).clamp(0., 1.)),
-        None => color,
-    }
+pub fn inset_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
+    veiled(color, veil, INSET_VEIL)
 }
 
-pub fn popover_bg(color: Hsla, veil: Option<f32>) -> Hsla {
-    match veil {
-        Some(factor) => color.opacity((POPOVER_VEIL * factor).clamp(0., 1.)),
-        None => color,
-    }
+pub fn field_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
+    veiled(color, veil, FIELD_VEIL)
+}
+
+pub fn popover_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
+    veiled(color, veil, POPOVER_VEIL)
 }
 
 #[cfg(test)]
@@ -320,6 +413,56 @@ mod tests {
             (60..=195).contains(&seam),
             "seam pixel {seam} should be blended, not a hard black/white edge"
         );
+    }
+
+    #[test]
+    fn a_crossfade_keeps_the_backdrop_at_a_constant_weight() {
+        for progress in [0., 0.25, 0.5, 0.75, 1.] {
+            let (top, under) = super::blend_opacity(progress, true);
+            let covered = top + (1. - top) * under;
+            assert!(
+                (covered - super::IMAGE_OPACITY).abs() < 1e-5,
+                "progress {progress}: {covered} instead of {}",
+                super::IMAGE_OPACITY
+            );
+        }
+    }
+
+    #[test]
+    fn a_fade_out_walks_the_last_image_down_to_nothing() {
+        let (top, under) = super::blend_opacity(1., false);
+        assert_eq!(top, super::IMAGE_OPACITY);
+        assert_eq!(under, 0.);
+        let (_, half) = super::blend_opacity(0.5, false);
+        assert!((half - super::IMAGE_OPACITY * 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_settled_backdrop_veils_the_chrome_exactly_as_the_setting_asks() {
+        let color = gpui::hsla(0.5, 0.5, 0.5, 1.);
+        let veil = super::Veil {
+            factor: 0.8,
+            weight: 1.,
+        };
+        assert!((super::chrome_bg(color, Some(veil)).a - super::CHROME_VEIL * 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_backdrop_fading_out_hands_the_chrome_back_opaque() {
+        let color = gpui::hsla(0.5, 0.5, 0.5, 1.);
+        let gone = super::Veil {
+            factor: 0.8,
+            weight: 0.,
+        };
+        assert_eq!(super::chrome_bg(color, Some(gone)).a, 1.);
+        assert_eq!(super::chrome_bg(color, None).a, color.a);
+        let half = super::Veil {
+            factor: 0.8,
+            weight: 0.5,
+        };
+        let alpha = super::chrome_bg(color, Some(half)).a;
+        let full = super::CHROME_VEIL * 0.8;
+        assert!((alpha - (full + 1.) * 0.5).abs() < 1e-6, "alpha {alpha}");
     }
 
     #[test]
