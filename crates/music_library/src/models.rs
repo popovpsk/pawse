@@ -88,6 +88,60 @@ pub struct SourceSummary {
     pub track_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RemoteSong {
+    pub key: String,
+    pub rel_path: Option<String>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub size: Option<i64>,
+    pub suffix: Option<String>,
+    pub content_type: Option<String>,
+    pub bitrate: Option<u32>,
+    pub cover_key: Option<String>,
+    pub cover_hash: Option<String>,
+    pub artist_aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RemoteSyncReport {
+    pub total: usize,
+    pub added: usize,
+    pub adopted: usize,
+    pub retired: usize,
+    pub updated: usize,
+    pub revived: usize,
+    pub became_available: bool,
+}
+
+impl RemoteSyncReport {
+    pub fn changed(&self) -> bool {
+        self.added + self.adopted + self.retired + self.updated + self.revived > 0
+            || self.became_available
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteCover {
+    pub hash: String,
+    pub small: Vec<u8>,
+    pub large: Vec<u8>,
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteSource {
+    pub uri: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalFolder {
     pub path: String,

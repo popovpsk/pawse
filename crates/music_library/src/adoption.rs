@@ -26,6 +26,7 @@ pub struct Arrival {
     pub start_offset_ms: i64,
     pub title: String,
     pub artist: String,
+    pub artist_aliases: Vec<String>,
     pub album: Option<String>,
     pub duration_ms: Option<i64>,
 }
@@ -38,6 +39,7 @@ pub struct Orphan {
     pub album: Option<String>,
     pub duration_ms: Option<i64>,
     pub locations: Vec<(String, i64)>,
+    pub live: bool,
 }
 
 pub fn normalize_tag(value: &str) -> String {
@@ -107,24 +109,37 @@ pub fn match_arrivals(arrivals: &[Arrival], orphans: &[Orphan]) -> Vec<Option<(i
             if assigned[arrival_ix].is_some() {
                 continue;
             }
-            let candidates = match tier {
+            let artists = std::iter::once(&arrival.artist).chain(&arrival.artist_aliases);
+            let mut candidates: Vec<usize> = match tier {
                 Tier::Path => arrival
                     .rel_path
                     .as_deref()
-                    .and_then(|rel| by_path.get(&(rel, arrival.start_offset_ms))),
-                Tier::Tags => tags_key(&arrival.artist, &arrival.title, arrival.album.as_deref())
-                    .and_then(|key| by_tags.get(&key)),
-                Tier::Title => {
-                    title_key(&arrival.artist, &arrival.title).and_then(|key| by_title.get(&key))
-                }
+                    .and_then(|rel| by_path.get(&(rel, arrival.start_offset_ms)))
+                    .cloned()
+                    .unwrap_or_default(),
+                Tier::Tags => artists
+                    .filter_map(|artist| {
+                        tags_key(artist, &arrival.title, arrival.album.as_deref())
+                            .and_then(|key| by_tags.get(&key))
+                    })
+                    .flatten()
+                    .copied()
+                    .collect(),
+                Tier::Title => artists
+                    .filter_map(|artist| {
+                        title_key(artist, &arrival.title).and_then(|key| by_title.get(&key))
+                    })
+                    .flatten()
+                    .copied()
+                    .collect(),
             };
-            let Some(candidates) = candidates else {
-                continue;
-            };
+            candidates.sort_unstable();
+            candidates.dedup();
             let best = candidates
                 .iter()
                 .copied()
                 .filter(|ix| !taken.contains(ix))
+                .filter(|ix| tier != Tier::Title || !orphans[*ix].live)
                 .map(|ix| {
                     let gap = duration_gap(arrival.duration_ms, orphans[ix].duration_ms);
                     (ix, gap)
@@ -150,6 +165,7 @@ mod tests {
             start_offset_ms: 0,
             title: title.into(),
             artist: artist.into(),
+            artist_aliases: Vec::new(),
             album: Some("Album".into()),
             duration_ms,
         }
@@ -169,6 +185,7 @@ mod tests {
             album: Some("Album".into()),
             duration_ms,
             locations: vec![(rel_path.into(), 0)],
+            live: false,
         }
     }
 
@@ -231,6 +248,43 @@ mod tests {
             &[orphan(3, "old/song.flac", "Artist", "Song", Some(200_000))],
         );
         assert_eq!(got, vec![None, Some((3, Tier::Tags))]);
+    }
+
+    #[test]
+    fn an_artist_alias_matches_when_the_main_credit_does_not() {
+        let mut split = arrival("z/song.flac", "Limp Bizkit", "Song", Some(200_000));
+        split.artist_aliases = vec!["Limp Bizkit Feat. Method Man".into()];
+        let got = match_arrivals(
+            &[split],
+            &[orphan(
+                5,
+                "old/song.flac",
+                "Limp Bizkit Feat. Method Man",
+                "Song",
+                Some(200_000),
+            )],
+        );
+        assert_eq!(got, vec![Some((5, Tier::Tags))]);
+    }
+
+    #[test]
+    fn a_live_item_is_never_claimed_on_title_alone() {
+        let mut elsewhere = arrival("z/song.flac", "Artist", "Song", Some(200_000));
+        elsewhere.album = Some("Live".into());
+        let mut live = orphan(4, "old/song.flac", "Artist", "Song", Some(201_000));
+        live.live = true;
+        assert_eq!(
+            match_arrivals(
+                std::slice::from_ref(&elsewhere),
+                std::slice::from_ref(&live)
+            ),
+            vec![None]
+        );
+        live.album = Some("Live".into());
+        assert_eq!(
+            match_arrivals(&[elsewhere], &[live]),
+            vec![Some((4, Tier::Tags))]
+        );
     }
 
     #[test]

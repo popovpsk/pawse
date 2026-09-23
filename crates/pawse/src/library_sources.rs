@@ -1,11 +1,13 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use gpui::{Context, SharedString, Subscription};
 
 use crate::library_service::LibraryEvent;
 use crate::localization::{LangChanged, tr};
+use crate::remote_sync::{RemoteError, SUBSONIC_KIND};
 use crate::services::Services;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{SettingsStore, SubsonicServer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceStatus {
@@ -71,10 +73,56 @@ impl LocalFolderRow {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerStatus {
+    Online,
+    Offline,
+    Syncing,
+}
+
+pub struct ServerRow {
+    pub server: SubsonicServer,
+    pub title: SharedString,
+    pub status: ServerStatus,
+    pub status_label: SharedString,
+    pub count_label: SharedString,
+    pub message: Option<SharedString>,
+}
+
+pub fn server_status(
+    uri: &str,
+    summaries: &[music_library::SourceSummary],
+    syncing: bool,
+) -> (ServerStatus, i64) {
+    let summary = summaries
+        .iter()
+        .find(|s| s.kind == SUBSONIC_KIND && s.enabled && s.uri == uri);
+    let status = match summary {
+        _ if syncing => ServerStatus::Syncing,
+        Some(s) if s.available => ServerStatus::Online,
+        _ => ServerStatus::Offline,
+    };
+    (status, summary.map_or(0, |s| s.track_count))
+}
+
+pub fn describe_error(error: &RemoteError) -> SharedString {
+    match error {
+        RemoteError::Auth => tr().subsonic_auth_failed.clone(),
+        RemoteError::Unreachable(reason) => tr().subsonic_unreachable(reason).into(),
+        RemoteError::Other(message) => message.clone().into(),
+    }
+}
+
 pub struct LibrarySources {
     folders: Vec<PathBuf>,
+    servers: Vec<SubsonicServer>,
     summaries: Vec<music_library::SourceSummary>,
     local: Vec<LocalFolderRow>,
+    remote: Vec<ServerRow>,
+    syncing: HashSet<String>,
+    messages: HashMap<String, SharedString>,
+    pub connecting: bool,
+    pub connect_error: Option<SharedString>,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
     _settings_observer: Subscription,
@@ -91,6 +139,30 @@ impl LibrarySources {
                 LibraryEvent::ScanComplete { changed: true } | LibraryEvent::ScanFailed => {
                     this.load(cx)
                 }
+                LibraryEvent::RemoteSyncStarted { uri } => {
+                    this.syncing.insert(uri.clone());
+                    this.messages.remove(uri);
+                    this.refresh_rows(cx);
+                    cx.notify();
+                }
+                LibraryEvent::RemoteSyncFinished { uri, outcome } => {
+                    this.syncing.remove(uri);
+                    let message = match outcome {
+                        Ok(report) => tr().subsonic_synced(report.total, report.adopted).into(),
+                        Err(error) => describe_error(error),
+                    };
+                    this.messages.insert(uri.clone(), message);
+                    this.load(cx);
+                }
+                LibraryEvent::RemoteStarsImported { uri, outcome } => {
+                    let message = match outcome {
+                        Ok((found, total)) => tr().scrobble_import_result(*found, *total).into(),
+                        Err(error) => describe_error(error),
+                    };
+                    this.messages.insert(uri.clone(), message);
+                    this.refresh_rows(cx);
+                    cx.notify();
+                }
                 LibraryEvent::ScanStarted | LibraryEvent::ScanIdle => {
                     this.refresh_rows(cx);
                     cx.notify();
@@ -103,14 +175,23 @@ impl LibrarySources {
             cx.notify();
         });
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
-            if cx.global::<SettingsStore>().music_folders() != this.folders.as_slice() {
+            let store = cx.global::<SettingsStore>();
+            if store.music_folders() != this.folders.as_slice()
+                || store.subsonic_servers() != this.servers.as_slice()
+            {
                 this.load(cx);
             }
         });
         let mut state = Self {
             folders: Vec::new(),
+            servers: Vec::new(),
             summaries: Vec::new(),
             local: Vec::new(),
+            remote: Vec::new(),
+            syncing: HashSet::new(),
+            messages: HashMap::new(),
+            connecting: false,
+            connect_error: None,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
             _settings_observer: settings_observer,
@@ -123,8 +204,13 @@ impl LibrarySources {
         &self.local
     }
 
+    pub fn remote(&self) -> &[ServerRow] {
+        &self.remote
+    }
+
     fn load(&mut self, cx: &mut Context<Self>) {
         self.folders = cx.global::<SettingsStore>().music_folders().to_vec();
+        self.servers = cx.global::<SettingsStore>().subsonic_servers().to_vec();
         self.summaries = cx.global::<Services>().library.sources();
         self.refresh_rows(cx);
         cx.notify();
@@ -135,6 +221,28 @@ impl LibrarySources {
         self.local = source_rows(&self.folders, &self.summaries, scanning)
             .into_iter()
             .map(LocalFolderRow::new)
+            .collect();
+        self.remote = self
+            .servers
+            .iter()
+            .map(|server| {
+                let uri = server.source_uri();
+                let (status, count) =
+                    server_status(&uri, &self.summaries, self.syncing.contains(&uri));
+                let status_label = match status {
+                    ServerStatus::Online => tr().server_online.clone(),
+                    ServerStatus::Offline => tr().server_offline.clone(),
+                    ServerStatus::Syncing => tr().source_syncing.clone(),
+                };
+                ServerRow {
+                    title: uri.clone().into(),
+                    status,
+                    status_label,
+                    count_label: tr().n_tracks(count).into(),
+                    message: self.messages.get(&uri).cloned(),
+                    server: server.clone(),
+                }
+            })
             .collect();
     }
 }
@@ -186,6 +294,29 @@ mod tests {
         assert_eq!(rows[0].status, SourceStatus::Offline);
         assert_eq!(rows[1].status, SourceStatus::Scanning);
         assert_eq!(rows[1].track_count, 0);
+    }
+
+    #[test]
+    fn server_status_prefers_syncing_then_the_source_flag() {
+        let mut online = summary("me@http://nas", true, 7);
+        online.kind = SUBSONIC_KIND.into();
+        assert_eq!(
+            server_status("me@http://nas", std::slice::from_ref(&online), false),
+            (ServerStatus::Online, 7)
+        );
+        assert_eq!(
+            server_status("me@http://nas", std::slice::from_ref(&online), true).0,
+            ServerStatus::Syncing
+        );
+        online.available = false;
+        assert_eq!(
+            server_status("me@http://nas", &[online], false).0,
+            ServerStatus::Offline
+        );
+        assert_eq!(
+            server_status("other", &[], false),
+            (ServerStatus::Offline, 0)
+        );
     }
 
     #[test]

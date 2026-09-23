@@ -95,6 +95,24 @@ pub struct Strings {
     pub library_folder_unavailable_t: SharedString,
     pub playback_failed_title: SharedString,
     pub local_folders: SharedString,
+    pub subsonic_servers: SharedString,
+    pub subsonic_servers_desc: SharedString,
+    pub subsonic_url: SharedString,
+    pub subsonic_username: SharedString,
+    pub subsonic_password: SharedString,
+    pub subsonic_connect: SharedString,
+    pub subsonic_sync: SharedString,
+    pub subsonic_import_stars: SharedString,
+    pub subsonic_auth_failed: SharedString,
+    pub subsonic_unreachable_t: SharedString,
+    pub subsonic_synced_t: SharedString,
+    pub subsonic_fill_fields: SharedString,
+    pub no_servers_added: SharedString,
+    pub server_online: SharedString,
+    pub server_offline: SharedString,
+    pub source_syncing: SharedString,
+    pub remove_server_confirm_title: SharedString,
+    pub remove_server_confirm_message: SharedString,
     pub source_online: SharedString,
     pub source_offline: SharedString,
     pub source_scanning: SharedString,
@@ -500,6 +518,17 @@ impl Strings {
 
     pub fn library_folder_unavailable(&self, folder: &str) -> String {
         fill(&self.library_folder_unavailable_t, &[folder])
+    }
+
+    pub fn subsonic_unreachable(&self, reason: &str) -> String {
+        fill(&self.subsonic_unreachable_t, &[reason])
+    }
+
+    pub fn subsonic_synced(&self, total: usize, matched: usize) -> String {
+        fill(
+            &self.subsonic_synced_t,
+            &[&total.to_string(), &matched.to_string()],
+        )
     }
 
     pub fn unavailable_count(&self, count: usize) -> String {

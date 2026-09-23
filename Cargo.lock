@@ -4734,6 +4734,7 @@ dependencies = [
  "log",
  "rusqlite",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.19",
 ]
@@ -5698,6 +5699,7 @@ dependencies = [
  "scrobble",
  "serde",
  "serde_json",
+ "subsonic",
  "sys-locale",
  "tag_writer",
  "ui_components",
@@ -7575,6 +7577,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "subsonic"
+version = "1.0.0"
+dependencies = [
+ "log",
+ "md-5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "ureq",
 ]
 
 [[package]]

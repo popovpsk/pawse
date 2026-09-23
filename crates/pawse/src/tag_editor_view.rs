@@ -86,6 +86,9 @@ pub struct TagEditorView {
 }
 
 pub fn open_for_track(track: Rc<music_library::Track>, window: &mut Window, cx: &mut App) {
+    if music_library::remote::is_remote(&track.path) {
+        return;
+    }
     let path = PathBuf::from(&track.path);
     let Some(loaded) = load(&track, &path, true, cx) else {
         return;
@@ -111,7 +114,7 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     let tracks = library.tracks_for_album(album_id);
     let files: Vec<PathBuf> = tracks
         .iter()
-        .filter(|t| !t.is_cue)
+        .filter(|t| !t.is_cue && !music_library::remote::is_remote(&t.path))
         .map(|t| PathBuf::from(&t.path))
         .collect();
     let read_only = if files.is_empty() {
@@ -121,7 +124,16 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     } else {
         None
     };
-    let Some(track) = tracks.iter().find(|t| !t.is_cue).or_else(|| tracks.first()) else {
+    let local: Vec<&music_library::Track> = tracks
+        .iter()
+        .filter(|t| !music_library::remote::is_remote(&t.path))
+        .collect();
+    let Some(track) = local
+        .iter()
+        .find(|t| !t.is_cue)
+        .or_else(|| local.first())
+        .copied()
+    else {
         return;
     };
     let Some(mut loaded) = load(track, Path::new(&track.path), false, cx) else {

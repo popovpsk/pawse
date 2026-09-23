@@ -51,6 +51,17 @@ pub enum LibraryEvent {
     ScanFolderUnavailable {
         folder: String,
     },
+    RemoteSyncStarted {
+        uri: String,
+    },
+    RemoteSyncFinished {
+        uri: String,
+        outcome: Result<music_library::RemoteSyncReport, crate::remote_sync::RemoteError>,
+    },
+    RemoteStarsImported {
+        uri: String,
+        outcome: Result<(usize, usize), crate::remote_sync::RemoteError>,
+    },
     TrackLikedChanged {
         track_id: i64,
         liked: bool,
@@ -89,7 +100,14 @@ impl LibraryEvent {
     }
 }
 
+#[derive(Default)]
+struct RemoteSyncState {
+    running: AtomicBool,
+    queued: Mutex<Vec<crate::remote_sync::RemoteServer>>,
+}
+
 pub struct LibraryService {
+    remote_sync: Arc<RemoteSyncState>,
     repo: Arc<dyn LibraryRepository>,
     event_tx: flume::Sender<LibraryEvent>,
     executor: gpui::BackgroundExecutor,
@@ -409,6 +427,7 @@ impl LibraryService {
     ) -> Self {
         let repo = Arc::new(SqliteLibrary::open().expect("open library db"));
         Self {
+            remote_sync: Arc::new(RemoteSyncState::default()),
             repo,
             event_tx,
             executor,
@@ -656,7 +675,7 @@ impl LibraryService {
                     .tracks_for_album(album_id)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|t| !t.is_cue)
+                    .filter(|t| !t.is_cue && !music_library::remote::is_remote(&t.path))
                     .collect();
                 if tracks.is_empty() {
                     log::error!("Album tag edit for {} has no editable tracks", album_id);
@@ -829,6 +848,122 @@ impl LibraryService {
         }
         std::fs::write(&path, &bytes).ok()?;
         Some(path)
+    }
+
+    pub fn reconcile_remote(
+        &self,
+        servers: &[crate::remote_sync::RemoteServer],
+    ) -> HashMap<i64, subsonic::Config> {
+        crate::remote_sync::reconcile(&*self.repo, servers)
+    }
+
+    pub fn sync_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>) {
+        if servers.is_empty() {
+            return;
+        }
+        {
+            let mut queued = self.remote_sync.queued.lock().unwrap();
+            for server in servers {
+                queued.retain(|existing| existing.uri != server.uri);
+                queued.push(server);
+            }
+        }
+        if self.remote_sync.running.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        let remote_sync = self.remote_sync.clone();
+        std::thread::spawn(move || {
+            let mut changed = false;
+            loop {
+                let batch = std::mem::take(&mut *remote_sync.queued.lock().unwrap());
+                if batch.is_empty() {
+                    remote_sync.running.store(false, Ordering::Release);
+                    let late = !remote_sync.queued.lock().unwrap().is_empty();
+                    if late && !remote_sync.running.swap(true, Ordering::AcqRel) {
+                        continue;
+                    }
+                    break;
+                }
+                let ids = crate::remote_sync::source_ids(&*repo);
+                for server in batch {
+                    let Some(&source_id) = ids.get(&server.uri) else {
+                        continue;
+                    };
+                    let _ = event_tx.send(LibraryEvent::RemoteSyncStarted {
+                        uri: server.uri.clone(),
+                    });
+                    let outcome =
+                        crate::remote_sync::sync_server(&*repo, source_id, &server.config);
+                    changed |= outcome.changed;
+                    match &outcome.result {
+                        Ok(report) => log::info!(
+                            "Subsonic {}: {} songs, {} new, {} matched, {} gone, {} updated",
+                            server.uri,
+                            report.total,
+                            report.added,
+                            report.adopted,
+                            report.retired,
+                            report.updated
+                        ),
+                        Err(e) => log::warn!("Subsonic {} sync failed: {e:?}", server.uri),
+                    }
+                    let _ = event_tx.send(LibraryEvent::RemoteSyncFinished {
+                        uri: server.uri,
+                        outcome: outcome.result,
+                    });
+                }
+            }
+            if changed {
+                if let Err(e) = repo.invalidate_scan_fingerprint() {
+                    log::error!("Failed to invalidate scan fingerprint: {e}");
+                }
+                Self::spawn_scan(repo, event_tx, executor, scan_state);
+            }
+        });
+    }
+
+    pub fn refresh_after_source_change(&self) {
+        if let Err(e) = self.repo.invalidate_scan_fingerprint() {
+            log::error!("Failed to invalidate scan fingerprint: {e}");
+        }
+        Self::spawn_scan(
+            self.repo.clone(),
+            self.event_tx.clone(),
+            self.executor.clone(),
+            self.scan_state.clone(),
+        );
+    }
+
+    pub fn import_remote_stars(&self, server: crate::remote_sync::RemoteServer) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let ids = crate::remote_sync::source_ids(&*repo);
+            let outcome = match ids.get(&server.uri) {
+                Some(&source_id) => {
+                    crate::remote_sync::import_stars(&*repo, source_id, &server.config)
+                }
+                None => Err(crate::remote_sync::RemoteError::Other(
+                    "server is not synced yet".into(),
+                )),
+            };
+            let outcome = outcome.and_then(|(items, total)| {
+                repo.like_many(&items)?;
+                let found = items.len();
+                let _ = event_tx.send(LibraryEvent::LikesImported {
+                    track_ids: Arc::new(items),
+                });
+                Ok((found, total))
+            });
+            let _ = event_tx.send(LibraryEvent::RemoteStarsImported {
+                uri: server.uri,
+                outcome,
+            });
+        });
     }
 
     pub fn is_scanning(&self) -> bool {
@@ -1422,7 +1557,7 @@ fn force_rescan(
     LibraryService::spawn_scan(repo, event_tx, executor, scan_state);
 }
 
-fn is_placeholder_artist(name: &str) -> bool {
+pub(crate) fn is_placeholder_artist(name: &str) -> bool {
     matches!(
         name.to_lowercase().as_str(),
         "" | "[no artist]"
@@ -1431,6 +1566,7 @@ fn is_placeholder_artist(name: &str) -> bool {
             | "<unknown>"
             | "unknown"
             | "unknown artist"
+            | "[unknown artist]"
             | "n/a"
             | "none"
     )

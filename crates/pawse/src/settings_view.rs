@@ -205,6 +205,12 @@ pub struct SettingsSliders {
 ///
 /// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
+#[derive(Clone)]
+pub struct LibraryPage {
+    pub sources: Entity<crate::library_sources::LibrarySources>,
+    pub subsonic_inputs: crate::subsonic_settings::SubsonicInputs,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn build_settings_pages(
     theme_picker: Entity<ThemePickerState>,
@@ -213,7 +219,7 @@ pub fn build_settings_pages(
     remote_port_input: Entity<InputState>,
     scrobble_ui: Entity<crate::scrobble_settings::ScrobbleUiState>,
     scrobble_inputs: crate::scrobble_settings::ScrobbleInputs,
-    library_sources: Entity<crate::library_sources::LibrarySources>,
+    library_page: LibraryPage,
     cx: &App,
 ) -> Vec<SettingPage> {
     let albums_layout = cx.global::<SettingsStore>().albums_layout();
@@ -245,7 +251,12 @@ pub fn build_settings_pages(
         scrobble_inputs,
     ));
     pages.push(
-        SettingPage::new(tr().settings_library.clone()).group(local_folders_group(library_sources)),
+        SettingPage::new(tr().settings_library.clone())
+            .group(local_folders_group(library_page.sources.clone()))
+            .group(crate::subsonic_settings::subsonic_group(
+                library_page.sources,
+                library_page.subsonic_inputs,
+            )),
     );
     pages
 }

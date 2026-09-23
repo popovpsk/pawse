@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary, ScanTrack,
-    SourceSummary, StoredLyrics, Track,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
+    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
+    StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -133,6 +134,17 @@ pub trait LibraryRepository: Send + Sync {
     fn has_media_under(&self, root: &str) -> Result<bool>;
     fn has_unplaced_media(&self) -> Result<bool>;
     fn sources(&self) -> Result<Vec<SourceSummary>>;
+    fn reconcile_remote_sources(&self, kind: &str, sources: &[RemoteSource]) -> Result<()>;
+    fn set_source_available(&self, source_id: i64, available: bool) -> Result<bool>;
+    fn remote_cover_hashes(&self, source_id: i64) -> Result<HashMap<String, String>>;
+    fn apply_remote_listing(
+        &self,
+        source_id: i64,
+        songs: &[RemoteSong],
+        covers: &[RemoteCover],
+    ) -> Result<RemoteSyncReport>;
+    fn items_for_remote_keys(&self, source_id: i64, keys: &[String]) -> Result<Vec<i64>>;
+    fn invalidate_scan_fingerprint(&self) -> Result<()>;
     fn refresh_item_snapshots(&self) -> Result<()>;
 
     /// Open a batched scan-write session on a dedicated connection.

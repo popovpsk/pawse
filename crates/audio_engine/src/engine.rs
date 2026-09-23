@@ -1,4 +1,9 @@
-use std::{path::PathBuf, sync::Arc, thread, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    thread,
+    time::Duration,
+};
 
 use crate::{Command, EngineEvent};
 use audio_common::{AudioBatch, AudioSource};
@@ -31,6 +36,19 @@ const POSITION_UPDATE_INTERVAL_MS: u64 = 200;
 const FADE_PAUSE_MS: u32 = 300;
 const FADE_SEEK_MS: u32 = 160;
 
+pub type TrackResolver = Arc<dyn Fn(&Path) -> Result<PathBuf, String> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct EngineCommander(flume::Sender<Command>);
+
+impl EngineCommander {
+    pub fn send(&self, command: Command) {
+        if self.0.send(command).is_err() {
+            log::error!("audio engine: command channel closed; dropping command");
+        }
+    }
+}
+
 pub struct AudioEngine {
     command_sender: flume::Sender<Command>,
     event_receiver: flume::Receiver<EngineEvent>,
@@ -38,6 +56,10 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new(out: Arc<Output>) -> Self {
+        Self::with_resolver(out, Arc::new(|path| Ok(path.to_path_buf())))
+    }
+
+    pub fn with_resolver(out: Arc<Output>, resolver: TrackResolver) -> Self {
         let (event_sender, event_receiver) = flume::bounded(64);
         let (command_sender, command_receiver) = flume::bounded(64);
 
@@ -53,6 +75,7 @@ impl AudioEngine {
             track_end: None,
             needs_flush: false,
             fade_intent: FadeIntent::None,
+            resolver,
         }
         .run();
 
@@ -64,6 +87,10 @@ impl AudioEngine {
 
     pub fn events(&self) -> flume::Receiver<EngineEvent> {
         self.event_receiver.clone()
+    }
+
+    pub fn commander(&self) -> EngineCommander {
+        EngineCommander(self.command_sender.clone())
     }
 
     pub fn pause(&self) {
@@ -130,6 +157,7 @@ struct AudioEngineLoop {
     track_end: Option<Duration>,
     needs_flush: bool,
     fade_intent: FadeIntent,
+    resolver: TrackResolver,
 }
 
 impl AudioEngineLoop {
@@ -306,6 +334,12 @@ impl AudioEngineLoop {
                 track_duration,
             } => self.handle_set_local_track(path, start_offset, track_duration),
             Command::Stop => self.handle_stop(),
+            Command::Fail(message) => {
+                self.output.pause();
+                self.decoder = None;
+                self.set_state(AudioEngineState::TrackNotSet);
+                _ = self.event_sender.send(EngineEvent::Error(message));
+            }
             Command::Shutdown => self.handle_shutdown(),
         }
     }
@@ -349,7 +383,9 @@ impl AudioEngineLoop {
         self.track_start = Duration::ZERO;
         self.track_end = None;
 
-        let decoder = match Decoder::open(path.as_path()) {
+        let decoder = match (self.resolver)(&path)
+            .and_then(|resolved| Decoder::open(resolved.as_path()).map_err(|e| e.to_string()))
+        {
             Ok(decoder) => decoder,
             Err(err) => {
                 self.output.pause();

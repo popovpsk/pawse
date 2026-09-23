@@ -37,6 +37,8 @@ pub mod playback_queue;
 pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;
+pub mod remote_media;
+pub mod remote_sync;
 pub mod repeat_button;
 pub mod scrobble_bridge;
 mod scrobble_import;
@@ -48,6 +50,7 @@ pub mod settings_view;
 pub mod shuffle_button;
 #[cfg(not(target_os = "macos"))]
 pub mod single_instance;
+pub mod subsonic_settings;
 pub mod tag_editor_view;
 pub mod theme_colors;
 pub mod track_list;
@@ -67,7 +70,12 @@ fn restore_engine_state(cx: &mut App) {
     };
     drop(queue);
 
-    let path = std::path::PathBuf::from(&track.path);
+    let Some(path) = services
+        .remote_media
+        .cached(std::path::Path::new(&track.path))
+    else {
+        return;
+    };
     let start_offset = if track.start_offset_ms > 0 {
         Some(std::time::Duration::from_millis(
             track.start_offset_ms as u64,
@@ -114,16 +122,22 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
         let view = cx.new(|cx| MainView::new(window, cx));
         let root = cx.new(|cx| Root::new(view, window, cx));
         if run_startup_tasks {
+            crate::subsonic_settings::apply_remote_sources(cx);
             restore_engine_state(cx);
             window.on_next_frame(|_window, cx| {
                 let folders = cx
                     .global::<crate::settings_store::SettingsStore>()
                     .music_folders()
                     .to_vec();
-                if !folders.is_empty() {
+                let has_servers = !cx
+                    .global::<crate::settings_store::SettingsStore>()
+                    .subsonic_servers()
+                    .is_empty();
+                if !folders.is_empty() || has_servers {
                     cx.global::<Services>().library.clear_and_rescan(folders);
                 }
                 crate::library_watcher::rebuild(cx);
+                crate::subsonic_settings::sync_all(cx);
             });
         }
         root

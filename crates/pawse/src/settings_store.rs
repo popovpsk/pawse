@@ -290,6 +290,31 @@ pub struct PlaybackState {
     pub custom: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SubsonicServer {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+}
+
+impl SubsonicServer {
+    pub fn normalized_url(&self) -> String {
+        self.url.trim().trim_end_matches('/').to_string()
+    }
+
+    pub fn source_uri(&self) -> String {
+        format!("{}@{}", self.username.trim(), self.normalized_url())
+    }
+
+    pub fn config(&self) -> subsonic::Config {
+        subsonic::Config {
+            url: self.normalized_url(),
+            username: self.username.trim().to_string(),
+            password: self.password.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     #[serde(default)]
@@ -358,6 +383,8 @@ pub struct UserSettings {
     pub remote_port: u16,
     #[serde(default)]
     pub scrobble: ScrobbleSettings,
+    #[serde(default)]
+    pub subsonic_servers: Vec<SubsonicServer>,
     #[serde(default, rename = "lastfm_enabled", skip_serializing)]
     legacy_lastfm_enabled: Option<bool>,
     #[serde(default, rename = "lastfm_session", skip_serializing)]
@@ -412,6 +439,7 @@ impl Default for UserSettings {
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
             scrobble: ScrobbleSettings::default(),
+            subsonic_servers: Vec::new(),
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
@@ -641,6 +669,30 @@ impl SettingsStore {
         let before = self.settings.music_folders.len();
         self.settings.music_folders.retain(|p| p.as_path() != path);
         if self.settings.music_folders.len() == before {
+            return Ok(());
+        }
+        self.save()
+    }
+
+    pub fn subsonic_servers(&self) -> &[SubsonicServer] {
+        &self.settings.subsonic_servers
+    }
+
+    pub fn add_subsonic_server(&mut self, server: SubsonicServer) -> anyhow::Result<()> {
+        let uri = server.source_uri();
+        self.settings
+            .subsonic_servers
+            .retain(|existing| existing.source_uri() != uri);
+        self.settings.subsonic_servers.push(server);
+        self.save()
+    }
+
+    pub fn remove_subsonic_server(&mut self, uri: &str) -> anyhow::Result<()> {
+        let before = self.settings.subsonic_servers.len();
+        self.settings
+            .subsonic_servers
+            .retain(|server| server.source_uri() != uri);
+        if self.settings.subsonic_servers.len() == before {
             return Ok(());
         }
         self.save()
@@ -1266,6 +1318,7 @@ mod tests {
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
             scrobble: ScrobbleSettings::default(),
+            subsonic_servers: Vec::new(),
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,

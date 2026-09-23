@@ -324,6 +324,10 @@ impl MainView {
         );
 
         let library_sources = cx.new(crate::library_sources::LibrarySources::new);
+        let library_page = crate::settings_view::LibraryPage {
+            sources: library_sources.clone(),
+            subsonic_inputs: crate::subsonic_settings::SubsonicInputs::new(window, cx),
+        };
         let library_sources_observe = cx.observe(&library_sources, |_, _, cx| cx.notify());
         let scrobble_ui: Entity<ScrobbleUiState> = cx.new(|_| ScrobbleUiState::new());
         let scrobble_ui_observe = cx.observe(&scrobble_ui, |_, _, cx| cx.notify());
@@ -371,7 +375,7 @@ impl MainView {
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
-            let library_sources = library_sources.clone();
+            let library_page = library_page.clone();
             move |this, cx| {
                 theme_picker.update(cx, |state, cx| {
                     state.options = ThemePickerState::build_options(&*cx);
@@ -388,7 +392,7 @@ impl MainView {
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
-                    library_sources.clone(),
+                    library_page.clone(),
                     cx,
                 );
                 cx.notify();
@@ -414,7 +418,7 @@ impl MainView {
             remote_port_input.clone(),
             scrobble_ui.clone(),
             scrobble_inputs.clone(),
-            library_sources.clone(),
+            library_page.clone(),
             cx,
         );
 
@@ -521,7 +525,7 @@ impl MainView {
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
-            let library_sources = library_sources.clone();
+            let library_page = library_page.clone();
             move |this, cx| {
                 let grouping = cx.global::<SettingsStore>().artists_grouping();
                 cx.global::<crate::services::Services>()
@@ -538,7 +542,7 @@ impl MainView {
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
-                    library_sources.clone(),
+                    library_page.clone(),
                     cx,
                 );
                 cx.notify();

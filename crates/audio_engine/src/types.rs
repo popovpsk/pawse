@@ -23,6 +23,7 @@ pub enum Command {
     Pause,
     Seek(f32),
     Stop,
+    Fail(String),
     Shutdown,
 }
 

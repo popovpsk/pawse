@@ -25,6 +25,8 @@ pub struct Services {
     pub output: Arc<Output>,
     pub engine_event_bus: Entity<EngineEventsBus>,
     pub library: Arc<LibraryService>,
+    pub remote_media: crate::remote_media::RemoteMedia,
+    track_generation: Arc<AtomicU64>,
     pub library_event_bus: Entity<LibraryEventsBus>,
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
@@ -54,7 +56,11 @@ type RemoteQueueCache = Option<(u64, Arc<Vec<pawse_remote::QueueItem>>)>;
 impl Services {
     pub fn initialize(cx: &mut App) -> Self {
         let output = Arc::new(Output::new());
-        let audio_engine = Rc::new(AudioEngine::new(output.clone()));
+        let remote_media = crate::remote_media::RemoteMedia::default();
+        let audio_engine = Rc::new(AudioEngine::with_resolver(
+            output.clone(),
+            remote_media.resolver(),
+        ));
         let engine_manager = Rc::new(EngineManager::new(audio_engine).start(cx));
         let engine_event_bus = cx.new(|_| EngineEventsBus);
 
@@ -174,25 +180,30 @@ impl Services {
             remote_server: Rc::new(RefCell::new(None)),
             remote_queue_cache: Rc::new(RefCell::new(None)),
             library_rev: Arc::new(AtomicU64::new(0)),
+            remote_media,
+            track_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn play_track(&self, track: &Track) {
-        self.load_track(track);
-        self.engine_manager.play();
+        self.start_track(track, AfterLoad::Play);
     }
 
     /// Like `play_track` but skips the 300ms fade-in for gapless transitions.
     pub fn play_track_gapless(&self, track: &Track) {
-        self.load_track(track);
-        self.engine_manager.play_gapless();
+        self.start_track(track, AfterLoad::PlayGapless);
     }
 
     /// Load a track into the engine without starting playback. Fires
     /// `EngineEvent::Loaded` so subscribers (now-playing, queue view) update,
     /// but leaves the engine paused at position 0.
     pub fn load_track(&self, track: &Track) {
+        self.start_track(track, AfterLoad::Stay);
+    }
+
+    fn start_track(&self, track: &Track, after: AfterLoad) {
         self.current_position_ms.store(0, Ordering::Relaxed);
+        let generation = self.track_generation.fetch_add(1, Ordering::AcqRel) + 1;
         let path = std::path::PathBuf::from(&track.path);
         let start_offset = if track.start_offset_ms > 0 {
             Some(Duration::from_millis(track.start_offset_ms as u64))
@@ -200,8 +211,54 @@ impl Services {
             None
         };
         let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-        self.engine_manager
-            .set_track_with_offset(path, start_offset, track_duration);
+        if self.remote_media.cached(&path).is_some() {
+            self.engine_manager
+                .set_track_with_offset(path, start_offset, track_duration);
+            after.apply(&self.engine_manager.commander());
+            return;
+        }
+        let media = self.remote_media.clone();
+        let commander = self.engine_manager.commander();
+        let current = self.track_generation.clone();
+        std::thread::spawn(move || {
+            let result = media.resolve(&path);
+            if current.load(Ordering::Acquire) != generation {
+                return;
+            }
+            match result {
+                Ok(local) => {
+                    commander.send(audio_engine::Command::SetLocalTrack {
+                        path: local,
+                        start_offset,
+                        track_duration,
+                    });
+                    after.apply(&commander);
+                }
+                Err(e) => commander.send(audio_engine::Command::Fail(format!(
+                    "{}: {e}",
+                    path.display()
+                ))),
+            }
+        });
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AfterLoad {
+    Stay,
+    Play,
+    PlayGapless,
+}
+
+impl AfterLoad {
+    fn apply(self, commander: &audio_engine::EngineCommander) {
+        match self {
+            AfterLoad::Stay => {}
+            AfterLoad::Play => commander.send(audio_engine::Command::Play { fade_in: true }),
+            AfterLoad::PlayGapless => {
+                commander.send(audio_engine::Command::Play { fade_in: false })
+            }
+        }
     }
 }
 
@@ -393,23 +450,31 @@ fn notify_remote_error(cx: &mut App, port: u16, err: &str) {
 
 pub fn toggle_play_pause(cx: &mut App) -> Option<bool> {
     let services = cx.global::<Services>();
-    services.playback_queue.borrow().current_track()?;
+    let current = services.playback_queue.borrow().current_track().cloned()?;
     let was_playing = services.is_playing.fetch_xor(true, Ordering::Relaxed);
     if was_playing {
         services.engine_manager.pause();
     } else {
-        services.engine_manager.play();
+        resume_or_load(services, &current);
     }
     Some(!was_playing)
 }
 
 pub fn play(cx: &mut App) {
     let services = cx.global::<Services>();
-    if services.playback_queue.borrow().current_track().is_none() {
+    let Some(current) = services.playback_queue.borrow().current_track().cloned() else {
         return;
-    }
+    };
     services.is_playing.store(true, Ordering::Relaxed);
-    services.engine_manager.play();
+    resume_or_load(services, &current);
+}
+
+fn resume_or_load(services: &Services, current: &Track) {
+    if services.current_duration_ms.load(Ordering::Relaxed) == 0 {
+        services.play_track(current);
+    } else {
+        services.engine_manager.play();
+    }
 }
 
 pub fn pause(cx: &mut App) {
@@ -833,6 +898,7 @@ pub async fn run_engine_events_bus(
             }
             EngineEvent::Error(message) => {
                 is_playing.store(false, Ordering::Relaxed);
+                current_duration_ms.store(0, Ordering::Relaxed);
                 let message = message.clone();
                 cx.update(|cx| {
                     let Some(handle) = cx.windows().into_iter().next() else {
@@ -954,6 +1020,8 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
 /// current one, warm the OS page cache by reading the first 64 KiB of the next
 /// track's file. This eliminates decoder-open latency for gapless transitions,
 /// especially on spinning disks.
+const REMOTE_PREFETCH_LEAD: Duration = Duration::from_secs(30);
+
 fn maybe_prefetch_next_track(
     cx: &AsyncApp,
     position: &Duration,
@@ -963,8 +1031,20 @@ fn maybe_prefetch_next_track(
     if *prefetched {
         return;
     }
+    let next_is_remote = cx.update(|cx| {
+        cx.global::<Services>()
+            .playback_queue
+            .borrow()
+            .peek_next()
+            .is_some_and(|t| music_library::remote::is_remote(&t.path))
+    });
+    let lead = if next_is_remote {
+        REMOTE_PREFETCH_LEAD
+    } else {
+        Duration::from_secs(2)
+    };
     let near_end = track_duration
-        .map(|d| d.saturating_sub(*position) <= Duration::from_secs(2))
+        .map(|d| d.saturating_sub(*position) <= lead)
         .unwrap_or(false);
     if !near_end {
         return;
@@ -980,6 +1060,14 @@ fn maybe_prefetch_next_track(
     }) else {
         return;
     };
+    if next_is_remote {
+        cx.update(|cx| {
+            cx.global::<Services>()
+                .remote_media
+                .prefetch(&path.to_string_lossy())
+        });
+        return;
+    }
 
     cx.background_spawn(async move {
         if let Ok(mut file) = std::fs::File::open(&path) {

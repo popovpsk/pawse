@@ -3,6 +3,7 @@ pub mod album_artists;
 pub mod error;
 pub mod migrations;
 pub mod models;
+pub mod remote;
 pub mod repository;
 pub mod sqlite;
 pub mod thumbnail;
@@ -11,8 +12,8 @@ pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    LocalFolder, NewTrack, Playlist, PlaylistSummary, ScanLyrics, ScanTrack, SourceSummary,
-    StoredLyrics, Track, lyrics_source,
+    LocalFolder, NewTrack, Playlist, PlaylistSummary, RemoteCover, RemoteSong, RemoteSource,
+    RemoteSyncReport, ScanLyrics, ScanTrack, SourceSummary, StoredLyrics, Track, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -2040,6 +2041,280 @@ mod tests {
 
         lib.reconcile_local_sources(&folders(&["/a"])).unwrap();
         assert!(!shape(&lib)[1].1);
+    }
+
+    fn remote_song(key: &str, title: &str, rel_path: &str) -> RemoteSong {
+        RemoteSong {
+            key: key.into(),
+            rel_path: Some(rel_path.into()),
+            title: title.into(),
+            artist: Some("Artist".into()),
+            album: Some("Album".into()),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            suffix: Some("flac".into()),
+            ..Default::default()
+        }
+    }
+
+    fn server(lib: &SqliteLibrary) -> i64 {
+        lib.reconcile_remote_sources(
+            "subsonic",
+            &[RemoteSource {
+                uri: "me@http://nas".into(),
+                name: "nas".into(),
+            }],
+        )
+        .unwrap();
+        lib.sources()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.kind == "subsonic")
+            .unwrap()
+            .id
+    }
+
+    fn paths(lib: &SqliteLibrary) -> Vec<String> {
+        let mut paths: Vec<String> = lib
+            .all_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.path)
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn server_songs_join_the_catalog_and_hide_while_the_server_is_away() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("s1", "Remote", "x/r.flac")], &[])
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (1, 0));
+        scan(&lib, vec![]);
+        let locator = remote::locator(source, "s1", "flac");
+        assert_eq!(paths(&lib), vec![locator.clone()]);
+        let track_id = id_of(&lib, &locator);
+        lib.set_liked(track_id, true).unwrap();
+
+        lib.set_source_available(source, false).unwrap();
+        scan(&lib, vec![]);
+        assert!(paths(&lib).is_empty());
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+
+        lib.set_source_available(source, true).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(id_of(&lib, &locator), track_id);
+        assert_eq!(
+            lib.items_for_remote_keys(source, &["s1".into()]).unwrap(),
+            vec![track_id]
+        );
+    }
+
+    #[test]
+    fn a_server_copy_of_a_local_file_is_one_track_not_two() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+        let local = id_of(&lib, "/music/x/a.flac");
+        let source = server(&lib);
+
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("s1", "A", "x/a.flac")], &[])
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (0, 1));
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+
+        assert_eq!(paths(&lib), vec!["/music/x/a.flac".to_string()]);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        assert_eq!(
+            lib.items_for_remote_keys(source, &["s1".into()]).unwrap(),
+            vec![local]
+        );
+
+        lib.reconcile_local_sources(&folders(&[])).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "s1", "flac")), local);
+    }
+
+    #[test]
+    fn a_local_file_joins_the_server_track_it_copies() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A", "x/a.flac")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let remote_id = id_of(&lib, &remote::locator(source, "s1", "flac"));
+        lib.set_liked(remote_id, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/elsewhere/a.flac", "A")]);
+
+        assert_eq!(paths(&lib), vec!["/music/elsewhere/a.flac".to_string()]);
+        assert_eq!(id_of(&lib, "/music/elsewhere/a.flac"), remote_id);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_song_dropped_from_the_server_listing_is_retired_but_keeps_its_like() {
+        let (lib, path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(
+            source,
+            &[
+                remote_song("s1", "Keep", "a.flac"),
+                remote_song("s2", "Gone", "b.flac"),
+                remote_song("s3", "Plain", "c.flac"),
+            ],
+            &[],
+        )
+        .unwrap();
+        scan(&lib, vec![]);
+        let gone = id_of(&lib, &remote::locator(source, "s2", "flac"));
+        lib.set_liked(gone, true).unwrap();
+
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("s1", "Keep", "a.flac")], &[])
+            .unwrap();
+        assert_eq!(report.retired, 2);
+        scan(&lib, vec![]);
+
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+
+        lib.apply_remote_listing(
+            source,
+            &[
+                remote_song("s1", "Keep", "a.flac"),
+                remote_song("s2", "Gone", "b.flac"),
+            ],
+            &[],
+        )
+        .unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "s2", "flac")), gone);
+    }
+
+    #[test]
+    fn an_empty_listing_changes_nothing_while_the_server_had_songs() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A", "a.flac")], &[])
+            .unwrap();
+        assert!(lib.apply_remote_listing(source, &[], &[]).is_err());
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+    }
+
+    #[test]
+    fn a_song_renamed_on_the_server_keeps_its_like() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("old-id", "A", "x/a.flac")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let id = id_of(&lib, &remote::locator(source, "old-id", "flac"));
+        lib.set_liked(id, true).unwrap();
+
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("new-id", "A", "y/a.flac")], &[])
+            .unwrap();
+        assert_eq!((report.adopted, report.retired), (1, 1));
+        scan(&lib, vec![]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "new-id", "flac")), id);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_repeated_listing_reports_no_change() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let songs = [remote_song("s1", "A", "a.flac")];
+        assert!(
+            lib.apply_remote_listing(source, &songs, &[])
+                .unwrap()
+                .changed()
+        );
+        assert!(
+            !lib.apply_remote_listing(source, &songs, &[])
+                .unwrap()
+                .changed()
+        );
+        let mut retagged = songs.clone();
+        retagged[0].title = "A (Remastered)".into();
+        assert!(
+            lib.apply_remote_listing(source, &retagged, &[])
+                .unwrap()
+                .changed()
+        );
+    }
+
+    #[test]
+    fn a_server_song_does_not_claim_a_different_live_recording_by_title() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/studio/a.flac", "A")]);
+        let source = server(&lib);
+        let mut live = remote_song("s1", "A", "live/a.flac");
+        live.album = Some("Live at Somewhere".into());
+        live.duration_ms = Some(181_000);
+        let report = lib.apply_remote_listing(source, &[live], &[]).unwrap();
+        assert_eq!((report.added, report.adopted), (1, 0));
+        scan(&lib, vec![scan_track("/music/studio/a.flac", "A")]);
+        assert_eq!(paths(&lib).len(), 2);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+    }
+
+    #[test]
+    fn server_covers_arrive_with_the_listing() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let jpeg = make_test_jpeg(&[1, 2, 3]);
+        let thumbs = crate::thumbnail::generate_thumbnails(&jpeg).unwrap();
+        let hash = sha256_hex(&jpeg);
+        let mut song = remote_song("s1", "A", "a.flac");
+        song.cover_hash = Some(hash.clone());
+        lib.apply_remote_listing(
+            source,
+            &[song],
+            &[RemoteCover {
+                hash: hash.clone(),
+                small: thumbs.small,
+                large: thumbs.large,
+                source_path: "subsonic-cover://1/c".into(),
+            }],
+        )
+        .unwrap();
+        scan(&lib, vec![]);
+        lib.delete_orphaned_albums_and_artists().unwrap();
+        assert!(lib.all_tracks().unwrap()[0].cover_art_id.is_some());
+    }
+
+    #[test]
+    fn removing_the_server_hides_its_tracks_and_keeps_user_data() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A", "a.flac")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let id = id_of(&lib, &remote::locator(source, "s1", "flac"));
+        let playlist = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist, id).unwrap();
+
+        lib.reconcile_remote_sources("subsonic", &[]).unwrap();
+        scan(&lib, vec![]);
+        assert!(paths(&lib).is_empty());
+        assert!(!lib.tracks_for_playlist(playlist).unwrap()[0].available);
+
+        server(&lib);
+        scan(&lib, vec![]);
+        assert!(lib.tracks_for_playlist(playlist).unwrap()[0].available);
     }
 
     #[test]

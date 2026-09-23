@@ -14,8 +14,9 @@ use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary, ScanTrack,
-    SourceSummary, StoredLyrics, Track,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
+    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
+    StoredLyrics, Track,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -224,11 +225,50 @@ const RETIRE_UNSEEN_LOCAL_BINDINGS: &str = "UPDATE media_bindings SET present = 
     WHERE present = 1 AND last_seen_scan <> ?1 \
     AND source_id IN (SELECT id FROM sources WHERE kind = 'local' AND enabled = 1 AND available = 1)";
 
-const ORPHANED_ITEMS: &str = "SELECT m.id, m.title, m.artist, m.album, m.duration_ms \
+const ORPHANED_ITEMS: &str = "SELECT m.id, m.title, m.artist, m.album, m.duration_ms, \
+    EXISTS(SELECT 1 FROM media_bindings l JOIN sources ls ON ls.id = l.source_id \
+        WHERE l.item_id = m.id AND l.present = 1 AND ls.enabled = 1 AND ls.available = 1 \
+        AND ls.kind <> 'local') \
     FROM media_items m WHERE NOT EXISTS ( \
         SELECT 1 FROM media_bindings b JOIN sources s ON s.id = b.source_id \
-        WHERE b.item_id = m.id AND (b.last_seen_scan = ?1 OR (s.enabled = 1 AND b.present = 1 \
-            AND NOT (s.kind = 'local' AND s.available = 1))))";
+        WHERE b.item_id = m.id AND s.kind = 'local' AND (b.last_seen_scan = ?1 \
+            OR (s.enabled = 1 AND b.present = 1 AND s.available = 0)))";
+
+const REMOTE_MATCH_CANDIDATES: &str = "SELECT m.id, m.title, m.artist, m.album, m.duration_ms, \
+    EXISTS(SELECT 1 FROM media_bindings b JOIN sources s ON s.id = b.source_id \
+        WHERE b.item_id = m.id AND b.present = 1 AND s.enabled = 1 AND b.source_id <> ?1) \
+    FROM media_items m";
+
+const UPSERT_REMOTE_TRACK: &str = "INSERT INTO remote_tracks \
+    (binding_id, title, artist, album, album_artist, track_number, disc_number, year, genre, \
+     duration_ms, size, suffix, content_type, bitrate, cover_key, cover_hash, updated_at) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
+    ON CONFLICT(binding_id) DO UPDATE SET title = excluded.title, artist = excluded.artist, \
+    album = excluded.album, album_artist = excluded.album_artist, \
+    track_number = excluded.track_number, disc_number = excluded.disc_number, \
+    year = excluded.year, genre = excluded.genre, duration_ms = excluded.duration_ms, \
+    size = excluded.size, suffix = excluded.suffix, content_type = excluded.content_type, \
+    bitrate = excluded.bitrate, cover_key = excluded.cover_key, \
+    cover_hash = excluded.cover_hash, updated_at = excluded.updated_at \
+    WHERE remote_tracks.title IS NOT excluded.title OR remote_tracks.artist IS NOT excluded.artist \
+    OR remote_tracks.album IS NOT excluded.album \
+    OR remote_tracks.album_artist IS NOT excluded.album_artist \
+    OR remote_tracks.track_number IS NOT excluded.track_number \
+    OR remote_tracks.disc_number IS NOT excluded.disc_number \
+    OR remote_tracks.year IS NOT excluded.year OR remote_tracks.genre IS NOT excluded.genre \
+    OR remote_tracks.duration_ms IS NOT excluded.duration_ms \
+    OR remote_tracks.suffix IS NOT excluded.suffix \
+    OR remote_tracks.content_type IS NOT excluded.content_type \
+    OR remote_tracks.bitrate IS NOT excluded.bitrate \
+    OR remote_tracks.cover_hash IS NOT excluded.cover_hash";
+
+const PROJECTABLE_REMOTE_TRACKS: &str = "SELECT b.item_id, b.source_id, b.source_key, \
+    rt.title, rt.artist, rt.album, rt.album_artist, rt.track_number, rt.disc_number, rt.year, \
+    rt.genre, rt.duration_ms, rt.suffix, rt.content_type, rt.bitrate, rt.cover_hash \
+    FROM remote_tracks rt JOIN media_bindings b ON b.id = rt.binding_id \
+    JOIN sources s ON s.id = b.source_id \
+    WHERE b.present = 1 AND s.enabled = 1 AND s.available = 1 \
+    ORDER BY b.item_id, b.id";
 
 const ITEMS_WITH_USER_DATA: &str = "SELECT track_id FROM playlist_tracks \
     UNION SELECT track_id FROM lyrics WHERE source NOT IN ('lrc', 'embedded') \
@@ -439,7 +479,217 @@ struct ItemSnapshot<'a> {
     cover_art_id: Option<i64>,
 }
 
-fn bind_local_item(
+fn load_candidates(conn: &Connection, sql: &str, param: i64) -> Result<Vec<Orphan>> {
+    let mut orphans = {
+        let mut stmt = conn.prepare(sql)?;
+        stmt.query_map([param], |row| {
+            Ok(Orphan {
+                item_id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album: row.get(3)?,
+                duration_ms: row.get(4)?,
+                locations: Vec::new(),
+                live: row.get(5)?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    if orphans.is_empty() {
+        return Ok(orphans);
+    }
+    let by_item: HashMap<i64, usize> = orphans
+        .iter()
+        .enumerate()
+        .map(|(ix, orphan)| (orphan.item_id, ix))
+        .collect();
+    let mut stmt = conn.prepare(LOCAL_BINDING_LOCATIONS)?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (item_id, path, start_offset_ms, root) = row?;
+        if let Some(&ix) = by_item.get(&item_id)
+            && let Some(rel) = relative_path(Path::new(&root), &path)
+        {
+            orphans[ix].locations.push((rel, start_offset_ms));
+        }
+    }
+    Ok(orphans)
+}
+
+fn upsert_remote_track(conn: &Connection, binding_id: i64, song: &RemoteSong) -> Result<usize> {
+    Ok(conn.execute(
+        UPSERT_REMOTE_TRACK,
+        rusqlite::params![
+            binding_id,
+            song.title,
+            song.artist,
+            song.album,
+            song.album_artist,
+            song.track_number,
+            song.disc_number,
+            song.year,
+            song.genre,
+            song.duration_ms,
+            song.size,
+            song.suffix,
+            song.content_type,
+            song.bitrate,
+            song.cover_key,
+            song.cover_hash,
+            unix_now(),
+        ],
+    )?)
+}
+
+fn apply_remote_listing(
+    conn: &mut Connection,
+    source_id: i64,
+    songs: &[RemoteSong],
+    covers: &[RemoteCover],
+) -> Result<RemoteSyncReport> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let mut known: HashMap<String, (i64, i64, bool)> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT source_key, id, item_id, present FROM media_bindings WHERE source_id = ?1",
+        )?;
+        let rows = stmt.query_map([source_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get(1)?, row.get(2)?, row.get(3)?),
+            ))
+        })?;
+        for row in rows {
+            let (key, value) = row?;
+            known.insert(key, value);
+        }
+    }
+    if songs.is_empty() && known.values().any(|(_, _, present)| *present) {
+        return Err(LibraryError::InvalidData(
+            "the server listed no songs; keeping what it had".into(),
+        ));
+    }
+    let was_available: bool = tx.query_row(
+        "SELECT available FROM sources WHERE id = ?1",
+        [source_id],
+        |row| row.get(0),
+    )?;
+    for cover in covers {
+        tx.execute(
+            "INSERT OR IGNORE INTO cover_art (hash, small, large, source_path, embedded) \
+             VALUES (?1, ?2, ?3, ?4, 0)",
+            rusqlite::params![cover.hash, cover.small, cover.large, cover.source_path],
+        )?;
+    }
+    let now = unix_now();
+    let mut report = RemoteSyncReport {
+        total: songs.len(),
+        became_available: !was_available,
+        ..Default::default()
+    };
+    let mut seen: Vec<i64> = Vec::with_capacity(songs.len());
+    let mut seen_items: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut arrivals: Vec<&RemoteSong> = Vec::new();
+    for song in songs {
+        match known.get(&song.key) {
+            Some(&(binding_id, item_id, present)) => {
+                if !present {
+                    report.revived += 1;
+                }
+                tx.execute(
+                    "UPDATE media_bindings SET present = 1, last_seen_at = ?1 WHERE id = ?2",
+                    rusqlite::params![now, binding_id],
+                )?;
+                report.updated += upsert_remote_track(&tx, binding_id, song)?;
+                seen.push(binding_id);
+                seen_items.insert(item_id);
+            }
+            None => arrivals.push(song),
+        }
+    }
+    arrivals.sort_by(|a, b| a.key.cmp(&b.key));
+    arrivals.dedup_by(|a, b| a.key == b.key);
+    if !arrivals.is_empty() {
+        let mut candidates = load_candidates(&tx, REMOTE_MATCH_CANDIDATES, source_id)?;
+        candidates.retain(|candidate| !seen_items.contains(&candidate.item_id));
+        let descriptors: Vec<Arrival> = arrivals
+            .iter()
+            .map(|song| Arrival {
+                rel_path: song
+                    .rel_path
+                    .as_deref()
+                    .map(|p| p.trim_start_matches('/').to_string()),
+                start_offset_ms: 0,
+                title: song.title.clone(),
+                artist: song.artist.clone().unwrap_or_default(),
+                artist_aliases: song.artist_aliases.clone(),
+                album: song.album.clone(),
+                duration_ms: song.duration_ms,
+            })
+            .collect();
+        let assignments = if candidates.is_empty() {
+            vec![None; arrivals.len()]
+        } else {
+            match_arrivals(&descriptors, &candidates)
+        };
+        for (song, assignment) in arrivals.into_iter().zip(assignments) {
+            let binding_id = match assignment {
+                Some((item_id, tier)) => {
+                    let binding_id = bind_item(&tx, item_id, source_id, &song.key, 0, 0)?;
+                    tx.execute(
+                        "INSERT INTO adoptions (item_id, binding_id, tier, at) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        rusqlite::params![item_id, binding_id, tier.as_str(), now],
+                    )?;
+                    report.adopted += 1;
+                    binding_id
+                }
+                None => {
+                    let (binding_id, _) = create_item(
+                        &tx,
+                        source_id,
+                        &song.key,
+                        0,
+                        &ItemSnapshot {
+                            title: &song.title,
+                            artist: song.artist.as_deref().unwrap_or(""),
+                            album: song.album.as_deref(),
+                            duration_ms: song.duration_ms,
+                            cover_art_id: None,
+                        },
+                        0,
+                    )?;
+                    report.added += 1;
+                    binding_id
+                }
+            };
+            upsert_remote_track(&tx, binding_id, song)?;
+            seen.push(binding_id);
+        }
+    }
+    let seen_json = serde_json::to_string(&seen).unwrap_or_else(|_| "[]".into());
+    report.retired = tx.execute(
+        "UPDATE media_bindings SET present = 0 WHERE source_id = ?1 AND present = 1 \
+         AND id NOT IN (SELECT value FROM json_each(?2))",
+        rusqlite::params![source_id, seen_json],
+    )?;
+    tx.execute(
+        "UPDATE sources SET available = 1, last_sync_at = ?1, last_sync_ok = 1, last_error = NULL \
+         WHERE id = ?2",
+        rusqlite::params![now, source_id],
+    )?;
+    tx.commit()?;
+    Ok(report)
+}
+
+fn bind_item(
     conn: &Connection,
     item_id: i64,
     source_id: i64,
@@ -463,7 +713,7 @@ fn bind_local_item(
     Ok(conn.last_insert_rowid())
 }
 
-fn create_local_item(
+fn create_item(
     conn: &Connection,
     source_id: i64,
     path: &str,
@@ -486,7 +736,7 @@ fn create_local_item(
         ],
     )?;
     let item_id = conn.last_insert_rowid();
-    let binding_id = bind_local_item(conn, item_id, source_id, path, start_offset_ms, scan_id)?;
+    let binding_id = bind_item(conn, item_id, source_id, path, start_offset_ms, scan_id)?;
     Ok((binding_id, item_id))
 }
 
@@ -515,7 +765,7 @@ fn resolve_local_item(
     }
     let roots = load_local_roots(conn)?;
     let source_id = source_for_path(&roots, path);
-    let (_, item_id) = create_local_item(conn, source_id, path, start_offset_ms, snapshot, 0)?;
+    let (_, item_id) = create_item(conn, source_id, path, start_offset_ms, snapshot, 0)?;
     Ok(item_id)
 }
 
@@ -1168,7 +1418,8 @@ impl LibraryRepository for SqliteLibrary {
         tx.execute(
             "DELETE FROM cover_art WHERE NOT EXISTS (SELECT 1 FROM albums WHERE albums.cover_art_id = cover_art.id)
              AND NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.cover_art_id = cover_art.id)
-             AND NOT EXISTS (SELECT 1 FROM media_items WHERE media_items.cover_art_id = cover_art.id)",
+             AND NOT EXISTS (SELECT 1 FROM media_items WHERE media_items.cover_art_id = cover_art.id)
+             AND NOT EXISTS (SELECT 1 FROM remote_tracks WHERE remote_tracks.cover_hash = cover_art.hash)",
             [],
         )?;
         tx.commit()?;
@@ -2028,6 +2279,72 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn reconcile_remote_sources(&self, kind: &str, sources: &[RemoteSource]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute("UPDATE sources SET enabled = 0 WHERE kind = ?1", [kind])?;
+        for source in sources {
+            tx.execute(
+                "INSERT INTO sources (kind, name, uri, enabled) VALUES (?1, ?2, ?3, 1) \
+                 ON CONFLICT(kind, uri) DO UPDATE SET enabled = 1, name = excluded.name",
+                rusqlite::params![kind, source.name, source.uri],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn set_source_available(&self, source_id: i64, available: bool) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn.execute(
+            "UPDATE sources SET available = ?1 WHERE id = ?2 AND available <> ?1",
+            rusqlite::params![available, source_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    fn remote_cover_hashes(&self, source_id: i64) -> Result<HashMap<String, String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT rt.cover_key, rt.cover_hash FROM remote_tracks rt \
+             JOIN media_bindings b ON b.id = rt.binding_id \
+             JOIN cover_art c ON c.hash = rt.cover_hash \
+             WHERE b.source_id = ?1 AND rt.cover_key IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([source_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn apply_remote_listing(
+        &self,
+        source_id: i64,
+        songs: &[RemoteSong],
+        covers: &[RemoteCover],
+    ) -> Result<RemoteSyncReport> {
+        let mut conn = Connection::open(&self.db_path)?;
+        apply_pragmas(&conn)?;
+        apply_remote_listing(&mut conn, source_id, songs, covers)
+    }
+
+    fn items_for_remote_keys(&self, source_id: i64, keys: &[String]) -> Result<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let keys_json = serde_json::to_string(keys).unwrap_or_else(|_| "[]".into());
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT item_id FROM media_bindings \
+             WHERE source_id = ?1 AND source_key IN (SELECT value FROM json_each(?2))",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![source_id, keys_json], |row| row.get(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn invalidate_scan_fingerprint(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM scan_meta WHERE key = 'fingerprint'", [])?;
+        Ok(())
+    }
+
     fn refresh_item_snapshots(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(REFRESH_ITEM_SNAPSHOTS, [unix_now()])?;
@@ -2505,7 +2822,7 @@ impl ScanSession {
             .as_ref()
             .and_then(|h| self.cover_cache.get(h).copied());
         let title = Self::title_of(track);
-        let (binding_id, item_id) = create_local_item(
+        let (binding_id, item_id) = create_item(
             &self.conn,
             source_for_path(&self.roots, &track.path),
             &track.path,
@@ -2526,7 +2843,7 @@ impl ScanSession {
 
     fn adopt_item(&mut self, item_id: i64, track: &ScanTrack, tier: Tier) -> Result<()> {
         let start_offset_ms = Self::start_offset(track);
-        let binding_id = bind_local_item(
+        let binding_id = bind_item(
             &self.conn,
             item_id,
             source_for_path(&self.roots, &track.path),
@@ -2544,46 +2861,65 @@ impl ScanSession {
     }
 
     fn load_orphans(&self) -> Result<Vec<Orphan>> {
-        let mut orphans = {
-            let mut stmt = self.conn.prepare(ORPHANED_ITEMS)?;
-            stmt.query_map([self.scan_id], |row| {
-                Ok(Orphan {
-                    item_id: row.get(0)?,
-                    title: row.get(1)?,
-                    artist: row.get(2)?,
-                    album: row.get(3)?,
-                    duration_ms: row.get(4)?,
-                    locations: Vec::new(),
-                })
+        load_candidates(&self.conn, ORPHANED_ITEMS, self.scan_id)
+    }
+
+    fn project_remote_tracks(&mut self) -> Result<()> {
+        let rows: Vec<(i64, ScanTrack)> = {
+            let mut stmt = self.conn.prepare(PROJECTABLE_REMOTE_TRACKS)?;
+            stmt.query_map([], |row| {
+                let source_id: i64 = row.get(1)?;
+                let key: String = row.get(2)?;
+                let suffix: Option<String> = row.get(12)?;
+                let content_type: Option<String> = row.get(13)?;
+                let artist: Option<String> = row.get(4)?;
+                let album_artist: Option<String> = row.get(6)?;
+                let genre: Option<String> = row.get(10)?;
+                let duration_ms: Option<i64> = row.get(11)?;
+                Ok((
+                    row.get(0)?,
+                    ScanTrack {
+                        path: crate::remote::locator(
+                            source_id,
+                            &key,
+                            &crate::remote::suffix_for(suffix.as_deref(), content_type.as_deref()),
+                        ),
+                        title: Some(row.get(3)?),
+                        album_title: row.get(5)?,
+                        artist_names: artist.into_iter().filter(|a| !a.is_empty()).collect(),
+                        album_artist_names: album_artist
+                            .into_iter()
+                            .filter(|a| !a.is_empty())
+                            .collect(),
+                        track_number: row.get(7)?,
+                        disc_number: row.get(8)?,
+                        year: row.get(9)?,
+                        genres: genre.into_iter().filter(|g| !g.is_empty()).collect(),
+                        duration_ms: duration_ms.map(|d| d.max(0) as u64),
+                        cover_hash: row.get(15)?,
+                        start_offset_ms: None,
+                        bitrate: row.get(14)?,
+                        is_cue: false,
+                        lyrics: None,
+                    },
+                ))
             })?
-            .collect::<std::result::Result<Vec<_>, _>>()?
+            .collect::<std::result::Result<_, _>>()?
         };
-        if orphans.is_empty() {
-            return Ok(orphans);
-        }
-        let by_item: HashMap<i64, usize> = orphans
-            .iter()
-            .enumerate()
-            .map(|(ix, orphan)| (orphan.item_id, ix))
-            .collect();
-        let mut stmt = self.conn.prepare(LOCAL_BINDING_LOCATIONS)?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
-        for row in rows {
-            let (item_id, path, start_offset_ms, root) = row?;
-            if let Some(&ix) = by_item.get(&item_id)
-                && let Some(rel) = relative_path(Path::new(&root), &path)
-            {
-                orphans[ix].locations.push((rel, start_offset_ms));
+        for (item_id, mut track) in rows {
+            if self.written.contains(&item_id) {
+                continue;
             }
+            if track
+                .cover_hash
+                .as_ref()
+                .is_some_and(|hash| !self.cover_cache.contains_key(hash))
+            {
+                track.cover_hash = None;
+            }
+            self.write_track(track, item_id)?;
         }
-        Ok(orphans)
+        Ok(())
     }
 
     fn items_with_user_data(&self) -> Result<std::collections::HashSet<i64>> {
@@ -2610,7 +2946,7 @@ impl ScanSession {
     fn revive_orphans_from_library(&mut self) -> Result<()> {
         let with_user_data = self.items_with_user_data()?;
         let mut orphans = self.load_orphans()?;
-        orphans.retain(|orphan| with_user_data.contains(&orphan.item_id));
+        orphans.retain(|orphan| !orphan.live && with_user_data.contains(&orphan.item_id));
         if orphans.is_empty() {
             return Ok(());
         }
@@ -2626,6 +2962,7 @@ impl ScanSession {
                         start_offset_ms: row.get(6)?,
                         title: row.get(1)?,
                         artist: row.get(2)?,
+                        artist_aliases: Vec::new(),
                         album: row.get(3)?,
                         duration_ms: row.get(4)?,
                     },
@@ -2665,6 +3002,7 @@ impl ScanSession {
                     start_offset_ms: Self::start_offset(track),
                     title: Self::title_of(track),
                     artist: track.artist_names.first().cloned().unwrap_or_default(),
+                    artist_aliases: track.artist_names.iter().skip(1).cloned().collect(),
                     album: track.album_title.clone(),
                     duration_ms: track.duration_ms.map(|n| n as i64),
                 })
@@ -2899,6 +3237,7 @@ impl ScanWrite for ScanSession {
             self.settle_arrivals(arrivals)?;
             self.revive_orphans_from_library()?;
         }
+        self.project_remote_tracks()?;
         self.conn
             .execute(RETIRE_UNSEEN_LOCAL_BINDINGS, [self.scan_id])?;
         self.conn.execute(SWEEP_UNREFERENCED_ITEMS, [])?;

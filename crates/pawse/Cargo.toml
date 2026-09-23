@@ -39,6 +39,7 @@ dirs = "6"
 ui_components = { path = "../ui_components" }
 ui_resources = { path = "../ui_resources" }
 media_integration = { path = "../media_integration" }
+subsonic = { path = "../subsonic" }
 scrobble = { path = "../scrobble" }
 discord = { path = "../discord" }
 updater = { path = "../updater", default-features = false }

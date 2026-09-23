@@ -418,4 +418,29 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_adoptions_binding ON adoptions(binding_id);
         "#,
     ),
+    (
+        11,
+        r#"
+        CREATE TABLE remote_tracks (
+            binding_id INTEGER PRIMARY KEY REFERENCES media_bindings(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            artist TEXT,
+            album TEXT,
+            album_artist TEXT,
+            track_number INTEGER,
+            disc_number INTEGER,
+            year INTEGER,
+            genre TEXT,
+            duration_ms INTEGER,
+            size INTEGER,
+            suffix TEXT,
+            content_type TEXT,
+            bitrate INTEGER,
+            cover_key TEXT,
+            cover_hash TEXT,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_remote_tracks_cover_hash ON remote_tracks(cover_hash);
+        "#,
+    ),
 ];

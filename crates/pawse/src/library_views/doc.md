@@ -342,3 +342,39 @@ A database migrated to v9 has every binding on the disabled placeholder source
 until a real scan re-points them; `run_scan` refuses the fast path while
 `has_unplaced_media()` is true, otherwise an unchanged disk would keep the folders
 looking empty (and their missing files never retired) indefinitely.
+
+### Subsonic servers
+
+The Subsonic group on the same page (`subsonic_settings.rs`) lists configured
+servers (`settings.json` → `subsonic_servers`, password in plain text by
+decision, next to the scrobbling keys) with status, track count, Sync, Import
+favorites and Remove, plus the connect form. Connect pings first and saves only
+a server that answered. The rows come from the same `LibrarySources` entity:
+`RemoteSyncStarted`/`Finished`/`RemoteStarsImported` events drive the Syncing
+state and the per-server result line.
+
+Sync (`remote_sync.rs`, run on its own thread by `LibraryService::sync_remote`,
+one at a time — requests arriving mid-sync are queued): ping → full listing →
+covers not seen before (fetched and thumbnailed on the sync thread) →
+`apply_remote_listing`. Only when something changed (songs, tags, availability)
+is the scan fingerprint dropped and a scan run so the catalog re-projects;
+otherwise a launch with a server keeps the local fast path. A failed ping or
+listing marks the source unavailable and changes nothing else. Servers sync at
+launch and on demand; window activation does not touch the network. The launch
+scan also runs when only servers are configured, so a server-only library is
+re-projected from the cache at every start.
+
+Playback of a server-only track: `Track.path` is a locator.
+`Services::start_track` downloads the whole file into
+`<cache>/pawse/subsonic/<source>/…` on its own thread and then hands the engine
+the local file through an `EngineCommander` (a `Send` handle on the engine's
+command channel). The engine thread never waits on the network — while it did,
+a burst of commands filled its bounded channel and froze the UI. A generation
+counter drops the result if another track was requested meanwhile; a failed
+download reaches the user through `Command::Fail` → the usual playback-error
+toast. The engine's `TrackResolver` only maps a locator to an already cached
+file. At launch a server track that is not cached is not restored; Play then
+loads it (`resume_or_load`: nothing loaded means `current_duration_ms == 0`).
+The next remote track in the queue is fetched 30 s ahead so gapless playback
+works. The cache is trimmed to 4 GB, oldest first. Tag editing (track and album)
+and lyrics export skip server tracks.

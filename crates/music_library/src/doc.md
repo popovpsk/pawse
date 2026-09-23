@@ -20,6 +20,7 @@ touches the database; `pawse::library_service` drives scans through
   `REFRESH_ITEM_SNAPSHOTS`).
 - `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
 - `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
+- `remote.rs` — the locator format for server tracks (`subsonic://…`).
 - `adoption.rs` — the pure matching that re-attaches moved files to their old
   items (`match_arrivals`), plus `normalize_tag`, the one tag normalization
   shared with the scrobble like-import.
@@ -164,6 +165,55 @@ start a batch with reads; in WAL mode a deferred transaction that reads, sees th
 UI commit a like, and then writes fails with `SQLITE_BUSY_SNAPSHOT`, which the
 busy timeout does not retry. Taking the write lock up front makes the UI wait
 instead.
+
+## Server sources (Subsonic)
+
+A server is a `sources` row with `kind = 'subsonic'` and `uri = user@url`
+(`reconcile_remote_sources` enables the configured ones, disables the rest).
+Its songs are bindings like files, with `source_key` = the server's song id.
+
+`apply_remote_listing` records a full listing in one `BEGIN IMMEDIATE`
+transaction on its own connection (a deferred one that reads first fails with
+`SQLITE_BUSY_SNAPSHOT` whenever a scan batch or a like commits in between):
+covers arrive with the listing and are inserted in the same transaction, so the
+orphan-cover sweep of a concurrent scan cannot delete them before `remote_tracks`
+names them; known songs refresh their `remote_tracks` row (the upsert only writes
+when something differs, which is how `RemoteSyncReport::changed` knows whether a
+rescan is needed); songs no longer listed get `present = 0`; new songs go through
+the same `match_arrivals` tiers against **every item except those this listing
+already accounts for** — so a song the server renamed (new id) finds its old
+item. An empty listing while the server still had present songs is refused, not
+applied: a server whose library is unmounted must not retire everything.
+
+Candidates carry a `live` flag (the item plays from some other enabled source).
+A live candidate can only be claimed by the `path` or `tags` tier; the
+artist-and-title tier is for dead items only, or a live recording on the server
+would hide the studio one on disk. Server songs also carry artist aliases (the
+joined display name and the other credited artists), because Navidrome splits
+"A feat. B" into two artists that a local file keeps as one string. That is the dedupe: a server copy of a file you already have lands as a
+second binding on the same item (the server's `path` is library-relative, so
+the `path` tier usually hits), and one item still means one catalog row. It
+never touches user rows, and never merges two items.
+
+`remote_tracks` is the server listing cached per binding (tags, duration, suffix,
+the cover's content hash). The catalog is still cleared and refilled by every
+scan; `ScanSession::project_remote_tracks` runs at the end of each one and
+inserts a `tracks` row for every present server binding on an enabled, available
+server whose item did not get a row from a local file. So local always wins,
+a server going away hides only what it alone provided, and projecting needs no
+network. Server rows use a locator path, `subsonic://<source_id>/<song_id>.<suffix>`
+(`remote.rs`); the suffix is there because the decoder picks a backend by
+extension.
+
+The local adoption pool (`ORPHANED_ITEMS`) looks only at **local** bindings: an
+item held only by a server is adoptable by a local file with the same path or
+tags (it is `live`, so not by title alone), which is the other direction of the
+same dedupe. Items held by an offline local folder are still excluded, and the
+revive pass only considers dead items.
+
+Covers from a server are stored like any other cover; the orphan-cover sweep
+keeps a cover while any `remote_tracks.cover_hash` names it, so an offline
+server does not lose its artwork.
 
 ## What a scan does to identity
 
