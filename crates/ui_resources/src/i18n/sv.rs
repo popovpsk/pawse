@@ -46,7 +46,7 @@ pub static SV: Strings = lang! {
     library_updated: "Biblioteket uppdaterat",
     library_up_to_date: "Biblioteket är uppdaterat",
     library_update_failed: "Det gick inte att uppdatera biblioteket",
-    library_folder_unavailable_t: "Mappen är inte tillgänglig: {}. Biblioteket är oförändrat.",
+    library_folder_unavailable_t: "Mappen är inte tillgänglig: {}. Dess spår är dolda tills den är tillbaka.",
     playback_failed_title: "Uppspelningen misslyckades",
     no_music_folders_configured: "Inga musikmappar konfigurerade.",
     add_music_folder: "Lägg till musikmapp",

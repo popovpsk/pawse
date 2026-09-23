@@ -1,3 +1,4 @@
+pub mod adoption;
 pub mod album_artists;
 pub mod error;
 pub mod migrations;
@@ -6,10 +7,12 @@ pub mod repository;
 pub mod sqlite;
 pub mod thumbnail;
 
+pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    NewTrack, Playlist, PlaylistSummary, ScanLyrics, ScanTrack, StoredLyrics, Track, lyrics_source,
+    LocalFolder, NewTrack, Playlist, PlaylistSummary, ScanLyrics, ScanTrack, StoredLyrics, Track,
+    lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -103,7 +106,10 @@ mod tests {
 
         let lib = SqliteLibrary::open_at(&path).unwrap();
 
-        assert_eq!(user_version(&path), 9);
+        assert_eq!(
+            user_version(&path),
+            migrations::MIGRATIONS.last().unwrap().0 as i64
+        );
         let mut backup = path.as_os_str().to_owned();
         backup.push(".bak-v8");
         assert!(PathBuf::from(backup).exists());
@@ -187,7 +193,10 @@ mod tests {
         let mut backup = path.as_os_str().to_owned();
         backup.push(".bak-v8");
         assert!(!PathBuf::from(backup).exists());
-        assert_eq!(user_version(&path), 9);
+        assert_eq!(
+            user_version(&path),
+            migrations::MIGRATIONS.last().unwrap().0 as i64
+        );
     }
 
     #[test]
@@ -1441,6 +1450,16 @@ mod tests {
         session.finish().unwrap();
     }
 
+    fn folders(paths: &[&str]) -> Vec<LocalFolder> {
+        paths
+            .iter()
+            .map(|path| LocalFolder {
+                path: (*path).into(),
+                available: true,
+            })
+            .collect()
+    }
+
     fn id_of(lib: &SqliteLibrary, path: &str) -> i64 {
         lib.all_tracks()
             .unwrap()
@@ -1649,24 +1668,335 @@ mod tests {
     #[test]
     fn removing_a_folder_keeps_its_likes_and_re_adding_it_revives_them() {
         let (lib, _path) = create_test_db();
-        lib.reconcile_local_sources(&["/music".into()]).unwrap();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
         scan(&lib, vec![scan_track("/music/a.flac", "A")]);
         let track_id = id_of(&lib, "/music/a.flac");
         lib.set_liked(track_id, true).unwrap();
 
-        lib.reconcile_local_sources(&[]).unwrap();
+        lib.reconcile_local_sources(&folders(&[])).unwrap();
         scan(&lib, vec![]);
         let liked = lib.liked_tracks().unwrap();
         assert_eq!(liked.len(), 1);
         assert!(!liked[0].available);
 
-        lib.reconcile_local_sources(&["/music".into()]).unwrap();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
         scan(&lib, vec![scan_track("/music/a.flac", "A")]);
         assert_eq!(id_of(&lib, "/music/a.flac"), track_id);
         let liked = lib.liked_tracks().unwrap();
         assert_eq!(liked.len(), 1);
         assert!(liked[0].available);
         assert!(liked[0].liked);
+    }
+
+    fn untagged(path: &str, title: &str) -> ScanTrack {
+        ScanTrack {
+            path: path.into(),
+            title: Some(title.into()),
+            duration_ms: Some(120_000),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_moved_file_keeps_its_id_likes_and_playlist_entries() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/old/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/old/a.flac");
+        lib.set_liked(track_id, true).unwrap();
+        let playlist_id = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+
+        scan(&lib, vec![scan_track("/music/new/a.flac", "A")]);
+
+        assert_eq!(id_of(&lib, "/music/new/a.flac"), track_id);
+        let playlist = lib.tracks_for_playlist(playlist_id).unwrap();
+        assert_eq!(playlist.len(), 1);
+        assert!(playlist[0].available);
+        assert!(playlist[0].liked);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM adoptions WHERE tier = 'tags'"),
+            1
+        );
+    }
+
+    #[test]
+    fn a_folder_re_added_from_a_new_mount_point_is_re_attached_by_relative_path() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/Volumes/Old"]))
+            .unwrap();
+        scan(&lib, vec![untagged("/Volumes/Old/x/01.flac", "01")]);
+        let track_id = id_of(&lib, "/Volumes/Old/x/01.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&["/Volumes/New"]))
+            .unwrap();
+        scan(&lib, vec![untagged("/Volumes/New/x/01.flac", "01")]);
+
+        assert_eq!(id_of(&lib, "/Volumes/New/x/01.flac"), track_id);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_copy_next_to_its_original_is_a_separate_track() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+
+        scan(
+            &lib,
+            vec![
+                scan_track("/music/a.flac", "A"),
+                scan_track("/music/copy/a.flac", "A"),
+            ],
+        );
+
+        assert_eq!(id_of(&lib, "/music/a.flac"), original);
+        assert_ne!(id_of(&lib, "/music/copy/a.flac"), original);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM adoptions"), 0);
+    }
+
+    #[test]
+    fn an_offline_folder_keeps_its_items_out_of_reach_of_adoption_and_sweeping() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/one.flac", "One"),
+                scan_track("/b/two.flac", "Two"),
+                scan_track("/b/plain.flac", "Plain"),
+            ],
+        );
+        let two = id_of(&lib, "/b/two.flac");
+        let plain = id_of(&lib, "/b/plain.flac");
+        lib.set_liked(two, true).unwrap();
+
+        lib.reconcile_local_sources(&[
+            LocalFolder {
+                path: "/a".into(),
+                available: true,
+            },
+            LocalFolder {
+                path: "/b".into(),
+                available: false,
+            },
+        ])
+        .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/one.flac", "One"),
+                scan_track("/a/two-copy.flac", "Two"),
+            ],
+        );
+
+        assert_ne!(id_of(&lib, "/a/two-copy.flac"), two);
+        assert!(!lib.all_tracks().unwrap().iter().any(|t| t.id == two));
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+        assert_eq!(
+            count_rows(
+                &path,
+                "SELECT COUNT(*) FROM media_bindings WHERE present = 1 AND source_key LIKE '/b/%'"
+            ),
+            2
+        );
+
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/one.flac", "One"),
+                scan_track("/a/two-copy.flac", "Two"),
+                scan_track("/b/two.flac", "Two"),
+                scan_track("/b/plain.flac", "Plain"),
+            ],
+        );
+        assert_eq!(id_of(&lib, "/b/two.flac"), two);
+        assert_eq!(id_of(&lib, "/b/plain.flac"), plain);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_copy_made_before_the_original_was_deleted_takes_over_its_like_once_new_files_arrive() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        let playlist_id = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist_id, original).unwrap();
+        let mut copy = scan_track("/music/copy/a.flac", "A");
+        copy.lyrics = Some(ScanLyrics {
+            text: "from disk".into(),
+            source: "lrc".into(),
+        });
+        scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
+        let copy_id = id_of(&lib, "/music/copy/a.flac");
+        assert_ne!(copy_id, original);
+
+        scan(&lib, vec![copy.clone()]);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+
+        scan(
+            &lib,
+            vec![copy, scan_track("/music/new.flac", "Something else")],
+        );
+
+        assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
+        let liked = lib.liked_tracks().unwrap();
+        assert!(liked[0].available);
+        assert_eq!(liked[0].path, "/music/copy/a.flac");
+        assert!(lib.tracks_for_playlist(playlist_id).unwrap()[0].available);
+        assert_eq!(
+            lib.track_artists(original).unwrap(),
+            vec!["Artist".to_string()]
+        );
+        assert_eq!(
+            lib.lyrics_for_track(original).unwrap().unwrap().text,
+            "from disk"
+        );
+        assert_eq!(
+            count_rows(
+                &path,
+                &format!("SELECT COUNT(*) FROM media_items WHERE id = {copy_id}")
+            ),
+            0
+        );
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM pragma_foreign_key_check"),
+            0
+        );
+    }
+
+    #[test]
+    fn a_moved_file_restored_to_its_old_path_stays_in_the_library_beside_the_move() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        scan(&lib, vec![scan_track("/music/b.flac", "A")]);
+        assert_eq!(id_of(&lib, "/music/b.flac"), original);
+
+        for _ in 0..2 {
+            scan(
+                &lib,
+                vec![
+                    scan_track("/music/a.flac", "A"),
+                    scan_track("/music/b.flac", "A"),
+                ],
+            );
+            let a = id_of(&lib, "/music/a.flac");
+            let b = id_of(&lib, "/music/b.flac");
+            assert_ne!(a, b);
+            assert!(a == original || b == original);
+            assert_eq!(lib.liked_tracks().unwrap().len(), 1);
+            assert!(lib.liked_tracks().unwrap()[0].available);
+        }
+    }
+
+    #[test]
+    fn a_re_added_folder_comes_back_whole_after_its_like_was_revived_elsewhere() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![scan_track("/a/y.flac", "X"), scan_track("/b/x.flac", "X")],
+        );
+        let liked = id_of(&lib, "/b/x.flac");
+        lib.set_liked(liked, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&["/a"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/y.flac", "X"),
+                scan_track("/a/new.flac", "New"),
+            ],
+        );
+        assert_eq!(id_of(&lib, "/a/y.flac"), liked);
+
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/y.flac", "X"),
+                scan_track("/a/new.flac", "New"),
+                scan_track("/b/x.flac", "X"),
+            ],
+        );
+        let paths: Vec<String> = lib
+            .all_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.path)
+            .collect();
+        assert_eq!(paths.len(), 3);
+        assert!(paths.contains(&"/b/x.flac".to_string()));
+        assert_eq!(lib.liked_tracks().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_revived_like_keeps_its_fetched_lyrics_when_the_file_has_none() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        lib.upsert_lyrics(original, "from the net", "lrclib", false)
+            .unwrap();
+        let copy = scan_track("/music/copy/a.flac", "A");
+        scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
+        scan(
+            &lib,
+            vec![copy.clone(), scan_track("/music/new.flac", "New")],
+        );
+
+        assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
+        let lyrics = lib.lyrics_for_track(original).unwrap().unwrap();
+        assert_eq!(lyrics.text, "from the net");
+        assert_eq!(lyrics.source, "lrclib");
+    }
+
+    #[test]
+    fn a_dead_like_is_not_revived_by_a_scan_without_new_files() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        let copy = scan_track("/music/copy/a.flac", "A");
+        scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
+
+        scan(&lib, vec![copy]);
+
+        assert_ne!(id_of(&lib, "/music/copy/a.flac"), original);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_deleted_file_is_adopted_by_its_retagged_replacement_only_within_tolerance() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/a.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        let mut other_length = scan_track("/music/a-live.flac", "A");
+        other_length.album_title = Some("Live".into());
+        other_length.duration_ms = Some(240_000);
+        scan(&lib, vec![other_length]);
+
+        assert_ne!(id_of(&lib, "/music/a-live.flac"), track_id);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
     }
 
     #[test]

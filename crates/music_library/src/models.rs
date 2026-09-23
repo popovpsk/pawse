@@ -78,6 +78,12 @@ pub struct ArtistSummary {
     pub track_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFolder {
+    pub path: String,
+    pub available: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NewTrack {
     pub path: String,

@@ -404,4 +404,18 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         END;
         "#,
     ),
+    (
+        10,
+        r#"
+        CREATE TABLE adoptions (
+            id INTEGER PRIMARY KEY,
+            item_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+            binding_id INTEGER NOT NULL REFERENCES media_bindings(id) ON DELETE CASCADE,
+            tier TEXT NOT NULL,
+            at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_adoptions_item ON adoptions(item_id);
+        CREATE INDEX idx_adoptions_binding ON adoptions(binding_id);
+        "#,
+    ),
 ];

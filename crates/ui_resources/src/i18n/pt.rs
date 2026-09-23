@@ -46,7 +46,7 @@ pub static PT: Strings = lang! {
     library_updated: "Biblioteca atualizada",
     library_up_to_date: "Biblioteca já está atualizada",
     library_update_failed: "Falha ao atualizar a biblioteca",
-    library_folder_unavailable_t: "Pasta indisponível: {}. Biblioteca inalterada.",
+    library_folder_unavailable_t: "Pasta indisponível: {}. As faixas ficam ocultas até que ela volte.",
     playback_failed_title: "Falha na reprodução",
     no_music_folders_configured: "Nenhuma pasta de música configurada.",
     add_music_folder: "Adicionar pasta de música",

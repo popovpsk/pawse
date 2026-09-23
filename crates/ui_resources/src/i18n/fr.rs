@@ -46,7 +46,7 @@ pub static FR: Strings = lang! {
     library_updated: "Bibliothèque mise à jour",
     library_up_to_date: "Bibliothèque à jour",
     library_update_failed: "Échec de la mise à jour de la bibliothèque",
-    library_folder_unavailable_t: "Dossier indisponible : {}. Bibliothèque inchangée.",
+    library_folder_unavailable_t: "Dossier indisponible : {}. Ses morceaux sont masqués jusqu'à son retour.",
     playback_failed_title: "Échec de la lecture",
     no_music_folders_configured: "Aucun dossier de musique configuré.",
     add_music_folder: "Ajouter un dossier de musique",

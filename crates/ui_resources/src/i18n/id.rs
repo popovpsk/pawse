@@ -46,7 +46,7 @@ pub static ID: Strings = lang! {
     library_updated: "Pustaka diperbarui",
     library_up_to_date: "Pustaka sudah terbaru",
     library_update_failed: "Gagal memperbarui pustaka",
-    library_folder_unavailable_t: "Folder tidak tersedia: {}. Pustaka tidak diubah.",
+    library_folder_unavailable_t: "Folder tidak tersedia: {}. Lagu-lagunya disembunyikan sampai folder kembali.",
     playback_failed_title: "Pemutaran gagal",
     no_music_folders_configured: "Belum ada folder musik yang dikonfigurasi.",
     add_music_folder: "Tambahkan folder musik",

@@ -46,7 +46,7 @@ pub static DE: Strings = lang! {
     library_updated: "Bibliothek aktualisiert",
     library_up_to_date: "Bibliothek ist aktuell",
     library_update_failed: "Aktualisierung der Bibliothek fehlgeschlagen",
-    library_folder_unavailable_t: "Ordner nicht verfügbar: {}. Bibliothek unverändert.",
+    library_folder_unavailable_t: "Ordner nicht verfügbar: {}. Seine Titel bleiben ausgeblendet, bis er zurück ist.",
     playback_failed_title: "Wiedergabe fehlgeschlagen",
     no_music_folders_configured: "Keine Musikordner konfiguriert.",
     add_music_folder: "Musikordner hinzufügen",

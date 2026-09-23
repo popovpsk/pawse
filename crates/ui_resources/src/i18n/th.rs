@@ -46,7 +46,7 @@ pub static TH: Strings = lang! {
     library_updated: "อัปเดตคลังแล้ว",
     library_up_to_date: "คลังเป็นปัจจุบันแล้ว",
     library_update_failed: "อัปเดตคลังไม่สำเร็จ",
-    library_folder_unavailable_t: "ไม่สามารถเข้าถึงโฟลเดอร์: {} คลังไม่มีการเปลี่ยนแปลง",
+    library_folder_unavailable_t: "ไม่สามารถเข้าถึงโฟลเดอร์: {} เพลงในโฟลเดอร์จะถูกซ่อนจนกว่าจะกลับมา",
     playback_failed_title: "เล่นไม่สำเร็จ",
     no_music_folders_configured: "ยังไม่ได้ตั้งค่าโฟลเดอร์เพลง",
     add_music_folder: "เพิ่มโฟลเดอร์เพลง",

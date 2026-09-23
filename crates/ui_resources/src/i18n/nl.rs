@@ -46,7 +46,7 @@ pub static NL: Strings = lang! {
     library_updated: "Bibliotheek bijgewerkt",
     library_up_to_date: "Bibliotheek is up-to-date",
     library_update_failed: "Bijwerken van bibliotheek mislukt",
-    library_folder_unavailable_t: "Map niet beschikbaar: {}. Bibliotheek ongewijzigd.",
+    library_folder_unavailable_t: "Map niet beschikbaar: {}. De nummers blijven verborgen tot de map terug is.",
     playback_failed_title: "Afspelen mislukt",
     no_music_folders_configured: "Geen muziekmappen geconfigureerd.",
     add_music_folder: "Muziekmap toevoegen",

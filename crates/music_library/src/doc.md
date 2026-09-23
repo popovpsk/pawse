@@ -19,7 +19,10 @@ touches the database; `pawse::library_service` drives scans through
   `RETIRE_UNSEEN_LOCAL_BINDINGS`, `SWEEP_UNREFERENCED_ITEMS`,
   `REFRESH_ITEM_SNAPSHOTS`).
 - `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
-- `models.rs` — row and transfer types (`Track`, `ScanTrack`, `NewPlay`, …).
+- `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
+- `adoption.rs` — the pure matching that re-attaches moved files to their old
+  items (`match_arrivals`), plus `normalize_tag`, the one tag normalization
+  shared with the scrobble like-import.
 - `album_artists.rs` — deriving an album's credited artists from its tracks.
 - `thumbnail.rs` — cover thumbnail generation.
 - `error.rs` — `LibraryError`.
@@ -56,11 +59,12 @@ renaming would have been churn across every query for no behavioural gain.
   `album`, `duration_ms`, `cover_art_id`) used to render an item that has no
   `tracks` row any more.
 
-`reconcile_local_sources(roots)` makes `sources` match the configured folders:
-it disables every local source, then upserts one enabled row per root. A folder
-removed from settings therefore becomes a *disabled* source whose bindings stay
-put — re-adding the same folder re-enables it and every binding matches again by
-path, so likes and playlist entries come back under their old ids.
+`reconcile_local_sources(folders)` makes `sources` match the configured folders:
+it disables every local source, then upserts one enabled row per folder with its
+`available` flag. A folder removed from settings therefore becomes a *disabled*
+source whose bindings stay put — re-adding the same folder re-enables it and
+every binding matches again by path, so likes and playlist entries come back
+under their old ids.
 
 `ScanSession::resolve_item` looks a scanned file up by `(path, start_offset_ms)`
 across **all** local sources (placeholder and disabled ones included), re-points
@@ -69,12 +73,104 @@ nothing matches. That is what makes the placeholder self-healing: the first real
 scan after migration moves every binding onto the right folder without a
 separate step.
 
+## Offline folders
+
+`library_service` probes every configured folder before a scan (`ScanScope`): a
+folder that cannot be listed, or is empty while bindings under it are still
+present (an unmounted mount point), is *unavailable*. The scan goes ahead over
+the rest. The unavailable folder's source gets `available = 0`, its bindings are
+not retired, and its items are neither swept nor offered for adoption — offline
+is not the same as deleted. Its tracks drop out of the catalog (the scan did not
+re-add them), so they disappear from the library screens and show as unavailable
+in playlists and likes until the folder is back; then the next scan finds every
+binding by path and they return under the same ids.
+
+With every folder offline the scan still runs and the catalog ends up empty:
+offline means hidden, whether one folder is gone or all of them. Likes and
+playlists keep their entries, shown as unavailable.
+
+The fast-path key (`scan_meta.folders`) marks offline folders with a `?` prefix,
+so going offline and coming back each force one real scan. With every folder
+online the key is the same plain sorted list it always was.
+
+## Moved and renamed files: adoption
+
+A scanned file whose `(path, start_offset_ms)` has no binding is an *arrival*.
+Before minting a new item for it, the session looks for an *orphan* to re-attach
+it to: an item that has no binding seen by this scan and no present binding on an
+enabled source this scan did not cover (an offline folder, later a server).
+Orphans include items without user data too, so an ordinary move keeps its id
+(the persisted queue and the web remote hold ids).
+
+Orphans are only known once the scan has seen everything, so while the database
+already has items, arrivals are held in memory and settled in `finish`. On a
+fresh database there is nothing to adopt and arrivals are inserted directly —
+that keeps the first scan of a big library from buffering all of it.
+
+`adoption::match_arrivals` runs three tiers, strongest first, each over every
+unmatched arrival before the next tier starts:
+
+1. `path` — same path relative to its folder root and same cue offset, duration
+   within 2 s when both are known. Covers a library moved to a new mount point,
+   including untagged files.
+2. `tags` — normalized first artist + title + album, duration within 5 s when
+   both are known.
+3. `title` — normalized first artist + title, duration within 5 s and required.
+
+Tag tiers need a non-empty artist: an untagged file's title is its file name,
+and matching those across folders would pair unrelated `01.flac`s. Orphan tags
+come from the `media_items` snapshot, which `refresh_item_snapshots` keeps
+current for every live item — so no match keys are stored, none go stale after a
+tag edit, and none are lost when a source's bindings go. Among candidates the
+closest duration wins, then the lowest item id; an adopted orphan leaves the
+pool. Ambiguity picks the best candidate instead of giving up: a wrongly
+restored like is visible and one click to undo, a missed one is silent.
+
+Adoption only ever inserts a binding (plus an `adoptions` row with the tier);
+it never writes a user row and never merges two live items — a copy next to its
+original is an arrival while the original is seen, so it gets its own item.
+
+An adopted item keeps its old, retired binding, so the old file can come back
+(restored from the trash, a folder re-added) while the new one is still there.
+Both then resolve to the same item, and `tracks.id` can hold only one of them.
+The session tracks which items it has already written (`written`); a second file
+resolving to a written item has its old binding dropped and gets a fresh item.
+One of the two keeps the id and the user data, the other is an ordinary new
+track — neither disappears from the library.
+
+A held arrival that fails to write is logged and skipped, as `add_track` errors
+always were; it must not fail `finish`, or retire, sweep and the fingerprint would
+never run again for as long as that file is there.
+
+### Reviving from files already in the library
+
+Arrival matching only sees new files. A copy made *before* the original went
+away was an arrival while the original was still seen, so it got its own item;
+once the original is deleted its like is dead and the copy is no longer new. So
+whenever a scan had at least one arrival, `revive_orphans_from_library` runs a
+second pass: the orphans that still carry user data are matched, with the same
+tiers, against every track in the catalog that carries none
+(`UNCLAIMED_TRACKS`). A match *absorbs* the live item into the orphan: its
+`tracks` row, catalog links, disk lyrics and bindings move to the orphan's id
+(foreign keys deferred for the move), and the now-empty item is deleted. Nothing
+user-side is merged — the absorbed item had none — and the queue finds the file
+again by path. It costs one query per side and an in-memory match, and a scan
+without new files never runs it.
+
+The scan writer opens its batches with `BEGIN IMMEDIATE`. The adoption passes
+start a batch with reads; in WAL mode a deferred transaction that reads, sees the
+UI commit a like, and then writes fails with `SQLITE_BUSY_SNAPSHOT`, which the
+busy timeout does not retry. Taking the write lock up front makes the UI wait
+instead.
+
 ## What a scan does to identity
 
 `ScanSession::finish` (only after the indexer reported `Complete` — see below):
 
-1. `RETIRE_UNSEEN_LOCAL_BINDINGS` — bindings of enabled local sources that this
-   scan did not see get `present = 0`. Disabled sources are left alone.
+0. Settles held arrivals (adoption, above).
+1. `RETIRE_UNSEEN_LOCAL_BINDINGS` — bindings of enabled, available local
+   sources that this scan did not see get `present = 0`. Disabled and offline
+   sources are left alone.
 2. `SWEEP_UNREFERENCED_ITEMS` — deletes items that have no `tracks` row, no
    present binding on an enabled source, and nothing user-side pointing at them.
    This bounds growth: removing a 50k-track folder leaves only the items somebody

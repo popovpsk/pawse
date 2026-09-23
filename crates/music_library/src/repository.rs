@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary, ScanTrack, StoredLyrics,
-    Track,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary, ScanTrack,
+    StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -129,8 +129,8 @@ pub trait LibraryRepository: Send + Sync {
     /// `clear()`), which is why the 2nd scan is much faster than the 1st.
     fn cover_art_hashes(&self) -> Result<Vec<(String, i64)>>;
 
-    fn reconcile_local_sources(&self, roots: &[String]) -> Result<()>;
-    fn has_tracks_under(&self, root: &str) -> Result<bool>;
+    fn reconcile_local_sources(&self, folders: &[LocalFolder]) -> Result<()>;
+    fn has_media_under(&self, root: &str) -> Result<bool>;
     fn refresh_item_snapshots(&self) -> Result<()>;
 
     /// Open a batched scan-write session on a dedicated connection.

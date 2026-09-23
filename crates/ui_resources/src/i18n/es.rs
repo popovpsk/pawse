@@ -46,7 +46,7 @@ pub static ES: Strings = lang! {
     library_updated: "Biblioteca actualizada",
     library_up_to_date: "La biblioteca está actualizada",
     library_update_failed: "Error al actualizar la biblioteca",
-    library_folder_unavailable_t: "Carpeta no disponible: {}. La biblioteca no se ha modificado.",
+    library_folder_unavailable_t: "Carpeta no disponible: {}. Sus pistas quedan ocultas hasta que vuelva.",
     playback_failed_title: "Error de reproducción",
     no_music_folders_configured: "No hay carpetas de música configuradas.",
     add_music_folder: "Añadir carpeta de música",

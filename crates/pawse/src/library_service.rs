@@ -574,12 +574,7 @@ impl LibraryService {
         let event_tx = self.event_tx.clone();
         self.executor
             .spawn(async move {
-                let folders_key = serialize_folders(&folders);
-                let up_to_date = {
-                    let pre = music_indexer::collect_sources(&folders).fingerprint;
-                    matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
-                        && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
-                };
+                let baseline = ScanBaseline::capture(&*repo, &folders);
 
                 let lrc_path = audio_path.with_extension("lrc");
                 if let Err(e) = std::fs::write(&lrc_path, &text) {
@@ -598,15 +593,7 @@ impl LibraryService {
                     let _ = event_tx.send(LibraryEvent::LyricsChanged { track_id });
                 }
 
-                if up_to_date {
-                    let post = music_indexer::collect_sources(&folders).fingerprint;
-                    if let Err(e) = repo.set_scan_meta(&post, &folders_key) {
-                        log::error!(
-                            "Failed to re-baseline scan fingerprint after lyrics export: {}",
-                            e
-                        );
-                    }
-                }
+                baseline.rebaseline(&*repo);
             })
             .detach();
     }
@@ -648,7 +635,7 @@ impl LibraryService {
                 }
 
                 let _ = event_tx.send(LibraryEvent::TrackTagsChanged { track_id });
-                baseline.rebaseline(&*repo, &folders);
+                baseline.rebaseline(&*repo);
             })
             .detach();
     }
@@ -685,7 +672,7 @@ impl LibraryService {
                 log::info!("Album {} retagged, {} files written", album_id, written);
                 let _ = event_tx.send(LibraryEvent::AlbumTagsChanged { album_id });
                 if written > 0 {
-                    baseline.rebaseline(&*repo, &folders);
+                    baseline.rebaseline(&*repo);
                 }
             })
             .detach();
@@ -929,27 +916,39 @@ impl LibraryService {
         paths: Vec<PathBuf>,
         manual: bool,
     ) {
-        let had_tracks = |root: &Path| {
-            repo.has_tracks_under(&root.to_string_lossy())
-                .unwrap_or(true)
-        };
-        if let Some(missing) = unavailable_folder(&paths, had_tracks) {
-            let folder = missing.to_string_lossy().into_owned();
-            log::warn!("Skipping scan, folder unavailable: {}", folder);
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+        let scope = ScanScope::probe(&*repo, &paths);
+        let warning = if scope.unavailable.is_empty() {
+            state.warned_unavailable.store(false, Ordering::Release);
+            None
+        } else {
+            let folder = scope
+                .unavailable
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", ");
+            log::warn!("Folder unavailable, its tracks stay hidden: {}", folder);
             let first = !state.warned_unavailable.swap(true, Ordering::AcqRel);
-            if manual || first {
-                let _ = event_tx.send(LibraryEvent::ScanFolderUnavailable { folder });
-            }
-            return;
+            (manual || first).then_some(folder)
+        };
+        Self::scan_available(repo, event_tx.clone(), inner_executor, scope, manual).await;
+        if let Some(folder) = warning {
+            let _ = event_tx.send(LibraryEvent::ScanFolderUnavailable { folder });
         }
-        state.warned_unavailable.store(false, Ordering::Release);
+    }
 
+    async fn scan_available(
+        repo: Arc<dyn LibraryRepository>,
+        event_tx: flume::Sender<LibraryEvent>,
+        inner_executor: gpui::BackgroundExecutor,
+        scope: ScanScope,
+        manual: bool,
+    ) {
         // Cheap walk + fingerprint. Fast path: if nothing on disk changed
         // since the last successful scan, skip all DB work entirely. This
         // is what makes run-on-launch / background rescans viable.
-        let sources = music_indexer::collect_sources(&paths);
-        let folders_key = serialize_folders(&paths);
+        let sources = music_indexer::collect_sources(&scope.available);
+        let folders_key = scope.folders_key();
         let unchanged = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
         if unchanged {
@@ -963,11 +962,7 @@ impl LibraryService {
         let _ = event_tx.send(LibraryEvent::ScanStarted);
         let fingerprint = sources.fingerprint.clone();
 
-        let roots: Vec<String> = paths
-            .iter()
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect();
-        if let Err(e) = repo.reconcile_local_sources(&roots) {
+        if let Err(e) = repo.reconcile_local_sources(&scope.local_folders()) {
             log::error!("Failed to reconcile library folders: {}", e);
             let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
             let _ = event_tx.send(LibraryEvent::ScanFailed);
@@ -997,7 +992,7 @@ impl LibraryService {
             return;
         }
 
-        if paths.is_empty() {
+        if scope.available.is_empty() {
             let ok = match session.finish() {
                 Ok(()) => {
                     finalize_rescan(&*repo, &fingerprint, &folders_key);
@@ -1084,14 +1079,63 @@ impl LibraryService {
     }
 }
 
-fn unavailable_folder(paths: &[PathBuf], had_tracks: impl Fn(&Path) -> bool) -> Option<&PathBuf> {
-    paths.iter().find(|path| match std::fs::read_dir(path) {
+fn folder_unavailable(path: &Path, had_media: impl Fn(&Path) -> bool) -> bool {
+    match std::fs::read_dir(path) {
         Err(_) => true,
         Ok(mut entries) => match entries.next() {
-            None => had_tracks(path),
+            None => had_media(path),
             Some(entry) => entry.is_err(),
         },
-    })
+    }
+}
+
+struct ScanScope {
+    available: Vec<PathBuf>,
+    unavailable: Vec<PathBuf>,
+}
+
+impl ScanScope {
+    fn probe(repo: &dyn LibraryRepository, paths: &[PathBuf]) -> Self {
+        let had_media = |root: &Path| {
+            repo.has_media_under(&root.to_string_lossy())
+                .unwrap_or(true)
+        };
+        let (unavailable, available) = paths
+            .iter()
+            .cloned()
+            .partition(|path| folder_unavailable(path, had_media));
+        Self {
+            available,
+            unavailable,
+        }
+    }
+
+    fn folders_key(&self) -> String {
+        let mut items: Vec<String> = self
+            .available
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .chain(
+                self.unavailable
+                    .iter()
+                    .map(|p| format!("?{}", p.to_string_lossy())),
+            )
+            .collect();
+        items.sort();
+        items.join("\n")
+    }
+
+    fn local_folders(&self) -> Vec<music_library::LocalFolder> {
+        let folder = |path: &PathBuf, available: bool| music_library::LocalFolder {
+            path: path.to_string_lossy().into_owned(),
+            available,
+        };
+        self.available
+            .iter()
+            .map(|path| folder(path, true))
+            .chain(self.unavailable.iter().map(|path| folder(path, false)))
+            .collect()
+    }
 }
 
 fn scan_outcome(ok: bool) -> LibraryEvent {
@@ -1108,29 +1152,32 @@ fn scan_outcome(ok: bool) -> LibraryEvent {
 /// would then skip it forever.
 struct ScanBaseline {
     up_to_date: bool,
+    scope: ScanScope,
     folders_key: String,
 }
 
 impl ScanBaseline {
     fn capture(repo: &dyn LibraryRepository, folders: &[PathBuf]) -> Self {
-        let folders_key = serialize_folders(folders);
-        let pre = music_indexer::collect_sources(folders).fingerprint;
+        let scope = ScanScope::probe(repo, folders);
+        let folders_key = scope.folders_key();
+        let pre = music_indexer::collect_sources(&scope.available).fingerprint;
         let up_to_date = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
         Self {
             up_to_date,
+            scope,
             folders_key,
         }
     }
 
-    fn rebaseline(&self, repo: &dyn LibraryRepository, folders: &[PathBuf]) {
+    fn rebaseline(&self, repo: &dyn LibraryRepository) {
         if !self.up_to_date {
             return;
         }
-        let post = music_indexer::collect_sources(folders).fingerprint;
+        let post = music_indexer::collect_sources(&self.scope.available).fingerprint;
         if let Err(e) = repo.set_scan_meta(&post, &self.folders_key) {
             log::error!(
-                "Failed to re-baseline scan fingerprint after tag write: {}",
+                "Failed to re-baseline scan fingerprint after a file write: {}",
                 e
             );
         }
@@ -1368,17 +1415,6 @@ fn force_rescan(
     LibraryService::spawn_scan(repo, event_tx, executor, scan_state);
 }
 
-/// Serialize the scanned folder set into a stable key, so a fast-path skip only
-/// happens when the same folders are being scanned as last time.
-fn serialize_folders(paths: &[PathBuf]) -> String {
-    let mut items: Vec<String> = paths
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-    items.sort();
-    items.join("\n")
-}
-
 fn is_placeholder_artist(name: &str) -> bool {
     matches!(
         name.to_lowercase().as_str(),
@@ -1544,12 +1580,10 @@ mod tests {
                 .cover_art_hashes()
                 .map(|pairs| pairs.into_iter().map(|(hash, _)| hash).collect())
                 .unwrap_or_default();
-            let roots: Vec<String> = self
-                .folders()
-                .iter()
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect();
-            self.repo.reconcile_local_sources(&roots).unwrap();
+            let scope = ScanScope::probe(&self.repo, &self.folders());
+            self.repo
+                .reconcile_local_sources(&scope.local_folders())
+                .unwrap();
             let mut session = self.repo.open_scan_session().unwrap();
             session.clear().unwrap();
 
@@ -1658,7 +1692,10 @@ mod tests {
         fn mark_in_sync(&self) {
             let fingerprint = music_indexer::collect_sources(&self.folders()).fingerprint;
             self.repo
-                .set_scan_meta(&fingerprint, &serialize_folders(&self.folders()))
+                .set_scan_meta(
+                    &fingerprint,
+                    &ScanScope::probe(&self.repo, &self.folders()).folders_key(),
+                )
                 .unwrap();
         }
 
@@ -1689,34 +1726,37 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_folder_list_is_available_but_a_missing_root_is_not() {
+    fn a_missing_root_or_a_file_is_unavailable() {
         let ws = Workspace::new();
         let never = |_: &Path| false;
-        assert!(unavailable_folder(&[], never).is_none());
-
-        let gone = ws.folder.join("unmounted");
-        assert_eq!(
-            unavailable_folder(&[ws.folder.clone(), gone.clone()], never),
-            Some(&gone)
-        );
-
+        assert!(folder_unavailable(&ws.folder.join("unmounted"), never));
         let file = ws.add_file("one.flac", "tagged_basic.flac");
-        assert_eq!(
-            unavailable_folder(std::slice::from_ref(&file), never),
-            Some(&file)
-        );
-        assert!(unavailable_folder(&ws.folders(), never).is_none());
+        assert!(folder_unavailable(&file, never));
+        assert!(!folder_unavailable(&ws.folder, never));
     }
 
     #[test]
-    fn an_empty_root_is_unavailable_only_when_the_library_had_tracks_under_it() {
+    fn an_empty_root_is_unavailable_only_when_the_library_had_media_under_it() {
         let ws = Workspace::new();
         let empty = ws.folder.join("mountpoint");
         std::fs::create_dir(&empty).unwrap();
-        let roots = [empty.clone()];
 
-        assert!(unavailable_folder(&roots, |_| false).is_none());
-        assert_eq!(unavailable_folder(&roots, |_| true), Some(&empty));
+        assert!(!folder_unavailable(&empty, |_| false));
+        assert!(folder_unavailable(&empty, |_| true));
+    }
+
+    #[test]
+    fn the_folders_key_is_unchanged_while_everything_is_online_and_marks_offline_roots() {
+        let scope = ScanScope {
+            available: vec![PathBuf::from("/b"), PathBuf::from("/a")],
+            unavailable: vec![],
+        };
+        assert_eq!(scope.folders_key(), "/a\n/b");
+        let scope = ScanScope {
+            available: vec![PathBuf::from("/b")],
+            unavailable: vec![PathBuf::from("/a")],
+        };
+        assert_eq!(scope.folders_key(), "/b\n?/a");
     }
 
     #[cfg(unix)]
@@ -1729,25 +1769,41 @@ mod tests {
         std::fs::write(locked.join("a.flac"), b"x").unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
 
-        let result = unavailable_folder(std::slice::from_ref(&locked), |_| false).cloned();
+        let result = folder_unavailable(&locked, |_| false);
 
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(result, Some(locked));
+        assert!(result);
     }
 
     #[test]
-    fn has_tracks_under_matches_whole_path_components() {
+    fn has_media_under_matches_whole_path_components() {
         let ws = Workspace::new();
         ws.add_file("one.flac", "tagged_basic.flac");
         ws.scan();
         let root = ws.folder.to_string_lossy().into_owned();
-        assert!(ws.repo.has_tracks_under(&root).unwrap());
-        assert!(
-            !ws.repo
-                .has_tracks_under(&format!("{root}-sibling"))
-                .unwrap()
-        );
-        assert!(!ws.repo.has_tracks_under(&format!("{root}/nested")).unwrap());
+        assert!(ws.repo.has_media_under(&root).unwrap());
+        assert!(!ws.repo.has_media_under(&format!("{root}-sibling")).unwrap());
+        assert!(!ws.repo.has_media_under(&format!("{root}/nested")).unwrap());
+    }
+
+    #[test]
+    fn a_file_moved_on_disk_keeps_its_id_and_like() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        ws.scan();
+        let track_id = ws.track_id(&path);
+        ws.repo.set_liked(track_id, true).unwrap();
+
+        let moved = ws.folder.join("sorted").join("renamed.flac");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&path, &moved).unwrap();
+        ws.scan();
+
+        assert_eq!(ws.track_id(&moved), track_id);
+        let liked = ws.repo.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(liked[0].available);
+        assert_eq!(liked[0].path, moved.to_string_lossy());
     }
 
     #[test]
@@ -2485,7 +2541,7 @@ mod tests {
         let baseline = ScanBaseline::capture(&ws.repo, &ws.folders());
         tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
         reindex_one(&ws.repo, track_id, &path).unwrap();
-        baseline.rebaseline(&ws.repo, &ws.folders());
+        baseline.rebaseline(&ws.repo);
 
         assert_eq!(
             ws.repo.scan_fingerprint().unwrap().as_deref(),
@@ -2507,7 +2563,7 @@ mod tests {
         let baseline = ScanBaseline::capture(&ws.repo, &ws.folders());
         tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
         reindex_one(&ws.repo, track_id, &path).unwrap();
-        baseline.rebaseline(&ws.repo, &ws.folders());
+        baseline.rebaseline(&ws.repo);
 
         assert_eq!(
             ws.repo.scan_fingerprint().unwrap().as_deref(),
