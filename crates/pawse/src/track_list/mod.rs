@@ -89,6 +89,7 @@ pub struct TrackRowBase {
     pub title: SharedString,
     pub duration: SharedString,
     pub liked: bool,
+    pub available: bool,
 }
 
 impl TrackRowBase {
@@ -98,6 +99,7 @@ impl TrackRowBase {
             title: track.title.clone().into(),
             duration: fmt_duration(track.duration_ms),
             liked: track.liked,
+            available: track.available,
         }
     }
 }

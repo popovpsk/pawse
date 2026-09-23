@@ -351,10 +351,13 @@ impl AudioEngineLoop {
 
         let decoder = match Decoder::open(path.as_path()) {
             Ok(decoder) => decoder,
-            Err(_) => {
+            Err(err) => {
                 self.output.pause();
                 self.set_state(AudioEngineState::TrackNotSet);
                 self.decoder = None;
+                _ = self
+                    .event_sender
+                    .send(EngineEvent::Error(format!("{}: {err}", path.display())));
                 return;
             }
         };

@@ -46,6 +46,8 @@ pub static RU: Strings = lang! {
     library_updated: "Медиатека обновлена",
     library_up_to_date: "Медиатека актуальна",
     library_update_failed: "Не удалось обновить медиатеку",
+    library_folder_unavailable_t: "Папка недоступна: {}. Библиотека не изменена.",
+    playback_failed_title: "Не удалось воспроизвести",
     no_music_folders_configured: "Папки с музыкой не настроены.",
     add_music_folder: "Добавить папку с музыкой",
     no_albums_found: "Альбомы не найдены.",

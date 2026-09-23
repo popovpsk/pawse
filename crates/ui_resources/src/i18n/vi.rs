@@ -46,6 +46,8 @@ pub static VI: Strings = lang! {
     library_updated: "Đã cập nhật thư viện",
     library_up_to_date: "Thư viện đã được cập nhật",
     library_update_failed: "Cập nhật thư viện thất bại",
+    library_folder_unavailable_t: "Không truy cập được thư mục: {}. Thư viện không thay đổi.",
+    playback_failed_title: "Phát không thành công",
     no_music_folders_configured: "Chưa cấu hình thư mục nhạc.",
     add_music_folder: "Thêm thư mục nhạc",
     no_albums_found: "Không tìm thấy album.",

@@ -348,6 +348,7 @@ fn liked_track_row(
     let track_id = row.base.id;
     let track_all_ix = row.track_all_ix;
     let is_current = Some(track_id) == view.current_track_id;
+    let available = row.base.available;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
     let can_reorder = view.filter.is_empty();
     let drag_title = row.base.title.clone();
@@ -365,6 +366,7 @@ fn liked_track_row(
         .border_b(px(1.))
         .border_color(p.border)
         .when(is_current, |s| crate::track_list::current_row(s, cx))
+        .when(!available, |s| s.opacity(0.45))
         .hover(|s| s.bg(p.list_hover))
         .child(cover_el)
         .child(

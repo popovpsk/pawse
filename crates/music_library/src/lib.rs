@@ -9,8 +9,7 @@ pub mod thumbnail;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    LyricsRef, NewTrack, Playlist, PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack,
-    StoredLyrics, Track, lyrics_source,
+    NewTrack, Playlist, PlaylistSummary, ScanLyrics, ScanTrack, StoredLyrics, Track, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -36,6 +35,159 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&db_path);
         (SqliteLibrary::open_at(&db_path).unwrap(), db_path)
+    }
+
+    fn fresh_db_path() -> PathBuf {
+        let (lib, path) = create_test_db();
+        drop(lib);
+        let _ = std::fs::remove_file(&path);
+        for suffix in ["-wal", "-shm", ".bak-v8"] {
+            let mut sidecar = path.as_os_str().to_owned();
+            sidecar.push(suffix);
+            let _ = std::fs::remove_file(PathBuf::from(sidecar));
+        }
+        path
+    }
+
+    fn build_v8_db(path: &PathBuf, seed: &str) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 8) {
+            conn.execute_batch(sql).unwrap();
+            conn.pragma_update(None, "user_version", version).unwrap();
+        }
+        conn.execute_batch(seed).unwrap();
+    }
+
+    const V8_CATALOG: &str = "
+        INSERT INTO artists (id, name, sort_name) VALUES (1, 'Band', 'band');
+        INSERT INTO albums (id, title, year) VALUES (1, 'Record', 2001);
+        INSERT INTO album_artists (album_id, artist_id, position) VALUES (1, 1, 0);
+        INSERT INTO tracks
+            (id, path, title, album_id, track_number, duration_ms, start_offset_ms, liked, is_cue)
+        VALUES
+            (10, '/m/one.flac', 'One', 1, 1, 1000, 0, 1, 0),
+            (11, '/m/cue.flac', 'Cue A', 1, 2, 2000, 0, 0, 1),
+            (12, '/m/cue.flac', 'Cue B', 1, 3, 2000, 2000, 1, 1);
+        INSERT INTO track_artists (track_id, artist_id, position)
+            VALUES (10, 1, 0), (11, 1, 0), (12, 1, 0);
+    ";
+
+    fn user_version(path: &PathBuf) -> i64 {
+        count_rows(path, "SELECT user_version FROM pragma_user_version")
+    }
+
+    #[test]
+    fn migration_to_v9_keeps_every_user_row_under_the_same_id() {
+        let path = fresh_db_path();
+        build_v8_db(
+            &path,
+            &format!(
+                "{V8_CATALOG}
+                INSERT INTO playlists (id, name, created_at) VALUES (5, 'Liked', 0), (6, 'Mix', 0);
+                INSERT INTO scan_meta (key, value) VALUES ('liked_playlist_id', '5');
+                INSERT INTO playlist_tracks (playlist_id, position, track_id)
+                    VALUES (5, 0, 12), (5, 1, 10), (6, 0, 11), (6, 1, 10);
+                INSERT INTO lyrics (track_id, source, text, not_found, updated_at)
+                    VALUES (10, 'lrclib', x'00', 0, 1), (11, 'lrc', x'00', 0, 1);
+                INSERT INTO plays (id, track_id, artist, title, started_at, qualified)
+                    VALUES (100, 10, 'Band', 'One', 1000, 1), (101, NULL, 'Gone', 'Old', 900, 1);
+                INSERT INTO play_deliveries (play_id, target, state, updated_at)
+                    VALUES (100, 'lastfm', 0, 1), (101, 'lastfm', 0, 1);
+                INSERT INTO loves (id, track_id, artist, title, loved, at)
+                    VALUES (200, 12, 'Band', 'Cue B', 1, 1);
+                INSERT INTO love_deliveries (love_id, target, state, updated_at)
+                    VALUES (200, 'lastfm', 0, 1);"
+            ),
+        );
+
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+
+        assert_eq!(user_version(&path), 9);
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".bak-v8");
+        assert!(PathBuf::from(backup).exists());
+
+        let mut ids: Vec<i64> = lib.all_tracks().unwrap().iter().map(|t| t.id).collect();
+        ids.sort();
+        assert_eq!(ids, vec![10, 11, 12]);
+
+        let liked: Vec<(i64, bool)> = lib
+            .liked_tracks()
+            .unwrap()
+            .iter()
+            .map(|t| (t.id, t.liked))
+            .collect();
+        assert_eq!(liked, vec![(12, true), (10, true)]);
+        assert!(!lib.track(11).unwrap().unwrap().liked);
+
+        let mix: Vec<i64> = lib
+            .tracks_for_playlist(6)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(mix, vec![11, 10]);
+
+        for (sql, expected) in [
+            ("SELECT COUNT(*) FROM media_items", 3),
+            ("SELECT COUNT(*) FROM media_bindings WHERE source_id = 1", 3),
+            (
+                "SELECT COUNT(*) FROM lyrics WHERE track_id = 10 AND source = 'lrclib'",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM lyrics WHERE track_id = 11 AND source = 'lrc'",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM plays WHERE id = 100 AND track_id = 10",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM plays WHERE id = 101 AND track_id IS NULL",
+                1,
+            ),
+            ("SELECT COUNT(*) FROM play_deliveries", 2),
+            (
+                "SELECT COUNT(*) FROM loves WHERE id = 200 AND track_id = 12",
+                1,
+            ),
+            ("SELECT COUNT(*) FROM love_deliveries", 1),
+            ("SELECT COUNT(*) FROM pragma_foreign_key_check", 0),
+            (
+                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'liked'",
+                0,
+            ),
+            (
+                "SELECT COUNT(*) FROM media_items WHERE id = 12 AND title = 'Cue B' AND artist = 'Band' AND album = 'Record'",
+                1,
+            ),
+        ] {
+            assert_eq!(count_rows(&path, sql), expected, "{sql}");
+        }
+    }
+
+    #[test]
+    fn migration_to_v9_seeds_likes_from_the_column_when_no_liked_playlist_exists() {
+        let path = fresh_db_path();
+        build_v8_db(&path, V8_CATALOG);
+
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+
+        let liked: Vec<i64> = lib.liked_tracks().unwrap().iter().map(|t| t.id).collect();
+        assert_eq!(liked, vec![10, 12]);
+    }
+
+    #[test]
+    fn a_fresh_database_gets_no_migration_backup() {
+        let path = fresh_db_path();
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+        drop(lib);
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".bak-v8");
+        assert!(!PathBuf::from(backup).exists());
+        assert_eq!(user_version(&path), 9);
     }
 
     #[test]
@@ -1265,81 +1417,116 @@ mod tests {
         assert_eq!(ids(&lib), vec![a, b, c]);
     }
 
+    fn scan_track(path: &str, title: &str) -> ScanTrack {
+        ScanTrack {
+            path: path.into(),
+            title: Some(title.into()),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: vec!["Artist".into()],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            ..Default::default()
+        }
+    }
+
+    fn scan(lib: &SqliteLibrary, tracks: Vec<ScanTrack>) {
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        for track in tracks {
+            session.add_track(track).unwrap();
+        }
+        session.finish().unwrap();
+    }
+
+    fn id_of(lib: &SqliteLibrary, path: &str) -> i64 {
+        lib.all_tracks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.path == path)
+            .unwrap_or_else(|| panic!("{path} is not in the library"))
+            .id
+    }
+
     #[test]
-    fn test_playlist_track_refs_survive_clear_and_rescan() {
-        // Snapshot → clear → re-insert tracks at new ids → restore: playlist
-        // contents must reappear referencing the new track ids.
+    fn a_playlist_keeps_its_track_across_a_rescan_under_the_same_id() {
         let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Persistent Song", "Album", "Artist");
+        scan(&lib, vec![scan_track("/m/keep.flac", "Keep")]);
+        let track_id = id_of(&lib, "/m/keep.flac");
         let playlist_id = lib.create_playlist("Keepers").unwrap();
         lib.add_track_to_playlist(playlist_id, track_id).unwrap();
 
-        let refs = lib.playlist_track_refs().unwrap();
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].path, "/music/Persistent Song.flac");
+        scan(&lib, vec![scan_track("/m/keep.flac", "Keep")]);
 
-        lib.clear().unwrap();
-        // After clear, playlists themselves survive but membership is empty.
-        assert!(lib.tracks_for_playlist(playlist_id).unwrap().is_empty());
-
-        // Rescan: re-insert the same track. It gets a fresh id; the snapshot
-        // matches by (path, start_offset_ms) and reinstates the membership.
-        let new_track_id = seed_track(&lib, "Persistent Song", "Album", "Artist");
-        lib.restore_playlist_track_refs(&refs).unwrap();
+        assert_eq!(id_of(&lib, "/m/keep.flac"), track_id);
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
         assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].id, new_track_id);
+        assert_eq!(tracks[0].id, track_id);
+        assert!(tracks[0].available);
     }
 
     #[test]
-    fn test_restore_playlist_track_refs_skips_missing_tracks() {
-        // A track that doesn't reappear after a rescan (file deleted on disk)
-        // simply drops out of any playlists referencing it.
+    fn a_track_missing_from_a_rescan_stays_in_its_playlist_and_comes_back() {
         let (lib, _path) = create_test_db();
-        let kept_id = seed_track(&lib, "Kept", "Album", "Artist");
-        let dropped_id = seed_track(&lib, "Dropped", "Album", "Artist");
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        let kept = id_of(&lib, "/m/kept.flac");
+        let gone = id_of(&lib, "/m/gone.flac");
         let playlist_id = lib.create_playlist("Mixed").unwrap();
-        lib.add_track_to_playlist(playlist_id, kept_id).unwrap();
-        lib.add_track_to_playlist(playlist_id, dropped_id).unwrap();
+        lib.add_track_to_playlist(playlist_id, gone).unwrap();
+        lib.add_track_to_playlist(playlist_id, kept).unwrap();
 
-        let refs = lib.playlist_track_refs().unwrap();
-        lib.clear().unwrap();
-        // Only re-seed the kept track.
-        seed_track(&lib, "Kept", "Album", "Artist");
-        lib.restore_playlist_track_refs(&refs).unwrap();
+        scan(&lib, vec![scan_track("/m/kept.flac", "Kept")]);
 
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
-        assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].title, "Kept");
+        let shape: Vec<(i64, &str, bool)> = tracks
+            .iter()
+            .map(|t| (t.id, t.title.as_str(), t.available))
+            .collect();
+        assert_eq!(shape, vec![(gone, "Gone", false), (kept, "Kept", true)]);
+        assert_eq!(tracks[0].path, "/m/gone.flac");
+        assert_eq!(tracks[0].duration_ms, Some(180_000));
+
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        assert_eq!(id_of(&lib, "/m/gone.flac"), gone);
+        assert!(
+            lib.tracks_for_playlist(playlist_id)
+                .unwrap()
+                .iter()
+                .all(|t| t.available)
+        );
     }
 
     #[test]
-    fn test_fetched_lyrics_survive_clear_and_rescan() {
-        // Network (lrclib) lyrics aren't on disk, so a rescan can't re-read
-        // them; the snapshot/restore must carry them to the new track id.
+    fn fetched_lyrics_survive_a_rescan() {
         let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Fetched", "Album", "Artist");
+        scan(&lib, vec![scan_track("/m/fetched.flac", "Fetched")]);
+        let track_id = id_of(&lib, "/m/fetched.flac");
         lib.upsert_lyrics(track_id, "la la la", "lrclib", false)
             .unwrap();
 
-        let refs = lib.lyrics_refs().unwrap();
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].source, "lrclib");
+        scan(&lib, vec![scan_track("/m/fetched.flac", "Fetched")]);
 
-        lib.clear().unwrap();
-        let new_track_id = seed_track(&lib, "Fetched", "Album", "Artist");
-        assert!(lib.lyrics_for_track(new_track_id).unwrap().is_none());
-
-        lib.restore_lyrics_refs(&refs).unwrap();
-        let restored = lib.lyrics_for_track(new_track_id).unwrap().unwrap();
-        assert_eq!(restored.text, "la la la");
-        assert_eq!(restored.source, "lrclib");
+        let kept = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        assert_eq!(kept.text, "la la la");
+        assert_eq!(kept.source, "lrclib");
     }
 
     #[test]
-    fn test_disk_lyrics_excluded_from_snapshot() {
-        // lrc/embedded lyrics are re-read from disk on rescan, so snapshotting
-        // them would risk reinstating a sidecar the user has since deleted.
+    fn clear_drops_disk_lyrics_but_keeps_fetched_ones() {
         let (lib, _path) = create_test_db();
         let lrc = seed_track(&lib, "Sidecar", "Album", "Artist");
         let embedded = seed_track(&lib, "Tagged", "Album", "Artist");
@@ -1351,30 +1538,135 @@ mod tests {
         lib.upsert_lyrics(fetched, "from net", "lrclib", false)
             .unwrap();
 
-        let refs = lib.lyrics_refs().unwrap();
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].source, "lrclib");
+        lib.clear().unwrap();
+
+        assert!(lib.lyrics_for_track(lrc).unwrap().is_none());
+        assert!(lib.lyrics_for_track(embedded).unwrap().is_none());
+        assert_eq!(
+            lib.lyrics_for_track(fetched).unwrap().unwrap().text,
+            "from net"
+        );
     }
 
     #[test]
-    fn test_restore_lyrics_does_not_clobber_fresh_disk_lyrics() {
-        // If the rescan finds a sidecar .lrc for a track that previously had
-        // fetched lyrics, the fresh disk copy must win over the snapshot.
+    fn fresh_disk_lyrics_win_over_fetched_ones() {
         let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        scan(&lib, vec![scan_track("/m/song.flac", "Song")]);
+        let track_id = id_of(&lib, "/m/song.flac");
         lib.upsert_lyrics(track_id, "stale fetched", "lrclib", false)
             .unwrap();
-        let refs = lib.lyrics_refs().unwrap();
 
-        lib.clear().unwrap();
-        let new_track_id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.upsert_lyrics(new_track_id, "fresh from disk", "lrc", false)
-            .unwrap();
-        lib.restore_lyrics_refs(&refs).unwrap();
+        let mut with_sidecar = scan_track("/m/song.flac", "Song");
+        with_sidecar.lyrics = Some(ScanLyrics {
+            text: "fresh from disk".into(),
+            source: "lrc".into(),
+        });
+        scan(&lib, vec![with_sidecar]);
 
-        let kept = lib.lyrics_for_track(new_track_id).unwrap().unwrap();
+        let kept = lib.lyrics_for_track(track_id).unwrap().unwrap();
         assert_eq!(kept.text, "fresh from disk");
         assert_eq!(kept.source, "lrc");
+    }
+
+    #[test]
+    fn a_rescan_sweeps_items_nothing_references() {
+        let (lib, path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/liked.flac", "Liked"),
+                scan_track("/m/plain.flac", "Plain"),
+            ],
+        );
+        lib.set_liked(id_of(&lib, "/m/liked.flac"), true).unwrap();
+
+        scan(&lib, vec![]);
+
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert_eq!(liked[0].title, "Liked");
+        assert!(!liked[0].available);
+    }
+
+    #[test]
+    fn a_swept_id_is_never_handed_to_another_track() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![scan_track("/m/a.flac", "A"), scan_track("/m/b.flac", "B")],
+        );
+        let swept = id_of(&lib, "/m/b.flac");
+
+        scan(&lib, vec![scan_track("/m/a.flac", "A")]);
+        scan(
+            &lib,
+            vec![scan_track("/m/a.flac", "A"), scan_track("/m/c.flac", "C")],
+        );
+
+        assert!(id_of(&lib, "/m/c.flac") > swept);
+    }
+
+    #[test]
+    fn track_artists_map_has_no_parameter_ceiling_and_names_unavailable_tracks() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        let kept = id_of(&lib, "/m/kept.flac");
+        let gone = id_of(&lib, "/m/gone.flac");
+        lib.set_liked(gone, true).unwrap();
+        scan(&lib, vec![scan_track("/m/kept.flac", "Kept")]);
+
+        let mut ids: Vec<i64> = (1_000_000..1_040_000).collect();
+        ids.push(kept);
+        ids.push(gone);
+        let map = lib.track_artists_map(&ids).unwrap();
+
+        assert_eq!(map.get(&kept), Some(&vec!["Artist".to_string()]));
+        assert_eq!(map.get(&gone), Some(&vec!["Artist".to_string()]));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn the_guard_refuses_to_delete_an_item_that_carries_user_data() {
+        let (lib, path) = create_test_db();
+        scan(&lib, vec![scan_track("/m/liked.flac", "Liked")]);
+        let track_id = id_of(&lib, "/m/liked.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let err = conn
+            .execute("DELETE FROM media_items WHERE id = ?1", [track_id])
+            .unwrap_err();
+        assert!(err.to_string().contains("referenced by user data"));
+    }
+
+    #[test]
+    fn removing_a_folder_keeps_its_likes_and_re_adding_it_revives_them() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&["/music".into()]).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/a.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        lib.reconcile_local_sources(&[]).unwrap();
+        scan(&lib, vec![]);
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(!liked[0].available);
+
+        lib.reconcile_local_sources(&["/music".into()]).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        assert_eq!(id_of(&lib, "/music/a.flac"), track_id);
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(liked[0].available);
+        assert!(liked[0].liked);
     }
 
     #[test]
@@ -2681,7 +2973,7 @@ mod tests {
         assert_eq!(
             count_rows(
                 &path,
-                "SELECT COUNT(*) FROM plays WHERE track_id IS NULL AND artist = 'Tool'"
+                &format!("SELECT COUNT(*) FROM plays WHERE track_id = {track} AND artist = 'Tool'")
             ),
             1
         );

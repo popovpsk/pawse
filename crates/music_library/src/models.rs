@@ -38,6 +38,12 @@ pub struct Track {
     pub bitrate: Option<u32>,
     #[serde(default)]
     pub is_cue: bool,
+    #[serde(default = "available_by_default")]
+    pub available: bool,
+}
+
+fn available_by_default() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,36 +164,6 @@ pub struct PlaylistSummary {
     pub name: String,
     pub created_at: i64,
     pub track_count: i64,
-}
-
-/// A frozen reference to one track within one playlist by **content key**
-/// (path + start_offset_ms), not by `track_id`. Used to preserve playlist
-/// contents across a full rescan, where `tracks` rows get fresh ids.
-///
-/// Original positions are not stored — `playlist_track_refs` returns the
-/// refs in `(playlist_id, position)` order, and `restore_playlist_track_refs`
-/// re-densifies positions starting from 0. So `Vec` order is the contract;
-/// stale gaps from removed tracks aren't carried over.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlaylistTrackRef {
-    pub playlist_id: i64,
-    pub path: String,
-    pub start_offset_ms: i32,
-}
-
-/// A frozen lyrics row keyed by **content key** (path + start_offset_ms), used
-/// to carry non-disk-derived lyrics (network fetches, plus their not-found
-/// markers) across a full rescan. `clear()` cascades the `lyrics` table away
-/// with `tracks`, and a rescan only re-reads `.lrc`/embedded lyrics from disk —
-/// so without this, fetched lyrics would vanish on every rescan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LyricsRef {
-    pub path: String,
-    pub start_offset_ms: i32,
-    pub source: String,
-    pub text: String,
-    pub not_found: bool,
-    pub updated_at: i64,
 }
 
 pub mod delivery_state {

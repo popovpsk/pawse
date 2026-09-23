@@ -46,6 +46,8 @@ pub static EN: Strings = lang! {
     library_updated: "Library updated",
     library_up_to_date: "Library is up to date",
     library_update_failed: "Library update failed",
+    library_folder_unavailable_t: "Folder unavailable: {}. Library left unchanged.",
+    playback_failed_title: "Playback failed",
     no_music_folders_configured: "No music folders configured.",
     add_music_folder: "Add music folder",
     no_albums_found: "No albums found.",

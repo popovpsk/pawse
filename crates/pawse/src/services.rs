@@ -245,6 +245,9 @@ fn notify_scan_event(event: &LibraryEvent, cx: &mut App) {
         LibraryEvent::ScanFailed => {
             Notification::error(crate::localization::tr().library_update_failed.clone())
         }
+        LibraryEvent::ScanFolderUnavailable { folder } => {
+            Notification::warning(crate::localization::tr().library_folder_unavailable(folder))
+        }
         LibraryEvent::TrackTagsChanged { .. } | LibraryEvent::AlbumTagsChanged { .. } => {
             Notification::success(crate::localization::tr().tags_saved.clone())
         }
@@ -828,7 +831,23 @@ pub async fn run_engine_events_bus(
                 current_dsd_rate.store(0, Ordering::Relaxed);
                 publish_now_playing(cx);
             }
-            _ => {}
+            EngineEvent::Error(message) => {
+                is_playing.store(false, Ordering::Relaxed);
+                let message = message.clone();
+                cx.update(|cx| {
+                    let Some(handle) = cx.windows().into_iter().next() else {
+                        return;
+                    };
+                    let _ = handle.update(cx, |_, window, cx| {
+                        window.push_notification(
+                            Notification::error(message)
+                                .title(crate::localization::tr().playback_failed_title.clone()),
+                            cx,
+                        );
+                    });
+                });
+                publish_now_playing(cx);
+            }
         }
         cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)));
     }

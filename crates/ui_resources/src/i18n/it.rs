@@ -46,6 +46,8 @@ pub static IT: Strings = lang! {
     library_updated: "Libreria aggiornata",
     library_up_to_date: "Libreria già aggiornata",
     library_update_failed: "Aggiornamento della libreria non riuscito",
+    library_folder_unavailable_t: "Cartella non disponibile: {}. Libreria invariata.",
+    playback_failed_title: "Riproduzione non riuscita",
     no_music_folders_configured: "Nessuna cartella musicale configurata.",
     add_music_folder: "Aggiungi cartella musicale",
     no_albums_found: "Nessun album trovato.",

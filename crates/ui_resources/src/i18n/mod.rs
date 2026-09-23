@@ -92,6 +92,8 @@ pub struct Strings {
     pub library_updated: SharedString,
     pub library_up_to_date: SharedString,
     pub library_update_failed: SharedString,
+    pub library_folder_unavailable_t: SharedString,
+    pub playback_failed_title: SharedString,
     pub no_music_folders_configured: SharedString,
     pub add_music_folder: SharedString,
     pub no_albums_found: SharedString,
@@ -489,6 +491,10 @@ impl Strings {
 
     pub fn update_check_failed(&self, err: &str) -> String {
         fill(&self.update_check_failed_t, &[err])
+    }
+
+    pub fn library_folder_unavailable(&self, folder: &str) -> String {
+        fill(&self.library_folder_unavailable_t, &[folder])
     }
 
     pub fn tags_save_failed(&self, err: &str) -> String {

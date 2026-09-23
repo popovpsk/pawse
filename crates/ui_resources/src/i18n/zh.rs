@@ -46,6 +46,8 @@ pub static ZH: Strings = lang! {
     library_updated: "音乐库已更新",
     library_up_to_date: "音乐库已是最新",
     library_update_failed: "音乐库更新失败",
+    library_folder_unavailable_t: "文件夹不可用：{}。媒体库未更改。",
+    playback_failed_title: "播放失败",
     no_music_folders_configured: "尚未配置音乐文件夹。",
     add_music_folder: "添加音乐文件夹",
     no_albums_found: "未找到专辑。",

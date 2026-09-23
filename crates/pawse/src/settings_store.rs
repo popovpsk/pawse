@@ -1221,6 +1221,7 @@ mod tests {
             liked: false,
             bitrate: None,
             is_cue: false,
+            available: true,
         };
         let settings = UserSettings {
             theme: ThemeChoice::System,

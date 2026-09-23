@@ -5,10 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use music_indexer::{PreparedTrack, ScanEvent};
-use music_library::{
-    ArtistGrouping, LibraryRepository, LyricsRef, NewTrack, PlaylistTrackRef, ScanTrack,
-    SqliteLibrary,
-};
+use music_library::{ArtistGrouping, LibraryRepository, NewTrack, ScanTrack, SqliteLibrary};
 
 /// The album-level fields of a tag edit, applied to every track of one album.
 /// Kept separate from [`tag_writer::TrackTagEdits`] because these describe a
@@ -32,6 +29,7 @@ struct ScanState {
     scanning: AtomicBool,
     pending: AtomicBool,
     manual: AtomicBool,
+    warned_unavailable: AtomicBool,
     debounce_gen: AtomicU64,
     folders: Mutex<Vec<PathBuf>>,
 }
@@ -49,6 +47,9 @@ pub enum LibraryEvent {
     ScanUpToDate,
     ScanSucceeded,
     ScanFailed,
+    ScanFolderUnavailable {
+        folder: String,
+    },
     TrackLikedChanged {
         track_id: i64,
         liked: bool,
@@ -899,6 +900,7 @@ impl LibraryService {
                         repo.clone(),
                         event_tx.clone(),
                         task_executor.clone(),
+                        state.clone(),
                         folders,
                         manual,
                     )
@@ -923,9 +925,26 @@ impl LibraryService {
         repo: Arc<dyn LibraryRepository>,
         event_tx: flume::Sender<LibraryEvent>,
         inner_executor: gpui::BackgroundExecutor,
+        state: Arc<ScanState>,
         paths: Vec<PathBuf>,
         manual: bool,
     ) {
+        let had_tracks = |root: &Path| {
+            repo.has_tracks_under(&root.to_string_lossy())
+                .unwrap_or(true)
+        };
+        if let Some(missing) = unavailable_folder(&paths, had_tracks) {
+            let folder = missing.to_string_lossy().into_owned();
+            log::warn!("Skipping scan, folder unavailable: {}", folder);
+            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let first = !state.warned_unavailable.swap(true, Ordering::AcqRel);
+            if manual || first {
+                let _ = event_tx.send(LibraryEvent::ScanFolderUnavailable { folder });
+            }
+            return;
+        }
+        state.warned_unavailable.store(false, Ordering::Release);
+
         // Cheap walk + fingerprint. Fast path: if nothing on disk changed
         // since the last successful scan, skip all DB work entirely. This
         // is what makes run-on-launch / background rescans viable.
@@ -944,22 +963,16 @@ impl LibraryService {
         let _ = event_tx.send(LibraryEvent::ScanStarted);
         let fingerprint = sources.fingerprint.clone();
 
-        // Snapshot playlist memberships by (path, start_offset_ms) before
-        // the clear wipes the `tracks` table — rescanned tracks get fresh
-        // ids, so without this the playlist contents would silently
-        // disappear from the user's library.
-        let playlist_refs = repo.playlist_track_refs().unwrap_or_else(|e| {
-            log::error!("Failed to snapshot playlist tracks: {}", e);
-            Vec::new()
-        });
-
-        // Network-fetched lyrics aren't on disk, so the rescan can't re-read
-        // them; snapshot them by content key and restore after, or they'd be
-        // cascade-deleted with the tracks row on every rescan.
-        let lyrics_refs = repo.lyrics_refs().unwrap_or_else(|e| {
-            log::error!("Failed to snapshot lyrics: {}", e);
-            Vec::new()
-        });
+        let roots: Vec<String> = paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        if let Err(e) = repo.reconcile_local_sources(&roots) {
+            log::error!("Failed to reconcile library folders: {}", e);
+            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanFailed);
+            return;
+        }
 
         // Covers survive clear(); hand the pipeline their hashes so it skips
         // regenerating thumbnails that already exist.
@@ -987,13 +1000,7 @@ impl LibraryService {
         if paths.is_empty() {
             let ok = match session.finish() {
                 Ok(()) => {
-                    finalize_rescan(
-                        &*repo,
-                        &playlist_refs,
-                        &lyrics_refs,
-                        &fingerprint,
-                        &folders_key,
-                    );
+                    finalize_rescan(&*repo, &fingerprint, &folders_key);
                     true
                 }
                 Err(e) => {
@@ -1018,6 +1025,7 @@ impl LibraryService {
             })
             .detach();
 
+        let mut completed = false;
         loop {
             match scan_rx.recv_async().await {
                 Ok(ScanEvent::Cover {
@@ -1042,9 +1050,20 @@ impl LibraryService {
                 Ok(ScanEvent::Error { path, error }) => {
                     log::error!("Scan error for {}: {}", path.display(), error);
                 }
-                Ok(ScanEvent::Complete) => break,
-                Err(_) => break, // pipeline gone
+                Ok(ScanEvent::Complete) => {
+                    completed = true;
+                    break;
+                }
+                Err(_) => break,
             }
+        }
+
+        if !completed {
+            log::error!("Scan pipeline stopped before completing; changes left unapplied");
+            drop(session);
+            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+            let _ = event_tx.send(LibraryEvent::ScanFailed);
+            return;
         }
 
         // Only finalize (and record the fingerprint) if the final commit
@@ -1052,13 +1071,7 @@ impl LibraryService {
         // written library and never rescan to repair it.
         let ok = match session.finish() {
             Ok(()) => {
-                finalize_rescan(
-                    &*repo,
-                    &playlist_refs,
-                    &lyrics_refs,
-                    &fingerprint,
-                    &folders_key,
-                );
+                finalize_rescan(&*repo, &fingerprint, &folders_key);
                 true
             }
             Err(e) => {
@@ -1069,6 +1082,16 @@ impl LibraryService {
         let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
         let _ = event_tx.send(scan_outcome(ok));
     }
+}
+
+fn unavailable_folder(paths: &[PathBuf], had_tracks: impl Fn(&Path) -> bool) -> Option<&PathBuf> {
+    paths.iter().find(|path| match std::fs::read_dir(path) {
+        Err(_) => true,
+        Ok(mut entries) => match entries.next() {
+            None => had_tracks(path),
+            Some(entry) => entry.is_err(),
+        },
+    })
 }
 
 fn scan_outcome(ok: bool) -> LibraryEvent {
@@ -1245,6 +1268,9 @@ fn settle_derived_rows(repo: &dyn LibraryRepository, what: &str) {
     if let Err(e) = repo.resolve_album_artists() {
         log::error!("Failed to resolve album artists after {}: {}", what, e);
     }
+    if let Err(e) = repo.refresh_item_snapshots() {
+        log::error!("Failed to refresh item snapshots after {}: {}", what, e);
+    }
     if let Err(e) = repo.delete_orphaned_albums_and_artists() {
         log::error!("Failed to clean up after {}: {}", what, e);
     }
@@ -1399,21 +1425,9 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
 }
 
 /// Post-scan cleanup, run on the main connection after the writer connection is
-/// dropped: re-link playlists by content key, drop orphaned albums/artists/
-/// covers, and record the fingerprint that future fast-path checks compare to.
-fn finalize_rescan(
-    repo: &dyn LibraryRepository,
-    playlist_refs: &[PlaylistTrackRef],
-    lyrics_refs: &[LyricsRef],
-    fingerprint: &str,
-    folders_key: &str,
-) {
-    if let Err(e) = repo.restore_playlist_track_refs(playlist_refs) {
-        log::error!("Failed to restore playlist tracks: {}", e);
-    }
-    if let Err(e) = repo.restore_lyrics_refs(lyrics_refs) {
-        log::error!("Failed to restore lyrics: {}", e);
-    }
+/// dropped: drop orphaned albums/artists/covers, and record the fingerprint that
+/// future fast-path checks compare to.
+fn finalize_rescan(repo: &dyn LibraryRepository, fingerprint: &str, folders_key: &str) {
     settle_derived_rows(repo, "scan");
     if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
         log::error!("Failed to store scan fingerprint: {}", e);
@@ -1530,6 +1544,12 @@ mod tests {
                 .cover_art_hashes()
                 .map(|pairs| pairs.into_iter().map(|(hash, _)| hash).collect())
                 .unwrap_or_default();
+            let roots: Vec<String> = self
+                .folders()
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect();
+            self.repo.reconcile_local_sources(&roots).unwrap();
             let mut session = self.repo.open_scan_session().unwrap();
             session.clear().unwrap();
 
@@ -1666,6 +1686,68 @@ mod tests {
             year: Some(2001),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn an_empty_folder_list_is_available_but_a_missing_root_is_not() {
+        let ws = Workspace::new();
+        let never = |_: &Path| false;
+        assert!(unavailable_folder(&[], never).is_none());
+
+        let gone = ws.folder.join("unmounted");
+        assert_eq!(
+            unavailable_folder(&[ws.folder.clone(), gone.clone()], never),
+            Some(&gone)
+        );
+
+        let file = ws.add_file("one.flac", "tagged_basic.flac");
+        assert_eq!(
+            unavailable_folder(std::slice::from_ref(&file), never),
+            Some(&file)
+        );
+        assert!(unavailable_folder(&ws.folders(), never).is_none());
+    }
+
+    #[test]
+    fn an_empty_root_is_unavailable_only_when_the_library_had_tracks_under_it() {
+        let ws = Workspace::new();
+        let empty = ws.folder.join("mountpoint");
+        std::fs::create_dir(&empty).unwrap();
+        let roots = [empty.clone()];
+
+        assert!(unavailable_folder(&roots, |_| false).is_none());
+        assert_eq!(unavailable_folder(&roots, |_| true), Some(&empty));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_root_that_cannot_be_listed_is_unavailable() {
+        use std::os::unix::fs::PermissionsExt;
+        let ws = Workspace::new();
+        let locked = ws.folder.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("a.flac"), b"x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = unavailable_folder(std::slice::from_ref(&locked), |_| false).cloned();
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result, Some(locked));
+    }
+
+    #[test]
+    fn has_tracks_under_matches_whole_path_components() {
+        let ws = Workspace::new();
+        ws.add_file("one.flac", "tagged_basic.flac");
+        ws.scan();
+        let root = ws.folder.to_string_lossy().into_owned();
+        assert!(ws.repo.has_tracks_under(&root).unwrap());
+        assert!(
+            !ws.repo
+                .has_tracks_under(&format!("{root}-sibling"))
+                .unwrap()
+        );
+        assert!(!ws.repo.has_tracks_under(&format!("{root}/nested")).unwrap());
     }
 
     #[test]

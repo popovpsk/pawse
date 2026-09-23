@@ -46,6 +46,8 @@ pub static JA: Strings = lang! {
     library_updated: "ライブラリを更新しました",
     library_up_to_date: "ライブラリは最新です",
     library_update_failed: "ライブラリの更新に失敗しました",
+    library_folder_unavailable_t: "フォルダーにアクセスできません: {}。ライブラリは変更されていません。",
+    playback_failed_title: "再生できませんでした",
     no_music_folders_configured: "音楽フォルダが設定されていません。",
     add_music_folder: "音楽フォルダを追加",
     no_albums_found: "アルバムが見つかりません。",

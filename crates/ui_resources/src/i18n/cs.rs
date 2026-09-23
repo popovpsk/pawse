@@ -46,6 +46,8 @@ pub static CS: Strings = lang! {
     library_updated: "Knihovna aktualizována",
     library_up_to_date: "Knihovna je aktuální",
     library_update_failed: "Aktualizace knihovny selhala",
+    library_folder_unavailable_t: "Složka není dostupná: {}. Knihovna zůstala beze změny.",
+    playback_failed_title: "Přehrávání se nezdařilo",
     no_music_folders_configured: "Nejsou nastaveny žádné hudební složky.",
     add_music_folder: "Přidat hudební složku",
     no_albums_found: "Nenalezena žádná alba.",

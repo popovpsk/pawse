@@ -46,6 +46,8 @@ pub static TR: Strings = lang! {
     library_updated: "Kitaplık güncellendi",
     library_up_to_date: "Kitaplık güncel",
     library_update_failed: "Kitaplık güncellenemedi",
+    library_folder_unavailable_t: "Klasör kullanılamıyor: {}. Kitaplık değiştirilmedi.",
+    playback_failed_title: "Oynatma başarısız",
     no_music_folders_configured: "Yapılandırılmış müzik klasörü yok.",
     add_music_folder: "Müzik klasörü ekle",
     no_albums_found: "Albüm bulunamadı.",
