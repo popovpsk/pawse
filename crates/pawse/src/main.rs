@@ -21,6 +21,7 @@ pub mod error_bridge;
 pub mod footer;
 pub mod keyboard_shortcuts;
 pub mod library_service;
+pub mod library_sources;
 pub mod library_views;
 pub mod library_watcher;
 pub mod localization;

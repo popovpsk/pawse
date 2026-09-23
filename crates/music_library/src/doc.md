@@ -71,7 +71,9 @@ across **all** local sources (placeholder and disabled ones included), re-points
 the binding to the longest matching enabled root, and only mints a new item when
 nothing matches. That is what makes the placeholder self-healing: the first real
 scan after migration moves every binding onto the right folder without a
-separate step.
+separate step. That scan must actually happen: `has_unplaced_media()` reports
+present bindings still on the placeholder, and `library_service` skips the
+fast path while it is true.
 
 ## Offline folders
 

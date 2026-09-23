@@ -24,8 +24,10 @@ use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
-use crate::library_views::track_row::{CoverTrackRow, build_artist_map, build_haystacks};
-use crate::localization::tr;
+use crate::library_views::track_row::{
+    CoverTrackRow, build_artist_map, build_haystacks, unavailable_label,
+};
+use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -66,6 +68,7 @@ pub struct LikedView {
     row_data: Vec<CoverTrackRow>,
     artist_by_track: HashMap<i64, SharedString>,
     haystacks: Vec<String>,
+    unavailable: Option<SharedString>,
     items: Vec<LikedItem>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     filter: String,
@@ -75,6 +78,7 @@ pub struct LikedView {
     scroll_handle: VirtualListScrollHandle,
     _library_subscription: Subscription,
     _engine_subscription: Subscription,
+    _lang_subscription: Subscription,
 }
 
 impl LikedView {
@@ -128,6 +132,7 @@ impl LikedView {
                         if this.tracks_all.len() != before {
                             this.haystacks =
                                 build_haystacks(&this.tracks_all, &this.artist_by_track);
+                            this.unavailable = unavailable_label(&this.tracks_all);
                             this.recompute_visible(cx);
                             cx.notify();
                         }
@@ -136,6 +141,12 @@ impl LikedView {
                 _ => {}
             },
         );
+
+        let lang_event_bus = cx.global::<Services>().lang_event_bus.clone();
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            this.unavailable = unavailable_label(&this.tracks_all);
+            cx.notify();
+        });
 
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
@@ -169,6 +180,7 @@ impl LikedView {
         );
 
         Self {
+            unavailable: unavailable_label(&tracks_all),
             tracks_all,
             row_data,
             artist_by_track,
@@ -182,6 +194,7 @@ impl LikedView {
             scroll_handle: VirtualListScrollHandle::new(),
             _library_subscription: library_subscription,
             _engine_subscription: engine_subscription,
+            _lang_subscription: lang_subscription,
         }
     }
 
@@ -195,6 +208,7 @@ impl LikedView {
             .collect();
         self.artist_by_track = build_artist_map(&services.library, &self.tracks_all);
         self.haystacks = build_haystacks(&self.tracks_all, &self.artist_by_track);
+        self.unavailable = unavailable_label(&self.tracks_all);
         self.recompute_visible(cx);
         cx.notify();
     }
@@ -303,6 +317,14 @@ impl Render for LikedView {
         v_flex()
             .size_full()
             .relative()
+            .children(self.unavailable.clone().map(|label| {
+                div()
+                    .px_4()
+                    .pt_2()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(label)
+            }))
             .child(
                 v_virtual_list(
                     cx.entity().clone(),

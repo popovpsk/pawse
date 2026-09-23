@@ -94,6 +94,11 @@ pub struct Strings {
     pub library_update_failed: SharedString,
     pub library_folder_unavailable_t: SharedString,
     pub playback_failed_title: SharedString,
+    pub local_folders: SharedString,
+    pub source_online: SharedString,
+    pub source_offline: SharedString,
+    pub source_scanning: SharedString,
+    pub unavailable_count_t: SharedString,
     pub no_music_folders_configured: SharedString,
     pub add_music_folder: SharedString,
     pub no_albums_found: SharedString,
@@ -495,6 +500,10 @@ impl Strings {
 
     pub fn library_folder_unavailable(&self, folder: &str) -> String {
         fill(&self.library_folder_unavailable_t, &[folder])
+    }
+
+    pub fn unavailable_count(&self, count: usize) -> String {
+        fill(&self.unavailable_count_t, &[&count.to_string()])
     }
 
     pub fn tags_save_failed(&self, err: &str) -> String {

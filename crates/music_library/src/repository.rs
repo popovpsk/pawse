@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
     LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary, ScanTrack,
-    StoredLyrics, Track,
+    SourceSummary, StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -131,6 +131,8 @@ pub trait LibraryRepository: Send + Sync {
 
     fn reconcile_local_sources(&self, folders: &[LocalFolder]) -> Result<()>;
     fn has_media_under(&self, root: &str) -> Result<bool>;
+    fn has_unplaced_media(&self) -> Result<bool>;
+    fn sources(&self) -> Result<Vec<SourceSummary>>;
     fn refresh_item_snapshots(&self) -> Result<()>;
 
     /// Open a batched scan-write session on a dedicated connection.

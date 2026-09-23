@@ -45,6 +45,7 @@ pub enum LibraryEvent {
         changed: bool,
     },
     ScanUpToDate,
+    ScanIdle,
     ScanSucceeded,
     ScanFailed,
     ScanFolderUnavailable {
@@ -439,6 +440,10 @@ impl LibraryService {
 
     pub fn album_track_counts(&self) -> HashMap<i64, i64> {
         self.repo.album_track_counts().unwrap_or_default()
+    }
+
+    pub fn sources(&self) -> Vec<music_library::SourceSummary> {
+        self.repo.sources().unwrap_or_default()
     }
 
     pub fn has_tracks(&self) -> bool {
@@ -904,6 +909,7 @@ impl LibraryService {
                     }
                     break;
                 }
+                let _ = event_tx.send(LibraryEvent::ScanIdle);
             })
             .detach();
     }
@@ -950,7 +956,8 @@ impl LibraryService {
         let sources = music_indexer::collect_sources(&scope.available);
         let folders_key = scope.folders_key();
         let unchanged = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
-            && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
+            && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
+            && matches!(repo.has_unplaced_media(), Ok(false));
         if unchanged {
             let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
             if manual {

@@ -11,8 +11,8 @@ pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    LocalFolder, NewTrack, Playlist, PlaylistSummary, ScanLyrics, ScanTrack, StoredLyrics, Track,
-    lyrics_source,
+    LocalFolder, NewTrack, Playlist, PlaylistSummary, ScanLyrics, ScanTrack, SourceSummary,
+    StoredLyrics, Track, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -172,6 +172,30 @@ mod tests {
         ] {
             assert_eq!(count_rows(&path, sql), expected, "{sql}");
         }
+    }
+
+    #[test]
+    fn migrated_bindings_count_as_unplaced_until_a_scan_moves_them_to_real_folders() {
+        let path = fresh_db_path();
+        build_v8_db(&path, V8_CATALOG);
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+        assert!(lib.has_unplaced_media().unwrap());
+
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        assert!(lib.has_unplaced_media().unwrap());
+
+        let mut cue_b = scan_track("/m/cue.flac", "Cue B");
+        cue_b.start_offset_ms = Some(2000);
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/one.flac", "One"),
+                scan_track("/m/cue.flac", "Cue A"),
+                cue_b,
+            ],
+        );
+        assert!(!lib.has_unplaced_media().unwrap());
+        assert_eq!(lib.sources().unwrap()[0].track_count, 3);
     }
 
     #[test]
@@ -1964,6 +1988,58 @@ mod tests {
         let lyrics = lib.lyrics_for_track(original).unwrap().unwrap();
         assert_eq!(lyrics.text, "from the net");
         assert_eq!(lyrics.source, "lrclib");
+    }
+
+    #[test]
+    fn sources_report_availability_and_the_tracks_each_folder_contributes() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/1.flac", "One"),
+                scan_track("/a/2.flac", "Two"),
+                scan_track("/b/3.flac", "Three"),
+            ],
+        );
+        let shape = |lib: &SqliteLibrary| -> Vec<(String, bool, bool, i64)> {
+            lib.sources()
+                .unwrap()
+                .into_iter()
+                .map(|s| (s.uri, s.enabled, s.available, s.track_count))
+                .collect()
+        };
+        assert_eq!(
+            shape(&lib),
+            vec![("/a".into(), true, true, 2), ("/b".into(), true, true, 1)]
+        );
+
+        lib.reconcile_local_sources(&[
+            LocalFolder {
+                path: "/a".into(),
+                available: true,
+            },
+            LocalFolder {
+                path: "/b".into(),
+                available: false,
+            },
+        ])
+        .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/1.flac", "One"),
+                scan_track("/a/2.flac", "Two"),
+            ],
+        );
+        assert_eq!(
+            shape(&lib),
+            vec![("/a".into(), true, true, 2), ("/b".into(), true, false, 1)]
+        );
+
+        lib.reconcile_local_sources(&folders(&["/a"])).unwrap();
+        assert!(!shape(&lib)[1].1);
     }
 
     #[test]

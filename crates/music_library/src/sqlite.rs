@@ -15,7 +15,7 @@ use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
     LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary, ScanTrack,
-    StoredLyrics, Track,
+    SourceSummary, StoredLyrics, Track,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -1995,6 +1995,37 @@ impl LibraryRepository for SqliteLibrary {
             [prefix],
             |row| row.get(0),
         )?)
+    }
+
+    fn has_unplaced_media(&self) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM media_bindings WHERE source_id = ?1 AND present = 1)",
+            [PLACEHOLDER_SOURCE_ID],
+            |row| row.get(0),
+        )?)
+    }
+
+    fn sources(&self) -> Result<Vec<SourceSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.kind, s.uri, s.enabled, s.available, \
+             (SELECT COUNT(*) FROM media_bindings b \
+              WHERE b.source_id = s.id AND b.present = 1) \
+             FROM sources s WHERE s.uri <> '' ORDER BY s.id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SourceSummary {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                uri: row.get(2)?,
+                enabled: row.get(3)?,
+                available: row.get(4)?,
+                track_count: row.get(5)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
     }
 
     fn refresh_item_snapshots(&self) -> Result<()> {

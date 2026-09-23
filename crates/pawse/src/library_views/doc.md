@@ -198,6 +198,9 @@ drive the `PlaybackQueue` on click.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
 - `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable
   (only with an empty filter), persisted via `LibraryService::move_track_in_playlist`.
+  Liked and playlist screens show "Unavailable: N" when entries have no file right
+  now (folder offline, file deleted); the label is computed where `tracks_all`
+  changes (`track_row::unavailable_label`), never in render.
 - `album_info.rs` — the album header element (cover + title/artist/year + genres +
   add-album button) rendered as the first row inside `tracks_view`. Album genres are
   aggregated from the album's tracks (most-common first), capped at 3 inline with a
@@ -313,3 +316,29 @@ drive the `PlaybackQueue` on click.
   only an optimisation over that rescan, so anything it forgets shows up as a diff —
   including columns nobody thought to assert, which is how the missing cover would
   have been caught.
+
+## Library sources in Settings
+
+Sources are managed on Settings → Library, one group per kind (local folders
+now; Subsonic and others get their own groups). `crate::library_sources::
+LibrarySources` is the entity those groups read: the folder list comes from
+`settings.json` (`music_folders`), status and track count from the `sources`
+table (`LibraryService::sources`), joined by the pure, unit-tested
+`source_rows`. A folder is **Unavailable** when its source row says so, even
+mid-scan; otherwise **Scanning** while a scan runs, else **Online**. The count is
+the source's *present* bindings, not catalog rows, so an offline folder still
+shows how many tracks it holds.
+
+Settings rows render every frame, so nothing there touches the database: the
+entity caches rows with their labels. The scanning state is
+`LibraryService::is_scanning()`, re-read whenever rows are rebuilt. The worker
+clears that flag only after its last result event, so it also sends
+`LibraryEvent::ScanIdle` once the flag is down (after any queued follow-up scan);
+the entity rebuilds on `ScanStarted` and `ScanIdle`, and reloads the summaries
+after `ScanComplete { changed: true }` or `ScanFailed` (a failed scan may already
+have committed new availability flags) and when the folder list changes.
+
+A database migrated to v9 has every binding on the disabled placeholder source
+until a real scan re-points them; `run_scan` refuses the fast path while
+`has_unplaced_media()` is true, otherwise an unchanged disk would keep the folders
+looking empty (and their missing files never retired) indefinitely.

@@ -79,6 +79,16 @@ pub struct ArtistSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSummary {
+    pub id: i64,
+    pub kind: String,
+    pub uri: String,
+    pub enabled: bool,
+    pub available: bool,
+    pub track_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalFolder {
     pub path: String,
     pub available: bool,

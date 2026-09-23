@@ -205,6 +205,7 @@ pub struct SettingsSliders {
 ///
 /// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
+#[allow(clippy::too_many_arguments)]
 pub fn build_settings_pages(
     theme_picker: Entity<ThemePickerState>,
     lang_picker: Entity<LangPickerState>,
@@ -212,6 +213,7 @@ pub fn build_settings_pages(
     remote_port_input: Entity<InputState>,
     scrobble_ui: Entity<crate::scrobble_settings::ScrobbleUiState>,
     scrobble_inputs: crate::scrobble_settings::ScrobbleInputs,
+    library_sources: Entity<crate::library_sources::LibrarySources>,
     cx: &App,
 ) -> Vec<SettingPage> {
     let albums_layout = cx.global::<SettingsStore>().albums_layout();
@@ -242,7 +244,9 @@ pub fn build_settings_pages(
         scrobble_ui,
         scrobble_inputs,
     ));
-    pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
+    pages.push(
+        SettingPage::new(tr().settings_library.clone()).group(local_folders_group(library_sources)),
+    );
     pages
 }
 
@@ -282,6 +286,37 @@ pub fn force_rescan(cx: &mut App) {
     cx.global::<Services>()
         .library
         .request_rescan(folders, true, true);
+}
+
+pub fn confirm_remove_folder(path: PathBuf, window: &mut Window, cx: &mut App) {
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        let path = path.clone();
+        dialog
+            .overlay_closable(false)
+            .close_button(false)
+            .title(tr().remove_folder_confirm_title.clone())
+            .child(div().child(tr().remove_folder_confirm_message.clone()))
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        Button::new("cancel")
+                            .label(tr().cancel.clone())
+                            .on_click(|_, window, cx| window.dispatch_action(Box::new(Cancel), cx)),
+                    )
+                    .child(
+                        Button::new("ok")
+                            .label(tr().remove.clone())
+                            .primary()
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(Confirm { secondary: false }), cx)
+                            }),
+                    ),
+            )
+            .on_ok(move |_, _, cx| {
+                remove_folder_and_rescan(path.clone(), cx);
+                true
+            })
+    });
 }
 
 /// Remove a folder from settings and rescan whatever remains (a clear+rescan
@@ -1203,32 +1238,38 @@ fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
         )
 }
 
-fn library_group() -> SettingGroup {
-    SettingGroup::new().item(
+fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) -> SettingGroup {
+    SettingGroup::new().title(tr().local_folders.clone()).item(
         SettingItem::new(
             tr().music_folders.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let folders = cx.global::<SettingsStore>().music_folders().to_vec();
+            SettingField::render(move |_window, cx: &mut App| {
+                let state = sources.read(cx);
                 let is_scanning = cx.global::<Services>().library.is_scanning();
+                let muted_fg = Colors::muted_foreground(cx);
 
                 let mut list = v_flex().gap_2().w_full();
 
-                if folders.is_empty() {
+                if state.local().is_empty() {
                     list = list.child(
                         div()
                             .px_3()
                             .py_2()
                             .text_sm()
-                            .text_color(Colors::muted_foreground(cx))
+                            .text_color(muted_fg)
                             .child(tr().no_folders_added.clone()),
                     );
                 } else {
-                    for path in &folders {
-                        let path_text: SharedString = path.to_string_lossy().into_owned().into();
+                    for folder in state.local() {
+                        let path = &folder.row.path;
                         let path_for_finder = path.clone();
                         let path_for_remove = path.clone();
                         let finder_id = format!("show-{}", path.display());
                         let remove_id = format!("remove-{}", path.display());
+                        let status_color = match folder.row.status {
+                            crate::library_sources::SourceStatus::Online => Colors::primary(cx),
+                            crate::library_sources::SourceStatus::Offline => Colors::danger(cx),
+                            crate::library_sources::SourceStatus::Scanning => muted_fg,
+                        };
 
                         list = list.child(
                             h_flex()
@@ -1238,17 +1279,34 @@ fn library_group() -> SettingGroup {
                                 .py_2()
                                 .rounded(px(6.))
                                 .bg(Colors::muted(cx))
-                                .child(
-                                    Icon::new(IconName::Folder)
-                                        .text_color(Colors::muted_foreground(cx)),
-                                )
+                                .child(Icon::new(IconName::Folder).text_color(muted_fg))
                                 .child(
                                     div()
                                         .flex_1()
                                         .text_sm()
                                         .truncate()
                                         .text_color(Colors::foreground(cx))
-                                        .child(path_text),
+                                        .child(folder.row.location.clone()),
+                                )
+                                .child(
+                                    h_flex()
+                                        .flex_shrink_0()
+                                        .gap_1p5()
+                                        .items_center()
+                                        .child(div().size(px(8.)).rounded_full().bg(status_color))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(status_color)
+                                                .child(folder.status_label.clone()),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_sm()
+                                        .text_color(muted_fg)
+                                        .child(folder.count_label.clone()),
                                 )
                                 .child(
                                     Button::new(SharedString::from(finder_id))
@@ -1262,49 +1320,10 @@ fn library_group() -> SettingGroup {
                                         .label(tr().remove.clone())
                                         .on_click(
                                             move |_, window: &mut Window, app_cx: &mut App| {
-                                                let path = path_for_remove.clone();
-                                                window.open_dialog(
+                                                confirm_remove_folder(
+                                                    path_for_remove.clone(),
+                                                    window,
                                                     app_cx,
-                                                    move |dialog, _window, _cx| {
-                                                        let path = path.clone();
-                                                        dialog
-                                                    .overlay_closable(false)
-                                                    .close_button(false)
-                                                    .title(tr().remove_folder_confirm_title.clone())
-                                                    .child(div().child(
-                                                        tr().remove_folder_confirm_message.clone(),
-                                                    ))
-                                                    .footer(
-                                                        DialogFooter::new()
-                                                            .child(
-                                                                Button::new("cancel")
-                                                                    .label(tr().cancel.clone())
-                                                                    .on_click(|_, window, cx| {
-                                                                        window.dispatch_action(
-                                                                            Box::new(Cancel),
-                                                                            cx,
-                                                                        )
-                                                                    }),
-                                                            )
-                                                            .child(
-                                                                Button::new("ok")
-                                                                    .label(tr().remove.clone())
-                                                                    .primary()
-                                                                    .on_click(|_, window, cx| {
-                                                                        window.dispatch_action(
-                                                                            Box::new(Confirm {
-                                                                                secondary: false,
-                                                                            }),
-                                                                            cx,
-                                                                        )
-                                                                    }),
-                                                            ),
-                                                    )
-                                                    .on_ok(move |_, _, cx| {
-                                                        remove_folder_and_rescan(path.clone(), cx);
-                                                        true
-                                                    })
-                                                    },
                                                 );
                                             },
                                         ),
