@@ -105,11 +105,10 @@ impl PlaylistsView {
         let (items, item_sizes) = Self::build_items(row_data.len());
 
         let subscription = cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-            let refresh = match event {
-                LibraryEvent::PlaylistsChanged => true,
-                LibraryEvent::ScanComplete { changed } => *changed,
-                _ => false,
-            };
+            let refresh = matches!(
+                event,
+                LibraryEvent::PlaylistsChanged | LibraryEvent::CatalogChanged
+            );
             if refresh {
                 let services = cx.global::<Services>();
                 this.playlists_all = services.library.playlists();

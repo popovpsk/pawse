@@ -19,6 +19,8 @@ use crate::services::Services;
 use crate::settings_store::{SettingsStore, SubsonicServer, notify_save_error};
 use crate::theme_colors::Colors;
 
+const OFFLINE_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+
 #[derive(Clone)]
 pub struct SubsonicInputs {
     pub url: Entity<InputState>,
@@ -68,6 +70,21 @@ pub fn sync_all(cx: &mut App) {
     apply_remote_sources(cx);
     let servers = remote_servers(cx);
     cx.global::<Services>().library.sync_remote(servers);
+}
+
+pub fn sync_offline(cx: &mut App) {
+    let servers = remote_servers(cx);
+    cx.global::<Services>().library.sync_offline_remote(servers);
+}
+
+pub fn watch_offline_servers(cx: &mut App) {
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor().timer(OFFLINE_RETRY).await;
+            cx.update(sync_offline);
+        }
+    })
+    .detach();
 }
 
 fn connect(
@@ -146,7 +163,6 @@ fn confirm_remove_server(uri: String, window: &mut Window, cx: &mut App) {
             .overlay_closable(false)
             .close_button(false)
             .title(tr().remove_server_confirm_title.clone())
-            .child(div().child(tr().remove_server_confirm_message.clone()))
             .footer(
                 DialogFooter::new()
                     .child(
@@ -262,6 +278,7 @@ pub fn subsonic_group(sources: Entity<LibrarySources>, inputs: SubsonicInputs) -
                                         )
                                         .child(
                                             Button::new(("subsonic-sync", ix))
+                                                .small()
                                                 .label(tr().subsonic_sync.clone())
                                                 .disabled(syncing)
                                                 .on_click(move |_, _, cx| {
@@ -273,6 +290,7 @@ pub fn subsonic_group(sources: Entity<LibrarySources>, inputs: SubsonicInputs) -
                                         )
                                         .child(
                                             Button::new(("subsonic-stars", ix))
+                                                .small()
                                                 .label(tr().subsonic_import_stars.clone())
                                                 .disabled(syncing)
                                                 .on_click(move |_, _, cx| {
@@ -283,6 +301,7 @@ pub fn subsonic_group(sources: Entity<LibrarySources>, inputs: SubsonicInputs) -
                                         )
                                         .child(
                                             Button::new(("subsonic-remove", ix))
+                                                .small()
                                                 .label(tr().remove.clone())
                                                 .on_click(move |_, window, cx| {
                                                     confirm_remove_server(uri.clone(), window, cx);
@@ -322,6 +341,7 @@ pub fn subsonic_group(sources: Entity<LibrarySources>, inputs: SubsonicInputs) -
                                 )
                                 .child(
                                     Button::new("subsonic-connect")
+                                        .small()
                                         .label(tr().subsonic_connect.clone())
                                         .loading(connecting)
                                         .disabled(connecting)

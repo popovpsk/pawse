@@ -109,7 +109,7 @@ impl NowPlaying {
         let library_event_bus = cx.global::<Services>().library_event_bus.clone();
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::ScanComplete { changed: true } = event {
+                if let LibraryEvent::CatalogChanged = event {
                     let (sample_rate, bit_depth) = cx
                         .global::<Services>()
                         .output

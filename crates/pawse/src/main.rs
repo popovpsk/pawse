@@ -11,6 +11,7 @@ use crate::{
 
 pub mod app_menu;
 pub mod audio_settings;
+pub mod cache_settings;
 pub mod cover_art_cache;
 pub mod cover_backdrop;
 pub mod cover_mode_view;
@@ -235,6 +236,7 @@ fn main() {
         let is_playing = services.is_playing.clone();
         let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
+        crate::subsonic_settings::watch_offline_servers(cx);
 
         {
             let (stored, initial_volume) = {

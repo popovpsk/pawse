@@ -180,8 +180,8 @@ drive the `PlaybackQueue` on click.
   (`artist` / `album artist`) on purpose, untranslated. The view observes
   `SettingsStore` and, when the grouping changes, re-fetches `artists` /
   `artist_album_covers` (a data change, not just a repaint — unlike `albums_view`).
-  It re-fetches on `TrackTagsChanged` / `AlbumTagsChanged` too: a tag edit re-derives
-  every album's artist, so rows and counts here move with no scan.
+  It re-fetches on every `CatalogChanged`, which a tag edit sends too: a tag edit
+  re-derives every album's artist, so rows and counts here move with no scan.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
 - `artist_tracks_view.rs` — all tracks of one artist, grouped by album. It is
   constructed with the `ArtistGrouping` it should use and keeps it for its lifetime
@@ -335,7 +335,7 @@ entity caches rows with their labels. The scanning state is
 clears that flag only after its last result event, so it also sends
 `LibraryEvent::ScanIdle` once the flag is down (after any queued follow-up scan);
 the entity rebuilds on `ScanStarted` and `ScanIdle`, and reloads the summaries
-after `ScanComplete { changed: true }` or `ScanFailed` (a failed scan may already
+after `CatalogChanged` or `ScanFailed` (a failed scan may already
 have committed new availability flags) and when the folder list changes.
 
 A database migrated to v9 has every binding on the disabled placeholder source
@@ -356,25 +356,68 @@ state and the per-server result line.
 Sync (`remote_sync.rs`, run on its own thread by `LibraryService::sync_remote`,
 one at a time — requests arriving mid-sync are queued): ping → full listing →
 covers not seen before (fetched and thumbnailed on the sync thread) →
-`apply_remote_listing`. Only when something changed (songs, tags, availability)
+`apply_remote_listing`. `to_remote_song` cleans the listing on the way in: server
+placeholders (`[Unknown Artist]`, `[Unknown Album]`) become empty, and a track
+number above 999 is dropped — Navidrome takes one from a leading number in an
+untagged file's name, so a whole-disc image `1997 - Around The Fur.flac` arrives
+as track 1997. Only when something changed (songs, tags, availability)
 is the scan fingerprint dropped and a scan run so the catalog re-projects;
 otherwise a launch with a server keeps the local fast path. A failed ping or
-listing marks the source unavailable and changes nothing else. Servers sync at
-launch and on demand; window activation does not touch the network. The launch
+listing, or a listing the library refuses (empty while it had songs), marks the
+source unavailable and changes nothing else. Failing to *store* a listing is our
+own database being busy, not the server being down: it is retried a few times
+2 s apart and never marks the source unavailable. Servers sync at
+launch and on demand. A server marked unavailable is retried by itself: every
+60 s (`subsonic_settings::watch_offline_servers`) and on window activation
+(`sync_offline`), skipped while a sync is already running. Online servers are not
+re-listed on activation, so a healthy server costs no network until the next
+launch or Sync. The launch
 scan also runs when only servers are configured, so a server-only library is
 re-projected from the cache at every start.
 
 Playback of a server-only track: `Track.path` is a locator.
-`Services::start_track` downloads the whole file into
-`<cache>/pawse/subsonic/<source>/…` on its own thread and then hands the engine
-the local file through an `EngineCommander` (a `Send` handle on the engine's
-command channel). The engine thread never waits on the network — while it did,
-a burst of commands filled its bounded channel and froze the UI. A generation
-counter drops the result if another track was requested meanwhile; a failed
-download reaches the user through `Command::Fail` → the usual playback-error
-toast. The engine's `TrackResolver` only maps a locator to an already cached
-file. At launch a server track that is not cached is not restored; Play then
-loads it (`resume_or_load`: nothing loaded means `current_duration_ms == 0`).
-The next remote track in the queue is fetched 30 s ahead so gapless playback
-works. The cache is trimmed to 4 GB, oldest first. Tag editing (track and album)
-and lyrics export skip server tracks.
+`Services::start_track` sends `Command::Prepare` and opens the track on its own
+thread: `RemoteMedia::open_stream` joins or starts a `media_stream` download of
+the file into `<cache>/pawse/subsonic/<source>/…`, and the engine gets a
+`StreamingSource` through an `EngineCommander` (a `Send` handle on the engine's
+command channel). The engine thread never waits on the network. A generation
+counter drops the result if another track was requested meanwhile, and the final
+send happens under the `opening` lock `start_track` also takes, so an old track
+can never overtake a newer one. A failure reaches the user through
+`Command::Fail` → the usual playback-error toast. The message is the download's
+own reason (`AbortHandle::failure`): symphonia turns a failed read during format
+probing into "no suitable format reader", which says nothing. When a server track
+fails, the server is pinged; if that fails too the source is marked unavailable
+right away (`mark_source_offline`, same as a failed sync) and the toast says the
+server is unreachable; the offline retry brings it back. A download that has not
+received a byte gives up after 2 retries (under a second), one that was already
+streaming keeps the 6 retries for network hiccups. APE and DSD are downloaded whole
+first. When a local file has vanished before the next scan, `playback_locators`
+offers the item's other bindings, local first. At launch a server track that is
+not cached is not restored; Play then loads it and the saved position is applied
+once it is loaded (`resume_at`). The next remote track in the queue is fetched
+30 s ahead so gapless playback works. The cache is trimmed to the user's
+limit (`network_cache_gb`, 1–32 GB, default 4), oldest first; lowering the limit
+trims at once. It is one cache for every network source, so it has its own group
+under Settings → Library (`cache_settings.rs`), not a row inside a server group:
+size (recounted each time settings open), Clear, and the limit. Clearing and
+trimming leave downloads in progress (`.partial` younger than a day) alone. Tag editing (track and album) and lyrics export skip server tracks.
+
+## Library events: catalog vs scan
+
+`LibraryEvent::CatalogChanged` is the one "re-read what you display" signal: the
+tracks, albums, artists, covers or disk lyrics in the database changed. A scan
+that did work sends it, and so does saving tags (track or album) — anything that
+rewrites catalog rows. Views, the queue (which then rebuilds every row even when
+the ids are unchanged, since a cover or an artist may be new), now-playing, the
+cover skins, the web remote's `library_rev` and the queue re-mapping all listen
+to it. `ScanStarted` / `ScanComplete` are only the scan's lifecycle (the
+"scanning" indicators); `ScanComplete` also fires on the fast path, when nothing
+changed. `TagsSaved` is only for the "tags saved" toast and dropping the cover
+cache, and is sent before `CatalogChanged` so views reload against the cleared
+cache.
+
+The drill-down views (`tracks_view`, `artist_tracks_view`) are built once for an
+album or artist id and do not listen to either: after a scan their album ids are
+new, so re-querying by the old id would be wrong. They show what they were
+opened with until the user navigates.

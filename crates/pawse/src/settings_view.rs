@@ -254,16 +254,19 @@ pub fn build_settings_pages(
         SettingPage::new(tr().settings_library.clone())
             .group(local_folders_group(library_page.sources.clone()))
             .group(crate::subsonic_settings::subsonic_group(
-                library_page.sources,
+                library_page.sources.clone(),
                 library_page.subsonic_inputs,
-            )),
+            ))
+            .group(crate::cache_settings::cache_group(library_page.sources)),
     );
     pages
 }
 
 /// Wrap pre-built pages into the `Settings` element for inline rendering.
-pub fn settings_widget(pages: Vec<SettingPage>) -> Settings {
-    Settings::new("pawse-settings").pages(pages)
+pub fn settings_widget(pages: Vec<SettingPage>, page_ix: usize) -> Settings {
+    Settings::new("pawse-settings")
+        .pages(pages)
+        .initial_page(page_ix)
 }
 
 /// Open a native folder picker (async, on the main thread), then add the
@@ -306,7 +309,6 @@ pub fn confirm_remove_folder(path: PathBuf, window: &mut Window, cx: &mut App) {
             .overlay_closable(false)
             .close_button(false)
             .title(tr().remove_folder_confirm_title.clone())
-            .child(div().child(tr().remove_folder_confirm_message.clone()))
             .footer(
                 DialogFooter::new()
                     .child(
@@ -1321,6 +1323,7 @@ fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) 
                                 )
                                 .child(
                                     Button::new(SharedString::from(finder_id))
+                                        .small()
                                         .label(tr().reveal_folder.clone())
                                         .on_click(move |_, _, _| {
                                             reveal_in_file_manager(&path_for_finder);
@@ -1328,6 +1331,7 @@ fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) 
                                 )
                                 .child(
                                     Button::new(SharedString::from(remove_id))
+                                        .small()
                                         .label(tr().remove.clone())
                                         .on_click(
                                             move |_, window: &mut Window, app_cx: &mut App| {
@@ -1348,11 +1352,13 @@ fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) 
                         .gap_2()
                         .child(
                             Button::new("add-folder")
+                                .small()
                                 .label(tr().add_folder.clone())
                                 .on_click(|_, _, cx| pick_and_add_folder(cx)),
                         )
                         .child(
                             Button::new("rescan-library")
+                                .small()
                                 .disabled(is_scanning)
                                 .label(tr().rescan_library.clone())
                                 .on_click(|_, _, cx| force_rescan(cx)),

@@ -103,22 +103,29 @@ pub struct Strings {
     pub subsonic_connect: SharedString,
     pub subsonic_sync: SharedString,
     pub subsonic_import_stars: SharedString,
+    pub network_cache: SharedString,
+    pub network_cache_desc: SharedString,
+    pub cache_used: SharedString,
+    pub cache_clear: SharedString,
+    pub cache_limit: SharedString,
+    pub cache_limit_desc: SharedString,
+    pub decimal_separator: SharedString,
+    pub size_mb_t: SharedString,
+    pub size_gb_t: SharedString,
     pub subsonic_auth_failed: SharedString,
     pub subsonic_unreachable_t: SharedString,
-    pub subsonic_synced_t: SharedString,
     pub subsonic_fill_fields: SharedString,
     pub no_servers_added: SharedString,
     pub server_online: SharedString,
     pub server_offline: SharedString,
     pub source_syncing: SharedString,
     pub remove_server_confirm_title: SharedString,
-    pub remove_server_confirm_message: SharedString,
     pub source_online: SharedString,
     pub source_offline: SharedString,
     pub source_scanning: SharedString,
     pub unavailable_count_t: SharedString,
-    pub no_music_folders_configured: SharedString,
-    pub add_music_folder: SharedString,
+    pub no_music_sources: SharedString,
+    pub open_library_settings: SharedString,
     pub no_albums_found: SharedString,
     pub no_albums_match: SharedString,
     pub no_artists_found: SharedString,
@@ -222,7 +229,6 @@ pub struct Strings {
     pub remove: SharedString,
     pub add_folder: SharedString,
     pub remove_folder_confirm_title: SharedString,
-    pub remove_folder_confirm_message: SharedString,
 
     // --- Audio settings ---
     pub audio_device: SharedString,
@@ -524,11 +530,20 @@ impl Strings {
         fill(&self.subsonic_unreachable_t, &[reason])
     }
 
-    pub fn subsonic_synced(&self, total: usize, matched: usize) -> String {
-        fill(
-            &self.subsonic_synced_t,
-            &[&total.to_string(), &matched.to_string()],
-        )
+    pub fn size(&self, bytes: u64) -> String {
+        const MB: f64 = 1024. * 1024.;
+        let mb = bytes as f64 / MB;
+        if mb.round() >= 1024. {
+            let gb = mb / 1024.;
+            let text = if (gb - gb.round()).abs() < 0.05 {
+                format!("{}", gb.round() as u64)
+            } else {
+                format!("{gb:.1}").replace('.', &self.decimal_separator)
+            };
+            fill(&self.size_gb_t, &[&text])
+        } else {
+            fill(&self.size_mb_t, &[&format!("{}", mb.round() as u64)])
+        }
     }
 
     pub fn unavailable_count(&self, count: usize) -> String {
@@ -747,5 +762,16 @@ mod tests {
             "44.1 kHz · 24-bit"
         );
         assert_eq!(fill("no placeholders", &[]), "no placeholders");
+    }
+
+    #[test]
+    fn size_uses_megabytes_below_a_gigabyte() {
+        let tr = &super::en::EN;
+        assert_eq!(tr.size(0), "0 MB");
+        assert_eq!(tr.size(300 * 1024 * 1024), "300 MB");
+        assert_eq!(tr.size(4 * 1024 * 1024 * 1024), "4 GB");
+        assert_eq!(tr.size(1536 * 1024 * 1024), "1.5 GB");
+        assert_eq!(tr.size(1024 * 1024 * 1024 - 1024), "1 GB");
+        assert_eq!(super::ru::RU.size(1536 * 1024 * 1024), "1,5 ГБ");
     }
 }

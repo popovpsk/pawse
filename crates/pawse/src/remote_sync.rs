@@ -69,6 +69,53 @@ pub struct SyncOutcome {
     pub changed: bool,
 }
 
+pub fn offline_servers(
+    summaries: &[music_library::SourceSummary],
+    servers: Vec<RemoteServer>,
+) -> Vec<RemoteServer> {
+    servers
+        .into_iter()
+        .filter(|server| {
+            summaries.iter().any(|s| {
+                s.kind == SUBSONIC_KIND && s.enabled && !s.available && s.uri == server.uri
+            })
+        })
+        .collect()
+}
+
+const APPLY_ATTEMPTS: usize = 4;
+const APPLY_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+
+enum Failure {
+    Source(RemoteError),
+    Local(RemoteError),
+}
+
+fn apply_listing(
+    repo: &dyn LibraryRepository,
+    source_id: i64,
+    songs: &[RemoteSong],
+    covers: &[RemoteCover],
+) -> Result<RemoteSyncReport, Failure> {
+    let mut last = String::new();
+    for attempt in 0..APPLY_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(APPLY_RETRY);
+        }
+        match repo.apply_remote_listing(source_id, songs, covers) {
+            Ok(report) => return Ok(report),
+            Err(music_library::LibraryError::InvalidData(message)) => {
+                return Err(Failure::Source(RemoteError::Other(message)));
+            }
+            Err(error) => {
+                log::warn!("Subsonic source {source_id}: storing the listing failed: {error}");
+                last = error.to_string();
+            }
+        }
+    }
+    Err(Failure::Local(RemoteError::Other(last)))
+}
+
 pub fn sync_server(
     repo: &dyn LibraryRepository,
     source_id: i64,
@@ -78,21 +125,25 @@ pub fn sync_server(
     let listed = client
         .ping()
         .and_then(|()| client.songs())
-        .map_err(RemoteError::from)
+        .map_err(|e| Failure::Source(RemoteError::from(e)))
         .and_then(|songs| {
             let (hashes, covers) = fetch_covers(repo, &client, source_id, &songs);
             let remote: Vec<RemoteSong> = songs
                 .into_iter()
                 .map(|song| to_remote_song(song, &hashes))
                 .collect();
-            Ok(repo.apply_remote_listing(source_id, &remote, &covers)?)
+            apply_listing(repo, source_id, &remote, &covers)
         });
     match listed {
         Ok(report) => SyncOutcome {
             changed: report.changed(),
             result: Ok(report),
         },
-        Err(error) => {
+        Err(Failure::Local(error)) => SyncOutcome {
+            result: Err(error),
+            changed: false,
+        },
+        Err(Failure::Source(error)) => {
             let changed = repo
                 .set_source_available(source_id, false)
                 .unwrap_or_else(|db| {
@@ -162,6 +213,7 @@ fn fetch_covers(
 }
 
 const UNKNOWN_ALBUM: &str = "[unknown album]";
+const MAX_TRACK_NUMBER: u32 = 999;
 
 fn first_name(names: &[subsonic::Named]) -> Option<String> {
     names
@@ -183,7 +235,6 @@ fn to_remote_song(song: subsonic::Song, covers: &HashMap<String, String>) -> Rem
         .and_then(|key| covers.get(key).cloned());
     RemoteSong {
         key: song.id,
-        rel_path: song.path,
         title: song.title,
         artist: real_artist(first_name(&song.artists).or(song.artist.clone())),
         artist_aliases: song
@@ -197,7 +248,7 @@ fn to_remote_song(song: subsonic::Song, covers: &HashMap<String, String>) -> Rem
             .album
             .filter(|album| !album.trim().eq_ignore_ascii_case(UNKNOWN_ALBUM)),
         album_artist: real_artist(first_name(&song.album_artists).or(song.album_artist)),
-        track_number: song.track,
+        track_number: song.track.filter(|n| (1..=MAX_TRACK_NUMBER).contains(n)),
         disc_number: song.disc_number,
         year: song.year,
         genre: song.genre,
@@ -409,12 +460,48 @@ mod tests {
             artist: Some("[Unknown Artist]".into()),
             album_artist: Some(" [unknown artist] ".into()),
             album: Some("[Unknown Album]".into()),
+            track: Some(1997),
             ..Default::default()
         };
         let remote = to_remote_song(song, &HashMap::new());
         assert_eq!(remote.artist, None);
         assert_eq!(remote.album_artist, None);
         assert_eq!(remote.album, None);
+        assert_eq!(remote.track_number, None);
+    }
+
+    #[test]
+    fn only_enabled_unavailable_servers_are_retried_in_the_background() {
+        let summary =
+            |uri: &str, kind: &str, enabled: bool, available: bool| music_library::SourceSummary {
+                id: 0,
+                kind: kind.into(),
+                uri: uri.into(),
+                enabled,
+                available,
+                track_count: 0,
+            };
+        let summaries = vec![
+            summary("me@http://down", SUBSONIC_KIND, true, false),
+            summary("me@http://up", SUBSONIC_KIND, true, true),
+            summary("me@http://gone", SUBSONIC_KIND, false, false),
+            summary("/music", "local", true, false),
+        ];
+        let named = |uri: &str| RemoteServer {
+            uri: uri.into(),
+            ..server("http://unused")
+        };
+        let picked: Vec<String> = offline_servers(
+            &summaries,
+            ["me@http://down", "me@http://up", "me@http://gone", "/music"]
+                .into_iter()
+                .map(named)
+                .collect(),
+        )
+        .into_iter()
+        .map(|server| server.uri)
+        .collect();
+        assert_eq!(picked, vec!["me@http://down".to_string()]);
     }
 
     #[test]

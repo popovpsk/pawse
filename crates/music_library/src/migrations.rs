@@ -251,7 +251,8 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             start_offset_ms INTEGER NOT NULL DEFAULT 0,
             present INTEGER NOT NULL DEFAULT 1,
             last_seen_scan INTEGER NOT NULL DEFAULT 0,
-            last_seen_at INTEGER
+            last_seen_at INTEGER,
+            file_size INTEGER
         );
         CREATE UNIQUE INDEX idx_media_bindings_key
             ON media_bindings(source_id, source_key, start_offset_ms);

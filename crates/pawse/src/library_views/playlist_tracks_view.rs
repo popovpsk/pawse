@@ -130,7 +130,7 @@ impl PlaylistTracksView {
                 {
                     this.reload_tracks(cx);
                 }
-                LibraryEvent::ScanComplete { changed } if *changed => {
+                LibraryEvent::CatalogChanged => {
                     this.reload_tracks(cx);
                 }
                 LibraryEvent::TrackLikedChanged { .. } | LibraryEvent::LikesImported { .. } => {

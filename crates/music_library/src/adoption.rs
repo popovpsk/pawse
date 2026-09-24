@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-const PATH_TOLERANCE_MS: i64 = 2_000;
+const FILE_TOLERANCE_MS: i64 = 2_000;
 const TAG_TOLERANCE_MS: i64 = 5_000;
+
+type Rank = (bool, i64, i64, usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    Path,
+    File,
     Tags,
     Title,
 }
@@ -13,32 +15,25 @@ pub enum Tier {
 impl Tier {
     pub fn as_str(self) -> &'static str {
         match self {
-            Tier::Path => "path",
+            Tier::File => "file",
             Tier::Tags => "tags",
             Tier::Title => "title",
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Arrival {
-    pub rel_path: Option<String>,
-    pub start_offset_ms: i64,
+pub const WHOLE_FILE: i64 = -1;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Descriptor {
+    pub item_id: i64,
     pub title: String,
     pub artist: String,
     pub artist_aliases: Vec<String>,
     pub album: Option<String>,
     pub duration_ms: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Orphan {
-    pub item_id: i64,
-    pub title: String,
-    pub artist: String,
-    pub album: Option<String>,
-    pub duration_ms: Option<i64>,
-    pub locations: Vec<(String, i64)>,
+    pub files: Vec<(i64, i64)>,
+    pub sources: Vec<i64>,
     pub live: bool,
 }
 
@@ -76,47 +71,63 @@ fn duration_gap(a: Option<i64>, b: Option<i64>) -> Option<i64> {
 
 fn passes(tier: Tier, gap: Option<i64>) -> bool {
     match (tier, gap) {
-        (Tier::Path, Some(gap)) => gap <= PATH_TOLERANCE_MS,
+        (Tier::File, Some(gap)) => gap <= FILE_TOLERANCE_MS,
         (Tier::Tags, Some(gap)) | (Tier::Title, Some(gap)) => gap <= TAG_TOLERANCE_MS,
-        (Tier::Path, None) | (Tier::Tags, None) => true,
+        (Tier::File, None) | (Tier::Tags, None) => true,
         (Tier::Title, None) => false,
     }
 }
 
-pub fn match_arrivals(arrivals: &[Arrival], orphans: &[Orphan]) -> Vec<Option<(i64, Tier)>> {
-    let mut by_path: HashMap<(&str, i64), Vec<usize>> = HashMap::new();
+fn shares_file(a: &Descriptor, b: &Descriptor) -> bool {
+    a.files.iter().any(|file| b.files.contains(file))
+}
+
+fn shares_source(a: &Descriptor, b: &Descriptor) -> bool {
+    a.sources.iter().any(|source| b.sources.contains(source))
+}
+
+pub fn match_tracks(
+    arrivals: &[Descriptor],
+    candidates: &[Descriptor],
+) -> Vec<Option<(i64, Tier)>> {
+    let mut by_file: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
     let mut by_tags: HashMap<(String, String, String), Vec<usize>> = HashMap::new();
     let mut by_title: HashMap<(String, String), Vec<usize>> = HashMap::new();
-    for (ix, orphan) in orphans.iter().enumerate() {
-        for (rel_path, offset) in &orphan.locations {
-            by_path
-                .entry((rel_path.as_str(), *offset))
-                .or_default()
-                .push(ix);
+    for (ix, candidate) in candidates.iter().enumerate() {
+        for file in &candidate.files {
+            if file.0 > 0 {
+                by_file.entry(*file).or_default().push(ix);
+            }
         }
-        if let Some(key) = tags_key(&orphan.artist, &orphan.title, orphan.album.as_deref()) {
+        if let Some(key) = tags_key(
+            &candidate.artist,
+            &candidate.title,
+            candidate.album.as_deref(),
+        ) {
             by_tags.entry(key).or_default().push(ix);
         }
-        if let Some(key) = title_key(&orphan.artist, &orphan.title) {
+        if let Some(key) = title_key(&candidate.artist, &candidate.title) {
             by_title.entry(key).or_default().push(ix);
         }
     }
 
     let mut assigned: Vec<Option<(i64, Tier)>> = vec![None; arrivals.len()];
     let mut taken: HashSet<usize> = HashSet::new();
-    for tier in [Tier::Path, Tier::Tags, Tier::Title] {
+    for tier in [Tier::File, Tier::Tags, Tier::Title] {
+        let mut pairs: Vec<(Rank, usize, usize)> = Vec::new();
         for (arrival_ix, arrival) in arrivals.iter().enumerate() {
             if assigned[arrival_ix].is_some() {
                 continue;
             }
             let artists = std::iter::once(&arrival.artist).chain(&arrival.artist_aliases);
-            let mut candidates: Vec<usize> = match tier {
-                Tier::Path => arrival
-                    .rel_path
-                    .as_deref()
-                    .and_then(|rel| by_path.get(&(rel, arrival.start_offset_ms)))
-                    .cloned()
-                    .unwrap_or_default(),
+            let mut found: Vec<usize> = match tier {
+                Tier::File => arrival
+                    .files
+                    .iter()
+                    .filter_map(|file| by_file.get(file))
+                    .flatten()
+                    .copied()
+                    .collect(),
                 Tier::Tags => artists
                     .filter_map(|artist| {
                         tags_key(artist, &arrival.title, arrival.album.as_deref())
@@ -133,23 +144,37 @@ pub fn match_arrivals(arrivals: &[Arrival], orphans: &[Orphan]) -> Vec<Option<(i
                     .copied()
                     .collect(),
             };
-            candidates.sort_unstable();
-            candidates.dedup();
-            let best = candidates
-                .iter()
-                .copied()
-                .filter(|ix| !taken.contains(ix))
-                .filter(|ix| tier != Tier::Title || !orphans[*ix].live)
-                .map(|ix| {
-                    let gap = duration_gap(arrival.duration_ms, orphans[ix].duration_ms);
-                    (ix, gap)
-                })
-                .filter(|(_, gap)| passes(tier, *gap))
-                .min_by_key(|(ix, gap)| (gap.unwrap_or(i64::MAX), orphans[*ix].item_id));
-            if let Some((ix, _)) = best {
-                taken.insert(ix);
-                assigned[arrival_ix] = Some((orphans[ix].item_id, tier));
+            found.sort_unstable();
+            found.dedup();
+            for ix in found {
+                let candidate = &candidates[ix];
+                if taken.contains(&ix)
+                    || candidate.item_id == arrival.item_id
+                    || shares_source(arrival, candidate)
+                    || (tier == Tier::Title && candidate.live)
+                {
+                    continue;
+                }
+                let gap = duration_gap(arrival.duration_ms, candidate.duration_ms);
+                if !passes(tier, gap) {
+                    continue;
+                }
+                let rank = (
+                    !shares_file(arrival, candidate),
+                    gap.unwrap_or(i64::MAX),
+                    candidate.item_id,
+                    arrival_ix,
+                );
+                pairs.push((rank, arrival_ix, ix));
             }
+        }
+        pairs.sort_unstable();
+        for (_, arrival_ix, ix) in pairs {
+            if assigned[arrival_ix].is_some() || taken.contains(&ix) {
+                continue;
+            }
+            taken.insert(ix);
+            assigned[arrival_ix] = Some((candidates[ix].item_id, tier));
         }
     }
     assigned
@@ -159,34 +184,27 @@ pub fn match_arrivals(arrivals: &[Arrival], orphans: &[Orphan]) -> Vec<Option<(i
 mod tests {
     use super::*;
 
-    fn arrival(rel_path: &str, artist: &str, title: &str, duration_ms: Option<i64>) -> Arrival {
-        Arrival {
-            rel_path: Some(rel_path.into()),
-            start_offset_ms: 0,
-            title: title.into(),
-            artist: artist.into(),
-            artist_aliases: Vec::new(),
-            album: Some("Album".into()),
-            duration_ms,
-        }
-    }
-
-    fn orphan(
-        item_id: i64,
-        rel_path: &str,
-        artist: &str,
-        title: &str,
-        duration_ms: Option<i64>,
-    ) -> Orphan {
-        Orphan {
+    fn track(item_id: i64, artist: &str, title: &str, duration_ms: Option<i64>) -> Descriptor {
+        Descriptor {
             item_id,
             title: title.into(),
             artist: artist.into(),
             album: Some("Album".into()),
             duration_ms,
-            locations: vec![(rel_path.into(), 0)],
-            live: false,
+            ..Default::default()
         }
+    }
+
+    fn arrival(artist: &str, title: &str, duration_ms: Option<i64>) -> Descriptor {
+        Descriptor {
+            sources: vec![1],
+            ..track(0, artist, title, duration_ms)
+        }
+    }
+
+    fn sized(mut descriptor: Descriptor, size: i64, offset: i64) -> Descriptor {
+        descriptor.files.push((size, offset));
+        descriptor
     }
 
     #[test]
@@ -195,70 +213,120 @@ mod tests {
     }
 
     #[test]
-    fn the_same_relative_path_wins_for_untagged_files() {
-        let got = match_arrivals(
-            &[arrival("a/01.flac", "", "01", Some(60_000))],
-            &[orphan(7, "a/01.flac", "", "01", Some(60_500))],
+    fn the_same_file_matches_without_any_tags() {
+        let got = match_tracks(
+            &[sized(arrival("", "01", Some(60_000)), 1234, 0)],
+            &[sized(track(7, "", "track 01", Some(60_500)), 1234, 0)],
         );
-        assert_eq!(got, vec![Some((7, Tier::Path))]);
+        assert_eq!(got, vec![Some((7, Tier::File))]);
     }
 
     #[test]
-    fn untagged_files_never_match_by_title_alone() {
-        let got = match_arrivals(
-            &[arrival("b/01.flac", "", "01", Some(60_000))],
-            &[orphan(7, "a/01.flac", "", "01", Some(60_000))],
+    fn cue_tracks_of_one_image_are_told_apart_by_offset() {
+        let got = match_tracks(
+            &[
+                sized(arrival("", "b", Some(30_000)), 900, 60_000),
+                sized(arrival("", "a", Some(60_000)), 900, 0),
+            ],
+            &[
+                sized(track(1, "", "x", Some(60_000)), 900, 0),
+                sized(track(2, "", "y", Some(30_000)), 900, 60_000),
+            ],
+        );
+        assert_eq!(got, vec![Some((2, Tier::File)), Some((1, Tier::File))]);
+    }
+
+    #[test]
+    fn a_file_match_still_needs_a_close_duration() {
+        let got = match_tracks(
+            &[sized(arrival("", "01", Some(60_000)), 1234, 0)],
+            &[sized(track(7, "", "01", Some(90_000)), 1234, 0)],
         );
         assert_eq!(got, vec![None]);
     }
 
     #[test]
-    fn tags_match_across_a_move_and_pick_the_closest_duration() {
-        let got = match_arrivals(
-            &[arrival("new/song.flac", "Artist", "Song", Some(200_000))],
+    fn untagged_files_of_different_sizes_never_match() {
+        let got = match_tracks(
+            &[sized(arrival("", "01", Some(60_000)), 1, 0)],
+            &[sized(track(7, "", "01", Some(60_000)), 2, 0)],
+        );
+        assert_eq!(got, vec![None]);
+    }
+
+    #[test]
+    fn tags_prefer_the_same_file_then_the_closest_duration() {
+        let got = match_tracks(
+            &[sized(arrival("Artist", "Song", Some(200_000)), 50, 0)],
             &[
-                orphan(3, "old/song.flac", "artist", "song", Some(204_000)),
-                orphan(9, "older/song.flac", "ARTIST", "Song", Some(200_500)),
+                track(3, "artist", "song", Some(200_000)),
+                track(9, "ARTIST", "Song", Some(200_500)),
+            ],
+        );
+        assert_eq!(got, vec![Some((3, Tier::Tags))]);
+        let got = match_tracks(
+            &[sized(arrival("Artist", "Song", Some(200_000)), 50, 0)],
+            &[
+                track(3, "artist", "song", Some(204_000)),
+                sized(track(9, "ARTIST", "Song", Some(203_000)), 51, 0),
             ],
         );
         assert_eq!(got, vec![Some((9, Tier::Tags))]);
     }
 
     #[test]
-    fn an_orphan_is_adopted_only_once() {
-        let got = match_arrivals(
+    fn a_candidate_already_held_by_the_same_source_is_skipped() {
+        let mut held = track(3, "Artist", "Song", Some(200_000));
+        held.sources = vec![1];
+        let mut elsewhere = track(4, "Artist", "Song", Some(200_000));
+        elsewhere.sources = vec![2];
+        assert_eq!(
+            match_tracks(
+                &[arrival("Artist", "Song", Some(200_000))],
+                std::slice::from_ref(&held)
+            ),
+            vec![None]
+        );
+        assert_eq!(
+            match_tracks(
+                &[arrival("Artist", "Song", Some(200_000))],
+                &[held, elsewhere]
+            ),
+            vec![Some((4, Tier::Tags))]
+        );
+    }
+
+    #[test]
+    fn a_candidate_is_claimed_only_once() {
+        let got = match_tracks(
             &[
-                arrival("x/song.flac", "Artist", "Song", Some(200_000)),
-                arrival("y/song.flac", "Artist", "Song", Some(200_000)),
+                arrival("Artist", "Song", Some(200_000)),
+                arrival("Artist", "Song", Some(200_000)),
             ],
-            &[orphan(3, "old/song.flac", "Artist", "Song", Some(200_000))],
+            &[track(3, "Artist", "Song", Some(200_000))],
         );
         assert_eq!(got, vec![Some((3, Tier::Tags)), None]);
     }
 
     #[test]
-    fn a_stronger_tier_claims_its_orphan_before_a_weaker_one() {
-        let mut retitled_album = arrival("z/song.flac", "Artist", "Song", Some(200_000));
+    fn a_stronger_tier_claims_its_candidate_before_a_weaker_one() {
+        let mut retitled_album = arrival("Artist", "Song", Some(200_000));
         retitled_album.album = Some("Other".into());
-        let got = match_arrivals(
-            &[
-                retitled_album,
-                arrival("w/song.flac", "Artist", "Song", Some(200_000)),
-            ],
-            &[orphan(3, "old/song.flac", "Artist", "Song", Some(200_000))],
+        let got = match_tracks(
+            &[retitled_album, arrival("Artist", "Song", Some(200_000))],
+            &[track(3, "Artist", "Song", Some(200_000))],
         );
         assert_eq!(got, vec![None, Some((3, Tier::Tags))]);
     }
 
     #[test]
     fn an_artist_alias_matches_when_the_main_credit_does_not() {
-        let mut split = arrival("z/song.flac", "Limp Bizkit", "Song", Some(200_000));
+        let mut split = arrival("Limp Bizkit", "Song", Some(200_000));
         split.artist_aliases = vec!["Limp Bizkit Feat. Method Man".into()];
-        let got = match_arrivals(
+        let got = match_tracks(
             &[split],
-            &[orphan(
+            &[track(
                 5,
-                "old/song.flac",
                 "Limp Bizkit Feat. Method Man",
                 "Song",
                 Some(200_000),
@@ -269,12 +337,12 @@ mod tests {
 
     #[test]
     fn a_live_item_is_never_claimed_on_title_alone() {
-        let mut elsewhere = arrival("z/song.flac", "Artist", "Song", Some(200_000));
+        let mut elsewhere = arrival("Artist", "Song", Some(200_000));
         elsewhere.album = Some("Live".into());
-        let mut live = orphan(4, "old/song.flac", "Artist", "Song", Some(201_000));
+        let mut live = track(4, "Artist", "Song", Some(201_000));
         live.live = true;
         assert_eq!(
-            match_arrivals(
+            match_tracks(
                 std::slice::from_ref(&elsewhere),
                 std::slice::from_ref(&live)
             ),
@@ -282,30 +350,49 @@ mod tests {
         );
         live.album = Some("Live".into());
         assert_eq!(
-            match_arrivals(&[elsewhere], &[live]),
+            match_tracks(&[elsewhere], &[live]),
             vec![Some((4, Tier::Tags))]
         );
     }
 
     #[test]
     fn the_title_tier_needs_a_close_known_duration() {
-        let mut elsewhere = arrival("z/song.flac", "Artist", "Song", Some(200_000));
+        let mut elsewhere = arrival("Artist", "Song", Some(200_000));
         elsewhere.album = Some("Live".into());
         let mut unknown = elsewhere.clone();
         unknown.duration_ms = None;
-        let far = orphan(3, "old/song.flac", "Artist", "Song", Some(260_000));
+        let far = track(3, "Artist", "Song", Some(260_000));
         assert_eq!(
-            match_arrivals(std::slice::from_ref(&elsewhere), &[far]),
+            match_tracks(std::slice::from_ref(&elsewhere), &[far]),
             vec![None]
         );
-        let near = orphan(4, "old/song.flac", "Artist", "Song", Some(203_000));
+        let near = track(4, "Artist", "Song", Some(203_000));
         assert_eq!(
-            match_arrivals(
+            match_tracks(
                 std::slice::from_ref(&elsewhere),
                 std::slice::from_ref(&near)
             ),
             vec![Some((4, Tier::Title))]
         );
-        assert_eq!(match_arrivals(&[unknown], &[near]), vec![None]);
+        assert_eq!(match_tracks(&[unknown], &[near]), vec![None]);
+    }
+
+    #[test]
+    fn the_closest_arrival_wins_whatever_order_they_come_in() {
+        let far = arrival("Artist", "Song", Some(204_000));
+        let near = arrival("Artist", "Song", Some(200_000));
+        let lost = track(3, "Artist", "Song", Some(200_000));
+        assert_eq!(
+            match_tracks(&[far, near], &[lost]),
+            vec![None, Some((3, Tier::Tags))]
+        );
+    }
+
+    #[test]
+    fn an_item_never_matches_itself() {
+        let mut me = track(4, "Artist", "Song", Some(200_000));
+        me.sources = vec![2];
+        let other = track(4, "Artist", "Song", Some(200_000));
+        assert_eq!(match_tracks(&[me], &[other]), vec![None]);
     }
 }

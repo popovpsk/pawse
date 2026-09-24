@@ -60,6 +60,10 @@ impl Services {
     pub fn initialize(cx: &mut App) -> Self {
         let output = Arc::new(Output::new());
         let remote_media = crate::remote_media::RemoteMedia::default();
+        remote_media.set_cache_limit(
+            cx.global::<crate::settings_store::SettingsStore>()
+                .network_cache_bytes(),
+        );
         let audio_engine = Rc::new(AudioEngine::with_resolver(
             output.clone(),
             remote_media.resolver(),
@@ -87,19 +91,10 @@ impl Services {
                     if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
                         sync_queue_with_playlist(*playlist_id, cx);
                     }
-                    if matches!(
-                        &event,
-                        LibraryEvent::ScanComplete { changed: true }
-                            | LibraryEvent::TrackTagsChanged { .. }
-                            | LibraryEvent::AlbumTagsChanged { .. }
-                    ) {
+                    if matches!(&event, LibraryEvent::CatalogChanged) {
                         remap_queue_after_rescan(cx);
                     }
-                    if matches!(
-                        &event,
-                        LibraryEvent::TrackTagsChanged { .. }
-                            | LibraryEvent::AlbumTagsChanged { .. }
-                    ) {
+                    if matches!(&event, LibraryEvent::TagsSaved) {
                         let cache = cx.global::<Services>().cover_art_cache.clone();
                         cache.borrow_mut().clear(cx);
                     }
@@ -116,9 +111,7 @@ impl Services {
                             | LibraryEvent::LikesImported { .. }
                             | LibraryEvent::PlaylistsChanged
                             | LibraryEvent::PlaylistTracksChanged { .. }
-                            | LibraryEvent::ScanComplete { changed: true }
-                            | LibraryEvent::TrackTagsChanged { .. }
-                            | LibraryEvent::AlbumTagsChanged { .. }
+                            | LibraryEvent::CatalogChanged
                     );
                     if library_changed {
                         cx.global::<Services>()
@@ -276,7 +269,7 @@ impl Services {
                     }
                     Err(e) => {
                         log::warn!("{locator}: {e}");
-                        failure = Some(format!("{locator}: {e}"));
+                        failure = Some(describe_remote_failure(&media, &library, &locator, e));
                     }
                 }
             }
@@ -312,6 +305,28 @@ impl Services {
     }
 }
 
+fn describe_remote_failure(
+    media: &crate::remote_media::RemoteMedia,
+    library: &LibraryService,
+    locator: &str,
+    error: String,
+) -> String {
+    let Some(source_id) = music_library::remote::parse(locator).map(|r| r.source_id) else {
+        return error;
+    };
+    let Some(config) = media.config(source_id) else {
+        return error;
+    };
+    match subsonic::Client::new(&config).ping() {
+        Ok(()) => error,
+        Err(down) => {
+            library.mark_source_offline(source_id);
+            crate::library_sources::describe_error(&crate::remote_sync::RemoteError::from(down))
+                .to_string()
+        }
+    }
+}
+
 type Opening = Arc<std::sync::Mutex<Option<(u64, media_stream::AbortHandle)>>>;
 
 enum Opened {
@@ -338,6 +353,7 @@ fn open_remote(
     }
     let pending = media.open_stream(locator)?;
     let abort = pending.abort.clone();
+    let pending_failure = pending.abort.clone();
     {
         let mut slot = opening.lock().unwrap();
         if let Some((_, previous)) = slot.replace((generation, pending.abort.clone())) {
@@ -356,7 +372,9 @@ fn open_remote(
     if slot.as_ref().is_some_and(|(owner, _)| *owner == generation) {
         *slot = None;
     }
-    source.map(Opened::Stream)
+    source
+        .map(Opened::Stream)
+        .map_err(|error| pending_failure.failure().unwrap_or(error))
 }
 
 #[derive(Clone, Copy)]
@@ -429,7 +447,7 @@ fn notify_scan_event(event: &LibraryEvent, cx: &mut App) {
         LibraryEvent::ScanFolderUnavailable { folder } => {
             Notification::warning(crate::localization::tr().library_folder_unavailable(folder))
         }
-        LibraryEvent::TrackTagsChanged { .. } | LibraryEvent::AlbumTagsChanged { .. } => {
+        LibraryEvent::TagsSaved => {
             Notification::success(crate::localization::tr().tags_saved.clone())
         }
         _ => return,

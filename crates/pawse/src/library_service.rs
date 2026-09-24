@@ -40,10 +40,9 @@ pub enum LibraryEvent {
     ScanProgress {
         scanned: usize,
     },
-    /// `changed` is false on the fast path (library unchanged, no DB work).
-    ScanComplete {
-        changed: bool,
-    },
+    ScanComplete,
+    CatalogChanged,
+    TagsSaved,
     ScanUpToDate,
     ScanIdle,
     ScanSucceeded,
@@ -78,12 +77,6 @@ pub enum LibraryEvent {
     LyricsChanged {
         track_id: i64,
     },
-    TrackTagsChanged {
-        track_id: i64,
-    },
-    AlbumTagsChanged {
-        album_id: i64,
-    },
 }
 
 impl LibraryEvent {
@@ -103,7 +96,7 @@ impl LibraryEvent {
 #[derive(Default)]
 struct RemoteSyncState {
     running: AtomicBool,
-    queued: Mutex<Vec<crate::remote_sync::RemoteServer>>,
+    queued: Mutex<Vec<(crate::remote_sync::RemoteServer, bool)>>,
 }
 
 pub struct LibraryService {
@@ -161,8 +154,15 @@ impl pawse_remote::LibraryReader for LibraryAccess {
     fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)> {
         let source = self.repo.get_cover_art_source(id).ok().flatten();
         let track_path = self.repo.get_track_path_for_cover(id).ok().flatten();
-        let bytes = music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
-        Some(transcode_web_cover(bytes))
+        match music_indexer::metadata::load_cover_from_source(source, track_path.as_deref()) {
+            Some(bytes) => Some(transcode_web_cover(bytes)),
+            None => self
+                .repo
+                .get_cover_art_large(id)
+                .ok()
+                .flatten()
+                .map(|bytes| (bytes, "image/jpeg".to_string())),
+        }
     }
 
     fn artists(&self) -> Vec<pawse_remote::ArtistEntry> {
@@ -662,7 +662,8 @@ impl LibraryService {
                     }
                 }
 
-                let _ = event_tx.send(LibraryEvent::TrackTagsChanged { track_id });
+                let _ = event_tx.send(LibraryEvent::TagsSaved);
+                let _ = event_tx.send(LibraryEvent::CatalogChanged);
                 baseline.rebaseline(&*repo);
             })
             .detach();
@@ -698,7 +699,8 @@ impl LibraryService {
                 };
 
                 log::info!("Album {} retagged, {} files written", album_id, written);
-                let _ = event_tx.send(LibraryEvent::AlbumTagsChanged { album_id });
+                let _ = event_tx.send(LibraryEvent::TagsSaved);
+                let _ = event_tx.send(LibraryEvent::CatalogChanged);
                 if written > 0 {
                     baseline.rebaseline(&*repo);
                 }
@@ -862,14 +864,25 @@ impl LibraryService {
     }
 
     pub fn sync_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>) {
+        self.enqueue_remote(servers, false);
+    }
+
+    fn enqueue_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>, probe: bool) {
         if servers.is_empty() {
             return;
         }
         {
             let mut queued = self.remote_sync.queued.lock().unwrap();
             for server in servers {
-                queued.retain(|existing| existing.uri != server.uri);
-                queued.push(server);
+                if probe
+                    && queued
+                        .iter()
+                        .any(|(existing, _)| existing.uri == server.uri)
+                {
+                    continue;
+                }
+                queued.retain(|(existing, _)| existing.uri != server.uri);
+                queued.push((server, probe));
             }
         }
         if self.remote_sync.running.swap(true, Ordering::AcqRel) {
@@ -893,10 +906,13 @@ impl LibraryService {
                     break;
                 }
                 let ids = crate::remote_sync::source_ids(&*repo);
-                for server in batch {
+                for (server, probe) in batch {
                     let Some(&source_id) = ids.get(&server.uri) else {
                         continue;
                     };
+                    if probe && subsonic::Client::new(&server.config).ping().is_err() {
+                        continue;
+                    }
                     let _ = event_tx.send(LibraryEvent::RemoteSyncStarted {
                         uri: server.uri.clone(),
                     });
@@ -928,6 +944,24 @@ impl LibraryService {
                 Self::spawn_scan(repo, event_tx, executor, scan_state);
             }
         });
+    }
+
+    pub fn sync_offline_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>) {
+        if self.remote_sync.running.load(Ordering::Acquire) {
+            return;
+        }
+        self.enqueue_remote(
+            crate::remote_sync::offline_servers(&self.sources(), servers),
+            true,
+        );
+    }
+
+    pub fn mark_source_offline(&self, source_id: i64) {
+        match self.repo.set_source_available(source_id, false) {
+            Ok(true) => self.refresh_after_source_change(),
+            Ok(false) => {}
+            Err(e) => log::error!("Failed to mark source {source_id} unavailable: {e}"),
+        }
     }
 
     pub fn refresh_after_source_change(&self) {
@@ -1098,7 +1132,7 @@ impl LibraryService {
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
             && matches!(repo.has_unplaced_media(), Ok(false));
         if unchanged {
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             if manual {
                 let _ = event_tx.send(LibraryEvent::ScanUpToDate);
             }
@@ -1110,7 +1144,7 @@ impl LibraryService {
 
         if let Err(e) = repo.reconcile_local_sources(&scope.local_folders()) {
             log::error!("Failed to reconcile library folders: {}", e);
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(LibraryEvent::ScanFailed);
             return;
         }
@@ -1126,14 +1160,14 @@ impl LibraryService {
             Ok(session) => session,
             Err(e) => {
                 log::error!("Failed to open scan session: {}", e);
-                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+                let _ = event_tx.send(LibraryEvent::ScanComplete);
                 let _ = event_tx.send(LibraryEvent::ScanFailed);
                 return;
             }
         };
         if let Err(e) = session.clear() {
             log::error!("Failed to clear library: {}", e);
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(LibraryEvent::ScanFailed);
             return;
         }
@@ -1149,7 +1183,8 @@ impl LibraryService {
                     false
                 }
             };
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+            let _ = event_tx.send(LibraryEvent::CatalogChanged);
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(scan_outcome(ok));
             return;
         }
@@ -1168,6 +1203,11 @@ impl LibraryService {
 
         let mut completed = false;
         loop {
+            if scan_rx.is_empty()
+                && let Err(e) = session.flush()
+            {
+                log::error!("Failed to commit scanned tracks: {}", e);
+            }
             match scan_rx.recv_async().await {
                 Ok(ScanEvent::Cover {
                     hash,
@@ -1202,7 +1242,8 @@ impl LibraryService {
         if !completed {
             log::error!("Scan pipeline stopped before completing; changes left unapplied");
             drop(session);
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+            let _ = event_tx.send(LibraryEvent::CatalogChanged);
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(LibraryEvent::ScanFailed);
             return;
         }
@@ -1220,7 +1261,8 @@ impl LibraryService {
                 false
             }
         };
-        let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+        let _ = event_tx.send(LibraryEvent::CatalogChanged);
+        let _ = event_tx.send(LibraryEvent::ScanComplete);
         let _ = event_tx.send(scan_outcome(ok));
     }
 }
@@ -1585,7 +1627,9 @@ fn clean_artist_names(names: Vec<String>) -> Vec<String> {
 }
 
 fn to_scan_track(track: PreparedTrack) -> ScanTrack {
+    let file_size = std::fs::metadata(&track.path).ok().map(|meta| meta.len());
     ScanTrack {
+        file_size,
         path: track.path.to_string_lossy().into_owned(),
         title: track.title,
         album_title: track.album_title,
@@ -1781,6 +1825,7 @@ mod tests {
                     bitrate: None,
                     is_cue: true,
                     lyrics: None,
+                    file_size: None,
                 })
                 .unwrap();
             session.finish().unwrap();

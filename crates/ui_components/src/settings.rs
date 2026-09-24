@@ -213,6 +213,7 @@ struct SettingsState {
 pub struct Settings {
     id: ElementId,
     pages: Vec<SettingPage>,
+    initial_page: usize,
 }
 
 impl Settings {
@@ -220,7 +221,13 @@ impl Settings {
         Self {
             id: id.into(),
             pages: Vec::new(),
+            initial_page: 0,
         }
+    }
+
+    pub fn initial_page(mut self, page_ix: usize) -> Self {
+        self.initial_page = page_ix;
+        self
     }
 
     pub fn pages(mut self, pages: impl IntoIterator<Item = SettingPage>) -> Self {
@@ -233,7 +240,7 @@ impl RenderOnce for Settings {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let state: Entity<SettingsState> =
             window.use_keyed_state(self.id.clone(), cx, |_, _| SettingsState {
-                active: 0,
+                active: self.initial_page,
                 scroll: ScrollHandle::new(),
             });
 

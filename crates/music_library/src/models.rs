@@ -91,7 +91,6 @@ pub struct SourceSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RemoteSong {
     pub key: String,
-    pub rel_path: Option<String>,
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -210,6 +209,7 @@ pub struct ScanTrack {
     pub bitrate: Option<u32>,
     pub is_cue: bool,
     pub lyrics: Option<ScanLyrics>,
+    pub file_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

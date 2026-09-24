@@ -37,7 +37,11 @@ only thing a source implements (`pawse::remote_media::SubsonicFetch`).
   body ends.
 - **Retries.** `FetchError::Retry` backs off 0.25 s … 4 s, six times in a row
   without progress, then the download fails and every reader gets the error.
-  Any progress resets the count. `FetchError::Fatal` fails at once.
+  Any progress resets the count. Until the first byte arrives only two retries
+  are made (under a second): a server that refuses the very first request is
+  down, and the user is waiting on a click. `FetchError::Fatal` fails at once.
+  `AbortHandle::failure` gives the reason to whoever holds the handle, since a
+  decoder probing the format may hide the read error behind its own.
 - **Partial names** carry the process id and a counter
   (`<dest>.<pid>-<n>.partial`), so a cancelled download that is still deleting
   its file never races a new one for the same destination.

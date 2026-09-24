@@ -203,8 +203,8 @@ impl QueueView {
                                 .scroll_to_item(this.tracks.len() - 1, gpui::ScrollStrategy::Top);
                         }
                     }
-                    LibraryEvent::ScanComplete { changed: true } => {
-                        this.refresh_tracks(cx);
+                    LibraryEvent::CatalogChanged => {
+                        this.rebuild_tracks(cx);
                     }
                     _ => {}
                 }
@@ -239,6 +239,14 @@ impl QueueView {
     }
 
     pub fn refresh_tracks(&mut self, cx: &mut Context<Self>) {
+        self.load_tracks(false, cx);
+    }
+
+    fn rebuild_tracks(&mut self, cx: &mut Context<Self>) {
+        self.load_tracks(true, cx);
+    }
+
+    fn load_tracks(&mut self, force: bool, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
         let queue = services.playback_queue.borrow();
         let new_tracks = queue.tracks_vec();
@@ -251,7 +259,7 @@ impl QueueView {
                 .zip(new_tracks.iter())
                 .all(|(x, y)| x.base.id == y.id);
 
-        if !is_same_queue {
+        if force || !is_same_queue {
             let artist_by_track = build_artist_map(&services.library, &new_tracks);
             let mut art_cache = services.cover_art_cache.borrow_mut();
 

@@ -10,6 +10,7 @@ const CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 const LOOKAHEAD_BYTES: u64 = 1024 * 1024;
 const READ_BUFFER: usize = 64 * 1024;
 const MAX_FAILURES: u32 = 6;
+const FIRST_BYTE_FAILURES: u32 = 2;
 const WAIT_SLICE: Duration = Duration::from_millis(250);
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -272,6 +273,13 @@ pub struct AbortHandle {
 }
 
 impl AbortHandle {
+    pub fn failure(&self) -> Option<String> {
+        match &self.shared.lock().outcome {
+            Outcome::Failed(message) => Some(message.clone()),
+            _ => None,
+        }
+    }
+
     pub fn abort(&self) {
         self.aborted.store(true, Ordering::Release);
         let _state = self.shared.lock();
@@ -434,6 +442,7 @@ impl Worker {
 
     fn download(&mut self) -> Result<(), Stop> {
         let mut failures = 0u32;
+        let mut limit = FIRST_BYTE_FAILURES;
         loop {
             let Some((start, end)) = self.next_request()? else {
                 return Ok(());
@@ -442,6 +451,7 @@ impl Worker {
                 Ok(fetched) => match self.receive(start, end, fetched)? {
                     (true, _) => {
                         failures = 0;
+                        limit = MAX_FAILURES;
                         continue;
                     }
                     (false, None) => continue,
@@ -450,7 +460,7 @@ impl Worker {
                 Err(FetchError::Fatal(message)) => return Err(Stop::Failed(message)),
                 Err(FetchError::Retry(message)) => message,
             };
-            self.back_off(&mut failures, error)?;
+            self.back_off(&mut failures, limit, error)?;
         }
     }
 
@@ -575,13 +585,13 @@ impl Worker {
         }
     }
 
-    fn back_off(&self, failures: &mut u32, message: String) -> Result<(), Stop> {
+    fn back_off(&self, failures: &mut u32, limit: u32, message: String) -> Result<(), Stop> {
         *failures += 1;
-        if *failures > MAX_FAILURES {
+        if *failures > limit {
             return Err(Stop::Failed(message));
         }
         log::warn!(
-            "media stream: {message}; retry {failures} of {MAX_FAILURES} for {}",
+            "media stream: {message}; retry {failures} of {limit} for {}",
             self.dest.display()
         );
         let delay = Duration::from_millis(250 << (*failures - 1).min(4));

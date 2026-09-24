@@ -121,6 +121,12 @@ fn default_volume() -> f32 {
     1.0
 }
 
+pub const NETWORK_CACHE_CHOICES_GB: [u32; 6] = [1, 2, 4, 8, 16, 32];
+
+fn default_network_cache_gb() -> u32 {
+    4
+}
+
 fn default_remote_port() -> u16 {
     pawse_remote::DEFAULT_PORT
 }
@@ -385,6 +391,8 @@ pub struct UserSettings {
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
     pub subsonic_servers: Vec<SubsonicServer>,
+    #[serde(default = "default_network_cache_gb")]
+    pub network_cache_gb: u32,
     #[serde(default, rename = "lastfm_enabled", skip_serializing)]
     legacy_lastfm_enabled: Option<bool>,
     #[serde(default, rename = "lastfm_session", skip_serializing)]
@@ -448,6 +456,7 @@ impl Default for UserSettings {
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
             onboarding_complete: false,
+            network_cache_gb: default_network_cache_gb(),
         }
     }
 }
@@ -671,6 +680,19 @@ impl SettingsStore {
         if self.settings.music_folders.len() == before {
             return Ok(());
         }
+        self.save()
+    }
+
+    pub fn network_cache_bytes(&self) -> u64 {
+        u64::from(self.settings.network_cache_gb.max(1)) * 1024 * 1024 * 1024
+    }
+
+    pub fn network_cache_gb(&self) -> u32 {
+        self.settings.network_cache_gb
+    }
+
+    pub fn set_network_cache_gb(&mut self, gb: u32) -> anyhow::Result<()> {
+        self.settings.network_cache_gb = gb;
         self.save()
     }
 
@@ -1327,6 +1349,7 @@ mod tests {
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
             onboarding_complete: false,
+            network_cache_gb: 8,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
@@ -1335,6 +1358,7 @@ mod tests {
         assert_eq!(back.now_playing_details, NowPlayingDetails::Album);
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
         assert_eq!(back.albums_layout, AlbumsLayout::Grid);
+        assert_eq!(back.network_cache_gb, 8);
         assert_eq!(
             back.artists_grouping,
             music_library::ArtistGrouping::TrackArtist

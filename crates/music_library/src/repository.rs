@@ -16,6 +16,7 @@ use crate::models::{
 /// [`finish`](ScanWrite::finish)).
 pub trait ScanWrite: Send {
     fn clear(&mut self) -> Result<()>;
+    fn flush(&mut self) -> Result<()>;
     /// Register a freshly generated cover thumbnail by content hash.
     fn add_cover(
         &mut self,

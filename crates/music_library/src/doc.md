@@ -21,9 +21,9 @@ touches the database; `pawse::library_service` drives scans through
 - `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
 - `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
 - `remote.rs` — the locator format for server tracks (`subsonic://…`).
-- `adoption.rs` — the pure matching that re-attaches moved files to their old
-  items (`match_arrivals`), plus `normalize_tag`, the one tag normalization
-  shared with the scrobble like-import.
+- `adoption.rs` — the pure matching that decides which files are the same track
+  (`match_tracks`), plus `normalize_tag`, the one tag normalization shared with
+  the scrobble like-import.
 - `album_artists.rs` — deriving an album's credited artists from its tracks.
 - `thumbnail.rs` — cover thumbnail generation.
 - `error.rs` — `LibraryError`.
@@ -74,7 +74,13 @@ nothing matches. That is what makes the placeholder self-healing: the first real
 scan after migration moves every binding onto the right folder without a
 separate step. That scan must actually happen: `has_unplaced_media()` reports
 present bindings still on the placeholder, and `library_service` skips the
-fast path while it is true.
+fast path while it is true. So `finish` retires (`present = 0`) every placeholder
+binding that is under no enabled root, or under an available one (which this scan
+walked completely and did not find it in). Only bindings under an offline folder
+stay unplaced. A liked file deleted before the upgrade would otherwise keep the
+fast path off forever. Retiring loses nothing: the placeholder is disabled, so
+`present` there affects neither playback nor matching, and a file that comes back
+is still found by its key and moved onto its folder.
 
 ## Offline folders
 
@@ -82,8 +88,9 @@ fast path while it is true.
 folder that cannot be listed, or is empty while bindings under it are still
 present (an unmounted mount point), is *unavailable*. The scan goes ahead over
 the rest. The unavailable folder's source gets `available = 0`, its bindings are
-not retired, and its items are neither swept nor offered for adoption — offline
-is not the same as deleted. Its tracks drop out of the catalog (the scan did not
+not retired and its items are not swept — offline is not the same as deleted.
+They stay candidates for matching, though: the same file showing up somewhere
+else (the folder renamed on disk and added again, a backup copy) joins them. Its tracks drop out of the catalog (the scan did not
 re-add them), so they disappear from the library screens and show as unavailable
 in playlists and likes until the folder is back; then the next scan finds every
 binding by path and they return under the same ids.
@@ -96,75 +103,114 @@ The fast-path key (`scan_meta.folders`) marks offline folders with a `?` prefix,
 so going offline and coming back each force one real scan. With every folder
 online the key is the same plain sorted list it always was.
 
-## Moved and renamed files: adoption
+## Identity across sources
 
-A scanned file whose `(path, start_offset_ms)` has no binding is an *arrival*.
-Before minting a new item for it, the session looks for an *orphan* to re-attach
-it to: an item that has no binding seen by this scan and no present binding on an
-enabled source this scan did not cover (an offline folder, later a server).
-Orphans include items without user data too, so an ordinary move keeps its id
-(the persisted queue and the web remote hold ids).
+**The rule.** An item has at most one live binding per source. Two files in one
+source are two items (a copy next to its original stays a separate track); the
+same recording in different sources — two folders, a folder and a server, two
+servers — is one item with one binding in each. Which binding plays and names
+the catalog row is priority, not identity: local folders, then Subsonic, then
+anything else, each by source id (`project_remote_tracks`, `playback_locators`,
+`ScanSession::place`).
 
-Orphans are only known once the scan has seen everything, so while the database
-already has items, arrivals are held in memory and settled in `finish`. On a
-fresh database there is nothing to adopt and arrivals are inserted directly —
-that keeps the first scan of a big library from buffering all of it.
+**What a match needs.** Only what is in the database, so a source that is
+offline, disabled or gone still takes part:
 
-`adoption::match_arrivals` runs three tiers, strongest first, each over every
-unmatched arrival before the next tier starts:
+- `media_bindings.file_size` (from the indexer's stat, from the server's `size`)
+  with the cue offset — the same bytes, even untagged;
+- the `media_items` snapshot (first artist, title, album, duration), which
+  `refresh_item_snapshots` keeps current while an item is seen and which
+  freezes when it is not.
 
-1. `path` — same path relative to its folder root and same cue offset, duration
-   within 2 s when both are known. Covers a library moved to a new mount point,
-   including untagged files.
-2. `tags` — normalized first artist + title + album, duration within 5 s when
-   both are known.
-3. `title` — normalized first artist + title, duration within 5 s and required.
+Relative paths are not used: a server's path is its own invention, and anything
+a path found between folders the size finds too.
 
-Tag tiers need a non-empty artist: an untagged file's title is its file name,
-and matching those across folders would pair unrelated `01.flac`s. Orphan tags
-come from the `media_items` snapshot, which `refresh_item_snapshots` keeps
-current for every live item — so no match keys are stored, none go stale after a
-tag edit, and none are lost when a source's bindings go. Among candidates the
-closest duration wins, then the lowest item id; an adopted orphan leaves the
-pool. Ambiguity picks the best candidate instead of giving up: a wrongly
-restored like is visible and one click to undo, a missed one is silent.
+`adoption::match_tracks` runs three tiers, strongest first, each over every
+unmatched track before the next starts:
 
-Adoption only ever inserts a binding (plus an `adoptions` row with the tier);
-it never writes a user row and never merges two live items — a copy next to its
-original is an arrival while the original is seen, so it gets its own item.
+1. `file` — a shared `(size, cue offset)`, duration within 2 s when both are
+   known.
+2. `tags` — normalized first artist (or an alias) + title + album, duration
+   within 5 s when both are known. The same size wins among several, then the
+   closest duration, then the lowest id.
+3. `title` — normalized artist + title, duration within 5 s and required, and
+   only for a candidate with no present binding at all (truly dead). An offline
+   item is never merged with another recording that merely shares a title.
 
-An adopted item keeps its old, retired binding, so the old file can come back
-(restored from the trash, a folder re-added) while the new one is still there.
-Both then resolve to the same item, and `tracks.id` can hold only one of them.
-The session tracks which items it has already written (`written`); a second file
-resolving to a written item has its old binding dropped and gets a fresh item.
-One of the two keeps the id and the user data, the other is an ordinary new
-track — neither disappears from the library.
+A candidate that already has a live binding in the arriving track's source is
+skipped. Within a tier every passing pair is ranked first (same file, then
+closest duration, then lowest id) and assigned best-first, so the order tracks
+arrive in never decides who gets a candidate; a claimed candidate leaves the
+pool. Tag tiers need a non-empty
+artist, so untagged `01.flac`s only ever match by size.
+
+**When matching runs — two events.**
+
+- *Birth*: a file or song the source has no binding for. Local arrivals are held
+  until `finish` (the candidates are only known once the scan has seen
+  everything; on an empty database with one folder there is nothing to match and
+  they are inserted directly) and settled source by source in id order, so a
+  second new folder in the same scan sees the items the first one just created.
+  Server arrivals are matched in `apply_remote_listing`. Candidates are all
+  items, live, dead or offline. A match only inserts a binding and an
+  `adoptions` row.
+- *Death*: after local bindings are retired, `revive_lost_items` takes the items
+  that carry user data and have no playable binding left (file deleted, folder
+  offline or removed, server gone) and matches them against the playable items
+  that carry none. A match *absorbs* the spare item: its `tracks` row, catalog
+  links, disk lyrics and bindings move to the lost item's id (foreign keys
+  deferred for the move) and the empty item is deleted. Nothing user-side is
+  merged — the absorbed item had none. This covers a copy made before the
+  original went away, and a copy that only existed as a separate item because
+  its tags differed.
+
+Everything is loaded once per pass (`load_identities`: items, bindings with
+their source state, and the set with user data) and matched in memory, so a
+pass costs two queries whatever the library size.
+
+Two items that are both alive and both missed each other (older data, a tag
+edit that made them equal later) are never merged automatically; that is for a
+manual screen.
+
+**One row per item.** A second binding of an item already written this scan
+(the same file in another folder) does not write another row — unless its source
+has priority, and then the row is rewritten from that file entirely (tags, year,
+cover, `is_cue`, disk lyrics), so the row never depends on which file the
+parallel indexer delivered first. A second binding in a source the item was
+already placed in this scan (`placed`: an adopted item whose old file came back
+from the trash) gets its old binding dropped and a fresh item, so neither file
+disappears from the library. The same `(path, start_offset_ms)` delivered twice in
+one scan is not such a case: nested folders in the settings walk the file twice,
+and two cue sheets for one image yield the same tracks twice. `seen` drops the
+repeat before anything else, or it would split off a fresh item every scan and
+leave the catalog row on an item without a binding.
 
 A held arrival that fails to write is logged and skipped, as `add_track` errors
 always were; it must not fail `finish`, or retire, sweep and the fingerprint would
 never run again for as long as that file is there.
 
-### Reviving from files already in the library
-
-Arrival matching only sees new files. A copy made *before* the original went
-away was an arrival while the original was still seen, so it got its own item;
-once the original is deleted its like is dead and the copy is no longer new. So
-whenever a scan had at least one arrival, `revive_orphans_from_library` runs a
-second pass: the orphans that still carry user data are matched, with the same
-tiers, against every track in the catalog that carries none
-(`UNCLAIMED_TRACKS`). A match *absorbs* the live item into the orphan: its
-`tracks` row, catalog links, disk lyrics and bindings move to the orphan's id
-(foreign keys deferred for the move), and the now-empty item is deleted. Nothing
-user-side is merged — the absorbed item had none — and the queue finds the file
-again by path. It costs one query per side and an in-memory match, and a scan
-without new files never runs it.
-
-The scan writer opens its batches with `BEGIN IMMEDIATE`. The adoption passes
+The scan writer opens its batches with `BEGIN IMMEDIATE`. The matching passes
 start a batch with reads; in WAL mode a deferred transaction that reads, sees the
 UI commit a like, and then writes fails with `SQLITE_BUSY_SNAPSHOT`, which the
 busy timeout does not retry. Taking the write lock up front makes the UI wait
-instead.
+instead. A batch opens only when there is something to write (a held arrival
+writes nothing) and closes after 256 writes or 250 ms, and `library_service`
+calls `flush` whenever it has caught up with the indexer (its channel is empty).
+So the lock is not held while the indexer parses the next files, and other
+writers — a like, a server listing — get in between batches. `finish` is one transaction: absorbing an item moves rows
+under deferred foreign keys, which only works inside one, and a server listing
+that got in while held arrivals are being settled would not see them and mint a
+second item for a song whose local copy is about to be written. The price is
+that `finish` holds the lock for as long as writing every held arrival takes —
+about 65 ms for 2000 new files, seconds for a first scan of tens of thousands,
+during which a like waits on the busy timeout.
+
+The UI-side writers that read before they write (`set_liked`, `like_many`,
+`add_track_to_playlist`, `remove_track_from_playlist`, `move_track_in_playlist`)
+open their transaction with `BEGIN IMMEDIATE` for the same reason: a deferred
+transaction that already read is refused `SQLITE_BUSY` at once while a scan batch
+or a server listing holds the lock, without the busy timeout ever waiting, and the
+like was silently lost.
 
 ## Server sources (Subsonic)
 
@@ -179,21 +225,16 @@ covers arrive with the listing and are inserted in the same transaction, so the
 orphan-cover sweep of a concurrent scan cannot delete them before `remote_tracks`
 names them; known songs refresh their `remote_tracks` row (the upsert only writes
 when something differs, which is how `RemoteSyncReport::changed` knows whether a
-rescan is needed); songs no longer listed get `present = 0`; new songs go through
-the same `match_arrivals` tiers against **every item except those this listing
-already accounts for** — so a song the server renamed (new id) finds its old
-item. An empty listing while the server still had present songs is refused, not
+rescan is needed); songs no longer listed get `present = 0`; new songs are born
+against every item that has no binding this listing accounts for — so a song
+the server renamed (new id) finds its old item. An empty listing while the server still had present songs is refused, not
 applied: a server whose library is unmounted must not retire everything.
 
-Candidates carry a `live` flag (the item plays from some other enabled source).
-A live candidate can only be claimed by the `path` or `tags` tier; the
-artist-and-title tier is for dead items only, or a live recording on the server
-would hide the studio one on disk. Server songs also carry artist aliases (the
-joined display name and the other credited artists), because Navidrome splits
-"A feat. B" into two artists that a local file keeps as one string. That is the dedupe: a server copy of a file you already have lands as a
-second binding on the same item (the server's `path` is library-relative, so
-the `path` tier usually hits), and one item still means one catalog row. It
-never touches user rows, and never merges two items.
+Server songs carry artist aliases (the joined display name and the other
+credited artists), because Navidrome splits "A feat. B" into two artists that a
+local file keeps as one string. A server copy of a file you already have lands
+as a second binding on the same item — usually by size, since `download` serves
+the original bytes — and one item still means one catalog row.
 
 `remote_tracks` is the server listing cached per binding (tags, duration, suffix,
 the cover's content hash). The catalog is still cleared and refilled by every
@@ -204,6 +245,19 @@ a server going away hides only what it alone provided, and projecting needs no
 network. Server rows use a locator path, `subsonic://<source_id>/<song_id>.<suffix>`
 (`remote.rs`); the suffix is there because the decoder picks a backend by
 extension.
+
+Servers that do not read cue sheets (Navidrome) list a whole-disc image as one
+song, while the local scan splits the same file into its cue tracks. Such a song
+never matches anything (no single track lasts a whole disc), so the projection
+skips a server binding whose item has no binding elsewhere and whose `file_size`
+equals a cue track's (`start_offset_ms > 0`) that is playable in another source
+(enabled, available, present). While that folder is offline, removed, or the cue
+image is gone, the server image shows up as one long track instead. A server that does
+split cues lists every track with the image's size and no offset, so file keys
+say whether they name a whole file or a cue piece (`WHOLE_FILE` vs the offset;
+a local binding is a piece when its file has any track at an offset). Server
+songs are always whole files, so they never file-match a local cue track and
+join it by tags instead.
 
 `playback_locators(item)` lists every place an item can play from right now —
 present bindings on enabled, available sources, local ones first, server ones as

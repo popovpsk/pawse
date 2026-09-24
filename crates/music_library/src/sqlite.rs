@@ -8,7 +8,7 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::adoption::{Arrival, Orphan, Tier, match_arrivals};
+use crate::adoption::{Descriptor, Tier, WHOLE_FILE, match_tracks};
 use crate::album_artists::{AlbumTrackArtists, derive_album_artists};
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
@@ -23,6 +23,7 @@ use crate::repository::{LibraryRepository, ScanWrite};
 /// Tracks committed per transaction during a batched scan. One `fsync` per
 /// batch (with `synchronous = NORMAL`) instead of one per track.
 const SCAN_BATCH_SIZE: usize = 256;
+const SCAN_BATCH_TIME: std::time::Duration = std::time::Duration::from_millis(250);
 
 const TRACK_COLUMNS: &str = "id, path, title, album_id, track_number, disc_number, \
     duration_ms, year, cover_art_id, start_offset_ms, \
@@ -225,19 +226,14 @@ const RETIRE_UNSEEN_LOCAL_BINDINGS: &str = "UPDATE media_bindings SET present = 
     WHERE present = 1 AND last_seen_scan <> ?1 \
     AND source_id IN (SELECT id FROM sources WHERE kind = 'local' AND enabled = 1 AND available = 1)";
 
-const ORPHANED_ITEMS: &str = "SELECT m.id, m.title, m.artist, m.album, m.duration_ms, \
-    EXISTS(SELECT 1 FROM media_bindings l JOIN sources ls ON ls.id = l.source_id \
-        WHERE l.item_id = m.id AND l.present = 1 AND ls.enabled = 1 AND ls.available = 1 \
-        AND ls.kind <> 'local') \
-    FROM media_items m WHERE NOT EXISTS ( \
-        SELECT 1 FROM media_bindings b JOIN sources s ON s.id = b.source_id \
-        WHERE b.item_id = m.id AND s.kind = 'local' AND (b.last_seen_scan = ?1 \
-            OR (s.enabled = 1 AND b.present = 1 AND s.available = 0)))";
+const IDENTITY_ITEMS: &str =
+    "SELECT id, title, artist, album, duration_ms FROM media_items ORDER BY id";
 
-const REMOTE_MATCH_CANDIDATES: &str = "SELECT m.id, m.title, m.artist, m.album, m.duration_ms, \
-    EXISTS(SELECT 1 FROM media_bindings b JOIN sources s ON s.id = b.source_id \
-        WHERE b.item_id = m.id AND b.present = 1 AND s.enabled = 1 AND b.source_id <> ?1) \
-    FROM media_items m";
+const IDENTITY_BINDINGS: &str = "SELECT b.id, b.item_id, b.source_id, s.kind = 'local', \
+    s.enabled, s.available, b.present, b.last_seen_scan, b.file_size, b.start_offset_ms, \
+    b.start_offset_ms > 0 OR EXISTS (SELECT 1 FROM media_bindings o \
+        WHERE o.source_key = b.source_key AND o.start_offset_ms > 0 AND o.source_id = b.source_id) \
+    FROM media_bindings b JOIN sources s ON s.id = b.source_id";
 
 const UPSERT_REMOTE_TRACK: &str = "INSERT INTO remote_tracks \
     (binding_id, title, artist, album, album_artist, track_number, disc_number, year, genre, \
@@ -268,25 +264,26 @@ const PROJECTABLE_REMOTE_TRACKS: &str = "SELECT b.item_id, b.source_id, b.source
     FROM remote_tracks rt JOIN media_bindings b ON b.id = rt.binding_id \
     JOIN sources s ON s.id = b.source_id \
     WHERE b.present = 1 AND s.enabled = 1 AND s.available = 1 \
-    ORDER BY b.item_id, b.id";
+    AND (b.file_size IS NULL \
+        OR EXISTS (SELECT 1 FROM media_bindings o WHERE o.item_id = b.item_id \
+            AND o.source_id <> b.source_id) \
+        OR NOT EXISTS (SELECT 1 FROM media_bindings c JOIN sources cs ON cs.id = c.source_id \
+            WHERE c.file_size = b.file_size AND c.start_offset_ms > 0 AND c.present = 1 \
+            AND c.source_id <> b.source_id AND cs.enabled = 1 AND cs.available = 1)) \
+    ORDER BY b.item_id, CASE s.kind WHEN 'subsonic' THEN 1 ELSE 2 END, s.id, b.id";
 
 const ITEMS_WITH_USER_DATA: &str = "SELECT track_id FROM playlist_tracks \
     UNION SELECT track_id FROM lyrics WHERE source NOT IN ('lrc', 'embedded') \
     UNION SELECT track_id FROM plays WHERE track_id IS NOT NULL \
     UNION SELECT track_id FROM loves WHERE track_id IS NOT NULL";
 
-const UNCLAIMED_TRACKS: &str = "SELECT t.id, t.title, \
-    COALESCE((SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id \
-        WHERE ta.track_id = t.id ORDER BY ta.position LIMIT 1), ''), \
-    (SELECT al.title FROM albums al WHERE al.id = t.album_id), \
-    t.duration_ms, t.path, t.start_offset_ms \
-    FROM tracks t \
-    WHERE NOT EXISTS (SELECT 1 FROM playlist_tracks WHERE track_id = t.id) \
-    AND NOT EXISTS (SELECT 1 FROM lyrics WHERE track_id = t.id \
-        AND source NOT IN ('lrc', 'embedded')) \
-    AND NOT EXISTS (SELECT 1 FROM plays WHERE track_id = t.id) \
-    AND NOT EXISTS (SELECT 1 FROM loves WHERE track_id = t.id) \
-    ORDER BY t.path, t.start_offset_ms";
+const UNWRITE_TRACK: [&str; 5] = [
+    "DELETE FROM track_artists WHERE track_id = ?1",
+    "DELETE FROM track_album_artists WHERE track_id = ?1",
+    "DELETE FROM track_genres WHERE track_id = ?1",
+    "DELETE FROM lyrics WHERE track_id = ?1 AND source IN ('lrc', 'embedded')",
+    "DELETE FROM tracks WHERE id = ?1",
+];
 
 const ABSORB_ITEM: [&str; 9] = [
     "UPDATE tracks SET id = ?1 WHERE id = ?2",
@@ -302,10 +299,6 @@ const ABSORB_ITEM: [&str; 9] = [
     "DELETE FROM adoptions WHERE item_id = ?2",
     "DELETE FROM media_items WHERE id = ?2",
 ];
-
-const LOCAL_BINDING_LOCATIONS: &str = "SELECT b.item_id, b.source_key, b.start_offset_ms, s.uri \
-    FROM media_bindings b JOIN sources s ON s.id = b.source_id \
-    WHERE s.kind = 'local' AND s.uri <> ''";
 
 const SWEEP_UNREFERENCED_ITEMS: &str = "DELETE FROM media_items WHERE \
     NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.id = media_items.id) \
@@ -438,16 +431,18 @@ fn create_liked_playlist(conn: &Connection) -> Result<i64> {
 struct LocalRoot {
     path: PathBuf,
     source_id: i64,
+    available: bool,
 }
 
 fn load_local_roots(conn: &Connection) -> Result<Vec<LocalRoot>> {
-    let mut stmt =
-        conn.prepare("SELECT id, uri FROM sources WHERE kind = 'local' AND enabled = 1")?;
+    let mut stmt = conn
+        .prepare("SELECT id, uri, available FROM sources WHERE kind = 'local' AND enabled = 1")?;
     let mut roots = stmt
         .query_map([], |row| {
             Ok(LocalRoot {
                 source_id: row.get(0)?,
                 path: PathBuf::from(row.get::<_, String>(1)?),
+                available: row.get(2)?,
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -464,13 +459,6 @@ fn source_for_path(roots: &[LocalRoot], path: &str) -> i64 {
     root_for_path(roots, path).map_or(PLACEHOLDER_SOURCE_ID, |root| root.source_id)
 }
 
-fn relative_path(root: &Path, path: &str) -> Option<String> {
-    Path::new(path)
-        .strip_prefix(root)
-        .ok()
-        .map(|rel| rel.to_string_lossy().into_owned())
-}
-
 struct ItemSnapshot<'a> {
     title: &'a str,
     artist: &'a str,
@@ -479,48 +467,125 @@ struct ItemSnapshot<'a> {
     cover_art_id: Option<i64>,
 }
 
-fn load_candidates(conn: &Connection, sql: &str, param: i64) -> Result<Vec<Orphan>> {
-    let mut orphans = {
-        let mut stmt = conn.prepare(sql)?;
-        stmt.query_map([param], |row| {
-            Ok(Orphan {
+struct BindingFacts {
+    binding_id: i64,
+    source_id: i64,
+    local: bool,
+    enabled: bool,
+    available: bool,
+    present: bool,
+    last_seen_scan: i64,
+    file_size: Option<i64>,
+    start_offset_ms: i64,
+    cue: bool,
+}
+
+struct Identity {
+    item_id: i64,
+    title: String,
+    artist: String,
+    album: Option<String>,
+    duration_ms: Option<i64>,
+    bindings: Vec<BindingFacts>,
+    cherished: bool,
+}
+
+impl Identity {
+    fn descriptor(&self, occupies: &dyn Fn(&BindingFacts) -> bool) -> Descriptor {
+        let mut sources: Vec<i64> = self
+            .bindings
+            .iter()
+            .filter(|b| occupies(b))
+            .map(|b| b.source_id)
+            .collect();
+        sources.sort_unstable();
+        sources.dedup();
+        Descriptor {
+            item_id: self.item_id,
+            title: self.title.clone(),
+            artist: self.artist.clone(),
+            artist_aliases: Vec::new(),
+            album: self.album.clone(),
+            duration_ms: self.duration_ms,
+            files: self
+                .bindings
+                .iter()
+                .filter_map(|b| {
+                    b.file_size
+                        .map(|size| (size, file_piece(b.cue, b.start_offset_ms)))
+                })
+                .collect(),
+            live: !sources.is_empty(),
+            sources,
+        }
+    }
+
+    fn playable(&self) -> bool {
+        self.bindings
+            .iter()
+            .any(|b| b.enabled && b.available && b.present)
+    }
+}
+
+fn file_piece(cue: bool, start_offset_ms: i64) -> i64 {
+    if cue { start_offset_ms } else { WHOLE_FILE }
+}
+
+fn load_identities(conn: &Connection) -> Result<Vec<Identity>> {
+    let mut identities: Vec<Identity> = {
+        let mut stmt = conn.prepare(IDENTITY_ITEMS)?;
+        stmt.query_map([], |row| {
+            Ok(Identity {
                 item_id: row.get(0)?,
                 title: row.get(1)?,
                 artist: row.get(2)?,
                 album: row.get(3)?,
                 duration_ms: row.get(4)?,
-                locations: Vec::new(),
-                live: row.get(5)?,
+                bindings: Vec::new(),
+                cherished: false,
             })
         })?
-        .collect::<std::result::Result<Vec<_>, _>>()?
+        .collect::<std::result::Result<_, _>>()?
     };
-    if orphans.is_empty() {
-        return Ok(orphans);
-    }
-    let by_item: HashMap<i64, usize> = orphans
+    let by_item: HashMap<i64, usize> = identities
         .iter()
         .enumerate()
-        .map(|(ix, orphan)| (orphan.item_id, ix))
+        .map(|(ix, identity)| (identity.item_id, ix))
         .collect();
-    let mut stmt = conn.prepare(LOCAL_BINDING_LOCATIONS)?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, String>(3)?,
-        ))
-    })?;
-    for row in rows {
-        let (item_id, path, start_offset_ms, root) = row?;
-        if let Some(&ix) = by_item.get(&item_id)
-            && let Some(rel) = relative_path(Path::new(&root), &path)
-        {
-            orphans[ix].locations.push((rel, start_offset_ms));
+    {
+        let mut stmt = conn.prepare(IDENTITY_BINDINGS)?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(1)?,
+                BindingFacts {
+                    binding_id: row.get(0)?,
+                    source_id: row.get(2)?,
+                    local: row.get(3)?,
+                    enabled: row.get(4)?,
+                    available: row.get(5)?,
+                    present: row.get(6)?,
+                    last_seen_scan: row.get(7)?,
+                    file_size: row.get(8)?,
+                    start_offset_ms: row.get(9)?,
+                    cue: row.get(10)?,
+                },
+            ))
+        })?;
+        for row in rows {
+            let (item_id, facts) = row?;
+            if let Some(&ix) = by_item.get(&item_id) {
+                identities[ix].bindings.push(facts);
+            }
         }
     }
-    Ok(orphans)
+    let mut stmt = conn.prepare(ITEMS_WITH_USER_DATA)?;
+    let cherished = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+    for item_id in cherished {
+        if let Some(&ix) = by_item.get(&item_id?) {
+            identities[ix].cherished = true;
+        }
+    }
+    Ok(identities)
 }
 
 fn upsert_remote_track(conn: &Connection, binding_id: i64, song: &RemoteSong) -> Result<usize> {
@@ -595,21 +660,20 @@ fn apply_remote_listing(
         ..Default::default()
     };
     let mut seen: Vec<i64> = Vec::with_capacity(songs.len());
-    let mut seen_items: std::collections::HashSet<i64> = std::collections::HashSet::new();
     let mut arrivals: Vec<&RemoteSong> = Vec::new();
     for song in songs {
         match known.get(&song.key) {
-            Some(&(binding_id, item_id, present)) => {
+            Some(&(binding_id, _, present)) => {
                 if !present {
                     report.revived += 1;
                 }
                 tx.execute(
-                    "UPDATE media_bindings SET present = 1, last_seen_at = ?1 WHERE id = ?2",
-                    rusqlite::params![now, binding_id],
+                    "UPDATE media_bindings SET present = 1, last_seen_at = ?1, file_size = ?2 \
+                     WHERE id = ?3",
+                    rusqlite::params![now, song.size, binding_id],
                 )?;
                 report.updated += upsert_remote_track(&tx, binding_id, song)?;
                 seen.push(binding_id);
-                seen_items.insert(item_id);
             }
             None => arrivals.push(song),
         }
@@ -617,32 +681,41 @@ fn apply_remote_listing(
     arrivals.sort_by(|a, b| a.key.cmp(&b.key));
     arrivals.dedup_by(|a, b| a.key == b.key);
     if !arrivals.is_empty() {
-        let mut candidates = load_candidates(&tx, REMOTE_MATCH_CANDIDATES, source_id)?;
-        candidates.retain(|candidate| !seen_items.contains(&candidate.item_id));
-        let descriptors: Vec<Arrival> = arrivals
+        let seen_bindings: std::collections::HashSet<i64> = seen.iter().copied().collect();
+        let occupies = |b: &BindingFacts| {
+            b.enabled
+                && if b.source_id == source_id {
+                    seen_bindings.contains(&b.binding_id)
+                } else {
+                    b.present
+                }
+        };
+        let candidates: Vec<Descriptor> = load_identities(&tx)?
             .iter()
-            .map(|song| Arrival {
-                rel_path: song
-                    .rel_path
-                    .as_deref()
-                    .map(|p| p.trim_start_matches('/').to_string()),
-                start_offset_ms: 0,
+            .map(|identity| identity.descriptor(&occupies))
+            .collect();
+        let descriptors: Vec<Descriptor> = arrivals
+            .iter()
+            .map(|song| Descriptor {
                 title: song.title.clone(),
                 artist: song.artist.clone().unwrap_or_default(),
                 artist_aliases: song.artist_aliases.clone(),
                 album: song.album.clone(),
                 duration_ms: song.duration_ms,
+                files: song
+                    .size
+                    .map(|size| (size, WHOLE_FILE))
+                    .into_iter()
+                    .collect(),
+                sources: vec![source_id],
+                ..Default::default()
             })
             .collect();
-        let assignments = if candidates.is_empty() {
-            vec![None; arrivals.len()]
-        } else {
-            match_arrivals(&descriptors, &candidates)
-        };
+        let assignments = match_tracks(&descriptors, &candidates);
         for (song, assignment) in arrivals.into_iter().zip(assignments) {
             let binding_id = match assignment {
                 Some((item_id, tier)) => {
-                    let binding_id = bind_item(&tx, item_id, source_id, &song.key, 0, 0)?;
+                    let binding_id = bind_item(&tx, item_id, &remote_spec(source_id, song))?;
                     tx.execute(
                         "INSERT INTO adoptions (item_id, binding_id, tier, at) \
                          VALUES (?1, ?2, ?3, ?4)",
@@ -654,9 +727,7 @@ fn apply_remote_listing(
                 None => {
                     let (binding_id, _) = create_item(
                         &tx,
-                        source_id,
-                        &song.key,
-                        0,
+                        &remote_spec(source_id, song),
                         &ItemSnapshot {
                             title: &song.title,
                             artist: song.artist.as_deref().unwrap_or(""),
@@ -664,7 +735,6 @@ fn apply_remote_listing(
                             duration_ms: song.duration_ms,
                             cover_art_id: None,
                         },
-                        0,
                     )?;
                     report.added += 1;
                     binding_id
@@ -689,25 +759,38 @@ fn apply_remote_listing(
     Ok(report)
 }
 
-fn bind_item(
-    conn: &Connection,
-    item_id: i64,
+fn remote_spec(source_id: i64, song: &RemoteSong) -> BindingSpec<'_> {
+    BindingSpec {
+        source_id,
+        key: &song.key,
+        start_offset_ms: 0,
+        file_size: song.size,
+        scan_id: 0,
+    }
+}
+
+struct BindingSpec<'a> {
     source_id: i64,
-    path: &str,
+    key: &'a str,
     start_offset_ms: i64,
+    file_size: Option<i64>,
     scan_id: i64,
-) -> Result<i64> {
+}
+
+fn bind_item(conn: &Connection, item_id: i64, spec: &BindingSpec<'_>) -> Result<i64> {
     conn.execute(
         "INSERT INTO media_bindings \
-         (item_id, source_id, source_key, start_offset_ms, present, last_seen_scan, last_seen_at) \
-         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
+         (item_id, source_id, source_key, start_offset_ms, present, last_seen_scan, last_seen_at, \
+          file_size) \
+         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7)",
         rusqlite::params![
             item_id,
-            source_id,
-            path,
-            start_offset_ms,
-            scan_id,
-            unix_now()
+            spec.source_id,
+            spec.key,
+            spec.start_offset_ms,
+            spec.scan_id,
+            unix_now(),
+            spec.file_size
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -715,11 +798,8 @@ fn bind_item(
 
 fn create_item(
     conn: &Connection,
-    source_id: i64,
-    path: &str,
-    start_offset_ms: i64,
+    spec: &BindingSpec<'_>,
     snapshot: &ItemSnapshot<'_>,
-    scan_id: i64,
 ) -> Result<(i64, i64)> {
     let now = unix_now();
     conn.execute(
@@ -736,7 +816,7 @@ fn create_item(
         ],
     )?;
     let item_id = conn.last_insert_rowid();
-    let binding_id = bind_item(conn, item_id, source_id, path, start_offset_ms, scan_id)?;
+    let binding_id = bind_item(conn, item_id, spec)?;
     Ok((binding_id, item_id))
 }
 
@@ -765,7 +845,17 @@ fn resolve_local_item(
     }
     let roots = load_local_roots(conn)?;
     let source_id = source_for_path(&roots, path);
-    let (_, item_id) = create_item(conn, source_id, path, start_offset_ms, snapshot, 0)?;
+    let (_, item_id) = create_item(
+        conn,
+        &BindingSpec {
+            source_id,
+            key: path,
+            start_offset_ms,
+            file_size: None,
+            scan_id: 0,
+        },
+        snapshot,
+    )?;
     Ok(item_id)
 }
 
@@ -1789,7 +1879,7 @@ impl LibraryRepository for SqliteLibrary {
     fn set_liked(&self, track_id: i64, liked: bool) -> Result<()> {
         let liked_playlist_id = self.liked_playlist_id;
         let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if liked {
             let next_position: i64 = tx
                 .query_row(
@@ -1833,7 +1923,7 @@ impl LibraryRepository for SqliteLibrary {
         }
         let liked_playlist_id = self.liked_playlist_id;
         let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut next_position: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
@@ -1935,7 +2025,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let next_position: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
@@ -1956,7 +2046,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         // Remove the lowest-position occurrence of the track (Spotify-ish: if
         // the same track is in the playlist multiple times, removes one copy).
         let position: Option<i64> = tx
@@ -1990,7 +2080,7 @@ impl LibraryRepository for SqliteLibrary {
             return Ok(());
         }
         let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut ids: Vec<i64> = {
             let mut stmt = tx.prepare(
                 "SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position",
@@ -2346,7 +2436,8 @@ impl LibraryRepository for SqliteLibrary {
              FROM media_bindings b JOIN sources s ON s.id = b.source_id \
              LEFT JOIN remote_tracks rt ON rt.binding_id = b.id \
              WHERE b.item_id = ?1 AND b.present = 1 AND s.enabled = 1 AND s.available = 1 \
-             ORDER BY s.kind <> 'local', b.id",
+             ORDER BY CASE s.kind WHEN 'local' THEN 0 WHEN 'subsonic' THEN 1 ELSE 2 END, \
+             s.id, b.id",
         )?;
         let rows = stmt.query_map([item_id], |row| {
             let kind: String = row.get(0)?;
@@ -2681,6 +2772,8 @@ impl SqliteLibrary {
 pub struct ScanSession {
     conn: Connection,
     in_tx: bool,
+    tx_started: std::time::Instant,
+    finishing: bool,
     uncommitted: usize,
     artist_cache: HashMap<String, i64>,
     genre_cache: HashMap<String, i64>,
@@ -2691,7 +2784,9 @@ pub struct ScanSession {
     bindings: HashMap<(String, i64), (i64, i64)>,
     scan_id: i64,
     arrivals: Option<Vec<ScanTrack>>,
-    written: std::collections::HashSet<i64>,
+    written: HashMap<i64, i64>,
+    placed: std::collections::HashSet<(i64, i64)>,
+    seen: std::collections::HashSet<(String, i64)>,
 }
 
 impl ScanSession {
@@ -2740,10 +2835,13 @@ impl ScanSession {
             conn.query_row("SELECT EXISTS(SELECT 1 FROM media_items)", [], |row| {
                 row.get(0)
             })?;
+        let hold_arrivals = has_items || roots.len() > 1;
 
-        let mut session = Self {
+        let session = Self {
             conn,
             in_tx: false,
+            tx_started: std::time::Instant::now(),
+            finishing: false,
             uncommitted: 0,
             artist_cache: HashMap::new(),
             genre_cache: HashMap::new(),
@@ -2753,10 +2851,11 @@ impl ScanSession {
             roots,
             bindings,
             scan_id,
-            arrivals: has_items.then(Vec::new),
-            written: std::collections::HashSet::new(),
+            arrivals: hold_arrivals.then(Vec::new),
+            written: HashMap::new(),
+            placed: std::collections::HashSet::new(),
+            seen: std::collections::HashSet::new(),
         };
-        session.begin()?;
         Ok(session)
     }
 
@@ -2764,6 +2863,7 @@ impl ScanSession {
         if !self.in_tx {
             self.conn.execute_batch("BEGIN IMMEDIATE")?;
             self.in_tx = true;
+            self.tx_started = std::time::Instant::now();
         }
         Ok(())
     }
@@ -2779,9 +2879,10 @@ impl ScanSession {
 
     fn maybe_commit(&mut self) -> Result<()> {
         self.uncommitted += 1;
-        if self.uncommitted >= SCAN_BATCH_SIZE {
+        if !self.finishing
+            && (self.uncommitted >= SCAN_BATCH_SIZE || self.tx_started.elapsed() >= SCAN_BATCH_TIME)
+        {
             self.commit()?;
-            self.begin()?;
         }
         Ok(())
     }
@@ -2855,9 +2956,7 @@ impl ScanSession {
         let title = Self::title_of(track);
         let (binding_id, item_id) = create_item(
             &self.conn,
-            source_for_path(&self.roots, &track.path),
-            &track.path,
-            start_offset_ms,
+            &self.spec(track),
             &ItemSnapshot {
                 title: &title,
                 artist: track.artist_names.first().map_or("", String::as_str),
@@ -2865,7 +2964,6 @@ impl ScanSession {
                 duration_ms: track.duration_ms.map(|n| n as i64),
                 cover_art_id,
             },
-            self.scan_id,
         )?;
         self.bindings
             .insert((track.path.clone(), start_offset_ms), (binding_id, item_id));
@@ -2874,14 +2972,7 @@ impl ScanSession {
 
     fn adopt_item(&mut self, item_id: i64, track: &ScanTrack, tier: Tier) -> Result<()> {
         let start_offset_ms = Self::start_offset(track);
-        let binding_id = bind_item(
-            &self.conn,
-            item_id,
-            source_for_path(&self.roots, &track.path),
-            &track.path,
-            start_offset_ms,
-            self.scan_id,
-        )?;
+        let binding_id = bind_item(&self.conn, item_id, &self.spec(track))?;
         self.conn.execute(
             "INSERT INTO adoptions (item_id, binding_id, tier, at) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![item_id, binding_id, tier.as_str(), unix_now()],
@@ -2891,8 +2982,51 @@ impl ScanSession {
         Ok(())
     }
 
-    fn load_orphans(&self) -> Result<Vec<Orphan>> {
-        load_candidates(&self.conn, ORPHANED_ITEMS, self.scan_id)
+    fn spec<'a>(&self, track: &'a ScanTrack) -> BindingSpec<'a> {
+        BindingSpec {
+            source_id: source_for_path(&self.roots, &track.path),
+            key: &track.path,
+            start_offset_ms: Self::start_offset(track),
+            file_size: track.file_size.map(|size| size as i64),
+            scan_id: self.scan_id,
+        }
+    }
+
+    fn descriptor_of(&self, track: &ScanTrack) -> Descriptor {
+        Descriptor {
+            title: Self::title_of(track),
+            artist: track.artist_names.first().cloned().unwrap_or_default(),
+            artist_aliases: track.artist_names.iter().skip(1).cloned().collect(),
+            album: track.album_title.clone(),
+            duration_ms: track.duration_ms.map(|n| n as i64),
+            files: track
+                .file_size
+                .map(|size| {
+                    (
+                        size as i64,
+                        file_piece(track.is_cue, Self::start_offset(track)),
+                    )
+                })
+                .into_iter()
+                .collect(),
+            sources: vec![source_for_path(&self.roots, &track.path)],
+            ..Default::default()
+        }
+    }
+
+    fn place(&mut self, track: ScanTrack, item_id: i64) -> Result<()> {
+        let source_id = source_for_path(&self.roots, &track.path);
+        self.placed.insert((item_id, source_id));
+        match self.written.get(&item_id) {
+            None => self.write_track(track, item_id),
+            Some(&written_by) if source_id < written_by => {
+                for sql in UNWRITE_TRACK {
+                    self.conn.execute(sql, [item_id])?;
+                }
+                self.write_track(track, item_id)
+            }
+            Some(_) => self.maybe_commit(),
+        }
     }
 
     fn project_remote_tracks(&mut self) -> Result<()> {
@@ -2932,13 +3066,14 @@ impl ScanSession {
                         bitrate: row.get(14)?,
                         is_cue: false,
                         lyrics: None,
+                        file_size: None,
                     },
                 ))
             })?
             .collect::<std::result::Result<_, _>>()?
         };
         for (item_id, mut track) in rows {
-            if self.written.contains(&item_id) {
+            if self.written.contains_key(&item_id) {
                 continue;
             }
             if track
@@ -2953,65 +3088,78 @@ impl ScanSession {
         Ok(())
     }
 
-    fn items_with_user_data(&self) -> Result<std::collections::HashSet<i64>> {
-        let mut stmt = self.conn.prepare(ITEMS_WITH_USER_DATA)?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<std::result::Result<_, _>>()?;
-        Ok(ids)
-    }
-
-    fn absorb_item(&self, live: i64, orphan: i64, tier: Tier) -> Result<()> {
+    fn absorb_item(&mut self, live: i64, orphan: i64, tier: Tier) -> Result<()> {
         self.conn.pragma_update(None, "defer_foreign_keys", "ON")?;
+        let adopted: Vec<i64> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id FROM media_bindings WHERE item_id = ?1")?;
+            stmt.query_map([live], |row| row.get(0))?
+                .collect::<std::result::Result<_, _>>()?
+        };
         for sql in ABSORB_ITEM {
             self.conn.execute(sql, [orphan, live])?;
         }
-        self.conn.execute(
-            "INSERT INTO adoptions (item_id, binding_id, tier, at) \
-             SELECT ?1, id, ?2, ?3 FROM media_bindings WHERE item_id = ?1 AND last_seen_scan = ?4",
-            rusqlite::params![orphan, tier.as_str(), unix_now(), self.scan_id],
-        )?;
+        let now = unix_now();
+        for binding_id in adopted {
+            self.conn.execute(
+                "INSERT INTO adoptions (item_id, binding_id, tier, at) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![orphan, binding_id, tier.as_str(), now],
+            )?;
+        }
+        if let Some(source_id) = self.written.remove(&live) {
+            self.written.insert(orphan, source_id);
+        }
         Ok(())
     }
 
-    fn revive_orphans_from_library(&mut self) -> Result<()> {
-        let with_user_data = self.items_with_user_data()?;
-        let mut orphans = self.load_orphans()?;
-        orphans.retain(|orphan| !orphan.live && with_user_data.contains(&orphan.item_id));
-        if orphans.is_empty() {
-            return Ok(());
-        }
-        let candidates: Vec<(i64, Arrival)> = {
-            let mut stmt = self.conn.prepare(UNCLAIMED_TRACKS)?;
-            stmt.query_map([], |row| {
-                let path: String = row.get(5)?;
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    Arrival {
-                        rel_path: root_for_path(&self.roots, &path)
-                            .and_then(|root| relative_path(&root.path, &path)),
-                        start_offset_ms: row.get(6)?,
-                        title: row.get(1)?,
-                        artist: row.get(2)?,
-                        artist_aliases: Vec::new(),
-                        album: row.get(3)?,
-                        duration_ms: row.get(4)?,
-                    },
-                ))
+    fn retire_unplaced_bindings(&mut self) -> Result<()> {
+        let unplaced: Vec<(i64, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, source_key FROM media_bindings WHERE source_id = ?1 AND present = 1",
+            )?;
+            stmt.query_map([PLACEHOLDER_SOURCE_ID], |row| {
+                Ok((row.get(0)?, row.get(1)?))
             })?
             .collect::<std::result::Result<_, _>>()?
         };
-        let arrivals: Vec<Arrival> = candidates.iter().map(|(_, a)| a.clone()).collect();
-        let assignments = match_arrivals(&arrivals, &orphans);
+        for (binding_id, key) in unplaced {
+            if root_for_path(&self.roots, &key).is_none_or(|root| root.available) {
+                self.conn.execute(
+                    "UPDATE media_bindings SET present = 0 WHERE id = ?1",
+                    [binding_id],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn revive_lost_items(&mut self) -> Result<()> {
+        let identities = load_identities(&self.conn)?;
+        let occupies = |b: &BindingFacts| b.enabled && b.present;
+        let lost: Vec<Descriptor> = identities
+            .iter()
+            .filter(|identity| identity.cherished && !identity.playable())
+            .map(|identity| identity.descriptor(&occupies))
+            .collect();
+        if lost.is_empty() {
+            return Ok(());
+        }
+        let spare: Vec<Descriptor> = identities
+            .iter()
+            .filter(|identity| !identity.cherished && identity.playable())
+            .map(|identity| identity.descriptor(&occupies))
+            .collect();
+        let assignments = match_tracks(&spare, &lost);
         let mut revived = 0usize;
-        for ((live, _), assignment) in candidates.iter().zip(assignments) {
+        for (live, assignment) in spare.iter().zip(assignments) {
             if let Some((orphan, tier)) = assignment {
-                self.absorb_item(*live, orphan, tier)?;
+                self.absorb_item(live.item_id, orphan, tier)?;
                 revived += 1;
             }
         }
         if revived > 0 {
-            log::info!("Re-attached {revived} library files to entries that had lost theirs");
+            log::info!("Re-attached {revived} files to entries that had lost theirs");
         }
         Ok(())
     }
@@ -3021,38 +3169,46 @@ impl ScanSession {
             (a.path.as_str(), Self::start_offset(a)).cmp(&(b.path.as_str(), Self::start_offset(b)))
         });
         tracks.dedup_by(|a, b| a.path == b.path && Self::start_offset(a) == Self::start_offset(b));
-        let orphans = self.load_orphans()?;
-        let assignments = if orphans.is_empty() {
-            vec![None; tracks.len()]
-        } else {
-            let arrivals: Vec<Arrival> = tracks
-                .iter()
-                .map(|track| Arrival {
-                    rel_path: root_for_path(&self.roots, &track.path)
-                        .and_then(|root| relative_path(&root.path, &track.path)),
-                    start_offset_ms: Self::start_offset(track),
-                    title: Self::title_of(track),
-                    artist: track.artist_names.first().cloned().unwrap_or_default(),
-                    artist_aliases: track.artist_names.iter().skip(1).cloned().collect(),
-                    album: track.album_title.clone(),
-                    duration_ms: track.duration_ms.map(|n| n as i64),
-                })
-                .collect();
-            match_arrivals(&arrivals, &orphans)
-        };
+        let mut groups: std::collections::BTreeMap<i64, Vec<ScanTrack>> = Default::default();
+        for track in tracks {
+            groups
+                .entry(source_for_path(&self.roots, &track.path))
+                .or_default()
+                .push(track);
+        }
         let mut adopted = 0usize;
-        for (track, assignment) in tracks.into_iter().zip(assignments) {
-            let path = track.path.clone();
-            let settled = match assignment {
-                Some((item_id, tier)) => self.adopt_item(item_id, &track, tier).map(|()| {
-                    adopted += 1;
-                    item_id
-                }),
-                None => self.mint_item(&track),
-            }
-            .and_then(|item_id| self.write_track(track, item_id));
-            if let Err(e) = settled {
-                log::error!("Failed to insert track {path}: {e}");
+        for (_, group) in groups {
+            let scan_id = self.scan_id;
+            let occupies = |b: &BindingFacts| {
+                b.enabled
+                    && if b.local && b.available {
+                        b.last_seen_scan == scan_id
+                    } else {
+                        b.present
+                    }
+            };
+            let candidates: Vec<Descriptor> = load_identities(&self.conn)?
+                .iter()
+                .map(|identity| identity.descriptor(&occupies))
+                .collect();
+            let arrivals: Vec<Descriptor> = group
+                .iter()
+                .map(|track| self.descriptor_of(track))
+                .collect();
+            let assignments = match_tracks(&arrivals, &candidates);
+            for (track, assignment) in group.into_iter().zip(assignments) {
+                let path = track.path.clone();
+                let settled = match assignment {
+                    Some((item_id, tier)) => self.adopt_item(item_id, &track, tier).map(|()| {
+                        adopted += 1;
+                        item_id
+                    }),
+                    None => self.mint_item(&track),
+                }
+                .and_then(|item_id| self.place(track, item_id));
+                if let Err(e) = settled {
+                    log::error!("Failed to insert track {path}: {e}");
+                }
             }
         }
         if adopted > 0 {
@@ -3064,8 +3220,19 @@ impl ScanSession {
     fn insert_track(&mut self, track: ScanTrack) -> Result<()> {
         let start_offset_ms = Self::start_offset(&track);
         let key = (track.path.clone(), start_offset_ms);
+        if !self.seen.insert(key.clone()) {
+            return Ok(());
+        }
+        let source_id = source_for_path(&self.roots, &track.path);
+        if !self.bindings.contains_key(&key)
+            && let Some(arrivals) = &mut self.arrivals
+        {
+            arrivals.push(track);
+            return Ok(());
+        }
+        self.begin()?;
         let item_id = if let Some(&(binding_id, item_id)) = self.bindings.get(&key)
-            && self.written.contains(&item_id)
+            && self.placed.contains(&(item_id, source_id))
         {
             self.conn
                 .execute("DELETE FROM media_bindings WHERE id = ?1", [binding_id])?;
@@ -3074,26 +3241,25 @@ impl ScanSession {
         } else if let Some(&(binding_id, item_id)) = self.bindings.get(&key) {
             self.conn.execute(
                 "UPDATE media_bindings SET present = 1, last_seen_scan = ?1, last_seen_at = ?2, \
-                 source_id = ?3 WHERE id = ?4",
+                 source_id = ?3, file_size = ?4 WHERE id = ?5",
                 rusqlite::params![
                     self.scan_id,
                     unix_now(),
-                    source_for_path(&self.roots, &track.path),
+                    source_id,
+                    track.file_size.map(|size| size as i64),
                     binding_id
                 ],
             )?;
             item_id
-        } else if let Some(arrivals) = &mut self.arrivals {
-            arrivals.push(track);
-            return Ok(());
         } else {
             self.mint_item(&track)?
         };
-        self.write_track(track, item_id)
+        self.place(track, item_id)
     }
 
     fn write_track(&mut self, track: ScanTrack, item_id: i64) -> Result<()> {
-        self.written.insert(item_id);
+        self.written
+            .insert(item_id, source_for_path(&self.roots, &track.path));
         let cover_id = track
             .cover_hash
             .as_ref()
@@ -3198,7 +3364,12 @@ impl ScanSession {
 }
 
 impl ScanWrite for ScanSession {
+    fn flush(&mut self) -> Result<()> {
+        self.commit()
+    }
+
     fn clear(&mut self) -> Result<()> {
+        self.begin()?;
         self.conn.execute_batch(CLEAR_CATALOG)?;
         Ok(())
     }
@@ -3212,6 +3383,7 @@ impl ScanWrite for ScanSession {
         embedded: bool,
     ) -> Result<()> {
         if !self.cover_cache.contains_key(hash) {
+            self.begin()?;
             self.conn.execute(
                 "INSERT OR IGNORE INTO cover_art (hash, small, large, source_path, embedded) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -3223,6 +3395,7 @@ impl ScanWrite for ScanSession {
                         row.get(0)
                     })?;
             self.cover_cache.insert(hash.to_string(), id);
+            self.maybe_commit()?;
         }
         if let Some(tracks) = self.pending_by_hash.remove(hash) {
             for track in tracks {
@@ -3248,6 +3421,8 @@ impl ScanWrite for ScanSession {
     }
 
     fn finish(mut self: Box<Self>) -> Result<()> {
+        self.begin()?;
+        self.finishing = true;
         // Any track still waiting on a cover that never materialized (e.g. a
         // thumbnail-generation error) is inserted cover-less.
         let leftovers: Vec<ScanTrack> = self
@@ -3266,11 +3441,12 @@ impl ScanWrite for ScanSession {
             && !arrivals.is_empty()
         {
             self.settle_arrivals(arrivals)?;
-            self.revive_orphans_from_library()?;
         }
-        self.project_remote_tracks()?;
         self.conn
             .execute(RETIRE_UNSEEN_LOCAL_BINDINGS, [self.scan_id])?;
+        self.retire_unplaced_bindings()?;
+        self.revive_lost_items()?;
+        self.project_remote_tracks()?;
         self.conn.execute(SWEEP_UNREFERENCED_ITEMS, [])?;
         self.commit()
     }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 
@@ -10,7 +11,6 @@ use media_stream::{
 };
 use music_library::remote;
 
-const CACHE_LIMIT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const PARTIAL_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone)]
@@ -19,6 +19,7 @@ pub struct RemoteMedia {
     cache_dir: PathBuf,
     downloads: Downloads,
     prefetching: Arc<Mutex<Option<Download>>>,
+    cache_limit: Arc<AtomicU64>,
 }
 
 pub struct PendingStream {
@@ -84,6 +85,7 @@ impl RemoteMedia {
             cache_dir,
             downloads: Downloads::default(),
             prefetching: Arc::new(Mutex::new(None)),
+            cache_limit: Arc::new(AtomicU64::new(u64::MAX)),
         }
     }
 
@@ -113,6 +115,28 @@ impl RemoteMedia {
             touch(&dest);
             dest
         })
+    }
+
+    pub fn cache_size(&self) -> u64 {
+        cache_files(&self.cache_dir)
+            .iter()
+            .map(|(_, len, _)| len)
+            .sum()
+    }
+
+    pub fn set_cache_limit(&self, bytes: u64) {
+        if self.cache_limit.swap(bytes, Ordering::AcqRel) > bytes {
+            let dir = self.cache_dir.clone();
+            std::thread::spawn(move || trim_cache(&dir, bytes, Path::new("")));
+        }
+    }
+
+    pub fn clear_cache(&self) {
+        for (modified, _, path) in cache_files(&self.cache_dir) {
+            if !fresh_partial(modified, &path) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
     }
 
     pub fn can_stream(path: &Path) -> bool {
@@ -165,12 +189,13 @@ impl RemoteMedia {
             song_id: reference.key.clone(),
         });
         let cache_dir = self.cache_dir.clone();
+        let limit = self.cache_limit.clone();
         self.downloads
             .start(
                 &self.cached_path(reference),
                 fetch,
                 Some(Box::new(move |done: &Path| {
-                    trim_cache(&cache_dir, CACHE_LIMIT_BYTES, done)
+                    trim_cache(&cache_dir, limit.load(Ordering::Acquire), done)
                 })),
             )
             .map_err(|e| e.to_string())
@@ -201,10 +226,10 @@ fn touch(path: &Path) {
     }
 }
 
-fn trim_cache(dir: &Path, limit: u64, keep: &Path) {
-    let mut files: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
+fn cache_files(dir: &Path) -> Vec<(SystemTime, u64, PathBuf)> {
+    let mut files = Vec::new();
     let Ok(sources) = std::fs::read_dir(dir) else {
-        return;
+        return files;
     };
     for source in sources.flatten() {
         let Ok(entries) = std::fs::read_dir(source.path()) else {
@@ -212,18 +237,23 @@ fn trim_cache(dir: &Path, limit: u64, keep: &Path) {
         };
         for entry in entries.flatten() {
             let Ok(meta) = entry.metadata() else { continue };
-            if !meta.is_file() {
-                continue;
-            }
-            let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-            let path = entry.path();
-            let fresh_partial = path.extension().is_some_and(|ext| ext == "partial")
-                && modified.elapsed().is_ok_and(|age| age < PARTIAL_GRACE);
-            if !fresh_partial {
-                files.push((modified, meta.len(), path));
+            if meta.is_file() {
+                let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                files.push((modified, meta.len(), entry.path()));
             }
         }
     }
+    files
+}
+
+fn fresh_partial(modified: SystemTime, path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "partial")
+        && modified.elapsed().is_ok_and(|age| age < PARTIAL_GRACE)
+}
+
+fn trim_cache(dir: &Path, limit: u64, keep: &Path) {
+    let mut files = cache_files(dir);
+    files.retain(|(modified, _, path)| !fresh_partial(*modified, path));
     let mut total: u64 = files.iter().map(|(_, len, _)| len).sum();
     if total <= limit {
         return;
@@ -433,6 +463,55 @@ mod tests {
         assert!(partial.exists());
         assert!(!stale.exists());
         assert!(done.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clearing_keeps_only_downloads_in_progress_and_reports_the_size() {
+        let dir = temp_dir("clear");
+        let media = RemoteMedia::with_cache_dir(dir.clone());
+        let sub = dir.join("2");
+        std::fs::create_dir_all(&sub).unwrap();
+        let partial = sub.join("a.flac.1-1.partial");
+        let stale = sub.join("b.flac.1-2.partial");
+        let done = sub.join("c.flac");
+        for path in [&partial, &stale, &done] {
+            std::fs::write(path, vec![0u8; 10]).unwrap();
+        }
+        let file = std::fs::File::options().append(true).open(&stale).unwrap();
+        file.set_modified(SystemTime::now() - PARTIAL_GRACE * 2)
+            .unwrap();
+        assert_eq!(media.cache_size(), 30);
+        media.clear_cache();
+        assert!(partial.exists());
+        assert!(!stale.exists());
+        assert!(!done.exists());
+        assert_eq!(media.cache_size(), 10);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lowering_the_limit_trims_the_cache_right_away() {
+        let dir = temp_dir("limit");
+        let media = RemoteMedia::with_cache_dir(dir.clone());
+        media.set_cache_limit(100);
+        let sub = dir.join("3");
+        std::fs::create_dir_all(&sub).unwrap();
+        let old = sub.join("old.flac");
+        let new = sub.join("new.flac");
+        for (path, age) in [(&old, 200), (&new, 100)] {
+            std::fs::write(path, vec![0u8; 10]).unwrap();
+            let file = std::fs::File::options().append(true).open(path).unwrap();
+            file.set_modified(SystemTime::now() - std::time::Duration::from_secs(age))
+                .unwrap();
+        }
+        media.set_cache_limit(15);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while old.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(!old.exists());
+        assert!(new.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

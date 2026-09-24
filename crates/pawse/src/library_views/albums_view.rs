@@ -3,14 +3,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    Context, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, px, size,
+    App, Context, Div, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, px, size,
 };
 use gpui_component::{
-    VirtualListScrollHandle,
-    button::Button,
-    h_flex,
+    Icon, VirtualListScrollHandle,
+    button::{Button, ButtonVariants},
     scroll::{ScrollableElement, ScrollbarAxis},
     tooltip::Tooltip,
     v_flex, v_virtual_list,
@@ -34,7 +33,7 @@ pub struct AlbumSelectedEvent {
 }
 
 #[derive(Clone, Debug)]
-pub struct AddMusicFolderRequested;
+pub struct OpenLibrarySettings;
 
 enum AlbumItem {
     TopPadding,
@@ -208,25 +207,21 @@ impl AlbumsView {
                         this.is_scanning = true;
                         cx.notify();
                     }
-                    LibraryEvent::ScanComplete { changed } => {
+                    LibraryEvent::ScanComplete => {
                         this.is_scanning = false;
-                        if *changed {
-                            let services = cx.global::<Services>();
-                            let cache = services.cover_art_cache.clone();
-                            this.albums_all = services.library.albums();
-                            this.search_entries = services.library.album_search_entries();
-                            this.genres_map = services.library.album_genres_map();
-                            cache.borrow_mut().clear(cx);
-                            this.id_to_ix = Self::id_index(&this.albums_all);
-                            this.covers_in_flight.clear();
-                            this.covers_unavailable.clear();
-                            this.recompute_visible(cx);
-                        }
                         cx.notify();
                     }
-                    LibraryEvent::TrackTagsChanged { .. }
-                    | LibraryEvent::AlbumTagsChanged { .. } => {
+                    LibraryEvent::CatalogChanged => {
+                        let services = cx.global::<Services>();
+                        let cache = services.cover_art_cache.clone();
+                        this.albums_all = services.library.albums();
+                        this.search_entries = services.library.album_search_entries();
+                        this.genres_map = services.library.album_genres_map();
+                        cache.borrow_mut().clear(cx);
+                        this.id_to_ix = Self::id_index(&this.albums_all);
+                        this.covers_in_flight.clear();
                         this.covers_unavailable.clear();
+                        this.recompute_visible(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -456,7 +451,39 @@ impl AlbumsView {
 }
 
 impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
-impl EventEmitter<AddMusicFolderRequested> for AlbumsView {}
+impl EventEmitter<OpenLibrarySettings> for AlbumsView {}
+
+pub fn no_music_message(nothing_found: &SharedString, cx: &App) -> SharedString {
+    let store = cx.global::<SettingsStore>();
+    if store.music_folders().is_empty() && store.subsonic_servers().is_empty() {
+        tr().no_music_sources.clone()
+    } else {
+        nothing_found.clone()
+    }
+}
+
+pub fn empty_library<V: EventEmitter<OpenLibrarySettings>>(
+    message: SharedString,
+    cx: &mut Context<V>,
+) -> Div {
+    v_flex()
+        .size_full()
+        .gap_3()
+        .px_4()
+        .items_start()
+        .child(
+            div()
+                .text_color(Colors::muted_foreground(cx))
+                .child(message),
+        )
+        .child(
+            Button::new("open-library-settings")
+                .primary()
+                .icon(Icon::default().path("icons/settings.svg"))
+                .label(tr().open_library_settings.clone())
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(OpenLibrarySettings))),
+        )
+}
 
 impl Render for AlbumsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -472,37 +499,13 @@ impl Render for AlbumsView {
         }
 
         if self.row_data.is_empty() {
-            let no_folders = cx.global::<SettingsStore>().music_folders().is_empty();
-            if self.albums_all.is_empty() && no_folders {
-                return v_flex()
-                    .size_full()
-                    .gap_3()
-                    .px_4()
-                    .pt_4()
-                    .child(
-                        div()
-                            .text_color(muted_fg)
-                            .child(tr().no_music_folders_configured.clone()),
-                    )
-                    .child(
-                        h_flex().child(
-                            Button::new("add-music-folder")
-                                .label(tr().add_music_folder.clone())
-                                .on_click(cx.listener(|_, _, _, cx| {
-                                    cx.emit(AddMusicFolderRequested);
-                                })),
-                        ),
-                    );
+            if self.albums_all.is_empty() {
+                return empty_library(no_music_message(&tr().no_albums_found, cx), cx);
             }
-            let message = if self.albums_all.is_empty() {
-                tr().no_albums_found.clone()
-            } else {
-                tr().no_albums_match.clone()
-            };
             return v_flex()
                 .size_full()
                 .gap_3()
-                .child(div().px_4().child(message));
+                .child(div().px_4().child(tr().no_albums_match.clone()));
         }
 
         if self.layout == AlbumsLayout::Grid {

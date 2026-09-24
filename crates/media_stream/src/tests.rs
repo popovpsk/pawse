@@ -296,6 +296,25 @@ fn a_fatal_error_fails_readers_and_leaves_nothing_behind() {
 }
 
 #[test]
+fn a_stream_that_already_delivered_bytes_retries_longer_than_one_that_never_started() {
+    let fake = Fake::new(300_000).slow(10_000, 20);
+    *fake.cut_first_at.lock().unwrap() = Some(100_000);
+    let fake = Arc::new(fake);
+    let dest = temp_dest("late-retry.flac");
+    let download = start(&fake, &dest);
+    let mut reader = download.reader().unwrap();
+    let mut first = vec![0u8; 50_000];
+    reader.read_exact(&mut first).unwrap();
+    fake.retry_first
+        .store(FIRST_BYTE_FAILURES + 1, Ordering::SeqCst);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).unwrap();
+    first.extend(bytes);
+    assert_eq!(first, *fake.data);
+    assert_eq!(download.wait().unwrap(), dest);
+}
+
+#[test]
 fn giving_up_after_repeated_transient_failures() {
     let fake = Fake::new(1000);
     fake.retry_first.store(u32::MAX, Ordering::SeqCst);
@@ -303,7 +322,7 @@ fn giving_up_after_repeated_transient_failures() {
     let dest = temp_dest("offline.flac");
     let download = start(&fake, &dest);
     assert_eq!(download.wait().unwrap_err(), "busy");
-    assert_eq!(fake.requests().len() as u32, MAX_FAILURES + 1);
+    assert_eq!(fake.requests().len() as u32, FIRST_BYTE_FAILURES + 1);
     assert!(leftovers(&dest).is_empty());
 }
 

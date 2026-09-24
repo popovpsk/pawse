@@ -115,7 +115,7 @@ impl LikedView {
         let library_subscription = cx.subscribe(
             &library_event_bus,
             |this, _, event: &LibraryEvent, cx| match event {
-                LibraryEvent::ScanComplete { changed } if *changed => {
+                LibraryEvent::CatalogChanged => {
                     this.reload(cx);
                 }
                 LibraryEvent::LikesImported { .. } => {

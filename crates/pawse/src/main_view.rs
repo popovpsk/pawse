@@ -123,6 +123,8 @@ pub struct MainView {
     _theme_picker: Entity<ThemePickerState>,
     _lang_picker: Entity<LangPickerState>,
     _scrobble_ui: Entity<ScrobbleUiState>,
+    library_sources: Entity<crate::library_sources::LibrarySources>,
+    settings_page_ix: usize,
     _library_sources_observe: Subscription,
     _scrobble_ui_observe: Subscription,
     _scrobble_inputs: ScrobbleInputs,
@@ -172,8 +174,8 @@ impl MainView {
                     this.clear_search(window, cx);
                     cx.notify();
                 }
-                LibraryViewEvent::AddMusicFolderRequested => {
-                    crate::settings_view::pick_and_add_folder(cx);
+                LibraryViewEvent::OpenLibrarySettings => {
+                    this.open_settings(this.settings_pages.len().saturating_sub(1), window, cx);
                 }
             },
         );
@@ -560,6 +562,7 @@ impl MainView {
                         .library
                         .request_rescan(folders, false, false);
                 }
+                crate::subsonic_settings::sync_offline(cx);
             }
         });
 
@@ -573,7 +576,7 @@ impl MainView {
                 if this.show_settings
                     && matches!(
                         event,
-                        LibraryEvent::ScanStarted | LibraryEvent::ScanComplete { .. }
+                        LibraryEvent::ScanStarted | LibraryEvent::ScanComplete
                     )
                 {
                     cx.notify();
@@ -627,6 +630,8 @@ impl MainView {
             _theme_picker: theme_picker,
             _lang_picker: lang_picker,
             _scrobble_ui: scrobble_ui,
+            library_sources: library_sources.clone(),
+            settings_page_ix: 0,
             _library_sources_observe: library_sources_observe,
             _scrobble_ui_observe: scrobble_ui_observe,
             _scrobble_inputs: scrobble_inputs,
@@ -704,6 +709,15 @@ impl MainView {
 
     fn on_play_pause(&mut self, _: &PlayPause, _: &mut Window, cx: &mut Context<Self>) {
         crate::services::toggle_play_pause(cx);
+    }
+
+    fn open_settings(&mut self, page_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_overlays(window, cx);
+        self.show_settings = true;
+        self.settings_page_ix = page_ix;
+        self.library_sources
+            .update(cx, |sources, cx| sources.refresh_cache(cx));
+        cx.notify();
     }
 
     fn leave_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1007,6 +1021,7 @@ impl Render for MainView {
                                     .size_full()
                                     .child(crate::settings_view::settings_widget(
                                         self.settings_pages.clone(),
+                                        self.settings_page_ix,
                                     ))
                                     .into_any_element()
                             } else {
@@ -1194,11 +1209,7 @@ fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElem
                 .size(px(20. * scale)),
         )
         .tooltip(tr().settings.clone())
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.leave_overlays(window, cx);
-            this.show_settings = true;
-            cx.notify();
-        }))
+        .on_click(cx.listener(|this, _, window, cx| this.open_settings(0, window, cx)))
 }
 
 fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {

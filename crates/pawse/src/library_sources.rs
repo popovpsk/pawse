@@ -123,6 +123,9 @@ pub struct LibrarySources {
     messages: HashMap<String, SharedString>,
     pub connecting: bool,
     pub connect_error: Option<SharedString>,
+    cache_bytes: Option<u64>,
+    cache_label: Option<SharedString>,
+    clearing_cache: bool,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
     _settings_observer: Subscription,
@@ -136,9 +139,7 @@ impl LibrarySources {
         let library_subscription = cx.subscribe(
             &library_event_bus,
             |this, _, event: &LibraryEvent, cx| match event {
-                LibraryEvent::ScanComplete { changed: true } | LibraryEvent::ScanFailed => {
-                    this.load(cx)
-                }
+                LibraryEvent::CatalogChanged | LibraryEvent::ScanFailed => this.load(cx),
                 LibraryEvent::RemoteSyncStarted { uri } => {
                     this.syncing.insert(uri.clone());
                     this.messages.remove(uri);
@@ -147,11 +148,9 @@ impl LibrarySources {
                 }
                 LibraryEvent::RemoteSyncFinished { uri, outcome } => {
                     this.syncing.remove(uri);
-                    let message = match outcome {
-                        Ok(report) => tr().subsonic_synced(report.total, report.adopted).into(),
-                        Err(error) => describe_error(error),
-                    };
-                    this.messages.insert(uri.clone(), message);
+                    if let Err(error) = outcome {
+                        this.messages.insert(uri.clone(), describe_error(error));
+                    }
                     this.load(cx);
                 }
                 LibraryEvent::RemoteStarsImported { uri, outcome } => {
@@ -171,6 +170,9 @@ impl LibrarySources {
             },
         );
         let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            if let Some(bytes) = this.cache_bytes {
+                this.set_cache_bytes(bytes);
+            }
             this.refresh_rows(cx);
             cx.notify();
         });
@@ -192,12 +194,70 @@ impl LibrarySources {
             messages: HashMap::new(),
             connecting: false,
             connect_error: None,
+            cache_bytes: None,
+            cache_label: None,
+            clearing_cache: false,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
             _settings_observer: settings_observer,
         };
         state.load(cx);
+        state.refresh_cache(cx);
         state
+    }
+
+    pub fn cache_bytes(&self) -> Option<u64> {
+        self.cache_bytes
+    }
+
+    pub fn cache_label(&self) -> Option<SharedString> {
+        self.cache_label.clone()
+    }
+
+    fn set_cache_bytes(&mut self, bytes: u64) {
+        self.cache_bytes = Some(bytes);
+        self.cache_label = Some(tr().size(bytes).into());
+    }
+
+    pub fn clearing_cache(&self) -> bool {
+        self.clearing_cache
+    }
+
+    pub fn refresh_cache(&mut self, cx: &mut Context<Self>) {
+        let media = cx.global::<Services>().remote_media.clone();
+        let size = cx
+            .background_executor()
+            .spawn(async move { media.cache_size() });
+        cx.spawn(async move |this, cx| {
+            let bytes = size.await;
+            let _ = this.update(cx, |this, cx| {
+                this.set_cache_bytes(bytes);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub fn clear_cache(&mut self, cx: &mut Context<Self>) {
+        if self.clearing_cache {
+            return;
+        }
+        self.clearing_cache = true;
+        cx.notify();
+        let media = cx.global::<Services>().remote_media.clone();
+        let cleared = cx.background_executor().spawn(async move {
+            media.clear_cache();
+            media.cache_size()
+        });
+        cx.spawn(async move |this, cx| {
+            let bytes = cleared.await;
+            let _ = this.update(cx, |this, cx| {
+                this.clearing_cache = false;
+                this.set_cache_bytes(bytes);
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub fn local(&self) -> &[LocalFolderRow] {
