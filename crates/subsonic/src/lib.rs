@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::io::Read;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -14,6 +13,8 @@ const CLIENT_NAME: &str = "pawse";
 const PAGE_SIZE: usize = 500;
 const MAX_PAGES: usize = 10_000;
 const MAX_COVER_BYTES: u64 = 32 * 1024 * 1024;
+const RANGE_TIMEOUT: Duration = Duration::from_secs(15);
+const RANGE_BODY_TIMEOUT: Duration = Duration::from_secs(30);
 const ERROR_WRONG_CREDENTIALS: i64 = 40;
 const ERROR_TOKEN_AUTH_UNSUPPORTED: i64 = 41;
 const ERROR_NOT_AUTHORIZED: i64 = 50;
@@ -33,6 +34,13 @@ pub enum Error {
     Auth,
     #[error("{0}")]
     Server(String),
+}
+
+pub struct RangeBody {
+    pub body: Box<dyn Read + Send>,
+    pub offset: u64,
+    pub total: Option<u64>,
+    pub ranged: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -170,7 +178,7 @@ pub struct Client {
 
 enum Payload {
     Json(serde_json::Value),
-    Binary(ureq::Body),
+    Binary(ureq::Body, ureq::http::HeaderMap, u16),
 }
 
 impl Client {
@@ -228,21 +236,46 @@ impl Client {
         Ok(bytes)
     }
 
-    pub fn download_to(&self, song_id: &str, dest: &Path) -> Result<(), Error> {
-        let body = self.binary("download", &[("id", song_id)])?;
-        let mut partial = dest.as_os_str().to_owned();
-        partial.push(".partial");
-        let partial = std::path::PathBuf::from(partial);
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| Error::Server(e.to_string()))?;
+    pub fn fetch_range(
+        &self,
+        song_id: &str,
+        start: u64,
+        end: Option<u64>,
+    ) -> Result<RangeBody, Error> {
+        let range = match end {
+            Some(end) => format!("bytes={start}-{}", end.saturating_sub(1)),
+            None => format!("bytes={start}-"),
+        };
+        let (body, headers, status) =
+            match self.request("download", &[("id", song_id)], Some(&range))? {
+                Payload::Binary(body, headers, status) => (body, headers, status),
+                Payload::Json(_) => return Err(Error::Server("download: unexpected reply".into())),
+            };
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        };
+        let length = header("content-length").and_then(|value| value.trim().parse().ok());
+        if status == 206 {
+            let (offset, total) = header("content-range")
+                .as_deref()
+                .and_then(parse_content_range)
+                .ok_or_else(|| Error::Server("download: malformed Content-Range".into()))?;
+            return Ok(RangeBody {
+                body: Box::new(body.into_reader()),
+                offset,
+                total,
+                ranged: true,
+            });
         }
-        let written = std::fs::File::create(&partial)
-            .and_then(|mut file| std::io::copy(&mut body.into_reader(), &mut file));
-        if let Err(e) = written {
-            let _ = std::fs::remove_file(&partial);
-            return Err(Error::Transient(e.to_string()));
-        }
-        std::fs::rename(&partial, dest).map_err(|e| Error::Server(e.to_string()))
+        Ok(RangeBody {
+            body: Box::new(body.into_reader()),
+            offset: 0,
+            total: length,
+            ranged: false,
+        })
     }
 
     fn search_all(&self) -> Result<Vec<Song>, Error> {
@@ -324,26 +357,31 @@ impl Client {
     }
 
     fn json(&self, method: &str, params: &[(&str, &str)]) -> Result<serde_json::Value, Error> {
-        match self.request(method, params)? {
+        match self.request(method, params, None)? {
             Payload::Json(value) => Ok(value),
-            Payload::Binary(_) => Err(Error::Server(format!("{method}: unexpected binary reply"))),
+            Payload::Binary(..) => Err(Error::Server(format!("{method}: unexpected binary reply"))),
         }
     }
 
     fn binary(&self, method: &str, params: &[(&str, &str)]) -> Result<ureq::Body, Error> {
-        match self.request(method, params)? {
-            Payload::Binary(body) => Ok(body),
+        match self.request(method, params, None)? {
+            Payload::Binary(body, ..) => Ok(body),
             Payload::Json(_) => Err(Error::Server(format!("{method}: unexpected reply"))),
         }
     }
 
-    fn request(&self, method: &str, params: &[(&str, &str)]) -> Result<Payload, Error> {
-        match self.request_once(method, params) {
+    fn request(
+        &self,
+        method: &str,
+        params: &[(&str, &str)],
+        range: Option<&str>,
+    ) -> Result<Payload, Error> {
+        match self.request_once(method, params, range) {
             Err(ServerFailure::TokenAuthUnsupported)
                 if !self.legacy_auth.load(Ordering::Relaxed) =>
             {
                 self.legacy_auth.store(true, Ordering::Relaxed);
-                self.request_once(method, params)
+                self.request_once(method, params, range)
                     .map_err(ServerFailure::into_error)
             }
             other => other.map_err(ServerFailure::into_error),
@@ -354,6 +392,7 @@ impl Client {
         &self,
         method: &str,
         params: &[(&str, &str)],
+        range: Option<&str>,
     ) -> Result<Payload, ServerFailure> {
         let mut request = self
             .agent
@@ -371,6 +410,17 @@ impl Client {
         }
         for (key, value) in params {
             request = request.query(*key, *value);
+        }
+        if let Some(range) = range {
+            let config = request
+                .header("Range", range)
+                .config()
+                .timeout_recv_response(Some(RANGE_TIMEOUT));
+            request = if range.ends_with('-') {
+                config.build()
+            } else {
+                config.timeout_recv_body(Some(RANGE_BODY_TIMEOUT)).build()
+            };
         }
         let response = request
             .call()
@@ -394,9 +444,10 @@ impl Client {
             .get("content-type")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("json") || value.contains("xml"));
+        let headers = response.headers().clone();
         let body = response.into_body();
         if !is_json {
-            return Ok(Payload::Binary(body));
+            return Ok(Payload::Binary(body, headers, status));
         }
         let value: serde_json::Value = serde_json::from_reader(body.into_reader())
             .map_err(|e| ServerFailure::Error(Error::Server(format!("{method}: {e}"))))?;
@@ -453,6 +504,17 @@ fn list_at<T: for<'de> Deserialize<'de>>(
 
 fn songs_at(response: &serde_json::Value, path: &[&str]) -> Result<Vec<Song>, Error> {
     list_at(response, path)
+}
+
+fn parse_content_range(value: &str) -> Option<(u64, Option<u64>)> {
+    let spec = value.trim().strip_prefix("bytes")?.trim_start();
+    let (span, total) = spec.split_once('/')?;
+    let (first, _) = span.split_once('-')?;
+    let total = match total.trim() {
+        "*" => None,
+        text => Some(text.parse().ok()?),
+    };
+    Some((first.trim().parse().ok()?, total))
 }
 
 fn redact(message: &str) -> String {

@@ -2143,6 +2143,31 @@ mod tests {
     }
 
     #[test]
+    fn playback_locators_list_the_local_copy_first_and_skip_offline_sources() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+        let id = id_of(&lib, "/music/x/a.flac");
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A", "x/a.flac")], &[])
+            .unwrap();
+
+        let remote = remote::locator(source, "s1", "flac");
+        assert_eq!(
+            lib.playback_locators(id).unwrap(),
+            vec![("/music/x/a.flac".to_string(), 0), (remote.clone(), 0)]
+        );
+        lib.set_source_available(source, false).unwrap();
+        assert_eq!(
+            lib.playback_locators(id).unwrap(),
+            vec![("/music/x/a.flac".to_string(), 0)]
+        );
+        lib.set_source_available(source, true).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(lib.playback_locators(id).unwrap(), vec![(remote, 0)]);
+    }
+
+    #[test]
     fn a_local_file_joins_the_server_track_it_copies() {
         let (lib, _path) = create_test_db();
         let source = server(&lib);

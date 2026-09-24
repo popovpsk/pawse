@@ -205,6 +205,12 @@ network. Server rows use a locator path, `subsonic://<source_id>/<song_id>.<suff
 (`remote.rs`); the suffix is there because the decoder picks a backend by
 extension.
 
+`playback_locators(item)` lists every place an item can play from right now —
+present bindings on enabled, available sources, local ones first, server ones as
+locators. The catalog row only names one of them and is refreshed by the next
+scan, so when a local file has vanished since, playback tries the next entry
+instead of failing.
+
 The local adoption pool (`ORPHANED_ITEMS`) looks only at **local** bindings: an
 item held only by a server is adoptable by a local file with the same path or
 tags (it is `live`, so not by title alone), which is the other direction of the

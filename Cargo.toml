@@ -10,6 +10,7 @@ members = [
     "crates/media_integration",
     "crates/scrobble",
     "crates/subsonic",
+    "crates/media_stream",
     "crates/discord",
     "crates/pawse",
     "crates/pawse_remote",

@@ -36,5 +36,10 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
 - **Ids** can be strings or numbers depending on the server; both deserialize
   to `String`.
 - **Bodies.** JSON is read through `into_reader` (no ureq 10 MB cap). Covers are
-  capped at 32 MB. `download_to` streams to `<dest>.partial` and renames, so a
-  broken download never looks like a cached file.
+  capped at 32 MB.
+- **Audio.** `fetch_range` asks `download` (the original file, never a
+  transcode) for a byte range and reports where the body starts and the file's
+  total size from `Content-Range`. A `200` reply means the server ignored the
+  range and sends the whole file (`ranged: false`). Range requests use a 15 s
+  response and body timeout instead of the listing's long ones, so a stalled
+  connection turns into a retry quickly; `media_stream` keeps what arrived.

@@ -4608,6 +4608,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "media_stream"
+version = "1.0.0"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5688,6 +5695,7 @@ dependencies = [
  "log",
  "lyrics",
  "media_integration",
+ "media_stream",
  "music_indexer",
  "music_library",
  "notify 8.2.0",

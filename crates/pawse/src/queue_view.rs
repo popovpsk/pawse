@@ -459,7 +459,7 @@ fn queue_visible_range_row(
                             services
                                 .current_position_ms
                                 .store(0, std::sync::atomic::Ordering::Relaxed);
-                            services.engine_manager.stop();
+                            services.stop_playback();
                         }
                         RemoveOutcome::Unaffected => {}
                     }
@@ -571,7 +571,7 @@ fn queue_header(cx: &mut Context<QueueView>, has_tracks: bool) -> Div {
                 services
                     .current_position_ms
                     .store(0, std::sync::atomic::Ordering::Relaxed);
-                services.engine_manager.stop();
+                services.stop_playback();
                 this.refresh_tracks(cx);
                 crate::services::queue_mutated(cx);
             }))

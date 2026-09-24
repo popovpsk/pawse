@@ -2339,6 +2339,37 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn playback_locators(&self, item_id: i64) -> Result<Vec<(String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT s.kind, b.source_id, b.source_key, b.start_offset_ms, rt.suffix, rt.content_type \
+             FROM media_bindings b JOIN sources s ON s.id = b.source_id \
+             LEFT JOIN remote_tracks rt ON rt.binding_id = b.id \
+             WHERE b.item_id = ?1 AND b.present = 1 AND s.enabled = 1 AND s.available = 1 \
+             ORDER BY s.kind <> 'local', b.id",
+        )?;
+        let rows = stmt.query_map([item_id], |row| {
+            let kind: String = row.get(0)?;
+            let key: String = row.get(2)?;
+            let offset: i64 = row.get(3)?;
+            if kind == "local" {
+                return Ok((key, offset));
+            }
+            let suffix: Option<String> = row.get(4)?;
+            let content_type: Option<String> = row.get(5)?;
+            Ok((
+                crate::remote::locator(
+                    row.get(1)?,
+                    &key,
+                    &crate::remote::suffix_for(suffix.as_deref(), content_type.as_deref()),
+                ),
+                offset,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn invalidate_scan_fingerprint(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM scan_meta WHERE key = 'fingerprint'", [])?;

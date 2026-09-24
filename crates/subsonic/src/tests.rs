@@ -33,10 +33,16 @@ impl Stub {
                 if reader.read_line(&mut request_line).is_err() {
                     continue;
                 }
+                let mut range = None;
                 loop {
                     let mut line = String::new();
                     if reader.read_line(&mut line).is_err() || line == "\r\n" || line.is_empty() {
                         break;
+                    }
+                    if let Some((name, value)) = line.split_once(':')
+                        && name.eq_ignore_ascii_case("range")
+                    {
+                        range = Some(value.trim().to_string());
                     }
                 }
                 let target = request_line
@@ -46,15 +52,30 @@ impl Stub {
                     .to_string();
                 let (path, query) = target.split_once('?').unwrap_or((&target, ""));
                 let method = path.rsplit('/').next().unwrap_or("").to_string();
-                let params: Params = query
+                let mut params: Params = query
                     .split('&')
                     .filter_map(|pair| pair.split_once('='))
                     .map(|(k, v)| (decode(k), decode(v)))
                     .collect();
+                if let Some(range) = &range {
+                    params.insert("Range".into(), range.clone());
+                }
                 log.lock().unwrap().push((method.clone(), params.clone()));
-                let (status, content_type, body) = handler(&method, &params);
+                let (mut status, content_type, mut body) = handler(&method, &params);
+                let mut extra = String::new();
+                if status == 200
+                    && !content_type.contains("norange")
+                    && !content_type.contains("json")
+                    && let Some((start, end)) = range.as_deref().and_then(parse_range)
+                {
+                    let total = body.len();
+                    let end = end.map_or(total, |end| (end + 1).min(total));
+                    body = body[start.min(total)..end].to_vec();
+                    status = 206;
+                    extra = format!("Content-Range: bytes {start}-{}/{total}\r\n", end - 1);
+                }
                 let head = format!(
-                    "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n",
                     body.len()
                 );
                 let _ = stream.write_all(head.as_bytes());
@@ -250,18 +271,80 @@ fn a_failure_mid_listing_fails_the_whole_listing() {
     assert!(matches!(client.songs(), Err(Error::Transient(_))));
 }
 
+fn parse_range(value: &str) -> Option<(usize, Option<usize>)> {
+    let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().ok()))
+}
+
+fn audio(len: usize) -> Vec<u8> {
+    (0..len).map(|i| (i % 253) as u8).collect()
+}
+
+fn read_all(mut range: RangeBody) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    range.body.read_to_end(&mut bytes).unwrap();
+    bytes
+}
+
 #[test]
-fn downloads_land_whole_or_not_at_all() {
+fn a_ranged_download_reports_where_it_starts_and_how_long_the_file_is() {
     let stub = Stub::start(|method, _| match method {
-        "download" => (200, "audio/flac", vec![7u8; 100_000]),
+        "download" => (200, "audio/flac", audio(100_000)),
         _ => failed(70),
     });
-    let dir = std::env::temp_dir().join(format!("pawse-subsonic-{}", std::process::id()));
-    let dest = dir.join("a").join("song.flac");
-    stub.client("x").download_to("1", &dest).unwrap();
-    assert_eq!(std::fs::read(&dest).unwrap().len(), 100_000);
-    assert!(!dest.with_extension("flac.partial").exists());
-    let _ = std::fs::remove_dir_all(&dir);
+    let client = stub.client("x");
+    let part = client.fetch_range("1", 1000, Some(3000)).unwrap();
+    assert!(part.ranged);
+    assert_eq!(part.offset, 1000);
+    assert_eq!(part.total, Some(100_000));
+    assert_eq!(read_all(part), audio(100_000)[1000..3000]);
+
+    let tail = client.fetch_range("1", 99_000, None).unwrap();
+    assert_eq!(tail.offset, 99_000);
+    assert_eq!(read_all(tail), audio(100_000)[99_000..]);
+
+    let requests = stub.requests.lock().unwrap();
+    assert_eq!(requests[0].1["Range"], "bytes=1000-2999");
+    assert_eq!(requests[0].1["id"], "1");
+    assert_eq!(requests[1].1["Range"], "bytes=99000-");
+}
+
+#[test]
+fn a_server_without_range_support_sends_the_whole_file_from_the_start() {
+    let stub = Stub::start(|method, params| match method {
+        "download" if params.contains_key("Range") => (200, "audio/flac; norange", audio(5000)),
+        _ => failed(70),
+    });
+    let part = stub.client("x").fetch_range("1", 1000, Some(2000)).unwrap();
+    assert!(!part.ranged);
+    assert_eq!(part.offset, 0);
+    assert_eq!(part.total, Some(5000));
+    assert_eq!(read_all(part), audio(5000));
+}
+
+#[test]
+fn a_ranged_download_with_an_error_reply_is_an_error() {
+    let stub = Stub::start(|_, _| failed(70));
+    assert!(matches!(
+        stub.client("x").fetch_range("missing", 0, Some(10)),
+        Err(Error::Server(_))
+    ));
+    let stub = Stub::start(|_, _| failed(40));
+    assert!(matches!(
+        stub.client("x").fetch_range("1", 0, Some(10)),
+        Err(Error::Auth)
+    ));
+}
+
+#[test]
+fn content_range_headers_are_parsed() {
+    assert_eq!(
+        parse_content_range("bytes 100-199/1000"),
+        Some((100, Some(1000)))
+    );
+    assert_eq!(parse_content_range("bytes 0-9/*"), Some((0, None)));
+    assert_eq!(parse_content_range("items 0-9/10"), None);
+    assert_eq!(parse_content_range("bytes x-9/10"), None);
 }
 
 #[test]

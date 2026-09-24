@@ -114,6 +114,13 @@ impl LyricsView {
                         this.set_playing(false, cx);
                         this.clear(cx)
                     }
+                    EngineEvent::Buffering(buffering) => {
+                        let playing = cx
+                            .global::<Services>()
+                            .is_playing
+                            .load(std::sync::atomic::Ordering::Relaxed);
+                        this.set_playing(playing && !buffering, cx)
+                    }
                 },
             );
 

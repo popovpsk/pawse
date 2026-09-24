@@ -144,6 +144,7 @@ pub trait LibraryRepository: Send + Sync {
         covers: &[RemoteCover],
     ) -> Result<RemoteSyncReport>;
     fn items_for_remote_keys(&self, source_id: i64, keys: &[String]) -> Result<Vec<i64>>;
+    fn playback_locators(&self, item_id: i64) -> Result<Vec<(String, i64)>>;
     fn invalidate_scan_fingerprint(&self) -> Result<()>;
     fn refresh_item_snapshots(&self) -> Result<()>;
 

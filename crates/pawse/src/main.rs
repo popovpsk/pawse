@@ -74,6 +74,12 @@ fn restore_engine_state(cx: &mut App) {
         .remote_media
         .cached(std::path::Path::new(&track.path))
     else {
+        if stored_position_ms > 0 {
+            services.resume_at.set(Some((track.id, stored_position_ms)));
+            services
+                .current_position_ms
+                .store(stored_position_ms, std::sync::atomic::Ordering::Relaxed);
+        }
         return;
     };
     let start_offset = if track.start_offset_ms > 0 {

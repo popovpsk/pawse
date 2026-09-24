@@ -27,6 +27,9 @@ pub struct Services {
     pub library: Arc<LibraryService>,
     pub remote_media: crate::remote_media::RemoteMedia,
     track_generation: Arc<AtomicU64>,
+    opening: Arc<std::sync::Mutex<Option<(u64, media_stream::AbortHandle)>>>,
+    pub is_buffering: Arc<AtomicBool>,
+    pub resume_at: Rc<std::cell::Cell<Option<(i64, u64)>>>,
     pub library_event_bus: Entity<LibraryEventsBus>,
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
@@ -182,6 +185,9 @@ impl Services {
             library_rev: Arc::new(AtomicU64::new(0)),
             remote_media,
             track_generation: Arc::new(AtomicU64::new(0)),
+            opening: Arc::new(std::sync::Mutex::new(None)),
+            is_buffering: Arc::new(AtomicBool::new(false)),
+            resume_at: Rc::new(std::cell::Cell::new(None)),
         }
     }
 
@@ -201,46 +207,156 @@ impl Services {
         self.start_track(track, AfterLoad::Stay);
     }
 
+    pub fn stop_playback(&self) {
+        self.track_generation.fetch_add(1, Ordering::AcqRel);
+        if let Some((_, abort)) = self.opening.lock().unwrap().take() {
+            abort.abort();
+        }
+        self.engine_manager.stop();
+    }
+
     fn start_track(&self, track: &Track, after: AfterLoad) {
         self.current_position_ms.store(0, Ordering::Relaxed);
         let generation = self.track_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        if let Some((_, abort)) = self.opening.lock().unwrap().take() {
+            abort.abort();
+        }
         let path = std::path::PathBuf::from(&track.path);
-        let start_offset = if track.start_offset_ms > 0 {
-            Some(Duration::from_millis(track.start_offset_ms as u64))
-        } else {
-            None
-        };
         let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-        if self.remote_media.cached(&path).is_some() {
-            self.engine_manager
-                .set_track_with_offset(path, start_offset, track_duration);
+        let is_remote = music_library::remote::is_remote(&track.path);
+        let ready = if is_remote {
+            self.remote_media.cached(&path).is_some()
+        } else {
+            path.exists()
+        };
+        if ready {
+            self.engine_manager.set_track_with_offset(
+                path,
+                offset(track.start_offset_ms.into()),
+                track_duration,
+            );
             after.apply(&self.engine_manager.commander());
             return;
         }
-        let media = self.remote_media.clone();
         let commander = self.engine_manager.commander();
+        commander.send(audio_engine::Command::Prepare {
+            play: after.autoplay(),
+        });
+        let media = self.remote_media.clone();
+        let library = self.library.clone();
         let current = self.track_generation.clone();
+        let opening = self.opening.clone();
+        let track_id = track.id;
+        let original = (track.path.clone(), i64::from(track.start_offset_ms));
         std::thread::spawn(move || {
-            let result = media.resolve(&path);
-            if current.load(Ordering::Acquire) != generation {
-                return;
-            }
-            match result {
-                Ok(local) => {
-                    commander.send(audio_engine::Command::SetLocalTrack {
-                        path: local,
-                        start_offset,
-                        track_duration,
-                    });
-                    after.apply(&commander);
+            let stale = || current.load(Ordering::Acquire) != generation;
+            let candidates = if is_remote {
+                vec![original.clone()]
+            } else {
+                library.playback_locators(track_id)
+            };
+            let mut outcome = None;
+            let mut failure = None;
+            for (locator, start_ms) in candidates {
+                if stale() {
+                    return;
                 }
-                Err(e) => commander.send(audio_engine::Command::Fail(format!(
-                    "{}: {e}",
-                    path.display()
-                ))),
+                let candidate = std::path::PathBuf::from(&locator);
+                if !music_library::remote::is_remote(&locator) {
+                    if candidate.exists() {
+                        outcome = Some((Opened::Cached, candidate, start_ms));
+                        break;
+                    }
+                    continue;
+                }
+                match open_remote(&media, &opening, generation, &candidate, &stale) {
+                    Ok(opened) => {
+                        outcome = Some((opened, candidate, start_ms));
+                        break;
+                    }
+                    Err(e) => {
+                        log::warn!("{locator}: {e}");
+                        failure = Some(format!("{locator}: {e}"));
+                    }
+                }
+            }
+            let command = match (outcome, failure) {
+                (Some((Opened::Stream(source), _, start_ms)), _) => {
+                    audio_engine::Command::SetStreamTrack(Box::new(audio_engine::StreamTrack {
+                        source,
+                        start_offset: offset(start_ms),
+                        track_duration,
+                    }))
+                }
+                (Some((Opened::Cached, path, start_ms)), _) => {
+                    audio_engine::Command::SetLocalTrack {
+                        path,
+                        start_offset: offset(start_ms),
+                        track_duration,
+                        prepared: true,
+                    }
+                }
+                (None, Some(message)) => audio_engine::Command::Fail(message),
+                (None, None) => audio_engine::Command::SetLocalTrack {
+                    path: std::path::PathBuf::from(&original.0),
+                    start_offset: offset(original.1),
+                    track_duration,
+                    prepared: true,
+                },
+            };
+            let _slot = opening.lock().unwrap();
+            if !stale() {
+                commander.send(command);
             }
         });
     }
+}
+
+type Opening = Arc<std::sync::Mutex<Option<(u64, media_stream::AbortHandle)>>>;
+
+enum Opened {
+    Cached,
+    Stream(audio_engine::StreamingSource),
+}
+
+fn offset(start_ms: i64) -> Option<Duration> {
+    (start_ms > 0).then(|| Duration::from_millis(start_ms as u64))
+}
+
+fn open_remote(
+    media: &crate::remote_media::RemoteMedia,
+    opening: &Opening,
+    generation: u64,
+    locator: &std::path::Path,
+    stale: &dyn Fn() -> bool,
+) -> Result<Opened, String> {
+    if media.cached(locator).is_some() {
+        return Ok(Opened::Cached);
+    }
+    if !crate::remote_media::RemoteMedia::can_stream(locator) {
+        return media.resolve(locator, stale).map(|_| Opened::Cached);
+    }
+    let pending = media.open_stream(locator)?;
+    let abort = pending.abort.clone();
+    {
+        let mut slot = opening.lock().unwrap();
+        if let Some((_, previous)) = slot.replace((generation, pending.abort.clone())) {
+            previous.abort();
+        }
+        if stale() {
+            pending.abort.abort();
+        }
+    }
+    let source = audio_engine::StreamingSource::open(
+        Box::new(pending.stream),
+        Some(pending.extension),
+        Box::new(move || abort.abort()),
+    );
+    let mut slot = opening.lock().unwrap();
+    if slot.as_ref().is_some_and(|(owner, _)| *owner == generation) {
+        *slot = None;
+    }
+    source.map(Opened::Stream)
 }
 
 #[derive(Clone, Copy)]
@@ -251,6 +367,14 @@ enum AfterLoad {
 }
 
 impl AfterLoad {
+    fn autoplay(self) -> Option<bool> {
+        match self {
+            AfterLoad::Stay => None,
+            AfterLoad::Play => Some(true),
+            AfterLoad::PlayGapless => Some(false),
+        }
+    }
+
     fn apply(self, commander: &audio_engine::EngineCommander) {
         match self {
             AfterLoad::Stay => {}
@@ -557,7 +681,7 @@ fn remove_queue_index(cx: &mut App, index: usize) {
         }
         crate::playback_queue::RemoveOutcome::Stopped => {
             services.current_position_ms.store(0, Ordering::Relaxed);
-            services.engine_manager.stop();
+            services.stop_playback();
         }
         crate::playback_queue::RemoveOutcome::Unaffected => {}
     }
@@ -864,6 +988,8 @@ pub async fn run_engine_events_bus(
                 current_duration_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
                 current_dsd_rate.store(params.dsd_rate.unwrap_or(0), Ordering::Relaxed);
                 prefetched = false;
+                let duration_ms = duration.as_millis() as u64;
+                cx.update(|cx| resume_restored_position(cx, duration_ms));
                 publish_now_playing(cx);
             }
             EngineEvent::PositionChanged(dur) => {
@@ -896,6 +1022,14 @@ pub async fn run_engine_events_bus(
                 current_dsd_rate.store(0, Ordering::Relaxed);
                 publish_now_playing(cx);
             }
+            EngineEvent::Buffering(buffering) => {
+                let buffering = *buffering;
+                cx.update(|cx| {
+                    cx.global::<Services>()
+                        .is_buffering
+                        .store(buffering, Ordering::Relaxed)
+                });
+            }
             EngineEvent::Error(message) => {
                 is_playing.store(false, Ordering::Relaxed);
                 current_duration_ms.store(0, Ordering::Relaxed);
@@ -917,6 +1051,27 @@ pub async fn run_engine_events_bus(
         }
         cx.update(|cx| engine_event_bus.update(cx, |_, cx| cx.emit(event)));
     }
+}
+
+fn resume_restored_position(cx: &mut App, duration_ms: u64) {
+    let services = cx.global::<Services>();
+    let Some((track_id, position_ms)) = services.resume_at.take() else {
+        return;
+    };
+    let current = services
+        .playback_queue
+        .borrow()
+        .current_track()
+        .map(|t| t.id);
+    if current != Some(track_id) || duration_ms == 0 || position_ms >= duration_ms {
+        return;
+    }
+    services
+        .current_position_ms
+        .store(position_ms, Ordering::Relaxed);
+    services
+        .engine_manager
+        .seek(position_ms as f32 / duration_ms as f32);
 }
 
 fn publish_now_playing(cx: &mut AsyncApp) {
