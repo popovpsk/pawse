@@ -51,15 +51,15 @@ pub enum LibraryEvent {
         folder: String,
     },
     RemoteSyncStarted {
-        uri: String,
+        key: String,
     },
     RemoteSyncFinished {
-        uri: String,
-        outcome: Result<music_library::RemoteSyncReport, crate::remote_sync::RemoteError>,
+        key: String,
+        outcome: Result<music_library::RemoteSyncReport, crate::servers::RemoteError>,
     },
     RemoteStarsImported {
-        uri: String,
-        outcome: Result<(usize, usize), crate::remote_sync::RemoteError>,
+        key: String,
+        outcome: Result<(usize, usize), crate::servers::RemoteError>,
     },
     TrackLikedChanged {
         track_id: i64,
@@ -96,7 +96,7 @@ impl LibraryEvent {
 #[derive(Default)]
 struct RemoteSyncState {
     running: AtomicBool,
-    queued: Mutex<Vec<(crate::remote_sync::RemoteServer, bool)>>,
+    queued: Mutex<Vec<(crate::servers::RemoteServer, bool)>>,
 }
 
 pub struct LibraryService {
@@ -680,7 +680,7 @@ impl LibraryService {
                     .tracks_for_album(album_id)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|t| !t.is_cue && !music_library::remote::is_remote(&t.path))
+                    .filter(|t| !t.is_cue && music_library::remote::local_file(&t.path).is_some())
                     .collect();
                 if tracks.is_empty() {
                     log::error!("Album tag edit for {} has no editable tracks", album_id);
@@ -858,16 +858,16 @@ impl LibraryService {
 
     pub fn reconcile_remote(
         &self,
-        servers: &[crate::remote_sync::RemoteServer],
-    ) -> HashMap<i64, subsonic::Config> {
+        servers: &[crate::servers::RemoteServer],
+    ) -> HashMap<i64, crate::servers::RemoteConfig> {
         crate::remote_sync::reconcile(&*self.repo, servers)
     }
 
-    pub fn sync_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>) {
+    pub fn sync_remote(&self, servers: Vec<crate::servers::RemoteServer>) {
         self.enqueue_remote(servers, false);
     }
 
-    fn enqueue_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>, probe: bool) {
+    fn enqueue_remote(&self, servers: Vec<crate::servers::RemoteServer>, probe: bool) {
         if servers.is_empty() {
             return;
         }
@@ -877,11 +877,11 @@ impl LibraryService {
                 if probe
                     && queued
                         .iter()
-                        .any(|(existing, _)| existing.uri == server.uri)
+                        .any(|(existing, _)| existing.key() == server.key())
                 {
                     continue;
                 }
-                queued.retain(|(existing, _)| existing.uri != server.uri);
+                queued.retain(|(existing, _)| existing.key() != server.key());
                 queued.push((server, probe));
             }
         }
@@ -907,21 +907,21 @@ impl LibraryService {
                 }
                 let ids = crate::remote_sync::source_ids(&*repo);
                 for (server, probe) in batch {
-                    let Some(&source_id) = ids.get(&server.uri) else {
+                    let key = server.key();
+                    let Some(&source_id) = ids.get(&key) else {
                         continue;
                     };
-                    if probe && subsonic::Client::new(&server.config).ping().is_err() {
+                    if probe && server.config.client().ping().is_err() {
                         continue;
                     }
-                    let _ = event_tx.send(LibraryEvent::RemoteSyncStarted {
-                        uri: server.uri.clone(),
-                    });
+                    let _ = event_tx.send(LibraryEvent::RemoteSyncStarted { key: key.clone() });
                     let outcome =
                         crate::remote_sync::sync_server(&*repo, source_id, &server.config);
                     changed |= outcome.changed;
                     match &outcome.result {
                         Ok(report) => log::info!(
-                            "Subsonic {}: {} songs, {} new, {} matched, {} gone, {} updated",
+                            "{} {}: {} songs, {} new, {} matched, {} gone, {} updated",
+                            server.kind().title(),
                             server.uri,
                             report.total,
                             report.added,
@@ -929,10 +929,16 @@ impl LibraryService {
                             report.retired,
                             report.updated
                         ),
-                        Err(e) => log::warn!("Subsonic {} sync failed: {e:?}", server.uri),
+                        Err(e) => {
+                            log::warn!(
+                                "{} {} sync failed: {e:?}",
+                                server.kind().title(),
+                                server.uri
+                            )
+                        }
                     }
                     let _ = event_tx.send(LibraryEvent::RemoteSyncFinished {
-                        uri: server.uri,
+                        key,
                         outcome: outcome.result,
                     });
                 }
@@ -946,7 +952,7 @@ impl LibraryService {
         });
     }
 
-    pub fn sync_offline_remote(&self, servers: Vec<crate::remote_sync::RemoteServer>) {
+    pub fn sync_offline_remote(&self, servers: Vec<crate::servers::RemoteServer>) {
         if self.remote_sync.running.load(Ordering::Acquire) {
             return;
         }
@@ -976,16 +982,16 @@ impl LibraryService {
         );
     }
 
-    pub fn import_remote_stars(&self, server: crate::remote_sync::RemoteServer) {
+    pub fn import_remote_stars(&self, server: crate::servers::RemoteServer) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
         std::thread::spawn(move || {
             let ids = crate::remote_sync::source_ids(&*repo);
-            let outcome = match ids.get(&server.uri) {
+            let outcome = match ids.get(&server.key()) {
                 Some(&source_id) => {
                     crate::remote_sync::import_stars(&*repo, source_id, &server.config)
                 }
-                None => Err(crate::remote_sync::RemoteError::Other(
+                None => Err(crate::servers::RemoteError::Other(
                     "server is not synced yet".into(),
                 )),
             };
@@ -998,7 +1004,7 @@ impl LibraryService {
                 Ok((found, total))
             });
             let _ = event_tx.send(LibraryEvent::RemoteStarsImported {
-                uri: server.uri,
+                key: server.key(),
                 outcome,
             });
         });

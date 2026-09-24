@@ -337,17 +337,6 @@ fn a_ranged_download_with_an_error_reply_is_an_error() {
 }
 
 #[test]
-fn content_range_headers_are_parsed() {
-    assert_eq!(
-        parse_content_range("bytes 100-199/1000"),
-        Some((100, Some(1000)))
-    );
-    assert_eq!(parse_content_range("bytes 0-9/*"), Some((0, None)));
-    assert_eq!(parse_content_range("items 0-9/10"), None);
-    assert_eq!(parse_content_range("bytes x-9/10"), None);
-}
-
-#[test]
 fn starred_songs_and_cover_art() {
     let stub = Stub::start(|method, _| match method {
         "getStarred2" => ok(serde_json::json!({"starred2": {"song": [song(3)]}})),
@@ -400,12 +389,4 @@ fn odd_field_types_do_not_sink_the_listing() {
     assert_eq!(songs[0].year, Some(1999));
     assert_eq!(songs[0].track, None);
     assert!(songs[0].artists.is_empty());
-}
-
-#[test]
-fn error_text_never_carries_the_query_string() {
-    assert_eq!(
-        redact("bad uri http://nas/rest/ping?u=me&t=abc&s=1 is missing host"),
-        "bad uri http://nas/rest/ping is missing host"
-    );
 }

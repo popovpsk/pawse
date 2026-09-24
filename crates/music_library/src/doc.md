@@ -20,7 +20,8 @@ touches the database; `pawse::library_service` drives scans through
   `REFRESH_ITEM_SNAPSHOTS`).
 - `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
 - `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
-- `remote.rs` — the locator format for server tracks (`subsonic://…`).
+- `remote.rs` — the locator format for server tracks (`pawse-source://…`) and
+  `location`, which tells a file path from a server track from a broken locator.
 - `adoption.rs` — the pure matching that decides which files are the same track
   (`match_tracks`), plus `normalize_tag`, the one tag normalization shared with
   the scrobble like-import.
@@ -109,9 +110,9 @@ online the key is the same plain sorted list it always was.
 source are two items (a copy next to its original stays a separate track); the
 same recording in different sources — two folders, a folder and a server, two
 servers — is one item with one binding in each. Which binding plays and names
-the catalog row is priority, not identity: local folders, then Subsonic, then
-anything else, each by source id (`project_remote_tracks`, `playback_locators`,
-`ScanSession::place`).
+the catalog row is priority, not identity: local folders first, then every
+server (Subsonic, Jellyfin — no kind outranks another), each by source id
+(`project_remote_tracks`, `playback_locators`, `ScanSession::place`).
 
 **What a match needs.** Only what is in the database, so a source that is
 offline, disabled or gone still takes part:
@@ -212,10 +213,12 @@ transaction that already read is refused `SQLITE_BUSY` at once while a scan batc
 or a server listing holds the lock, without the busy timeout ever waiting, and the
 like was silently lost.
 
-## Server sources (Subsonic)
+## Server sources (Subsonic, Jellyfin)
 
-A server is a `sources` row with `kind = 'subsonic'` and `uri = user@url`
-(`reconcile_remote_sources` enables the configured ones, disables the rest).
+A server is a `sources` row with `kind = 'subsonic'` or `kind = 'jellyfin'` and
+`uri = user@url` (`reconcile_remote_sources(kind, …)` enables the configured ones
+of that kind and disables the rest of that kind only). Nothing in this crate
+depends on the kind beyond `'local'` versus not; the protocol lives in `pawse`.
 Its songs are bindings like files, with `source_key` = the server's song id.
 
 `apply_remote_listing` records a full listing in one `BEGIN IMMEDIATE`
@@ -242,9 +245,13 @@ scan; `ScanSession::project_remote_tracks` runs at the end of each one and
 inserts a `tracks` row for every present server binding on an enabled, available
 server whose item did not get a row from a local file. So local always wins,
 a server going away hides only what it alone provided, and projecting needs no
-network. Server rows use a locator path, `subsonic://<source_id>/<song_id>.<suffix>`
-(`remote.rs`); the suffix is there because the decoder picks a backend by
-extension.
+network. Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
+(`remote.rs`), for every kind of source: the source id says which one, so the
+locator carries no protocol. The suffix is there because the decoder picks a
+backend by extension. Locators from before the rename (`subsonic://…`) still
+parse; migration 12 rewrites them in `tracks`, and `pawse` rewrites the saved
+queue on load (`remote::canonical`), because the queue is matched to the catalog
+by `(path, start_offset_ms)` and an unmatched entry is dropped from it.
 
 Servers that do not read cue sheets (Navidrome) list a whole-disc image as one
 song, while the local scan splits the same file into its cue tracks. Such a song

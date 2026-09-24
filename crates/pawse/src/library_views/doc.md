@@ -319,8 +319,8 @@ drive the `PlaybackQueue` on click.
 
 ## Library sources in Settings
 
-Sources are managed on Settings → Library, one group per kind (local folders
-now; Subsonic and others get their own groups). `crate::library_sources::
+Sources are managed on Settings → Library, one group per kind (local
+folders, Subsonic, Jellyfin). `crate::library_sources::
 LibrarySources` is the entity those groups read: the folder list comes from
 `settings.json` (`music_folders`), status and track count from the `sources`
 table (`LibraryService::sources`), joined by the pure, unit-tested
@@ -343,24 +343,37 @@ until a real scan re-points them; `run_scan` refuses the fast path while
 `has_unplaced_media()` is true, otherwise an unchanged disk would keep the folders
 looking empty (and their missing files never retired) indefinitely.
 
-### Subsonic servers
+### Servers (Subsonic, Jellyfin)
 
-The Subsonic group on the same page (`subsonic_settings.rs`) lists configured
-servers (`settings.json` → `subsonic_servers`, password in plain text by
-decision, next to the scrobbling keys) with status, track count, Sync, Import
-favorites and Remove, plus the connect form. Connect pings first and saves only
-a server that answered. The rows come from the same `LibrarySources` entity:
+The Subsonic and Jellyfin groups on the same page share their rendering and
+wiring (`remote_settings.rs`: server list, connect form, remove dialog,
+`apply_remote_sources`, `sync_all`, the offline watcher); `subsonic_settings.rs`
+and `jellyfin_settings.rs` only hold each kind's connect. They list configured
+servers (`settings.json` → `subsonic_servers` with the password in plain text by
+decision, next to the scrobbling keys; `jellyfin_servers` with an access token,
+user id and device id — the password is only sent once, to log in) with status,
+track count, Sync, Import favorites and Remove, plus the connect form. Connect
+pings (Jellyfin: logs in, then pings) and saves only a server that answered.
+Everything downstream is kind-agnostic: protocols live behind
+`crate::servers::ServerClient` (see `servers/doc.md`), bytes behind
+`crate::remote_media::SourceMedia` (see `remote_media/doc.md`), and servers are
+keyed `kind:uri` (`RemoteServer::key`) in `source_ids`, the sync queue, the
+events and the per-row messages, so a Subsonic and a Jellyfin account at the
+same address stay apart. The rows come from the same `LibrarySources` entity:
 `RemoteSyncStarted`/`Finished`/`RemoteStarsImported` events drive the Syncing
 state and the per-server result line.
 
 Sync (`remote_sync.rs`, run on its own thread by `LibraryService::sync_remote`,
 one at a time — requests arriving mid-sync are queued): ping → full listing →
 covers not seen before (fetched and thumbnailed on the sync thread) →
-`apply_remote_listing`. `to_remote_song` cleans the listing on the way in: server
+`apply_remote_listing`. The adapters in `servers/` clean the listing on the way in: server
 placeholders (`[Unknown Artist]`, `[Unknown Album]`) become empty, and a track
 number above 999 is dropped — Navidrome takes one from a leading number in an
 untagged file's name, so a whole-disc image `1997 - Around The Fur.flac` arrives
-as track 1997. Only when something changed (songs, tags, availability)
+as track 1997. A Jellyfin item's suffix comes from its file path, else from
+its container list (`mov,mp4,m4a,…` → `m4a`), since the decoder picks a backend by
+extension; its bitrate arrives in bit/s and is stored in kbit/s like Subsonic's.
+Only when something changed (songs, tags, availability)
 is the scan fingerprint dropped and a scan run so the catalog re-projects;
 otherwise a launch with a server keeps the local fast path. A failed ping or
 listing, or a listing the library refuses (empty while it had songs), marks the
@@ -368,7 +381,7 @@ source unavailable and changes nothing else. Failing to *store* a listing is our
 own database being busy, not the server being down: it is retried a few times
 2 s apart and never marks the source unavailable. Servers sync at
 launch and on demand. A server marked unavailable is retried by itself: every
-60 s (`subsonic_settings::watch_offline_servers`) and on window activation
+60 s (`remote_settings::watch_offline_servers`) and on window activation
 (`sync_offline`), skipped while a sync is already running. Online servers are not
 re-listed on activation, so a healthy server costs no network until the next
 launch or Sync. The launch
@@ -378,7 +391,7 @@ re-projected from the cache at every start.
 Playback of a server-only track: `Track.path` is a locator.
 `Services::start_track` sends `Command::Prepare` and opens the track on its own
 thread: `RemoteMedia::open_stream` joins or starts a `media_stream` download of
-the file into `<cache>/pawse/subsonic/<source>/…`, and the engine gets a
+the file into `<cache>/pawse/media/<source>/…`, and the engine gets a
 `StreamingSource` through an `EngineCommander` (a `Send` handle on the engine's
 command channel). The engine thread never waits on the network. A generation
 counter drops the result if another track was requested meanwhile, and the final
@@ -392,8 +405,9 @@ right away (`mark_source_offline`, same as a failed sync) and the toast says the
 server is unreachable; the offline retry brings it back. A download that has not
 received a byte gives up after 2 retries (under a second), one that was already
 streaming keeps the 6 retries for network hiccups. APE and DSD are downloaded whole
-first. When a local file has vanished before the next scan, `playback_locators`
-offers the item's other bindings, local first. At launch a server track that is
+first. `start_track` always walks `playback_locators` (local first, then servers
+by source id), so a vanished local file or a server that is down falls through
+to the item's next copy, and only the last failure is shown. At launch a server track that is
 not cached is not restored; Play then loads it and the saved position is applied
 once it is loaded (`resume_at`). The next remote track in the queue is fetched
 30 s ahead so gapless playback works. The cache is trimmed to the user's

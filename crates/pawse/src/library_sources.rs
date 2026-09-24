@@ -5,9 +5,9 @@ use gpui::{Context, SharedString, Subscription};
 
 use crate::library_service::LibraryEvent;
 use crate::localization::{LangChanged, tr};
-use crate::remote_sync::{RemoteError, SUBSONIC_KIND};
+use crate::servers::{RemoteError, RemoteServer, ServerKind};
 use crate::services::Services;
-use crate::settings_store::{SettingsStore, SubsonicServer};
+use crate::settings_store::{JellyfinServer, SettingsStore, SubsonicServer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceStatus {
@@ -81,7 +81,7 @@ pub enum ServerStatus {
 }
 
 pub struct ServerRow {
-    pub server: SubsonicServer,
+    pub server: RemoteServer,
     pub title: SharedString,
     pub status: ServerStatus,
     pub status_label: SharedString,
@@ -90,13 +90,14 @@ pub struct ServerRow {
 }
 
 pub fn server_status(
+    kind: ServerKind,
     uri: &str,
     summaries: &[music_library::SourceSummary],
     syncing: bool,
 ) -> (ServerStatus, i64) {
     let summary = summaries
         .iter()
-        .find(|s| s.kind == SUBSONIC_KIND && s.enabled && s.uri == uri);
+        .find(|s| s.kind == kind.as_str() && s.enabled && s.uri == uri);
     let status = match summary {
         _ if syncing => ServerStatus::Syncing,
         Some(s) if s.available => ServerStatus::Online,
@@ -107,22 +108,28 @@ pub fn server_status(
 
 pub fn describe_error(error: &RemoteError) -> SharedString {
     match error {
-        RemoteError::Auth => tr().subsonic_auth_failed.clone(),
-        RemoteError::Unreachable(reason) => tr().subsonic_unreachable(reason).into(),
+        RemoteError::Auth => tr().server_auth_failed.clone(),
+        RemoteError::Unreachable(reason) => tr().server_unreachable(reason).into(),
         RemoteError::Other(message) => message.clone().into(),
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ConnectState {
+    pub connecting: bool,
+    pub error: Option<SharedString>,
+}
+
 pub struct LibrarySources {
     folders: Vec<PathBuf>,
-    servers: Vec<SubsonicServer>,
+    subsonic: Vec<SubsonicServer>,
+    jellyfin: Vec<JellyfinServer>,
     summaries: Vec<music_library::SourceSummary>,
     local: Vec<LocalFolderRow>,
     remote: Vec<ServerRow>,
     syncing: HashSet<String>,
     messages: HashMap<String, SharedString>,
-    pub connecting: bool,
-    pub connect_error: Option<SharedString>,
+    connect: HashMap<ServerKind, ConnectState>,
     cache_bytes: Option<u64>,
     cache_label: Option<SharedString>,
     clearing_cache: bool,
@@ -140,25 +147,25 @@ impl LibrarySources {
             &library_event_bus,
             |this, _, event: &LibraryEvent, cx| match event {
                 LibraryEvent::CatalogChanged | LibraryEvent::ScanFailed => this.load(cx),
-                LibraryEvent::RemoteSyncStarted { uri } => {
-                    this.syncing.insert(uri.clone());
-                    this.messages.remove(uri);
+                LibraryEvent::RemoteSyncStarted { key } => {
+                    this.syncing.insert(key.clone());
+                    this.messages.remove(key);
                     this.refresh_rows(cx);
                     cx.notify();
                 }
-                LibraryEvent::RemoteSyncFinished { uri, outcome } => {
-                    this.syncing.remove(uri);
+                LibraryEvent::RemoteSyncFinished { key, outcome } => {
+                    this.syncing.remove(key);
                     if let Err(error) = outcome {
-                        this.messages.insert(uri.clone(), describe_error(error));
+                        this.messages.insert(key.clone(), describe_error(error));
                     }
                     this.load(cx);
                 }
-                LibraryEvent::RemoteStarsImported { uri, outcome } => {
+                LibraryEvent::RemoteStarsImported { key, outcome } => {
                     let message = match outcome {
                         Ok((found, total)) => tr().scrobble_import_result(*found, *total).into(),
                         Err(error) => describe_error(error),
                     };
-                    this.messages.insert(uri.clone(), message);
+                    this.messages.insert(key.clone(), message);
                     this.refresh_rows(cx);
                     cx.notify();
                 }
@@ -179,21 +186,22 @@ impl LibrarySources {
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
             let store = cx.global::<SettingsStore>();
             if store.music_folders() != this.folders.as_slice()
-                || store.subsonic_servers() != this.servers.as_slice()
+                || store.subsonic_servers() != this.subsonic.as_slice()
+                || store.jellyfin_servers() != this.jellyfin.as_slice()
             {
                 this.load(cx);
             }
         });
         let mut state = Self {
             folders: Vec::new(),
-            servers: Vec::new(),
+            subsonic: Vec::new(),
+            jellyfin: Vec::new(),
             summaries: Vec::new(),
             local: Vec::new(),
             remote: Vec::new(),
             syncing: HashSet::new(),
             messages: HashMap::new(),
-            connecting: false,
-            connect_error: None,
+            connect: HashMap::new(),
             cache_bytes: None,
             cache_label: None,
             clearing_cache: false,
@@ -264,13 +272,24 @@ impl LibrarySources {
         &self.local
     }
 
-    pub fn remote(&self) -> &[ServerRow] {
-        &self.remote
+    pub fn remote(&self, kind: ServerKind) -> impl Iterator<Item = &ServerRow> {
+        self.remote
+            .iter()
+            .filter(move |row| row.server.kind() == kind)
+    }
+
+    pub fn connect_state(&self, kind: ServerKind) -> ConnectState {
+        self.connect.get(&kind).cloned().unwrap_or_default()
+    }
+
+    pub fn set_connect_state(&mut self, kind: ServerKind, state: ConnectState) {
+        self.connect.insert(kind, state);
     }
 
     fn load(&mut self, cx: &mut Context<Self>) {
         self.folders = cx.global::<SettingsStore>().music_folders().to_vec();
-        self.servers = cx.global::<SettingsStore>().subsonic_servers().to_vec();
+        self.subsonic = cx.global::<SettingsStore>().subsonic_servers().to_vec();
+        self.jellyfin = cx.global::<SettingsStore>().jellyfin_servers().to_vec();
         self.summaries = cx.global::<Services>().library.sources();
         self.refresh_rows(cx);
         cx.notify();
@@ -282,25 +301,28 @@ impl LibrarySources {
             .into_iter()
             .map(LocalFolderRow::new)
             .collect();
-        self.remote = self
-            .servers
-            .iter()
+        self.remote = crate::remote_settings::configured_servers(&self.subsonic, &self.jellyfin)
+            .into_iter()
             .map(|server| {
-                let uri = server.source_uri();
-                let (status, count) =
-                    server_status(&uri, &self.summaries, self.syncing.contains(&uri));
+                let key = server.key();
+                let (status, count) = server_status(
+                    server.kind(),
+                    &server.uri,
+                    &self.summaries,
+                    self.syncing.contains(&key),
+                );
                 let status_label = match status {
                     ServerStatus::Online => tr().server_online.clone(),
                     ServerStatus::Offline => tr().server_offline.clone(),
                     ServerStatus::Syncing => tr().source_syncing.clone(),
                 };
                 ServerRow {
-                    title: uri.clone().into(),
+                    title: server.uri.clone().into(),
                     status,
                     status_label,
                     count_label: tr().n_tracks(count).into(),
-                    message: self.messages.get(&uri).cloned(),
-                    server: server.clone(),
+                    message: self.messages.get(&key).cloned(),
+                    server,
                 }
             })
             .collect();
@@ -359,22 +381,42 @@ mod tests {
     #[test]
     fn server_status_prefers_syncing_then_the_source_flag() {
         let mut online = summary("me@http://nas", true, 7);
-        online.kind = SUBSONIC_KIND.into();
+        online.kind = ServerKind::Subsonic.as_str().into();
         assert_eq!(
-            server_status("me@http://nas", std::slice::from_ref(&online), false),
+            server_status(
+                ServerKind::Subsonic,
+                "me@http://nas",
+                std::slice::from_ref(&online),
+                false
+            ),
             (ServerStatus::Online, 7)
         );
         assert_eq!(
-            server_status("me@http://nas", std::slice::from_ref(&online), true).0,
+            server_status(
+                ServerKind::Subsonic,
+                "me@http://nas",
+                std::slice::from_ref(&online),
+                true
+            )
+            .0,
             ServerStatus::Syncing
+        );
+        assert_eq!(
+            server_status(
+                ServerKind::Jellyfin,
+                "me@http://nas",
+                std::slice::from_ref(&online),
+                false
+            ),
+            (ServerStatus::Offline, 0)
         );
         online.available = false;
         assert_eq!(
-            server_status("me@http://nas", &[online], false).0,
+            server_status(ServerKind::Subsonic, "me@http://nas", &[online], false).0,
             ServerStatus::Offline
         );
         assert_eq!(
-            server_status("other", &[], false),
+            server_status(ServerKind::Subsonic, "other", &[], false),
             (ServerStatus::Offline, 0)
         );
     }

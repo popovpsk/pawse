@@ -4071,6 +4071,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jellyfin"
+version = "1.0.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "server_http",
+ "thiserror 2.0.19",
+ "ureq",
+]
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5692,6 +5704,7 @@ dependencies = [
  "gpui-pre-platform",
  "image",
  "interprocess",
+ "jellyfin",
  "log",
  "lyrics",
  "media_integration",
@@ -5707,6 +5720,7 @@ dependencies = [
  "scrobble",
  "serde",
  "serde_json",
+ "server_http",
  "subsonic",
  "sys-locale",
  "tag_writer",
@@ -7252,6 +7266,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "server_http"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7595,6 +7618,7 @@ dependencies = [
  "md-5",
  "serde",
  "serde_json",
+ "server_http",
  "thiserror 2.0.19",
  "ureq",
 ]

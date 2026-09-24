@@ -208,7 +208,8 @@ pub struct SettingsSliders {
 #[derive(Clone)]
 pub struct LibraryPage {
     pub sources: Entity<crate::library_sources::LibrarySources>,
-    pub subsonic_inputs: crate::subsonic_settings::SubsonicInputs,
+    pub subsonic_inputs: crate::remote_settings::ServerInputs,
+    pub jellyfin_inputs: crate::remote_settings::ServerInputs,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -256,6 +257,10 @@ pub fn build_settings_pages(
             .group(crate::subsonic_settings::subsonic_group(
                 library_page.sources.clone(),
                 library_page.subsonic_inputs,
+            ))
+            .group(crate::jellyfin_settings::jellyfin_group(
+                library_page.sources.clone(),
+                library_page.jellyfin_inputs,
             ))
             .group(crate::cache_settings::cache_group(library_page.sources)),
     );

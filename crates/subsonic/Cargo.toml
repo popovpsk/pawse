@@ -11,6 +11,7 @@ serde_json = "1"
 ureq = "3"
 md-5 = "0.10"
 thiserror = "2.0"
+server_http = { path = "../server_http" }
 
 [lib]
 path = "src/lib.rs"

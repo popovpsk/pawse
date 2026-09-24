@@ -444,4 +444,11 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_remote_tracks_cover_hash ON remote_tracks(cover_hash);
         "#,
     ),
+    (
+        12,
+        r#"
+        UPDATE tracks SET path = 'pawse-source://' || substr(path, 12)
+            WHERE substr(path, 1, 11) = 'subsonic://';
+        "#,
+    ),
 ];

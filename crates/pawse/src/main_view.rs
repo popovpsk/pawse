@@ -328,7 +328,8 @@ impl MainView {
         let library_sources = cx.new(crate::library_sources::LibrarySources::new);
         let library_page = crate::settings_view::LibraryPage {
             sources: library_sources.clone(),
-            subsonic_inputs: crate::subsonic_settings::SubsonicInputs::new(window, cx),
+            subsonic_inputs: crate::remote_settings::ServerInputs::new(window, cx),
+            jellyfin_inputs: crate::remote_settings::ServerInputs::new(window, cx),
         };
         let library_sources_observe = cx.observe(&library_sources, |_, _, cx| cx.notify());
         let scrobble_ui: Entity<ScrobbleUiState> = cx.new(|_| ScrobbleUiState::new());
@@ -562,7 +563,7 @@ impl MainView {
                         .library
                         .request_rescan(folders, false, false);
                 }
-                crate::subsonic_settings::sync_offline(cx);
+                crate::remote_settings::sync_offline(cx);
             }
         });
 

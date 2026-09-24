@@ -455,7 +455,7 @@ impl EventEmitter<OpenLibrarySettings> for AlbumsView {}
 
 pub fn no_music_message(nothing_found: &SharedString, cx: &App) -> SharedString {
     let store = cx.global::<SettingsStore>();
-    if store.music_folders().is_empty() && store.subsonic_servers().is_empty() {
+    if store.music_folders().is_empty() && !crate::remote_settings::has_servers(store) {
         tr().no_music_sources.clone()
     } else {
         nothing_found.clone()

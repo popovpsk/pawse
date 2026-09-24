@@ -1,20 +1,19 @@
 use std::collections::HashSet;
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
-use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use md5::{Digest, Md5};
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
+use server_http::{Status, lenient};
+
+pub use server_http::RangeBody;
 
 const API_VERSION: &str = "1.16.1";
 const CLIENT_NAME: &str = "pawse";
 const PAGE_SIZE: usize = 500;
 const MAX_PAGES: usize = 10_000;
 const MAX_COVER_BYTES: u64 = 32 * 1024 * 1024;
-const RANGE_TIMEOUT: Duration = Duration::from_secs(15);
-const RANGE_BODY_TIMEOUT: Duration = Duration::from_secs(30);
 const ERROR_WRONG_CREDENTIALS: i64 = 40;
 const ERROR_TOKEN_AUTH_UNSUPPORTED: i64 = 41;
 const ERROR_NOT_AUTHORIZED: i64 = 50;
@@ -36,55 +35,48 @@ pub enum Error {
     Server(String),
 }
 
-pub struct RangeBody {
-    pub body: Box<dyn Read + Send>,
-    pub offset: u64,
-    pub total: Option<u64>,
-    pub ranged: bool,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Song {
-    #[serde(deserialize_with = "id")]
+    #[serde(deserialize_with = "lenient::id")]
     pub id: String,
-    #[serde(default, deserialize_with = "lenient_text")]
+    #[serde(default, deserialize_with = "lenient::text")]
     pub title: String,
-    #[serde(default, deserialize_with = "lenient_opt_text")]
+    #[serde(default, deserialize_with = "lenient::opt_text")]
     pub album: Option<String>,
-    #[serde(default, deserialize_with = "lenient_opt_text")]
+    #[serde(default, deserialize_with = "lenient::opt_text")]
     pub artist: Option<String>,
     #[serde(
         default,
         alias = "displayAlbumArtist",
-        deserialize_with = "lenient_opt_text"
+        deserialize_with = "lenient::opt_text"
     )]
     pub album_artist: Option<String>,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(default, deserialize_with = "lenient::number")]
     pub track: Option<u32>,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(default, deserialize_with = "lenient::number")]
     pub disc_number: Option<u32>,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(default, deserialize_with = "lenient::number")]
     pub year: Option<i32>,
-    #[serde(default, deserialize_with = "lenient_opt_text")]
+    #[serde(default, deserialize_with = "lenient::opt_text")]
     pub genre: Option<String>,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(default, deserialize_with = "lenient::number")]
     pub duration: Option<u64>,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(default, deserialize_with = "lenient::number")]
     pub size: Option<u64>,
-    #[serde(default, deserialize_with = "lenient_opt_text")]
+    #[serde(default, deserialize_with = "lenient::opt_text")]
     pub suffix: Option<String>,
-    #[serde(default, deserialize_with = "lenient_opt_text")]
+    #[serde(default, deserialize_with = "lenient::opt_text")]
     pub content_type: Option<String>,
-    #[serde(default, deserialize_with = "optional_id")]
+    #[serde(default, deserialize_with = "lenient::opt_id")]
     pub cover_art: Option<String>,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(default, deserialize_with = "lenient::number")]
     pub bit_rate: Option<u32>,
-    #[serde(default, deserialize_with = "lenient_opt_text")]
+    #[serde(default, deserialize_with = "lenient::opt_text")]
     pub path: Option<String>,
-    #[serde(default, deserialize_with = "lenient_list")]
+    #[serde(default, deserialize_with = "lenient::list")]
     pub artists: Vec<Named>,
-    #[serde(default, deserialize_with = "lenient_list")]
+    #[serde(default, deserialize_with = "lenient::list")]
     pub album_artists: Vec<Named>,
 }
 
@@ -95,75 +87,8 @@ pub struct Named {
 }
 
 #[derive(Deserialize)]
-#[serde(untagged)]
-enum RawId {
-    Text(String),
-    Number(i64),
-}
-
-impl From<RawId> for String {
-    fn from(raw: RawId) -> Self {
-        match raw {
-            RawId::Text(text) => text,
-            RawId::Number(number) => number.to_string(),
-        }
-    }
-}
-
-fn id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    Ok(RawId::deserialize(deserializer)?.into())
-}
-
-fn optional_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
-    Ok(Option::<RawId>::deserialize(deserializer)?.map(String::from))
-}
-
-fn lenient<'de, D: Deserializer<'de>, T: std::str::FromStr>(
-    deserializer: D,
-) -> Result<Option<T>, D::Error> {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match value {
-        serde_json::Value::Number(number) => number
-            .as_i64()
-            .map(|n| n.to_string())
-            .or_else(|| number.as_f64().map(|f| (f.round() as i64).to_string()))
-            .and_then(|text| text.parse().ok()),
-        serde_json::Value::String(text) => text.trim().parse().ok(),
-        _ => None,
-    })
-}
-
-fn lenient_opt_text<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match value {
-        serde_json::Value::String(text) => Some(text),
-        serde_json::Value::Number(number) => Some(number.to_string()),
-        _ => None,
-    })
-}
-
-fn lenient_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    Ok(lenient_opt_text(deserializer)?.unwrap_or_default())
-}
-
-fn lenient_list<'de, D: Deserializer<'de>, T: for<'a> Deserialize<'a>>(
-    deserializer: D,
-) -> Result<Vec<T>, D::Error> {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match value {
-        serde_json::Value::Array(items) => items
-            .into_iter()
-            .filter_map(|item| serde_json::from_value(item).ok())
-            .collect(),
-        _ => Vec::new(),
-    })
-}
-
-#[derive(Deserialize)]
 struct AlbumRef {
-    #[serde(deserialize_with = "id")]
+    #[serde(deserialize_with = "lenient::id")]
     id: String,
 }
 
@@ -178,7 +103,7 @@ pub struct Client {
 
 enum Payload {
     Json(serde_json::Value),
-    Binary(ureq::Body, ureq::http::HeaderMap, u16),
+    Binary(ureq::http::Response<ureq::Body>),
 }
 
 impl Client {
@@ -187,14 +112,7 @@ impl Client {
             base: config.url.trim().trim_end_matches('/').to_string(),
             username: config.username.clone(),
             password: config.password.clone(),
-            agent: ureq::Agent::new_with_config(
-                ureq::Agent::config_builder()
-                    .timeout_connect(Some(Duration::from_secs(10)))
-                    .timeout_recv_response(Some(Duration::from_secs(60)))
-                    .timeout_recv_body(Some(Duration::from_secs(600)))
-                    .http_status_as_error(false)
-                    .build(),
-            ),
+            agent: server_http::agent(),
             legacy_auth: AtomicBool::new(false),
             page_size: PAGE_SIZE,
         }
@@ -228,12 +146,7 @@ impl Client {
 
     pub fn cover_art(&self, cover_id: &str) -> Result<Vec<u8>, Error> {
         let body = self.binary("getCoverArt", &[("id", cover_id)])?;
-        let mut bytes = Vec::new();
-        body.into_reader()
-            .take(MAX_COVER_BYTES)
-            .read_to_end(&mut bytes)
-            .map_err(|e| Error::Transient(e.to_string()))?;
-        Ok(bytes)
+        server_http::read_capped(body, MAX_COVER_BYTES).map_err(|e| Error::Transient(e.to_string()))
     }
 
     pub fn fetch_range(
@@ -242,40 +155,12 @@ impl Client {
         start: u64,
         end: Option<u64>,
     ) -> Result<RangeBody, Error> {
-        let range = match end {
-            Some(end) => format!("bytes={start}-{}", end.saturating_sub(1)),
-            None => format!("bytes={start}-"),
-        };
-        let (body, headers, status) =
-            match self.request("download", &[("id", song_id)], Some(&range))? {
-                Payload::Binary(body, headers, status) => (body, headers, status),
-                Payload::Json(_) => return Err(Error::Server("download: unexpected reply".into())),
-            };
-        let header = |name: &str| {
-            headers
-                .get(name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string)
-        };
-        let length = header("content-length").and_then(|value| value.trim().parse().ok());
-        if status == 206 {
-            let (offset, total) = header("content-range")
-                .as_deref()
-                .and_then(parse_content_range)
-                .ok_or_else(|| Error::Server("download: malformed Content-Range".into()))?;
-            return Ok(RangeBody {
-                body: Box::new(body.into_reader()),
-                offset,
-                total,
-                ranged: true,
-            });
+        let range = server_http::range_header(start, end);
+        match self.request("download", &[("id", song_id)], Some(&range))? {
+            Payload::Binary(response) => server_http::range_body(response)
+                .map_err(|message| Error::Server(format!("download: {message}"))),
+            Payload::Json(_) => Err(Error::Server("download: unexpected reply".into())),
         }
-        Ok(RangeBody {
-            body: Box::new(body.into_reader()),
-            offset: 0,
-            total: length,
-            ranged: false,
-        })
     }
 
     fn search_all(&self) -> Result<Vec<Song>, Error> {
@@ -365,7 +250,7 @@ impl Client {
 
     fn binary(&self, method: &str, params: &[(&str, &str)]) -> Result<ureq::Body, Error> {
         match self.request(method, params, None)? {
-            Payload::Binary(body, ..) => Ok(body),
+            Payload::Binary(response) => Ok(response.into_body()),
             Payload::Json(_) => Err(Error::Server(format!("{method}: unexpected reply"))),
         }
     }
@@ -412,44 +297,35 @@ impl Client {
             request = request.query(*key, *value);
         }
         if let Some(range) = range {
-            let config = request
-                .header("Range", range)
-                .config()
-                .timeout_recv_response(Some(RANGE_TIMEOUT));
-            request = if range.ends_with('-') {
-                config.build()
-            } else {
-                config.timeout_recv_body(Some(RANGE_BODY_TIMEOUT)).build()
-            };
+            request = server_http::with_range(request, range);
         }
-        let response = request
-            .call()
-            .map_err(|e| ServerFailure::Error(Error::Transient(redact(&e.to_string()))))?;
+        let response = request.call().map_err(|e| {
+            ServerFailure::Error(Error::Transient(server_http::redact(&e.to_string())))
+        })?;
         let status = response.status().as_u16();
-        if status == 401 || status == 403 {
-            return Err(ServerFailure::Error(Error::Auth));
-        }
-        if status >= 500 {
-            return Err(ServerFailure::Error(Error::Transient(format!(
-                "HTTP {status}"
-            ))));
-        }
-        if !(200..300).contains(&status) {
-            return Err(ServerFailure::Error(Error::Server(format!(
-                "HTTP {status}"
-            ))));
+        match server_http::classify(status) {
+            Status::Success => {}
+            Status::Auth => return Err(ServerFailure::Error(Error::Auth)),
+            Status::Transient => {
+                return Err(ServerFailure::Error(Error::Transient(format!(
+                    "HTTP {status}"
+                ))));
+            }
+            Status::Failed => {
+                return Err(ServerFailure::Error(Error::Server(format!(
+                    "HTTP {status}"
+                ))));
+            }
         }
         let is_json = response
             .headers()
             .get("content-type")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("json") || value.contains("xml"));
-        let headers = response.headers().clone();
-        let body = response.into_body();
         if !is_json {
-            return Ok(Payload::Binary(body, headers, status));
+            return Ok(Payload::Binary(response));
         }
-        let value: serde_json::Value = serde_json::from_reader(body.into_reader())
+        let value: serde_json::Value = serde_json::from_reader(response.into_body().into_reader())
             .map_err(|e| ServerFailure::Error(Error::Server(format!("{method}: {e}"))))?;
         let inner = value.get("subsonic-response").cloned().ok_or_else(|| {
             ServerFailure::Error(Error::Server(format!("{method}: not a Subsonic server")))
@@ -504,32 +380,6 @@ fn list_at<T: for<'de> Deserialize<'de>>(
 
 fn songs_at(response: &serde_json::Value, path: &[&str]) -> Result<Vec<Song>, Error> {
     list_at(response, path)
-}
-
-fn parse_content_range(value: &str) -> Option<(u64, Option<u64>)> {
-    let spec = value.trim().strip_prefix("bytes")?.trim_start();
-    let (span, total) = spec.split_once('/')?;
-    let (first, _) = span.split_once('-')?;
-    let total = match total.trim() {
-        "*" => None,
-        text => Some(text.parse().ok()?),
-    };
-    Some((first.trim().parse().ok()?, total))
-}
-
-fn redact(message: &str) -> String {
-    let mut out = String::with_capacity(message.len());
-    let mut rest = message;
-    while let Some(start) = rest.find('?') {
-        out.push_str(&rest[..start]);
-        let tail = &rest[start..];
-        let end = tail
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ')')
-            .unwrap_or(tail.len());
-        rest = &tail[end..];
-    }
-    out.push_str(rest);
-    out
 }
 
 fn salt() -> String {

@@ -270,7 +270,7 @@ const PROJECTABLE_REMOTE_TRACKS: &str = "SELECT b.item_id, b.source_id, b.source
         OR NOT EXISTS (SELECT 1 FROM media_bindings c JOIN sources cs ON cs.id = c.source_id \
             WHERE c.file_size = b.file_size AND c.start_offset_ms > 0 AND c.present = 1 \
             AND c.source_id <> b.source_id AND cs.enabled = 1 AND cs.available = 1)) \
-    ORDER BY b.item_id, CASE s.kind WHEN 'subsonic' THEN 1 ELSE 2 END, s.id, b.id";
+    ORDER BY b.item_id, s.id, b.id";
 
 const ITEMS_WITH_USER_DATA: &str = "SELECT track_id FROM playlist_tracks \
     UNION SELECT track_id FROM lyrics WHERE source NOT IN ('lrc', 'embedded') \
@@ -605,7 +605,7 @@ fn upsert_remote_track(conn: &Connection, binding_id: i64, song: &RemoteSong) ->
             song.size,
             song.suffix,
             song.content_type,
-            song.bitrate,
+            song.bitrate_kbps,
             song.cover_key,
             song.cover_hash,
             unix_now(),
@@ -2436,7 +2436,7 @@ impl LibraryRepository for SqliteLibrary {
              FROM media_bindings b JOIN sources s ON s.id = b.source_id \
              LEFT JOIN remote_tracks rt ON rt.binding_id = b.id \
              WHERE b.item_id = ?1 AND b.present = 1 AND s.enabled = 1 AND s.available = 1 \
-             ORDER BY CASE s.kind WHEN 'local' THEN 0 WHEN 'subsonic' THEN 1 ELSE 2 END, \
+             ORDER BY CASE s.kind WHEN 'local' THEN 0 ELSE 1 END, \
              s.id, b.id",
         )?;
         let rows = stmt.query_map([item_id], |row| {

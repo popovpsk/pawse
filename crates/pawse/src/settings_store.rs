@@ -321,6 +321,34 @@ impl SubsonicServer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct JellyfinServer {
+    pub url: String,
+    pub username: String,
+    pub user_id: String,
+    pub token: String,
+    pub device_id: String,
+}
+
+impl JellyfinServer {
+    pub fn normalized_url(&self) -> String {
+        self.url.trim().trim_end_matches('/').to_string()
+    }
+
+    pub fn source_uri(&self) -> String {
+        format!("{}@{}", self.username.trim(), self.normalized_url())
+    }
+
+    pub fn config(&self) -> jellyfin::Config {
+        jellyfin::Config {
+            url: self.normalized_url(),
+            user_id: self.user_id.clone(),
+            token: self.token.clone(),
+            device_id: self.device_id.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     #[serde(default)]
@@ -391,6 +419,8 @@ pub struct UserSettings {
     pub scrobble: ScrobbleSettings,
     #[serde(default)]
     pub subsonic_servers: Vec<SubsonicServer>,
+    #[serde(default)]
+    pub jellyfin_servers: Vec<JellyfinServer>,
     #[serde(default = "default_network_cache_gb")]
     pub network_cache_gb: u32,
     #[serde(default, rename = "lastfm_enabled", skip_serializing)]
@@ -448,6 +478,7 @@ impl Default for UserSettings {
             remote_port: pawse_remote::DEFAULT_PORT,
             scrobble: ScrobbleSettings::default(),
             subsonic_servers: Vec::new(),
+            jellyfin_servers: Vec::new(),
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
@@ -554,6 +585,15 @@ fn migrate_scrobble(settings: &mut UserSettings) {
     settings.scrobble.lastfm.session = legacy_session;
 }
 
+fn migrate_locators(playback: &mut PlaybackState) {
+    let original = playback.original_queue.iter_mut().flatten();
+    for track in playback.queue.iter_mut().chain(original) {
+        if let Some(path) = music_library::remote::canonical(&track.path) {
+            track.path = path;
+        }
+    }
+}
+
 pub struct SettingsStore {
     pub settings: UserSettings,
     path: PathBuf,
@@ -584,6 +624,7 @@ impl SettingsStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         migrate_scrobble(&mut settings);
+        migrate_locators(&mut settings.playback);
         Self {
             settings,
             path,
@@ -718,6 +759,41 @@ impl SettingsStore {
             return Ok(());
         }
         self.save()
+    }
+
+    pub fn jellyfin_servers(&self) -> &[JellyfinServer] {
+        &self.settings.jellyfin_servers
+    }
+
+    pub fn add_jellyfin_server(&mut self, server: JellyfinServer) -> anyhow::Result<()> {
+        let uri = server.source_uri();
+        self.settings
+            .jellyfin_servers
+            .retain(|existing| existing.source_uri() != uri);
+        self.settings.jellyfin_servers.push(server);
+        self.save()
+    }
+
+    pub fn remove_jellyfin_server(&mut self, uri: &str) -> anyhow::Result<()> {
+        let before = self.settings.jellyfin_servers.len();
+        self.settings
+            .jellyfin_servers
+            .retain(|server| server.source_uri() != uri);
+        if self.settings.jellyfin_servers.len() == before {
+            return Ok(());
+        }
+        self.save()
+    }
+
+    pub fn remove_server(
+        &mut self,
+        kind: crate::servers::ServerKind,
+        uri: &str,
+    ) -> anyhow::Result<()> {
+        match kind {
+            crate::servers::ServerKind::Subsonic => self.remove_subsonic_server(uri),
+            crate::servers::ServerKind::Jellyfin => self.remove_jellyfin_server(uri),
+        }
     }
 
     pub fn playback(&self) -> &PlaybackState {
@@ -1341,6 +1417,7 @@ mod tests {
             remote_port: pawse_remote::DEFAULT_PORT,
             scrobble: ScrobbleSettings::default(),
             subsonic_servers: Vec::new(),
+            jellyfin_servers: Vec::new(),
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
@@ -1383,6 +1460,36 @@ mod tests {
         let json = serde_json::to_string(&persisted).unwrap();
         let de: QueueSourcePersist = serde_json::from_str(&json).unwrap();
         assert_eq!(de, QueueSourcePersist::AllTracks);
+    }
+
+    #[test]
+    fn saved_queues_move_server_tracks_to_the_neutral_locator() {
+        let track = |path: &str| music_library::Track {
+            id: 1,
+            path: path.into(),
+            title: String::new(),
+            album_id: None,
+            track_number: None,
+            disc_number: 1,
+            duration_ms: None,
+            year: None,
+            cover_art_id: None,
+            start_offset_ms: 0,
+            liked: false,
+            bitrate: None,
+            is_cue: false,
+            available: true,
+        };
+        let mut playback = PlaybackState {
+            queue: vec![track("subsonic://2/s1.flac"), track("/m/a.flac")],
+            original_queue: Some(vec![track("subsonic://2/s1.flac")]),
+            ..Default::default()
+        };
+        migrate_locators(&mut playback);
+        let fresh = music_library::remote::locator(2, "s1", "flac");
+        assert_eq!(playback.queue[0].path, fresh);
+        assert_eq!(playback.queue[1].path, "/m/a.flac");
+        assert_eq!(playback.original_queue.unwrap()[0].path, fresh);
     }
 
     #[test]

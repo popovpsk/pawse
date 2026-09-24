@@ -193,7 +193,7 @@ impl LyricsView {
             .borrow()
             .current_track()
             .cloned()?;
-        let is_cue = track.is_cue || music_library::remote::is_remote(&track.path);
+        let is_cue = track.is_cue || music_library::remote::local_file(&track.path).is_none();
         Some(TrackContext {
             id: track.id,
             path: track.path,
@@ -607,7 +607,7 @@ impl LyricsView {
         let Some(ctx) = Self::current_context(cx) else {
             return;
         };
-        if music_library::remote::is_remote(&ctx.path) {
+        if music_library::remote::local_file(&ctx.path).is_none() {
             return;
         }
         let Some(raw) = self.current_raw.clone() else {

@@ -2,56 +2,34 @@ use std::collections::{HashMap, HashSet};
 
 use music_library::{LibraryRepository, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport};
 
-pub const SUBSONIC_KIND: &str = "subsonic";
-
-#[derive(Clone, Debug)]
-pub struct RemoteServer {
-    pub uri: String,
-    pub name: String,
-    pub config: subsonic::Config,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RemoteError {
-    Auth,
-    Unreachable(String),
-    Other(String),
-}
-
-impl From<subsonic::Error> for RemoteError {
-    fn from(error: subsonic::Error) -> Self {
-        match error {
-            subsonic::Error::Auth => RemoteError::Auth,
-            subsonic::Error::Transient(message) => RemoteError::Unreachable(message),
-            subsonic::Error::Server(message) => RemoteError::Other(message),
-        }
-    }
-}
-
-impl From<music_library::LibraryError> for RemoteError {
-    fn from(error: music_library::LibraryError) -> Self {
-        RemoteError::Other(error.to_string())
-    }
-}
+use crate::servers::{
+    RemoteConfig, RemoteError, RemoteServer, ServerClient, ServerKind, source_key,
+};
 
 pub fn reconcile(
     repo: &dyn LibraryRepository,
     servers: &[RemoteServer],
-) -> HashMap<i64, subsonic::Config> {
-    let sources: Vec<RemoteSource> = servers
-        .iter()
-        .map(|server| RemoteSource {
-            uri: server.uri.clone(),
-            name: server.name.clone(),
-        })
-        .collect();
-    if let Err(e) = repo.reconcile_remote_sources(SUBSONIC_KIND, &sources) {
-        log::error!("Failed to reconcile Subsonic sources: {e}");
+) -> HashMap<i64, RemoteConfig> {
+    for kind in ServerKind::ALL {
+        let sources: Vec<RemoteSource> = servers
+            .iter()
+            .filter(|server| server.kind() == kind)
+            .map(|server| RemoteSource {
+                uri: server.uri.clone(),
+                name: server.name.clone(),
+            })
+            .collect();
+        if let Err(e) = repo.reconcile_remote_sources(kind.as_str(), &sources) {
+            log::error!("Failed to reconcile {} sources: {e}", kind.title());
+        }
     }
     let ids = source_ids(repo);
     servers
         .iter()
-        .filter_map(|server| ids.get(&server.uri).map(|id| (*id, server.config.clone())))
+        .filter_map(|server| {
+            ids.get(&server.key())
+                .map(|id| (*id, server.config.clone()))
+        })
         .collect()
 }
 
@@ -59,8 +37,11 @@ pub fn source_ids(repo: &dyn LibraryRepository) -> HashMap<String, i64> {
     repo.sources()
         .unwrap_or_default()
         .into_iter()
-        .filter(|source| source.kind == SUBSONIC_KIND && source.enabled)
-        .map(|source| (source.uri, source.id))
+        .filter(|source| source.enabled)
+        .filter_map(|source| {
+            let kind = ServerKind::parse(&source.kind)?;
+            Some((source_key(kind, &source.uri), source.id))
+        })
         .collect()
 }
 
@@ -77,7 +58,7 @@ pub fn offline_servers(
         .into_iter()
         .filter(|server| {
             summaries.iter().any(|s| {
-                s.kind == SUBSONIC_KIND && s.enabled && !s.available && s.uri == server.uri
+                s.kind == server.kind().as_str() && s.enabled && !s.available && s.uri == server.uri
             })
         })
         .collect()
@@ -108,7 +89,7 @@ fn apply_listing(
                 return Err(Failure::Source(RemoteError::Other(message)));
             }
             Err(error) => {
-                log::warn!("Subsonic source {source_id}: storing the listing failed: {error}");
+                log::warn!("Server source {source_id}: storing the listing failed: {error}");
                 last = error.to_string();
             }
         }
@@ -119,20 +100,16 @@ fn apply_listing(
 pub fn sync_server(
     repo: &dyn LibraryRepository,
     source_id: i64,
-    config: &subsonic::Config,
+    config: &RemoteConfig,
 ) -> SyncOutcome {
-    let client = subsonic::Client::new(config);
+    let client = config.client();
     let listed = client
         .ping()
         .and_then(|()| client.songs())
-        .map_err(|e| Failure::Source(RemoteError::from(e)))
-        .and_then(|songs| {
-            let (hashes, covers) = fetch_covers(repo, &client, source_id, &songs);
-            let remote: Vec<RemoteSong> = songs
-                .into_iter()
-                .map(|song| to_remote_song(song, &hashes))
-                .collect();
-            apply_listing(repo, source_id, &remote, &covers)
+        .map_err(Failure::Source)
+        .and_then(|mut songs| {
+            let covers = fetch_covers(repo, &*client, config.kind(), source_id, &mut songs);
+            apply_listing(repo, source_id, &songs, &covers)
         });
     match listed {
         Ok(report) => SyncOutcome {
@@ -161,34 +138,34 @@ pub fn sync_server(
 pub fn import_stars(
     repo: &dyn LibraryRepository,
     source_id: i64,
-    config: &subsonic::Config,
+    config: &RemoteConfig,
 ) -> Result<(Vec<i64>, usize), RemoteError> {
-    let starred = subsonic::Client::new(config).starred_songs()?;
-    let keys: Vec<String> = starred.into_iter().map(|song| song.id).collect();
+    let keys = config.client().favorite_keys()?;
     let items = repo.items_for_remote_keys(source_id, &keys)?;
     Ok((items, keys.len()))
 }
 
 fn fetch_covers(
     repo: &dyn LibraryRepository,
-    client: &subsonic::Client,
+    client: &dyn ServerClient,
+    kind: ServerKind,
     source_id: i64,
-    songs: &[subsonic::Song],
-) -> (HashMap<String, String>, Vec<RemoteCover>) {
+    songs: &mut [RemoteSong],
+) -> Vec<RemoteCover> {
     let mut hashes = repo.remote_cover_hashes(source_id).unwrap_or_default();
-    let wanted: HashSet<&str> = songs
+    let wanted: HashSet<String> = songs
         .iter()
-        .filter_map(|song| song.cover_art.as_deref())
-        .filter(|key| !hashes.contains_key(*key))
+        .filter_map(|song| song.cover_key.clone())
+        .filter(|key| !hashes.contains_key(key))
         .collect();
     let mut covers: Vec<RemoteCover> = Vec::new();
     let mut stored: HashSet<String> = HashSet::new();
     for key in wanted {
-        let bytes = match client.cover_art(key) {
+        let bytes = match client.cover_art(&key) {
             Ok(bytes) if !bytes.is_empty() => bytes,
             Ok(_) => continue,
             Err(e) => {
-                log::warn!("Subsonic cover {key} not fetched: {e}");
+                log::warn!("{} cover {key} not fetched: {e:?}", kind.title());
                 continue;
             }
         };
@@ -199,67 +176,23 @@ fn fetch_covers(
                     hash: hash.clone(),
                     small: thumbs.small,
                     large: thumbs.large,
-                    source_path: format!("subsonic-cover://{source_id}/{key}"),
+                    source_path: format!("{}-cover://{source_id}/{key}", kind.as_str()),
                 }),
                 Err(e) => {
-                    log::warn!("Subsonic cover {key} not decoded: {e}");
+                    log::warn!("{} cover {key} not decoded: {e}", kind.title());
                     continue;
                 }
             }
         }
-        hashes.insert(key.to_string(), hash);
+        hashes.insert(key, hash);
     }
-    (hashes, covers)
-}
-
-const UNKNOWN_ALBUM: &str = "[unknown album]";
-const MAX_TRACK_NUMBER: u32 = 999;
-
-fn first_name(names: &[subsonic::Named]) -> Option<String> {
-    names
-        .iter()
-        .map(|named| named.name.trim())
-        .find(|name| !name.is_empty())
-        .map(str::to_string)
-}
-
-fn real_artist(name: Option<String>) -> Option<String> {
-    name.map(|name| name.trim().to_string())
-        .filter(|name| !crate::library_service::is_placeholder_artist(name))
-}
-
-fn to_remote_song(song: subsonic::Song, covers: &HashMap<String, String>) -> RemoteSong {
-    let cover_hash = song
-        .cover_art
-        .as_ref()
-        .and_then(|key| covers.get(key).cloned());
-    RemoteSong {
-        key: song.id,
-        title: song.title,
-        artist: real_artist(first_name(&song.artists).or(song.artist.clone())),
-        artist_aliases: song
-            .artist
-            .iter()
-            .cloned()
-            .chain(song.artists.iter().skip(1).map(|named| named.name.clone()))
-            .filter_map(|name| real_artist(Some(name)))
-            .collect(),
-        album: song
-            .album
-            .filter(|album| !album.trim().eq_ignore_ascii_case(UNKNOWN_ALBUM)),
-        album_artist: real_artist(first_name(&song.album_artists).or(song.album_artist)),
-        track_number: song.track.filter(|n| (1..=MAX_TRACK_NUMBER).contains(n)),
-        disc_number: song.disc_number,
-        year: song.year,
-        genre: song.genre,
-        duration_ms: song.duration.map(|secs| (secs * 1000) as i64),
-        size: song.size.map(|size| size as i64),
-        suffix: song.suffix,
-        content_type: song.content_type,
-        bitrate: song.bit_rate,
-        cover_key: song.cover_art,
-        cover_hash,
+    for song in songs.iter_mut() {
+        song.cover_hash = song
+            .cover_key
+            .as_ref()
+            .and_then(|key| hashes.get(key).cloned());
     }
+    covers
 }
 
 #[cfg(test)]
@@ -386,11 +319,11 @@ mod tests {
         RemoteServer {
             uri: format!("me@{url}"),
             name: url.to_string(),
-            config: subsonic::Config {
+            config: RemoteConfig::Subsonic(subsonic::Config {
                 url: url.to_string(),
                 username: "me".into(),
                 password: "pw".into(),
-            },
+            }),
         }
     }
 
@@ -430,44 +363,129 @@ mod tests {
         assert_eq!((items, total), (vec![remote_track.id], 2));
     }
 
-    #[test]
-    fn the_first_credited_artist_is_used_instead_of_the_joined_display_name() {
-        let song = subsonic::Song {
-            id: "1".into(),
-            title: "Moonlight".into(),
-            artist: Some("Daniel Lanois • Daryl Johnson".into()),
-            artists: vec![
-                subsonic::Named {
-                    name: "Daniel Lanois".into(),
-                },
-                subsonic::Named {
-                    name: "Daryl Johnson".into(),
-                },
-            ],
-            ..Default::default()
-        };
-        assert_eq!(
-            to_remote_song(song, &HashMap::new()).artist.as_deref(),
-            Some("Daniel Lanois")
-        );
+    fn jellyfin_stub() -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let cover = png();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                let _ = reader.read_line(&mut line);
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).is_err()
+                        || header == "\r\n"
+                        || header.is_empty()
+                    {
+                        break;
+                    }
+                }
+                let target = line.split_whitespace().nth(1).unwrap_or("").to_string();
+                let (path, query) = target.split_once('?').unwrap_or((&target, ""));
+                let items = |items: serde_json::Value| {
+                    let total = items.as_array().map_or(0, Vec::len);
+                    serde_json::to_vec(
+                        &serde_json::json!({"Items": items, "TotalRecordCount": total}),
+                    )
+                    .unwrap()
+                };
+                let song = |id: &str, title: &str, ticks: u64, file: &str| {
+                    serde_json::json!({"Id": id, "Name": title, "Artists": ["Artist"],
+                        "Album": "Album", "AlbumId": "al", "AlbumPrimaryImageTag": "t",
+                        "RunTimeTicks": ticks, "Path": file})
+                };
+                let (content_type, body) = match path {
+                    "/System/Info/Public" => ("application/json", br#"{"Id":"srv"}"#.to_vec()),
+                    "/Users/Me" => ("application/json", br#"{"Id":"u1"}"#.to_vec()),
+                    "/Items" if query.contains("Filters=IsFavorite") => (
+                        "application/json",
+                        items(serde_json::json!([
+                            song("j2", "Only Remote", 2_000_000_000, "/m/b.opus"),
+                            song("gone", "Unknown", 1, "/m/x.mp3")
+                        ])),
+                    ),
+                    "/Items" if !query.contains("StartIndex=0") => {
+                        ("application/json", items(serde_json::json!([])))
+                    }
+                    "/Items" => (
+                        "application/json",
+                        items(serde_json::json!([
+                            song("j1", "Local Too", 1_800_000_000, "/m/a.flac"),
+                            song("j2", "Only Remote", 2_000_000_000, "/m/b.opus")
+                        ])),
+                    ),
+                    "/Items/al/Images/Primary" => ("image/png", cover.clone()),
+                    _ => ("text/plain", Vec::new()),
+                };
+                let status = if content_type == "text/plain" {
+                    "404 Not Found"
+                } else {
+                    "200 OK"
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&body);
+            }
+        });
+        url
     }
 
     #[test]
-    fn server_placeholders_for_missing_tags_are_dropped() {
-        let song = subsonic::Song {
-            id: "1".into(),
-            title: "Whole Album Image".into(),
-            artist: Some("[Unknown Artist]".into()),
-            album_artist: Some(" [unknown artist] ".into()),
-            album: Some("[Unknown Album]".into()),
-            track: Some(1997),
-            ..Default::default()
-        };
-        let remote = to_remote_song(song, &HashMap::new());
-        assert_eq!(remote.artist, None);
-        assert_eq!(remote.album_artist, None);
-        assert_eq!(remote.album, None);
-        assert_eq!(remote.track_number, None);
+    fn a_jellyfin_sync_matches_local_copies_and_imports_favorites() {
+        let repo = temp_db("jellyfin");
+        repo.reconcile_local_sources(&[LocalFolder {
+            path: "/music".into(),
+            available: true,
+        }])
+        .unwrap();
+        scan_local(&repo, vec![local_track()]);
+        let url = jellyfin_stub();
+        let servers = vec![
+            server("http://subsonic.invalid"),
+            RemoteServer {
+                uri: format!("me@{url}"),
+                name: url.clone(),
+                config: RemoteConfig::Jellyfin(jellyfin::Config {
+                    url: url.clone(),
+                    user_id: "u1".into(),
+                    token: "tok".into(),
+                    device_id: "dev".into(),
+                }),
+            },
+        ];
+        let configs = reconcile(&repo, &servers);
+        assert_eq!(configs.len(), 2);
+        let (&source_id, config) = configs
+            .iter()
+            .find(|(_, config)| config.kind() == ServerKind::Jellyfin)
+            .unwrap();
+
+        let outcome = sync_server(&repo, source_id, config);
+        let report = outcome.result.unwrap();
+        assert_eq!((report.total, report.added, report.adopted), (2, 1, 1));
+        scan_local(&repo, vec![local_track()]);
+        let remote_path = music_library::remote::locator(source_id, "j2", "opus");
+        let tracks = repo.all_tracks().unwrap();
+        let mut paths: Vec<&str> = tracks.iter().map(|t| t.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, vec!["/music/x/a.flac", remote_path.as_str()]);
+        let remote_track = tracks.iter().find(|t| t.path == remote_path).unwrap();
+        assert!(remote_track.cover_art_id.is_some());
+        assert_eq!(remote_track.duration_ms, Some(200_000));
+
+        let (items, total) = import_stars(&repo, source_id, config).unwrap();
+        assert_eq!((items, total), (vec![remote_track.id], 2));
+
+        let ids = source_ids(&repo);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.get(&servers[1].key()), Some(&source_id));
+        reconcile(&repo, &servers[..1]);
+        assert_eq!(source_ids(&repo).len(), 1);
     }
 
     #[test]
@@ -482,26 +500,36 @@ mod tests {
                 track_count: 0,
             };
         let summaries = vec![
-            summary("me@http://down", SUBSONIC_KIND, true, false),
-            summary("me@http://up", SUBSONIC_KIND, true, true),
-            summary("me@http://gone", SUBSONIC_KIND, false, false),
+            summary("me@http://down", "subsonic", true, false),
+            summary("me@http://up", "subsonic", true, true),
+            summary("me@http://gone", "subsonic", false, false),
             summary("/music", "local", true, false),
         ];
         let named = |uri: &str| RemoteServer {
             uri: uri.into(),
             ..server("http://unused")
         };
+        let jellyfin_at_down = RemoteServer {
+            config: RemoteConfig::Jellyfin(jellyfin::Config {
+                url: "http://down".into(),
+                user_id: "u".into(),
+                token: "t".into(),
+                device_id: "d".into(),
+            }),
+            ..named("me@http://down")
+        };
         let picked: Vec<String> = offline_servers(
             &summaries,
             ["me@http://down", "me@http://up", "me@http://gone", "/music"]
                 .into_iter()
                 .map(named)
+                .chain(std::iter::once(jellyfin_at_down))
                 .collect(),
         )
         .into_iter()
-        .map(|server| server.uri)
+        .map(|server| server.key())
         .collect();
-        assert_eq!(picked, vec!["me@http://down".to_string()]);
+        assert_eq!(picked, vec!["subsonic:me@http://down".to_string()]);
     }
 
     #[test]

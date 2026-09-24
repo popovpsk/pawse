@@ -103,7 +103,7 @@ pub struct RemoteSong {
     pub size: Option<i64>,
     pub suffix: Option<String>,
     pub content_type: Option<String>,
-    pub bitrate: Option<u32>,
+    pub bitrate_kbps: Option<u32>,
     pub cover_key: Option<String>,
     pub cover_hash: Option<String>,
     pub artist_aliases: Vec<String>,

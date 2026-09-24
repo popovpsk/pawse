@@ -7,7 +7,8 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
 
 ## Files
 
-- `lib.rs` — `Client`, `Config`, `Song`, `Error`.
+- `lib.rs` — `Client`, `Config`, `Song`, `Error`. Ranges, status
+  classification, lenient JSON and `redact` come from `server_http`.
 - `tests.rs` — a `TcpListener` stub server; no new dependencies.
 
 ## Behaviour worth knowing

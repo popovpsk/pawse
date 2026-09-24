@@ -10,6 +10,8 @@ members = [
     "crates/media_integration",
     "crates/scrobble",
     "crates/subsonic",
+    "crates/jellyfin",
+    "crates/server_http",
     "crates/media_stream",
     "crates/discord",
     "crates/pawse",

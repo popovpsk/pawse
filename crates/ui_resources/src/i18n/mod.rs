@@ -95,14 +95,15 @@ pub struct Strings {
     pub library_folder_unavailable_t: SharedString,
     pub playback_failed_title: SharedString,
     pub local_folders: SharedString,
-    pub subsonic_servers: SharedString,
+    pub server_list: SharedString,
     pub subsonic_servers_desc: SharedString,
-    pub subsonic_url: SharedString,
-    pub subsonic_username: SharedString,
-    pub subsonic_password: SharedString,
-    pub subsonic_connect: SharedString,
-    pub subsonic_sync: SharedString,
-    pub subsonic_import_stars: SharedString,
+    pub jellyfin_servers_desc: SharedString,
+    pub server_url: SharedString,
+    pub server_username: SharedString,
+    pub server_password: SharedString,
+    pub server_connect: SharedString,
+    pub server_sync: SharedString,
+    pub server_import_favorites: SharedString,
     pub network_cache: SharedString,
     pub network_cache_desc: SharedString,
     pub cache_used: SharedString,
@@ -112,9 +113,9 @@ pub struct Strings {
     pub decimal_separator: SharedString,
     pub size_mb_t: SharedString,
     pub size_gb_t: SharedString,
-    pub subsonic_auth_failed: SharedString,
-    pub subsonic_unreachable_t: SharedString,
-    pub subsonic_fill_fields: SharedString,
+    pub server_auth_failed: SharedString,
+    pub server_unreachable_t: SharedString,
+    pub server_fill_fields: SharedString,
     pub no_servers_added: SharedString,
     pub server_online: SharedString,
     pub server_offline: SharedString,
@@ -526,8 +527,8 @@ impl Strings {
         fill(&self.library_folder_unavailable_t, &[folder])
     }
 
-    pub fn subsonic_unreachable(&self, reason: &str) -> String {
-        fill(&self.subsonic_unreachable_t, &[reason])
+    pub fn server_unreachable(&self, reason: &str) -> String {
+        fill(&self.server_unreachable_t, &[reason])
     }
 
     pub fn size(&self, bytes: u64) -> String {

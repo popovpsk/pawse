@@ -3,8 +3,9 @@
 Progressive download of one remote file into a sparse local file, with readers
 that can start before the download ends. It is the streaming path and the cache
 at the same time: a file read to the end is renamed into place and is a cache
-hit from then on. It knows nothing about Subsonic or audio — `RangeFetch` is the
-only thing a source implements (`pawse::remote_media::SubsonicFetch`).
+hit from then on. It knows nothing about servers or audio — `RangeFetch` is the
+only thing a source implements (`pawse::remote_media::http::ServerFetch`, for
+every server that serves byte ranges).
 
 ## Files
 

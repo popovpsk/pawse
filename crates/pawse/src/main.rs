@@ -20,6 +20,7 @@ pub mod cover_volume;
 pub mod discord_bridge;
 pub mod error_bridge;
 pub mod footer;
+pub mod jellyfin_settings;
 pub mod keyboard_shortcuts;
 pub mod library_service;
 pub mod library_sources;
@@ -39,12 +40,14 @@ pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;
 pub mod remote_media;
+pub mod remote_settings;
 pub mod remote_sync;
 pub mod repeat_button;
 pub mod scrobble_bridge;
 mod scrobble_import;
 mod scrobble_settings;
 pub mod scrobble_store;
+pub mod servers;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
@@ -129,22 +132,21 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
         let view = cx.new(|cx| MainView::new(window, cx));
         let root = cx.new(|cx| Root::new(view, window, cx));
         if run_startup_tasks {
-            crate::subsonic_settings::apply_remote_sources(cx);
+            crate::remote_settings::apply_remote_sources(cx);
             restore_engine_state(cx);
             window.on_next_frame(|_window, cx| {
                 let folders = cx
                     .global::<crate::settings_store::SettingsStore>()
                     .music_folders()
                     .to_vec();
-                let has_servers = !cx
-                    .global::<crate::settings_store::SettingsStore>()
-                    .subsonic_servers()
-                    .is_empty();
+                let has_servers = crate::remote_settings::has_servers(
+                    cx.global::<crate::settings_store::SettingsStore>(),
+                );
                 if !folders.is_empty() || has_servers {
                     cx.global::<Services>().library.clear_and_rescan(folders);
                 }
                 crate::library_watcher::rebuild(cx);
-                crate::subsonic_settings::sync_all(cx);
+                crate::remote_settings::sync_all(cx);
             });
         }
         root
@@ -236,7 +238,7 @@ fn main() {
         let is_playing = services.is_playing.clone();
         let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
-        crate::subsonic_settings::watch_offline_servers(cx);
+        crate::remote_settings::watch_offline_servers(cx);
 
         {
             let (stored, initial_volume) = {
