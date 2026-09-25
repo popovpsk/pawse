@@ -23,12 +23,17 @@ own *parsing rules*. Either can change without touching the other.
   `Option<IndexedLyrics>` that rides straight through `into_prepared`.
 - `pipeline.rs` — the only place with threading. `collect_sources` (cheap
   stat-only walk + fingerprint) and `run` (cue-dedup + worker pool → events).
-  Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS`/`FINGERPRINT_IMAGE_EXTENSIONS`/
+  Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS` (both public, so other
+  sources classify files the same way)/`FINGERPRINT_IMAGE_EXTENSIONS`/
   `FINGERPRINT_LYRICS_EXTENSIONS` lists and `INDEXER_FORMAT_VERSION`.
 - `metadata.rs` — `read_metadata` (tags → `ScannedTrack` for one standalone audio
   file), date/genre normalization (`read_year`, `normalize_genres`), lyrics
   resolution (`read_sidecar_lrc` + `read_lyrics`), and external cover-art
-  discovery (`find_external_cover_art` + helpers).
+  discovery (`find_external_cover_art` + helpers). The name ranking behind it is
+  a pure function, `best_cover_name` (plus `is_cover_image_name`,
+  `is_artwork_dir_name`), so a caller that only has a file list — the torrent
+  source in `pawse` — picks the same cover the scan would, without reading any
+  image.
 - `cue.rs` — CUE-sheet business logic: `process_cue_file` (one `.cue` → many
   `ScannedTrack`), audio-file resolution, multi-disc folder inference, and
   `read_cue_text` (encoding-tolerant CUE reader).

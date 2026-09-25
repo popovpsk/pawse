@@ -213,10 +213,10 @@ transaction that already read is refused `SQLITE_BUSY` at once while a scan batc
 or a server listing holds the lock, without the busy timeout ever waiting, and the
 like was silently lost.
 
-## Server sources (Subsonic, Jellyfin)
+## Server sources (Subsonic, Jellyfin, torrents)
 
-A server is a `sources` row with `kind = 'subsonic'` or `kind = 'jellyfin'` and
-`uri = user@url` (`reconcile_remote_sources(kind, …)` enables the configured ones
+A server is a `sources` row with `kind = 'subsonic'`, `'jellyfin'` or `'torrent'` and
+`uri = user@url` (a torrent: `btih:<info hash>`) (`reconcile_remote_sources(kind, …)` enables the configured ones
 of that kind and disables the rest of that kind only). Nothing in this crate
 depends on the kind beyond `'local'` versus not; the protocol lives in `pawse`.
 Its songs are bindings like files, with `source_key` = the server's song id.
@@ -262,9 +262,21 @@ equals a cue track's (`start_offset_ms > 0`) that is playable in another source
 image is gone, the server image shows up as one long track instead. A server that does
 split cues lists every track with the image's size and no offset, so file keys
 say whether they name a whole file or a cue piece (`WHOLE_FILE` vs the offset;
-a local binding is a piece when its file has any track at an offset). Server
-songs are always whole files, so they never file-match a local cue track and
+a local binding is a piece when its file has any track at an offset). Media
+servers list whole files, so their songs never file-match a local cue track and
 join it by tags instead.
+
+A source that reads cue sheets itself (a torrent, indexed by `music_indexer`)
+lists every cue track as its own `RemoteSong` with `start_offset_ms = Some(…)`
+(`Some(0)` for the first track) and the image's key and size. The binding stores
+the offset, so a listing is matched to its bindings by `(key, offset)`, and one
+key with several offsets is several items, exactly like a local cue image.
+`None` means a whole file. A cue piece file-matches the local cue track of the
+same image by `(size, offset)`. The projection writes the binding's offset into
+`tracks.start_offset_ms` and marks it `is_cue` when the key has any track at an
+offset (`REMOTE_BINDING_IS_CUE`); cue pieces are never hidden by the
+whole-image rule above. No schema change: `media_bindings.start_offset_ms`
+already existed and was always 0 for servers.
 
 `playback_locators(item)` lists every place an item can play from right now —
 present bindings on enabled, available sources, local ones first, server ones as

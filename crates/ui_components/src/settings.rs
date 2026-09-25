@@ -134,6 +134,7 @@ impl SettingItem {
 #[derive(Clone, Default)]
 pub struct SettingGroup {
     title: Option<SharedString>,
+    description: Option<SharedString>,
     items: Vec<SettingItem>,
 }
 
@@ -145,6 +146,11 @@ impl SettingGroup {
     /// Optional heading shown above the card.
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
+        self.description = Some(description.into());
         self
     }
 
@@ -173,6 +179,14 @@ impl SettingGroup {
                     .border_1()
                     .border_color(cx.theme().border)
                     .bg(cx.theme().group_box)
+                    .when_some(self.description.clone(), |this, description| {
+                        this.child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(description),
+                        )
+                    })
                     .children(self.items.iter().map(|item| item.render(window, cx))),
             )
             .into_any_element()

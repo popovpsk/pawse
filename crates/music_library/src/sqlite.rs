@@ -258,13 +258,17 @@ const UPSERT_REMOTE_TRACK: &str = "INSERT INTO remote_tracks \
     OR remote_tracks.bitrate IS NOT excluded.bitrate \
     OR remote_tracks.cover_hash IS NOT excluded.cover_hash";
 
+const REMOTE_BINDING_IS_CUE: &str = "(b.start_offset_ms > 0 OR EXISTS (SELECT 1 FROM media_bindings o \
+    WHERE o.source_key = b.source_key AND o.start_offset_ms > 0 AND o.source_id = b.source_id))";
+
 const PROJECTABLE_REMOTE_TRACKS: &str = "SELECT b.item_id, b.source_id, b.source_key, \
     rt.title, rt.artist, rt.album, rt.album_artist, rt.track_number, rt.disc_number, rt.year, \
-    rt.genre, rt.duration_ms, rt.suffix, rt.content_type, rt.bitrate, rt.cover_hash \
+    rt.genre, rt.duration_ms, rt.suffix, rt.content_type, rt.bitrate, rt.cover_hash, \
+    b.start_offset_ms, {cue} \
     FROM remote_tracks rt JOIN media_bindings b ON b.id = rt.binding_id \
     JOIN sources s ON s.id = b.source_id \
     WHERE b.present = 1 AND s.enabled = 1 AND s.available = 1 \
-    AND (b.file_size IS NULL \
+    AND (b.file_size IS NULL OR {cue} \
         OR EXISTS (SELECT 1 FROM media_bindings o WHERE o.item_id = b.item_id \
             AND o.source_id <> b.source_id) \
         OR NOT EXISTS (SELECT 1 FROM media_bindings c JOIN sources cs ON cs.id = c.source_id \
@@ -620,15 +624,16 @@ fn apply_remote_listing(
     covers: &[RemoteCover],
 ) -> Result<RemoteSyncReport> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let mut known: HashMap<String, (i64, i64, bool)> = HashMap::new();
+    let mut known: HashMap<(String, i64), (i64, i64, bool)> = HashMap::new();
     {
         let mut stmt = tx.prepare(
-            "SELECT source_key, id, item_id, present FROM media_bindings WHERE source_id = ?1",
+            "SELECT source_key, start_offset_ms, id, item_id, present FROM media_bindings \
+             WHERE source_id = ?1",
         )?;
         let rows = stmt.query_map([source_id], |row| {
             Ok((
-                row.get::<_, String>(0)?,
-                (row.get(1)?, row.get(2)?, row.get(3)?),
+                (row.get::<_, String>(0)?, row.get::<_, i64>(1)?),
+                (row.get(2)?, row.get(3)?, row.get(4)?),
             ))
         })?;
         for row in rows {
@@ -662,7 +667,7 @@ fn apply_remote_listing(
     let mut seen: Vec<i64> = Vec::with_capacity(songs.len());
     let mut arrivals: Vec<&RemoteSong> = Vec::new();
     for song in songs {
-        match known.get(&song.key) {
+        match known.get(&(song.key.clone(), song_offset(song))) {
             Some(&(binding_id, _, present)) => {
                 if !present {
                     report.revived += 1;
@@ -678,8 +683,8 @@ fn apply_remote_listing(
             None => arrivals.push(song),
         }
     }
-    arrivals.sort_by(|a, b| a.key.cmp(&b.key));
-    arrivals.dedup_by(|a, b| a.key == b.key);
+    arrivals.sort_by(|a, b| (&a.key, song_offset(a)).cmp(&(&b.key, song_offset(b))));
+    arrivals.dedup_by(|a, b| a.key == b.key && song_offset(a) == song_offset(b));
     if !arrivals.is_empty() {
         let seen_bindings: std::collections::HashSet<i64> = seen.iter().copied().collect();
         let occupies = |b: &BindingFacts| {
@@ -704,7 +709,7 @@ fn apply_remote_listing(
                 duration_ms: song.duration_ms,
                 files: song
                     .size
-                    .map(|size| (size, WHOLE_FILE))
+                    .map(|size| (size, song.start_offset_ms.unwrap_or(WHOLE_FILE)))
                     .into_iter()
                     .collect(),
                 sources: vec![source_id],
@@ -759,11 +764,15 @@ fn apply_remote_listing(
     Ok(report)
 }
 
+fn song_offset(song: &RemoteSong) -> i64 {
+    song.start_offset_ms.unwrap_or(0).max(0)
+}
+
 fn remote_spec(source_id: i64, song: &RemoteSong) -> BindingSpec<'_> {
     BindingSpec {
         source_id,
         key: &song.key,
-        start_offset_ms: 0,
+        start_offset_ms: song_offset(song),
         file_size: song.size,
         scan_id: 0,
     }
@@ -2429,6 +2438,27 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn remote_file_sizes(&self, source_id: i64, keys: &[String]) -> Result<HashMap<String, i64>> {
+        let conn = self.conn.lock().unwrap();
+        let keys_json = serde_json::to_string(keys).unwrap_or_else(|_| "[]".into());
+        let mut stmt = conn.prepare(
+            "SELECT b.source_key, MAX(COALESCE(b.file_size, rt.size)) FROM media_bindings b \
+             LEFT JOIN remote_tracks rt ON rt.binding_id = b.id \
+             WHERE b.source_id = ?1 AND b.source_key IN (SELECT value FROM json_each(?2)) \
+             GROUP BY b.source_key",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![source_id, keys_json], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        let mut sizes = HashMap::new();
+        for row in rows {
+            if let (key, Some(size)) = row? {
+                sizes.insert(key, size);
+            }
+        }
+        Ok(sizes)
+    }
+
     fn playback_locators(&self, item_id: i64) -> Result<Vec<(String, i64)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -3031,7 +3061,8 @@ impl ScanSession {
 
     fn project_remote_tracks(&mut self) -> Result<()> {
         let rows: Vec<(i64, ScanTrack)> = {
-            let mut stmt = self.conn.prepare(PROJECTABLE_REMOTE_TRACKS)?;
+            let sql = PROJECTABLE_REMOTE_TRACKS.replace("{cue}", REMOTE_BINDING_IS_CUE);
+            let mut stmt = self.conn.prepare(&sql)?;
             stmt.query_map([], |row| {
                 let source_id: i64 = row.get(1)?;
                 let key: String = row.get(2)?;
@@ -3062,9 +3093,11 @@ impl ScanSession {
                         genres: genre.into_iter().filter(|g| !g.is_empty()).collect(),
                         duration_ms: duration_ms.map(|d| d.max(0) as u64),
                         cover_hash: row.get(15)?,
-                        start_offset_ms: None,
+                        start_offset_ms: row
+                            .get::<_, i64>(16)
+                            .map(|offset| (offset > 0).then_some(offset as u64))?,
                         bitrate: row.get(14)?,
-                        is_cue: false,
+                        is_cue: row.get(17)?,
                         lyrics: None,
                         file_size: None,
                     },

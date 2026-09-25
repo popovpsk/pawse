@@ -13,6 +13,7 @@ members = [
     "crates/jellyfin",
     "crates/server_http",
     "crates/media_stream",
+    "crates/torrent",
     "crates/discord",
     "crates/pawse",
     "crates/pawse_remote",

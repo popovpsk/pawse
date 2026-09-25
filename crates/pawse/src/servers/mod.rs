@@ -4,6 +4,7 @@ use music_library::RemoteSong;
 
 mod jellyfin;
 mod subsonic;
+pub mod torrent;
 
 pub use self::jellyfin::authenticate as authenticate_jellyfin;
 
@@ -11,15 +12,21 @@ pub use self::jellyfin::authenticate as authenticate_jellyfin;
 pub enum ServerKind {
     Subsonic,
     Jellyfin,
+    Torrent,
 }
 
 impl ServerKind {
-    pub const ALL: [ServerKind; 2] = [ServerKind::Subsonic, ServerKind::Jellyfin];
+    pub const ALL: [ServerKind; 3] = [
+        ServerKind::Subsonic,
+        ServerKind::Jellyfin,
+        ServerKind::Torrent,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             ServerKind::Subsonic => "subsonic",
             ServerKind::Jellyfin => "jellyfin",
+            ServerKind::Torrent => "torrent",
         }
     }
 
@@ -27,6 +34,7 @@ impl ServerKind {
         match self {
             ServerKind::Subsonic => "Subsonic",
             ServerKind::Jellyfin => "Jellyfin",
+            ServerKind::Torrent => "Torrent",
         }
     }
 
@@ -39,6 +47,7 @@ impl ServerKind {
 pub enum RemoteConfig {
     Subsonic(::subsonic::Config),
     Jellyfin(::jellyfin::Config),
+    Torrent(torrent::Config),
 }
 
 impl RemoteConfig {
@@ -46,6 +55,7 @@ impl RemoteConfig {
         match self {
             RemoteConfig::Subsonic(_) => ServerKind::Subsonic,
             RemoteConfig::Jellyfin(_) => ServerKind::Jellyfin,
+            RemoteConfig::Torrent(_) => ServerKind::Torrent,
         }
     }
 
@@ -53,6 +63,7 @@ impl RemoteConfig {
         match self {
             RemoteConfig::Subsonic(config) => Arc::new(subsonic::Subsonic::new(config)),
             RemoteConfig::Jellyfin(config) => Arc::new(jellyfin::Jellyfin::new(config)),
+            RemoteConfig::Torrent(config) => Arc::new(torrent::Torrent::new(config)),
         }
     }
 }

@@ -51,6 +51,10 @@ impl CacheStore {
             .join(format!("{safe_key}-{digest}.{}", reference.suffix))
     }
 
+    pub fn contains(&self, reference: &RemoteRef) -> bool {
+        self.path_for(reference).exists()
+    }
+
     pub fn lookup(&self, reference: &RemoteRef) -> Option<PathBuf> {
         let path = self.path_for(reference);
         path.exists().then(|| {

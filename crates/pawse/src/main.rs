@@ -11,6 +11,7 @@ use crate::{
 
 pub mod app_menu;
 pub mod audio_settings;
+pub mod cache_fill;
 pub mod cache_settings;
 pub mod cover_art_cache;
 pub mod cover_backdrop;
@@ -57,6 +58,7 @@ pub mod single_instance;
 pub mod subsonic_settings;
 pub mod tag_editor_view;
 pub mod theme_colors;
+pub mod torrent_settings;
 pub mod track_list;
 pub mod track_progress_slider;
 pub mod volume;

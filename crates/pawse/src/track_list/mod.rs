@@ -7,12 +7,14 @@
 //! add/remove-to-queue and playlist buttons, and the `current_row` styling)
 //! re-exported here so call sites use a single `crate::track_list::` namespace.
 
+mod cache_button;
 mod edit_tags_button;
 mod like_button;
 mod playlist_buttons;
 mod queue_button;
 mod row_style;
 
+pub use cache_button::save_to_cache_button;
 pub use edit_tags_button::{edit_album_tags_button, edit_tags_button};
 pub use like_button::{LIKE_ROW_GROUP, like_button};
 pub use playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};

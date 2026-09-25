@@ -90,6 +90,7 @@ fn song(song: subsonic::Song) -> RemoteSong {
         bitrate_kbps: song.bit_rate,
         cover_key: song.cover_art,
         cover_hash: None,
+        start_offset_ms: None,
     }
 }
 

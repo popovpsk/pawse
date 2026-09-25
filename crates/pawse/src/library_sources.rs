@@ -7,7 +7,7 @@ use crate::library_service::LibraryEvent;
 use crate::localization::{LangChanged, tr};
 use crate::servers::{RemoteError, RemoteServer, ServerKind};
 use crate::services::Services;
-use crate::settings_store::{JellyfinServer, SettingsStore, SubsonicServer};
+use crate::settings_store::{JellyfinServer, SettingsStore, SubsonicServer, TorrentSource};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceStatus {
@@ -86,8 +86,11 @@ pub struct ServerRow {
     pub status: ServerStatus,
     pub status_label: SharedString,
     pub count_label: SharedString,
+    pub peers_label: Option<SharedString>,
     pub message: Option<SharedString>,
 }
+
+const SWARM_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub fn server_status(
     kind: ServerKind,
@@ -124,6 +127,8 @@ pub struct LibrarySources {
     folders: Vec<PathBuf>,
     subsonic: Vec<SubsonicServer>,
     jellyfin: Vec<JellyfinServer>,
+    torrents: Vec<TorrentSource>,
+    swarms: HashMap<String, torrent::Swarm>,
     summaries: Vec<music_library::SourceSummary>,
     local: Vec<LocalFolderRow>,
     remote: Vec<ServerRow>,
@@ -188,6 +193,7 @@ impl LibrarySources {
             if store.music_folders() != this.folders.as_slice()
                 || store.subsonic_servers() != this.subsonic.as_slice()
                 || store.jellyfin_servers() != this.jellyfin.as_slice()
+                || store.torrent_sources() != this.torrents.as_slice()
             {
                 this.load(cx);
             }
@@ -196,6 +202,8 @@ impl LibrarySources {
             folders: Vec::new(),
             subsonic: Vec::new(),
             jellyfin: Vec::new(),
+            torrents: Vec::new(),
+            swarms: HashMap::new(),
             summaries: Vec::new(),
             local: Vec::new(),
             remote: Vec::new(),
@@ -211,7 +219,36 @@ impl LibrarySources {
         };
         state.load(cx);
         state.refresh_cache(cx);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(SWARM_POLL).await;
+                if this.update(cx, |this, cx| this.poll_swarms(cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
         state
+    }
+
+    fn poll_swarms(&mut self, cx: &mut Context<Self>) {
+        let swarms: HashMap<String, torrent::Swarm> =
+            match crate::servers::torrent::running_engine() {
+                Some(engine) => self
+                    .torrents
+                    .iter()
+                    .filter_map(|source| {
+                        let swarm = engine.swarm(&source.info_hash)?;
+                        Some((source.info_hash.clone(), swarm))
+                    })
+                    .collect(),
+                None => HashMap::new(),
+            };
+        if swarms != self.swarms {
+            self.swarms = swarms;
+            self.refresh_rows(cx);
+            cx.notify();
+        }
     }
 
     pub fn cache_bytes(&self) -> Option<u64> {
@@ -262,6 +299,8 @@ impl LibrarySources {
             let _ = this.update(cx, |this, cx| {
                 this.clearing_cache = false;
                 this.set_cache_bytes(bytes);
+                let fill = cx.global::<Services>().cache_fill.clone();
+                fill.update(cx, |fill, cx| fill.cache_changed(cx));
                 cx.notify();
             });
         })
@@ -290,7 +329,9 @@ impl LibrarySources {
         self.folders = cx.global::<SettingsStore>().music_folders().to_vec();
         self.subsonic = cx.global::<SettingsStore>().subsonic_servers().to_vec();
         self.jellyfin = cx.global::<SettingsStore>().jellyfin_servers().to_vec();
+        self.torrents = cx.global::<SettingsStore>().torrent_sources().to_vec();
         self.summaries = cx.global::<Services>().library.sources();
+        self.syncing = cx.global::<Services>().library.remote_syncing();
         self.refresh_rows(cx);
         cx.notify();
     }
@@ -301,31 +342,47 @@ impl LibrarySources {
             .into_iter()
             .map(LocalFolderRow::new)
             .collect();
-        self.remote = crate::remote_settings::configured_servers(&self.subsonic, &self.jellyfin)
-            .into_iter()
-            .map(|server| {
-                let key = server.key();
-                let (status, count) = server_status(
-                    server.kind(),
-                    &server.uri,
-                    &self.summaries,
-                    self.syncing.contains(&key),
-                );
-                let status_label = match status {
-                    ServerStatus::Online => tr().server_online.clone(),
-                    ServerStatus::Offline => tr().server_offline.clone(),
-                    ServerStatus::Syncing => tr().source_syncing.clone(),
-                };
-                ServerRow {
-                    title: server.uri.clone().into(),
-                    status,
-                    status_label,
-                    count_label: tr().n_tracks(count).into(),
-                    message: self.messages.get(&key).cloned(),
-                    server,
-                }
-            })
-            .collect();
+        self.remote = crate::remote_settings::configured_servers(
+            &self.subsonic,
+            &self.jellyfin,
+            &self.torrents,
+        )
+        .into_iter()
+        .map(|server| {
+            let key = server.key();
+            let (status, count) = server_status(
+                server.kind(),
+                &server.uri,
+                &self.summaries,
+                self.syncing.contains(&key),
+            );
+            let status_label = match status {
+                ServerStatus::Online => tr().server_online.clone(),
+                ServerStatus::Offline => tr().server_offline.clone(),
+                ServerStatus::Syncing => tr().source_syncing.clone(),
+            };
+            let title = match server.kind() {
+                ServerKind::Torrent => server.name.clone(),
+                ServerKind::Subsonic | ServerKind::Jellyfin => server.uri.clone(),
+            };
+            let peers_label = match &server.config {
+                crate::servers::RemoteConfig::Torrent(config) => self
+                    .swarms
+                    .get(&config.info_hash)
+                    .map(|swarm| tr().torrent_peers(swarm.connected, swarm.known).into()),
+                _ => None,
+            };
+            ServerRow {
+                peers_label,
+                title: title.into(),
+                status,
+                status_label,
+                count_label: tr().n_tracks(count).into(),
+                message: self.messages.get(&key).cloned(),
+                server,
+            }
+        })
+        .collect();
     }
 }
 

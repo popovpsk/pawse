@@ -121,10 +121,11 @@ fn default_volume() -> f32 {
     1.0
 }
 
-pub const NETWORK_CACHE_CHOICES_GB: [u32; 6] = [1, 2, 4, 8, 16, 32];
+pub const UNLIMITED_CACHE_GB: u32 = 100 * 1024;
+pub const NETWORK_CACHE_CHOICES_GB: [u32; 7] = [1, 2, 4, 8, 16, 32, UNLIMITED_CACHE_GB];
 
 fn default_network_cache_gb() -> u32 {
-    4
+    8
 }
 
 fn default_remote_port() -> u16 {
@@ -349,6 +350,53 @@ impl JellyfinServer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TorrentSource {
+    pub info_hash: String,
+    pub name: String,
+}
+
+impl TorrentSource {
+    pub fn source_uri(&self) -> String {
+        format!("btih:{}", self.info_hash)
+    }
+
+    pub fn config(&self) -> crate::servers::torrent::Config {
+        crate::servers::torrent::Config {
+            info_hash: self.info_hash.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TorrentUpload {
+    #[default]
+    WhileActive,
+    Limited,
+    Off,
+}
+
+pub const TORRENT_UPLOAD_LIMIT_KIB: u32 = 128;
+
+impl TorrentUpload {
+    pub const ALL: [TorrentUpload; 3] = [
+        TorrentUpload::WhileActive,
+        TorrentUpload::Limited,
+        TorrentUpload::Off,
+    ];
+
+    pub fn engine(self) -> torrent::Upload {
+        match self {
+            TorrentUpload::WhileActive => torrent::Upload::WhileActive,
+            TorrentUpload::Limited => torrent::Upload::Limited(
+                std::num::NonZeroU32::new(TORRENT_UPLOAD_LIMIT_KIB).unwrap(),
+            ),
+            TorrentUpload::Off => torrent::Upload::Off,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     #[serde(default)]
@@ -421,6 +469,10 @@ pub struct UserSettings {
     pub subsonic_servers: Vec<SubsonicServer>,
     #[serde(default)]
     pub jellyfin_servers: Vec<JellyfinServer>,
+    #[serde(default)]
+    pub torrent_sources: Vec<TorrentSource>,
+    #[serde(default)]
+    pub torrent_upload: TorrentUpload,
     #[serde(default = "default_network_cache_gb")]
     pub network_cache_gb: u32,
     #[serde(default, rename = "lastfm_enabled", skip_serializing)]
@@ -479,6 +531,8 @@ impl Default for UserSettings {
             scrobble: ScrobbleSettings::default(),
             subsonic_servers: Vec::new(),
             jellyfin_servers: Vec::new(),
+            torrent_sources: Vec::new(),
+            torrent_upload: TorrentUpload::default(),
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
@@ -785,6 +839,38 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn torrent_sources(&self) -> &[TorrentSource] {
+        &self.settings.torrent_sources
+    }
+
+    pub fn add_torrent_source(&mut self, source: TorrentSource) -> anyhow::Result<()> {
+        self.settings
+            .torrent_sources
+            .retain(|existing| existing.info_hash != source.info_hash);
+        self.settings.torrent_sources.push(source);
+        self.save()
+    }
+
+    pub fn remove_torrent_source(&mut self, uri: &str) -> anyhow::Result<()> {
+        let before = self.settings.torrent_sources.len();
+        self.settings
+            .torrent_sources
+            .retain(|source| source.source_uri() != uri);
+        if self.settings.torrent_sources.len() == before {
+            return Ok(());
+        }
+        self.save()
+    }
+
+    pub fn torrent_upload(&self) -> TorrentUpload {
+        self.settings.torrent_upload
+    }
+
+    pub fn set_torrent_upload(&mut self, upload: TorrentUpload) -> anyhow::Result<()> {
+        self.settings.torrent_upload = upload;
+        self.save()
+    }
+
     pub fn remove_server(
         &mut self,
         kind: crate::servers::ServerKind,
@@ -793,6 +879,7 @@ impl SettingsStore {
         match kind {
             crate::servers::ServerKind::Subsonic => self.remove_subsonic_server(uri),
             crate::servers::ServerKind::Jellyfin => self.remove_jellyfin_server(uri),
+            crate::servers::ServerKind::Torrent => self.remove_torrent_source(uri),
         }
     }
 
@@ -1418,6 +1505,8 @@ mod tests {
             scrobble: ScrobbleSettings::default(),
             subsonic_servers: Vec::new(),
             jellyfin_servers: Vec::new(),
+            torrent_sources: Vec::new(),
+            torrent_upload: TorrentUpload::default(),
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,

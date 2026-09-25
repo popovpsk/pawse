@@ -210,6 +210,7 @@ pub struct LibraryPage {
     pub sources: Entity<crate::library_sources::LibrarySources>,
     pub subsonic_inputs: crate::remote_settings::ServerInputs,
     pub jellyfin_inputs: crate::remote_settings::ServerInputs,
+    pub torrent_magnet: Entity<InputState>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -261,6 +262,10 @@ pub fn build_settings_pages(
             .group(crate::jellyfin_settings::jellyfin_group(
                 library_page.sources.clone(),
                 library_page.jellyfin_inputs,
+            ))
+            .group(crate::torrent_settings::torrent_group(
+                library_page.sources.clone(),
+                library_page.torrent_magnet,
             ))
             .group(crate::cache_settings::cache_group(library_page.sources)),
     );

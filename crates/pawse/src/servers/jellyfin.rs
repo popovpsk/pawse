@@ -130,6 +130,7 @@ fn song(item: jellyfin::Item) -> RemoteSong {
         cover_key: item.cover_key().map(str::to_string),
         cover_hash: None,
         key: item.id,
+        start_offset_ms: None,
     }
 }
 

@@ -10,9 +10,10 @@ use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 use crate::theme_colors::Colors;
 use ui_components::cover_thumb::cover_tile;
 
+use crate::cache_fill::FillTarget;
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
-use crate::track_list::add_album_to_queue_button;
+use crate::track_list::{add_album_to_queue_button, save_to_cache_button};
 
 pub struct AlbumInfo {
     album_id: i64,
@@ -23,14 +24,30 @@ pub struct AlbumInfo {
     cover: Option<Arc<RenderImage>>,
     genres_inline: SharedString,
     genres_tooltip: Option<SharedString>,
+    missing_in_cache: bool,
+    fills_seen: u64,
+    _fill_subscription: gpui::Subscription,
 }
 
 impl AlbumInfo {
     pub fn new(album: &music_library::AlbumSummary, cx: &mut Context<Self>) -> Self {
-        let (cache, library) = {
+        let (cache, library, fill) = {
             let services = cx.global::<Services>();
-            (services.cover_art_cache.clone(), services.library.clone())
+            (
+                services.cover_art_cache.clone(),
+                services.library.clone(),
+                services.cache_fill.clone(),
+            )
         };
+        let fills_seen = fill.read(cx).revision();
+        let fill_subscription = cx.observe(&fill, |this, fill, cx| {
+            let finished = fill.read(cx).revision();
+            if finished != this.fills_seen {
+                this.fills_seen = finished;
+                this.missing_in_cache = album_missing_in_cache(this.album_id, cx);
+            }
+            cx.notify();
+        });
         let cover = cache
             .borrow_mut()
             .get_large(album.cover_art_id, &library, cx);
@@ -59,8 +76,17 @@ impl AlbumInfo {
             cover,
             genres_inline,
             genres_tooltip,
+            missing_in_cache: album_missing_in_cache(album.id, cx),
+            fills_seen,
+            _fill_subscription: fill_subscription,
         }
     }
+}
+
+fn album_missing_in_cache(album_id: i64, cx: &gpui::App) -> bool {
+    let services = cx.global::<Services>();
+    let tracks = services.library.tracks_for_album(album_id);
+    crate::cache_fill::has_missing(&tracks, &services.remote_media)
 }
 
 impl EventEmitter<NavigateToArtistRequested> for AlbumInfo {}
@@ -69,6 +95,21 @@ impl Render for AlbumInfo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let muted_fg = Colors::muted_foreground(cx);
         let album_id = self.album_id;
+        let target = FillTarget::Album(album_id);
+        let progress = cx.global::<Services>().cache_fill.read(cx).progress(target);
+        let save_button = (self.missing_in_cache || progress.is_some()).then(|| {
+            save_to_cache_button(
+                gpui::ElementId::NamedInteger("save-album-to-cache".into(), album_id as u64),
+                progress,
+                42.,
+                22.,
+                cx,
+                move |window, cx| {
+                    let tracks = cx.global::<Services>().library.tracks_for_album(album_id);
+                    crate::cache_fill::request(target, tracks, window, cx);
+                },
+            )
+        });
         let artist_id = self.artist_id;
         let title: SharedString = if self.album_id == music_library::NO_METADATA_ALBUM_ID {
             crate::localization::tr().no_metadata.clone()
@@ -161,6 +202,7 @@ impl Render for AlbumInfo {
                             ))
                         },
                     )
+                    .when_some(save_button, |el, button| el.child(button))
                     .child(add_album_to_queue_button(album_id, 42., 26., cx)),
             )
     }

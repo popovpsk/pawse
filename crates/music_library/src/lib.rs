@@ -2550,6 +2550,110 @@ mod tests {
         }
     }
 
+    fn remote_cue(key: &str, offset: i64, title: &str) -> RemoteSong {
+        let mut song = remote_song(key, title);
+        song.size = Some(777_000);
+        song.duration_ms = Some(60_000);
+        song.start_offset_ms = Some(offset);
+        song
+    }
+
+    #[test]
+    fn remote_file_sizes_are_per_file_even_for_cue_pieces() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let mut solo = remote_song("solo", "Solo");
+        solo.size = Some(42);
+        lib.apply_remote_listing(
+            source,
+            &[
+                remote_cue("img", 0, "One"),
+                remote_cue("img", 60_000, "Two"),
+                solo,
+            ],
+            &[],
+        )
+        .unwrap();
+        let sizes = lib
+            .remote_file_sizes(source, &["img".into(), "solo".into(), "gone".into()])
+            .unwrap();
+        assert_eq!(sizes.len(), 2);
+        assert_eq!(sizes["img"], 777_000);
+        assert_eq!(sizes["solo"], 42);
+    }
+
+    #[test]
+    fn cue_pieces_of_one_server_file_are_tracks_at_their_offsets() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let songs = vec![
+            remote_cue("img", 0, "One"),
+            remote_cue("img", 60_000, "Two"),
+            remote_song("solo", "Solo"),
+        ];
+        let first = lib.apply_remote_listing(source, &songs, &[]).unwrap();
+        assert_eq!((first.total, first.added), (3, 3));
+        scan(&lib, vec![]);
+        let mut tracks: Vec<(String, String, i32)> = lib
+            .all_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|t| (t.title, t.path, t.start_offset_ms))
+            .collect();
+        tracks.sort();
+        let image = remote::locator(source, "img", "flac");
+        assert_eq!(
+            tracks,
+            vec![
+                ("One".to_string(), image.clone(), 0),
+                (
+                    "Solo".to_string(),
+                    remote::locator(source, "solo", "flac"),
+                    0
+                ),
+                ("Two".to_string(), image, 60_000),
+            ]
+        );
+        let again = lib.apply_remote_listing(source, &songs, &[]).unwrap();
+        assert_eq!((again.added, again.updated, again.retired), (0, 0, 0));
+        let fewer = lib.apply_remote_listing(source, &songs[..1], &[]).unwrap();
+        assert_eq!(fewer.retired, 2);
+    }
+
+    #[test]
+    fn a_server_cue_piece_joins_the_local_cue_track_of_the_same_image() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        let cue = |offset: u64, title: &str| {
+            let mut track = untagged("/music/image.flac", title);
+            track.start_offset_ms = Some(offset);
+            track.is_cue = true;
+            track.file_size = Some(777_000);
+            track.duration_ms = Some(60_000);
+            track
+        };
+        scan(&lib, vec![cue(0, "One"), cue(60_000, "Two")]);
+        let local: Vec<i64> = ["One", "Two"]
+            .iter()
+            .map(|title| id_of_title(&lib, title))
+            .collect();
+        let source = server(&lib);
+        let report = lib
+            .apply_remote_listing(
+                source,
+                &[
+                    remote_cue("img", 0, "Track 01"),
+                    remote_cue("img", 60_000, "Track 02"),
+                ],
+                &[],
+            )
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (0, 2));
+        let mut adopted = lib.items_for_remote_keys(source, &["img".into()]).unwrap();
+        adopted.sort();
+        assert_eq!(adopted, local);
+    }
+
     #[test]
     fn a_server_copy_of_a_local_cue_image_stays_out_of_the_catalog_while_the_folder_is_there() {
         let (lib, _path) = create_test_db();

@@ -27,6 +27,7 @@ pub struct Services {
     pub engine_event_bus: Entity<EngineEventsBus>,
     pub library: Arc<LibraryService>,
     pub remote_media: crate::remote_media::RemoteMedia,
+    pub cache_fill: Entity<crate::cache_fill::CacheFill>,
     track_generation: Arc<AtomicU64>,
     opening: Opening,
     pub is_buffering: Arc<AtomicBool>,
@@ -60,6 +61,9 @@ type RemoteQueueCache = Option<(u64, Arc<Vec<pawse_remote::QueueItem>>)>;
 impl Services {
     pub fn initialize(cx: &mut App) -> Self {
         let output = Arc::new(Output::new());
+        crate::torrent_settings::configure_engine(
+            cx.global::<crate::settings_store::SettingsStore>(),
+        );
         let remote_media = crate::remote_media::RemoteMedia::default();
         remote_media.set_cache_limit(
             cx.global::<crate::settings_store::SettingsStore>()
@@ -178,6 +182,7 @@ impl Services {
             remote_queue_cache: Rc::new(RefCell::new(None)),
             library_rev: Arc::new(AtomicU64::new(0)),
             remote_media,
+            cache_fill: cx.new(|_| crate::cache_fill::CacheFill::default()),
             track_generation: Arc::new(AtomicU64::new(0)),
             opening: Arc::new(std::sync::Mutex::new(None)),
             is_buffering: Arc::new(AtomicBool::new(false)),

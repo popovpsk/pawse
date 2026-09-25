@@ -106,10 +106,16 @@ pub struct Strings {
     pub server_import_favorites: SharedString,
     pub network_cache: SharedString,
     pub network_cache_desc: SharedString,
+    pub cache_fill: SharedString,
+    pub cache_fill_progress_t: SharedString,
+    pub cache_fill_too_big_title: SharedString,
+    pub cache_fill_too_big_t: SharedString,
+    pub cache_fill_part: SharedString,
     pub cache_used: SharedString,
     pub cache_clear: SharedString,
     pub cache_limit: SharedString,
     pub cache_limit_desc: SharedString,
+    pub cache_unlimited: SharedString,
     pub decimal_separator: SharedString,
     pub size_mb_t: SharedString,
     pub size_gb_t: SharedString,
@@ -117,6 +123,20 @@ pub struct Strings {
     pub server_unreachable_t: SharedString,
     pub server_fill_fields: SharedString,
     pub no_servers_added: SharedString,
+    pub torrents: SharedString,
+    pub torrents_desc: SharedString,
+    pub torrent_list: SharedString,
+    pub torrent_magnet: SharedString,
+    pub torrent_add: SharedString,
+    pub torrent_choose_file: SharedString,
+    pub torrent_invalid: SharedString,
+    pub no_torrents_added: SharedString,
+    pub torrent_upload: SharedString,
+    pub torrent_upload_desc: SharedString,
+    pub torrent_upload_while_active: SharedString,
+    pub torrent_upload_limited: SharedString,
+    pub torrent_upload_off: SharedString,
+    pub torrent_peers_t: SharedString,
     pub server_online: SharedString,
     pub server_offline: SharedString,
     pub source_syncing: SharedString,
@@ -512,6 +532,30 @@ impl Strings {
         fill(
             &self.scrobble_import_result_t,
             &[&found.to_string(), &total.to_string()],
+        )
+    }
+
+    pub fn torrent_peers(&self, connected: u32, known: u32) -> String {
+        fill(
+            &self.torrent_peers_t,
+            &[&connected.to_string(), &known.to_string()],
+        )
+    }
+
+    pub fn cache_fill_progress(&self, done: &str, total: &str) -> String {
+        fill(&self.cache_fill_progress_t, &[done, total])
+    }
+
+    pub fn cache_fill_too_big(
+        &self,
+        total: &str,
+        limit: &str,
+        fitting: usize,
+        count: usize,
+    ) -> String {
+        fill(
+            &self.cache_fill_too_big_t,
+            &[total, limit, &fitting.to_string(), &count.to_string()],
         )
     }
 

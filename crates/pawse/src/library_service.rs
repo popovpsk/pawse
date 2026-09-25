@@ -93,10 +93,23 @@ impl LibraryEvent {
     }
 }
 
+struct Claim<'a>(&'a Mutex<HashSet<String>>, String);
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.1);
+    }
+}
+
 #[derive(Default)]
 struct RemoteSyncState {
     running: AtomicBool,
     queued: Mutex<Vec<(crate::servers::RemoteServer, bool)>>,
+    torrents: Mutex<HashSet<String>>,
+    active: Mutex<HashSet<String>>,
 }
 
 pub struct LibraryService {
@@ -491,6 +504,12 @@ impl LibraryService {
             .collect()
     }
 
+    pub fn remote_file_sizes(&self, source_id: i64, keys: &[String]) -> HashMap<String, i64> {
+        self.repo
+            .remote_file_sizes(source_id, keys)
+            .unwrap_or_default()
+    }
+
     pub fn playback_locators(&self, track_id: i64) -> Vec<(String, i64)> {
         self.repo.playback_locators(track_id).unwrap_or_default()
     }
@@ -863,11 +882,21 @@ impl LibraryService {
         crate::remote_sync::reconcile(&*self.repo, servers)
     }
 
+    pub fn remote_syncing(&self) -> HashSet<String> {
+        self.remote_sync.active.lock().unwrap().clone()
+    }
+
     pub fn sync_remote(&self, servers: Vec<crate::servers::RemoteServer>) {
         self.enqueue_remote(servers, false);
     }
 
     fn enqueue_remote(&self, servers: Vec<crate::servers::RemoteServer>, probe: bool) {
+        let (torrents, servers): (Vec<_>, Vec<_>) = servers
+            .into_iter()
+            .partition(|server| server.kind() == crate::servers::ServerKind::Torrent);
+        for torrent in torrents {
+            self.sync_torrent(torrent, probe);
+        }
         if servers.is_empty() {
             return;
         }
@@ -905,51 +934,97 @@ impl LibraryService {
                     }
                     break;
                 }
-                let ids = crate::remote_sync::source_ids(&*repo);
                 for (server, probe) in batch {
-                    let key = server.key();
-                    let Some(&source_id) = ids.get(&key) else {
-                        continue;
-                    };
-                    if probe && server.config.client().ping().is_err() {
-                        continue;
-                    }
-                    let _ = event_tx.send(LibraryEvent::RemoteSyncStarted { key: key.clone() });
-                    let outcome =
-                        crate::remote_sync::sync_server(&*repo, source_id, &server.config);
-                    changed |= outcome.changed;
-                    match &outcome.result {
-                        Ok(report) => log::info!(
-                            "{} {}: {} songs, {} new, {} matched, {} gone, {} updated",
-                            server.kind().title(),
-                            server.uri,
-                            report.total,
-                            report.added,
-                            report.adopted,
-                            report.retired,
-                            report.updated
-                        ),
-                        Err(e) => {
-                            log::warn!(
-                                "{} {} sync failed: {e:?}",
-                                server.kind().title(),
-                                server.uri
-                            )
-                        }
-                    }
-                    let _ = event_tx.send(LibraryEvent::RemoteSyncFinished {
-                        key,
-                        outcome: outcome.result,
-                    });
+                    changed |= Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe);
                 }
             }
             if changed {
-                if let Err(e) = repo.invalidate_scan_fingerprint() {
-                    log::error!("Failed to invalidate scan fingerprint: {e}");
-                }
-                Self::spawn_scan(repo, event_tx, executor, scan_state);
+                Self::rescan_after_sync(repo, event_tx, executor, scan_state);
             }
         });
+    }
+
+    fn sync_torrent(&self, server: crate::servers::RemoteServer, probe: bool) {
+        let key = server.key();
+        if !self
+            .remote_sync
+            .torrents
+            .lock()
+            .unwrap()
+            .insert(key.clone())
+        {
+            return;
+        }
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        let remote_sync = self.remote_sync.clone();
+        std::thread::spawn(move || {
+            let claim = Claim(&remote_sync.torrents, key);
+            let changed = Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe);
+            drop(claim);
+            if changed {
+                Self::rescan_after_sync(repo, event_tx, executor, scan_state);
+            }
+        });
+    }
+
+    fn sync_one(
+        repo: &dyn LibraryRepository,
+        event_tx: &flume::Sender<LibraryEvent>,
+        remote_sync: &RemoteSyncState,
+        server: &crate::servers::RemoteServer,
+        probe: bool,
+    ) -> bool {
+        let key = server.key();
+        let Some(&source_id) = crate::remote_sync::source_ids(repo).get(&key) else {
+            return false;
+        };
+        if probe && server.config.client().ping().is_err() {
+            return false;
+        }
+        remote_sync.active.lock().unwrap().insert(key.clone());
+        let claim = Claim(&remote_sync.active, key.clone());
+        let _ = event_tx.send(LibraryEvent::RemoteSyncStarted { key: key.clone() });
+        let outcome = crate::remote_sync::sync_server(repo, source_id, &server.config);
+        match &outcome.result {
+            Ok(report) => log::info!(
+                "{} {}: {} songs, {} new, {} matched, {} gone, {} updated",
+                server.kind().title(),
+                server.uri,
+                report.total,
+                report.added,
+                report.adopted,
+                report.retired,
+                report.updated
+            ),
+            Err(e) => {
+                log::warn!(
+                    "{} {} sync failed: {e:?}",
+                    server.kind().title(),
+                    server.uri
+                )
+            }
+        }
+        drop(claim);
+        let _ = event_tx.send(LibraryEvent::RemoteSyncFinished {
+            key,
+            outcome: outcome.result,
+        });
+        outcome.changed
+    }
+
+    fn rescan_after_sync(
+        repo: Arc<dyn LibraryRepository>,
+        event_tx: flume::Sender<LibraryEvent>,
+        executor: gpui::BackgroundExecutor,
+        scan_state: Arc<ScanState>,
+    ) {
+        if let Err(e) = repo.invalidate_scan_fingerprint() {
+            log::error!("Failed to invalidate scan fingerprint: {e}");
+        }
+        Self::spawn_scan(repo, event_tx, executor, scan_state);
     }
 
     pub fn sync_offline_remote(&self, servers: Vec<crate::servers::RemoteServer>) {

@@ -16,10 +16,15 @@ use crate::library_sources::{ConnectState, LibrarySources, ServerStatus};
 use crate::localization::tr;
 use crate::servers::{RemoteConfig, RemoteServer, ServerKind};
 use crate::services::Services;
-use crate::settings_store::{JellyfinServer, SettingsStore, SubsonicServer, notify_save_error};
+use crate::settings_store::{
+    JellyfinServer, SettingsStore, SubsonicServer, TorrentSource, notify_save_error,
+};
 use crate::theme_colors::Colors;
 
 const OFFLINE_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+const COUNT_COLUMN: f32 = 110.;
+const PEERS_COLUMN: f32 = 120.;
+const ICON_SIZE: f32 = 16.;
 
 #[derive(Clone)]
 pub struct ServerInputs {
@@ -82,24 +87,40 @@ pub fn jellyfin_remote(server: &JellyfinServer) -> RemoteServer {
     }
 }
 
+pub fn torrent_remote(source: &TorrentSource) -> RemoteServer {
+    RemoteServer {
+        uri: source.source_uri(),
+        name: source.name.clone(),
+        config: RemoteConfig::Torrent(source.config()),
+    }
+}
+
 pub fn configured_servers(
     subsonic: &[SubsonicServer],
     jellyfin: &[JellyfinServer],
+    torrents: &[TorrentSource],
 ) -> Vec<RemoteServer> {
     subsonic
         .iter()
         .map(subsonic_remote)
         .chain(jellyfin.iter().map(jellyfin_remote))
+        .chain(torrents.iter().map(torrent_remote))
         .collect()
 }
 
 pub fn has_servers(store: &SettingsStore) -> bool {
-    !store.subsonic_servers().is_empty() || !store.jellyfin_servers().is_empty()
+    !store.subsonic_servers().is_empty()
+        || !store.jellyfin_servers().is_empty()
+        || !store.torrent_sources().is_empty()
 }
 
 pub fn remote_servers(cx: &App) -> Vec<RemoteServer> {
     let store = cx.global::<SettingsStore>();
-    configured_servers(store.subsonic_servers(), store.jellyfin_servers())
+    configured_servers(
+        store.subsonic_servers(),
+        store.jellyfin_servers(),
+        store.torrent_sources(),
+    )
 }
 
 pub fn apply_remote_sources(cx: &mut App) {
@@ -158,6 +179,16 @@ fn remove_server(server: &RemoteServer, cx: &mut App) {
     cx.global::<Services>()
         .library
         .refresh_after_source_change();
+    if let RemoteConfig::Torrent(config) = &server.config {
+        let info_hash = config.info_hash.clone();
+        cx.background_spawn(async move {
+            let _state = crate::servers::torrent::state_lock();
+            if let Some(engine) = crate::servers::torrent::engine() {
+                engine.forget(&info_hash);
+            }
+        })
+        .detach();
+    }
 }
 
 fn confirm_remove_server(server: RemoteServer, window: &mut Window, cx: &mut App) {
@@ -211,10 +242,16 @@ fn ids(kind: ServerKind) -> Ids {
             remove: "subsonic-remove",
             connect: "subsonic-connect",
         },
+        ServerKind::Torrent => Ids {
+            sync: "torrent-sync",
+            stars: "torrent-stars",
+            remove: "torrent-remove",
+            connect: "torrent-add",
+        },
     }
 }
 
-fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> AnyElement {
+pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> AnyElement {
     let ids = ids(kind);
     let muted_fg = Colors::muted_foreground(cx);
     let mut list = v_flex().gap_2().w_full();
@@ -243,37 +280,24 @@ fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> AnyElement
                         .items_center()
                         .child(
                             svg()
-                                .path("icons/devices.svg")
-                                .size(px(16.))
+                                .flex_shrink_0()
+                                .path(match kind {
+                                    ServerKind::Torrent => "icons/torrent.svg",
+                                    ServerKind::Subsonic | ServerKind::Jellyfin => {
+                                        "icons/devices.svg"
+                                    }
+                                })
+                                .size(px(ICON_SIZE))
                                 .text_color(muted_fg),
                         )
                         .child(
                             div()
                                 .flex_1()
+                                .min_w(px(0.))
                                 .text_sm()
                                 .truncate()
                                 .text_color(Colors::foreground(cx))
                                 .child(row.title.clone()),
-                        )
-                        .child(
-                            h_flex()
-                                .flex_shrink_0()
-                                .gap_1p5()
-                                .items_center()
-                                .child(div().size(px(8.)).rounded_full().bg(status_color))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(status_color)
-                                        .child(row.status_label.clone()),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_sm()
-                                .text_color(muted_fg)
-                                .child(row.count_label.clone()),
                         )
                         .child(
                             Button::new((ids.sync, ix))
@@ -287,17 +311,19 @@ fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> AnyElement
                                         .sync_remote(vec![for_sync.clone()]);
                                 }),
                         )
-                        .child(
-                            Button::new((ids.stars, ix))
-                                .small()
-                                .label(tr().server_import_favorites.clone())
-                                .disabled(syncing)
-                                .on_click(move |_, _, cx| {
-                                    cx.global::<Services>()
-                                        .library
-                                        .import_remote_stars(for_stars.clone());
-                                }),
-                        )
+                        .when(kind != ServerKind::Torrent, |row| {
+                            row.child(
+                                Button::new((ids.stars, ix))
+                                    .small()
+                                    .label(tr().server_import_favorites.clone())
+                                    .disabled(syncing)
+                                    .on_click(move |_, _, cx| {
+                                        cx.global::<Services>()
+                                            .library
+                                            .import_remote_stars(for_stars.clone());
+                                    }),
+                            )
+                        })
                         .child(
                             Button::new((ids.remove, ix))
                                 .small()
@@ -305,6 +331,41 @@ fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> AnyElement
                                 .on_click(move |_, window, cx| {
                                     confirm_remove_server(for_remove.clone(), window, cx);
                                 }),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .pl(px(ICON_SIZE + 8.))
+                        .items_center()
+                        .text_sm()
+                        .text_color(muted_fg)
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .w(px(COUNT_COLUMN))
+                                .child(row.count_label.clone()),
+                        )
+                        .when(kind == ServerKind::Torrent, |line| {
+                            line.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .w(px(PEERS_COLUMN))
+                                    .children(row.peers_label.clone()),
+                            )
+                        })
+                        .child(div().flex_1())
+                        .child(
+                            h_flex()
+                                .flex_shrink_0()
+                                .gap_1p5()
+                                .items_center()
+                                .child(div().size(px(8.)).rounded_full().bg(status_color))
+                                .child(
+                                    div()
+                                        .text_color(status_color)
+                                        .child(row.status_label.clone()),
+                                ),
                         ),
                 )
                 .children(row.message.clone().map(|message| {
@@ -324,7 +385,10 @@ fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> AnyElement
                 .py_2()
                 .text_sm()
                 .text_color(muted_fg)
-                .child(tr().no_servers_added.clone()),
+                .child(match kind {
+                    ServerKind::Torrent => tr().no_torrents_added.clone(),
+                    ServerKind::Subsonic | ServerKind::Jellyfin => tr().no_servers_added.clone(),
+                }),
         );
     }
     list.into_any_element()

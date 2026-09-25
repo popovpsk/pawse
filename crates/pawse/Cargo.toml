@@ -43,6 +43,7 @@ subsonic = { path = "../subsonic" }
 jellyfin = { path = "../jellyfin" }
 server_http = { path = "../server_http" }
 media_stream = { path = "../media_stream" }
+torrent = { path = "../torrent" }
 scrobble = { path = "../scrobble" }
 discord = { path = "../discord" }
 updater = { path = "../updater", default-features = false }
@@ -120,3 +121,7 @@ installer-mode = "currentUser"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+torrent = { path = "../torrent", features = ["test-support"] }

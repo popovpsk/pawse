@@ -121,6 +121,14 @@ impl RemoteMedia {
         }
     }
 
+    pub fn is_cached(&self, path: &Path) -> bool {
+        match remote::location(&path.to_string_lossy()) {
+            Location::File(_) => true,
+            Location::Remote(reference) => self.cache.contains(&reference),
+            Location::Invalid => false,
+        }
+    }
+
     pub fn cache_size(&self) -> u64 {
         self.cache.size()
     }

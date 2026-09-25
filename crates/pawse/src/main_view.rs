@@ -330,6 +330,7 @@ impl MainView {
             sources: library_sources.clone(),
             subsonic_inputs: crate::remote_settings::ServerInputs::new(window, cx),
             jellyfin_inputs: crate::remote_settings::ServerInputs::new(window, cx),
+            torrent_magnet: crate::torrent_settings::magnet_input(window, cx),
         };
         let library_sources_observe = cx.observe(&library_sources, |_, _, cx| cx.notify());
         let scrobble_ui: Entity<ScrobbleUiState> = cx.new(|_| ScrobbleUiState::new());

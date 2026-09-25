@@ -88,7 +88,8 @@ pub struct SourceSummary {
     pub track_count: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct RemoteSong {
     pub key: String,
     pub title: String,
@@ -107,6 +108,7 @@ pub struct RemoteSong {
     pub cover_key: Option<String>,
     pub cover_hash: Option<String>,
     pub artist_aliases: Vec<String>,
+    pub start_offset_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
