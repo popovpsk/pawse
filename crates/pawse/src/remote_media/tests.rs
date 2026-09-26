@@ -128,20 +128,6 @@ fn a_cached_track_resolves_without_a_server_and_an_unknown_server_is_an_error() 
 }
 
 #[test]
-fn a_legacy_locator_finds_the_same_cached_file() {
-    let dir = temp_dir("legacy");
-    let media = media(&dir);
-    let cached = cache_path(&media, &remote::locator(3, "abc", "flac"));
-    std::fs::create_dir_all(cached.parent().unwrap()).unwrap();
-    std::fs::write(&cached, b"x").unwrap();
-    assert_eq!(
-        media.cached(Path::new("subsonic://3/abc.flac")),
-        Some(cached)
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
 fn server_tracks_of_both_kinds_stream_and_end_up_in_the_cache() {
     let bytes = fixture("sine_440_16_44_stereo.wav");
     let dir = temp_dir("stream");

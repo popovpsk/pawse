@@ -254,10 +254,7 @@ a server going away hides only what it alone provided, and projecting needs no
 network. Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
 (`remote.rs`), for every kind of source: the source id says which one, so the
 locator carries no protocol. The suffix is there because the decoder picks a
-backend by extension. Locators from before the rename (`subsonic://…`) still
-parse; migration 12 rewrites them in `tracks`, and `pawse` rewrites the saved
-queue on load (`remote::canonical`), because the queue is matched to the catalog
-by `(path, start_offset_ms)` and an unmatched entry is dropped from it.
+backend by extension.
 
 Servers that do not read cue sheets (Navidrome) list a whole-disc image as one
 song, while the local scan splits the same file into its cue tracks. Such a song
@@ -403,6 +400,12 @@ wipe. `run_migrations`:
   back only if the migration **added** violations. Pre-existing junk in someone's
   catalog (a dangling `track_artists` row) must not turn every launch into a
   failed open.
+
+Everything this release adds to the schema — identity, sources, bindings,
+adoptions, `remote_tracks` — is one step, migration 9: a user upgrades once,
+from 8. A development database that ran the earlier split steps (up to 12)
+has the same schema; set its `user_version` back to 9, or it would skip the
+next step.
 
 Migration 9 keeps ids one-to-one (`media_items.id := tracks.id`), so user rows
 are copied as-is and can be verified by counts and sums. Child tables that

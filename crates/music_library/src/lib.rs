@@ -64,46 +64,6 @@ mod tests {
         conn.execute_batch(seed).unwrap();
     }
 
-    #[test]
-    fn server_track_locators_move_to_the_neutral_scheme() {
-        let dir =
-            std::env::temp_dir().join(format!("pawse-locator-migration-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("library.db");
-        {
-            let conn = rusqlite::Connection::open(&path).unwrap();
-            for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 11) {
-                conn.execute_batch(sql).unwrap();
-                conn.pragma_update(None, "user_version", version).unwrap();
-            }
-            conn.execute_batch(
-                "INSERT INTO media_items (id, title, created_at, updated_at) VALUES (1, 'R', 0, 0), (2, 'L', 0, 0);
-                 INSERT INTO tracks (id, path, title) VALUES
-                     (1, 'subsonic://3/song-1.flac', 'R'),
-                     (2, '/music/subsonic://odd.flac', 'L');",
-            )
-            .unwrap();
-        }
-        let lib = SqliteLibrary::open_at(&path).unwrap();
-        let mut paths: Vec<String> = lib
-            .all_tracks()
-            .unwrap()
-            .into_iter()
-            .map(|t| t.path)
-            .collect();
-        paths.sort();
-        assert_eq!(
-            paths,
-            vec![
-                "/music/subsonic://odd.flac".to_string(),
-                remote::locator(3, "song-1", "flac")
-            ]
-        );
-        drop(lib);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     const V8_CATALOG: &str = "
         INSERT INTO artists (id, name, sort_name) VALUES (1, 'Band', 'band');
         INSERT INTO albums (id, title, year) VALUES (1, 'Record', 2001);

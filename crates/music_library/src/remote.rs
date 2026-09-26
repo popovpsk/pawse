@@ -1,7 +1,6 @@
 use std::path::Path;
 
 pub const SCHEME: &str = "pawse-source://";
-const LEGACY_SCHEMES: [&str; 1] = ["subsonic://"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteRef {
@@ -22,9 +21,7 @@ pub fn locator(source_id: i64, key: &str, suffix: &str) -> String {
 }
 
 fn strip_scheme(path: &str) -> Option<&str> {
-    std::iter::once(SCHEME)
-        .chain(LEGACY_SCHEMES)
-        .find_map(|scheme| path.strip_prefix(scheme))
+    path.strip_prefix(SCHEME)
 }
 
 pub fn is_remote(path: &str) -> bool {
@@ -43,18 +40,6 @@ pub fn parse(path: &str) -> Option<RemoteRef> {
         key: key.to_string(),
         suffix: suffix.to_string(),
     })
-}
-
-pub fn canonical(path: &str) -> Option<String> {
-    if path.starts_with(SCHEME) {
-        return None;
-    }
-    let reference = parse(path)?;
-    Some(locator(
-        reference.source_id,
-        &reference.key,
-        &reference.suffix,
-    ))
 }
 
 pub fn location(path: &str) -> Location<'_> {
@@ -109,25 +94,6 @@ mod tests {
     }
 
     #[test]
-    fn locators_written_before_the_rename_still_parse() {
-        let old = "subsonic://4/abc.flac";
-        assert!(is_remote(old));
-        assert_eq!(parse(old), parse(&locator(4, "abc", "flac")));
-        assert!(locator(4, "abc", "flac").starts_with(SCHEME));
-    }
-
-    #[test]
-    fn only_legacy_locators_are_rewritten() {
-        assert_eq!(
-            canonical("subsonic://4/a.b.flac"),
-            Some(locator(4, "a.b", "flac"))
-        );
-        assert_eq!(canonical(&locator(4, "a", "flac")), None);
-        assert_eq!(canonical("/music/a.flac"), None);
-        assert_eq!(canonical("subsonic://broken"), None);
-    }
-
-    #[test]
     fn locations_tell_files_from_server_tracks_and_broken_locators() {
         assert_eq!(
             location("/music/a.flac"),
@@ -145,7 +111,6 @@ mod tests {
         for broken in [
             "pawse-source://x/k.mp3",
             "pawse-source://1/k",
-            "subsonic://1/.mp3",
             "pawse-source://1/k.",
         ] {
             assert_eq!(location(broken), Location::Invalid, "{broken}");

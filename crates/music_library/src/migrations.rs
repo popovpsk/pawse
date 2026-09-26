@@ -403,11 +403,7 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         BEGIN
             SELECT RAISE(ABORT, 'media item is referenced by user data');
         END;
-        "#,
-    ),
-    (
-        10,
-        r#"
+
         CREATE TABLE adoptions (
             id INTEGER PRIMARY KEY,
             item_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
@@ -417,11 +413,7 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
         CREATE INDEX idx_adoptions_item ON adoptions(item_id);
         CREATE INDEX idx_adoptions_binding ON adoptions(binding_id);
-        "#,
-    ),
-    (
-        11,
-        r#"
+
         CREATE TABLE remote_tracks (
             binding_id INTEGER PRIMARY KEY REFERENCES media_bindings(id) ON DELETE CASCADE,
             title TEXT NOT NULL,
@@ -442,13 +434,6 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX idx_remote_tracks_cover_hash ON remote_tracks(cover_hash);
-        "#,
-    ),
-    (
-        12,
-        r#"
-        UPDATE tracks SET path = 'pawse-source://' || substr(path, 12)
-            WHERE substr(path, 1, 11) = 'subsonic://';
         "#,
     ),
 ];

@@ -643,15 +643,6 @@ fn migrate_scrobble(settings: &mut UserSettings) {
     settings.scrobble.lastfm.session = legacy_session;
 }
 
-fn migrate_locators(playback: &mut PlaybackState) {
-    let original = playback.original_queue.iter_mut().flatten();
-    for track in playback.queue.iter_mut().chain(original) {
-        if let Some(path) = music_library::remote::canonical(&track.path) {
-            track.path = path;
-        }
-    }
-}
-
 pub struct SettingsStore {
     pub settings: UserSettings,
     path: PathBuf,
@@ -682,7 +673,6 @@ impl SettingsStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         migrate_scrobble(&mut settings);
-        migrate_locators(&mut settings.playback);
         Self {
             settings,
             path,
@@ -1553,36 +1543,6 @@ mod tests {
         let json = serde_json::to_string(&persisted).unwrap();
         let de: QueueSourcePersist = serde_json::from_str(&json).unwrap();
         assert_eq!(de, QueueSourcePersist::AllTracks);
-    }
-
-    #[test]
-    fn saved_queues_move_server_tracks_to_the_neutral_locator() {
-        let track = |path: &str| music_library::Track {
-            id: 1,
-            path: path.into(),
-            title: String::new(),
-            album_id: None,
-            track_number: None,
-            disc_number: 1,
-            duration_ms: None,
-            year: None,
-            cover_art_id: None,
-            start_offset_ms: 0,
-            liked: false,
-            bitrate: None,
-            is_cue: false,
-            available: true,
-        };
-        let mut playback = PlaybackState {
-            queue: vec![track("subsonic://2/s1.flac"), track("/m/a.flac")],
-            original_queue: Some(vec![track("subsonic://2/s1.flac")]),
-            ..Default::default()
-        };
-        migrate_locators(&mut playback);
-        let fresh = music_library::remote::locator(2, "s1", "flac");
-        assert_eq!(playback.queue[0].path, fresh);
-        assert_eq!(playback.queue[1].path, "/m/a.flac");
-        assert_eq!(playback.original_queue.unwrap()[0].path, fresh);
     }
 
     #[test]
