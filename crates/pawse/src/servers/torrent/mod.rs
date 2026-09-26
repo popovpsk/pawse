@@ -1,95 +1,122 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use music_library::RemoteSong;
 
-use super::{RemoteError, ServerClient};
+use super::{Peers, RemoteError, ServerClient};
 
 mod index;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(20);
 const RETRY_INDEX_AFTER: Duration = Duration::from_secs(10 * 60);
 
-static CONFIG: Mutex<Option<::torrent::Config>> = Mutex::new(None);
-static ENGINE: OnceLock<Option<::torrent::Engine>> = OnceLock::new();
-static STATE: Mutex<()> = Mutex::new(());
-static FAILED_INDEX: Mutex<Option<HashMap<String, (Instant, String)>>> = Mutex::new(None);
-
-pub fn configure(config: ::torrent::Config) {
-    *CONFIG.lock().unwrap() = Some(config);
+pub struct TorrentHost {
+    config: Mutex<::torrent::Config>,
+    engine: OnceLock<Option<::torrent::Engine>>,
+    state: Mutex<()>,
+    failed_index: Mutex<HashMap<String, (Instant, String)>>,
 }
 
-pub fn engine() -> Option<&'static ::torrent::Engine> {
-    ENGINE
-        .get_or_init(|| {
-            let config = CONFIG.lock().unwrap().clone()?;
-            ::torrent::Engine::new(config)
-                .inspect_err(|e| log::error!("Torrents are unavailable: {e}"))
-                .ok()
+impl TorrentHost {
+    pub fn new(config: ::torrent::Config) -> Arc<Self> {
+        Arc::new(Self {
+            config: Mutex::new(config),
+            engine: OnceLock::new(),
+            state: Mutex::new(()),
+            failed_index: Mutex::new(HashMap::new()),
         })
-        .as_ref()
-}
-
-pub fn running_engine() -> Option<&'static ::torrent::Engine> {
-    ENGINE.get()?.as_ref()
-}
-
-pub fn set_upload(upload: ::torrent::Upload) {
-    if let Some(config) = CONFIG.lock().unwrap().as_mut() {
-        config.upload = upload;
     }
-    if let Some(Some(engine)) = ENGINE.get() {
-        engine.set_upload(upload);
+
+    pub fn engine(&self) -> Option<&::torrent::Engine> {
+        self.engine
+            .get_or_init(|| {
+                let config = self.config.lock().unwrap().clone();
+                ::torrent::Engine::new(config)
+                    .inspect_err(|e| log::error!("Torrents are unavailable: {e}"))
+                    .ok()
+            })
+            .as_ref()
     }
-}
 
-pub fn state_lock() -> MutexGuard<'static, ()> {
-    STATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+    pub fn running_engine(&self) -> Option<&::torrent::Engine> {
+        self.engine.get()?.as_ref()
+    }
 
-fn index_retry_in(info_hash: &str) -> Option<(Duration, String)> {
-    let failed = FAILED_INDEX.lock().unwrap();
-    let (since, reason) = failed.as_ref()?.get(info_hash)?;
-    Some((
-        RETRY_INDEX_AFTER.checked_sub(since.elapsed())?,
-        reason.clone(),
-    ))
-}
-
-fn note_index(info_hash: &str, failure: Option<String>) {
-    let mut guard = FAILED_INDEX.lock().unwrap();
-    let map = guard.get_or_insert_with(HashMap::new);
-    match failure {
-        Some(reason) => {
-            map.insert(info_hash.to_string(), (Instant::now(), reason));
-        }
-        None => {
-            map.remove(info_hash);
+    pub fn set_upload(&self, upload: ::torrent::Upload) {
+        self.config.lock().unwrap().upload = upload;
+        if let Some(engine) = self.running_engine() {
+            engine.set_upload(upload);
         }
     }
+
+    pub fn state_lock(&self) -> MutexGuard<'_, ()> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn index_retry_in(&self, info_hash: &str) -> Option<(Duration, String)> {
+        let failed = self.failed_index.lock().unwrap();
+        let (since, reason) = failed.get(info_hash)?;
+        Some((
+            RETRY_INDEX_AFTER.checked_sub(since.elapsed())?,
+            reason.clone(),
+        ))
+    }
+
+    fn note_index(&self, info_hash: &str, failure: Option<String>) {
+        let mut failed = self.failed_index.lock().unwrap();
+        match failure {
+            Some(reason) => {
+                failed.insert(info_hash.to_string(), (Instant::now(), reason));
+            }
+            None => {
+                failed.remove(info_hash);
+            }
+        }
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Config {
     pub info_hash: String,
+    pub host: Arc<TorrentHost>,
+}
+
+impl PartialEq for Config {
+    fn eq(&self, other: &Self) -> bool {
+        self.info_hash == other.info_hash && Arc::ptr_eq(&self.host, &other.host)
+    }
+}
+
+impl Eq for Config {}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("info_hash", &self.info_hash)
+            .finish_non_exhaustive()
+    }
 }
 
 pub struct Torrent {
     info_hash: String,
+    host: Arc<TorrentHost>,
 }
 
 impl Torrent {
     pub fn new(config: &Config) -> Self {
         Self {
             info_hash: config.info_hash.clone(),
+            host: config.host.clone(),
         }
     }
 
-    fn engine(&self) -> Result<&'static ::torrent::Engine, RemoteError> {
-        engine().ok_or_else(|| RemoteError::Other("torrents are not available".into()))
+    fn engine(&self) -> Result<&::torrent::Engine, RemoteError> {
+        self.host
+            .engine()
+            .ok_or_else(|| RemoteError::Other("torrents are not available".into()))
     }
 }
 
@@ -97,7 +124,7 @@ pub fn error(error: ::torrent::Error) -> RemoteError {
     match error {
         ::torrent::Error::Timeout => RemoteError::Unreachable(error.to_string()),
         ::torrent::Error::Other(message) => RemoteError::Unreachable(message),
-        ::torrent::Error::Unknown | ::torrent::Error::Invalid(_) => {
+        ::torrent::Error::NoPeers | ::torrent::Error::Unknown | ::torrent::Error::Invalid(_) => {
             RemoteError::Other(error.to_string())
         }
     }
@@ -113,7 +140,7 @@ impl ServerClient for Torrent {
         if !self.engine()?.is_stored(&self.info_hash) {
             return Err(RemoteError::Other(::torrent::Error::Unknown.to_string()));
         }
-        match index_retry_in(&self.info_hash) {
+        match self.host.index_retry_in(&self.info_hash) {
             Some((wait, reason)) => Err(RemoteError::Unreachable(format!(
                 "{reason}; next try in {} min",
                 wait.as_secs().div_ceil(60)
@@ -123,7 +150,7 @@ impl ServerClient for Torrent {
     }
 
     fn songs(&self) -> Result<Vec<RemoteSong>, RemoteError> {
-        let listed = index::songs(self.engine()?, &self.info_hash);
+        let listed = index::songs(self.engine()?, &self.info_hash, &self.host.state);
         let failure = match &listed {
             Ok(_) => None,
             Err(RemoteError::Unreachable(reason) | RemoteError::Other(reason)) => {
@@ -131,7 +158,7 @@ impl ServerClient for Torrent {
             }
             Err(RemoteError::Auth) => Some("access denied".to_string()),
         };
-        note_index(&self.info_hash, failure);
+        self.host.note_index(&self.info_hash, failure);
         listed
     }
 
@@ -141,6 +168,21 @@ impl ServerClient for Torrent {
 
     fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
         index::cover(self.engine()?, &self.info_hash, key)
+    }
+
+    fn forget(&self) {
+        let _state = self.host.state_lock();
+        if let Some(engine) = self.host.engine() {
+            engine.forget(&self.info_hash);
+        }
+    }
+
+    fn peers(&self) -> Option<Peers> {
+        let swarm = self.host.running_engine()?.swarm(&self.info_hash)?;
+        Some(Peers {
+            connected: swarm.connected,
+            known: swarm.known,
+        })
     }
 
     fn fetch_range(

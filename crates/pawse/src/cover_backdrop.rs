@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     App, Context, Div, Global, Hsla, Image, ObjectFit, ParentElement, RenderImage, Styled,
@@ -10,6 +9,7 @@ use gpui::{
 
 use crate::cover_art_cache::drop_atlas_tile;
 use crate::library_service::LibraryEvent;
+use crate::playback_status::StatusChanged;
 use crate::services::Services;
 use crate::settings_store::{BlurBackground, SettingsStore};
 
@@ -96,7 +96,7 @@ pub struct CoverBackdrop {
     sigma: f32,
     _task: Option<Task<()>>,
     _fade: Option<Task<()>>,
-    _engine_subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
 }
@@ -104,14 +104,11 @@ pub struct CoverBackdrop {
 impl CoverBackdrop {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
-        let engine_event_bus = services.engine_event_bus.clone();
+        let playback_status = services.playback_status.clone();
         let library_event_bus = services.library_event_bus.clone();
-        let engine_subscription =
-            cx.subscribe(&engine_event_bus, |this, _, event: &EngineEvent, cx| {
-                if matches!(
-                    event,
-                    EngineEvent::Loaded { .. } | EngineEvent::TrackEnded | EngineEvent::Stopped
-                ) {
+        let status_subscription =
+            cx.subscribe(&playback_status, |this, _, event: &StatusChanged, cx| {
+                if event.track_changed {
                     this.refresh(true, cx);
                 }
             });
@@ -144,7 +141,7 @@ impl CoverBackdrop {
             sigma: blur_sigma(cx),
             _task: None,
             _fade: None,
-            _engine_subscription: engine_subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
         };

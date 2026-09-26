@@ -7,6 +7,7 @@ export type PlayerState = {
   artist: string | null;
   album: string | null;
   playing: boolean;
+  buffering: boolean;
   position_ms: number;
   duration_ms: number;
   cover_id: number | null;
@@ -106,6 +107,7 @@ export class Remote {
   artist = $state<string | null>(null);
   album = $state<string | null>(null);
   playing = $state(false);
+  buffering = $state(false);
   durationMs = $state(0);
   positionMs = $state(0);
   coverId = $state<number | null>(null);
@@ -193,6 +195,7 @@ export class Remote {
     this.artist = state.artist;
     this.album = state.album;
     this.playing = state.playing;
+    this.buffering = state.buffering ?? false;
     this.durationMs = state.duration_ms;
     this.coverId = state.cover_id;
     this.queueIndex = state.queue_index;
@@ -245,7 +248,10 @@ export class Remote {
     if (this.#raf !== null || !this.playing) return;
     const step = () => {
       this.#raf = null;
-      if (this.playing && !this.#seeking) {
+      if (this.buffering) {
+        this.#base = this.positionMs;
+        this.#baseAt = performance.now();
+      } else if (this.playing && !this.#seeking) {
         const elapsed = performance.now() - this.#baseAt;
         const next = this.#base + elapsed;
         this.positionMs = this.durationMs > 0 ? Math.min(next, this.durationMs) : next;

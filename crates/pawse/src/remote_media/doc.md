@@ -1,7 +1,7 @@
 # remote_media
 
 Getting the bytes of a track that is not a local file. `RemoteMedia` is the
-facade the app uses (`Services::start_track`, the engine's resolver, gapless
+facade the app uses (`crate::playback_opener` through its `LibraryBackend`, the engine's resolver, gapless
 prefetch, the cache settings); behind it each source id maps to a
 `SourceMedia`.
 
@@ -51,3 +51,33 @@ room silently, as it does while listening. Saved tracks are ordinary cache
 entries and can be evicted later — there is no pinning. The largest limit
 choice, "Unlimited", is 100 TB (`UNLIMITED_CACHE_GB`), so no code path needs a
 special case for it.
+
+## Moving an album to a music folder
+
+`crate::album_export` (outside this module) moves an album's network tracks out
+of the cache into a configured music folder: one folder is used directly,
+several ask which one, and without any music folder the button is hidden:
+a file moved outside the library folders would leave the cache and never be
+scanned, so the album would vanish with its likes. Only the album header has the button — per artist it
+would depend on the artist grouping. Files are named from the tags
+(`Album Artist/Year - Album/NN - Title.ext`, `D-NN - …` for several discs) —
+the cache names are digests and Subsonic's own paths are not stored. Each file
+goes through `resolve` (download if needed) and is renamed out of the cache
+right away (copy + delete across volumes), so the LRU never evicts a file of
+the album before it is moved and the cache does not grow. A cue image (a
+torrent's) gets a generated `.cue` from its pieces' offsets, in `CDn/` for
+several discs; `cue_time` rounds milliseconds back to the exact frames the scan
+derived them from, so the local tracks start at the same offsets. A target that
+exists with the file's size counts as done, so a stopped move can be restarted;
+a taken name gets ` (n)`. `cover.jpg` (the stored large thumbnail) is written
+only when the folder has no image. Then a rescan runs, and adoption does the
+rest: the moved file has the server binding's size (and offset), so it joins
+the same item by the `file` tier — likes, playlists and history stay, and the
+local copy plays first. The plan (sizes, artists,
+the cover blob) is built on the background executor, not in the click handler.
+The album header re-reads its tracks on every `CatalogChanged` (album ids are
+stable across rescans), so the buttons follow what the album holds now; right
+after a move, `AlbumExport` hides both buttons for that album until the next
+`CatalogChanged` — the rescan that makes its tracks local. Cancelling a move
+ends quietly, without an error toast. The rescan is a full one: the catalog has
+no per-folder refresh yet.

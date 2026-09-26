@@ -9,6 +9,7 @@ use crate::{
     services::{Services, run_engine_events_bus},
 };
 
+pub mod album_export;
 pub mod app_menu;
 pub mod audio_settings;
 pub mod cache_fill;
@@ -35,8 +36,11 @@ pub mod media_bridge;
 pub mod next_button;
 pub mod now_playing;
 pub mod onboarding_view;
+pub mod pickers;
 pub mod play_button;
+pub mod playback_opener;
 pub mod playback_queue;
+pub mod playback_status;
 pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;

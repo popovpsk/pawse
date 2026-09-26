@@ -38,6 +38,41 @@ impl ServerKind {
         }
     }
 
+    pub fn manual_sync(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => true,
+            ServerKind::Torrent => false,
+        }
+    }
+
+    pub fn imports_favorites(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => true,
+            ServerKind::Torrent => false,
+        }
+    }
+
+    pub fn syncs_alone(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => false,
+            ServerKind::Torrent => true,
+        }
+    }
+
+    pub fn titled_by_name(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => false,
+            ServerKind::Torrent => true,
+        }
+    }
+
+    pub fn has_peers(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => false,
+            ServerKind::Torrent => true,
+        }
+    }
+
     pub fn parse(kind: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|known| known.as_str() == kind)
     }
@@ -56,6 +91,14 @@ impl RemoteConfig {
             RemoteConfig::Subsonic(_) => ServerKind::Subsonic,
             RemoteConfig::Jellyfin(_) => ServerKind::Jellyfin,
             RemoteConfig::Torrent(_) => ServerKind::Torrent,
+        }
+    }
+
+    pub fn web_url(&self) -> Option<&str> {
+        match self {
+            RemoteConfig::Subsonic(config) => Some(&config.url),
+            RemoteConfig::Jellyfin(config) => Some(&config.url),
+            RemoteConfig::Torrent(_) => None,
         }
     }
 
@@ -102,6 +145,12 @@ impl From<music_library::LibraryError> for RemoteError {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Peers {
+    pub connected: u32,
+    pub known: u32,
+}
+
 pub trait ServerClient: Send + Sync {
     fn ping(&self) -> Result<(), RemoteError>;
     fn songs(&self) -> Result<Vec<RemoteSong>, RemoteError>;
@@ -113,6 +162,10 @@ pub trait ServerClient: Send + Sync {
         start: u64,
         end: Option<u64>,
     ) -> Result<server_http::RangeBody, RemoteError>;
+    fn forget(&self) {}
+    fn peers(&self) -> Option<Peers> {
+        None
+    }
 }
 
 const UNKNOWN_ALBUM: &str = "[unknown album]";

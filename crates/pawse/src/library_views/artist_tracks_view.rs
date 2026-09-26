@@ -106,6 +106,7 @@ pub struct ArtistTracksView {
     fills_seen: u64,
     _fill_subscription: Subscription,
     _engine_subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
 }
@@ -146,18 +147,6 @@ impl ArtistTracksView {
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
             |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => {
-                    let id = cx
-                        .global::<Services>()
-                        .playback_queue
-                        .borrow()
-                        .current_track()
-                        .map(|t| t.id);
-                    if this.current_track_id != id {
-                        this.current_track_id = id;
-                        cx.notify();
-                    }
-                }
                 EngineEvent::Playing if !this.is_playing => {
                     this.is_playing = true;
                     cx.notify();
@@ -171,6 +160,18 @@ impl ArtistTracksView {
                     cx.notify();
                 }
                 _ => {}
+            },
+        );
+
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, _: &crate::playback_status::StatusChanged, cx| {
+                let id = status.read(cx).track_id();
+                if this.current_track_id != id {
+                    this.current_track_id = id;
+                    cx.notify();
+                }
             },
         );
 
@@ -250,6 +251,7 @@ impl ArtistTracksView {
             fills_seen,
             _fill_subscription: fill_subscription,
             _engine_subscription: engine_subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
         }
@@ -864,7 +866,7 @@ fn artist_track_row(
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(track.base.title.clone()),
         )
-        .when(p.tag_editor_enabled, |el| {
+        .when(p.tag_editor_enabled && track.base.local, |el| {
             el.child(crate::track_list::edit_tags_button(
                 track_for_queue.clone(),
                 &p.buttons,

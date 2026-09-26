@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext, Axis, Entity, IntoElement, ParentElement, SharedString, Styled, Window, div,
+    App, AppContext, Entity, IntoElement, ParentElement, SharedString, Styled, Window, div,
     prelude::FluentBuilder, px,
 };
 use gpui_component::{
@@ -17,6 +17,7 @@ use crate::library_sources::{ConnectState, LibrarySources, describe_error};
 use crate::localization::tr;
 use crate::remote_settings::{added, server_list, set_connecting, torrent_remote};
 use crate::servers::ServerKind;
+use crate::services::Services;
 use crate::settings_store::{SettingsStore, TorrentSource, TorrentUpload, notify_save_error};
 use crate::theme_colors::Colors;
 
@@ -24,7 +25,7 @@ const RESOLVE_TIMEOUT: Duration = Duration::from_secs(120);
 const IDLE_UNLOAD: Duration = Duration::from_secs(15 * 60);
 const WORK_LIMIT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
-pub fn configure_engine(store: &SettingsStore) {
+pub fn torrent_host(store: &SettingsStore) -> std::sync::Arc<crate::servers::torrent::TorrentHost> {
     let base = dirs::cache_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("pawse");
@@ -40,7 +41,7 @@ pub fn configure_engine(store: &SettingsStore) {
         work_limit_bytes: WORK_LIMIT_BYTES,
         network: torrent::Network::Public,
     };
-    crate::servers::torrent::configure(config);
+    crate::servers::torrent::TorrentHost::new(config)
 }
 
 pub fn parse_input(text: &str) -> Option<torrent::Input> {
@@ -87,11 +88,12 @@ fn add(
         cx,
     );
     let handle = window.window_handle();
+    let host = cx.global::<Services>().torrents.clone();
     cx.spawn(async move |cx| {
         let resolved = cx
             .background_spawn(async move {
-                let _state = crate::servers::torrent::state_lock();
-                crate::servers::torrent::engine()
+                let _state = host.state_lock();
+                host.engine()
                     .ok_or_else(|| torrent::Error::Other("torrents are unavailable".into()))?
                     .resolve(input, RESOLVE_TIMEOUT)
             })
@@ -116,7 +118,8 @@ fn add(
             {
                 notify_save_error(cx, e);
             }
-            added(torrent_remote(&source), cx);
+            let host = cx.global::<Services>().torrents.clone();
+            added(torrent_remote(&source, &host), cx);
             if let Some(magnet) = magnet {
                 let _ = handle.update(cx, |_, window, cx| {
                     magnet.update(cx, |state, cx| state.set_value("", window, cx));
@@ -161,7 +164,7 @@ fn apply_upload(upload: TorrentUpload, cx: &mut App) {
     if let Err(e) = cx.global_mut::<SettingsStore>().set_torrent_upload(upload) {
         notify_save_error(cx, e);
     }
-    crate::servers::torrent::set_upload(upload.engine());
+    cx.global::<Services>().torrents.set_upload(upload.engine());
     cx.refresh_windows();
 }
 
@@ -174,59 +177,57 @@ pub fn torrent_group(sources: Entity<LibrarySources>, magnet: Entity<InputState>
     SettingGroup::new()
         .title(tr().torrents.clone())
         .item(
-            SettingItem::new(
-                tr().torrent_list.clone(),
-                SettingField::render(move |_window, cx: &mut App| {
-                    let list = server_list(sources.read(cx), ServerKind::Torrent, cx);
-                    let state = sources.read(cx).connect_state(ServerKind::Torrent);
-                    let for_magnet = sources.clone();
-                    let for_file = sources.clone();
-                    let input = magnet.clone();
-                    let form = v_flex()
-                        .gap_2()
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(div().w(px(380.)).child(Input::new(&magnet).small()))
-                                .child(
-                                    Button::new("torrent-add")
-                                        .small()
-                                        .label(tr().torrent_add.clone())
-                                        .loading(state.connecting)
-                                        .disabled(state.connecting)
-                                        .on_click(move |_, window, cx| {
-                                            add_magnet(
-                                                for_magnet.clone(),
-                                                input.clone(),
-                                                window,
-                                                cx,
-                                            );
-                                        }),
-                                )
-                                .child(
-                                    Button::new("torrent-file")
-                                        .small()
-                                        .label(tr().torrent_choose_file.clone())
-                                        .disabled(state.connecting)
-                                        .on_click(move |_, window, cx| {
-                                            add_file(for_file.clone(), window, cx);
-                                        }),
-                                ),
-                        )
-                        .when_some(state.error, |form, error| {
-                            form.child(
+            SettingItem::unlabeled(SettingField::render(move |_window, cx: &mut App| {
+                let list = server_list(sources.read(cx), ServerKind::Torrent, cx);
+                let state = sources.read(cx).connect_state(ServerKind::Torrent);
+                let for_magnet = sources.clone();
+                let for_file = sources.clone();
+                let input = magnet.clone();
+                let form = v_flex()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
                                 div()
-                                    .min_w(px(0.))
-                                    .max_w_full()
-                                    .text_xs()
-                                    .text_color(Colors::danger(cx))
-                                    .child(error),
+                                    .flex_1()
+                                    .min_w(px(240.))
+                                    .max_w(px(380.))
+                                    .child(Input::new(&magnet).small()),
                             )
-                        });
-                    v_flex().gap_3().w_full().child(list).child(form)
-                }),
-            )
-            .layout(Axis::Vertical)
+                            .child(
+                                Button::new("torrent-add")
+                                    .small()
+                                    .label(tr().torrent_add.clone())
+                                    .loading(state.connecting)
+                                    .disabled(state.connecting)
+                                    .on_click(move |_, window, cx| {
+                                        add_magnet(for_magnet.clone(), input.clone(), window, cx);
+                                    }),
+                            )
+                            .child(
+                                Button::new("torrent-file")
+                                    .small()
+                                    .label(tr().torrent_choose_file.clone())
+                                    .disabled(state.connecting)
+                                    .on_click(move |_, window, cx| {
+                                        add_file(for_file.clone(), window, cx);
+                                    }),
+                            ),
+                    )
+                    .when_some(state.error, |form, error| {
+                        form.child(
+                            div()
+                                .min_w(px(0.))
+                                .max_w_full()
+                                .text_xs()
+                                .text_color(Colors::danger(cx))
+                                .child(error),
+                        )
+                    });
+                v_flex().gap_3().w_full().children(list).child(form)
+            }))
             .description(tr().torrents_desc.clone()),
         )
         .item(

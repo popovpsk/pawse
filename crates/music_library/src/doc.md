@@ -22,6 +22,12 @@ touches the database; `pawse::library_service` drives scans through
 - `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
 - `remote.rs` — the locator format for server tracks (`pawse-source://…`) and
   `location`, which tells a file path from a server track from a broken locator.
+  Code holding a `Track` asks the track instead of parsing its path:
+  `Track::location`, `remote`, `is_remote`, `local_file`, and `own_file` (a
+  local file that is this track's alone — not a cue piece — i.e. the one whose
+  tags and sidecar lyrics belong to it). Parsing a bare locator string is left to
+  the layers that only have strings (`pawse::remote_media`, playback's
+  `playback_locators` walk).
 - `adoption.rs` — the pure matching that decides which files are the same track
   (`match_tracks`), plus `normalize_tag`, the one tag normalization shared with
   the scrobble like-import.
@@ -310,6 +316,31 @@ server does not lose its artwork.
 `library_service::run_scan` drops the session without calling `finish` when the
 indexer stopped before `Complete` (a panicked worker closes the channel). A
 partial enumeration must never retire bindings or record a fingerprint.
+
+## Stable album and artist ids
+
+The catalog is cleared and refilled by every scan, and after a `DELETE` SQLite
+would hand out ids from 1 again in whatever order the parallel indexer delivered
+files — every scan reshuffled them, and a screen still holding an old id (an
+open artist page, the web remote) linked to a different album. So
+`ScanSession::clear` snapshots the ids first (`StableIds`): an album gets its
+old id back by `(title, year)` — the same key `resolve_album` merges on — and
+an artist by name. A new one gets an id above everything ever handed out
+(`allocate_catalog_id`); the high-water marks live in `scan_meta`
+(`album_id_high`, `artist_id_high`), so a removed album's id is not given to
+the next new one. The snapshot raises the marks to its own maximum before the
+clear, and every writer allocates through the same function — the scan and the
+tag editor's `upsert_album` / `get_or_insert_artist` — so a tag edit that lands
+between two scan batches can neither reuse a dead id nor take one the scan is
+about to hand back. Genres are not covered:
+nothing outside the database holds their ids.
+
+Artists are keyed by the lowercased name (`artist_key`): `Cage the Elephant`
+and `Cage The Elephant`, or `MUSE` and `Muse`, are one artist, shown under the
+name met first. Tags differ in case across sources and rips far more often than
+two real artists do. Lowercasing is Rust's (Unicode), not SQLite's `NOCASE`
+(ASCII only), so the tag editor's `get_or_insert_artist` compares in Rust too.
+Albums still merge on the exact title.
 
 ## Invariants and what enforces them
 

@@ -699,7 +699,7 @@ impl LibraryService {
                     .tracks_for_album(album_id)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|t| !t.is_cue && music_library::remote::local_file(&t.path).is_some())
+                    .filter(|t| t.own_file().is_some())
                     .collect();
                 if tracks.is_empty() {
                     log::error!("Album tag edit for {} has no editable tracks", album_id);
@@ -893,7 +893,7 @@ impl LibraryService {
     fn enqueue_remote(&self, servers: Vec<crate::servers::RemoteServer>, probe: bool) {
         let (torrents, servers): (Vec<_>, Vec<_>) = servers
             .into_iter()
-            .partition(|server| server.kind() == crate::servers::ServerKind::Torrent);
+            .partition(|server| server.kind().syncs_alone());
         for torrent in torrents {
             self.sync_torrent(torrent, probe);
         }

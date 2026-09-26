@@ -367,6 +367,33 @@ fn aborting_wakes_a_reader_that_waits_for_data() {
 }
 
 #[test]
+fn a_superseded_reader_stops_waiting_but_reads_what_is_already_there() {
+    let fake = Arc::new(Fake::new(10 * 1024 * 1024).slow(1024, 1000));
+    let dest = temp_dest("superseded.flac");
+    let download = start(&fake, &dest);
+    let mut reader = download.reader().unwrap();
+    let newer = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&newer);
+    reader.give_up_waiting_when(Box::new(move || flag.load(Ordering::SeqCst)));
+    let mut head = [0u8; 1];
+    reader.read_exact(&mut head).unwrap();
+    reader.seek(SeekFrom::Start(9 * 1024 * 1024)).unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 1024];
+        let far = reader.read(&mut buf).map_err(|e| e.to_string());
+        reader.seek(SeekFrom::Start(0)).unwrap();
+        let near = reader.read(&mut buf).map_err(|e| e.to_string());
+        let _ = tx.send((far, near));
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    newer.store(true, Ordering::SeqCst);
+    let (far, near) = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(far.is_err());
+    assert!(near.unwrap() > 0);
+}
+
+#[test]
 fn a_second_start_for_the_same_file_joins_the_running_download() {
     let fake = Arc::new(Fake::new(3 * 1024 * 1024).slow(64 * 1024, 5));
     let dest = temp_dest("shared.flac");

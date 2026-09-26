@@ -14,6 +14,7 @@ use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
 use crate::lyrics_fill::{self, FillPlan, LineShape};
+use crate::playback_status::{Phase, StatusChanged};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
@@ -26,7 +27,7 @@ const SCROLL_EPS: Pixels = px(1.);
 #[derive(Clone)]
 struct TrackContext {
     id: i64,
-    path: String,
+    own_file: Option<PathBuf>,
     is_cue: bool,
     album_id: Option<i64>,
     title: String,
@@ -81,6 +82,7 @@ pub struct LyricsView {
     _frame_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
     _subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
 }
 
@@ -101,10 +103,6 @@ impl LyricsView {
             cx.subscribe(
                 &engine_event_bus,
                 |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { duration, .. } => {
-                        this.track_duration_ms = Some(duration.as_millis() as u64);
-                        this.load(cx);
-                    }
                     EngineEvent::PositionChanged(pos) => this.update_active(*pos, cx),
                     EngineEvent::Playing => this.set_playing(true, cx),
                     EngineEvent::Paused | EngineEvent::TrackEnded | EngineEvent::Error(_) => {
@@ -121,8 +119,28 @@ impl LyricsView {
                             .load(std::sync::atomic::Ordering::Relaxed);
                         this.set_playing(playing && !buffering, cx)
                     }
+                    EngineEvent::Preparing { .. } | EngineEvent::Loaded { .. } => {}
                 },
             );
+
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription =
+            cx.subscribe(&playback_status, |this, status, _: &StatusChanged, cx| {
+                let (track_id, phase, duration) = {
+                    let status = status.read(cx);
+                    (status.track_id(), status.phase(), status.duration())
+                };
+                if phase == Phase::Idle || track_id.is_none() {
+                    return;
+                }
+                this.track_duration_ms = duration.map(|d| d.as_millis() as u64);
+                if phase == Phase::Preparing {
+                    this.set_playing(false, cx);
+                }
+                if this.current_track_id != track_id {
+                    this.load(cx);
+                }
+            });
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
@@ -167,6 +185,7 @@ impl LyricsView {
             _frame_task: None,
             _load_task: None,
             _subscription: subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
         };
         result.load(cx);
@@ -193,11 +212,11 @@ impl LyricsView {
             .borrow()
             .current_track()
             .cloned()?;
-        let is_cue = track.is_cue || music_library::remote::local_file(&track.path).is_none();
+        let own_file = track.own_file().map(PathBuf::from);
         Some(TrackContext {
             id: track.id,
-            path: track.path,
-            is_cue,
+            is_cue: own_file.is_none(),
+            own_file,
             album_id: track.album_id,
             title: track.title,
             duration_secs: track.duration_ms.map(|ms| (ms / 1000) as u64),
@@ -607,19 +626,16 @@ impl LyricsView {
         let Some(ctx) = Self::current_context(cx) else {
             return;
         };
-        if music_library::remote::local_file(&ctx.path).is_none() {
+        let Some(file) = ctx.own_file else {
             return;
-        }
+        };
         let Some(raw) = self.current_raw.clone() else {
             return;
         };
         let folders = cx.global::<SettingsStore>().music_folders().to_vec();
-        cx.global::<Services>().library.save_lyrics_file(
-            ctx.id,
-            PathBuf::from(ctx.path),
-            raw,
-            folders,
-        );
+        cx.global::<Services>()
+            .library
+            .save_lyrics_file(ctx.id, file, raw, folders);
     }
 }
 

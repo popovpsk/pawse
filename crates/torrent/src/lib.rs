@@ -75,6 +75,7 @@ pub struct Want {
 pub enum Error {
     Unknown,
     Timeout,
+    NoPeers,
     Invalid(String),
     Other(String),
 }
@@ -84,6 +85,7 @@ impl fmt::Display for Error {
         match self {
             Error::Unknown => f.write_str("the torrent is not added"),
             Error::Timeout => f.write_str("no peers sent the data in time"),
+            Error::NoPeers => f.write_str("no peers are connected; check the internet connection"),
             Error::Invalid(message) => write!(f, "not a usable torrent: {message}"),
             Error::Other(message) => f.write_str(message),
         }

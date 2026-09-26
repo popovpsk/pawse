@@ -46,6 +46,31 @@ fn available_by_default() -> bool {
     true
 }
 
+impl Track {
+    pub fn location(&self) -> crate::remote::Location<'_> {
+        crate::remote::location(&self.path)
+    }
+
+    pub fn remote(&self) -> Option<crate::remote::RemoteRef> {
+        match self.location() {
+            crate::remote::Location::Remote(reference) => Some(reference),
+            crate::remote::Location::File(_) | crate::remote::Location::Invalid => None,
+        }
+    }
+
+    pub fn is_remote(&self) -> bool {
+        matches!(self.location(), crate::remote::Location::Remote(_))
+    }
+
+    pub fn local_file(&self) -> Option<&std::path::Path> {
+        crate::remote::local_file(&self.path)
+    }
+
+    pub fn own_file(&self) -> Option<&std::path::Path> {
+        self.local_file().filter(|_| !self.is_cue)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlbumSummary {
     pub id: i64,

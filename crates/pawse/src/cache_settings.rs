@@ -1,8 +1,11 @@
-use gpui::{App, Entity, IntoElement, ParentElement, SharedString, Styled, div};
+use std::rc::Rc;
+
+use gpui::{Anchor, App, Entity, IntoElement, ParentElement, SharedString, Styled, div};
 use gpui_component::{
-    Disableable, Selectable, Sizable,
-    button::{Button, ButtonGroup},
+    Disableable, Sizable,
+    button::Button,
     h_flex,
+    menu::{DropdownMenu, PopupMenuItem},
 };
 use ui_components::settings::{SettingField, SettingGroup, SettingItem};
 
@@ -16,11 +19,21 @@ use crate::theme_colors::Colors;
 
 pub fn apply_cache_limit(cx: &App) {
     let bytes = cx.global::<SettingsStore>().network_cache_bytes();
-    cx.global::<Services>().remote_media.set_cache_limit(bytes);
+    cx.global::<Services>()
+        .remote_media
+        .set_cache_limit(bytes, cx.background_executor());
+}
+
+fn set_limit(gb: u32, cx: &mut App) {
+    if let Err(e) = cx.global_mut::<SettingsStore>().set_network_cache_gb(gb) {
+        notify_save_error(cx, e);
+    }
+    apply_cache_limit(cx);
+    cx.refresh_windows();
 }
 
 pub fn cache_group(sources: Entity<LibrarySources>) -> SettingGroup {
-    let limit_labels: Vec<SharedString> = NETWORK_CACHE_CHOICES_GB
+    let limit_labels: Rc<[SharedString]> = NETWORK_CACHE_CHOICES_GB
         .iter()
         .map(|&gb| {
             if gb == UNLIMITED_CACHE_GB {
@@ -32,7 +45,6 @@ pub fn cache_group(sources: Entity<LibrarySources>) -> SettingGroup {
         .collect();
     SettingGroup::new()
         .title(tr().network_cache.clone())
-        .description(tr().network_cache_desc.clone())
         .item(SettingItem::new(
             tr().cache_used.clone(),
             SettingField::render(move |_window, cx: &mut App| {
@@ -67,34 +79,29 @@ pub fn cache_group(sources: Entity<LibrarySources>) -> SettingGroup {
                 tr().cache_limit.clone(),
                 SettingField::render(move |_window, cx: &mut App| {
                     let current = cx.global::<SettingsStore>().network_cache_gb();
-                    NETWORK_CACHE_CHOICES_GB
+                    let label = NETWORK_CACHE_CHOICES_GB
                         .iter()
-                        .zip(&limit_labels)
-                        .enumerate()
-                        .fold(
-                            ButtonGroup::new("network-cache-limit").small(),
-                            |group, (ix, (&gb, label))| {
-                                group.child(
-                                    Button::new(("network-cache-limit", ix))
-                                        .label(label.clone())
-                                        .selected(current == gb),
-                                )
-                            },
-                        )
-                        .on_click(|clicks: &Vec<usize>, _, cx| {
-                            let Some(&gb) = clicks
-                                .first()
-                                .and_then(|&ix| NETWORK_CACHE_CHOICES_GB.get(ix))
-                            else {
-                                return;
-                            };
-                            if let Err(e) =
-                                cx.global_mut::<SettingsStore>().set_network_cache_gb(gb)
-                            {
-                                notify_save_error(cx, e);
-                            }
-                            apply_cache_limit(cx);
-                            cx.refresh_windows();
+                        .position(|&gb| gb == current)
+                        .and_then(|ix| limit_labels.get(ix))
+                        .cloned()
+                        .unwrap_or_default();
+                    let labels = limit_labels.clone();
+                    Button::new("network-cache-limit")
+                        .small()
+                        .label(label)
+                        .dropdown_caret(true)
+                        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
+                            let current = cx.global::<SettingsStore>().network_cache_gb();
+                            NETWORK_CACHE_CHOICES_GB.iter().zip(labels.iter()).fold(
+                                menu,
+                                |menu, (&gb, label)| {
+                                    menu.item(
+                                        PopupMenuItem::new(label.clone())
+                                            .checked(current == gb)
+                                            .on_click(move |_, _, cx| set_limit(gb, cx)),
+                                    )
+                                },
+                            )
                         })
                         .into_any_element()
                 }),

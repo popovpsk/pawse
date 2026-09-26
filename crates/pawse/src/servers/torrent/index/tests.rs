@@ -295,7 +295,7 @@ fn a_torrent_is_indexed_from_its_heads_and_the_index_is_reused() {
             .to_string()
     };
 
-    let listed = songs(&engine, &meta.info_hash).unwrap();
+    let listed = songs(&engine, &meta.info_hash, &std::sync::Mutex::new(())).unwrap();
     let mut shape: Vec<(String, String, Option<i64>, Option<String>)> = listed
         .iter()
         .map(|s| {
@@ -342,7 +342,10 @@ fn a_torrent_is_indexed_from_its_heads_and_the_index_is_reused() {
     }));
 
     drop(seeder);
-    assert_eq!(songs(&engine, &meta.info_hash).unwrap(), listed);
+    assert_eq!(
+        songs(&engine, &meta.info_hash, &std::sync::Mutex::new(())).unwrap(),
+        listed
+    );
     engine.forget(&meta.info_hash);
     assert!(
         std::fs::read_dir(root.path().join("state"))
@@ -352,5 +355,38 @@ fn a_torrent_is_indexed_from_its_heads_and_the_index_is_reused() {
                 .file_name()
                 .to_string_lossy()
                 .starts_with(&meta.info_hash))
+    );
+}
+
+#[test]
+fn a_file_the_engine_has_not_grown_to_full_length_is_viewed_at_full_length() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("probe");
+    let view = dir.path().join("probe.view");
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    let head = b"fLaC-head".to_vec();
+    std::fs::write(root.join("a/disc.flac"), &head).unwrap();
+    let full = 300 * MIB;
+    let meta = meta(&[("a/disc.flac", full)]);
+    let plan = Plan {
+        wants: vec![Want {
+            file: 0,
+            start: 0,
+            end: head.len() as u64,
+        }],
+        files: vec![0],
+    };
+    let fetched = fetched_of(&plan.wants);
+
+    link_view(&meta, &plan, &fetched, &root, &view).unwrap();
+
+    let viewed = view.join("a/disc.flac");
+    assert_eq!(std::fs::metadata(&viewed).unwrap().len(), full);
+    let mut start = vec![0u8; head.len()];
+    std::io::Read::read_exact(&mut std::fs::File::open(&viewed).unwrap(), &mut start).unwrap();
+    assert_eq!(start, head);
+    assert_eq!(
+        std::fs::metadata(root.join("a/disc.flac")).unwrap().len(),
+        head.len() as u64
     );
 }

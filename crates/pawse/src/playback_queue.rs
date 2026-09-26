@@ -237,6 +237,13 @@ impl PlaybackQueue {
         }
     }
 
+    pub fn skip_to_next(&mut self) -> Option<&Rc<Track>> {
+        if !self.has_next() {
+            return None;
+        }
+        self.next_track()
+    }
+
     pub fn previous(&mut self, position_secs: f32) -> PreviousAction<'_> {
         if position_secs > 3.0 {
             return PreviousAction::SeekToStart;
@@ -605,6 +612,17 @@ mod tests {
         let next = q.next_track().cloned();
         assert_eq!(next.map(|t| t.id), Some(1));
         assert_eq!(q.current_index(), Some(1));
+    }
+
+    #[test]
+    fn skipping_past_the_last_track_keeps_it_current() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(2));
+        q.play_track_at(1);
+
+        assert!(q.skip_to_next().is_none());
+        assert_eq!(q.current_index(), Some(1));
+        assert!(matches!(q.previous(0.0), PreviousAction::PreviousTrack(t) if t.id == 0));
     }
 
     #[test]

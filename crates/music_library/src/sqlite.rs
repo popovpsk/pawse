@@ -212,6 +212,77 @@ fn decompress_lyrics(blob: &[u8]) -> Option<String> {
 
 const IDENTITY_MIGRATION: i32 = 9;
 
+const ALBUM_ID_HIGH: &str = "album_id_high";
+const ARTIST_ID_HIGH: &str = "artist_id_high";
+
+struct StableIds {
+    albums: HashMap<(String, Option<i32>), i64>,
+    artists: HashMap<String, i64>,
+}
+
+impl StableIds {
+    fn load(conn: &Connection) -> Result<Self> {
+        let albums: HashMap<(String, Option<i32>), i64> = {
+            let mut stmt = conn.prepare("SELECT id, title, year FROM albums")?;
+            stmt.query_map([], |row| Ok(((row.get(1)?, row.get(2)?), row.get(0)?)))?
+                .collect::<std::result::Result<_, _>>()?
+        };
+        let artists: HashMap<String, i64> = {
+            let mut stmt = conn.prepare("SELECT id, name FROM artists ORDER BY id")?;
+            let rows: Vec<(String, i64)> = stmt
+                .query_map([], |row| Ok((row.get(1)?, row.get(0)?)))?
+                .collect::<std::result::Result<_, _>>()?;
+            let mut artists = HashMap::new();
+            for (name, id) in rows {
+                artists.entry(artist_key(&name)).or_insert(id);
+            }
+            artists
+        };
+        raise_id_high(conn, ALBUM_ID_HIGH, albums.values().copied().max())?;
+        raise_id_high(conn, ARTIST_ID_HIGH, artists.values().copied().max())?;
+        Ok(Self { albums, artists })
+    }
+}
+
+fn artist_key(name: &str) -> String {
+    name.to_lowercase()
+}
+
+fn id_high(conn: &Connection, key: &str) -> Result<i64> {
+    Ok(conn
+        .query_row("SELECT value FROM scan_meta WHERE key = ?1", [key], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0))
+}
+
+fn raise_id_high(conn: &Connection, key: &str, seen: Option<i64>) -> Result<()> {
+    let Some(seen) = seen else {
+        return Ok(());
+    };
+    if seen > id_high(conn, key)? {
+        conn.execute(
+            "INSERT INTO scan_meta (key, value) VALUES (?1, ?2) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![key, seen.to_string()],
+        )?;
+    }
+    Ok(())
+}
+
+fn allocate_catalog_id(conn: &Connection, table: &str, high_key: &str) -> Result<i64> {
+    let max: i64 = conn.query_row(
+        &format!("SELECT COALESCE(MAX(id), 0) FROM {table}"),
+        [],
+        |row| row.get(0),
+    )?;
+    let id = id_high(conn, high_key)?.max(max) + 1;
+    raise_id_high(conn, high_key, Some(id))?;
+    Ok(id)
+}
+
 const CLEAR_CATALOG: &str = "DELETE FROM track_artists; \
     DELETE FROM track_album_artists; \
     DELETE FROM track_genres; \
@@ -1006,19 +1077,31 @@ impl SqliteLibrary {
 
     fn get_or_insert_artist(&self, tx: &rusqlite::Transaction, name: &str) -> Result<i64> {
         let sort_name = compute_sort_name(name);
-        if let Some(id) = tx
-            .query_row("SELECT id FROM artists WHERE name = ?1", [name], |row| {
-                row.get::<_, i64>(0)
-            })
-            .optional()?
-        {
+        let key = artist_key(name);
+        let existing = {
+            let mut stmt = tx.prepare("SELECT id, name FROM artists ORDER BY id")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            let mut found = None;
+            for row in rows {
+                let (id, existing) = row?;
+                if artist_key(&existing) == key {
+                    found = Some(id);
+                    break;
+                }
+            }
+            found
+        };
+        if let Some(id) = existing {
             return Ok(id);
         }
+        let id = allocate_catalog_id(tx, "artists", ARTIST_ID_HIGH)?;
         tx.execute(
-            "INSERT INTO artists (name, sort_name) VALUES (?1, ?2)",
-            [name, &sort_name],
+            "INSERT INTO artists (id, name, sort_name) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, name, sort_name],
         )?;
-        Ok(tx.last_insert_rowid())
+        Ok(id)
     }
 }
 
@@ -1056,11 +1139,11 @@ impl LibraryRepository for SqliteLibrary {
             tx.commit()?;
             return Ok(id);
         }
+        let id = allocate_catalog_id(&tx, "albums", ALBUM_ID_HIGH)?;
         tx.execute(
-            "INSERT INTO albums (title, year, cover_art_id) VALUES (?1, ?2, ?3)",
-            rusqlite::params![title, year, cover_art_id],
+            "INSERT INTO albums (id, title, year, cover_art_id) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![id, title, year, cover_art_id],
         )?;
-        let id = tx.last_insert_rowid();
         tx.commit()?;
         Ok(id)
     }
@@ -2808,6 +2891,7 @@ pub struct ScanSession {
     artist_cache: HashMap<String, i64>,
     genre_cache: HashMap<String, i64>,
     album_cache: HashMap<(String, Option<i32>), i64>,
+    stable_ids: Option<StableIds>,
     cover_cache: HashMap<String, i64>,
     pending_by_hash: HashMap<String, Vec<ScanTrack>>,
     roots: Vec<LocalRoot>,
@@ -2876,6 +2960,7 @@ impl ScanSession {
             artist_cache: HashMap::new(),
             genre_cache: HashMap::new(),
             album_cache: HashMap::new(),
+            stable_ids: None,
             cover_cache,
             pending_by_hash: HashMap::new(),
             roots,
@@ -2918,16 +3003,25 @@ impl ScanSession {
     }
 
     fn resolve_artist(&mut self, name: &str) -> Result<i64> {
-        if let Some(&id) = self.artist_cache.get(name) {
+        let key = artist_key(name);
+        if let Some(&id) = self.artist_cache.get(&key) {
             return Ok(id);
         }
         let sort_name = compute_sort_name(name);
+        let wanted = match self
+            .stable_ids
+            .as_ref()
+            .and_then(|ids| ids.artists.get(&key).copied())
+        {
+            Some(id) => id,
+            None => allocate_catalog_id(&self.conn, "artists", ARTIST_ID_HIGH)?,
+        };
         self.conn.execute(
-            "INSERT INTO artists (name, sort_name) VALUES (?1, ?2)",
-            [name, &sort_name],
+            "INSERT INTO artists (id, name, sort_name) VALUES (?1, ?2, ?3)",
+            rusqlite::params![wanted, name, sort_name],
         )?;
         let id = self.conn.last_insert_rowid();
-        self.artist_cache.insert(name.to_string(), id);
+        self.artist_cache.insert(key, id);
         Ok(id)
     }
 
@@ -2957,9 +3051,17 @@ impl ScanSession {
         if let Some(&id) = self.album_cache.get(&key) {
             return Ok(id);
         }
+        let wanted = match self
+            .stable_ids
+            .as_ref()
+            .and_then(|ids| ids.albums.get(&key).copied())
+        {
+            Some(id) => id,
+            None => allocate_catalog_id(&self.conn, "albums", ALBUM_ID_HIGH)?,
+        };
         self.conn.execute(
-            "INSERT INTO albums (title, year, cover_art_id) VALUES (?1, ?2, NULL)",
-            rusqlite::params![title, year],
+            "INSERT INTO albums (id, title, year, cover_art_id) VALUES (?1, ?2, ?3, NULL)",
+            rusqlite::params![wanted, title, year],
         )?;
         let id = self.conn.last_insert_rowid();
         self.album_cache.insert(key, id);
@@ -3403,6 +3505,7 @@ impl ScanWrite for ScanSession {
 
     fn clear(&mut self) -> Result<()> {
         self.begin()?;
+        self.stable_ids = Some(StableIds::load(&self.conn)?);
         self.conn.execute_batch(CLEAR_CATALOG)?;
         Ok(())
     }

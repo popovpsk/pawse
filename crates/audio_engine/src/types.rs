@@ -28,6 +28,7 @@ pub enum Command {
     },
     Prepare {
         play: Option<bool>,
+        track_duration: Option<Duration>,
     },
     SetStreamTrack(Box<StreamTrack>),
     Play {
@@ -42,6 +43,9 @@ pub enum Command {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {
+    Preparing {
+        duration: Option<Duration>,
+    },
     Loaded {
         params: StreamParams,
         duration: Duration,

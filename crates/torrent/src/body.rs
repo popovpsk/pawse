@@ -131,6 +131,10 @@ impl Read for Body {
                     Err(Error::Timeout) => {
                         Err(io::Error::new(io::ErrorKind::TimedOut, "torrent stalled"))
                     }
+                    Err(Error::NoPeers) => Err(io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        Error::NoPeers.to_string(),
+                    )),
                     Err(error) => Err(io::Error::other(error.to_string())),
                 }
             })?

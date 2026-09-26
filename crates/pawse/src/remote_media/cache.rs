@@ -73,11 +73,12 @@ impl CacheStore {
         files(&self.dir).iter().map(|(_, len, _)| len).sum()
     }
 
-    pub fn set_limit(&self, bytes: u64) {
-        if self.limit.swap(bytes, Ordering::AcqRel) > bytes {
-            let dir = self.dir.clone();
-            std::thread::spawn(move || trim(&dir, bytes, Path::new("")));
-        }
+    pub fn set_limit(&self, bytes: u64) -> bool {
+        self.limit.swap(bytes, Ordering::AcqRel) > bytes
+    }
+
+    pub fn trim(&self) {
+        trim(&self.dir, self.limit.load(Ordering::Acquire), Path::new(""));
     }
 
     pub fn clear(&self) {
@@ -249,21 +250,19 @@ mod tests {
     }
 
     #[test]
-    fn lowering_the_limit_trims_the_cache_right_away() {
+    fn only_lowering_the_limit_asks_for_a_trim() {
         let dir = temp_dir("limit");
         let store = CacheStore::new(dir.clone());
-        store.set_limit(100);
+        assert!(store.set_limit(100));
+        assert!(!store.set_limit(100));
         let sub = dir.join("3");
         std::fs::create_dir_all(&sub).unwrap();
         let old = sub.join("old.flac");
         let new = sub.join("new.flac");
         aged(&old, Duration::from_secs(200));
         aged(&new, Duration::from_secs(100));
-        store.set_limit(15);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while old.exists() && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        assert!(store.set_limit(15));
+        store.trim();
         assert!(!old.exists());
         assert!(new.exists());
         let _ = std::fs::remove_dir_all(&dir);

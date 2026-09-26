@@ -391,7 +391,7 @@ fn big_pieces_get_helper_streams_small_ones_do_not() {
 }
 
 #[test]
-fn a_read_without_any_incoming_bytes_gives_up_after_the_quiet_time() {
+fn a_read_without_any_peer_gives_up_after_the_quiet_time() {
     let seeder = seeder();
     let root = tempfile::tempdir().unwrap();
     let engine = Engine::new(crate::Config {
@@ -417,7 +417,7 @@ fn a_read_without_any_incoming_bytes_gives_up_after_the_quiet_time() {
         Some(100),
         Duration::from_secs(2),
     );
-    assert!(matches!(read, Err(Error::Timeout)));
+    assert!(matches!(read, Err(Error::NoPeers)));
     assert!(started.elapsed() < Duration::from_secs(10));
 }
 

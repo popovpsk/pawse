@@ -15,11 +15,14 @@ to `subsonic::` or `jellyfin::` directly.
   `subsonic::Error` → `RemoteError`.
 - `jellyfin.rs` — the Jellyfin adapter: `jellyfin::Item` → `RemoteSong`, error
   mapping, and `authenticate` (log in once, get a token).
-- `torrent/mod.rs` — the torrent adapter over the `torrent` crate: the one
-  process-wide `torrent::Engine` (`configure` at startup from
-  `torrent_settings::configure_engine`, created by the first `engine()` call —
-  never on the UI thread, never without a torrent), `set_upload`, `state_lock`,
-  the index retry backoff, `Config` (just the info hash), error mapping, and
+- `torrent/mod.rs` — the torrent adapter over the `torrent` crate.
+  `TorrentHost` owns what used to be process-wide statics: the engine config,
+  the one `torrent::Engine` (created by the first `engine()` call — never on
+  the UI thread, never without a torrent), `set_upload`, `state_lock` and the
+  index retry backoff. `Services::torrents` holds the one host
+  (`torrent_settings::torrent_host` builds it at startup) and every torrent's
+  `Config` carries it next to the info hash, so a client needs no global and a
+  test can build its own host. Also error mapping, `forget`, `peers`, and
   `fetch_range` = `Engine::read` of one file of the torrent.
 - `torrent/index.rs` — turning a torrent into `RemoteSong`s without
   downloading it: the probe plan, the tag scan over a throwaway tree, the saved
@@ -38,6 +41,14 @@ to `subsonic::` or `jellyfin::` directly.
 
 ## Behaviour worth knowing
 
+- **What differs between kinds is asked, not compared.** `ServerKind` answers
+  `manual_sync`, `imports_favorites`, `syncs_alone` (its own sync thread),
+  `titled_by_name` and `has_peers`; `ServerClient` has `forget` (removal
+  cleanup) and `peers`, both no-ops by default; `RemoteConfig::web_url` is the
+  address the "Open in browser" button opens (none for a torrent). Code outside this module
+  never tests `kind == Torrent`; the only per-kind `match`es left are
+  exhaustive maps from a kind to a value (icon, element ids),
+  which the compiler keeps complete.
 - **Servers are keyed `kind:uri`** (`source_key`), in `remote_sync::source_ids`,
   the sync queue, `LibraryEvent`s and the settings rows, so two kinds at the
   same address never share state.
@@ -76,17 +87,21 @@ the same settings rows, sync, statuses and playback path. What differs:
   the end and larger than the tail). Nothing past 16 MiB is fetched. Only bytes
   known to have arrived are parsed, never the zeros of a sparse file. Ogg/Opus
   art larger than the head is not chased.
-- **The scan is the local one.** Hard links to just the planned files go into
-  `<work>/<hash>.view` (where hard links fail, a sparse copy of just the
-  fetched ranges), and `music_indexer`
-  runs over it — tags, cue expansion, external covers — so a torrent track
-  reads exactly like the same file in a music folder. Only planned files are
-  linked, because every other file of the probe tree exists at full length
-  filled with zeros and would otherwise be taken for a cover. The view and the
-  probe tree are deleted right after.
+- **The scan is the local one.** Just the planned files go into
+  `<work>/<hash>.view`, and `music_indexer` runs over it — tags, cue
+  expansion, external covers — so a torrent track reads exactly like the same
+  file in a music folder. A file is hard-linked only when it is already at its
+  full length; otherwise (and where hard links fail) it is a sparse copy of just
+  the fetched ranges at the torrent's length. librqbit does not preallocate:
+  a file is only as long as the furthest piece written, and tag readers derive
+  the bitrate (FLAC) or even the duration (MP3 without a Xing header) from the
+  file length — a 335 MB image read at its 3 MB probe length came out at
+  8 kbps. Only planned files go in, because every other file of the probe tree
+  holds zeros or stray lookahead pieces and would otherwise be taken for a
+  cover. The view and the probe tree are deleted right after.
 - **Keys** are file indexes in the torrent; cue tracks share their image's key
   and carry `start_offset_ms`. The index (`<hash>.index.json`, versioned by
-  `INDEX_VERSION`) and the chosen covers (`<hash>.covers/<cover hash>`) live next
+  `INDEX_VERSION`; 2 re-reads indexes built from short probe files) and the chosen covers (`<hash>.covers/<cover hash>`) live next
   to the `.torrent`; removing the source calls `Engine::forget`, which deletes
   everything named after the hash there.
 - **Covers** go through the normal `fetch_covers`: `cover_art(key)` reads the
@@ -99,7 +114,9 @@ the same settings rows, sync, statuses and playback path. What differs:
   not re-download heads every minute. The sync's "running" marks are drop
   guards (`Claim`), so a panic in an index does not leave a torrent syncing.
 - **Peers** (`connected/known`) show next to a torrent while it is loaded —
-  indexing or playing — polled every 2 s by `LibrarySources`.
+  indexing or playing — polled every 2 s by `LibrarySources` through
+  `ServerClient::peers`, only while a source with `has_peers` is configured
+  (no timer runs otherwise).
 - **`state_lock`** serialises what writes or deletes a torrent's files in the
   state dir: `resolve` from the settings, `forget` on removal, saving an index
   (which also checks the `.torrent` still exists, so a sync finishing after a
@@ -108,5 +125,9 @@ the same settings rows, sync, statuses and playback path. What differs:
   (`torrent_settings::IDLE_UNLOAD`). A track downloads into the media cache
   much faster than it plays, so the clock usually starts early in a track;
   15 minutes keeps a torrent loaded across long tracks, and prefetching the
-  next track 30 s before the end reloads it if not.
-- **Stars** do not exist; the button is hidden for torrents.
+  next track 60 s before the end reloads it if not.
+- **Stars** do not exist; `imports_favorites` is false, so there is no button.
+- **No Sync button** (`manual_sync` is false). A torrent's content never changes and its index is saved,
+  so a manual sync would only re-apply the same listing. An unavailable torrent
+  comes back through the offline watcher (every 60 s and on window activation),
+  a failed index is retried after its 10-minute backoff; launch syncs as usual.

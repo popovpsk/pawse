@@ -320,7 +320,7 @@ drive the `PlaybackQueue` on click.
 ## Library sources in Settings
 
 Sources are managed on Settings → Library, one group per kind (local
-folders, Subsonic, Jellyfin). `crate::library_sources::
+folders, Subsonic, Jellyfin, torrents, the network cache). `crate::library_sources::
 LibrarySources` is the entity those groups read: the folder list comes from
 `settings.json` (`music_folders`), status and track count from the `sources`
 table (`LibraryService::sources`), joined by the pure, unit-tested
@@ -389,14 +389,21 @@ scan also runs when only servers are configured, so a server-only library is
 re-projected from the cache at every start.
 
 Playback of a server-only track: `Track.path` is a locator.
-`Services::start_track` sends `Command::Prepare` and opens the track on its own
+Opening a track lives in `crate::playback_opener` — no GPUI, unit-tested
+against a fake backend (`OpenerBackend`: copies from the library, the cache,
+download, open a stream, "is the server down?") with the engine commands
+collected from a `Sink`. `Services::start_track` only resets the position and
+calls `PlaybackOpener::start`. A local file or a cached track is set at once;
+anything else gets `Command::Prepare` and is opened on a `track-opener`
 thread: `RemoteMedia::open_stream` joins or starts a `media_stream` download of
 the file into `<cache>/pawse/media/<source>/…`, and the engine gets a
 `StreamingSource` through an `EngineCommander` (a `Send` handle on the engine's
 command channel). The engine thread never waits on the network. A generation
-counter drops the result if another track was requested meanwhile, and the final
-send happens under the `opening` lock `start_track` also takes, so an old track
-can never overtake a newer one. A failure reaches the user through
+counter drops the result if another track was requested meanwhile (or `stop`),
+the stream being opened is aborted at once (its error is neither shown nor
+answered with a ping), and the final send happens under the
+same slot lock a newer `start` takes, so an old track can never overtake a newer
+one. A failure reaches the user through
 `Command::Fail` → the usual playback-error toast. The message is the download's
 own reason (`AbortHandle::failure`): symphonia turns a failed read during format
 probing into "no suitable format reader", which says nothing. When a server track
@@ -405,17 +412,47 @@ right away (`mark_source_offline`, same as a failed sync) and the toast says the
 server is unreachable; the offline retry brings it back. A download that has not
 received a byte gives up after 2 retries (under a second), one that was already
 streaming keeps the 6 retries for network hiccups. APE and DSD are downloaded whole
-first. `start_track` always walks `playback_locators` (local first, then servers
+first. The opener always walks `playback_locators` (local first, then servers
 by source id), so a vanished local file or a server that is down falls through
 to the item's next copy, and only the last failure is shown. At launch a server track that is
 not cached is not restored; Play then loads it and the saved position is applied
 once it is loaded (`resume_at`). The next remote track in the queue is fetched
-30 s ahead so gapless playback works. The cache is trimmed to the user's
-limit (`network_cache_gb`, 1–32 GB, default 4), oldest first; lowering the limit
-trims at once. It is one cache for every network source, so it has its own group
+60 s ahead (`REMOTE_PREFETCH_LEAD`; 30 s was too little on slow servers and
+torrents) so gapless playback works. While a track that is not cached yet is
+opening, the engine sends `EngineEvent::Preparing` with the track's catalog
+duration: now-playing, the progress slider (at 0, disabled) and the "current
+row" highlights switch to the new track at once instead of showing the old one
+until `Loaded`. The web remote gets `buffering` in its state (published on every
+`Buffering` event) and stops advancing its slider and shows a spinner while it
+is set. Next on the last track without repeat does nothing
+(`PlaybackQueue::skip_to_next`); only a track that ends on its own empties the
+queue position. The cache is trimmed to the user's
+limit (`network_cache_gb`: 1, 2, 4, 8, 16 or 32 GB or Unlimited, default 8),
+oldest first; lowering the limit trims at once, on the background executor. It is one cache for every network source, so it has its own group
 under Settings → Library (`cache_settings.rs`), not a row inside a server group:
 size (recounted each time settings open), Clear, and the limit. Clearing and
-trimming leave downloads in progress (`.partial` younger than a day) alone. Tag editing (track and album) and lyrics export skip server tracks.
+trimming leave downloads in progress (`.partial` younger than a day) alone. Tag editing (track and album) and lyrics export skip server tracks; the
+pencil is not shown on a server track's row (`TrackRowBase::local`, from
+`Track::local_file`) nor on an
+album header whose album has no local file.
+
+## Playback status: what is playing now
+
+`crate::playback_status::PlaybackStatus` (one entity, `Services::playback_status`)
+is the only UI-side reader of the engine's track lifecycle: `Preparing`,
+`Loaded`, `TrackEnded`, `Stopped`, `Error`. It keeps the current track id (from
+the queue), the phase (`Idle` / `Preparing` / `Ready` with the stream format)
+and the duration (catalog duration while preparing, the decoder's once ready),
+and emits `StatusChanged { track_changed }`. Now-playing, the progress slider,
+lyrics, the cover backdrop, cover mode, the cover skin, the queue and the
+current-row highlight in every track list subscribe to it instead of each
+matching engine events and re-reading the queue — a new engine phase is handled
+in one place (`transition`, unit-tested). Views still take `Playing`, `Paused`,
+`PositionChanged` and `Buffering` straight from the engine bus; the
+integrations (scrobbling, OS media controls, Discord) keep `Loaded`, since they
+need the moment audio is really there. Lyrics load once per track, when the
+phase is `Preparing` or `Ready` (never on the `Idle` in between, whose duration
+is unknown).
 
 ## Library events: catalog vs scan
 
@@ -432,6 +469,8 @@ cache, and is sent before `CatalogChanged` so views reload against the cleared
 cache.
 
 The drill-down views (`tracks_view`, `artist_tracks_view`) are built once for an
-album or artist id and do not listen to either: after a scan their album ids are
-new, so re-querying by the old id would be wrong. They show what they were
-opened with until the user navigates.
+album or artist id and do not listen to either; they show what they were opened
+with until the user navigates. The ids they hold stay valid across rescans:
+the scan gives an album back its previous id (same title and year) and an
+artist too (same name), so a stale view never links to a different album (see
+`music_library/src/doc.md`, "Stable album and artist ids").

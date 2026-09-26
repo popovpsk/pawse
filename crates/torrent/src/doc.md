@@ -30,7 +30,9 @@ tags from. It knows nothing about audio, the library or the media cache.
   `Body::read` give up only after their quiet time — `read`'s timeout, 30 s for
   `Body::read` — passes without the torrent receiving any byte from any peer
   (`patient`, watching librqbit's `fetched_bytes`), and after 5 minutes in any
-  case.
+  case. If no peer is connected at that moment the error is `NoPeers`, not
+  `Timeout`: `pawse` treats it as final instead of retrying, so a click on a
+  track while offline fails in one quiet time rather than after six retries.
 - **Helper streams.** librqbit's lookahead is 32 MB, not a number of pieces:
   with 1 MiB pieces that keeps ~32 pieces (and as many peers) busy, with 16 MiB
   pieces only 2. `read` therefore opens up to 3 extra streams parked 32 MB,
@@ -95,8 +97,10 @@ tags from. It knows nothing about audio, the library or the media cache.
   uploading disabled. Turning it on or off while a session runs cannot change
   that session: it is capped at 16 KiB/s (lower would stop librqbit's upload
   scheduler, whose chunks are 16 KiB) and restarted as soon as it is idle.
-- **Sparse files.** A probe's tree has every file at its full length with
-  zeros where nothing arrived; tag readers only look at the ranges asked for.
+- **Sparse files, not full-length ones.** A probe's tree has zeros where nothing
+  arrived, but a file is only as long as the furthest piece written to it —
+  librqbit does not preallocate. Anything that needs the real length (tag
+  readers computing a bitrate) must use `FileEntry::len`, not the file on disk.
   librqbit marks its files sparse on every platform, NTFS included.
 - **Info hashes** are 40 lowercase hex digits; anything else is `Unknown`, so a
   hash never becomes a path outside `state_dir`/`work_dir`.

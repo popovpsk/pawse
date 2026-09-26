@@ -20,7 +20,8 @@ so call sites have a single import; `mod.rs` re-exports the submodule items.
 - `like_button.rs` — `like_button(track_id, liked, &RowButtonColors)` (heart toggle →
   `LibraryService::set_liked`) and `LIKE_ROW_GROUP`, the hover-group name rows apply
   so the heart/queue/playlist buttons fade in on row hover.
-- `cache_button.rs` — `save_to_cache_button`: the album/artist header button
+- `cache_button.rs` — `move_to_local_button` (album header, `crate::album_export`,
+  same stop icon and bytes tooltip while running) and `save_to_cache_button`: the album/artist header button
   that saves network tracks into the media cache (`crate::cache_fill`). Shown
   only while something is missing from the cache or a save is running; while
   running it shows a static stop icon (no spinner: an animation would repaint

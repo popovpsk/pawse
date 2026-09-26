@@ -10,7 +10,6 @@ use gpui_component::{
     dialog::{Cancel, Confirm, DialogFooter},
 };
 use music_library::Track;
-use music_library::remote::{self, Location};
 
 use crate::library_service::LibraryService;
 use crate::localization::tr;
@@ -67,10 +66,7 @@ pub fn missing_files<'a>(
     let mut seen = HashSet::new();
     tracks
         .into_iter()
-        .filter_map(|track| match remote::location(&track.path) {
-            Location::Remote(reference) => Some((reference, PathBuf::from(&track.path))),
-            Location::File(_) | Location::Invalid => None,
-        })
+        .filter_map(|track| Some((track.remote()?, PathBuf::from(&track.path))))
         .filter(|(_, path)| seen.insert(path.clone()))
         .filter(|(_, path)| !media.is_cached(path))
         .map(|(reference, path)| (reference.source_id, reference.key, path))

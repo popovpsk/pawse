@@ -100,6 +100,10 @@ impl audio_engine::MediaStream for ReaderStream {
     fn byte_len(&self) -> Option<u64> {
         self.0.byte_len()
     }
+
+    fn give_up_waiting_when(&mut self, superseded: audio_engine::Superseded) {
+        self.0.give_up_waiting_when(superseded);
+    }
 }
 
 #[cfg(test)]

@@ -361,9 +361,13 @@ impl TorrentSource {
         format!("btih:{}", self.info_hash)
     }
 
-    pub fn config(&self) -> crate::servers::torrent::Config {
+    pub fn config(
+        &self,
+        host: &std::sync::Arc<crate::servers::torrent::TorrentHost>,
+    ) -> crate::servers::torrent::Config {
         crate::servers::torrent::Config {
             info_hash: self.info_hash.clone(),
+            host: host.clone(),
         }
     }
 }

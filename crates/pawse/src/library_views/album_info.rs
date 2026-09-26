@@ -13,7 +13,7 @@ use ui_components::cover_thumb::cover_tile;
 use crate::cache_fill::FillTarget;
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
-use crate::track_list::{add_album_to_queue_button, save_to_cache_button};
+use crate::track_list::{add_album_to_queue_button, move_to_local_button, save_to_cache_button};
 
 pub struct AlbumInfo {
     album_id: i64,
@@ -25,8 +25,14 @@ pub struct AlbumInfo {
     genres_inline: SharedString,
     genres_tooltip: Option<SharedString>,
     missing_in_cache: bool,
+    has_local_files: bool,
+    has_remote: bool,
+    tracks: std::rc::Rc<Vec<music_library::Track>>,
+    export_meta: std::rc::Rc<crate::album_export::AlbumMeta>,
     fills_seen: u64,
     _fill_subscription: gpui::Subscription,
+    _export_subscription: gpui::Subscription,
+    _catalog_subscription: gpui::Subscription,
 }
 
 impl AlbumInfo {
@@ -39,12 +45,26 @@ impl AlbumInfo {
                 services.cache_fill.clone(),
             )
         };
+        let export = cx.global::<Services>().album_export.clone();
+        let export_subscription = cx.observe(&export, |_, _, cx| cx.notify());
+        let library_event_bus = cx.global::<Services>().library_event_bus.clone();
+        let catalog_subscription = cx.subscribe(
+            &library_event_bus,
+            |this, _, event: &crate::library_service::LibraryEvent, cx| {
+                if matches!(event, crate::library_service::LibraryEvent::CatalogChanged) {
+                    this.reload_tracks(cx);
+                }
+            },
+        );
         let fills_seen = fill.read(cx).revision();
         let fill_subscription = cx.observe(&fill, |this, fill, cx| {
             let finished = fill.read(cx).revision();
             if finished != this.fills_seen {
                 this.fills_seen = finished;
-                this.missing_in_cache = album_missing_in_cache(this.album_id, cx);
+                this.missing_in_cache = crate::cache_fill::has_missing(
+                    this.tracks.iter(),
+                    &cx.global::<Services>().remote_media,
+                );
             }
             cx.notify();
         });
@@ -67,6 +87,19 @@ impl AlbumInfo {
             } else {
                 (shown.into(), None)
             };
+        let tracks = library.tracks_for_album(album.id);
+        let has_local_files = tracks.iter().any(|t| t.local_file().is_some());
+        let missing_in_cache =
+            crate::cache_fill::has_missing(&tracks, &cx.global::<Services>().remote_media);
+        let has_remote = crate::album_export::has_remote(&tracks);
+        let export_meta = crate::album_export::AlbumMeta {
+            id: album.id,
+            title: album.title.clone(),
+            artist: album.artist_name.clone(),
+            year: album.year,
+            genre: all_genres.first().cloned(),
+            cover_art_id: album.cover_art_id,
+        };
         Self {
             album_id: album.id,
             title: album.title.clone(),
@@ -76,17 +109,29 @@ impl AlbumInfo {
             cover,
             genres_inline,
             genres_tooltip,
-            missing_in_cache: album_missing_in_cache(album.id, cx),
+            missing_in_cache,
+            has_local_files,
+            has_remote,
+            tracks: std::rc::Rc::new(tracks),
+            export_meta: std::rc::Rc::new(export_meta),
             fills_seen,
             _fill_subscription: fill_subscription,
+            _export_subscription: export_subscription,
+            _catalog_subscription: catalog_subscription,
         }
     }
 }
 
-fn album_missing_in_cache(album_id: i64, cx: &gpui::App) -> bool {
-    let services = cx.global::<Services>();
-    let tracks = services.library.tracks_for_album(album_id);
-    crate::cache_fill::has_missing(&tracks, &services.remote_media)
+impl AlbumInfo {
+    fn reload_tracks(&mut self, cx: &mut Context<Self>) {
+        let services = cx.global::<Services>();
+        let tracks = services.library.tracks_for_album(self.album_id);
+        self.has_local_files = tracks.iter().any(|t| t.local_file().is_some());
+        self.has_remote = crate::album_export::has_remote(&tracks);
+        self.missing_in_cache = crate::cache_fill::has_missing(&tracks, &services.remote_media);
+        self.tracks = std::rc::Rc::new(tracks);
+        cx.notify();
+    }
 }
 
 impl EventEmitter<NavigateToArtistRequested> for AlbumInfo {}
@@ -97,7 +142,35 @@ impl Render for AlbumInfo {
         let album_id = self.album_id;
         let target = FillTarget::Album(album_id);
         let progress = cx.global::<Services>().cache_fill.read(cx).progress(target);
-        let save_button = (self.missing_in_cache || progress.is_some()).then(|| {
+        let (exporting, exported) = {
+            let export = cx.global::<Services>().album_export.read(cx);
+            (export.progress(album_id), export.is_done(album_id))
+        };
+        let has_folders = !cx
+            .global::<crate::settings_store::SettingsStore>()
+            .music_folders()
+            .is_empty();
+        let export_button = ((self.has_remote && has_folders && !exported) || exporting.is_some())
+            .then(|| {
+                let meta = self.export_meta.clone();
+                let tracks = self.tracks.clone();
+                move_to_local_button(
+                    gpui::ElementId::NamedInteger("move-album-to-local".into(), album_id as u64),
+                    exporting,
+                    42.,
+                    22.,
+                    cx,
+                    move |window, cx| {
+                        crate::album_export::request(
+                            (*meta).clone(),
+                            (*tracks).clone(),
+                            window,
+                            cx,
+                        );
+                    },
+                )
+            });
+        let save_button = ((self.missing_in_cache && !exported) || progress.is_some()).then(|| {
             save_to_cache_button(
                 gpui::ElementId::NamedInteger("save-album-to-cache".into(), album_id as u64),
                 progress,
@@ -194,8 +267,10 @@ impl Render for AlbumInfo {
                     .gap_1()
                     .items_center()
                     .when(
-                        cx.global::<crate::settings_store::SettingsStore>()
-                            .tag_editor_enabled(),
+                        self.has_local_files
+                            && cx
+                                .global::<crate::settings_store::SettingsStore>()
+                                .tag_editor_enabled(),
                         |el| {
                             el.child(crate::track_list::edit_album_tags_button(
                                 album_id, 42., 22., cx,
@@ -203,6 +278,7 @@ impl Render for AlbumInfo {
                         },
                     )
                     .when_some(save_button, |el, button| el.child(button))
+                    .when_some(export_button, |el, button| el.child(button))
                     .child(add_album_to_queue_button(album_id, 42., 26., cx)),
             )
     }

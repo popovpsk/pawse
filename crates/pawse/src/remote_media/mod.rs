@@ -133,8 +133,11 @@ impl RemoteMedia {
         self.cache.size()
     }
 
-    pub fn set_cache_limit(&self, bytes: u64) {
-        self.cache.set_limit(bytes);
+    pub fn set_cache_limit(&self, bytes: u64, executor: &gpui::BackgroundExecutor) {
+        if self.cache.set_limit(bytes) {
+            let cache = self.cache.clone();
+            executor.spawn(async move { cache.trim() }).detach();
+        }
     }
 
     pub fn clear_cache(&self) {

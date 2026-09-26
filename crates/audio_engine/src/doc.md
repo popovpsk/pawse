@@ -27,12 +27,19 @@ and the loop only polls that channel:
   already buffering skips the fade.
 - A seek is a message with an epoch. Batches decoded before it carry the old
   epoch and are dropped, so the engine never plays stale audio after a seek.
+- A read blocked on bytes that are not downloaded yet gives up as soon as a
+  newer seek is queued (`MediaStream::give_up_waiting_when`, fed with "the
+  control channel is not empty"). Without it, seeking into a missing part and
+  back to a downloaded one would wait for the missing part first. The error of
+  the abandoned read carries the old epoch and is dropped like its batches.
 - Dropping the `StreamingSource` calls its interrupt, which wakes a reader
   blocked on the network so the decoder thread can exit.
 
 Opening a stream (reading the headers) also happens off the engine thread, in
-`pawse::services::start_track`. It first sends `Command::Prepare { play }`,
-which stops the old track and shows buffering; `SetStreamTrack` arrives when the
+`pawse::playback_opener::PlaybackOpener::start`. It first sends `Command::Prepare { play,
+track_duration }`, which stops the old track, shows buffering and emits
+`EngineEvent::Preparing { duration }` so the UI switches to the new track (title,
+cover, a disabled slider at 0 with the catalog duration) before any audio; `SetStreamTrack` arrives when the
 decoder is ready. Play and pause that arrive in between are remembered
 (`pending_play`) instead of being lost, since there is no track to act on yet.
 

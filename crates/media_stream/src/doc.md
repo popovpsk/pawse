@@ -46,5 +46,9 @@ every server that serves byte ranges).
 - **Partial names** carry the process id and a counter
   (`<dest>.<pid>-<n>.partial`), so a cancelled download that is still deleting
   its file never races a new one for the same destination.
+- **A reader can be told to stop waiting.** `give_up_waiting_when` takes a
+  check that a waiting read polls; when it says a newer request is queued, the
+  read fails instead of waiting for missing bytes. Bytes that are already there
+  are still read, so the check never breaks a read that would not wait.
 - **Readers never return `Interrupted`.** An aborted reader returns a plain
   error; `Interrupted` would make `read_exact` and Symphonia retry forever.

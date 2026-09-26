@@ -30,7 +30,8 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   song past the failure would be retired.
 - **Lenient fields.** Numbers may come as floats or strings, lists as something
   else; an odd field becomes `None` instead of failing the page (and with it the
-  whole server).
+  whole server). A list entry that still does not parse (a song without an id)
+  is skipped and logged, like Jellyfin's items.
 - **No secrets in errors.** Transport error texts can contain the request URL,
   which carries the token or the encoded password; `redact` strips query
   strings before any message leaves the crate.

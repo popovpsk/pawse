@@ -94,11 +94,5 @@ fn connect(
 }
 
 pub fn jellyfin_group(sources: Entity<LibrarySources>, inputs: ServerInputs) -> SettingGroup {
-    server_group(
-        ServerKind::Jellyfin,
-        tr().jellyfin_servers_desc.clone(),
-        sources,
-        inputs,
-        connect,
-    )
+    server_group(ServerKind::Jellyfin, None, sources, inputs, connect)
 }

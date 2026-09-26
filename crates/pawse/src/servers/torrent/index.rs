@@ -11,7 +11,7 @@ use torrent::{Engine, FileEntry, Meta, Want};
 use super::error;
 use crate::servers::{RemoteError, real_album, real_artist, real_track_number};
 
-const INDEX_VERSION: u32 = 1;
+const INDEX_VERSION: u32 = 2;
 const HEAD_BYTES: u64 = 1024 * 1024;
 const TAIL_BYTES: u64 = 256 * 1024;
 const METADATA_LIMIT: u64 = 16 * 1024 * 1024;
@@ -39,14 +39,18 @@ fn covers_dir(state: &Path, info_hash: &str) -> PathBuf {
     state.join(format!("{info_hash}.covers"))
 }
 
-pub fn songs(engine: &Engine, info_hash: &str) -> Result<Vec<RemoteSong>, RemoteError> {
+pub fn songs(
+    engine: &Engine,
+    info_hash: &str,
+    lock: &std::sync::Mutex<()>,
+) -> Result<Vec<RemoteSong>, RemoteError> {
     let state = engine.state_dir();
     if let Some(songs) = load(&state, info_hash) {
         return Ok(songs);
     }
     let meta = engine.meta(info_hash).map_err(error)?;
     let (songs, covers) = build(engine, &meta)?;
-    let _state = super::state_lock();
+    let _state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if !engine.is_stored(info_hash) {
         return Err(RemoteError::Other(::torrent::Error::Unknown.to_string()));
     }
@@ -416,7 +420,8 @@ fn link_view(
             std::fs::create_dir_all(parent).map_err(failed)?;
         }
         let source = root.join(&file.path);
-        if std::fs::hard_link(&source, &target).is_err() {
+        let full_length = std::fs::metadata(&source).is_ok_and(|m| m.len() == file.len);
+        if !full_length || std::fs::hard_link(&source, &target).is_err() {
             let ranges = fetched.get(index).map_or(&[][..], Vec::as_slice);
             copy_ranges(&source, &target, file.len, ranges).map_err(failed)?;
         }

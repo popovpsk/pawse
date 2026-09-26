@@ -76,7 +76,7 @@ fn connect(
 pub fn subsonic_group(sources: Entity<LibrarySources>, inputs: ServerInputs) -> SettingGroup {
     server_group(
         ServerKind::Subsonic,
-        tr().subsonic_servers_desc.clone(),
+        Some(tr().subsonic_servers_desc.clone()),
         sources,
         inputs,
         connect,

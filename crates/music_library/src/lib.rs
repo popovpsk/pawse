@@ -24,6 +24,7 @@ pub const NO_METADATA_ARTIST_ID: i64 = -2;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn create_test_db() -> (SqliteLibrary, PathBuf) {
@@ -1520,6 +1521,170 @@ mod tests {
             session.add_track(track).unwrap();
         }
         session.finish().unwrap();
+    }
+
+    #[test]
+    fn a_track_knows_where_it_lives() {
+        let track = |path: &str, is_cue: bool| Track {
+            id: 1,
+            path: path.into(),
+            title: String::new(),
+            album_id: None,
+            track_number: None,
+            disc_number: 1,
+            duration_ms: None,
+            year: None,
+            cover_art_id: None,
+            start_offset_ms: 0,
+            liked: false,
+            bitrate: None,
+            is_cue,
+            available: true,
+        };
+        let file = track("/m/a.flac", false);
+        assert_eq!(file.own_file(), Some(std::path::Path::new("/m/a.flac")));
+        assert!(!file.is_remote());
+        let piece = track("/m/disc.flac", true);
+        assert!(piece.local_file().is_some());
+        assert_eq!(piece.own_file(), None);
+        let server = track(&remote::locator(3, "k", "flac"), false);
+        assert!(server.is_remote());
+        assert_eq!(server.local_file(), None);
+        assert_eq!(server.remote().map(|r| r.key), Some("k".to_string()));
+        let broken = track("pawse-source://x/k.flac", false);
+        assert!(!broken.is_remote());
+        assert_eq!(broken.local_file(), None);
+    }
+
+    fn on_album(path: &str, album: &str, artist: &str) -> ScanTrack {
+        ScanTrack {
+            album_title: Some(album.into()),
+            artist_names: vec![artist.into()],
+            album_artist_names: vec![artist.into()],
+            ..scan_track(path, &format!("{album} {path}"))
+        }
+    }
+
+    fn album_ids(lib: &SqliteLibrary) -> HashMap<String, i64> {
+        lib.albums()
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.title, a.id))
+            .collect()
+    }
+
+    fn artist_ids(lib: &SqliteLibrary) -> HashMap<String, i64> {
+        lib.artists(ArtistGrouping::TrackArtist)
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.name, a.id))
+            .collect()
+    }
+
+    #[test]
+    fn artist_names_that_differ_only_in_case_are_one_artist() {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                on_album(
+                    "/m/a.flac",
+                    "Thank You, Happy Birthday",
+                    "Cage the Elephant",
+                ),
+                on_album("/m/b.flac", "Melophobia", "Cage The Elephant"),
+                on_album("/m/c.flac", "Мегаполис", "ЗВЕРИ"),
+                on_album("/m/d.flac", "Районы-кварталы", "Звери"),
+            ],
+        );
+        let artists = artist_ids(&lib);
+        assert_eq!(artists.len(), 2);
+        let cage = artists["Cage the Elephant"];
+        assert_eq!(lib.upsert_artist("CAGE THE ELEPHANT").unwrap(), cage);
+
+        scan(
+            &lib,
+            vec![
+                on_album("/m/b.flac", "Melophobia", "Cage The Elephant"),
+                on_album(
+                    "/m/a.flac",
+                    "Thank You, Happy Birthday",
+                    "Cage the Elephant",
+                ),
+            ],
+        );
+        assert_eq!(
+            artist_ids(&lib).into_values().collect::<Vec<_>>(),
+            vec![cage]
+        );
+    }
+
+    #[test]
+    fn a_rescan_keeps_album_and_artist_ids_whatever_order_files_arrive_in() {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+            ],
+        );
+        let albums = album_ids(&lib);
+        let artists = artist_ids(&lib);
+
+        scan(
+            &lib,
+            vec![
+                on_album("/m/c.flac", "Absolution", "Placebo"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+            ],
+        );
+        let after = album_ids(&lib);
+        assert_eq!(after["Black Holes"], albums["Black Holes"]);
+        assert_eq!(after["The Slip"], albums["The Slip"]);
+        assert!(!albums.values().any(|id| *id == after["Absolution"]));
+        let artists_after = artist_ids(&lib);
+        assert_eq!(artists_after["Muse"], artists["Muse"]);
+        assert_eq!(artists_after["NIN"], artists["NIN"]);
+
+        let gone = after["Absolution"];
+        scan(
+            &lib,
+            vec![
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+            ],
+        );
+        scan(
+            &lib,
+            vec![
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+                on_album("/m/d.flac", "Origin of Symmetry", "Muse"),
+            ],
+        );
+        assert!(album_ids(&lib)["Origin of Symmetry"] > gone);
+
+        let edited = lib.upsert_album("Edited", Some(2001), None).unwrap();
+        assert!(edited > album_ids(&lib)["Origin of Symmetry"]);
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_track(on_album("/m/a.flac", "Black Holes", "Muse"))
+            .unwrap();
+        session.flush().unwrap();
+        let during = lib.upsert_album("During Scan", Some(2002), None).unwrap();
+        session
+            .add_track(on_album("/m/e.flac", "Showbiz", "Muse"))
+            .unwrap();
+        session.finish().unwrap();
+        let ids = album_ids(&lib);
+        assert_eq!(ids["Black Holes"], after["Black Holes"]);
+        assert!(ids["Showbiz"] > during);
     }
 
     fn folders(paths: &[&str]) -> Vec<LocalFolder> {

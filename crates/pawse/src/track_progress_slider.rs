@@ -11,6 +11,7 @@ use gpui_component::h_flex;
 use crate::theme_colors::Colors;
 use ui_components::slider::{Slider, SliderEvent};
 
+use crate::playback_status::{Phase, StatusChanged};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -44,6 +45,7 @@ pub struct TrackProgressSlider {
     show_labels: bool,
     slider: Entity<Slider>,
     _engine_subscription: Subscription,
+    _status_subscription: Subscription,
     _slider_subscription: Subscription,
     _settings_subscription: Subscription,
     seek_count: u32,
@@ -117,63 +119,24 @@ impl TrackProgressSlider {
                 }
             });
 
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { duration, .. } => {
-                        this.duration_secs = duration.as_secs_f32();
-                        this.duration_str = Self::format_time(this.duration_secs).into();
-                        this.set_position(0.0);
-                        this.has_track = true;
-                        this.seek_count = 0;
-                        this.seek_target_secs = 0.0;
-                        this.last_seek_press = None;
-                        this.last_seek_dir = 0;
-                        let duration_secs = this.duration_secs;
-                        this.slider.update(cx, |slider, cx| {
-                            slider.set_value_silent(0.0, cx);
-                            slider.set_disabled(false, cx);
-                            slider.set_tooltip_formatter(
-                                Some(Box::new(move |value| {
-                                    Self::format_time(value * duration_secs)
-                                })),
-                                cx,
-                            );
-                        });
-                        cx.notify();
-                    }
-                    EngineEvent::PositionChanged(position) => {
-                        if !this.has_track || this.slider.read(cx).is_interacting() {
-                            return;
-                        }
-                        let new_position = position.as_secs_f32();
-                        this.set_position(new_position);
-                        let value = if this.duration_secs > 0.0 {
-                            new_position / this.duration_secs
-                        } else {
-                            0.0
-                        };
-                        this.slider.update(cx, |slider, cx| {
-                            slider.set_value_silent(value, cx);
-                        });
-                        cx.notify();
-                    }
-                    EngineEvent::TrackEnded | EngineEvent::Stopped | EngineEvent::Error(_) => {
-                        this.has_track = false;
-                        this.set_position(0.0);
-                        this.duration_secs = 0.0;
-                        this.duration_str = "".into();
-                        this.slider.update(cx, |slider, cx| {
-                            slider.set_value_silent(0.0, cx);
-                            slider.set_disabled(true, cx);
-                            slider.set_tooltip_formatter(None, cx);
-                        });
-                        cx.notify();
-                    }
-                    _ => {}
-                },
-            );
+        let subscription = cx.subscribe(&engine_event_bus, |this, _, event: &EngineEvent, cx| {
+            if let EngineEvent::PositionChanged(position) = event {
+                this.show_position(*position, cx);
+            }
+        });
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription =
+            cx.subscribe(&playback_status, |this, status, _: &StatusChanged, cx| {
+                let (phase, duration) = {
+                    let status = status.read(cx);
+                    (status.phase(), status.duration())
+                };
+                match (phase, duration) {
+                    (Phase::Ready { .. }, Some(duration)) => this.show_ready(duration, cx),
+                    (Phase::Preparing, duration) => this.show_pending(duration, cx),
+                    _ => this.reset(cx),
+                }
+            });
 
         let show_labels = cx.global::<SettingsStore>().show_time_labels();
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
@@ -231,6 +194,7 @@ impl TrackProgressSlider {
             show_labels,
             slider,
             _engine_subscription: subscription,
+            _status_subscription: status_subscription,
             _slider_subscription: slider_subscription,
             _settings_subscription: settings_subscription,
             seek_count: 0,
@@ -248,6 +212,76 @@ impl TrackProgressSlider {
         let mins = (secs / 60.0) as u32;
         let secs = (secs % 60.0) as u32;
         format!("{:02}:{:02}", mins, secs)
+    }
+
+    fn show_pending(&mut self, duration: Option<Duration>, cx: &mut Context<Self>) {
+        self.duration_secs = duration.map_or(0.0, |d| d.as_secs_f32());
+        self.duration_str = if duration.is_some() {
+            Self::format_time(self.duration_secs).into()
+        } else {
+            "".into()
+        };
+        self.set_position(0.0);
+        self.has_track = false;
+        self.slider.update(cx, |slider, cx| {
+            slider.set_value_silent(0.0, cx);
+            slider.set_disabled(true, cx);
+            slider.set_tooltip_formatter(None, cx);
+        });
+        cx.notify();
+    }
+
+    fn show_ready(&mut self, duration: Duration, cx: &mut Context<Self>) {
+        self.duration_secs = duration.as_secs_f32();
+        self.duration_str = Self::format_time(self.duration_secs).into();
+        self.set_position(0.0);
+        self.has_track = true;
+        self.seek_count = 0;
+        self.seek_target_secs = 0.0;
+        self.last_seek_press = None;
+        self.last_seek_dir = 0;
+        let duration_secs = self.duration_secs;
+        self.slider.update(cx, |slider, cx| {
+            slider.set_value_silent(0.0, cx);
+            slider.set_disabled(false, cx);
+            slider.set_tooltip_formatter(
+                Some(Box::new(move |value| {
+                    Self::format_time(value * duration_secs)
+                })),
+                cx,
+            );
+        });
+        cx.notify();
+    }
+
+    fn show_position(&mut self, position: Duration, cx: &mut Context<Self>) {
+        if !self.has_track || self.slider.read(cx).is_interacting() {
+            return;
+        }
+        let new_position = position.as_secs_f32();
+        self.set_position(new_position);
+        let value = if self.duration_secs > 0.0 {
+            new_position / self.duration_secs
+        } else {
+            0.0
+        };
+        self.slider.update(cx, |slider, cx| {
+            slider.set_value_silent(value, cx);
+        });
+        cx.notify();
+    }
+
+    fn reset(&mut self, cx: &mut Context<Self>) {
+        self.has_track = false;
+        self.set_position(0.0);
+        self.duration_secs = 0.0;
+        self.duration_str = "".into();
+        self.slider.update(cx, |slider, cx| {
+            slider.set_value_silent(0.0, cx);
+            slider.set_disabled(true, cx);
+            slider.set_tooltip_formatter(None, cx);
+        });
+        cx.notify();
     }
 
     fn set_position(&mut self, secs: f32) {

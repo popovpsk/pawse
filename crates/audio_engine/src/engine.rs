@@ -395,7 +395,10 @@ impl AudioEngineLoop {
                 track_duration,
                 prepared,
             } => self.handle_set_local_track(path, start_offset, track_duration, prepared),
-            Command::Prepare { play } => self.handle_prepare(play),
+            Command::Prepare {
+                play,
+                track_duration,
+            } => self.handle_prepare(play, track_duration),
             Command::SetStreamTrack(track) => self.handle_set_stream_track(*track),
             Command::Stop => self.handle_stop(),
             Command::Fail(message) => {
@@ -446,8 +449,11 @@ impl AudioEngineLoop {
         self.track_end = None;
     }
 
-    fn handle_prepare(&mut self, play: Option<bool>) {
+    fn handle_prepare(&mut self, play: Option<bool>, track_duration: Option<Duration>) {
         self.reset_track();
+        _ = self.event_sender.send(EngineEvent::Preparing {
+            duration: track_duration,
+        });
         self.output.pause();
         self.preparing = true;
         self.pending_play = play;

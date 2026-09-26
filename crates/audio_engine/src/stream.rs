@@ -41,12 +41,14 @@ impl std::fmt::Debug for StreamingSource {
 
 impl StreamingSource {
     pub fn open(
-        stream: Box<dyn MediaStream>,
+        mut stream: Box<dyn MediaStream>,
         extension: Option<String>,
         interrupt: Interrupt,
     ) -> Result<Self, String> {
         let (opened_tx, opened_rx) = flume::bounded(1);
-        let (control_tx, control_rx) = flume::unbounded();
+        let (control_tx, control_rx) = flume::unbounded::<Control>();
+        let newer = control_rx.clone();
+        stream.give_up_waiting_when(Box::new(move || !newer.is_empty()));
         let (batch_tx, batch_rx) = flume::bounded(AHEAD_BATCHES);
         std::thread::Builder::new()
             .name("stream-decoder".into())
@@ -262,6 +264,7 @@ mod tests {
         free: u64,
         gate: Arc<Gate>,
         reads: Arc<AtomicUsize>,
+        superseded: Option<audio_decoder::Superseded>,
     }
 
     impl GatedStream {
@@ -280,6 +283,13 @@ mod tests {
                 while !*open {
                     if self.gate.aborted.load(Ordering::SeqCst) {
                         return Err(std::io::Error::other("aborted"));
+                    }
+                    if self
+                        .superseded
+                        .as_ref()
+                        .is_some_and(|superseded| superseded())
+                    {
+                        return Err(std::io::Error::other("superseded"));
                     }
                     open = self
                         .gate
@@ -309,6 +319,10 @@ mod tests {
     impl MediaStream for GatedStream {
         fn byte_len(&self) -> Option<u64> {
             Some(self.bytes.get_ref().len() as u64)
+        }
+
+        fn give_up_waiting_when(&mut self, superseded: audio_decoder::Superseded) {
+            self.superseded = Some(superseded);
         }
     }
 
@@ -342,6 +356,7 @@ mod tests {
             free,
             gate: Arc::clone(&gate),
             reads: Arc::clone(&reads),
+            superseded: None,
         };
         (Box::new(stream), gate, reads)
     }
@@ -438,6 +453,18 @@ mod tests {
     }
 
     #[test]
+    fn seeking_back_from_a_part_still_downloading_does_not_wait_for_it() {
+        let (stream, _gate, _) = gated(long_wav(30), 256 * 1024);
+        let mut source =
+            StreamingSource::open(stream, Some("wav".into()), Box::new(|| {})).unwrap();
+        source.seek(0.9).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(matches!(source.poll(), Poll::Pending));
+        source.seek(0.0).unwrap();
+        assert!(matches!(next(&mut source), Poll::Ready(_)));
+    }
+
+    #[test]
     fn dropping_the_source_interrupts_a_blocked_read() {
         let (stream, gate, reads) = gated(long_wav(30), 256 * 1024);
         let aborter = Arc::clone(&gate);
@@ -462,6 +489,7 @@ mod tests {
             free: u64::MAX,
             gate: Arc::new(Gate::default()),
             reads: Arc::new(AtomicUsize::new(0)),
+            superseded: None,
         };
         assert!(StreamingSource::open(Box::new(stream), None, Box::new(|| {})).is_err());
     }

@@ -223,6 +223,7 @@ impl Download {
             file,
             pos: 0,
             aborted: Arc::new(AtomicBool::new(false)),
+            superseded: None,
         })
     }
 
@@ -287,11 +288,14 @@ impl AbortHandle {
     }
 }
 
+pub type Superseded = Box<dyn Fn() -> bool + Send + Sync>;
+
 pub struct StreamReader {
     shared: Arc<Shared>,
     file: File,
     pos: u64,
     aborted: Arc<AtomicBool>,
+    superseded: Option<Superseded>,
 }
 
 impl StreamReader {
@@ -304,6 +308,10 @@ impl StreamReader {
 
     pub fn byte_len(&self) -> Option<u64> {
         self.shared.lock().total
+    }
+
+    pub fn give_up_waiting_when(&mut self, superseded: Superseded) {
+        self.superseded = Some(superseded);
     }
 
     fn wait_until<T>(&self, mut ready: impl FnMut(&State) -> Option<T>) -> io::Result<T> {
@@ -319,6 +327,13 @@ impl StreamReader {
                 Outcome::Failed(message) => return Err(io::Error::other(message.clone())),
                 Outcome::Cancelled => return Err(io::Error::other("the download was cancelled")),
                 Outcome::Running | Outcome::Complete => {}
+            }
+            if self
+                .superseded
+                .as_ref()
+                .is_some_and(|superseded| superseded())
+            {
+                return Err(io::Error::other("a newer read replaced this one"));
             }
             state = self
                 .shared

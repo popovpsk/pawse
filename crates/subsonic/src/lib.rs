@@ -375,7 +375,19 @@ fn list_at<T: for<'de> Deserialize<'de>>(
             None => return Ok(Vec::new()),
         }
     }
-    serde_json::from_value(node.clone()).map_err(|e| Error::Server(e.to_string()))
+    let serde_json::Value::Array(items) = node else {
+        return serde_json::from_value(node.clone()).map_err(|e| Error::Server(e.to_string()));
+    };
+    Ok(items
+        .iter()
+        .filter_map(|item| match serde_json::from_value(item.clone()) {
+            Ok(item) => Some(item),
+            Err(e) => {
+                log::warn!("subsonic: skipping an entry: {e}");
+                None
+            }
+        })
+        .collect())
 }
 
 fn songs_at(response: &serde_json::Value, path: &[&str]) -> Result<Vec<Song>, Error> {

@@ -9,13 +9,13 @@ use std::{
     time::Duration,
 };
 
+use crate::playback_opener::AfterLoad;
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
 use audio_output::{AudioOutput, Output};
 use gpui::{App, AppContext, AsyncApp, Entity, EventEmitter, Global};
 use gpui_component::WindowExt;
 use gpui_component::notification::Notification;
 use music_library::Track;
-use music_library::remote::Location;
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::library_service::{LibraryEvent, LibraryService};
@@ -25,11 +25,13 @@ pub struct Services {
     pub engine_manager: Rc<EngineManager>,
     pub output: Arc<Output>,
     pub engine_event_bus: Entity<EngineEventsBus>,
+    pub playback_status: Entity<crate::playback_status::PlaybackStatus>,
     pub library: Arc<LibraryService>,
     pub remote_media: crate::remote_media::RemoteMedia,
     pub cache_fill: Entity<crate::cache_fill::CacheFill>,
-    track_generation: Arc<AtomicU64>,
-    opening: Opening,
+    pub torrents: Arc<crate::servers::torrent::TorrentHost>,
+    pub album_export: Entity<crate::album_export::AlbumExport>,
+    opener: crate::playback_opener::PlaybackOpener,
     pub is_buffering: Arc<AtomicBool>,
     pub resume_at: Rc<std::cell::Cell<Option<(i64, u64)>>>,
     pub library_event_bus: Entity<LibraryEventsBus>,
@@ -61,13 +63,14 @@ type RemoteQueueCache = Option<(u64, Arc<Vec<pawse_remote::QueueItem>>)>;
 impl Services {
     pub fn initialize(cx: &mut App) -> Self {
         let output = Arc::new(Output::new());
-        crate::torrent_settings::configure_engine(
+        let torrents = crate::torrent_settings::torrent_host(
             cx.global::<crate::settings_store::SettingsStore>(),
         );
         let remote_media = crate::remote_media::RemoteMedia::default();
         remote_media.set_cache_limit(
             cx.global::<crate::settings_store::SettingsStore>()
                 .network_cache_bytes(),
+            cx.background_executor(),
         );
         let audio_engine = Rc::new(AudioEngine::with_resolver(
             output.clone(),
@@ -75,6 +78,7 @@ impl Services {
         ));
         let engine_manager = Rc::new(EngineManager::new(audio_engine).start(cx));
         let engine_event_bus = cx.new(|_| EngineEventsBus);
+        let playback_status = crate::playback_status::PlaybackStatus::create(&engine_event_bus, cx);
 
         let (library_event_tx, library_event_rx) = flume::unbounded();
         let library = Arc::new(LibraryService::new(
@@ -85,6 +89,7 @@ impl Services {
         ));
         let library_event_bus = cx.new(|_| LibraryEventsBus);
         let library_event_bus_clone = library_event_bus.clone();
+        let album_export = crate::album_export::AlbumExport::create(&library_event_bus, cx);
 
         cx.spawn(async move |cx| {
             while let Ok(event) = library_event_rx.recv_async().await {
@@ -146,6 +151,15 @@ impl Services {
         })
         .detach();
 
+        let commander = engine_manager.commander();
+        let opener = crate::playback_opener::PlaybackOpener::new(
+            Arc::new(crate::playback_opener::LibraryBackend {
+                media: remote_media.clone(),
+                library: library.clone(),
+            }),
+            Arc::new(move |command| commander.send(command)),
+        );
+
         let playlist_popup_bus = cx.new(|_| crate::playlist_popup::PlaylistPopupBus);
         let lang_event_bus = cx.new(|_| crate::localization::LangEventBus);
 
@@ -163,6 +177,7 @@ impl Services {
             output,
             engine_manager,
             engine_event_bus,
+            playback_status,
             library,
             library_event_bus,
             playback_queue: Rc::new(RefCell::new(crate::playback_queue::PlaybackQueue::new())),
@@ -183,8 +198,9 @@ impl Services {
             library_rev: Arc::new(AtomicU64::new(0)),
             remote_media,
             cache_fill: cx.new(|_| crate::cache_fill::CacheFill::default()),
-            track_generation: Arc::new(AtomicU64::new(0)),
-            opening: Arc::new(std::sync::Mutex::new(None)),
+            album_export,
+            torrents,
+            opener,
             is_buffering: Arc::new(AtomicBool::new(false)),
             resume_at: Rc::new(std::cell::Cell::new(None)),
         }
@@ -207,201 +223,12 @@ impl Services {
     }
 
     pub fn stop_playback(&self) {
-        self.track_generation.fetch_add(1, Ordering::AcqRel);
-        if let Some((_, abort)) = self.opening.lock().unwrap().take() {
-            abort.abort();
-        }
-        self.engine_manager.stop();
+        self.opener.stop();
     }
 
     fn start_track(&self, track: &Track, after: AfterLoad) {
         self.current_position_ms.store(0, Ordering::Relaxed);
-        let generation = self.track_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        if let Some((_, abort)) = self.opening.lock().unwrap().take() {
-            abort.abort();
-        }
-        let path = std::path::PathBuf::from(&track.path);
-        let track_duration = track.duration_ms.map(|ms| Duration::from_millis(ms as u64));
-        let ready = match music_library::remote::location(&track.path) {
-            Location::File(file) => file.exists(),
-            Location::Remote(_) => self.remote_media.cached(&path).is_some(),
-            Location::Invalid => false,
-        };
-        if ready {
-            self.engine_manager.set_track_with_offset(
-                path,
-                offset(track.start_offset_ms.into()),
-                track_duration,
-            );
-            after.apply(&self.engine_manager.commander());
-            return;
-        }
-        let commander = self.engine_manager.commander();
-        commander.send(audio_engine::Command::Prepare {
-            play: after.autoplay(),
-        });
-        let media = self.remote_media.clone();
-        let library = self.library.clone();
-        let current = self.track_generation.clone();
-        let opening = self.opening.clone();
-        let track_id = track.id;
-        let original = (track.path.clone(), i64::from(track.start_offset_ms));
-        std::thread::spawn(move || {
-            let stale = || current.load(Ordering::Acquire) != generation;
-            let mut candidates = library.playback_locators(track_id);
-            if candidates.is_empty() {
-                candidates.push(original.clone());
-            }
-            let mut outcome = None;
-            let mut failure = None;
-            for (locator, start_ms) in candidates {
-                if stale() {
-                    return;
-                }
-                let candidate = std::path::PathBuf::from(&locator);
-                match music_library::remote::location(&locator) {
-                    Location::File(file) if file.exists() => {
-                        outcome = Some((Opened::Cached, candidate, start_ms));
-                        break;
-                    }
-                    Location::File(_) | Location::Invalid => continue,
-                    Location::Remote(_) => {}
-                }
-                match open_remote(&media, &opening, generation, &candidate, &stale) {
-                    Ok(opened) => {
-                        outcome = Some((opened, candidate, start_ms));
-                        break;
-                    }
-                    Err(e) => {
-                        log::warn!("{locator}: {e}");
-                        failure = Some(describe_remote_failure(&media, &library, &locator, e));
-                    }
-                }
-            }
-            let command = match (outcome, failure) {
-                (Some((Opened::Stream(source), _, start_ms)), _) => {
-                    audio_engine::Command::SetStreamTrack(Box::new(audio_engine::StreamTrack {
-                        source,
-                        start_offset: offset(start_ms),
-                        track_duration,
-                    }))
-                }
-                (Some((Opened::Cached, path, start_ms)), _) => {
-                    audio_engine::Command::SetLocalTrack {
-                        path,
-                        start_offset: offset(start_ms),
-                        track_duration,
-                        prepared: true,
-                    }
-                }
-                (None, Some(message)) => audio_engine::Command::Fail(message),
-                (None, None) => audio_engine::Command::SetLocalTrack {
-                    path: std::path::PathBuf::from(&original.0),
-                    start_offset: offset(original.1),
-                    track_duration,
-                    prepared: true,
-                },
-            };
-            let _slot = opening.lock().unwrap();
-            if !stale() {
-                commander.send(command);
-            }
-        });
-    }
-}
-
-fn describe_remote_failure(
-    media: &crate::remote_media::RemoteMedia,
-    library: &LibraryService,
-    locator: &str,
-    error: String,
-) -> String {
-    let Some(source_id) = music_library::remote::parse(locator).map(|r| r.source_id) else {
-        return error;
-    };
-    match media.ping(source_id) {
-        None | Some(Ok(())) => error,
-        Some(Err(down)) => {
-            library.mark_source_offline(source_id);
-            crate::library_sources::describe_error(&down).to_string()
-        }
-    }
-}
-
-type Opening = Arc<std::sync::Mutex<Option<(u64, Arc<dyn crate::remote_media::StreamControl>)>>>;
-
-enum Opened {
-    Cached,
-    Stream(audio_engine::StreamingSource),
-}
-
-fn offset(start_ms: i64) -> Option<Duration> {
-    (start_ms > 0).then(|| Duration::from_millis(start_ms as u64))
-}
-
-fn open_remote(
-    media: &crate::remote_media::RemoteMedia,
-    opening: &Opening,
-    generation: u64,
-    locator: &std::path::Path,
-    stale: &dyn Fn() -> bool,
-) -> Result<Opened, String> {
-    if media.cached(locator).is_some() {
-        return Ok(Opened::Cached);
-    }
-    if !crate::remote_media::RemoteMedia::can_stream(locator) {
-        return media.resolve(locator, stale).map(|_| Opened::Cached);
-    }
-    let pending = media.open_stream(locator)?;
-    let control = pending.control.clone();
-    {
-        let mut slot = opening.lock().unwrap();
-        if let Some((_, previous)) = slot.replace((generation, pending.control.clone())) {
-            previous.abort();
-        }
-        if stale() {
-            pending.control.abort();
-        }
-    }
-    let abort = control.clone();
-    let source = audio_engine::StreamingSource::open(
-        pending.stream,
-        Some(pending.extension),
-        Box::new(move || abort.abort()),
-    );
-    let mut slot = opening.lock().unwrap();
-    if slot.as_ref().is_some_and(|(owner, _)| *owner == generation) {
-        *slot = None;
-    }
-    source
-        .map(Opened::Stream)
-        .map_err(|error| control.failure().unwrap_or(error))
-}
-
-#[derive(Clone, Copy)]
-enum AfterLoad {
-    Stay,
-    Play,
-    PlayGapless,
-}
-
-impl AfterLoad {
-    fn autoplay(self) -> Option<bool> {
-        match self {
-            AfterLoad::Stay => None,
-            AfterLoad::Play => Some(true),
-            AfterLoad::PlayGapless => Some(false),
-        }
-    }
-
-    fn apply(self, commander: &audio_engine::EngineCommander) {
-        match self {
-            AfterLoad::Stay => {}
-            AfterLoad::Play => commander.send(audio_engine::Command::Play { fade_in: true }),
-            AfterLoad::PlayGapless => {
-                commander.send(audio_engine::Command::Play { fade_in: false })
-            }
-        }
+        self.opener.start(&track.into(), after);
     }
 }
 
@@ -628,7 +455,7 @@ pub fn pause(cx: &mut App) {
 
 pub fn play_next(cx: &mut App) {
     let services = cx.global::<Services>();
-    let next = services.playback_queue.borrow_mut().next_track().cloned();
+    let next = services.playback_queue.borrow_mut().skip_to_next().cloned();
     if let Some(track) = next {
         services.play_track(&track);
         save_playback(cx);
@@ -1002,6 +829,16 @@ pub async fn run_engine_events_bus(
     let rx = engine_manager.events();
     while let Ok(event) = rx.recv_async().await {
         match &event {
+            EngineEvent::Preparing { duration } => {
+                current_duration = None;
+                current_position_ms.store(0, Ordering::Relaxed);
+                current_duration_ms.store(
+                    duration.map_or(0, |d| d.as_millis() as u64),
+                    Ordering::Relaxed,
+                );
+                current_dsd_rate.store(0, Ordering::Relaxed);
+                publish_now_playing(cx);
+            }
             EngineEvent::Loaded { params, duration } => {
                 current_duration = Some(*duration);
                 current_duration_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
@@ -1048,6 +885,7 @@ pub async fn run_engine_events_bus(
                         .is_buffering
                         .store(buffering, Ordering::Relaxed)
                 });
+                publish_now_playing(cx);
             }
             EngineEvent::Error(message) => {
                 is_playing.store(false, Ordering::Relaxed);
@@ -1176,6 +1014,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         artist,
         album,
         playing: services.is_playing.load(Ordering::Relaxed),
+        buffering: services.is_buffering.load(Ordering::Relaxed),
         position_ms: services.current_position_ms.load(Ordering::Relaxed),
         duration_ms,
         cover_id,
@@ -1194,7 +1033,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
 /// current one, warm the OS page cache by reading the first 64 KiB of the next
 /// track's file. This eliminates decoder-open latency for gapless transitions,
 /// especially on spinning disks.
-const REMOTE_PREFETCH_LEAD: Duration = Duration::from_secs(30);
+const REMOTE_PREFETCH_LEAD: Duration = Duration::from_secs(60);
 
 fn maybe_prefetch_next_track(
     cx: &AsyncApp,
@@ -1210,7 +1049,7 @@ fn maybe_prefetch_next_track(
             .playback_queue
             .borrow()
             .peek_next()
-            .is_some_and(|t| music_library::remote::local_file(&t.path).is_none())
+            .is_some_and(|t| t.is_remote())
     });
     let lead = if next_is_remote {
         REMOTE_PREFETCH_LEAD

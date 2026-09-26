@@ -14,7 +14,7 @@ mod playlist_buttons;
 mod queue_button;
 mod row_style;
 
-pub use cache_button::save_to_cache_button;
+pub use cache_button::{move_to_local_button, save_to_cache_button};
 pub use edit_tags_button::{edit_album_tags_button, edit_tags_button};
 pub use like_button::{LIKE_ROW_GROUP, like_button};
 pub use playlist_buttons::{add_to_playlist_button, remove_from_playlist_button};
@@ -92,6 +92,7 @@ pub struct TrackRowBase {
     pub duration: SharedString,
     pub liked: bool,
     pub available: bool,
+    pub local: bool,
 }
 
 impl TrackRowBase {
@@ -102,6 +103,7 @@ impl TrackRowBase {
             duration: fmt_duration(track.duration_ms),
             liked: track.liked,
             available: track.available,
+            local: track.local_file().is_some(),
         }
     }
 }

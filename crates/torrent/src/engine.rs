@@ -684,6 +684,12 @@ fn fetched(torrent: &ManagedTorrent) -> u64 {
         .map_or(0, |live| live.stats_snapshot().fetched_bytes)
 }
 
+fn connected(torrent: &ManagedTorrent) -> u32 {
+    torrent
+        .live()
+        .map_or(0, |live| live.stats_snapshot().peer_stats.live)
+}
+
 pub(crate) async fn patient<F: std::future::Future>(
     torrent: &ManagedTorrent,
     quiet: Duration,
@@ -703,7 +709,10 @@ pub(crate) async fn patient<F: std::future::Future>(
                     last_progress = Instant::now();
                 }
                 if last_progress.elapsed() >= quiet || started.elapsed() >= PATIENCE_CAP {
-                    return Err(Error::Timeout);
+                    return Err(match connected(torrent) {
+                        0 => Error::NoPeers,
+                        _ => Error::Timeout,
+                    });
                 }
             }
         }

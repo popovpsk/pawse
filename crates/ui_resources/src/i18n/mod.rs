@@ -95,9 +95,7 @@ pub struct Strings {
     pub library_folder_unavailable_t: SharedString,
     pub playback_failed_title: SharedString,
     pub local_folders: SharedString,
-    pub server_list: SharedString,
     pub subsonic_servers_desc: SharedString,
-    pub jellyfin_servers_desc: SharedString,
     pub server_url: SharedString,
     pub server_username: SharedString,
     pub server_password: SharedString,
@@ -105,12 +103,16 @@ pub struct Strings {
     pub server_sync: SharedString,
     pub server_import_favorites: SharedString,
     pub network_cache: SharedString,
-    pub network_cache_desc: SharedString,
     pub cache_fill: SharedString,
     pub cache_fill_progress_t: SharedString,
     pub cache_fill_too_big_title: SharedString,
     pub cache_fill_too_big_t: SharedString,
     pub cache_fill_part: SharedString,
+    pub album_to_local: SharedString,
+    pub album_to_local_progress_t: SharedString,
+    pub album_to_local_done_t: SharedString,
+    pub album_to_local_failed_t: SharedString,
+    pub album_to_local_pick_title: SharedString,
     pub cache_used: SharedString,
     pub cache_clear: SharedString,
     pub cache_limit: SharedString,
@@ -122,15 +124,12 @@ pub struct Strings {
     pub server_auth_failed: SharedString,
     pub server_unreachable_t: SharedString,
     pub server_fill_fields: SharedString,
-    pub no_servers_added: SharedString,
     pub torrents: SharedString,
     pub torrents_desc: SharedString,
-    pub torrent_list: SharedString,
     pub torrent_magnet: SharedString,
     pub torrent_add: SharedString,
     pub torrent_choose_file: SharedString,
     pub torrent_invalid: SharedString,
-    pub no_torrents_added: SharedString,
     pub torrent_upload: SharedString,
     pub torrent_upload_desc: SharedString,
     pub torrent_upload_while_active: SharedString,
@@ -243,8 +242,6 @@ pub struct Strings {
     pub albums_artist_hidden: SharedString,
     pub settings_artists_view: SharedString,
     pub artists_group_by_tag: SharedString,
-    pub music_folders: SharedString,
-    pub music_folders_desc: SharedString,
     pub no_folders_added: SharedString,
     pub reveal_folder: SharedString,
     pub remove: SharedString,
@@ -565,6 +562,18 @@ impl Strings {
 
     pub fn update_check_failed(&self, err: &str) -> String {
         fill(&self.update_check_failed_t, &[err])
+    }
+
+    pub fn album_to_local_progress(&self, done: &str, total: &str) -> String {
+        fill(&self.album_to_local_progress_t, &[done, total])
+    }
+
+    pub fn album_to_local_done(&self, path: &str) -> String {
+        fill(&self.album_to_local_done_t, &[path])
+    }
+
+    pub fn album_to_local_failed(&self, error: &str) -> String {
+        fill(&self.album_to_local_failed_t, &[error])
     }
 
     pub fn library_folder_unavailable(&self, folder: &str) -> String {

@@ -390,3 +390,25 @@ fn odd_field_types_do_not_sink_the_listing() {
     assert_eq!(songs[0].track, None);
     assert!(songs[0].artists.is_empty());
 }
+
+#[test]
+fn a_song_without_an_id_is_skipped_not_the_page() {
+    let stub = Stub::start(|_, params| {
+        if params["songOffset"] != "0" {
+            return ok(serde_json::json!({"searchResult3": {}}));
+        }
+        ok(serde_json::json!({"searchResult3": {"song": [
+            song(1),
+            {"title": "No id"},
+            song(2)
+        ]}}))
+    });
+    let ids: Vec<String> = stub
+        .client("x")
+        .songs()
+        .unwrap()
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(ids, vec!["1".to_string(), "2".to_string()]);
+}

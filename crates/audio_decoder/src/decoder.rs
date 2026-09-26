@@ -403,8 +403,12 @@ impl AudioSource for SymphoniaDecoder {
 // Combined Decoder — selects APE or Symphonia based on file extension
 // ============================================================================
 
+pub type Superseded = Box<dyn Fn() -> bool + Send + Sync>;
+
 pub trait MediaStream: Read + Seek + Send + Sync {
     fn byte_len(&self) -> Option<u64>;
+
+    fn give_up_waiting_when(&mut self, _superseded: Superseded) {}
 }
 
 struct StreamSource(Box<dyn MediaStream>);

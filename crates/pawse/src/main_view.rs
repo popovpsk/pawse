@@ -38,9 +38,8 @@ use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::scrobble_settings::{ScrobbleInputs, ScrobbleUiState};
 use crate::settings_store::{BlurBackground, SettingsStore, ui_scale};
-use crate::settings_view::{LangPickerState, SettingsSliders, ThemePickerState};
+use crate::settings_view::SettingsSliders;
 use crate::theme_colors::Colors;
-use ui_components::settings::SettingPage;
 
 const HEADER_HEIGHT: f32 = 44.;
 const FOOTER_HEIGHT: f32 = 80.;
@@ -116,12 +115,10 @@ pub struct MainView {
     _blur_interface_opacity_slider: Entity<SliderState>,
     _blur_interface_opacity_slider_observe: Subscription,
     _blur_interface_opacity_slider_subscription: Subscription,
-    settings_pages: Vec<SettingPage>,
+    settings_pages: crate::settings_view::SettingsPages,
     search_input: Entity<InputState>,
     _remote_port_input: Entity<InputState>,
     _remote_port_subscription: Subscription,
-    _theme_picker: Entity<ThemePickerState>,
-    _lang_picker: Entity<LangPickerState>,
     _scrobble_ui: Entity<ScrobbleUiState>,
     library_sources: Entity<crate::library_sources::LibrarySources>,
     settings_page_ix: usize,
@@ -147,8 +144,6 @@ pub struct MainView {
     _cover_backdrop_observe: Subscription,
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
-    _theme_picker_subscription: gpui::Subscription,
-    _lang_picker_subscription: gpui::Subscription,
     _settings_observer: gpui::Subscription,
     _lang_subscription: Subscription,
     _activation_subscription: gpui::Subscription,
@@ -175,7 +170,7 @@ impl MainView {
                     cx.notify();
                 }
                 LibraryViewEvent::OpenLibrarySettings => {
-                    this.open_settings(this.settings_pages.len().saturating_sub(1), window, cx);
+                    this.open_settings(this.settings_pages.library, window, cx);
                 }
             },
         );
@@ -219,9 +214,6 @@ impl MainView {
                 });
             },
         );
-
-        let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
-        let lang_picker: Entity<LangPickerState> = cx.new(|cx| LangPickerState::new(cx));
 
         let saved_lyrics_size = cx.global::<SettingsStore>().lyrics_font_size();
         let lyrics_slider: Entity<SliderState> = cx.new(|_| {
@@ -371,8 +363,6 @@ impl MainView {
             scrobble_status.map(|status| cx.observe(&status, |_, _, cx| cx.notify()));
 
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
-            let theme_picker = theme_picker.clone();
-            let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
             let blur_interface_opacity_slider = blur_interface_opacity_slider.clone();
@@ -381,13 +371,7 @@ impl MainView {
             let scrobble_inputs = scrobble_inputs.clone();
             let library_page = library_page.clone();
             move |this, cx| {
-                theme_picker.update(cx, |state, cx| {
-                    state.options = ThemePickerState::build_options(&*cx);
-                    cx.notify();
-                });
                 this.settings_pages = crate::settings_view::build_settings_pages(
-                    theme_picker.clone(),
-                    lang_picker.clone(),
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
@@ -403,17 +387,7 @@ impl MainView {
             }
         });
 
-        let theme_picker_subscription = cx.observe(&theme_picker, |_, _, cx| {
-            cx.notify();
-        });
-
-        let lang_picker_subscription = cx.observe(&lang_picker, |_, _, cx| {
-            cx.notify();
-        });
-
         let settings_pages = crate::settings_view::build_settings_pages(
-            theme_picker.clone(),
-            lang_picker.clone(),
             SettingsSliders {
                 lyrics: lyrics_slider.clone(),
                 blur_intensity: blur_intensity_slider.clone(),
@@ -521,8 +495,6 @@ impl MainView {
         let playlist_popup = cx.new(|cx| PlaylistPopup::new(window, cx));
 
         let settings_observer = cx.observe_global::<SettingsStore>({
-            let theme_picker = theme_picker.clone();
-            let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
             let blur_interface_opacity_slider = blur_interface_opacity_slider.clone();
@@ -536,8 +508,6 @@ impl MainView {
                     .library
                     .set_artists_grouping(grouping);
                 this.settings_pages = crate::settings_view::build_settings_pages(
-                    theme_picker.clone(),
-                    lang_picker.clone(),
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
@@ -629,8 +599,6 @@ impl MainView {
             search_input,
             _remote_port_input: remote_port_input,
             _remote_port_subscription: remote_port_subscription,
-            _theme_picker: theme_picker,
-            _lang_picker: lang_picker,
             _scrobble_ui: scrobble_ui,
             library_sources: library_sources.clone(),
             settings_page_ix: 0,
@@ -656,8 +624,6 @@ impl MainView {
             _cover_backdrop_observe: cover_backdrop_observe,
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
-            _theme_picker_subscription: theme_picker_subscription,
-            _lang_picker_subscription: lang_picker_subscription,
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
             _activation_subscription: activation_subscription,
@@ -1022,7 +988,7 @@ impl Render for MainView {
                                 div()
                                     .size_full()
                                     .child(crate::settings_view::settings_widget(
-                                        self.settings_pages.clone(),
+                                        self.settings_pages.pages.clone(),
                                         self.settings_page_ix,
                                     ))
                                     .into_any_element()

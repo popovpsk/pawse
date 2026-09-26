@@ -129,6 +129,7 @@ pub struct QueueView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
 }
 
@@ -145,13 +146,6 @@ impl QueueView {
             cx.subscribe(
                 &engine_event_bus,
                 |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { .. } => {
-                        this.refresh_tracks(cx);
-                        if this.visible {
-                            this.scroll_current_into_view();
-                        }
-                        cx.notify();
-                    }
                     EngineEvent::Playing if !this.is_playing => {
                         this.is_playing = true;
                         cx.notify();
@@ -171,6 +165,21 @@ impl QueueView {
                     _ => {}
                 },
             );
+
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, event: &crate::playback_status::StatusChanged, cx| {
+                let loading = status.read(cx).phase() != crate::playback_status::Phase::Idle;
+                if event.track_changed || loading {
+                    this.refresh_tracks(cx);
+                    if this.visible {
+                        this.scroll_current_into_view();
+                    }
+                    cx.notify();
+                }
+            },
+        );
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
@@ -217,6 +226,7 @@ impl QueueView {
             visible: false,
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             item_sizes: Rc::new(Vec::new()),
         };
