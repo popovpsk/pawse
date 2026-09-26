@@ -115,3 +115,12 @@ tags from. It knows nothing about audio, the library or the media cache.
 - **TLS** (HTTPS trackers) is `rustls` on `aws-lc-rs`, which compiles C code:
   it builds natively everywhere, but `cargo check --target
   x86_64-pc-windows-msvc` from macOS fails for lack of MSVC headers.
+
+## Audit exception
+
+`RUSTSEC-2026-0293` (ringbuf < 0.5.2: double free in `Consumer::skip` /
+`Consumer::clear` when an element's `Drop` panics) is ignored in
+`.cargo/audit.toml`. ringbuf 0.4 comes only through `librqbit-utp` 0.7, the
+latest release, which pins `^0.4.7`; 0.4 has no fixed release. Its only ring
+buffer is `SharedRb<Heap<u8>>`, and `u8` has no `Drop`, so the bug cannot
+trigger. Drop the exception once `librqbit-utp` moves to ringbuf 0.5.
