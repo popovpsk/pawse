@@ -18,6 +18,7 @@ use nucleo_matcher::{Config, Matcher};
 use ui_components::artist_avatar::artist_avatar;
 
 use crate::library_service::LibraryEvent;
+use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, no_music_message};
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
@@ -113,15 +114,11 @@ impl ArtistsView {
                         this.is_scanning = true;
                         cx.notify();
                     }
-                    LibraryEvent::ScanComplete { changed } => {
+                    LibraryEvent::ScanComplete => {
                         this.is_scanning = false;
-                        if *changed {
-                            this.reload_source(cx);
-                        }
                         cx.notify();
                     }
-                    LibraryEvent::TrackTagsChanged { .. }
-                    | LibraryEvent::AlbumTagsChanged { .. } => {
+                    LibraryEvent::CatalogChanged => {
                         this.reload_source(cx);
                         cx.notify();
                     }
@@ -238,6 +235,7 @@ impl ArtistsView {
 }
 
 impl EventEmitter<ArtistSelectedEvent> for ArtistsView {}
+impl EventEmitter<OpenLibrarySettings> for ArtistsView {}
 
 impl Render for ArtistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -253,15 +251,13 @@ impl Render for ArtistsView {
         }
 
         if self.rows.is_empty() {
-            let message = if self.artists_all.is_empty() {
-                tr().no_artists_found.clone()
-            } else {
-                tr().no_artists_match.clone()
-            };
+            if self.artists_all.is_empty() {
+                return empty_library(no_music_message(&tr().no_artists_found, cx), cx);
+            }
             return v_flex()
                 .size_full()
                 .gap_3()
-                .child(div().px_4().child(message));
+                .child(div().px_4().child(tr().no_artists_match.clone()));
         }
 
         let item_sizes = self.item_sizes.clone();

@@ -1,16 +1,19 @@
+pub mod adoption;
 pub mod album_artists;
 pub mod error;
 pub mod migrations;
 pub mod models;
+pub mod remote;
 pub mod repository;
 pub mod sqlite;
 pub mod thumbnail;
 
+pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    LyricsRef, NewTrack, Playlist, PlaylistSummary, PlaylistTrackRef, ScanLyrics, ScanTrack,
-    StoredLyrics, Track, lyrics_source,
+    LocalFolder, NewTrack, Playlist, PlaylistSummary, RemoteCover, RemoteSong, RemoteSource,
+    RemoteSyncReport, ScanLyrics, ScanTrack, SourceSummary, StoredLyrics, Track, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -21,6 +24,7 @@ pub const NO_METADATA_ARTIST_ID: i64 = -2;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn create_test_db() -> (SqliteLibrary, PathBuf) {
@@ -36,6 +40,189 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&db_path);
         (SqliteLibrary::open_at(&db_path).unwrap(), db_path)
+    }
+
+    fn fresh_db_path() -> PathBuf {
+        let (lib, path) = create_test_db();
+        drop(lib);
+        let _ = std::fs::remove_file(&path);
+        for suffix in ["-wal", "-shm", ".bak-v8"] {
+            let mut sidecar = path.as_os_str().to_owned();
+            sidecar.push(suffix);
+            let _ = std::fs::remove_file(PathBuf::from(sidecar));
+        }
+        path
+    }
+
+    fn build_v8_db(path: &PathBuf, seed: &str) {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 8) {
+            conn.execute_batch(sql).unwrap();
+            conn.pragma_update(None, "user_version", version).unwrap();
+        }
+        conn.execute_batch(seed).unwrap();
+    }
+
+    const V8_CATALOG: &str = "
+        INSERT INTO artists (id, name, sort_name) VALUES (1, 'Band', 'band');
+        INSERT INTO albums (id, title, year) VALUES (1, 'Record', 2001);
+        INSERT INTO album_artists (album_id, artist_id, position) VALUES (1, 1, 0);
+        INSERT INTO tracks
+            (id, path, title, album_id, track_number, duration_ms, start_offset_ms, liked, is_cue)
+        VALUES
+            (10, '/m/one.flac', 'One', 1, 1, 1000, 0, 1, 0),
+            (11, '/m/cue.flac', 'Cue A', 1, 2, 2000, 0, 0, 1),
+            (12, '/m/cue.flac', 'Cue B', 1, 3, 2000, 2000, 1, 1);
+        INSERT INTO track_artists (track_id, artist_id, position)
+            VALUES (10, 1, 0), (11, 1, 0), (12, 1, 0);
+    ";
+
+    fn user_version(path: &PathBuf) -> i64 {
+        count_rows(path, "SELECT user_version FROM pragma_user_version")
+    }
+
+    #[test]
+    fn migration_to_v9_keeps_every_user_row_under_the_same_id() {
+        let path = fresh_db_path();
+        build_v8_db(
+            &path,
+            &format!(
+                "{V8_CATALOG}
+                INSERT INTO playlists (id, name, created_at) VALUES (5, 'Liked', 0), (6, 'Mix', 0);
+                INSERT INTO scan_meta (key, value) VALUES ('liked_playlist_id', '5');
+                INSERT INTO playlist_tracks (playlist_id, position, track_id)
+                    VALUES (5, 0, 12), (5, 1, 10), (6, 0, 11), (6, 1, 10);
+                INSERT INTO lyrics (track_id, source, text, not_found, updated_at)
+                    VALUES (10, 'lrclib', x'00', 0, 1), (11, 'lrc', x'00', 0, 1);
+                INSERT INTO plays (id, track_id, artist, title, started_at, qualified)
+                    VALUES (100, 10, 'Band', 'One', 1000, 1), (101, NULL, 'Gone', 'Old', 900, 1);
+                INSERT INTO play_deliveries (play_id, target, state, updated_at)
+                    VALUES (100, 'lastfm', 0, 1), (101, 'lastfm', 0, 1);
+                INSERT INTO loves (id, track_id, artist, title, loved, at)
+                    VALUES (200, 12, 'Band', 'Cue B', 1, 1);
+                INSERT INTO love_deliveries (love_id, target, state, updated_at)
+                    VALUES (200, 'lastfm', 0, 1);"
+            ),
+        );
+
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+
+        assert_eq!(
+            user_version(&path),
+            migrations::MIGRATIONS.last().unwrap().0 as i64
+        );
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".bak-v8");
+        assert!(PathBuf::from(backup).exists());
+
+        let mut ids: Vec<i64> = lib.all_tracks().unwrap().iter().map(|t| t.id).collect();
+        ids.sort();
+        assert_eq!(ids, vec![10, 11, 12]);
+
+        let liked: Vec<(i64, bool)> = lib
+            .liked_tracks()
+            .unwrap()
+            .iter()
+            .map(|t| (t.id, t.liked))
+            .collect();
+        assert_eq!(liked, vec![(12, true), (10, true)]);
+        assert!(!lib.track(11).unwrap().unwrap().liked);
+
+        let mix: Vec<i64> = lib
+            .tracks_for_playlist(6)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(mix, vec![11, 10]);
+
+        for (sql, expected) in [
+            ("SELECT COUNT(*) FROM media_items", 3),
+            ("SELECT COUNT(*) FROM media_bindings WHERE source_id = 1", 3),
+            (
+                "SELECT COUNT(*) FROM lyrics WHERE track_id = 10 AND source = 'lrclib'",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM lyrics WHERE track_id = 11 AND source = 'lrc'",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM plays WHERE id = 100 AND track_id = 10",
+                1,
+            ),
+            (
+                "SELECT COUNT(*) FROM plays WHERE id = 101 AND track_id IS NULL",
+                1,
+            ),
+            ("SELECT COUNT(*) FROM play_deliveries", 2),
+            (
+                "SELECT COUNT(*) FROM loves WHERE id = 200 AND track_id = 12",
+                1,
+            ),
+            ("SELECT COUNT(*) FROM love_deliveries", 1),
+            ("SELECT COUNT(*) FROM pragma_foreign_key_check", 0),
+            (
+                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'liked'",
+                0,
+            ),
+            (
+                "SELECT COUNT(*) FROM media_items WHERE id = 12 AND title = 'Cue B' AND artist = 'Band' AND album = 'Record'",
+                1,
+            ),
+        ] {
+            assert_eq!(count_rows(&path, sql), expected, "{sql}");
+        }
+    }
+
+    #[test]
+    fn migrated_bindings_count_as_unplaced_until_a_scan_moves_them_to_real_folders() {
+        let path = fresh_db_path();
+        build_v8_db(&path, V8_CATALOG);
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+        assert!(lib.has_unplaced_media().unwrap());
+
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        assert!(lib.has_unplaced_media().unwrap());
+
+        let mut cue_b = scan_track("/m/cue.flac", "Cue B");
+        cue_b.start_offset_ms = Some(2000);
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/one.flac", "One"),
+                scan_track("/m/cue.flac", "Cue A"),
+                cue_b,
+            ],
+        );
+        assert!(!lib.has_unplaced_media().unwrap());
+        assert_eq!(lib.sources().unwrap()[0].track_count, 3);
+    }
+
+    #[test]
+    fn migration_to_v9_seeds_likes_from_the_column_when_no_liked_playlist_exists() {
+        let path = fresh_db_path();
+        build_v8_db(&path, V8_CATALOG);
+
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+
+        let liked: Vec<i64> = lib.liked_tracks().unwrap().iter().map(|t| t.id).collect();
+        assert_eq!(liked, vec![10, 12]);
+    }
+
+    #[test]
+    fn a_fresh_database_gets_no_migration_backup() {
+        let path = fresh_db_path();
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+        drop(lib);
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".bak-v8");
+        assert!(!PathBuf::from(backup).exists());
+        assert_eq!(
+            user_version(&path),
+            migrations::MIGRATIONS.last().unwrap().0 as i64
+        );
     }
 
     #[test]
@@ -1265,81 +1452,297 @@ mod tests {
         assert_eq!(ids(&lib), vec![a, b, c]);
     }
 
+    fn content_size(title: &str) -> u64 {
+        title.bytes().fold(1_000_003u64, |acc, b| {
+            acc.wrapping_mul(31).wrapping_add(b as u64)
+        }) % 1_000_000_000
+    }
+
+    fn scan_track(path: &str, title: &str) -> ScanTrack {
+        ScanTrack {
+            path: path.into(),
+            title: Some(title.into()),
+            file_size: Some(content_size(title)),
+            album_title: Some("Album".into()),
+            artist_names: vec!["Artist".into()],
+            album_artist_names: vec!["Artist".into()],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            ..Default::default()
+        }
+    }
+
+    fn scan(lib: &SqliteLibrary, tracks: Vec<ScanTrack>) {
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        for track in tracks {
+            session.add_track(track).unwrap();
+        }
+        session.finish().unwrap();
+    }
+
     #[test]
-    fn test_playlist_track_refs_survive_clear_and_rescan() {
-        // Snapshot → clear → re-insert tracks at new ids → restore: playlist
-        // contents must reappear referencing the new track ids.
+    fn a_track_knows_where_it_lives() {
+        let track = |path: &str, is_cue: bool| Track {
+            id: 1,
+            path: path.into(),
+            title: String::new(),
+            album_id: None,
+            track_number: None,
+            disc_number: 1,
+            duration_ms: None,
+            year: None,
+            cover_art_id: None,
+            start_offset_ms: 0,
+            liked: false,
+            bitrate: None,
+            is_cue,
+            available: true,
+        };
+        let file = track("/m/a.flac", false);
+        assert_eq!(file.own_file(), Some(std::path::Path::new("/m/a.flac")));
+        assert!(!file.is_remote());
+        let piece = track("/m/disc.flac", true);
+        assert!(piece.local_file().is_some());
+        assert_eq!(piece.own_file(), None);
+        let server = track(&remote::locator(3, "k", "flac"), false);
+        assert!(server.is_remote());
+        assert_eq!(server.local_file(), None);
+        assert_eq!(server.remote().map(|r| r.key), Some("k".to_string()));
+        let broken = track("pawse-source://x/k.flac", false);
+        assert!(!broken.is_remote());
+        assert_eq!(broken.local_file(), None);
+    }
+
+    fn on_album(path: &str, album: &str, artist: &str) -> ScanTrack {
+        ScanTrack {
+            album_title: Some(album.into()),
+            artist_names: vec![artist.into()],
+            album_artist_names: vec![artist.into()],
+            ..scan_track(path, &format!("{album} {path}"))
+        }
+    }
+
+    fn album_ids(lib: &SqliteLibrary) -> HashMap<String, i64> {
+        lib.albums()
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.title, a.id))
+            .collect()
+    }
+
+    fn artist_ids(lib: &SqliteLibrary) -> HashMap<String, i64> {
+        lib.artists(ArtistGrouping::TrackArtist)
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.name, a.id))
+            .collect()
+    }
+
+    #[test]
+    fn artist_names_that_differ_only_in_case_are_one_artist() {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                on_album(
+                    "/m/a.flac",
+                    "Thank You, Happy Birthday",
+                    "Cage the Elephant",
+                ),
+                on_album("/m/b.flac", "Melophobia", "Cage The Elephant"),
+                on_album("/m/c.flac", "Мегаполис", "ЗВЕРИ"),
+                on_album("/m/d.flac", "Районы-кварталы", "Звери"),
+            ],
+        );
+        let artists = artist_ids(&lib);
+        assert_eq!(artists.len(), 2);
+        let cage = artists["Cage the Elephant"];
+        assert_eq!(lib.upsert_artist("CAGE THE ELEPHANT").unwrap(), cage);
+
+        scan(
+            &lib,
+            vec![
+                on_album("/m/b.flac", "Melophobia", "Cage The Elephant"),
+                on_album(
+                    "/m/a.flac",
+                    "Thank You, Happy Birthday",
+                    "Cage the Elephant",
+                ),
+            ],
+        );
+        assert_eq!(
+            artist_ids(&lib).into_values().collect::<Vec<_>>(),
+            vec![cage]
+        );
+    }
+
+    #[test]
+    fn a_rescan_keeps_album_and_artist_ids_whatever_order_files_arrive_in() {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+            ],
+        );
+        let albums = album_ids(&lib);
+        let artists = artist_ids(&lib);
+
+        scan(
+            &lib,
+            vec![
+                on_album("/m/c.flac", "Absolution", "Placebo"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+            ],
+        );
+        let after = album_ids(&lib);
+        assert_eq!(after["Black Holes"], albums["Black Holes"]);
+        assert_eq!(after["The Slip"], albums["The Slip"]);
+        assert!(!albums.values().any(|id| *id == after["Absolution"]));
+        let artists_after = artist_ids(&lib);
+        assert_eq!(artists_after["Muse"], artists["Muse"]);
+        assert_eq!(artists_after["NIN"], artists["NIN"]);
+
+        let gone = after["Absolution"];
+        scan(
+            &lib,
+            vec![
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+            ],
+        );
+        scan(
+            &lib,
+            vec![
+                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/b.flac", "The Slip", "NIN"),
+                on_album("/m/d.flac", "Origin of Symmetry", "Muse"),
+            ],
+        );
+        assert!(album_ids(&lib)["Origin of Symmetry"] > gone);
+
+        let edited = lib.upsert_album("Edited", Some(2001), None).unwrap();
+        assert!(edited > album_ids(&lib)["Origin of Symmetry"]);
+
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+        session
+            .add_track(on_album("/m/a.flac", "Black Holes", "Muse"))
+            .unwrap();
+        session.flush().unwrap();
+        let during = lib.upsert_album("During Scan", Some(2002), None).unwrap();
+        session
+            .add_track(on_album("/m/e.flac", "Showbiz", "Muse"))
+            .unwrap();
+        session.finish().unwrap();
+        let ids = album_ids(&lib);
+        assert_eq!(ids["Black Holes"], after["Black Holes"]);
+        assert!(ids["Showbiz"] > during);
+    }
+
+    fn folders(paths: &[&str]) -> Vec<LocalFolder> {
+        paths
+            .iter()
+            .map(|path| LocalFolder {
+                path: (*path).into(),
+                available: true,
+            })
+            .collect()
+    }
+
+    fn id_of(lib: &SqliteLibrary, path: &str) -> i64 {
+        lib.all_tracks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.path == path)
+            .unwrap_or_else(|| panic!("{path} is not in the library"))
+            .id
+    }
+
+    #[test]
+    fn a_playlist_keeps_its_track_across_a_rescan_under_the_same_id() {
         let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Persistent Song", "Album", "Artist");
+        scan(&lib, vec![scan_track("/m/keep.flac", "Keep")]);
+        let track_id = id_of(&lib, "/m/keep.flac");
         let playlist_id = lib.create_playlist("Keepers").unwrap();
         lib.add_track_to_playlist(playlist_id, track_id).unwrap();
 
-        let refs = lib.playlist_track_refs().unwrap();
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].path, "/music/Persistent Song.flac");
+        scan(&lib, vec![scan_track("/m/keep.flac", "Keep")]);
 
-        lib.clear().unwrap();
-        // After clear, playlists themselves survive but membership is empty.
-        assert!(lib.tracks_for_playlist(playlist_id).unwrap().is_empty());
-
-        // Rescan: re-insert the same track. It gets a fresh id; the snapshot
-        // matches by (path, start_offset_ms) and reinstates the membership.
-        let new_track_id = seed_track(&lib, "Persistent Song", "Album", "Artist");
-        lib.restore_playlist_track_refs(&refs).unwrap();
+        assert_eq!(id_of(&lib, "/m/keep.flac"), track_id);
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
         assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].id, new_track_id);
+        assert_eq!(tracks[0].id, track_id);
+        assert!(tracks[0].available);
     }
 
     #[test]
-    fn test_restore_playlist_track_refs_skips_missing_tracks() {
-        // A track that doesn't reappear after a rescan (file deleted on disk)
-        // simply drops out of any playlists referencing it.
+    fn a_track_missing_from_a_rescan_stays_in_its_playlist_and_comes_back() {
         let (lib, _path) = create_test_db();
-        let kept_id = seed_track(&lib, "Kept", "Album", "Artist");
-        let dropped_id = seed_track(&lib, "Dropped", "Album", "Artist");
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        let kept = id_of(&lib, "/m/kept.flac");
+        let gone = id_of(&lib, "/m/gone.flac");
         let playlist_id = lib.create_playlist("Mixed").unwrap();
-        lib.add_track_to_playlist(playlist_id, kept_id).unwrap();
-        lib.add_track_to_playlist(playlist_id, dropped_id).unwrap();
+        lib.add_track_to_playlist(playlist_id, gone).unwrap();
+        lib.add_track_to_playlist(playlist_id, kept).unwrap();
 
-        let refs = lib.playlist_track_refs().unwrap();
-        lib.clear().unwrap();
-        // Only re-seed the kept track.
-        seed_track(&lib, "Kept", "Album", "Artist");
-        lib.restore_playlist_track_refs(&refs).unwrap();
+        scan(&lib, vec![scan_track("/m/kept.flac", "Kept")]);
 
         let tracks = lib.tracks_for_playlist(playlist_id).unwrap();
-        assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].title, "Kept");
+        let shape: Vec<(i64, &str, bool)> = tracks
+            .iter()
+            .map(|t| (t.id, t.title.as_str(), t.available))
+            .collect();
+        assert_eq!(shape, vec![(gone, "Gone", false), (kept, "Kept", true)]);
+        assert_eq!(tracks[0].path, "/m/gone.flac");
+        assert_eq!(tracks[0].duration_ms, Some(180_000));
+
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        assert_eq!(id_of(&lib, "/m/gone.flac"), gone);
+        assert!(
+            lib.tracks_for_playlist(playlist_id)
+                .unwrap()
+                .iter()
+                .all(|t| t.available)
+        );
     }
 
     #[test]
-    fn test_fetched_lyrics_survive_clear_and_rescan() {
-        // Network (lrclib) lyrics aren't on disk, so a rescan can't re-read
-        // them; the snapshot/restore must carry them to the new track id.
+    fn fetched_lyrics_survive_a_rescan() {
         let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Fetched", "Album", "Artist");
+        scan(&lib, vec![scan_track("/m/fetched.flac", "Fetched")]);
+        let track_id = id_of(&lib, "/m/fetched.flac");
         lib.upsert_lyrics(track_id, "la la la", "lrclib", false)
             .unwrap();
 
-        let refs = lib.lyrics_refs().unwrap();
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].source, "lrclib");
+        scan(&lib, vec![scan_track("/m/fetched.flac", "Fetched")]);
 
-        lib.clear().unwrap();
-        let new_track_id = seed_track(&lib, "Fetched", "Album", "Artist");
-        assert!(lib.lyrics_for_track(new_track_id).unwrap().is_none());
-
-        lib.restore_lyrics_refs(&refs).unwrap();
-        let restored = lib.lyrics_for_track(new_track_id).unwrap().unwrap();
-        assert_eq!(restored.text, "la la la");
-        assert_eq!(restored.source, "lrclib");
+        let kept = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        assert_eq!(kept.text, "la la la");
+        assert_eq!(kept.source, "lrclib");
     }
 
     #[test]
-    fn test_disk_lyrics_excluded_from_snapshot() {
-        // lrc/embedded lyrics are re-read from disk on rescan, so snapshotting
-        // them would risk reinstating a sidecar the user has since deleted.
+    fn clear_drops_disk_lyrics_but_keeps_fetched_ones() {
         let (lib, _path) = create_test_db();
         let lrc = seed_track(&lib, "Sidecar", "Album", "Artist");
         let embedded = seed_track(&lib, "Tagged", "Album", "Artist");
@@ -1351,30 +1754,1570 @@ mod tests {
         lib.upsert_lyrics(fetched, "from net", "lrclib", false)
             .unwrap();
 
-        let refs = lib.lyrics_refs().unwrap();
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].source, "lrclib");
+        lib.clear().unwrap();
+
+        assert!(lib.lyrics_for_track(lrc).unwrap().is_none());
+        assert!(lib.lyrics_for_track(embedded).unwrap().is_none());
+        assert_eq!(
+            lib.lyrics_for_track(fetched).unwrap().unwrap().text,
+            "from net"
+        );
     }
 
     #[test]
-    fn test_restore_lyrics_does_not_clobber_fresh_disk_lyrics() {
-        // If the rescan finds a sidecar .lrc for a track that previously had
-        // fetched lyrics, the fresh disk copy must win over the snapshot.
+    fn fresh_disk_lyrics_win_over_fetched_ones() {
         let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        scan(&lib, vec![scan_track("/m/song.flac", "Song")]);
+        let track_id = id_of(&lib, "/m/song.flac");
         lib.upsert_lyrics(track_id, "stale fetched", "lrclib", false)
             .unwrap();
-        let refs = lib.lyrics_refs().unwrap();
 
-        lib.clear().unwrap();
-        let new_track_id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.upsert_lyrics(new_track_id, "fresh from disk", "lrc", false)
-            .unwrap();
-        lib.restore_lyrics_refs(&refs).unwrap();
+        let mut with_sidecar = scan_track("/m/song.flac", "Song");
+        with_sidecar.lyrics = Some(ScanLyrics {
+            text: "fresh from disk".into(),
+            source: "lrc".into(),
+        });
+        scan(&lib, vec![with_sidecar]);
 
-        let kept = lib.lyrics_for_track(new_track_id).unwrap().unwrap();
+        let kept = lib.lyrics_for_track(track_id).unwrap().unwrap();
         assert_eq!(kept.text, "fresh from disk");
         assert_eq!(kept.source, "lrc");
+    }
+
+    #[test]
+    fn a_rescan_sweeps_items_nothing_references() {
+        let (lib, path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/liked.flac", "Liked"),
+                scan_track("/m/plain.flac", "Plain"),
+            ],
+        );
+        lib.set_liked(id_of(&lib, "/m/liked.flac"), true).unwrap();
+
+        scan(&lib, vec![]);
+
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert_eq!(liked[0].title, "Liked");
+        assert!(!liked[0].available);
+    }
+
+    #[test]
+    fn a_swept_id_is_never_handed_to_another_track() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![scan_track("/m/a.flac", "A"), scan_track("/m/b.flac", "B")],
+        );
+        let swept = id_of(&lib, "/m/b.flac");
+
+        scan(&lib, vec![scan_track("/m/a.flac", "A")]);
+        scan(
+            &lib,
+            vec![scan_track("/m/a.flac", "A"), scan_track("/m/c.flac", "C")],
+        );
+
+        assert!(id_of(&lib, "/m/c.flac") > swept);
+    }
+
+    #[test]
+    fn track_artists_map_has_no_parameter_ceiling_and_names_unavailable_tracks() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        let kept = id_of(&lib, "/m/kept.flac");
+        let gone = id_of(&lib, "/m/gone.flac");
+        lib.set_liked(gone, true).unwrap();
+        scan(&lib, vec![scan_track("/m/kept.flac", "Kept")]);
+
+        let mut ids: Vec<i64> = (1_000_000..1_040_000).collect();
+        ids.push(kept);
+        ids.push(gone);
+        let map = lib.track_artists_map(&ids).unwrap();
+
+        assert_eq!(map.get(&kept), Some(&vec!["Artist".to_string()]));
+        assert_eq!(map.get(&gone), Some(&vec!["Artist".to_string()]));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn the_guard_refuses_to_delete_an_item_that_carries_user_data() {
+        let (lib, path) = create_test_db();
+        scan(&lib, vec![scan_track("/m/liked.flac", "Liked")]);
+        let track_id = id_of(&lib, "/m/liked.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let err = conn
+            .execute("DELETE FROM media_items WHERE id = ?1", [track_id])
+            .unwrap_err();
+        assert!(err.to_string().contains("referenced by user data"));
+    }
+
+    #[test]
+    fn removing_a_folder_keeps_its_likes_and_re_adding_it_revives_them() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/a.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&[])).unwrap();
+        scan(&lib, vec![]);
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(!liked[0].available);
+
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        assert_eq!(id_of(&lib, "/music/a.flac"), track_id);
+        let liked = lib.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(liked[0].available);
+        assert!(liked[0].liked);
+    }
+
+    fn untagged(path: &str, title: &str) -> ScanTrack {
+        ScanTrack {
+            path: path.into(),
+            title: Some(title.into()),
+            file_size: Some(content_size(title)),
+            duration_ms: Some(120_000),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_moved_file_keeps_its_id_likes_and_playlist_entries() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/old/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/old/a.flac");
+        lib.set_liked(track_id, true).unwrap();
+        let playlist_id = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+
+        scan(&lib, vec![scan_track("/music/new/a.flac", "A")]);
+
+        assert_eq!(id_of(&lib, "/music/new/a.flac"), track_id);
+        let playlist = lib.tracks_for_playlist(playlist_id).unwrap();
+        assert_eq!(playlist.len(), 1);
+        assert!(playlist[0].available);
+        assert!(playlist[0].liked);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM adoptions WHERE tier = 'file'"),
+            1
+        );
+    }
+
+    #[test]
+    fn a_folder_re_added_from_a_new_mount_point_is_re_attached_by_relative_path() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/Volumes/Old"]))
+            .unwrap();
+        scan(&lib, vec![untagged("/Volumes/Old/x/01.flac", "01")]);
+        let track_id = id_of(&lib, "/Volumes/Old/x/01.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&["/Volumes/New"]))
+            .unwrap();
+        scan(&lib, vec![untagged("/Volumes/New/x/01.flac", "01")]);
+
+        assert_eq!(id_of(&lib, "/Volumes/New/x/01.flac"), track_id);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_copy_next_to_its_original_is_a_separate_track() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+
+        scan(
+            &lib,
+            vec![
+                scan_track("/music/a.flac", "A"),
+                scan_track("/music/copy/a.flac", "A"),
+            ],
+        );
+
+        assert_eq!(id_of(&lib, "/music/a.flac"), original);
+        assert_ne!(id_of(&lib, "/music/copy/a.flac"), original);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM adoptions"), 0);
+    }
+
+    #[test]
+    fn a_copy_elsewhere_joins_the_track_of_an_offline_folder_which_is_never_swept() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/one.flac", "One"),
+                scan_track("/b/two.flac", "Two"),
+                scan_track("/b/plain.flac", "Plain"),
+            ],
+        );
+        let two = id_of(&lib, "/b/two.flac");
+        let plain = id_of(&lib, "/b/plain.flac");
+        lib.set_liked(two, true).unwrap();
+
+        lib.reconcile_local_sources(&[
+            LocalFolder {
+                path: "/a".into(),
+                available: true,
+            },
+            LocalFolder {
+                path: "/b".into(),
+                available: false,
+            },
+        ])
+        .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/one.flac", "One"),
+                scan_track("/a/two-copy.flac", "Two"),
+            ],
+        );
+
+        assert_eq!(id_of(&lib, "/a/two-copy.flac"), two);
+        assert!(!lib.all_tracks().unwrap().iter().any(|t| t.id == plain));
+        assert!(lib.liked_tracks().unwrap()[0].available);
+        assert_eq!(
+            count_rows(
+                &path,
+                "SELECT COUNT(*) FROM media_bindings WHERE present = 1 AND source_key LIKE '/b/%'"
+            ),
+            2
+        );
+
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/one.flac", "One"),
+                scan_track("/a/two-copy.flac", "Two"),
+                scan_track("/b/two.flac", "Two"),
+                scan_track("/b/plain.flac", "Plain"),
+            ],
+        );
+        assert_eq!(id_of(&lib, "/a/two-copy.flac"), two);
+        assert_eq!(id_of(&lib, "/b/plain.flac"), plain);
+        assert_eq!(paths(&lib).len(), 3);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_copy_made_before_the_original_was_deleted_takes_over_its_like() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        let playlist_id = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist_id, original).unwrap();
+        let mut copy = scan_track("/music/copy/a.flac", "A");
+        copy.lyrics = Some(ScanLyrics {
+            text: "from disk".into(),
+            source: "lrc".into(),
+        });
+        scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
+        let copy_id = id_of(&lib, "/music/copy/a.flac");
+        assert_ne!(copy_id, original);
+
+        scan(&lib, vec![copy]);
+
+        assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
+        let liked = lib.liked_tracks().unwrap();
+        assert!(liked[0].available);
+        assert_eq!(liked[0].path, "/music/copy/a.flac");
+        assert!(lib.tracks_for_playlist(playlist_id).unwrap()[0].available);
+        assert_eq!(
+            lib.track_artists(original).unwrap(),
+            vec!["Artist".to_string()]
+        );
+        assert_eq!(
+            lib.lyrics_for_track(original).unwrap().unwrap().text,
+            "from disk"
+        );
+        assert_eq!(
+            count_rows(
+                &path,
+                &format!("SELECT COUNT(*) FROM media_items WHERE id = {copy_id}")
+            ),
+            0
+        );
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM pragma_foreign_key_check"),
+            0
+        );
+    }
+
+    #[test]
+    fn a_moved_file_restored_to_its_old_path_stays_in_the_library_beside_the_move() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        scan(&lib, vec![scan_track("/music/b.flac", "A")]);
+        assert_eq!(id_of(&lib, "/music/b.flac"), original);
+
+        for _ in 0..2 {
+            scan(
+                &lib,
+                vec![
+                    scan_track("/music/a.flac", "A"),
+                    scan_track("/music/b.flac", "A"),
+                ],
+            );
+            let a = id_of(&lib, "/music/a.flac");
+            let b = id_of(&lib, "/music/b.flac");
+            assert_ne!(a, b);
+            assert!(a == original || b == original);
+            assert_eq!(lib.liked_tracks().unwrap().len(), 1);
+            assert!(lib.liked_tracks().unwrap()[0].available);
+        }
+    }
+
+    #[test]
+    fn the_same_file_in_two_folders_is_one_track_whatever_happens_to_either_folder() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![scan_track("/a/y.flac", "X"), scan_track("/b/x.flac", "X")],
+        );
+        assert_eq!(paths(&lib), vec!["/a/y.flac".to_string()]);
+        let liked = id_of(&lib, "/a/y.flac");
+        lib.set_liked(liked, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&["/b"])).unwrap();
+        scan(&lib, vec![scan_track("/b/x.flac", "X")]);
+        assert_eq!(id_of(&lib, "/b/x.flac"), liked);
+
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/y.flac", "X"),
+                scan_track("/a/new.flac", "New"),
+                scan_track("/b/x.flac", "X"),
+            ],
+        );
+        assert_eq!(
+            paths(&lib),
+            vec!["/a/new.flac".to_string(), "/a/y.flac".to_string()]
+        );
+        assert_eq!(id_of(&lib, "/a/y.flac"), liked);
+        assert_eq!(lib.liked_tracks().unwrap().len(), 1);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_revived_like_keeps_its_fetched_lyrics_when_the_file_has_none() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        lib.upsert_lyrics(original, "from the net", "lrclib", false)
+            .unwrap();
+        let copy = scan_track("/music/copy/a.flac", "A");
+        scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
+        scan(
+            &lib,
+            vec![copy.clone(), scan_track("/music/new.flac", "New")],
+        );
+
+        assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
+        let lyrics = lib.lyrics_for_track(original).unwrap().unwrap();
+        assert_eq!(lyrics.text, "from the net");
+        assert_eq!(lyrics.source, "lrclib");
+    }
+
+    #[test]
+    fn sources_report_availability_and_the_tracks_each_folder_contributes() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/1.flac", "One"),
+                scan_track("/a/2.flac", "Two"),
+                scan_track("/b/3.flac", "Three"),
+            ],
+        );
+        let shape = |lib: &SqliteLibrary| -> Vec<(String, bool, bool, i64)> {
+            lib.sources()
+                .unwrap()
+                .into_iter()
+                .map(|s| (s.uri, s.enabled, s.available, s.track_count))
+                .collect()
+        };
+        assert_eq!(
+            shape(&lib),
+            vec![("/a".into(), true, true, 2), ("/b".into(), true, true, 1)]
+        );
+
+        lib.reconcile_local_sources(&[
+            LocalFolder {
+                path: "/a".into(),
+                available: true,
+            },
+            LocalFolder {
+                path: "/b".into(),
+                available: false,
+            },
+        ])
+        .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/1.flac", "One"),
+                scan_track("/a/2.flac", "Two"),
+            ],
+        );
+        assert_eq!(
+            shape(&lib),
+            vec![("/a".into(), true, true, 2), ("/b".into(), true, false, 1)]
+        );
+
+        lib.reconcile_local_sources(&folders(&["/a"])).unwrap();
+        assert!(!shape(&lib)[1].1);
+    }
+
+    fn remote_song(key: &str, title: &str) -> RemoteSong {
+        RemoteSong {
+            key: key.into(),
+            title: title.into(),
+            size: Some(content_size(title) as i64),
+            artist: Some("Artist".into()),
+            album: Some("Album".into()),
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(2020),
+            duration_ms: Some(180_000),
+            suffix: Some("flac".into()),
+            ..Default::default()
+        }
+    }
+
+    fn server(lib: &SqliteLibrary) -> i64 {
+        lib.reconcile_remote_sources(
+            "subsonic",
+            &[RemoteSource {
+                uri: "me@http://nas".into(),
+                name: "nas".into(),
+            }],
+        )
+        .unwrap();
+        lib.sources()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.kind == "subsonic")
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn a_scan_holds_the_write_lock_only_until_it_catches_up() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let other = rusqlite::Connection::open(&path).unwrap();
+        other.busy_timeout(std::time::Duration::ZERO).unwrap();
+        let can_write = || other.execute_batch("BEGIN IMMEDIATE; COMMIT").is_ok();
+
+        let mut session = lib.open_scan_session().unwrap();
+        assert!(can_write());
+        session.clear().unwrap();
+        assert!(!can_write());
+        session.flush().unwrap();
+        assert!(can_write());
+        session
+            .add_track(scan_track("/music/new.flac", "New"))
+            .unwrap();
+        assert!(can_write());
+        session.add_track(scan_track("/music/a.flac", "A")).unwrap();
+        assert!(!can_write());
+        session.flush().unwrap();
+        assert!(can_write());
+        session.finish().unwrap();
+        assert!(can_write());
+        assert_eq!(paths(&lib).len(), 2);
+    }
+
+    #[test]
+    fn a_file_listed_twice_in_one_scan_keeps_its_id_and_playlist_entry() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music", "/music/rock"]))
+            .unwrap();
+        let track = untagged("/music/rock/a.flac", "A");
+        scan(&lib, vec![track.clone(), track.clone()]);
+        let track_id = id_of(&lib, "/music/rock/a.flac");
+        let playlist_id = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+
+        for _ in 0..3 {
+            scan(&lib, vec![track.clone(), track.clone()]);
+        }
+
+        assert_eq!(id_of(&lib, "/music/rock/a.flac"), track_id);
+        assert_eq!(
+            lib.playback_locators(track_id).unwrap(),
+            vec![("/music/rock/a.flac".to_string(), 0)]
+        );
+        let playlist = lib.tracks_for_playlist(playlist_id).unwrap();
+        assert_eq!(playlist.len(), 1);
+        assert!(playlist[0].available);
+    }
+
+    #[test]
+    fn a_like_waits_for_the_scan_batch_instead_of_failing() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/a.flac");
+        let playlist_id = lib.create_playlist("Mix").unwrap();
+        let lib = std::sync::Arc::new(lib);
+        let mut session = lib.open_scan_session().unwrap();
+        session.clear().unwrap();
+
+        let writer = lib.clone();
+        let edits = std::thread::spawn(move || {
+            (
+                writer.set_liked(track_id, true).is_ok(),
+                writer.add_track_to_playlist(playlist_id, track_id).is_ok(),
+            )
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        session.flush().unwrap();
+
+        assert_eq!(edits.join().unwrap(), (true, true));
+        drop(session);
+    }
+
+    #[test]
+    fn a_migrated_file_that_never_shows_up_again_stops_counting_as_unplaced() {
+        let path = fresh_db_path();
+        build_v8_db(
+            &path,
+            &format!(
+                "{V8_CATALOG}
+                INSERT INTO tracks (id, path, title, duration_ms, start_offset_ms, liked, is_cue)
+                    VALUES (13, '/m/deleted.flac', 'Deleted', 1000, 0, 1, 0),
+                           (14, '/offline/kept.flac', 'Kept', 1000, 0, 1, 0);"
+            ),
+        );
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+        lib.reconcile_local_sources(&[online("/m"), offline("/offline")])
+            .unwrap();
+        let mut cue_b = scan_track("/m/cue.flac", "Cue B");
+        cue_b.start_offset_ms = Some(2000);
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/one.flac", "One"),
+                scan_track("/m/cue.flac", "Cue A"),
+                cue_b,
+            ],
+        );
+        assert!(lib.has_unplaced_media().unwrap());
+
+        lib.reconcile_local_sources(&[online("/m")]).unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/one.flac", "One"),
+                scan_track("/m/cue.flac", "Cue A"),
+            ],
+        );
+        assert!(!lib.has_unplaced_media().unwrap());
+        let liked: Vec<i64> = lib.liked_tracks().unwrap().iter().map(|t| t.id).collect();
+        assert!(liked.contains(&13) && liked.contains(&14));
+    }
+
+    #[test]
+    fn the_catalog_row_comes_from_the_file_in_the_first_folder_whatever_the_scan_order() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        let mut first = scan_track("/a/x.flac", "X");
+        first.year = Some(2000);
+        let mut second = scan_track("/b/x.flac", "X");
+        second.year = Some(1999);
+        second.is_cue = true;
+        second.start_offset_ms = Some(0);
+        for order in [
+            vec![first.clone(), second.clone()],
+            vec![second.clone(), first.clone()],
+        ] {
+            scan(&lib, order);
+            let tracks = lib.all_tracks().unwrap();
+            assert_eq!(tracks.len(), 1);
+            assert_eq!(tracks[0].path, "/a/x.flac");
+            assert_eq!(tracks[0].year, Some(2000));
+            assert!(!tracks[0].is_cue);
+        }
+    }
+
+    #[test]
+    fn a_file_restored_beside_its_move_splits_off_even_when_another_folder_holds_the_track() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![scan_track("/a/s.flac", "S"), scan_track("/b/s.flac", "S")],
+        );
+        let id = id_of(&lib, "/a/s.flac");
+        scan(
+            &lib,
+            vec![scan_track("/a/s.flac", "S"), scan_track("/b/s2.flac", "S")],
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/s.flac", "S"),
+                scan_track("/b/s2.flac", "S"),
+                scan_track("/b/s.flac", "S"),
+            ],
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+        assert_eq!(
+            count_rows(
+                &path,
+                &format!(
+                    "SELECT COUNT(*) FROM media_bindings b JOIN sources s ON s.id = b.source_id \
+                     WHERE b.item_id = {id} AND b.present = 1 AND s.uri = '/b'"
+                )
+            ),
+            1
+        );
+        assert_eq!(paths(&lib).len(), 2);
+    }
+
+    #[test]
+    fn a_retagged_copy_in_another_folder_joins_by_tags_when_its_size_differs() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a"])).unwrap();
+        scan(&lib, vec![scan_track("/a/x.flac", "X")]);
+        let id = id_of(&lib, "/a/x.flac");
+        lib.reconcile_local_sources(&[offline("/a"), online("/b")])
+            .unwrap();
+        let mut copy = scan_track("/b/x.flac", "X");
+        copy.file_size = Some(1);
+        copy.duration_ms = Some(181_000);
+        scan(&lib, vec![copy]);
+        assert_eq!(id_of(&lib, "/b/x.flac"), id);
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM adoptions WHERE tier = 'tags'"),
+            1
+        );
+    }
+
+    fn servers(lib: &SqliteLibrary, uris: &[&str]) -> Vec<i64> {
+        let sources: Vec<RemoteSource> = uris
+            .iter()
+            .map(|uri| RemoteSource {
+                uri: (*uri).into(),
+                name: (*uri).into(),
+            })
+            .collect();
+        lib.reconcile_remote_sources("subsonic", &sources).unwrap();
+        let mut ids: Vec<i64> = lib
+            .sources()
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.kind == "subsonic" && uris.contains(&s.uri.as_str()))
+            .map(|s| s.id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    fn offline(path: &str) -> LocalFolder {
+        LocalFolder {
+            path: path.into(),
+            available: false,
+        }
+    }
+
+    fn online(path: &str) -> LocalFolder {
+        LocalFolder {
+            path: path.into(),
+            available: true,
+        }
+    }
+
+    #[test]
+    fn a_folder_renamed_on_disk_and_added_again_while_the_old_path_stays_configured_keeps_everything()
+     {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        let before = vec![
+            scan_track("/music/x/a.flac", "A"),
+            scan_track("/music/x/b.flac", "B"),
+            scan_track("/music/x/c.flac", "C"),
+            untagged("/music/loose/01.flac", "01"),
+        ];
+        scan(&lib, before);
+        let a = id_of(&lib, "/music/x/a.flac");
+        let b = id_of(&lib, "/music/x/b.flac");
+        let c = id_of(&lib, "/music/x/c.flac");
+        let loose = id_of(&lib, "/music/loose/01.flac");
+        lib.set_liked(a, true).unwrap();
+        lib.set_liked(loose, true).unwrap();
+        let playlist = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist, b).unwrap();
+
+        lib.reconcile_local_sources(&[offline("/music"), online("/music 2")])
+            .unwrap();
+        let after = vec![
+            scan_track("/music 2/x/a.flac", "A"),
+            scan_track("/music 2/x/b.flac", "B"),
+            scan_track("/music 2/x/c.flac", "C"),
+            untagged("/music 2/loose/01.flac", "01"),
+        ];
+        scan(&lib, after.clone());
+
+        assert_eq!(id_of(&lib, "/music 2/x/a.flac"), a);
+        assert_eq!(id_of(&lib, "/music 2/x/b.flac"), b);
+        assert_eq!(id_of(&lib, "/music 2/x/c.flac"), c);
+        assert_eq!(id_of(&lib, "/music 2/loose/01.flac"), loose);
+        assert_eq!(paths(&lib).len(), 4);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 4);
+        assert!(lib.liked_tracks().unwrap().iter().all(|t| t.available));
+        assert!(lib.tracks_for_playlist(playlist).unwrap()[0].available);
+
+        lib.reconcile_local_sources(&folders(&["/music 2"]))
+            .unwrap();
+        scan(&lib, after);
+        assert_eq!(paths(&lib).len(), 4);
+        assert_eq!(id_of(&lib, "/music 2/x/a.flac"), a);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 4);
+    }
+
+    #[test]
+    fn folders_added_together_to_an_existing_library_all_join_the_same_track() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a"])).unwrap();
+        scan(&lib, vec![scan_track("/a/x.flac", "X")]);
+        let x = id_of(&lib, "/a/x.flac");
+
+        lib.reconcile_local_sources(&folders(&["/a", "/b", "/c"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/x.flac", "X"),
+                scan_track("/b/x.flac", "X"),
+                scan_track("/c/copy of x.flac", "X"),
+            ],
+        );
+        assert_eq!(paths(&lib), vec!["/a/x.flac".to_string()]);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        assert_eq!(
+            count_rows(
+                &path,
+                &format!("SELECT COUNT(*) FROM media_bindings WHERE item_id = {x} AND present = 1")
+            ),
+            3
+        );
+
+        lib.reconcile_local_sources(&[offline("/a"), online("/b"), online("/c")])
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/b/x.flac", "X"),
+                scan_track("/c/copy of x.flac", "X"),
+            ],
+        );
+        assert_eq!(paths(&lib), vec!["/b/x.flac".to_string()]);
+        assert_eq!(id_of(&lib, "/b/x.flac"), x);
+    }
+
+    #[test]
+    fn copies_inside_one_folder_stay_separate_tracks() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/x.flac", "X"),
+                scan_track("/a/x copy.flac", "X"),
+                scan_track("/b/x.flac", "X"),
+            ],
+        );
+        assert_eq!(paths(&lib).len(), 2);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+        scan(
+            &lib,
+            vec![
+                scan_track("/a/x.flac", "X"),
+                scan_track("/a/x copy.flac", "X"),
+                scan_track("/b/x.flac", "X"),
+            ],
+        );
+        assert_eq!(paths(&lib).len(), 2);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+    }
+
+    #[test]
+    fn cue_tracks_of_one_image_in_two_folders_join_track_by_track() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        let cue = |root: &str, offset: u64, title: &str| {
+            let mut track = untagged(&format!("{root}/image.ape"), title);
+            track.start_offset_ms = Some(offset);
+            track.is_cue = true;
+            track.file_size = Some(777_000);
+            track.duration_ms = Some(if offset == 0 { 60_000 } else { 90_000 });
+            track
+        };
+        scan(
+            &lib,
+            vec![
+                cue("/a", 0, "One"),
+                cue("/a", 60_000, "Two"),
+                cue("/b", 0, "Uno"),
+                cue("/b", 60_000, "Dos"),
+            ],
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+        assert_eq!(paths(&lib).len(), 2);
+    }
+
+    fn id_of_title(lib: &SqliteLibrary, title: &str) -> i64 {
+        lib.all_tracks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.title == title)
+            .unwrap_or_else(|| panic!("{title} is not in the library"))
+            .id
+    }
+
+    #[test]
+    fn a_server_that_splits_cues_joins_each_local_cue_track_by_tags_not_by_the_image_size() {
+        for server_first in [false, true] {
+            let (lib, path) = create_test_db();
+            let source = server(&lib);
+            let cue = |offset: u64, title: &str, duration_ms: u64| {
+                let mut track = scan_track("/music/image.flac", title);
+                track.start_offset_ms = Some(offset);
+                track.is_cue = true;
+                track.file_size = Some(900_000);
+                track.duration_ms = Some(duration_ms);
+                track
+            };
+            let tracks = vec![
+                cue(0, "One", 241_300),
+                cue(241_300, "Two", 200_000),
+                cue(441_300, "Three", 242_000),
+            ];
+            let song = |key: &str, title: &str, duration_ms: i64| {
+                let mut song = remote_song(key, title);
+                song.size = Some(900_000);
+                song.duration_ms = Some(duration_ms);
+                song
+            };
+            let songs = vec![
+                song("one", "One", 240_000),
+                song("two", "Two", 200_000),
+                song("three", "Three", 241_000),
+            ];
+            if server_first {
+                lib.apply_remote_listing(source, &songs, &[]).unwrap();
+                scan(&lib, vec![]);
+                lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+                scan(&lib, tracks);
+            } else {
+                lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+                scan(&lib, tracks.clone());
+                lib.apply_remote_listing(source, &songs, &[]).unwrap();
+                scan(&lib, tracks);
+            }
+            assert_eq!(
+                count_rows(&path, "SELECT COUNT(*) FROM media_items"),
+                3,
+                "server first: {server_first}"
+            );
+            for (key, title) in [("one", "One"), ("two", "Two"), ("three", "Three")] {
+                assert_eq!(
+                    lib.items_for_remote_keys(source, &[key.into()]).unwrap(),
+                    vec![id_of_title(&lib, title)],
+                    "{key}, server first: {server_first}"
+                );
+            }
+        }
+    }
+
+    fn remote_cue(key: &str, offset: i64, title: &str) -> RemoteSong {
+        let mut song = remote_song(key, title);
+        song.size = Some(777_000);
+        song.duration_ms = Some(60_000);
+        song.start_offset_ms = Some(offset);
+        song
+    }
+
+    #[test]
+    fn remote_file_sizes_are_per_file_even_for_cue_pieces() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let mut solo = remote_song("solo", "Solo");
+        solo.size = Some(42);
+        lib.apply_remote_listing(
+            source,
+            &[
+                remote_cue("img", 0, "One"),
+                remote_cue("img", 60_000, "Two"),
+                solo,
+            ],
+            &[],
+        )
+        .unwrap();
+        let sizes = lib
+            .remote_file_sizes(source, &["img".into(), "solo".into(), "gone".into()])
+            .unwrap();
+        assert_eq!(sizes.len(), 2);
+        assert_eq!(sizes["img"], 777_000);
+        assert_eq!(sizes["solo"], 42);
+    }
+
+    #[test]
+    fn cue_pieces_of_one_server_file_are_tracks_at_their_offsets() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let songs = vec![
+            remote_cue("img", 0, "One"),
+            remote_cue("img", 60_000, "Two"),
+            remote_song("solo", "Solo"),
+        ];
+        let first = lib.apply_remote_listing(source, &songs, &[]).unwrap();
+        assert_eq!((first.total, first.added), (3, 3));
+        scan(&lib, vec![]);
+        let mut tracks: Vec<(String, String, i32)> = lib
+            .all_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|t| (t.title, t.path, t.start_offset_ms))
+            .collect();
+        tracks.sort();
+        let image = remote::locator(source, "img", "flac");
+        assert_eq!(
+            tracks,
+            vec![
+                ("One".to_string(), image.clone(), 0),
+                (
+                    "Solo".to_string(),
+                    remote::locator(source, "solo", "flac"),
+                    0
+                ),
+                ("Two".to_string(), image, 60_000),
+            ]
+        );
+        let again = lib.apply_remote_listing(source, &songs, &[]).unwrap();
+        assert_eq!((again.added, again.updated, again.retired), (0, 0, 0));
+        let fewer = lib.apply_remote_listing(source, &songs[..1], &[]).unwrap();
+        assert_eq!(fewer.retired, 2);
+    }
+
+    #[test]
+    fn a_server_cue_piece_joins_the_local_cue_track_of_the_same_image() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        let cue = |offset: u64, title: &str| {
+            let mut track = untagged("/music/image.flac", title);
+            track.start_offset_ms = Some(offset);
+            track.is_cue = true;
+            track.file_size = Some(777_000);
+            track.duration_ms = Some(60_000);
+            track
+        };
+        scan(&lib, vec![cue(0, "One"), cue(60_000, "Two")]);
+        let local: Vec<i64> = ["One", "Two"]
+            .iter()
+            .map(|title| id_of_title(&lib, title))
+            .collect();
+        let source = server(&lib);
+        let report = lib
+            .apply_remote_listing(
+                source,
+                &[
+                    remote_cue("img", 0, "Track 01"),
+                    remote_cue("img", 60_000, "Track 02"),
+                ],
+                &[],
+            )
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (0, 2));
+        let mut adopted = lib.items_for_remote_keys(source, &["img".into()]).unwrap();
+        adopted.sort();
+        assert_eq!(adopted, local);
+    }
+
+    #[test]
+    fn a_server_copy_of_a_local_cue_image_stays_out_of_the_catalog_while_the_folder_is_there() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        let cue = |offset: u64, title: &str| {
+            let mut track = scan_track("/music/image.flac", title);
+            track.start_offset_ms = Some(offset);
+            track.is_cue = true;
+            track.file_size = Some(777_000);
+            track.duration_ms = Some(60_000);
+            track
+        };
+        let tracks = vec![cue(0, "One"), cue(60_000, "Two")];
+        scan(&lib, tracks.clone());
+        let source = server(&lib);
+        let mut image = remote_song("img", "Image");
+        image.size = Some(777_000);
+        image.duration_ms = Some(120_000);
+        let mut split = remote_song("two", "Two");
+        split.size = Some(777_000);
+        split.duration_ms = Some(60_000);
+        lib.apply_remote_listing(source, &[image, split], &[])
+            .unwrap();
+        scan(&lib, tracks);
+        assert_eq!(
+            paths(&lib),
+            vec!["/music/image.flac".to_string(), "/music/image.flac".into()]
+        );
+        assert_eq!(
+            lib.items_for_remote_keys(source, &["two".into()]).unwrap(),
+            vec![id_of_title(&lib, "Two")]
+        );
+
+        lib.reconcile_local_sources(&[LocalFolder {
+            path: "/music".into(),
+            available: false,
+        }])
+        .unwrap();
+        scan(&lib, vec![]);
+        let mut offline = paths(&lib);
+        offline.sort();
+        assert_eq!(
+            offline,
+            vec![
+                remote::locator(source, "img", "flac"),
+                remote::locator(source, "two", "flac")
+            ]
+        );
+
+        lib.reconcile_local_sources(&folders(&[])).unwrap();
+        scan(&lib, vec![]);
+        let mut remaining = paths(&lib);
+        remaining.sort();
+        assert_eq!(
+            remaining,
+            vec![
+                remote::locator(source, "img", "flac"),
+                remote::locator(source, "two", "flac")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_local_file_and_its_server_copy_are_one_track_in_either_order_even_untagged() {
+        for server_first in [false, true] {
+            let (lib, path) = create_test_db();
+            let source = server(&lib);
+            let mut song = remote_song("s1", "01");
+            song.artist = None;
+            song.album = None;
+            song.duration_ms = Some(120_000);
+            let local = untagged("/music/01.flac", "01");
+            if server_first {
+                lib.apply_remote_listing(source, std::slice::from_ref(&song), &[])
+                    .unwrap();
+                scan(&lib, vec![]);
+                lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+                scan(&lib, vec![local]);
+            } else {
+                lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+                scan(&lib, vec![local.clone()]);
+                lib.apply_remote_listing(source, std::slice::from_ref(&song), &[])
+                    .unwrap();
+                scan(&lib, vec![local]);
+            }
+            assert_eq!(
+                paths(&lib),
+                vec!["/music/01.flac".to_string()],
+                "server first: {server_first}"
+            );
+            assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        }
+    }
+
+    #[test]
+    fn servers_of_different_kinds_share_an_item_and_rank_by_source_id() {
+        let (lib, path) = create_test_db();
+        let source = |kind: &str| RemoteSource {
+            uri: format!("me@http://{kind}"),
+            name: kind.into(),
+        };
+        lib.reconcile_remote_sources("jellyfin", &[source("jellyfin")])
+            .unwrap();
+        lib.reconcile_remote_sources("subsonic", &[source("subsonic")])
+            .unwrap();
+        let id_of_kind = |kind: &str| {
+            lib.sources()
+                .unwrap()
+                .into_iter()
+                .find(|s| s.kind == kind)
+                .unwrap()
+                .id
+        };
+        let (jellyfin, subsonic) = (id_of_kind("jellyfin"), id_of_kind("subsonic"));
+        assert!(jellyfin < subsonic);
+
+        lib.apply_remote_listing(subsonic, &[remote_song("s1", "A")], &[])
+            .unwrap();
+        let report = lib
+            .apply_remote_listing(jellyfin, &[remote_song("j1", "A")], &[])
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (0, 1));
+        scan(&lib, vec![]);
+        let from_jellyfin = remote::locator(jellyfin, "j1", "flac");
+        let from_subsonic = remote::locator(subsonic, "s1", "flac");
+        assert_eq!(paths(&lib), vec![from_jellyfin.clone()]);
+        let item = id_of(&lib, &from_jellyfin);
+        assert_eq!(
+            lib.playback_locators(item).unwrap(),
+            vec![(from_jellyfin, 0), (from_subsonic.clone(), 0)]
+        );
+
+        lib.reconcile_remote_sources("jellyfin", &[]).unwrap();
+        assert!(
+            lib.sources()
+                .unwrap()
+                .into_iter()
+                .any(|s| s.kind == "subsonic" && s.enabled)
+        );
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![from_subsonic.clone()]);
+        assert_eq!(id_of(&lib, &from_subsonic), item);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+    }
+
+    #[test]
+    fn a_second_server_joins_the_tracks_of_a_first_one_that_is_offline() {
+        let (lib, path) = create_test_db();
+        let ids = servers(&lib, &["me@http://one", "me@http://two"]);
+        let (one, two) = (ids[0], ids[1]);
+        lib.apply_remote_listing(one, &[remote_song("a1", "A")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let a = id_of(&lib, &remote::locator(one, "a1", "flac"));
+        lib.set_liked(a, true).unwrap();
+
+        lib.set_source_available(one, false).unwrap();
+        let report = lib
+            .apply_remote_listing(two, &[remote_song("b7", "A")], &[])
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (0, 1));
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![remote::locator(two, "b7", "flac")]);
+        assert_eq!(id_of(&lib, &remote::locator(two, "b7", "flac")), a);
+
+        lib.set_source_available(one, true).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![remote::locator(one, "a1", "flac")]);
+        assert_eq!(
+            lib.playback_locators(a).unwrap(),
+            vec![
+                (remote::locator(one, "a1", "flac"), 0),
+                (remote::locator(two, "b7", "flac"), 0)
+            ]
+        );
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+    }
+
+    #[test]
+    fn a_liked_track_whose_file_is_gone_takes_over_a_differently_tagged_server_copy() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let liked = id_of(&lib, "/music/a.flac");
+        lib.set_liked(liked, true).unwrap();
+        let source = server(&lib);
+        let mut transcoded = remote_song("s1", "A");
+        transcoded.album = Some("Album (Deluxe)".into());
+        transcoded.size = Some(1);
+        transcoded.duration_ms = Some(181_000);
+        lib.apply_remote_listing(source, &[transcoded], &[])
+            .unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        assert_eq!(paths(&lib).len(), 2);
+
+        scan(&lib, vec![]);
+
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "s1", "flac")), liked);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+    }
+
+    #[test]
+    fn removing_a_folder_hands_its_liked_track_to_a_copy_in_another_folder() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        let mut other = scan_track("/b/a.mp3", "A");
+        other.album_title = Some("Best Of".into());
+        other.file_size = Some(1);
+        scan(&lib, vec![scan_track("/a/a.flac", "A"), other.clone()]);
+        let liked = id_of(&lib, "/a/a.flac");
+        lib.set_liked(liked, true).unwrap();
+        assert_eq!(paths(&lib).len(), 2);
+
+        lib.reconcile_local_sources(&folders(&["/b"])).unwrap();
+        scan(&lib, vec![other]);
+
+        assert_eq!(id_of(&lib, "/b/a.mp3"), liked);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn an_offline_track_is_not_merged_with_another_recording_on_title_alone() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/a", "/b"]))
+            .unwrap();
+        scan(&lib, vec![scan_track("/a/a.flac", "A")]);
+        let liked = id_of(&lib, "/a/a.flac");
+        lib.set_liked(liked, true).unwrap();
+
+        lib.reconcile_local_sources(&[offline("/a"), online("/b")])
+            .unwrap();
+        let mut live = scan_track("/b/a-live.flac", "A");
+        live.album_title = Some("Live".into());
+        live.file_size = Some(1);
+        scan(&lib, vec![live]);
+
+        assert_ne!(id_of(&lib, "/b/a-live.flac"), liked);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+    }
+
+    fn paths(lib: &SqliteLibrary) -> Vec<String> {
+        let mut paths: Vec<String> = lib
+            .all_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.path)
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn server_songs_join_the_catalog_and_hide_while_the_server_is_away() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("s1", "Remote")], &[])
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (1, 0));
+        scan(&lib, vec![]);
+        let locator = remote::locator(source, "s1", "flac");
+        assert_eq!(paths(&lib), vec![locator.clone()]);
+        let track_id = id_of(&lib, &locator);
+        lib.set_liked(track_id, true).unwrap();
+
+        lib.set_source_available(source, false).unwrap();
+        scan(&lib, vec![]);
+        assert!(paths(&lib).is_empty());
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+
+        lib.set_source_available(source, true).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(id_of(&lib, &locator), track_id);
+        assert_eq!(
+            lib.items_for_remote_keys(source, &["s1".into()]).unwrap(),
+            vec![track_id]
+        );
+    }
+
+    #[test]
+    fn a_server_copy_of_a_local_file_is_one_track_not_two() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+        let local = id_of(&lib, "/music/x/a.flac");
+        let source = server(&lib);
+
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("s1", "A")], &[])
+            .unwrap();
+        assert_eq!((report.added, report.adopted), (0, 1));
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+
+        assert_eq!(paths(&lib), vec!["/music/x/a.flac".to_string()]);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 1);
+        assert_eq!(
+            lib.items_for_remote_keys(source, &["s1".into()]).unwrap(),
+            vec![local]
+        );
+
+        lib.reconcile_local_sources(&folders(&[])).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "s1", "flac")), local);
+    }
+
+    #[test]
+    fn playback_locators_list_the_local_copy_first_and_skip_offline_sources() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+        let id = id_of(&lib, "/music/x/a.flac");
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A")], &[])
+            .unwrap();
+
+        let remote = remote::locator(source, "s1", "flac");
+        assert_eq!(
+            lib.playback_locators(id).unwrap(),
+            vec![("/music/x/a.flac".to_string(), 0), (remote.clone(), 0)]
+        );
+        lib.set_source_available(source, false).unwrap();
+        assert_eq!(
+            lib.playback_locators(id).unwrap(),
+            vec![("/music/x/a.flac".to_string(), 0)]
+        );
+        lib.set_source_available(source, true).unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(lib.playback_locators(id).unwrap(), vec![(remote, 0)]);
+    }
+
+    #[test]
+    fn a_local_file_joins_the_server_track_it_copies() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let remote_id = id_of(&lib, &remote::locator(source, "s1", "flac"));
+        lib.set_liked(remote_id, true).unwrap();
+
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/elsewhere/a.flac", "A")]);
+
+        assert_eq!(paths(&lib), vec!["/music/elsewhere/a.flac".to_string()]);
+        assert_eq!(id_of(&lib, "/music/elsewhere/a.flac"), remote_id);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_song_dropped_from_the_server_listing_is_retired_but_keeps_its_like() {
+        let (lib, path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(
+            source,
+            &[
+                remote_song("s1", "Keep"),
+                remote_song("s2", "Gone"),
+                remote_song("s3", "Plain"),
+            ],
+            &[],
+        )
+        .unwrap();
+        scan(&lib, vec![]);
+        let gone = id_of(&lib, &remote::locator(source, "s2", "flac"));
+        lib.set_liked(gone, true).unwrap();
+
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("s1", "Keep")], &[])
+            .unwrap();
+        assert_eq!(report.retired, 2);
+        scan(&lib, vec![]);
+
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
+
+        lib.apply_remote_listing(
+            source,
+            &[remote_song("s1", "Keep"), remote_song("s2", "Gone")],
+            &[],
+        )
+        .unwrap();
+        scan(&lib, vec![]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "s2", "flac")), gone);
+    }
+
+    #[test]
+    fn an_empty_listing_changes_nothing_while_the_server_had_songs() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A")], &[])
+            .unwrap();
+        assert!(lib.apply_remote_listing(source, &[], &[]).is_err());
+        scan(&lib, vec![]);
+        assert_eq!(paths(&lib), vec![remote::locator(source, "s1", "flac")]);
+    }
+
+    #[test]
+    fn a_song_renamed_on_the_server_keeps_its_like() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("old-id", "A")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let id = id_of(&lib, &remote::locator(source, "old-id", "flac"));
+        lib.set_liked(id, true).unwrap();
+
+        let report = lib
+            .apply_remote_listing(source, &[remote_song("new-id", "A")], &[])
+            .unwrap();
+        assert_eq!((report.adopted, report.retired), (1, 1));
+        scan(&lib, vec![]);
+        assert_eq!(id_of(&lib, &remote::locator(source, "new-id", "flac")), id);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_repeated_listing_reports_no_change() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let songs = [remote_song("s1", "A")];
+        assert!(
+            lib.apply_remote_listing(source, &songs, &[])
+                .unwrap()
+                .changed()
+        );
+        assert!(
+            !lib.apply_remote_listing(source, &songs, &[])
+                .unwrap()
+                .changed()
+        );
+        let mut retagged = songs.clone();
+        retagged[0].title = "A (Remastered)".into();
+        assert!(
+            lib.apply_remote_listing(source, &retagged, &[])
+                .unwrap()
+                .changed()
+        );
+    }
+
+    #[test]
+    fn a_server_song_does_not_claim_a_different_live_recording_by_title() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/studio/a.flac", "A")]);
+        let source = server(&lib);
+        let mut live = remote_song("s1", "A");
+        live.album = Some("Live at Somewhere".into());
+        live.duration_ms = Some(181_000);
+        live.size = Some(1);
+        let report = lib.apply_remote_listing(source, &[live], &[]).unwrap();
+        assert_eq!((report.added, report.adopted), (1, 0));
+        scan(&lib, vec![scan_track("/music/studio/a.flac", "A")]);
+        assert_eq!(paths(&lib).len(), 2);
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM media_items"), 2);
+    }
+
+    #[test]
+    fn server_covers_arrive_with_the_listing() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let jpeg = make_test_jpeg(&[1, 2, 3]);
+        let thumbs = crate::thumbnail::generate_thumbnails(&jpeg).unwrap();
+        let hash = sha256_hex(&jpeg);
+        let mut song = remote_song("s1", "A");
+        song.cover_hash = Some(hash.clone());
+        lib.apply_remote_listing(
+            source,
+            &[song],
+            &[RemoteCover {
+                hash: hash.clone(),
+                small: thumbs.small,
+                large: thumbs.large,
+                source_path: "subsonic-cover://1/c".into(),
+            }],
+        )
+        .unwrap();
+        scan(&lib, vec![]);
+        lib.delete_orphaned_albums_and_artists().unwrap();
+        assert!(lib.all_tracks().unwrap()[0].cover_art_id.is_some());
+    }
+
+    #[test]
+    fn removing_the_server_hides_its_tracks_and_keeps_user_data() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        lib.apply_remote_listing(source, &[remote_song("s1", "A")], &[])
+            .unwrap();
+        scan(&lib, vec![]);
+        let id = id_of(&lib, &remote::locator(source, "s1", "flac"));
+        let playlist = lib.create_playlist("Mix").unwrap();
+        lib.add_track_to_playlist(playlist, id).unwrap();
+
+        lib.reconcile_remote_sources("subsonic", &[]).unwrap();
+        scan(&lib, vec![]);
+        assert!(paths(&lib).is_empty());
+        assert!(!lib.tracks_for_playlist(playlist).unwrap()[0].available);
+
+        server(&lib);
+        scan(&lib, vec![]);
+        assert!(lib.tracks_for_playlist(playlist).unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_like_moves_to_its_copy_on_the_scan_where_the_original_disappears() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        let copy = scan_track("/music/copy/a.flac", "A");
+        scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
+        assert_ne!(id_of(&lib, "/music/copy/a.flac"), original);
+
+        scan(&lib, vec![copy]);
+
+        assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_deleted_file_is_adopted_by_its_retagged_replacement_only_within_tolerance() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let track_id = id_of(&lib, "/music/a.flac");
+        lib.set_liked(track_id, true).unwrap();
+
+        let mut other_length = scan_track("/music/a-live.flac", "A");
+        other_length.album_title = Some("Live".into());
+        other_length.duration_ms = Some(240_000);
+        scan(&lib, vec![other_length]);
+
+        assert_ne!(id_of(&lib, "/music/a-live.flac"), track_id);
+        assert!(!lib.liked_tracks().unwrap()[0].available);
     }
 
     #[test]
@@ -1405,6 +3348,7 @@ mod tests {
                 start_offset_ms: None,
                 bitrate: None,
                 lyrics: None,
+                file_size: None,
             })
             .unwrap();
         session
@@ -1549,6 +3493,7 @@ mod tests {
                 start_offset_ms: None,
                 bitrate: None,
                 lyrics: None,
+                file_size: None,
             })
             .unwrap();
         session.finish().unwrap();
@@ -1582,6 +3527,7 @@ mod tests {
                     start_offset_ms: None,
                     bitrate: None,
                     lyrics: None,
+                    file_size: None,
                 })
                 .unwrap();
         }
@@ -1617,6 +3563,7 @@ mod tests {
                     text: "[00:01.00] hello\n[00:02.00] world".into(),
                     source: "lrclib".into(),
                 }),
+                file_size: None,
             })
             .unwrap();
         session.finish().unwrap();
@@ -1654,6 +3601,7 @@ mod tests {
                     text: "to be wiped".into(),
                     source: "embedded".into(),
                 }),
+                file_size: None,
             })
             .unwrap();
         session.finish().unwrap();
@@ -1895,6 +3843,7 @@ mod tests {
                 start_offset_ms: Some(5000),
                 bitrate: None,
                 lyrics: None,
+                file_size: None,
             })
             .unwrap();
         session.finish().unwrap();
@@ -2681,7 +4630,7 @@ mod tests {
         assert_eq!(
             count_rows(
                 &path,
-                "SELECT COUNT(*) FROM plays WHERE track_id IS NULL AND artist = 'Tool'"
+                &format!("SELECT COUNT(*) FROM plays WHERE track_id = {track} AND artist = 'Tool'")
             ),
             1
         );

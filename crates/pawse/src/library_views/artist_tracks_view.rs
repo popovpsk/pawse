@@ -102,7 +102,11 @@ pub struct ArtistTracksView {
     album_menu: Option<AlbumMenu>,
     partial_albums: HashSet<i64>,
     show_full_albums: bool,
+    missing_in_cache: bool,
+    fills_seen: u64,
+    _fill_subscription: Subscription,
     _engine_subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
 }
@@ -143,18 +147,6 @@ impl ArtistTracksView {
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
             |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => {
-                    let id = cx
-                        .global::<Services>()
-                        .playback_queue
-                        .borrow()
-                        .current_track()
-                        .map(|t| t.id);
-                    if this.current_track_id != id {
-                        this.current_track_id = id;
-                        cx.notify();
-                    }
-                }
                 EngineEvent::Playing if !this.is_playing => {
                     this.is_playing = true;
                     cx.notify();
@@ -168,6 +160,18 @@ impl ArtistTracksView {
                     cx.notify();
                 }
                 _ => {}
+            },
+        );
+
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, _: &crate::playback_status::StatusChanged, cx| {
+                let id = status.read(cx).track_id();
+                if this.current_track_id != id {
+                    this.current_track_id = id;
+                    cx.notify();
+                }
             },
         );
 
@@ -202,6 +206,21 @@ impl ArtistTracksView {
             cx.notify();
         });
 
+        let fill = cx.global::<Services>().cache_fill.clone();
+        let fills_seen = fill.read(cx).revision();
+        let fill_subscription = cx.observe(&fill, |this, fill, cx| {
+            let finished = fill.read(cx).revision();
+            if finished != this.fills_seen {
+                this.fills_seen = finished;
+                this.refresh_missing_in_cache(cx);
+            }
+            cx.notify();
+        });
+        let missing_in_cache = crate::cache_fill::has_missing(
+            tracks_all.iter().map(|t| &**t),
+            &cx.global::<Services>().remote_media,
+        );
+
         let scroll_handle = VirtualListScrollHandle::new();
         if let Some(track_id) = current_track_id
             && let Some(item_ix) = items.iter().position(|item| {
@@ -228,7 +247,11 @@ impl ArtistTracksView {
             album_menu: None,
             partial_albums,
             show_full_albums: false,
+            missing_in_cache,
+            fills_seen,
+            _fill_subscription: fill_subscription,
             _engine_subscription: engine_subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
         }
@@ -404,7 +427,15 @@ impl ArtistTracksView {
             self.tracks_all = artist_tracks;
         }
         self.album_menu = None;
+        self.refresh_missing_in_cache(cx);
         self.recompute_groups(cx);
+    }
+
+    fn refresh_missing_in_cache(&mut self, cx: &App) {
+        self.missing_in_cache = crate::cache_fill::has_missing(
+            self.tracks_all.iter().map(|t| &**t),
+            &cx.global::<Services>().remote_media,
+        );
     }
 
     fn header_name(&self) -> SharedString {
@@ -835,7 +866,7 @@ fn artist_track_row(
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(track.base.title.clone()),
         )
-        .when(p.tag_editor_enabled, |el| {
+        .when(p.tag_editor_enabled && track.base.local, |el| {
             el.child(crate::track_list::edit_tags_button(
                 track_for_queue.clone(),
                 &p.buttons,
@@ -867,6 +898,29 @@ fn artist_header(
     muted_fg: Hsla,
     cx: &mut Context<ArtistTracksView>,
 ) -> gpui::AnyElement {
+    let target = crate::cache_fill::FillTarget::Artist(view.artist_id);
+    let progress = cx.global::<Services>().cache_fill.read(cx).progress(target);
+    let save_button = (view.missing_in_cache || progress.is_some()).then(|| {
+        let view_handle = cx.entity().downgrade();
+        crate::track_list::save_to_cache_button(
+            gpui::ElementId::NamedInteger("save-artist-to-cache".into(), view.artist_id as u64),
+            progress,
+            32.,
+            20.,
+            cx,
+            move |window, cx| {
+                let Ok(tracks) = view_handle.read_with(cx, |view, _| {
+                    view.tracks_all
+                        .iter()
+                        .map(|t| (**t).clone())
+                        .collect::<Vec<_>>()
+                }) else {
+                    return;
+                };
+                crate::cache_fill::request(target, tracks, window, cx);
+            },
+        )
+    });
     let title = div()
         .flex_1()
         .min_w(px(0.))
@@ -883,6 +937,7 @@ fn artist_header(
         .gap_3()
         .items_center()
         .child(title)
+        .when_some(save_button, |el, button| el.child(button))
         .when(!view.partial_albums.is_empty(), |el| {
             let on = view.show_full_albums;
             let primary = Colors::primary(cx);

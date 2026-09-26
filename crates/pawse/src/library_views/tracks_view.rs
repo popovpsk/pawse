@@ -72,6 +72,7 @@ pub struct TracksView {
     current_track_id: Option<i64>,
     is_playing: bool,
     _subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
     _album_info_subscription: Subscription,
     _lang_subscription: Subscription,
@@ -120,18 +121,6 @@ impl TracksView {
             cx.subscribe(
                 &engine_event_bus,
                 |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { .. } => {
-                        let id = cx
-                            .global::<Services>()
-                            .playback_queue
-                            .borrow()
-                            .current_track()
-                            .map(|t| t.id);
-                        if this.current_track_id != id {
-                            this.current_track_id = id;
-                            cx.notify();
-                        }
-                    }
                     EngineEvent::Playing if !this.is_playing => {
                         this.is_playing = true;
                         cx.notify();
@@ -159,6 +148,18 @@ impl TracksView {
                     _ => {}
                 },
             );
+
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, _: &crate::playback_status::StatusChanged, cx| {
+                let id = status.read(cx).track_id();
+                if this.current_track_id != id {
+                    this.current_track_id = id;
+                    cx.notify();
+                }
+            },
+        );
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
@@ -210,6 +211,7 @@ impl TracksView {
             current_track_id,
             is_playing,
             _subscription: subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _album_info_subscription: album_info_subscription,
             _lang_subscription: lang_subscription,
@@ -439,7 +441,7 @@ fn track_row(
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(row.base.title.clone()),
         )
-        .when(p.tag_editor_enabled, |el| {
+        .when(p.tag_editor_enabled && row.base.local, |el| {
             el.child(crate::track_list::edit_tags_button(
                 track_for_queue.clone(),
                 &p.buttons,

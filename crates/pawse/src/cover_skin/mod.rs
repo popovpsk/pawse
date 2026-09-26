@@ -4,11 +4,11 @@ mod scheme;
 
 use std::time::{Duration, Instant};
 
-use audio_engine::EngineEvent;
 use gpui::{App, Context, Global, Subscription, Task, WeakEntity, ease_in_out};
 use gpui_component::theme::{Theme, ThemeColor, ThemeMode, ThemeTokens};
 
 use crate::library_service::LibraryEvent;
+use crate::playback_status::StatusChanged;
 use crate::services::Services;
 use crate::settings_store::{SettingsStore, ThemeChoice, apply_theme};
 use color::to_oklch;
@@ -31,7 +31,7 @@ pub struct CoverSkin {
     evaluated: bool,
     _task: Option<Task<()>>,
     _fade: Option<Task<()>>,
-    _engine_subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
 }
@@ -64,27 +64,24 @@ fn fade_frames(from: ThemeColor, to: ThemeColor) -> Vec<ThemeColor> {
 
 impl CoverSkin {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
-        let engine_subscription = cx.subscribe(
-            &engine_event_bus,
-            |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => this.refresh(true, cx),
-                EngineEvent::TrackEnded | EngineEvent::Stopped => {
-                    let idle = {
-                        let queue = cx.global::<Services>().playback_queue.borrow();
-                        queue.current_track().is_none()
-                    };
-                    if idle {
-                        this.restore(true, cx);
-                    }
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, event: &StatusChanged, cx| {
+                if !event.track_changed {
+                    return;
                 }
-                _ => {}
+                if status.read(cx).track_id().is_some() {
+                    this.refresh(true, cx);
+                } else {
+                    this.restore(true, cx);
+                }
             },
         );
         let library_event_bus = cx.global::<Services>().library_event_bus.clone();
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::ScanComplete { changed: true } = event {
+                if let LibraryEvent::CatalogChanged = event {
                     this.evaluated = false;
                     this.refresh(true, cx);
                 }
@@ -120,7 +117,7 @@ impl CoverSkin {
             evaluated: false,
             _task: None,
             _fade: None,
-            _engine_subscription: engine_subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
         };

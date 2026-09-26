@@ -259,7 +259,11 @@
         disabled={!remote.hasTrack}
         onclick={() => remote.playPause()}
       >
-        {#if remote.playing}
+        {#if remote.playing && remote.buffering}
+          <svg class="h-8 w-8 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <path d="M12 3a9 9 0 1 0 9 9" />
+          </svg>
+        {:else if remote.playing}
           <svg class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
             <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
           </svg>

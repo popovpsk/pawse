@@ -51,6 +51,10 @@ impl EngineManager {
         self.audio_engine.play();
     }
 
+    pub fn commander(&self) -> crate::EngineCommander {
+        self.audio_engine.commander()
+    }
+
     pub fn play_gapless(&self) {
         self.audio_engine.play_gapless();
     }

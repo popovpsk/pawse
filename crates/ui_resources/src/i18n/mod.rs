@@ -92,8 +92,60 @@ pub struct Strings {
     pub library_updated: SharedString,
     pub library_up_to_date: SharedString,
     pub library_update_failed: SharedString,
-    pub no_music_folders_configured: SharedString,
-    pub add_music_folder: SharedString,
+    pub library_folder_unavailable_t: SharedString,
+    pub playback_failed_title: SharedString,
+    pub local_folders: SharedString,
+    pub subsonic_servers_desc: SharedString,
+    pub server_url: SharedString,
+    pub server_username: SharedString,
+    pub server_password: SharedString,
+    pub server_connect: SharedString,
+    pub server_sync: SharedString,
+    pub server_import_favorites: SharedString,
+    pub network_cache: SharedString,
+    pub cache_fill: SharedString,
+    pub cache_fill_progress_t: SharedString,
+    pub cache_fill_too_big_title: SharedString,
+    pub cache_fill_too_big_t: SharedString,
+    pub cache_fill_part: SharedString,
+    pub album_to_local: SharedString,
+    pub album_to_local_progress_t: SharedString,
+    pub album_to_local_done_t: SharedString,
+    pub album_to_local_failed_t: SharedString,
+    pub album_to_local_pick_title: SharedString,
+    pub cache_used: SharedString,
+    pub cache_clear: SharedString,
+    pub cache_limit: SharedString,
+    pub cache_limit_desc: SharedString,
+    pub cache_unlimited: SharedString,
+    pub decimal_separator: SharedString,
+    pub size_mb_t: SharedString,
+    pub size_gb_t: SharedString,
+    pub server_auth_failed: SharedString,
+    pub server_unreachable_t: SharedString,
+    pub server_fill_fields: SharedString,
+    pub torrents: SharedString,
+    pub torrents_desc: SharedString,
+    pub torrent_magnet: SharedString,
+    pub torrent_add: SharedString,
+    pub torrent_choose_file: SharedString,
+    pub torrent_invalid: SharedString,
+    pub torrent_upload: SharedString,
+    pub torrent_upload_desc: SharedString,
+    pub torrent_upload_while_active: SharedString,
+    pub torrent_upload_limited: SharedString,
+    pub torrent_upload_off: SharedString,
+    pub torrent_peers_t: SharedString,
+    pub server_online: SharedString,
+    pub server_offline: SharedString,
+    pub source_syncing: SharedString,
+    pub remove_server_confirm_title: SharedString,
+    pub source_online: SharedString,
+    pub source_offline: SharedString,
+    pub source_scanning: SharedString,
+    pub unavailable_count_t: SharedString,
+    pub no_music_sources: SharedString,
+    pub open_library_settings: SharedString,
     pub no_albums_found: SharedString,
     pub no_albums_match: SharedString,
     pub no_artists_found: SharedString,
@@ -190,14 +242,11 @@ pub struct Strings {
     pub albums_artist_hidden: SharedString,
     pub settings_artists_view: SharedString,
     pub artists_group_by_tag: SharedString,
-    pub music_folders: SharedString,
-    pub music_folders_desc: SharedString,
     pub no_folders_added: SharedString,
     pub reveal_folder: SharedString,
     pub remove: SharedString,
     pub add_folder: SharedString,
     pub remove_folder_confirm_title: SharedString,
-    pub remove_folder_confirm_message: SharedString,
 
     // --- Audio settings ---
     pub audio_device: SharedString,
@@ -483,12 +532,76 @@ impl Strings {
         )
     }
 
+    pub fn torrent_peers(&self, connected: u32, known: u32) -> String {
+        fill(
+            &self.torrent_peers_t,
+            &[&connected.to_string(), &known.to_string()],
+        )
+    }
+
+    pub fn cache_fill_progress(&self, done: &str, total: &str) -> String {
+        fill(&self.cache_fill_progress_t, &[done, total])
+    }
+
+    pub fn cache_fill_too_big(
+        &self,
+        total: &str,
+        limit: &str,
+        fitting: usize,
+        count: usize,
+    ) -> String {
+        fill(
+            &self.cache_fill_too_big_t,
+            &[total, limit, &fitting.to_string(), &count.to_string()],
+        )
+    }
+
     pub fn update_ready(&self, version: &str) -> String {
         fill(&self.update_ready_t, &[version])
     }
 
     pub fn update_check_failed(&self, err: &str) -> String {
         fill(&self.update_check_failed_t, &[err])
+    }
+
+    pub fn album_to_local_progress(&self, done: &str, total: &str) -> String {
+        fill(&self.album_to_local_progress_t, &[done, total])
+    }
+
+    pub fn album_to_local_done(&self, path: &str) -> String {
+        fill(&self.album_to_local_done_t, &[path])
+    }
+
+    pub fn album_to_local_failed(&self, error: &str) -> String {
+        fill(&self.album_to_local_failed_t, &[error])
+    }
+
+    pub fn library_folder_unavailable(&self, folder: &str) -> String {
+        fill(&self.library_folder_unavailable_t, &[folder])
+    }
+
+    pub fn server_unreachable(&self, reason: &str) -> String {
+        fill(&self.server_unreachable_t, &[reason])
+    }
+
+    pub fn size(&self, bytes: u64) -> String {
+        const MB: f64 = 1024. * 1024.;
+        let mb = bytes as f64 / MB;
+        if mb.round() >= 1024. {
+            let gb = mb / 1024.;
+            let text = if (gb - gb.round()).abs() < 0.05 {
+                format!("{}", gb.round() as u64)
+            } else {
+                format!("{gb:.1}").replace('.', &self.decimal_separator)
+            };
+            fill(&self.size_gb_t, &[&text])
+        } else {
+            fill(&self.size_mb_t, &[&format!("{}", mb.round() as u64)])
+        }
+    }
+
+    pub fn unavailable_count(&self, count: usize) -> String {
+        fill(&self.unavailable_count_t, &[&count.to_string()])
     }
 
     pub fn tags_save_failed(&self, err: &str) -> String {
@@ -703,5 +816,16 @@ mod tests {
             "44.1 kHz · 24-bit"
         );
         assert_eq!(fill("no placeholders", &[]), "no placeholders");
+    }
+
+    #[test]
+    fn size_uses_megabytes_below_a_gigabyte() {
+        let tr = &super::en::EN;
+        assert_eq!(tr.size(0), "0 MB");
+        assert_eq!(tr.size(300 * 1024 * 1024), "300 MB");
+        assert_eq!(tr.size(4 * 1024 * 1024 * 1024), "4 GB");
+        assert_eq!(tr.size(1536 * 1024 * 1024), "1.5 GB");
+        assert_eq!(tr.size(1024 * 1024 * 1024 - 1024), "1 GB");
+        assert_eq!(super::ru::RU.size(1536 * 1024 * 1024), "1,5 ГБ");
     }
 }

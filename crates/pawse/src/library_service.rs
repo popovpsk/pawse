@@ -5,10 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use music_indexer::{PreparedTrack, ScanEvent};
-use music_library::{
-    ArtistGrouping, LibraryRepository, LyricsRef, NewTrack, PlaylistTrackRef, ScanTrack,
-    SqliteLibrary,
-};
+use music_library::{ArtistGrouping, LibraryRepository, NewTrack, ScanTrack, SqliteLibrary};
 
 /// The album-level fields of a tag edit, applied to every track of one album.
 /// Kept separate from [`tag_writer::TrackTagEdits`] because these describe a
@@ -32,6 +29,7 @@ struct ScanState {
     scanning: AtomicBool,
     pending: AtomicBool,
     manual: AtomicBool,
+    warned_unavailable: AtomicBool,
     debounce_gen: AtomicU64,
     folders: Mutex<Vec<PathBuf>>,
 }
@@ -42,13 +40,27 @@ pub enum LibraryEvent {
     ScanProgress {
         scanned: usize,
     },
-    /// `changed` is false on the fast path (library unchanged, no DB work).
-    ScanComplete {
-        changed: bool,
-    },
+    ScanComplete,
+    CatalogChanged,
+    TagsSaved,
     ScanUpToDate,
+    ScanIdle,
     ScanSucceeded,
     ScanFailed,
+    ScanFolderUnavailable {
+        folder: String,
+    },
+    RemoteSyncStarted {
+        key: String,
+    },
+    RemoteSyncFinished {
+        key: String,
+        outcome: Result<music_library::RemoteSyncReport, crate::servers::RemoteError>,
+    },
+    RemoteStarsImported {
+        key: String,
+        outcome: Result<(usize, usize), crate::servers::RemoteError>,
+    },
     TrackLikedChanged {
         track_id: i64,
         liked: bool,
@@ -64,12 +76,6 @@ pub enum LibraryEvent {
     PlaybackModeChanged,
     LyricsChanged {
         track_id: i64,
-    },
-    TrackTagsChanged {
-        track_id: i64,
-    },
-    AlbumTagsChanged {
-        album_id: i64,
     },
 }
 
@@ -87,7 +93,27 @@ impl LibraryEvent {
     }
 }
 
+struct Claim<'a>(&'a Mutex<HashSet<String>>, String);
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.1);
+    }
+}
+
+#[derive(Default)]
+struct RemoteSyncState {
+    running: AtomicBool,
+    queued: Mutex<Vec<(crate::servers::RemoteServer, bool)>>,
+    torrents: Mutex<HashSet<String>>,
+    active: Mutex<HashSet<String>>,
+}
+
 pub struct LibraryService {
+    remote_sync: Arc<RemoteSyncState>,
     repo: Arc<dyn LibraryRepository>,
     event_tx: flume::Sender<LibraryEvent>,
     executor: gpui::BackgroundExecutor,
@@ -141,8 +167,15 @@ impl pawse_remote::LibraryReader for LibraryAccess {
     fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)> {
         let source = self.repo.get_cover_art_source(id).ok().flatten();
         let track_path = self.repo.get_track_path_for_cover(id).ok().flatten();
-        let bytes = music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
-        Some(transcode_web_cover(bytes))
+        match music_indexer::metadata::load_cover_from_source(source, track_path.as_deref()) {
+            Some(bytes) => Some(transcode_web_cover(bytes)),
+            None => self
+                .repo
+                .get_cover_art_large(id)
+                .ok()
+                .flatten()
+                .map(|bytes| (bytes, "image/jpeg".to_string())),
+        }
     }
 
     fn artists(&self) -> Vec<pawse_remote::ArtistEntry> {
@@ -407,6 +440,7 @@ impl LibraryService {
     ) -> Self {
         let repo = Arc::new(SqliteLibrary::open().expect("open library db"));
         Self {
+            remote_sync: Arc::new(RemoteSyncState::default()),
             repo,
             event_tx,
             executor,
@@ -440,6 +474,10 @@ impl LibraryService {
         self.repo.album_track_counts().unwrap_or_default()
     }
 
+    pub fn sources(&self) -> Vec<music_library::SourceSummary> {
+        self.repo.sources().unwrap_or_default()
+    }
+
     pub fn has_tracks(&self) -> bool {
         self.repo.has_tracks().unwrap_or(false)
     }
@@ -464,6 +502,16 @@ impl LibraryService {
             .into_iter()
             .filter(|(id, _)| seen.insert(*id))
             .collect()
+    }
+
+    pub fn remote_file_sizes(&self, source_id: i64, keys: &[String]) -> HashMap<String, i64> {
+        self.repo
+            .remote_file_sizes(source_id, keys)
+            .unwrap_or_default()
+    }
+
+    pub fn playback_locators(&self, track_id: i64) -> Vec<(String, i64)> {
+        self.repo.playback_locators(track_id).unwrap_or_default()
     }
 
     pub fn track_artists_map(&self, track_ids: &[i64]) -> HashMap<i64, Vec<String>> {
@@ -573,12 +621,7 @@ impl LibraryService {
         let event_tx = self.event_tx.clone();
         self.executor
             .spawn(async move {
-                let folders_key = serialize_folders(&folders);
-                let up_to_date = {
-                    let pre = music_indexer::collect_sources(&folders).fingerprint;
-                    matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
-                        && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
-                };
+                let baseline = ScanBaseline::capture(&*repo, &folders);
 
                 let lrc_path = audio_path.with_extension("lrc");
                 if let Err(e) = std::fs::write(&lrc_path, &text) {
@@ -597,15 +640,7 @@ impl LibraryService {
                     let _ = event_tx.send(LibraryEvent::LyricsChanged { track_id });
                 }
 
-                if up_to_date {
-                    let post = music_indexer::collect_sources(&folders).fingerprint;
-                    if let Err(e) = repo.set_scan_meta(&post, &folders_key) {
-                        log::error!(
-                            "Failed to re-baseline scan fingerprint after lyrics export: {}",
-                            e
-                        );
-                    }
-                }
+                baseline.rebaseline(&*repo);
             })
             .detach();
     }
@@ -646,8 +681,9 @@ impl LibraryService {
                     }
                 }
 
-                let _ = event_tx.send(LibraryEvent::TrackTagsChanged { track_id });
-                baseline.rebaseline(&*repo, &folders);
+                let _ = event_tx.send(LibraryEvent::TagsSaved);
+                let _ = event_tx.send(LibraryEvent::CatalogChanged);
+                baseline.rebaseline(&*repo);
             })
             .detach();
     }
@@ -663,7 +699,7 @@ impl LibraryService {
                     .tracks_for_album(album_id)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|t| !t.is_cue)
+                    .filter(|t| t.own_file().is_some())
                     .collect();
                 if tracks.is_empty() {
                     log::error!("Album tag edit for {} has no editable tracks", album_id);
@@ -682,9 +718,10 @@ impl LibraryService {
                 };
 
                 log::info!("Album {} retagged, {} files written", album_id, written);
-                let _ = event_tx.send(LibraryEvent::AlbumTagsChanged { album_id });
+                let _ = event_tx.send(LibraryEvent::TagsSaved);
+                let _ = event_tx.send(LibraryEvent::CatalogChanged);
                 if written > 0 {
-                    baseline.rebaseline(&*repo, &folders);
+                    baseline.rebaseline(&*repo);
                 }
             })
             .detach();
@@ -838,6 +875,216 @@ impl LibraryService {
         Some(path)
     }
 
+    pub fn reconcile_remote(
+        &self,
+        servers: &[crate::servers::RemoteServer],
+    ) -> HashMap<i64, crate::servers::RemoteConfig> {
+        crate::remote_sync::reconcile(&*self.repo, servers)
+    }
+
+    pub fn remote_syncing(&self) -> HashSet<String> {
+        self.remote_sync.active.lock().unwrap().clone()
+    }
+
+    pub fn sync_remote(&self, servers: Vec<crate::servers::RemoteServer>) {
+        self.enqueue_remote(servers, false);
+    }
+
+    fn enqueue_remote(&self, servers: Vec<crate::servers::RemoteServer>, probe: bool) {
+        let (torrents, servers): (Vec<_>, Vec<_>) = servers
+            .into_iter()
+            .partition(|server| server.kind().syncs_alone());
+        for torrent in torrents {
+            self.sync_torrent(torrent, probe);
+        }
+        if servers.is_empty() {
+            return;
+        }
+        {
+            let mut queued = self.remote_sync.queued.lock().unwrap();
+            for server in servers {
+                if probe
+                    && queued
+                        .iter()
+                        .any(|(existing, _)| existing.key() == server.key())
+                {
+                    continue;
+                }
+                queued.retain(|(existing, _)| existing.key() != server.key());
+                queued.push((server, probe));
+            }
+        }
+        if self.remote_sync.running.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        let remote_sync = self.remote_sync.clone();
+        std::thread::spawn(move || {
+            let mut changed = false;
+            loop {
+                let batch = std::mem::take(&mut *remote_sync.queued.lock().unwrap());
+                if batch.is_empty() {
+                    remote_sync.running.store(false, Ordering::Release);
+                    let late = !remote_sync.queued.lock().unwrap().is_empty();
+                    if late && !remote_sync.running.swap(true, Ordering::AcqRel) {
+                        continue;
+                    }
+                    break;
+                }
+                for (server, probe) in batch {
+                    changed |= Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe);
+                }
+            }
+            if changed {
+                Self::rescan_after_sync(repo, event_tx, executor, scan_state);
+            }
+        });
+    }
+
+    fn sync_torrent(&self, server: crate::servers::RemoteServer, probe: bool) {
+        let key = server.key();
+        if !self
+            .remote_sync
+            .torrents
+            .lock()
+            .unwrap()
+            .insert(key.clone())
+        {
+            return;
+        }
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        let remote_sync = self.remote_sync.clone();
+        std::thread::spawn(move || {
+            let claim = Claim(&remote_sync.torrents, key);
+            let changed = Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe);
+            drop(claim);
+            if changed {
+                Self::rescan_after_sync(repo, event_tx, executor, scan_state);
+            }
+        });
+    }
+
+    fn sync_one(
+        repo: &dyn LibraryRepository,
+        event_tx: &flume::Sender<LibraryEvent>,
+        remote_sync: &RemoteSyncState,
+        server: &crate::servers::RemoteServer,
+        probe: bool,
+    ) -> bool {
+        let key = server.key();
+        let Some(&source_id) = crate::remote_sync::source_ids(repo).get(&key) else {
+            return false;
+        };
+        if probe && server.config.client().ping().is_err() {
+            return false;
+        }
+        remote_sync.active.lock().unwrap().insert(key.clone());
+        let claim = Claim(&remote_sync.active, key.clone());
+        let _ = event_tx.send(LibraryEvent::RemoteSyncStarted { key: key.clone() });
+        let outcome = crate::remote_sync::sync_server(repo, source_id, &server.config);
+        match &outcome.result {
+            Ok(report) => log::info!(
+                "{} {}: {} songs, {} new, {} matched, {} gone, {} updated",
+                server.kind().title(),
+                server.uri,
+                report.total,
+                report.added,
+                report.adopted,
+                report.retired,
+                report.updated
+            ),
+            Err(e) => {
+                log::warn!(
+                    "{} {} sync failed: {e:?}",
+                    server.kind().title(),
+                    server.uri
+                )
+            }
+        }
+        drop(claim);
+        let _ = event_tx.send(LibraryEvent::RemoteSyncFinished {
+            key,
+            outcome: outcome.result,
+        });
+        outcome.changed
+    }
+
+    fn rescan_after_sync(
+        repo: Arc<dyn LibraryRepository>,
+        event_tx: flume::Sender<LibraryEvent>,
+        executor: gpui::BackgroundExecutor,
+        scan_state: Arc<ScanState>,
+    ) {
+        if let Err(e) = repo.invalidate_scan_fingerprint() {
+            log::error!("Failed to invalidate scan fingerprint: {e}");
+        }
+        Self::spawn_scan(repo, event_tx, executor, scan_state);
+    }
+
+    pub fn sync_offline_remote(&self, servers: Vec<crate::servers::RemoteServer>) {
+        if self.remote_sync.running.load(Ordering::Acquire) {
+            return;
+        }
+        self.enqueue_remote(
+            crate::remote_sync::offline_servers(&self.sources(), servers),
+            true,
+        );
+    }
+
+    pub fn mark_source_offline(&self, source_id: i64) {
+        match self.repo.set_source_available(source_id, false) {
+            Ok(true) => self.refresh_after_source_change(),
+            Ok(false) => {}
+            Err(e) => log::error!("Failed to mark source {source_id} unavailable: {e}"),
+        }
+    }
+
+    pub fn refresh_after_source_change(&self) {
+        if let Err(e) = self.repo.invalidate_scan_fingerprint() {
+            log::error!("Failed to invalidate scan fingerprint: {e}");
+        }
+        Self::spawn_scan(
+            self.repo.clone(),
+            self.event_tx.clone(),
+            self.executor.clone(),
+            self.scan_state.clone(),
+        );
+    }
+
+    pub fn import_remote_stars(&self, server: crate::servers::RemoteServer) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let ids = crate::remote_sync::source_ids(&*repo);
+            let outcome = match ids.get(&server.key()) {
+                Some(&source_id) => {
+                    crate::remote_sync::import_stars(&*repo, source_id, &server.config)
+                }
+                None => Err(crate::servers::RemoteError::Other(
+                    "server is not synced yet".into(),
+                )),
+            };
+            let outcome = outcome.and_then(|(items, total)| {
+                repo.like_many(&items)?;
+                let found = items.len();
+                let _ = event_tx.send(LibraryEvent::LikesImported {
+                    track_ids: Arc::new(items),
+                });
+                Ok((found, total))
+            });
+            let _ = event_tx.send(LibraryEvent::RemoteStarsImported {
+                key: server.key(),
+                outcome,
+            });
+        });
+    }
+
     pub fn is_scanning(&self) -> bool {
         self.scan_state.scanning.load(Ordering::Acquire)
     }
@@ -899,6 +1146,7 @@ impl LibraryService {
                         repo.clone(),
                         event_tx.clone(),
                         task_executor.clone(),
+                        state.clone(),
                         folders,
                         manual,
                     )
@@ -915,6 +1163,7 @@ impl LibraryService {
                     }
                     break;
                 }
+                let _ = event_tx.send(LibraryEvent::ScanIdle);
             })
             .detach();
     }
@@ -923,18 +1172,48 @@ impl LibraryService {
         repo: Arc<dyn LibraryRepository>,
         event_tx: flume::Sender<LibraryEvent>,
         inner_executor: gpui::BackgroundExecutor,
+        state: Arc<ScanState>,
         paths: Vec<PathBuf>,
+        manual: bool,
+    ) {
+        let scope = ScanScope::probe(&*repo, &paths);
+        let warning = if scope.unavailable.is_empty() {
+            state.warned_unavailable.store(false, Ordering::Release);
+            None
+        } else {
+            let folder = scope
+                .unavailable
+                .iter()
+                .map(|path| path.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", ");
+            log::warn!("Folder unavailable, its tracks stay hidden: {}", folder);
+            let first = !state.warned_unavailable.swap(true, Ordering::AcqRel);
+            (manual || first).then_some(folder)
+        };
+        Self::scan_available(repo, event_tx.clone(), inner_executor, scope, manual).await;
+        if let Some(folder) = warning {
+            let _ = event_tx.send(LibraryEvent::ScanFolderUnavailable { folder });
+        }
+    }
+
+    async fn scan_available(
+        repo: Arc<dyn LibraryRepository>,
+        event_tx: flume::Sender<LibraryEvent>,
+        inner_executor: gpui::BackgroundExecutor,
+        scope: ScanScope,
         manual: bool,
     ) {
         // Cheap walk + fingerprint. Fast path: if nothing on disk changed
         // since the last successful scan, skip all DB work entirely. This
         // is what makes run-on-launch / background rescans viable.
-        let sources = music_indexer::collect_sources(&paths);
-        let folders_key = serialize_folders(&paths);
+        let sources = music_indexer::collect_sources(&scope.available);
+        let folders_key = scope.folders_key();
         let unchanged = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
-            && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
+            && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
+            && matches!(repo.has_unplaced_media(), Ok(false));
         if unchanged {
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             if manual {
                 let _ = event_tx.send(LibraryEvent::ScanUpToDate);
             }
@@ -944,22 +1223,12 @@ impl LibraryService {
         let _ = event_tx.send(LibraryEvent::ScanStarted);
         let fingerprint = sources.fingerprint.clone();
 
-        // Snapshot playlist memberships by (path, start_offset_ms) before
-        // the clear wipes the `tracks` table — rescanned tracks get fresh
-        // ids, so without this the playlist contents would silently
-        // disappear from the user's library.
-        let playlist_refs = repo.playlist_track_refs().unwrap_or_else(|e| {
-            log::error!("Failed to snapshot playlist tracks: {}", e);
-            Vec::new()
-        });
-
-        // Network-fetched lyrics aren't on disk, so the rescan can't re-read
-        // them; snapshot them by content key and restore after, or they'd be
-        // cascade-deleted with the tracks row on every rescan.
-        let lyrics_refs = repo.lyrics_refs().unwrap_or_else(|e| {
-            log::error!("Failed to snapshot lyrics: {}", e);
-            Vec::new()
-        });
+        if let Err(e) = repo.reconcile_local_sources(&scope.local_folders()) {
+            log::error!("Failed to reconcile library folders: {}", e);
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
+            let _ = event_tx.send(LibraryEvent::ScanFailed);
+            return;
+        }
 
         // Covers survive clear(); hand the pipeline their hashes so it skips
         // regenerating thumbnails that already exist.
@@ -972,28 +1241,22 @@ impl LibraryService {
             Ok(session) => session,
             Err(e) => {
                 log::error!("Failed to open scan session: {}", e);
-                let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+                let _ = event_tx.send(LibraryEvent::ScanComplete);
                 let _ = event_tx.send(LibraryEvent::ScanFailed);
                 return;
             }
         };
         if let Err(e) = session.clear() {
             log::error!("Failed to clear library: {}", e);
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: false });
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(LibraryEvent::ScanFailed);
             return;
         }
 
-        if paths.is_empty() {
+        if scope.available.is_empty() {
             let ok = match session.finish() {
                 Ok(()) => {
-                    finalize_rescan(
-                        &*repo,
-                        &playlist_refs,
-                        &lyrics_refs,
-                        &fingerprint,
-                        &folders_key,
-                    );
+                    finalize_rescan(&*repo, &fingerprint, &folders_key);
                     true
                 }
                 Err(e) => {
@@ -1001,7 +1264,8 @@ impl LibraryService {
                     false
                 }
             };
-            let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+            let _ = event_tx.send(LibraryEvent::CatalogChanged);
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(scan_outcome(ok));
             return;
         }
@@ -1018,7 +1282,13 @@ impl LibraryService {
             })
             .detach();
 
+        let mut completed = false;
         loop {
+            if scan_rx.is_empty()
+                && let Err(e) = session.flush()
+            {
+                log::error!("Failed to commit scanned tracks: {}", e);
+            }
             match scan_rx.recv_async().await {
                 Ok(ScanEvent::Cover {
                     hash,
@@ -1042,9 +1312,21 @@ impl LibraryService {
                 Ok(ScanEvent::Error { path, error }) => {
                     log::error!("Scan error for {}: {}", path.display(), error);
                 }
-                Ok(ScanEvent::Complete) => break,
-                Err(_) => break, // pipeline gone
+                Ok(ScanEvent::Complete) => {
+                    completed = true;
+                    break;
+                }
+                Err(_) => break,
             }
+        }
+
+        if !completed {
+            log::error!("Scan pipeline stopped before completing; changes left unapplied");
+            drop(session);
+            let _ = event_tx.send(LibraryEvent::CatalogChanged);
+            let _ = event_tx.send(LibraryEvent::ScanComplete);
+            let _ = event_tx.send(LibraryEvent::ScanFailed);
+            return;
         }
 
         // Only finalize (and record the fingerprint) if the final commit
@@ -1052,13 +1334,7 @@ impl LibraryService {
         // written library and never rescan to repair it.
         let ok = match session.finish() {
             Ok(()) => {
-                finalize_rescan(
-                    &*repo,
-                    &playlist_refs,
-                    &lyrics_refs,
-                    &fingerprint,
-                    &folders_key,
-                );
+                finalize_rescan(&*repo, &fingerprint, &folders_key);
                 true
             }
             Err(e) => {
@@ -1066,8 +1342,68 @@ impl LibraryService {
                 false
             }
         };
-        let _ = event_tx.send(LibraryEvent::ScanComplete { changed: true });
+        let _ = event_tx.send(LibraryEvent::CatalogChanged);
+        let _ = event_tx.send(LibraryEvent::ScanComplete);
         let _ = event_tx.send(scan_outcome(ok));
+    }
+}
+
+fn folder_unavailable(path: &Path, had_media: impl Fn(&Path) -> bool) -> bool {
+    match std::fs::read_dir(path) {
+        Err(_) => true,
+        Ok(mut entries) => match entries.next() {
+            None => had_media(path),
+            Some(entry) => entry.is_err(),
+        },
+    }
+}
+
+struct ScanScope {
+    available: Vec<PathBuf>,
+    unavailable: Vec<PathBuf>,
+}
+
+impl ScanScope {
+    fn probe(repo: &dyn LibraryRepository, paths: &[PathBuf]) -> Self {
+        let had_media = |root: &Path| {
+            repo.has_media_under(&root.to_string_lossy())
+                .unwrap_or(true)
+        };
+        let (unavailable, available) = paths
+            .iter()
+            .cloned()
+            .partition(|path| folder_unavailable(path, had_media));
+        Self {
+            available,
+            unavailable,
+        }
+    }
+
+    fn folders_key(&self) -> String {
+        let mut items: Vec<String> = self
+            .available
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .chain(
+                self.unavailable
+                    .iter()
+                    .map(|p| format!("?{}", p.to_string_lossy())),
+            )
+            .collect();
+        items.sort();
+        items.join("\n")
+    }
+
+    fn local_folders(&self) -> Vec<music_library::LocalFolder> {
+        let folder = |path: &PathBuf, available: bool| music_library::LocalFolder {
+            path: path.to_string_lossy().into_owned(),
+            available,
+        };
+        self.available
+            .iter()
+            .map(|path| folder(path, true))
+            .chain(self.unavailable.iter().map(|path| folder(path, false)))
+            .collect()
     }
 }
 
@@ -1085,29 +1421,32 @@ fn scan_outcome(ok: bool) -> LibraryEvent {
 /// would then skip it forever.
 struct ScanBaseline {
     up_to_date: bool,
+    scope: ScanScope,
     folders_key: String,
 }
 
 impl ScanBaseline {
     fn capture(repo: &dyn LibraryRepository, folders: &[PathBuf]) -> Self {
-        let folders_key = serialize_folders(folders);
-        let pre = music_indexer::collect_sources(folders).fingerprint;
+        let scope = ScanScope::probe(repo, folders);
+        let folders_key = scope.folders_key();
+        let pre = music_indexer::collect_sources(&scope.available).fingerprint;
         let up_to_date = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == pre)
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key);
         Self {
             up_to_date,
+            scope,
             folders_key,
         }
     }
 
-    fn rebaseline(&self, repo: &dyn LibraryRepository, folders: &[PathBuf]) {
+    fn rebaseline(&self, repo: &dyn LibraryRepository) {
         if !self.up_to_date {
             return;
         }
-        let post = music_indexer::collect_sources(folders).fingerprint;
+        let post = music_indexer::collect_sources(&self.scope.available).fingerprint;
         if let Err(e) = repo.set_scan_meta(&post, &self.folders_key) {
             log::error!(
-                "Failed to re-baseline scan fingerprint after tag write: {}",
+                "Failed to re-baseline scan fingerprint after a file write: {}",
                 e
             );
         }
@@ -1245,6 +1584,9 @@ fn settle_derived_rows(repo: &dyn LibraryRepository, what: &str) {
     if let Err(e) = repo.resolve_album_artists() {
         log::error!("Failed to resolve album artists after {}: {}", what, e);
     }
+    if let Err(e) = repo.refresh_item_snapshots() {
+        log::error!("Failed to refresh item snapshots after {}: {}", what, e);
+    }
     if let Err(e) = repo.delete_orphaned_albums_and_artists() {
         log::error!("Failed to clean up after {}: {}", what, e);
     }
@@ -1342,18 +1684,7 @@ fn force_rescan(
     LibraryService::spawn_scan(repo, event_tx, executor, scan_state);
 }
 
-/// Serialize the scanned folder set into a stable key, so a fast-path skip only
-/// happens when the same folders are being scanned as last time.
-fn serialize_folders(paths: &[PathBuf]) -> String {
-    let mut items: Vec<String> = paths
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-    items.sort();
-    items.join("\n")
-}
-
-fn is_placeholder_artist(name: &str) -> bool {
+pub(crate) fn is_placeholder_artist(name: &str) -> bool {
     matches!(
         name.to_lowercase().as_str(),
         "" | "[no artist]"
@@ -1362,6 +1693,7 @@ fn is_placeholder_artist(name: &str) -> bool {
             | "<unknown>"
             | "unknown"
             | "unknown artist"
+            | "[unknown artist]"
             | "n/a"
             | "none"
     )
@@ -1376,7 +1708,9 @@ fn clean_artist_names(names: Vec<String>) -> Vec<String> {
 }
 
 fn to_scan_track(track: PreparedTrack) -> ScanTrack {
+    let file_size = std::fs::metadata(&track.path).ok().map(|meta| meta.len());
     ScanTrack {
+        file_size,
         path: track.path.to_string_lossy().into_owned(),
         title: track.title,
         album_title: track.album_title,
@@ -1399,21 +1733,9 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
 }
 
 /// Post-scan cleanup, run on the main connection after the writer connection is
-/// dropped: re-link playlists by content key, drop orphaned albums/artists/
-/// covers, and record the fingerprint that future fast-path checks compare to.
-fn finalize_rescan(
-    repo: &dyn LibraryRepository,
-    playlist_refs: &[PlaylistTrackRef],
-    lyrics_refs: &[LyricsRef],
-    fingerprint: &str,
-    folders_key: &str,
-) {
-    if let Err(e) = repo.restore_playlist_track_refs(playlist_refs) {
-        log::error!("Failed to restore playlist tracks: {}", e);
-    }
-    if let Err(e) = repo.restore_lyrics_refs(lyrics_refs) {
-        log::error!("Failed to restore lyrics: {}", e);
-    }
+/// dropped: drop orphaned albums/artists/covers, and record the fingerprint that
+/// future fast-path checks compare to.
+fn finalize_rescan(repo: &dyn LibraryRepository, fingerprint: &str, folders_key: &str) {
     settle_derived_rows(repo, "scan");
     if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
         log::error!("Failed to store scan fingerprint: {}", e);
@@ -1530,6 +1852,10 @@ mod tests {
                 .cover_art_hashes()
                 .map(|pairs| pairs.into_iter().map(|(hash, _)| hash).collect())
                 .unwrap_or_default();
+            let scope = ScanScope::probe(&self.repo, &self.folders());
+            self.repo
+                .reconcile_local_sources(&scope.local_folders())
+                .unwrap();
             let mut session = self.repo.open_scan_session().unwrap();
             session.clear().unwrap();
 
@@ -1580,6 +1906,7 @@ mod tests {
                     bitrate: None,
                     is_cue: true,
                     lyrics: None,
+                    file_size: None,
                 })
                 .unwrap();
             session.finish().unwrap();
@@ -1638,7 +1965,10 @@ mod tests {
         fn mark_in_sync(&self) {
             let fingerprint = music_indexer::collect_sources(&self.folders()).fingerprint;
             self.repo
-                .set_scan_meta(&fingerprint, &serialize_folders(&self.folders()))
+                .set_scan_meta(
+                    &fingerprint,
+                    &ScanScope::probe(&self.repo, &self.folders()).folders_key(),
+                )
                 .unwrap();
         }
 
@@ -1666,6 +1996,87 @@ mod tests {
             year: Some(2001),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_missing_root_or_a_file_is_unavailable() {
+        let ws = Workspace::new();
+        let never = |_: &Path| false;
+        assert!(folder_unavailable(&ws.folder.join("unmounted"), never));
+        let file = ws.add_file("one.flac", "tagged_basic.flac");
+        assert!(folder_unavailable(&file, never));
+        assert!(!folder_unavailable(&ws.folder, never));
+    }
+
+    #[test]
+    fn an_empty_root_is_unavailable_only_when_the_library_had_media_under_it() {
+        let ws = Workspace::new();
+        let empty = ws.folder.join("mountpoint");
+        std::fs::create_dir(&empty).unwrap();
+
+        assert!(!folder_unavailable(&empty, |_| false));
+        assert!(folder_unavailable(&empty, |_| true));
+    }
+
+    #[test]
+    fn the_folders_key_is_unchanged_while_everything_is_online_and_marks_offline_roots() {
+        let scope = ScanScope {
+            available: vec![PathBuf::from("/b"), PathBuf::from("/a")],
+            unavailable: vec![],
+        };
+        assert_eq!(scope.folders_key(), "/a\n/b");
+        let scope = ScanScope {
+            available: vec![PathBuf::from("/b")],
+            unavailable: vec![PathBuf::from("/a")],
+        };
+        assert_eq!(scope.folders_key(), "/b\n?/a");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_root_that_cannot_be_listed_is_unavailable() {
+        use std::os::unix::fs::PermissionsExt;
+        let ws = Workspace::new();
+        let locked = ws.folder.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("a.flac"), b"x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = folder_unavailable(&locked, |_| false);
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn has_media_under_matches_whole_path_components() {
+        let ws = Workspace::new();
+        ws.add_file("one.flac", "tagged_basic.flac");
+        ws.scan();
+        let root = ws.folder.to_string_lossy().into_owned();
+        assert!(ws.repo.has_media_under(&root).unwrap());
+        assert!(!ws.repo.has_media_under(&format!("{root}-sibling")).unwrap());
+        assert!(!ws.repo.has_media_under(&format!("{root}/nested")).unwrap());
+    }
+
+    #[test]
+    fn a_file_moved_on_disk_keeps_its_id_and_like() {
+        let ws = Workspace::new();
+        let path = ws.add_file("one.flac", "tagged_basic.flac");
+        ws.scan();
+        let track_id = ws.track_id(&path);
+        ws.repo.set_liked(track_id, true).unwrap();
+
+        let moved = ws.folder.join("sorted").join("renamed.flac");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&path, &moved).unwrap();
+        ws.scan();
+
+        assert_eq!(ws.track_id(&moved), track_id);
+        let liked = ws.repo.liked_tracks().unwrap();
+        assert_eq!(liked.len(), 1);
+        assert!(liked[0].available);
+        assert_eq!(liked[0].path, moved.to_string_lossy());
     }
 
     #[test]
@@ -2403,7 +2814,7 @@ mod tests {
         let baseline = ScanBaseline::capture(&ws.repo, &ws.folders());
         tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
         reindex_one(&ws.repo, track_id, &path).unwrap();
-        baseline.rebaseline(&ws.repo, &ws.folders());
+        baseline.rebaseline(&ws.repo);
 
         assert_eq!(
             ws.repo.scan_fingerprint().unwrap().as_deref(),
@@ -2425,7 +2836,7 @@ mod tests {
         let baseline = ScanBaseline::capture(&ws.repo, &ws.folders());
         tag_writer::write_metadata(&path, &edits_titled("Renamed")).unwrap();
         reindex_one(&ws.repo, track_id, &path).unwrap();
-        baseline.rebaseline(&ws.repo, &ws.folders());
+        baseline.rebaseline(&ws.repo);
 
         assert_eq!(
             ws.repo.scan_fingerprint().unwrap().as_deref(),

@@ -2,6 +2,7 @@ use audio_common::{
     AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, I24, Metadata, StreamParams,
 };
 use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Duration;
 use symphonia::core::audio::{Audio, GenericAudioBufferRef};
@@ -239,11 +240,21 @@ struct SymphoniaDecoder {
 impl SymphoniaDecoder {
     fn open(path: &Path) -> Result<Self, AudioError> {
         let file = File::open(path).map_err(AudioError::Io)?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        Self::from_source(
+            Box::new(file),
+            path.extension().and_then(|ext| ext.to_str()),
+        )
+    }
+
+    fn from_source(
+        source: Box<dyn symphonia::core::io::MediaSource>,
+        extension: Option<&str>,
+    ) -> Result<Self, AudioError> {
+        let mss = MediaSourceStream::new(source, Default::default());
 
         let mut hint = Hint::new();
-        if let Some(ext) = path.extension() {
-            hint.with_extension(ext.to_str().unwrap_or(""));
+        if let Some(ext) = extension {
+            hint.with_extension(ext);
         }
 
         let format = symphonia::default::get_probe()
@@ -353,7 +364,10 @@ impl AudioSource for SymphoniaDecoder {
     }
 
     fn seek(&mut self, position: f32) -> Result<Duration, AudioError> {
-        let duration = self.duration.unwrap().mul_f32(position);
+        let duration = self
+            .duration
+            .ok_or_else(|| AudioError::Decoder("Seek needs a known duration".to_string()))?
+            .mul_f32(position);
 
         let time = symphonia::core::units::Time::try_new(
             duration.as_secs() as i64,
@@ -389,6 +403,45 @@ impl AudioSource for SymphoniaDecoder {
 // Combined Decoder — selects APE or Symphonia based on file extension
 // ============================================================================
 
+pub type Superseded = Box<dyn Fn() -> bool + Send + Sync>;
+
+pub trait MediaStream: Read + Seek + Send + Sync {
+    fn byte_len(&self) -> Option<u64>;
+
+    fn give_up_waiting_when(&mut self, _superseded: Superseded) {}
+}
+
+struct StreamSource(Box<dyn MediaStream>);
+
+impl Read for StreamSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl Seek for StreamSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos)
+    }
+}
+
+impl symphonia::core::io::MediaSource for StreamSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        self.0.byte_len()
+    }
+}
+
+pub fn can_stream(extension: &str) -> bool {
+    !matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "ape" | "dsf" | "dff"
+    )
+}
+
 #[allow(private_interfaces)]
 pub enum Decoder {
     Symphonia(Box<SymphoniaDecoder>),
@@ -409,6 +462,22 @@ impl Decoder {
             "dsf" | "dff" => Ok(Decoder::Dsd(Box::new(DsdAdapter::open(path)?))),
             _ => Ok(Decoder::Symphonia(Box::new(SymphoniaDecoder::open(path)?))),
         }
+    }
+
+    pub fn open_stream(
+        stream: Box<dyn MediaStream>,
+        extension: Option<&str>,
+    ) -> Result<Self, AudioError> {
+        if extension.is_some_and(|ext| !can_stream(ext)) {
+            return Err(AudioError::Decoder(format!(
+                "{} files cannot be streamed",
+                extension.unwrap_or_default()
+            )));
+        }
+        Ok(Decoder::Symphonia(Box::new(SymphoniaDecoder::from_source(
+            Box::new(StreamSource(stream)),
+            extension,
+        )?)))
     }
 }
 
@@ -699,6 +768,62 @@ mod tests {
             filename,
             expected_secs,
             duration
+        );
+    }
+
+    struct MemoryStream(std::io::Cursor<Vec<u8>>);
+
+    impl Read for MemoryStream {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Seek for MemoryStream {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            self.0.seek(pos)
+        }
+    }
+
+    impl MediaStream for MemoryStream {
+        fn byte_len(&self) -> Option<u64> {
+            Some(self.0.get_ref().len() as u64)
+        }
+    }
+
+    fn memory_stream(filename: &str) -> Box<dyn MediaStream> {
+        Box::new(MemoryStream(std::io::Cursor::new(
+            std::fs::read(fixture_path(filename)).unwrap(),
+        )))
+    }
+
+    #[test]
+    fn a_stream_decodes_like_the_file_it_came_from() {
+        let name = "sine_440_16_44_stereo.wav";
+        let mut from_file = Decoder::open(&fixture_path(name)).unwrap();
+        let mut from_stream = Decoder::open_stream(memory_stream(name), Some("wav")).unwrap();
+        assert_eq!(from_stream.params(), from_file.params());
+        assert_eq!(from_stream.duration(), from_file.duration());
+        from_file.seek(0.5).unwrap();
+        from_stream.seek(0.5).unwrap();
+        let a = from_file.next_buffer().unwrap().unwrap();
+        let b = from_stream.next_buffer().unwrap().unwrap();
+        match (a.data, b.data) {
+            (AudioSamples::S16(a), AudioSamples::S16(b)) => assert_eq!(a, b),
+            _ => panic!("expected S16 from both"),
+        }
+
+        let unhinted = Decoder::open_stream(memory_stream(name), None).unwrap();
+        assert_eq!(unhinted.params(), from_file.params());
+    }
+
+    #[test]
+    fn formats_pinned_to_files_are_refused_as_streams() {
+        assert!(!can_stream("APE"));
+        assert!(!can_stream("dsf"));
+        assert!(can_stream("flac"));
+        assert!(
+            Decoder::open_stream(memory_stream("sine_440_16_44_stereo.wav"), Some("dff")).is_err()
         );
     }
 

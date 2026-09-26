@@ -1,31 +1,25 @@
 use std::path::PathBuf;
 
-use gpui::{
-    AnyElement, App, Axis, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
-    MouseButton, ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
-    Window, anchored, deferred, div, point, prelude::FluentBuilder, px,
-};
+use gpui::{App, Entity, ParentElement, SharedString, Styled, Window, div, px};
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
     dialog::{Cancel, Confirm, DialogFooter},
     h_flex,
     input::{Input, InputState},
-    scroll::ScrollableElement,
     slider::{Slider, SliderState},
     switch::Switch,
-    theme::ThemeRegistry,
     v_flex,
 };
 
 use ui_components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, Settings};
-use ui_resources::i18n::Lang;
 
 use crate::localization::tr;
+use crate::remote_settings::{COUNT_COLUMN, ICON_SIZE};
 use crate::services::Services;
 use crate::settings_store::{
-    AlbumsArtistDisplay, AlbumsLayout, BlurBackground, FontScale, LangChoice, NowPlayingDetails,
-    SettingsStore, ThemeChoice, apply_font_scale, apply_theme, notify_save_error,
+    AlbumsArtistDisplay, AlbumsLayout, BlurBackground, FontScale, NowPlayingDetails, SettingsStore,
+    apply_font_scale, notify_save_error,
 };
 use crate::theme_colors::Colors;
 use music_library::ArtistGrouping;
@@ -40,160 +34,6 @@ fn reveal_in_file_manager(path: &std::path::Path) {
     let _ = std::process::Command::new(program).arg(path).spawn();
 }
 
-/// State for the custom theme picker dropdown.
-pub struct ThemePickerState {
-    pub open: bool,
-    /// (key, display_label) pairs; "system" → "System", theme_name → theme_name.
-    pub options: Vec<(SharedString, SharedString)>,
-    /// Theme that was active when the popup opened — restored on Escape / outside-click.
-    pub snapshot: Option<ThemeChoice>,
-    /// Index of the item currently highlighted by mouse or keyboard.
-    pub highlight_index: Option<usize>,
-    pub focus_handle: FocusHandle,
-    pub scroll_handle: ScrollHandle,
-}
-
-impl ThemePickerState {
-    pub fn new(cx: &mut App) -> Self {
-        Self {
-            open: false,
-            options: Self::build_options(cx),
-            snapshot: None,
-            highlight_index: None,
-            focus_handle: cx.focus_handle(),
-            scroll_handle: ScrollHandle::new(),
-        }
-    }
-
-    pub fn build_options(cx: &App) -> Vec<(SharedString, SharedString)> {
-        let mut opts: Vec<(SharedString, SharedString)> = vec![("system".into(), "System".into())];
-        let mut themes = ThemeRegistry::global(cx).sorted_themes();
-        themes.sort_by(|a, b| {
-            b.mode
-                .is_dark()
-                .cmp(&a.mode.is_dark())
-                .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        });
-        for cfg in themes {
-            let name: SharedString = cfg.name.clone();
-            opts.push((name.clone(), name));
-        }
-        opts
-    }
-
-    fn current_index(&self, cx: &App) -> Option<usize> {
-        let key = cx.global::<SettingsStore>().theme().as_key();
-        self.options.iter().position(|(k, _)| k.as_ref() == key)
-    }
-
-    fn current_label(&self, cx: &App) -> SharedString {
-        let key = cx.global::<SettingsStore>().theme().as_key();
-        self.options
-            .iter()
-            .find(|(k, _)| k.as_ref() == key)
-            .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| tr().unknown.clone())
-    }
-}
-
-/// Revert to the snapshot theme and close the popup. Does NOT call cx.notify();
-/// the caller must do so inside a Context<ThemePickerState> update closure.
-fn close_with_revert(state: &mut ThemePickerState, cx: &mut App) {
-    if !state.open {
-        return;
-    }
-    if let Some(snapshot) = state.snapshot.take() {
-        apply_theme(&snapshot, cx);
-        crate::cover_skin::reapply(cx);
-    }
-    state.open = false;
-    state.highlight_index = None;
-}
-
-/// Save the selected theme and close the popup. Does NOT call cx.notify();
-/// the caller must do so inside a Context<ThemePickerState> update closure.
-fn confirm_save(key: &SharedString, state: &mut ThemePickerState, cx: &mut App) {
-    let choice = ThemeChoice::from_key(key.as_ref());
-    let save_result = cx.global_mut::<SettingsStore>().set_theme(choice.clone());
-    if let Err(e) = save_result {
-        notify_save_error(cx, e);
-    }
-    apply_theme(&choice, cx);
-    crate::cover_skin::reapply(cx);
-    state.open = false;
-    state.snapshot = None;
-    state.highlight_index = None;
-}
-
-/// State for the custom language picker dropdown. Mirrors [`ThemePickerState`]
-/// but without live preview: the active language is read from `SettingsStore`
-/// on every render, so a selection only takes effect once it is saved.
-pub struct LangPickerState {
-    pub open: bool,
-    /// (key, display_label) pairs; "system" → localized "System", else
-    /// language code → endonym.
-    pub options: Vec<(SharedString, SharedString)>,
-    pub highlight_index: Option<usize>,
-    pub focus_handle: FocusHandle,
-    pub scroll_handle: ScrollHandle,
-}
-
-impl LangPickerState {
-    pub fn new(cx: &mut App) -> Self {
-        Self {
-            open: false,
-            options: Self::build_options(),
-            highlight_index: None,
-            focus_handle: cx.focus_handle(),
-            scroll_handle: ScrollHandle::new(),
-        }
-    }
-
-    pub fn build_options() -> Vec<(SharedString, SharedString)> {
-        let mut opts: Vec<(SharedString, SharedString)> =
-            vec![("system".into(), tr().system.clone())];
-        for &lang in Lang::all() {
-            opts.push((lang.code().into(), lang.display_name().into()));
-        }
-        opts
-    }
-
-    fn current_index(&self, cx: &App) -> Option<usize> {
-        let key = cx.global::<SettingsStore>().language().as_key();
-        self.options.iter().position(|(k, _)| k.as_ref() == key)
-    }
-
-    fn current_label(&self, cx: &App) -> SharedString {
-        let key = cx.global::<SettingsStore>().language().as_key();
-        self.options
-            .iter()
-            .find(|(k, _)| k.as_ref() == key)
-            .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| tr().unknown.clone())
-    }
-}
-
-/// Close the language popup without saving. Does NOT call cx.notify().
-fn close_lang(state: &mut LangPickerState) {
-    state.open = false;
-    state.highlight_index = None;
-}
-
-/// Save the selected language, rebuild the menus in the new language, and
-/// trigger a global redraw so every `tr()` call re-reads the new table.
-/// Does NOT call cx.notify().
-fn confirm_lang(key: &SharedString, state: &mut LangPickerState, cx: &mut App) {
-    let choice = LangChoice::from_key(key.as_ref());
-    if let Err(e) = cx.global_mut::<SettingsStore>().set_language(choice) {
-        notify_save_error(cx, e);
-    }
-    crate::localization::notify_lang_changed(cx);
-    state.open = false;
-    state.highlight_index = None;
-    crate::app_menu::set_menus(cx);
-    cx.refresh_windows();
-}
-
 #[derive(Clone)]
 pub struct SettingsSliders {
     pub lyrics: Entity<SliderState>,
@@ -205,22 +45,28 @@ pub struct SettingsSliders {
 ///
 /// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
+#[derive(Clone)]
+pub struct LibraryPage {
+    pub sources: Entity<crate::library_sources::LibrarySources>,
+    pub subsonic_inputs: crate::remote_settings::ServerInputs,
+    pub jellyfin_inputs: crate::remote_settings::ServerInputs,
+    pub torrent_magnet: Entity<InputState>,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn build_settings_pages(
-    theme_picker: Entity<ThemePickerState>,
-    lang_picker: Entity<LangPickerState>,
     sliders: SettingsSliders,
     remote_port_input: Entity<InputState>,
     scrobble_ui: Entity<crate::scrobble_settings::ScrobbleUiState>,
     scrobble_inputs: crate::scrobble_settings::ScrobbleInputs,
+    library_page: LibraryPage,
     cx: &App,
-) -> Vec<SettingPage> {
+) -> SettingsPages {
     let albums_layout = cx.global::<SettingsStore>().albums_layout();
     let blur_mode = cx.global::<SettingsStore>().blur_background();
     let mut pages = vec![
         SettingPage::new(tr().settings_interface.clone())
             .group(interface_group(
-                theme_picker,
-                lang_picker,
                 blur_mode,
                 sliders.blur_intensity,
                 sliders.blur_interface_opacity,
@@ -242,13 +88,38 @@ pub fn build_settings_pages(
         scrobble_ui,
         scrobble_inputs,
     ));
-    pages.push(SettingPage::new(tr().settings_library.clone()).group(library_group()));
-    pages
+    let library = pages.len();
+    pages.push(
+        SettingPage::new(tr().settings_library.clone())
+            .group(local_folders_group(library_page.sources.clone()))
+            .group(crate::subsonic_settings::subsonic_group(
+                library_page.sources.clone(),
+                library_page.subsonic_inputs,
+            ))
+            .group(crate::jellyfin_settings::jellyfin_group(
+                library_page.sources.clone(),
+                library_page.jellyfin_inputs,
+            ))
+            .group(crate::torrent_settings::torrent_group(
+                library_page.sources.clone(),
+                library_page.torrent_magnet,
+            ))
+            .group(crate::cache_settings::cache_group(library_page.sources)),
+    );
+    SettingsPages { pages, library }
+}
+
+#[derive(Clone)]
+pub struct SettingsPages {
+    pub pages: Vec<SettingPage>,
+    pub library: usize,
 }
 
 /// Wrap pre-built pages into the `Settings` element for inline rendering.
-pub fn settings_widget(pages: Vec<SettingPage>) -> Settings {
-    Settings::new("pawse-settings").pages(pages)
+pub fn settings_widget(pages: Vec<SettingPage>, page_ix: usize) -> Settings {
+    Settings::new("pawse-settings")
+        .pages(pages)
+        .initial_page(page_ix)
 }
 
 /// Open a native folder picker (async, on the main thread), then add the
@@ -284,6 +155,36 @@ pub fn force_rescan(cx: &mut App) {
         .request_rescan(folders, true, true);
 }
 
+pub fn confirm_remove_folder(path: PathBuf, window: &mut Window, cx: &mut App) {
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        let path = path.clone();
+        dialog
+            .overlay_closable(false)
+            .close_button(false)
+            .title(tr().remove_folder_confirm_title.clone())
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        Button::new("cancel")
+                            .label(tr().cancel.clone())
+                            .on_click(|_, window, cx| window.dispatch_action(Box::new(Cancel), cx)),
+                    )
+                    .child(
+                        Button::new("ok")
+                            .label(tr().remove.clone())
+                            .primary()
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(Confirm { secondary: false }), cx)
+                            }),
+                    ),
+            )
+            .on_ok(move |_, _, cx| {
+                remove_folder_and_rescan(path.clone(), cx);
+                true
+            })
+    });
+}
+
 /// Remove a folder from settings and rescan whatever remains (a clear+rescan
 /// is the simplest way to keep the DB consistent with the configured list).
 pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
@@ -297,20 +198,17 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
 }
 
 fn interface_group(
-    picker: Entity<ThemePickerState>,
-    lang_picker: Entity<LangPickerState>,
     blur_mode: BlurBackground,
     blur_intensity_slider: Entity<SliderState>,
     blur_interface_opacity_slider: Entity<SliderState>,
 ) -> SettingGroup {
-    let mut group = SettingGroup::new().item(language_field(lang_picker));
+    let mut group = SettingGroup::new().item(language_field());
 
     group = group.item(
         SettingItem::new(
             tr().theme.clone(),
-            SettingField::render({
-                let picker = picker.clone();
-                move |window, cx: &mut App| theme_picker_dropdown(picker.clone(), window, cx)
+            SettingField::render(|_window, cx: &mut App| {
+                crate::pickers::theme_dropdown("settings-theme", cx)
             }),
         )
         .description(tr().theme_desc.clone()),
@@ -687,7 +585,8 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
                         Button::new("open-web-player")
                             .small()
                             .disabled(!enabled)
-                            .label(tr().open_in_browser.clone())
+                            .icon(Icon::default().path("icons/external-link.svg"))
+                            .tooltip(tr().open_in_browser.clone())
                             .on_click(|_, _, cx| {
                                 let port = cx.global::<SettingsStore>().remote_port();
                                 cx.open_url(&format!("http://localhost:{port}"));
@@ -1203,594 +1102,137 @@ fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
         )
 }
 
-fn library_group() -> SettingGroup {
-    SettingGroup::new().item(
-        SettingItem::new(
-            tr().music_folders.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let folders = cx.global::<SettingsStore>().music_folders().to_vec();
+fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) -> SettingGroup {
+    SettingGroup::new()
+        .title(tr().local_folders.clone())
+        .item(SettingItem::unlabeled(SettingField::render(
+            move |_window, cx: &mut App| {
+                let state = sources.read(cx);
                 let is_scanning = cx.global::<Services>().library.is_scanning();
+                let muted_fg = Colors::muted_foreground(cx);
 
                 let mut list = v_flex().gap_2().w_full();
 
-                if folders.is_empty() {
+                for folder in state.local() {
+                    let path = &folder.row.path;
+                    let path_for_finder = path.clone();
+                    let path_for_remove = path.clone();
+                    let finder_id = format!("show-{}", path.display());
+                    let remove_id = format!("remove-{}", path.display());
+                    let status_color = match folder.row.status {
+                        crate::library_sources::SourceStatus::Online => Colors::primary(cx),
+                        crate::library_sources::SourceStatus::Offline => Colors::danger(cx),
+                        crate::library_sources::SourceStatus::Scanning => muted_fg,
+                    };
+
                     list = list.child(
-                        div()
+                        v_flex()
+                            .gap_1()
                             .px_3()
                             .py_2()
-                            .text_sm()
-                            .text_color(Colors::muted_foreground(cx))
-                            .child(tr().no_folders_added.clone()),
+                            .rounded(px(6.))
+                            .bg(Colors::muted(cx))
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        Icon::new(IconName::Folder)
+                                            .with_size(px(ICON_SIZE))
+                                            .flex_shrink_0()
+                                            .text_color(muted_fg),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w(px(0.))
+                                            .text_sm()
+                                            .text_color(Colors::foreground(cx))
+                                            .child(folder.row.location.clone()),
+                                    )
+                                    .child(
+                                        Button::new(SharedString::from(finder_id))
+                                            .small()
+                                            .label(tr().reveal_folder.clone())
+                                            .on_click(move |_, _, _| {
+                                                reveal_in_file_manager(&path_for_finder);
+                                            }),
+                                    )
+                                    .child(
+                                        Button::new(SharedString::from(remove_id))
+                                            .small()
+                                            .label(tr().remove.clone())
+                                            .on_click(
+                                                move |_, window: &mut Window, app_cx: &mut App| {
+                                                    confirm_remove_folder(
+                                                        path_for_remove.clone(),
+                                                        window,
+                                                        app_cx,
+                                                    );
+                                                },
+                                            ),
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .pl(px(ICON_SIZE + 8.))
+                                    .items_center()
+                                    .text_sm()
+                                    .text_color(muted_fg)
+                                    .child(
+                                        div()
+                                            .min_w(px(0.))
+                                            .w(px(COUNT_COLUMN))
+                                            .child(folder.count_label.clone()),
+                                    )
+                                    .child(div().flex_1())
+                                    .child(
+                                        h_flex()
+                                            .flex_shrink_0()
+                                            .gap_1p5()
+                                            .items_center()
+                                            .child(
+                                                div().size(px(8.)).rounded_full().bg(status_color),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_color(status_color)
+                                                    .child(folder.status_label.clone()),
+                                            ),
+                                    ),
+                            ),
                     );
-                } else {
-                    for path in &folders {
-                        let path_text: SharedString = path.to_string_lossy().into_owned().into();
-                        let path_for_finder = path.clone();
-                        let path_for_remove = path.clone();
-                        let finder_id = format!("show-{}", path.display());
-                        let remove_id = format!("remove-{}", path.display());
-
-                        list = list.child(
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(6.))
-                                .bg(Colors::muted(cx))
-                                .child(
-                                    Icon::new(IconName::Folder)
-                                        .text_color(Colors::muted_foreground(cx)),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .text_sm()
-                                        .truncate()
-                                        .text_color(Colors::foreground(cx))
-                                        .child(path_text),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(finder_id))
-                                        .label(tr().reveal_folder.clone())
-                                        .on_click(move |_, _, _| {
-                                            reveal_in_file_manager(&path_for_finder);
-                                        }),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(remove_id))
-                                        .label(tr().remove.clone())
-                                        .on_click(
-                                            move |_, window: &mut Window, app_cx: &mut App| {
-                                                let path = path_for_remove.clone();
-                                                window.open_dialog(
-                                                    app_cx,
-                                                    move |dialog, _window, _cx| {
-                                                        let path = path.clone();
-                                                        dialog
-                                                    .overlay_closable(false)
-                                                    .close_button(false)
-                                                    .title(tr().remove_folder_confirm_title.clone())
-                                                    .child(div().child(
-                                                        tr().remove_folder_confirm_message.clone(),
-                                                    ))
-                                                    .footer(
-                                                        DialogFooter::new()
-                                                            .child(
-                                                                Button::new("cancel")
-                                                                    .label(tr().cancel.clone())
-                                                                    .on_click(|_, window, cx| {
-                                                                        window.dispatch_action(
-                                                                            Box::new(Cancel),
-                                                                            cx,
-                                                                        )
-                                                                    }),
-                                                            )
-                                                            .child(
-                                                                Button::new("ok")
-                                                                    .label(tr().remove.clone())
-                                                                    .primary()
-                                                                    .on_click(|_, window, cx| {
-                                                                        window.dispatch_action(
-                                                                            Box::new(Confirm {
-                                                                                secondary: false,
-                                                                            }),
-                                                                            cx,
-                                                                        )
-                                                                    }),
-                                                            ),
-                                                    )
-                                                    .on_ok(move |_, _, cx| {
-                                                        remove_folder_and_rescan(path.clone(), cx);
-                                                        true
-                                                    })
-                                                    },
-                                                );
-                                            },
-                                        ),
-                                ),
-                        );
-                    }
                 }
 
-                v_flex().gap_3().w_full().child(list).child(
+                let list = (!state.local().is_empty()).then_some(list);
+                v_flex().gap_3().w_full().children(list).child(
                     h_flex()
                         .gap_2()
                         .child(
                             Button::new("add-folder")
+                                .small()
                                 .label(tr().add_folder.clone())
                                 .on_click(|_, _, cx| pick_and_add_folder(cx)),
                         )
                         .child(
                             Button::new("rescan-library")
+                                .small()
                                 .disabled(is_scanning)
                                 .label(tr().rescan_library.clone())
                                 .on_click(|_, _, cx| force_rescan(cx)),
                         ),
                 )
-            }),
-        )
-        .layout(Axis::Vertical)
-        .description(tr().music_folders_desc.clone()),
-    )
+            },
+        )))
 }
 
-/// The "Language" setting row: a custom dropdown mirroring the theme picker.
-/// Unlike the theme picker there is no live preview — selecting commits the
-/// language (save + menu rebuild + global redraw) immediately.
-fn language_field(picker: Entity<LangPickerState>) -> SettingItem {
+fn language_field() -> SettingItem {
     SettingItem::new(
         tr().language.clone(),
-        SettingField::render({
-            let picker = picker.clone();
-            move |window, cx: &mut App| lang_picker_dropdown(picker.clone(), window, cx)
+        SettingField::render(|_window, cx: &mut App| {
+            crate::pickers::language_dropdown("settings-language", cx)
         }),
     )
     .description(tr().language_desc.clone())
-}
-
-pub fn theme_picker_dropdown(
-    picker: Entity<ThemePickerState>,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let state = picker.read(cx);
-    let open = state.open;
-    let highlight_index = state.highlight_index;
-    let options = state.options.clone();
-    let current_label = state.current_label(cx);
-    let focus_handle = state.focus_handle.clone();
-    let scroll_handle = state.scroll_handle.clone();
-    let _ = state;
-
-    // Trigger button that opens/closes the popup
-    let trigger = {
-        let picker_t = picker.clone();
-        div()
-            .id("theme-picker-trigger")
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .px_3()
-            .py_1p5()
-            .rounded(px(6.))
-            .bg(Colors::group_box(cx))
-            .border_1()
-            .border_color(Colors::border(cx))
-            .cursor_pointer()
-            .hover(|s| s.bg(Colors::muted(cx)))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(Colors::foreground(cx))
-                    .child(current_label),
-            )
-            .child(
-                Icon::new(IconName::ChevronDown)
-                    .xsmall()
-                    .text_color(Colors::muted_foreground(cx)),
-            )
-            .on_click(move |_, window, cx| {
-                // When popup is open, a backdrop (priority 0) sits above
-                // the trigger. Clicking the trigger while open routes
-                // through the backdrop, which closes the popup and
-                // occludes the event — this on_click won't fire in that
-                // case. So here open is always false when this fires.
-                let focus_handle = picker_t.read(cx).focus_handle.clone();
-                picker_t.update(cx, |state, cx| {
-                    let saved = cx.global::<SettingsStore>().theme();
-                    let current_ix = state.current_index(cx);
-                    state.open = true;
-                    state.snapshot = Some(saved);
-                    state.highlight_index = current_ix;
-                    if let Some(ix) = current_ix {
-                        state.scroll_handle.scroll_to_item(ix);
-                    }
-                    cx.notify();
-                });
-                focus_handle.focus(window, cx);
-            })
-    };
-
-    // Overlay elements: backdrop (priority 0) + popup (priority 1).
-    // Rendered only while the popup is open.
-    let mut overlay: Vec<AnyElement> = Vec::new();
-
-    if open {
-        let viewport = window.viewport_size();
-
-        // Full-window backdrop at priority 0. Sits above normal content
-        // (including the trigger) but below the popup. Clicking anywhere
-        // — including on the trigger — routes through here and closes the
-        // popup; occlude() prevents the event from reaching the trigger,
-        // so on_click on the trigger does NOT re-open the popup.
-        let picker_b = picker.clone();
-        overlay.push(
-            deferred(
-                anchored().position(point(px(0.), px(0.))).child(
-                    div()
-                        .w(viewport.width)
-                        .h(viewport.height)
-                        .occlude()
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            picker_b.update(cx, |state, cx| {
-                                close_with_revert(state, cx);
-                                cx.notify();
-                            });
-                        }),
-                ),
-            )
-            .with_priority(0)
-            .into_any_element(),
-        );
-
-        // Popup panel at priority 1 (above backdrop).
-        let items = options
-            .iter()
-            .enumerate()
-            .map(|(i, (key, label))| {
-                let is_highlighted = highlight_index == Some(i);
-                let key_c = key.clone();
-                let label_c = label.clone();
-
-                div()
-                    .id(("theme-item", i))
-                    .px_2()
-                    .py_1p5()
-                    .rounded(px(4.))
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(is_highlighted, |d| {
-                        d.bg(Colors::accent(cx))
-                            .text_color(Colors::accent_foreground(cx))
-                    })
-                    .when(!is_highlighted, |d| {
-                        d.hover(|s| s.bg(Colors::secondary(cx)))
-                    })
-                    .child(label_c)
-                    .on_mouse_move({
-                        let picker_m = picker.clone();
-                        let key_m = key_c.clone();
-                        move |_, _, cx| {
-                            picker_m.update(cx, |state, cx| {
-                                if state.highlight_index == Some(i) {
-                                    return;
-                                }
-                                state.highlight_index = Some(i);
-                                let choice = ThemeChoice::from_key(key_m.as_ref());
-                                apply_theme(&choice, cx);
-                                cx.notify();
-                            });
-                        }
-                    })
-                    .on_click({
-                        let picker_c = picker.clone();
-                        let key_click = key_c.clone();
-                        move |_, _, cx| {
-                            picker_c.update(cx, |state, cx| {
-                                confirm_save(&key_click, state, cx);
-                                cx.notify();
-                            });
-                        }
-                    })
-            })
-            .collect::<Vec<_>>();
-
-        let popup_content = v_flex()
-            .id("theme-picker-popup")
-            .bg(Colors::popover(cx))
-            .border_1()
-            .border_color(Colors::border(cx))
-            .rounded(px(6.))
-            .shadow_md()
-            .w(px(220.))
-            .occlude()
-            .relative()
-            .track_focus(&focus_handle)
-            .on_key_down({
-                let picker_k = picker.clone();
-                move |ev: &KeyDownEvent, _, cx| {
-                    let key = ev.keystroke.key.as_str();
-                    picker_k.update(cx, |state, cx| {
-                        let len = state.options.len();
-                        if len == 0 {
-                            return;
-                        }
-                        match key {
-                            "up" => {
-                                let new_ix = state
-                                    .highlight_index
-                                    .map_or(len - 1, |i| if i == 0 { len - 1 } else { i - 1 });
-                                state.highlight_index = Some(new_ix);
-                                state.scroll_handle.scroll_to_item(new_ix);
-                                let choice =
-                                    ThemeChoice::from_key(state.options[new_ix].0.as_ref());
-                                apply_theme(&choice, cx);
-                                cx.notify();
-                            }
-                            "down" => {
-                                let new_ix = state.highlight_index.map_or(0, |i| (i + 1) % len);
-                                state.highlight_index = Some(new_ix);
-                                state.scroll_handle.scroll_to_item(new_ix);
-                                let choice =
-                                    ThemeChoice::from_key(state.options[new_ix].0.as_ref());
-                                apply_theme(&choice, cx);
-                                cx.notify();
-                            }
-                            "escape" => {
-                                close_with_revert(state, cx);
-                                cx.notify();
-                            }
-                            "enter" => {
-                                if let Some(ix) = state.highlight_index {
-                                    let k = state.options[ix].0.clone();
-                                    confirm_save(&k, state, cx);
-                                } else {
-                                    close_with_revert(state, cx);
-                                }
-                                cx.notify();
-                            }
-                            _ => {}
-                        }
-                    });
-                }
-            })
-            .child(
-                div()
-                    .id("theme-picker-list")
-                    .max_h(px(360.))
-                    .overflow_y_scroll()
-                    .track_scroll(&scroll_handle)
-                    .p_1()
-                    .children(items),
-            )
-            .vertical_scrollbar(&scroll_handle);
-
-        overlay.push(
-            deferred(
-                anchored()
-                    .snap_to_window_with_margin(px(8.))
-                    .child(div().mt_1().occlude().child(popup_content)),
-            )
-            .with_priority(1)
-            .into_any_element(),
-        );
-    }
-
-    div()
-        .relative()
-        .child(trigger)
-        .children(overlay)
-        .into_any_element()
-}
-
-pub fn lang_picker_dropdown(
-    picker: Entity<LangPickerState>,
-    window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let state = picker.read(cx);
-    let open = state.open;
-    let highlight_index = state.highlight_index;
-    let options = state.options.clone();
-    let current_label = state.current_label(cx);
-    let focus_handle = state.focus_handle.clone();
-    let scroll_handle = state.scroll_handle.clone();
-
-    let trigger = {
-        let picker_t = picker.clone();
-        div()
-            .id("lang-picker-trigger")
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .px_3()
-            .py_1p5()
-            .rounded(px(6.))
-            .bg(Colors::group_box(cx))
-            .border_1()
-            .border_color(Colors::border(cx))
-            .cursor_pointer()
-            .hover(|s| s.bg(Colors::muted(cx)))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(Colors::foreground(cx))
-                    .child(current_label),
-            )
-            .child(
-                Icon::new(IconName::ChevronDown)
-                    .xsmall()
-                    .text_color(Colors::muted_foreground(cx)),
-            )
-            .on_click(move |_, window, cx| {
-                let focus_handle = picker_t.read(cx).focus_handle.clone();
-                picker_t.update(cx, |state, cx| {
-                    let current_ix = state.current_index(cx);
-                    state.open = true;
-                    state.highlight_index = current_ix;
-                    if let Some(ix) = current_ix {
-                        state.scroll_handle.scroll_to_item(ix);
-                    }
-                    cx.notify();
-                });
-                focus_handle.focus(window, cx);
-            })
-    };
-
-    let mut overlay: Vec<AnyElement> = Vec::new();
-
-    if open {
-        let viewport = window.viewport_size();
-
-        let picker_b = picker.clone();
-        overlay.push(
-            deferred(
-                anchored().position(point(px(0.), px(0.))).child(
-                    div()
-                        .w(viewport.width)
-                        .h(viewport.height)
-                        .occlude()
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            picker_b.update(cx, |state, cx| {
-                                close_lang(state);
-                                cx.notify();
-                            });
-                        }),
-                ),
-            )
-            .with_priority(0)
-            .into_any_element(),
-        );
-
-        let items = options
-            .iter()
-            .enumerate()
-            .map(|(i, (key, label))| {
-                let is_highlighted = highlight_index == Some(i);
-                let key_c = key.clone();
-                let label_c = label.clone();
-
-                div()
-                    .id(("lang-item", i))
-                    .px_2()
-                    .py_1p5()
-                    .rounded(px(4.))
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(is_highlighted, |d| {
-                        d.bg(Colors::accent(cx))
-                            .text_color(Colors::accent_foreground(cx))
-                    })
-                    .when(!is_highlighted, |d| {
-                        d.hover(|s| s.bg(Colors::secondary(cx)))
-                    })
-                    .child(label_c)
-                    .on_mouse_move({
-                        let picker_m = picker.clone();
-                        move |_, _, cx| {
-                            picker_m.update(cx, |state, cx| {
-                                if state.highlight_index == Some(i) {
-                                    return;
-                                }
-                                state.highlight_index = Some(i);
-                                cx.notify();
-                            });
-                        }
-                    })
-                    .on_click({
-                        let picker_c = picker.clone();
-                        let key_click = key_c.clone();
-                        move |_, _, cx| {
-                            picker_c.update(cx, |state, cx| {
-                                confirm_lang(&key_click, state, cx);
-                                cx.notify();
-                            });
-                        }
-                    })
-            })
-            .collect::<Vec<_>>();
-
-        let popup_content = v_flex()
-            .id("lang-picker-popup")
-            .bg(Colors::popover(cx))
-            .border_1()
-            .border_color(Colors::border(cx))
-            .rounded(px(6.))
-            .shadow_md()
-            .w(px(220.))
-            .occlude()
-            .relative()
-            .track_focus(&focus_handle)
-            .on_key_down({
-                let picker_k = picker.clone();
-                move |ev: &KeyDownEvent, _, cx| {
-                    let key = ev.keystroke.key.as_str();
-                    picker_k.update(cx, |state, cx| {
-                        let len = state.options.len();
-                        if len == 0 {
-                            return;
-                        }
-                        match key {
-                            "up" => {
-                                let new_ix = state
-                                    .highlight_index
-                                    .map_or(len - 1, |i| if i == 0 { len - 1 } else { i - 1 });
-                                state.highlight_index = Some(new_ix);
-                                state.scroll_handle.scroll_to_item(new_ix);
-                                cx.notify();
-                            }
-                            "down" => {
-                                let new_ix = state.highlight_index.map_or(0, |i| (i + 1) % len);
-                                state.highlight_index = Some(new_ix);
-                                state.scroll_handle.scroll_to_item(new_ix);
-                                cx.notify();
-                            }
-                            "escape" => {
-                                close_lang(state);
-                                cx.notify();
-                            }
-                            "enter" => {
-                                if let Some(ix) = state.highlight_index {
-                                    let k = state.options[ix].0.clone();
-                                    confirm_lang(&k, state, cx);
-                                } else {
-                                    close_lang(state);
-                                }
-                                cx.notify();
-                            }
-                            _ => {}
-                        }
-                    });
-                }
-            })
-            .child(
-                div()
-                    .id("lang-picker-list")
-                    .max_h(px(360.))
-                    .overflow_y_scroll()
-                    .track_scroll(&scroll_handle)
-                    .p_1()
-                    .children(items),
-            )
-            .vertical_scrollbar(&scroll_handle);
-
-        overlay.push(
-            deferred(
-                anchored()
-                    .snap_to_window_with_margin(px(8.))
-                    .child(div().mt_1().occlude().child(popup_content)),
-            )
-            .with_priority(1)
-            .into_any_element(),
-        );
-    }
-
-    div()
-        .relative()
-        .child(trigger)
-        .children(overlay)
-        .into_any_element()
 }

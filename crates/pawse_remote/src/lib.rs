@@ -109,6 +109,7 @@ pub struct PlayerState {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub playing: bool,
+    pub buffering: bool,
     pub position_ms: u64,
     pub duration_ms: u64,
     pub cover_id: Option<i64>,

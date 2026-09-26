@@ -129,6 +129,7 @@ pub struct QueueView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
 }
 
@@ -145,13 +146,6 @@ impl QueueView {
             cx.subscribe(
                 &engine_event_bus,
                 |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { .. } => {
-                        this.refresh_tracks(cx);
-                        if this.visible {
-                            this.scroll_current_into_view();
-                        }
-                        cx.notify();
-                    }
                     EngineEvent::Playing if !this.is_playing => {
                         this.is_playing = true;
                         cx.notify();
@@ -171,6 +165,21 @@ impl QueueView {
                     _ => {}
                 },
             );
+
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, event: &crate::playback_status::StatusChanged, cx| {
+                let loading = status.read(cx).phase() != crate::playback_status::Phase::Idle;
+                if event.track_changed || loading {
+                    this.refresh_tracks(cx);
+                    if this.visible {
+                        this.scroll_current_into_view();
+                    }
+                    cx.notify();
+                }
+            },
+        );
 
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
@@ -203,8 +212,8 @@ impl QueueView {
                                 .scroll_to_item(this.tracks.len() - 1, gpui::ScrollStrategy::Top);
                         }
                     }
-                    LibraryEvent::ScanComplete { changed: true } => {
-                        this.refresh_tracks(cx);
+                    LibraryEvent::CatalogChanged => {
+                        this.rebuild_tracks(cx);
                     }
                     _ => {}
                 }
@@ -217,6 +226,7 @@ impl QueueView {
             visible: false,
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             item_sizes: Rc::new(Vec::new()),
         };
@@ -239,6 +249,14 @@ impl QueueView {
     }
 
     pub fn refresh_tracks(&mut self, cx: &mut Context<Self>) {
+        self.load_tracks(false, cx);
+    }
+
+    fn rebuild_tracks(&mut self, cx: &mut Context<Self>) {
+        self.load_tracks(true, cx);
+    }
+
+    fn load_tracks(&mut self, force: bool, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
         let queue = services.playback_queue.borrow();
         let new_tracks = queue.tracks_vec();
@@ -251,7 +269,7 @@ impl QueueView {
                 .zip(new_tracks.iter())
                 .all(|(x, y)| x.base.id == y.id);
 
-        if !is_same_queue {
+        if force || !is_same_queue {
             let artist_by_track = build_artist_map(&services.library, &new_tracks);
             let mut art_cache = services.cover_art_cache.borrow_mut();
 
@@ -459,7 +477,7 @@ fn queue_visible_range_row(
                             services
                                 .current_position_ms
                                 .store(0, std::sync::atomic::Ordering::Relaxed);
-                            services.engine_manager.stop();
+                            services.stop_playback();
                         }
                         RemoveOutcome::Unaffected => {}
                     }
@@ -571,7 +589,7 @@ fn queue_header(cx: &mut Context<QueueView>, has_tracks: bool) -> Div {
                 services
                     .current_position_ms
                     .store(0, std::sync::atomic::Ordering::Relaxed);
-                services.engine_manager.stop();
+                services.stop_playback();
                 this.refresh_tracks(cx);
                 crate::services::queue_mutated(cx);
             }))

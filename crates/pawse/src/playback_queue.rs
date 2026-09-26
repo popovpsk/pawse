@@ -93,7 +93,7 @@ impl PlaybackQueue {
     }
 
     pub fn set_tracks_with_source(&mut self, tracks: Vec<Rc<Track>>, source: QueueSource) {
-        self.tracks = tracks;
+        self.tracks = playable(tracks);
         self.original_order = None;
         self.current_index = None;
         self.source = source;
@@ -121,12 +121,11 @@ impl PlaybackQueue {
         self.original_order = None;
         self.source = source;
         self.custom = false;
-        self.current_index = if index < tracks.len() {
-            Some(index)
-        } else {
-            None
-        };
-        self.tracks = tracks;
+        self.current_index = tracks
+            .get(index)
+            .filter(|track| track.available)
+            .map(|_| tracks[..index].iter().filter(|t| t.available).count());
+        self.tracks = playable(tracks);
         if self.shuffle {
             self.apply_shuffle();
         }
@@ -152,7 +151,7 @@ impl PlaybackQueue {
     /// `set_shuffle(false)` can still restore a meaningful order later.
     pub fn refresh_keeping_current(&mut self, new_tracks: Vec<Rc<Track>>) {
         let current_id = self.current_track().map(|t| t.id);
-        self.tracks = new_tracks;
+        self.tracks = playable(new_tracks);
         self.custom = false;
         self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
         if self.shuffle {
@@ -236,6 +235,13 @@ impl PlaybackQueue {
                 None
             }
         }
+    }
+
+    pub fn skip_to_next(&mut self) -> Option<&Rc<Track>> {
+        if !self.has_next() {
+            return None;
+        }
+        self.next_track()
     }
 
     pub fn previous(&mut self, position_secs: f32) -> PreviousAction<'_> {
@@ -358,7 +364,7 @@ impl PlaybackQueue {
     }
 
     pub fn append_track(&mut self, track: Rc<Track>, deduplicate: bool) {
-        if deduplicate && self.tracks.iter().any(|t| t.id == track.id) {
+        if !track.available || (deduplicate && self.tracks.iter().any(|t| t.id == track.id)) {
             return;
         }
         if let Some(ref mut original) = self.original_order {
@@ -465,6 +471,10 @@ impl PlaybackQueue {
     }
 }
 
+fn playable(tracks: Vec<Rc<Track>>) -> Vec<Rc<Track>> {
+    tracks.into_iter().filter(|track| track.available).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -485,7 +495,42 @@ mod tests {
             liked: false,
             bitrate: None,
             is_cue: false,
+            available: true,
         })
+    }
+
+    fn missing(id: i64, path: &str) -> Rc<Track> {
+        let mut t = track(id, path);
+        Rc::make_mut(&mut t).available = false;
+        t
+    }
+
+    #[test]
+    fn unavailable_tracks_never_enter_the_queue() {
+        let mut q = PlaybackQueue::new();
+        let list = vec![track(1, "/a"), missing(2, "/b"), track(3, "/c")];
+
+        let playing = q
+            .set_tracks_and_play_at(list.clone(), 2, QueueSource::Unknown)
+            .map(|t| t.id);
+        assert_eq!(playing, Some(3));
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![1, 3]);
+
+        assert!(
+            q.set_tracks_and_play_at(list.clone(), 1, QueueSource::Unknown)
+                .is_none()
+        );
+
+        q.set_tracks(Vec::new());
+        q.append_track(missing(4, "/d"), false);
+        assert!(q.is_empty());
+
+        q.set_tracks_and_play_at(vec![track(1, "/a")], 0, QueueSource::Unknown);
+        q.refresh_keeping_current(list);
+        let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![1, 3]);
+        assert_eq!(q.current_track().map(|t| t.id), Some(1));
     }
 
     fn track_off(id: i64, path: &str, start_offset_ms: i32) -> Rc<Track> {
@@ -567,6 +612,17 @@ mod tests {
         let next = q.next_track().cloned();
         assert_eq!(next.map(|t| t.id), Some(1));
         assert_eq!(q.current_index(), Some(1));
+    }
+
+    #[test]
+    fn skipping_past_the_last_track_keeps_it_current() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(2));
+        q.play_track_at(1);
+
+        assert!(q.skip_to_next().is_none());
+        assert_eq!(q.current_index(), Some(1));
+        assert!(matches!(q.previous(0.0), PreviousAction::PreviousTrack(t) if t.id == 0));
     }
 
     #[test]

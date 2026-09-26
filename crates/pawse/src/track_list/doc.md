@@ -20,6 +20,18 @@ so call sites have a single import; `mod.rs` re-exports the submodule items.
 - `like_button.rs` — `like_button(track_id, liked, &RowButtonColors)` (heart toggle →
   `LibraryService::set_liked`) and `LIKE_ROW_GROUP`, the hover-group name rows apply
   so the heart/queue/playlist buttons fade in on row hover.
+- `cache_button.rs` — `move_to_local_button` (album header, `crate::album_export`,
+  same stop icon and bytes tooltip while running) and `save_to_cache_button`: the album/artist header button
+  that saves network tracks into the media cache (`crate::cache_fill`). Shown
+  only while something is missing from the cache or a save is running; while
+  running it shows a static stop icon (no spinner: an animation would repaint
+  the window every frame) and saved/total bytes in the tooltip — bytes, not
+  files, since one cue image is a whole disc — and a click stops it. Whether
+  anything is missing is computed by the owning view on load and when
+  `CacheFill`'s revision changes (a save finished, the cache was cleared), never
+  in render, with a stat-only check (`RemoteMedia::is_cached`) so opening an
+  album does not refresh its files in the LRU. Eviction by the LRU is not
+  noticed until the view is opened again.
 - `queue_button.rs` — `add_to_queue_button(Rc<Track>, …, &RowButtonColors)` (append one
   track; takes an `Rc` so the row clone is a refcount bump) and
   `add_album_to_queue_button` (append a whole album); both emit `QueueChanged`. Also

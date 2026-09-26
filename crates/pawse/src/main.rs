@@ -9,8 +9,11 @@ use crate::{
     services::{Services, run_engine_events_bus},
 };
 
+pub mod album_export;
 pub mod app_menu;
 pub mod audio_settings;
+pub mod cache_fill;
+pub mod cache_settings;
 pub mod cover_art_cache;
 pub mod cover_backdrop;
 pub mod cover_mode_view;
@@ -19,8 +22,10 @@ pub mod cover_volume;
 pub mod discord_bridge;
 pub mod error_bridge;
 pub mod footer;
+pub mod jellyfin_settings;
 pub mod keyboard_shortcuts;
 pub mod library_service;
+pub mod library_sources;
 pub mod library_views;
 pub mod library_watcher;
 pub mod localization;
@@ -31,24 +36,33 @@ pub mod media_bridge;
 pub mod next_button;
 pub mod now_playing;
 pub mod onboarding_view;
+pub mod pickers;
 pub mod play_button;
+pub mod playback_opener;
 pub mod playback_queue;
+pub mod playback_status;
 pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;
+pub mod remote_media;
+pub mod remote_settings;
+pub mod remote_sync;
 pub mod repeat_button;
 pub mod scrobble_bridge;
 mod scrobble_import;
 mod scrobble_settings;
 pub mod scrobble_store;
+pub mod servers;
 pub mod services;
 pub mod settings_store;
 pub mod settings_view;
 pub mod shuffle_button;
 #[cfg(not(target_os = "macos"))]
 pub mod single_instance;
+pub mod subsonic_settings;
 pub mod tag_editor_view;
 pub mod theme_colors;
+pub mod torrent_settings;
 pub mod track_list;
 pub mod track_progress_slider;
 pub mod volume;
@@ -66,7 +80,18 @@ fn restore_engine_state(cx: &mut App) {
     };
     drop(queue);
 
-    let path = std::path::PathBuf::from(&track.path);
+    let Some(path) = services
+        .remote_media
+        .cached(std::path::Path::new(&track.path))
+    else {
+        if stored_position_ms > 0 {
+            services.resume_at.set(Some((track.id, stored_position_ms)));
+            services
+                .current_position_ms
+                .store(stored_position_ms, std::sync::atomic::Ordering::Relaxed);
+        }
+        return;
+    };
     let start_offset = if track.start_offset_ms > 0 {
         Some(std::time::Duration::from_millis(
             track.start_offset_ms as u64,
@@ -113,16 +138,21 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
         let view = cx.new(|cx| MainView::new(window, cx));
         let root = cx.new(|cx| Root::new(view, window, cx));
         if run_startup_tasks {
+            crate::remote_settings::apply_remote_sources(cx);
             restore_engine_state(cx);
             window.on_next_frame(|_window, cx| {
                 let folders = cx
                     .global::<crate::settings_store::SettingsStore>()
                     .music_folders()
                     .to_vec();
-                if !folders.is_empty() {
+                let has_servers = crate::remote_settings::has_servers(
+                    cx.global::<crate::settings_store::SettingsStore>(),
+                );
+                if !folders.is_empty() || has_servers {
                     cx.global::<Services>().library.clear_and_rescan(folders);
                 }
                 crate::library_watcher::rebuild(cx);
+                crate::remote_settings::sync_all(cx);
             });
         }
         root
@@ -214,6 +244,7 @@ fn main() {
         let is_playing = services.is_playing.clone();
         let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
+        crate::remote_settings::watch_offline_servers(cx);
 
         {
             let (stored, initial_volume) = {

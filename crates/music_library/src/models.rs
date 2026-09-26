@@ -38,6 +38,37 @@ pub struct Track {
     pub bitrate: Option<u32>,
     #[serde(default)]
     pub is_cue: bool,
+    #[serde(default = "available_by_default")]
+    pub available: bool,
+}
+
+fn available_by_default() -> bool {
+    true
+}
+
+impl Track {
+    pub fn location(&self) -> crate::remote::Location<'_> {
+        crate::remote::location(&self.path)
+    }
+
+    pub fn remote(&self) -> Option<crate::remote::RemoteRef> {
+        match self.location() {
+            crate::remote::Location::Remote(reference) => Some(reference),
+            crate::remote::Location::File(_) | crate::remote::Location::Invalid => None,
+        }
+    }
+
+    pub fn is_remote(&self) -> bool {
+        matches!(self.location(), crate::remote::Location::Remote(_))
+    }
+
+    pub fn local_file(&self) -> Option<&std::path::Path> {
+        crate::remote::local_file(&self.path)
+    }
+
+    pub fn own_file(&self) -> Option<&std::path::Path> {
+        self.local_file().filter(|_| !self.is_cue)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +101,77 @@ pub struct ArtistSummary {
     pub name: String,
     pub sort_name: String,
     pub track_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSummary {
+    pub id: i64,
+    pub kind: String,
+    pub uri: String,
+    pub enabled: bool,
+    pub available: bool,
+    pub track_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct RemoteSong {
+    pub key: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub size: Option<i64>,
+    pub suffix: Option<String>,
+    pub content_type: Option<String>,
+    pub bitrate_kbps: Option<u32>,
+    pub cover_key: Option<String>,
+    pub cover_hash: Option<String>,
+    pub artist_aliases: Vec<String>,
+    pub start_offset_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RemoteSyncReport {
+    pub total: usize,
+    pub added: usize,
+    pub adopted: usize,
+    pub retired: usize,
+    pub updated: usize,
+    pub revived: usize,
+    pub became_available: bool,
+}
+
+impl RemoteSyncReport {
+    pub fn changed(&self) -> bool {
+        self.added + self.adopted + self.retired + self.updated + self.revived > 0
+            || self.became_available
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteCover {
+    pub hash: String,
+    pub small: Vec<u8>,
+    pub large: Vec<u8>,
+    pub source_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteSource {
+    pub uri: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFolder {
+    pub path: String,
+    pub available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -134,6 +236,7 @@ pub struct ScanTrack {
     pub bitrate: Option<u32>,
     pub is_cue: bool,
     pub lyrics: Option<ScanLyrics>,
+    pub file_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,36 +261,6 @@ pub struct PlaylistSummary {
     pub name: String,
     pub created_at: i64,
     pub track_count: i64,
-}
-
-/// A frozen reference to one track within one playlist by **content key**
-/// (path + start_offset_ms), not by `track_id`. Used to preserve playlist
-/// contents across a full rescan, where `tracks` rows get fresh ids.
-///
-/// Original positions are not stored — `playlist_track_refs` returns the
-/// refs in `(playlist_id, position)` order, and `restore_playlist_track_refs`
-/// re-densifies positions starting from 0. So `Vec` order is the contract;
-/// stale gaps from removed tracks aren't carried over.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlaylistTrackRef {
-    pub playlist_id: i64,
-    pub path: String,
-    pub start_offset_ms: i32,
-}
-
-/// A frozen lyrics row keyed by **content key** (path + start_offset_ms), used
-/// to carry non-disk-derived lyrics (network fetches, plus their not-found
-/// markers) across a full rescan. `clear()` cascades the `lyrics` table away
-/// with `tracks`, and a rescan only re-reads `.lrc`/embedded lyrics from disk —
-/// so without this, fetched lyrics would vanish on every rescan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LyricsRef {
-    pub path: String,
-    pub start_offset_ms: i32,
-    pub source: String,
-    pub text: String,
-    pub not_found: bool,
-    pub updated_at: i64,
 }
 
 pub mod delivery_state {

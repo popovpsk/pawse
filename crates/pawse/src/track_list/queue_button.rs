@@ -56,6 +56,9 @@ pub fn play_replacing_queue(
     window: &mut Window,
     cx: &mut App,
 ) {
+    if tracks.get(index).is_some_and(|track| !track.available) {
+        return;
+    }
     if !cx.global::<Services>().playback_queue.borrow().is_custom() {
         replace_queue_and_play(tracks, index, source, cx);
         return;

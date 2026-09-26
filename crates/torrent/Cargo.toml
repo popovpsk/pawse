@@ -1,0 +1,20 @@
+[package]
+name = "torrent"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+librqbit = { version = "9.0.1", default-features = false, features = ["rust-tls", "disable-upload"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "io-util", "sync"] }
+log.workspace = true
+anyhow.workspace = true
+
+[features]
+test-support = []
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

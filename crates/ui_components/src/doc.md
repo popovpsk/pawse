@@ -27,6 +27,12 @@ Settings              tab bar + scrollable content
 
 ### Responsibility split
 
+A horizontal `SettingItem` puts the label and the field on one line and the
+description under both, across the full width: a wide field (a button group)
+would otherwise squeeze the description into a narrow column.
+`SettingItem::unlabeled` is a vertical row without a label, for a group whose
+title already names its only row (a folder or server list).
+
 Widget owns **only layout**. All behavior lives in `SettingField::render` closures
 supplied by the caller (`pawse` → `settings_view.rs`).
 

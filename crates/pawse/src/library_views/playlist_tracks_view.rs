@@ -24,8 +24,10 @@ use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::{LibraryEvent, LibraryService};
 use crate::library_views::fuzzy::fuzzy_sorted;
-use crate::library_views::track_row::{CoverTrackRow, build_artist_map, build_haystacks};
-use crate::localization::tr;
+use crate::library_views::track_row::{
+    CoverTrackRow, build_artist_map, build_haystacks, unavailable_label,
+};
+use crate::localization::{LangChanged, tr};
 use crate::playback_queue::QueueSource;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -71,6 +73,7 @@ pub struct PlaylistTracksView {
     row_data: Vec<CoverTrackRow>,
     artist_by_track: HashMap<i64, SharedString>,
     haystacks: Vec<String>,
+    unavailable: Option<SharedString>,
     items: Vec<Item>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     filter: String,
@@ -80,6 +83,8 @@ pub struct PlaylistTracksView {
     scroll_handle: VirtualListScrollHandle,
     _library_subscription: Subscription,
     _engine_subscription: Subscription,
+    _status_subscription: Subscription,
+    _lang_subscription: Subscription,
 }
 
 impl PlaylistTracksView {
@@ -126,7 +131,7 @@ impl PlaylistTracksView {
                 {
                     this.reload_tracks(cx);
                 }
-                LibraryEvent::ScanComplete { changed } if *changed => {
+                LibraryEvent::CatalogChanged => {
                     this.reload_tracks(cx);
                 }
                 LibraryEvent::TrackLikedChanged { .. } | LibraryEvent::LikesImported { .. } => {
@@ -153,21 +158,15 @@ impl PlaylistTracksView {
             },
         );
 
+        let lang_event_bus = cx.global::<Services>().lang_event_bus.clone();
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            this.unavailable = unavailable_label(&this.tracks_all);
+            cx.notify();
+        });
+
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
             |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => {
-                    let id = cx
-                        .global::<Services>()
-                        .playback_queue
-                        .borrow()
-                        .current_track()
-                        .map(|t| t.id);
-                    if this.current_track_id != id {
-                        this.current_track_id = id;
-                        cx.notify();
-                    }
-                }
                 EngineEvent::Playing if !this.is_playing => {
                     this.is_playing = true;
                     cx.notify();
@@ -184,9 +183,22 @@ impl PlaylistTracksView {
             },
         );
 
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, _: &crate::playback_status::StatusChanged, cx| {
+                let id = status.read(cx).track_id();
+                if this.current_track_id != id {
+                    this.current_track_id = id;
+                    cx.notify();
+                }
+            },
+        );
+
         Self {
             name,
             source,
+            unavailable: unavailable_label(&tracks_all),
             tracks_all,
             row_data,
             artist_by_track,
@@ -200,6 +212,8 @@ impl PlaylistTracksView {
             scroll_handle: VirtualListScrollHandle::new(),
             _library_subscription: library_subscription,
             _engine_subscription: engine_subscription,
+            _status_subscription: status_subscription,
+            _lang_subscription: lang_subscription,
         }
     }
 
@@ -208,6 +222,7 @@ impl PlaylistTracksView {
         self.tracks_all = load_tracks(self.source, &library);
         self.artist_by_track = build_artist_map(&library, &self.tracks_all);
         self.haystacks = build_haystacks(&self.tracks_all, &self.artist_by_track);
+        self.unavailable = unavailable_label(&self.tracks_all);
         self.recompute_visible(cx);
         cx.notify();
     }
@@ -345,12 +360,16 @@ impl Render for PlaylistTracksView {
                                     .px_4()
                                     .flex()
                                     .items_center()
+                                    .gap_3()
                                     .child(
                                         div()
                                             .text_xl()
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .child(view.name.clone()),
                                     )
+                                    .children(view.unavailable.clone().map(|label| {
+                                        div().text_sm().text_color(muted_fg).child(label)
+                                    }))
                                     .into_any_element(),
                                 Item::Track(track_ix) => playlist_track_row(view, track_ix, &p, cx),
                             })
@@ -395,6 +414,7 @@ fn playlist_track_row(
     let track_id = row.base.id;
     let track_all_ix = row.track_all_ix;
     let is_current = Some(track_id) == view.current_track_id;
+    let available = row.base.available;
     let is_playing = view.is_playing;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
     let remove_playlist_id = match p.source {
@@ -434,6 +454,7 @@ fn playlist_track_row(
         .border_b(px(1.))
         .border_color(p.border)
         .when(is_current, |s| crate::track_list::current_row(s, cx))
+        .when(!available, |s| s.opacity(0.45))
         .hover(|s| s.bg(p.list_hover))
         .child(leading)
         .child(
