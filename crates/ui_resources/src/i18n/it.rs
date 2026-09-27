@@ -127,7 +127,7 @@ pub static IT: Strings = lang! {
     new_playlist: "Nuova playlist",
     delete: "Elimina",
 
-    settings_interface: "Interfaccia",
+    settings_appearance: "Aspetto",
     settings_general: "Generale",
     settings_library: "Libreria",
     theme: "Tema",
@@ -141,6 +141,8 @@ pub static IT: Strings = lang! {
     exclusive_mode_button_desc: "Mostra o nascondi il pulsante della modalità esclusiva nell'intestazione",
     native_rate_button: "Pulsante frequenza nativa",
     native_rate_button_desc: "Mostra o nascondi l'interruttore della frequenza nativa nell'intestazione",
+    device_picker_button: "Pulsante dispositivo audio",
+    device_picker_button_desc: "Mostra o nascondi il selettore del dispositivo di uscita nell’intestazione",
     repeat_shuffle: "Ripeti e casuale",
     repeat_shuffle_desc: "Mostra o nascondi i pulsanti di ripetizione e casuale nei controlli",
     time_labels: "Etichette tempo",

@@ -127,7 +127,7 @@ pub static FR: Strings = lang! {
     new_playlist: "Nouvelle playlist",
     delete: "Supprimer",
 
-    settings_interface: "Interface",
+    settings_appearance: "Apparence",
     settings_general: "Général",
     settings_library: "Bibliothèque",
     theme: "Thème",
@@ -141,6 +141,8 @@ pub static FR: Strings = lang! {
     exclusive_mode_button_desc: "Afficher ou masquer le bouton du mode exclusif dans l'en-tête",
     native_rate_button: "Bouton de fréquence native",
     native_rate_button_desc: "Afficher ou masquer le bouton de fréquence native dans l'en-tête",
+    device_picker_button: "Bouton du périphérique audio",
+    device_picker_button_desc: "Afficher ou masquer le sélecteur de périphérique de sortie dans l’en-tête",
     repeat_shuffle: "Répétition et aléatoire",
     repeat_shuffle_desc: "Afficher ou masquer les boutons de répétition et d'aléatoire dans les commandes",
     time_labels: "Repères de temps",

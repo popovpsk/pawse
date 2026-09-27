@@ -116,6 +116,7 @@ impl Render for AudioSettings {
             (output.drain_events(), is_exclusive, bit_perfect)
         };
         let show_hog = native_mode_available() && cx.global::<SettingsStore>().show_hog_button();
+        let show_device_picker = cx.global::<SettingsStore>().show_device_picker();
         let scale = ui_scale(cx);
         for evt in events {
             match evt {
@@ -206,94 +207,99 @@ impl Render for AudioSettings {
                         })
                 })
             })
-            .child({
-                let view = cx.entity().clone();
-                Popover::new("audio-device-popover")
-                    .anchor(Anchor::TopRight)
-                    .appearance(false)
-                    .trigger(
-                        Button::new("audio-device-trigger")
-                            .ghost()
-                            .compact()
-                            .rounded_full()
-                            .w(px(40. * scale))
-                            .h(px(40. * scale))
-                            .icon(
-                                Icon::default()
-                                    .path("icons/devices.svg")
-                                    .size(px(20. * scale)),
-                            )
-                            .tooltip(tr().select_audio_device.clone()),
-                    )
-                    .content(move |_state, _window, pop_cx| {
-                        let services = pop_cx.global::<Services>();
-                        // Enumerate devices once (this may shell out to `pactl`
-                        // on Linux) and derive the selected row from the pinned
-                        // UID instead of calling `selected_device_index()`, which
-                        // would enumerate a second time.
-                        let devices = services.output.devices();
-                        let selected_uid = services.output.selected_device_uid();
-                        let muted_color = Colors::muted(pop_cx);
-                        let mut children: Vec<AnyElement> = Vec::new();
-                        for (i, d) in devices.into_iter().enumerate() {
-                            let view_row = view.clone();
-                            let is_selected = match &selected_uid {
-                                Some(uid) => *uid == d.uid,
-                                None => d.is_default,
-                            };
-                            let device_label = format!(
-                                "{}{}",
-                                d.name,
-                                if d.is_default {
-                                    tr().default_suffix.as_str()
-                                } else {
-                                    ""
-                                }
-                            );
-                            children.push(
-                                h_flex()
-                                    .id(("device-row", i))
-                                    .cursor_pointer()
-                                    .px_1()
-                                    .py_1()
-                                    .rounded(px(4.))
-                                    .hover(move |style| style.bg(muted_color))
-                                    .gap_1()
-                                    .when(is_selected, |el| {
-                                        el.child(
-                                            Icon::default().path("icons/check.svg").size(px(14.)),
-                                        )
-                                    })
-                                    .child(div().text_sm().child(device_label))
-                                    .on_click(move |_, _, app_cx| {
-                                        view_row.update(app_cx, |this, cx| {
-                                            let services = cx.global::<Services>();
-                                            if let Err(e) = services.output.select_device(i) {
-                                                this.pending_notification =
-                                                    Some(tr().failed_switch_device(&e.to_string()));
-                                            }
-                                            cx.notify();
-                                        });
-                                    })
-                                    .into_any_element(),
-                            );
-                        }
-                        v_flex()
-                            .id("audio-device-popup")
-                            .bg(crate::cover_backdrop::popover_bg(
-                                Colors::popover(pop_cx),
-                                crate::cover_backdrop::veil_factor(pop_cx),
-                            ))
-                            .border_1()
-                            .border_color(Colors::border(pop_cx))
-                            .rounded(px(6.))
-                            .shadow_md()
-                            .p_3()
-                            .occlude()
-                            .gap_1()
-                            .min_w(px(220.))
-                            .children(children)
-                    })
+            .when(show_device_picker, |el| {
+                el.child({
+                    let view = cx.entity().clone();
+                    Popover::new("audio-device-popover")
+                        .anchor(Anchor::TopRight)
+                        .appearance(false)
+                        .trigger(
+                            Button::new("audio-device-trigger")
+                                .ghost()
+                                .compact()
+                                .rounded_full()
+                                .w(px(40. * scale))
+                                .h(px(40. * scale))
+                                .icon(
+                                    Icon::default()
+                                        .path("icons/devices.svg")
+                                        .size(px(20. * scale)),
+                                )
+                                .tooltip(tr().select_audio_device.clone()),
+                        )
+                        .content(move |_state, _window, pop_cx| {
+                            let services = pop_cx.global::<Services>();
+                            // Enumerate devices once (this may shell out to `pactl`
+                            // on Linux) and derive the selected row from the pinned
+                            // UID instead of calling `selected_device_index()`, which
+                            // would enumerate a second time.
+                            let devices = services.output.devices();
+                            let selected_uid = services.output.selected_device_uid();
+                            let muted_color = Colors::muted(pop_cx);
+                            let mut children: Vec<AnyElement> = Vec::new();
+                            for (i, d) in devices.into_iter().enumerate() {
+                                let view_row = view.clone();
+                                let is_selected = match &selected_uid {
+                                    Some(uid) => *uid == d.uid,
+                                    None => d.is_default,
+                                };
+                                let device_label = format!(
+                                    "{}{}",
+                                    d.name,
+                                    if d.is_default {
+                                        tr().default_suffix.as_str()
+                                    } else {
+                                        ""
+                                    }
+                                );
+                                children.push(
+                                    h_flex()
+                                        .id(("device-row", i))
+                                        .cursor_pointer()
+                                        .px_1()
+                                        .py_1()
+                                        .rounded(px(4.))
+                                        .hover(move |style| style.bg(muted_color))
+                                        .gap_1()
+                                        .when(is_selected, |el| {
+                                            el.child(
+                                                Icon::default()
+                                                    .path("icons/check.svg")
+                                                    .size(px(14.)),
+                                            )
+                                        })
+                                        .child(div().text_sm().child(device_label))
+                                        .on_click(move |_, _, app_cx| {
+                                            view_row.update(app_cx, |this, cx| {
+                                                let services = cx.global::<Services>();
+                                                if let Err(e) = services.output.select_device(i) {
+                                                    this.pending_notification = Some(
+                                                        tr().failed_switch_device(&e.to_string()),
+                                                    );
+                                                }
+                                                cx.notify();
+                                            });
+                                        })
+                                        .into_any_element(),
+                                );
+                            }
+                            v_flex()
+                                .id("audio-device-popup")
+                                .bg(crate::cover_backdrop::popover_bg(
+                                    Colors::popover(pop_cx),
+                                    crate::cover_backdrop::veil_factor(pop_cx),
+                                ))
+                                .border_1()
+                                .border_color(Colors::border(pop_cx))
+                                .rounded(px(6.))
+                                .shadow_md()
+                                .p_3()
+                                .occlude()
+                                .gap_1()
+                                .min_w(px(220.))
+                                .children(children)
+                        })
+                })
             })
     }
 }

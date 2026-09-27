@@ -127,7 +127,7 @@ pub static ID: Strings = lang! {
     new_playlist: "Playlist baru",
     delete: "Hapus",
 
-    settings_interface: "Antarmuka",
+    settings_appearance: "Tampilan",
     settings_general: "Umum",
     settings_library: "Pustaka",
     theme: "Tema",
@@ -141,6 +141,8 @@ pub static ID: Strings = lang! {
     exclusive_mode_button_desc: "Tampilkan atau sembunyikan tombol mode eksklusif di header",
     native_rate_button: "Tombol laju sampel asli",
     native_rate_button_desc: "Tampilkan atau sembunyikan tombol laju sampel asli di header",
+    device_picker_button: "Tombol perangkat audio",
+    device_picker_button_desc: "Tampilkan atau sembunyikan pemilih perangkat output di header",
     repeat_shuffle: "Ulang & acak",
     repeat_shuffle_desc: "Tampilkan atau sembunyikan tombol ulang dan acak di kontrol pemutar",
     time_labels: "Label waktu",

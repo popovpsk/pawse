@@ -127,7 +127,7 @@ pub static JA: Strings = lang! {
     new_playlist: "新しいプレイリスト",
     delete: "削除",
 
-    settings_interface: "インターフェース",
+    settings_appearance: "外観",
     settings_general: "一般",
     settings_library: "ライブラリ",
     theme: "テーマ",
@@ -141,6 +141,8 @@ pub static JA: Strings = lang! {
     exclusive_mode_button_desc: "ヘッダーの排他モード切り替えを表示／非表示",
     native_rate_button: "ネイティブサンプルレートのボタン",
     native_rate_button_desc: "ヘッダーのネイティブサンプルレート切り替えを表示または非表示にします",
+    device_picker_button: "オーディオデバイスボタン",
+    device_picker_button_desc: "ヘッダーの出力デバイス選択ボタンを表示または非表示にします",
     repeat_shuffle: "リピートとシャッフル",
     repeat_shuffle_desc: "プレイヤー操作のリピート・シャッフルボタンを表示／非表示",
     time_labels: "時間ラベル",

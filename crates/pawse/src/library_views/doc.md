@@ -26,7 +26,7 @@ drive the `PlaybackQueue` on click.
   Disabling Liked/Playlists in settings purges those frames, resetting to
   `[Root(Albums)]` if that breaks the `stack[0]`-is-`Root` invariant.
 - `albums_view.rs` — Albums tab. One entity, two layouts (`albums_layout`, Settings →
-  Interface → Albums view): `List` renders here, `Grid` (default) delegates to
+  Appearance → Albums view): `List` renders here, `Grid` (default) delegates to
   `albums_grid.rs`. Data, filter, subscriptions and `row_data` are shared; only the
   render branches. Row order is SQL-side (`artist, year, title`), not derived from the
   text — independent of how the artist is shown.
@@ -158,7 +158,7 @@ drive the `PlaybackQueue` on click.
   every list view uses it, and `cover_backdrop::from_thumbnail` needs the undecoded bytes.
   Note `decode_cover_tile` swaps R and B: gpui's `RenderImage` is BGRA, `to_rgba8` is not.
 - `artists_view.rs` — Artists tab: virtualized list of artists. Which relation the
-  list is built on is a setting (`artists_grouping`, Settings → Interface → Artists
+  list is built on is a setting (`artists_grouping`, Settings → Appearance → Artists
   view): `AlbumArtist` (default) attributes each track to its own album-artist tag;
   a track without one follows its album's artist when that is *known*
   (`albums.artist_known`, see the derived-artists note below), and only on a true

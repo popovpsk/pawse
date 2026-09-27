@@ -45,3 +45,35 @@ decoder is ready. Play and pause that arrive in between are remembered
 
 APE and DSD decoders are tied to `std::fs::File`, so those formats are never
 streamed: `pawse` downloads them whole first (`audio_decoder::can_stream`).
+
+## Following the system default device
+
+This lives in `audio_output` (`default_watch.rs` + `Output::write`), but the
+engine thread drives it. When no device is pinned (`selected_uid == None`), the
+shared stream has to follow the system default output:
+
+- macOS: nothing to do. When the chosen device is the system default, cpal opens
+  it as a `DefaultOutput` audio unit, and CoreAudio moves that unit to the new
+  default by itself.
+- Windows: an `IMMNotificationClient` registered on an `IMMDeviceEnumerator`
+  sets a flag on `OnDefaultDeviceChanged(eRender, eConsole)`. The flag is only
+  touched by that callback and by `write`, and MMDevice calls the callback on
+  its own thread, so the COM wrapper is marked `Send + Sync`. COM is initialized
+  STA on the thread that builds `Output`, the same model cpal uses.
+- Linux: a long-lived `pactl subscribe` child and an `audio-default-watch`
+  thread that reads its output. On a server event the thread compares the
+  current default sink with the last one and sets the flag if it changed. The
+  child is killed when `Output` is dropped, and the thread then ends on EOF. We
+  need this because `resolve_device` pins the stream to the default sink with
+  `PIPEWIRE_NODE`, so PipeWire does not move it on its own.
+
+`Output::write` takes the flag once per batch, an atomic swap with no syscalls.
+If it is set, the output is shared and nothing is pinned, the shared stream is
+rebuilt on the new default. Writes only happen while playing, so a change made
+during a pause is picked up by the first batch after resume. Exclusive mode
+never follows the default, because hog mode holds the device it grabbed.
+
+When the header device picker is hidden (`show_device_picker = false`, the
+default), `Output::set_follow_default(true)` also makes leaving exclusive mode
+drop the pin that `set_exclusive(true)` placed. The output then goes back to the
+system default instead of staying on the previously exclusive device.

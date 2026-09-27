@@ -1,5 +1,6 @@
 pub mod bit_perfect;
 pub mod cpal_stream;
+mod default_watch;
 pub mod device;
 pub mod exclusive;
 pub mod ring_buffer;
@@ -81,6 +82,8 @@ pub struct Output {
     // App-level digital volume. Survives an exclusive round-trip (where it is
     // not applied) so the shared stream comes back at the user's level.
     app_volume: AtomicF32,
+    follow_default: AtomicBool,
+    default_watch: Option<default_watch::DefaultDeviceWatcher>,
 }
 
 fn calc_buffer_size(cfg: &OutputConfig) -> usize {
@@ -126,6 +129,29 @@ impl Output {
             source_bit_depth: AtomicU8::new(0),
             source_present: AtomicBool::new(false),
             app_volume: AtomicF32::new(1.0),
+            follow_default: AtomicBool::new(true),
+            default_watch: default_watch::DefaultDeviceWatcher::start(),
+        }
+    }
+
+    fn default_device_changed(&self) -> bool {
+        let Some(watch) = &self.default_watch else {
+            return false;
+        };
+        watch.take_changed()
+            && matches!(*self.current.read(), Some(OutputMode::Shared(_)))
+            && self.device_manager.read().selected_uid().is_none()
+    }
+
+    pub fn set_follow_default(&self, follow: bool) {
+        self.follow_default.store(follow, Ordering::Relaxed);
+    }
+
+    pub fn follow_system_default(&self) {
+        let was_pinned = self.device_manager.read().selected_uid().is_some();
+        self.device_manager.write().select_default();
+        if was_pinned && matches!(*self.current.read(), Some(OutputMode::Shared(_))) {
+            self.recreate_shared(self.current_config(), self.is_playing());
         }
     }
 
@@ -402,6 +428,10 @@ impl Output {
         // the device rate (or doesn't, if the device is dead) before cpal tries
         // to open anything.
         let _ = self.take_current();
+
+        if self.follow_default.load(Ordering::Relaxed) {
+            self.device_manager.write().select_default();
+        }
 
         // First try the user-selected device.
         if self.install_shared_fallback(&config, resume_after) {
@@ -706,6 +736,9 @@ impl AudioOutput for Output {
 
         if needs_recreate {
             self.recreate_stream(batch.metadata.clone());
+        } else if self.default_device_changed() {
+            log::info!("audio output: system default device changed, following it");
+            self.recreate_shared(self.current_config(), self.is_playing());
         }
 
         // Drain any events from the exclusive backend. Disconnect needs a full
@@ -860,6 +893,37 @@ mod tests {
         match &events[0] {
             OutputEvent::Recovered { .. } | OutputEvent::Failure { .. } => {}
         }
+    }
+
+    #[test]
+    fn follow_system_default_clears_a_pinned_device() {
+        let out = Output::new();
+        out.device_manager
+            .write()
+            .set_selected_uid("definitely-not-a-real-device-uid-xyz123".to_string());
+        out.follow_system_default();
+        assert_eq!(out.selected_device_uid(), None);
+        assert!(!out.is_exclusive());
+    }
+
+    #[test]
+    fn leaving_exclusive_unpins_only_when_following_default() {
+        let out = Output::new();
+        let pinned = out
+            .devices()
+            .into_iter()
+            .next()
+            .expect("dev host device")
+            .uid;
+
+        out.set_follow_default(false);
+        out.device_manager.write().set_selected_uid(pinned.clone());
+        out.set_exclusive(false).unwrap();
+        assert_eq!(out.selected_device_uid(), Some(pinned.clone()));
+
+        out.set_follow_default(true);
+        out.set_exclusive(false).unwrap();
+        assert_eq!(out.selected_device_uid(), None);
     }
 
     #[test]

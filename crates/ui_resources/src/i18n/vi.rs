@@ -127,7 +127,7 @@ pub static VI: Strings = lang! {
     new_playlist: "Danh sách phát mới",
     delete: "Xóa",
 
-    settings_interface: "Giao diện",
+    settings_appearance: "Giao diện",
     settings_general: "Chung",
     settings_library: "Thư viện",
     theme: "Chủ đề",
@@ -141,6 +141,8 @@ pub static VI: Strings = lang! {
     exclusive_mode_button_desc: "Hiện hoặc ẩn nút chuyển chế độ độc quyền ở phần đầu",
     native_rate_button: "Nút tần số lấy mẫu gốc",
     native_rate_button_desc: "Hiện hoặc ẩn nút tần số lấy mẫu gốc trên thanh tiêu đề",
+    device_picker_button: "Nút thiết bị âm thanh",
+    device_picker_button_desc: "Hiện hoặc ẩn bộ chọn thiết bị đầu ra trên thanh tiêu đề",
     repeat_shuffle: "Lặp và ngẫu nhiên",
     repeat_shuffle_desc: "Hiện hoặc ẩn nút lặp và ngẫu nhiên trong điều khiển",
     time_labels: "Nhãn thời gian",

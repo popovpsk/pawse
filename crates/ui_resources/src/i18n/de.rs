@@ -127,7 +127,7 @@ pub static DE: Strings = lang! {
     new_playlist: "Neue Playlist",
     delete: "Löschen",
 
-    settings_interface: "Oberfläche",
+    settings_appearance: "Darstellung",
     settings_general: "Allgemein",
     settings_library: "Bibliothek",
     theme: "Design",
@@ -141,6 +141,8 @@ pub static DE: Strings = lang! {
     exclusive_mode_button_desc: "Schalter für den Exklusivmodus in der Kopfzeile anzeigen oder ausblenden",
     native_rate_button: "Schalter für native Abtastrate",
     native_rate_button_desc: "Den Schalter für die native Abtastrate in der Kopfzeile ein- oder ausblenden",
+    device_picker_button: "Audiogerät-Schaltfläche",
+    device_picker_button_desc: "Die Auswahl des Ausgabegeräts in der Kopfzeile ein- oder ausblenden",
     repeat_shuffle: "Wiederholen & Zufall",
     repeat_shuffle_desc: "Wiederholungs- und Zufallsschalter in der Steuerung anzeigen oder ausblenden",
     time_labels: "Zeitanzeigen",

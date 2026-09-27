@@ -127,7 +127,7 @@ pub static ZH: Strings = lang! {
     new_playlist: "新播放列表",
     delete: "删除",
 
-    settings_interface: "界面",
+    settings_appearance: "外观",
     settings_general: "通用",
     settings_library: "音乐库",
     theme: "主题",
@@ -141,6 +141,8 @@ pub static ZH: Strings = lang! {
     exclusive_mode_button_desc: "在标题栏显示或隐藏独占模式开关",
     native_rate_button: "原生采样率按钮",
     native_rate_button_desc: "在标题栏显示或隐藏原生采样率开关",
+    device_picker_button: "音频设备按钮",
+    device_picker_button_desc: "在标题栏显示或隐藏输出设备选择器",
     repeat_shuffle: "循环与随机",
     repeat_shuffle_desc: "在播放控件中显示或隐藏循环和随机按钮",
     time_labels: "时间标签",

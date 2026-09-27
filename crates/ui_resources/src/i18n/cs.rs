@@ -127,7 +127,7 @@ pub static CS: Strings = lang! {
     new_playlist: "Nový playlist",
     delete: "Smazat",
 
-    settings_interface: "Rozhraní",
+    settings_appearance: "Vzhled",
     settings_general: "Obecné",
     settings_library: "Knihovna",
     theme: "Motiv",
@@ -141,6 +141,8 @@ pub static CS: Strings = lang! {
     exclusive_mode_button_desc: "Zobrazit nebo skrýt přepínač exkluzivního režimu v záhlaví",
     native_rate_button: "Tlačítko nativní vzorkovací frekvence",
     native_rate_button_desc: "Zobrazit nebo skrýt přepínač nativní vzorkovací frekvence v záhlaví",
+    device_picker_button: "Tlačítko zvukového zařízení",
+    device_picker_button_desc: "Zobrazit nebo skrýt výběr výstupního zařízení v záhlaví",
     repeat_shuffle: "Opakování a náhodně",
     repeat_shuffle_desc: "Zobrazit nebo skrýt tlačítka opakování a náhodného přehrávání v ovládání",
     time_labels: "Časové popisky",

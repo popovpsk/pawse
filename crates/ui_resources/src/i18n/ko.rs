@@ -127,7 +127,7 @@ pub static KO: Strings = lang! {
     new_playlist: "새 재생목록",
     delete: "삭제",
 
-    settings_interface: "인터페이스",
+    settings_appearance: "모양",
     settings_general: "일반",
     settings_library: "라이브러리",
     theme: "테마",
@@ -141,6 +141,8 @@ pub static KO: Strings = lang! {
     exclusive_mode_button_desc: "헤더에서 독점 모드 토글을 표시하거나 숨깁니다",
     native_rate_button: "네이티브 샘플 레이트 버튼",
     native_rate_button_desc: "헤더에 네이티브 샘플 레이트 토글을 표시하거나 숨깁니다",
+    device_picker_button: "오디오 장치 버튼",
+    device_picker_button_desc: "헤더의 출력 장치 선택기를 표시하거나 숨깁니다",
     repeat_shuffle: "반복 및 셔플",
     repeat_shuffle_desc: "플레이어 컨트롤에서 반복 및 셔플 버튼을 표시하거나 숨깁니다",
     time_labels: "시간 표시",

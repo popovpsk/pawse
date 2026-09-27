@@ -248,12 +248,17 @@ fn main() {
         crate::remote_settings::watch_offline_servers(cx);
 
         {
-            let (stored, initial_volume) = {
+            let (stored, initial_volume, show_device_picker) = {
                 let store = cx.global::<crate::settings_store::SettingsStore>();
-                (store.playback().clone(), store.volume())
+                (
+                    store.playback().clone(),
+                    store.volume(),
+                    store.show_device_picker(),
+                )
             };
             let services = cx.global::<Services>();
             services.output.set_volume(initial_volume);
+            services.output.set_follow_default(!show_device_picker);
             {
                 let mut queue = services.playback_queue.borrow_mut();
                 queue.restore(crate::playback_queue::QueueRestore {

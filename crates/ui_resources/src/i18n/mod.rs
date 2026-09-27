@@ -175,7 +175,7 @@ pub struct Strings {
     pub delete: SharedString,
 
     // --- Settings page ---
-    pub settings_interface: SharedString,
+    pub settings_appearance: SharedString,
     pub settings_general: SharedString,
     pub settings_library: SharedString,
     pub theme: SharedString,
@@ -189,6 +189,8 @@ pub struct Strings {
     pub exclusive_mode_button_desc: SharedString,
     pub native_rate_button: SharedString,
     pub native_rate_button_desc: SharedString,
+    pub device_picker_button: SharedString,
+    pub device_picker_button_desc: SharedString,
     pub repeat_shuffle: SharedString,
     pub repeat_shuffle_desc: SharedString,
     pub time_labels: SharedString,

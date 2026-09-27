@@ -127,7 +127,7 @@ pub static TR: Strings = lang! {
     new_playlist: "Yeni çalma listesi",
     delete: "Sil",
 
-    settings_interface: "Arayüz",
+    settings_appearance: "Görünüm",
     settings_general: "Genel",
     settings_library: "Kitaplık",
     theme: "Tema",
@@ -141,6 +141,8 @@ pub static TR: Strings = lang! {
     exclusive_mode_button_desc: "Başlıktaki özel mod düğmesini göster veya gizle",
     native_rate_button: "Doğal örnekleme hızı düğmesi",
     native_rate_button_desc: "Başlıktaki doğal örnekleme hızı düğmesini göster veya gizle",
+    device_picker_button: "Ses aygıtı düğmesi",
+    device_picker_button_desc: "Başlıktaki çıkış aygıtı seçicisini göster veya gizle",
     repeat_shuffle: "Tekrar ve karıştır",
     repeat_shuffle_desc: "Oynatıcı kontrollerinde tekrar ve karıştır düğmelerini göster veya gizle",
     time_labels: "Zaman etiketleri",

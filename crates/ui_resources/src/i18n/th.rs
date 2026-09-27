@@ -127,7 +127,7 @@ pub static TH: Strings = lang! {
     new_playlist: "เพลย์ลิสต์ใหม่",
     delete: "ลบ",
 
-    settings_interface: "อินเทอร์เฟซ",
+    settings_appearance: "รูปลักษณ์",
     settings_general: "ทั่วไป",
     settings_library: "คลัง",
     theme: "ธีม",
@@ -141,6 +141,8 @@ pub static TH: Strings = lang! {
     exclusive_mode_button_desc: "แสดงหรือซ่อนปุ่มสลับโหมดเอกสิทธิ์ในส่วนหัว",
     native_rate_button: "ปุ่มอัตราสุ่มตัวอย่างดั้งเดิม",
     native_rate_button_desc: "แสดงหรือซ่อนปุ่มอัตราสุ่มตัวอย่างดั้งเดิมในส่วนหัว",
+    device_picker_button: "ปุ่มอุปกรณ์เสียง",
+    device_picker_button_desc: "แสดงหรือซ่อนตัวเลือกอุปกรณ์เอาต์พุตในส่วนหัว",
     repeat_shuffle: "เล่นซ้ำและสุ่ม",
     repeat_shuffle_desc: "แสดงหรือซ่อนปุ่มเล่นซ้ำและสุ่มในการควบคุม",
     time_labels: "ป้ายเวลา",

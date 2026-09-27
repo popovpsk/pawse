@@ -127,7 +127,7 @@ pub static SV: Strings = lang! {
     new_playlist: "Ny spellista",
     delete: "Ta bort",
 
-    settings_interface: "Gränssnitt",
+    settings_appearance: "Utseende",
     settings_general: "Allmänt",
     settings_library: "Bibliotek",
     theme: "Tema",
@@ -141,6 +141,8 @@ pub static SV: Strings = lang! {
     exclusive_mode_button_desc: "Visa eller dölj knappen för exklusivt läge i sidhuvudet",
     native_rate_button: "Knapp för native samplingsfrekvens",
     native_rate_button_desc: "Visa eller dölj växlingen för native samplingsfrekvens i sidhuvudet",
+    device_picker_button: "Knapp för ljudenhet",
+    device_picker_button_desc: "Visa eller dölj väljaren för utenhet i sidhuvudet",
     repeat_shuffle: "Upprepa och blanda",
     repeat_shuffle_desc: "Visa eller dölj knapparna för upprepa och blanda i kontrollerna",
     time_labels: "Tidsetiketter",

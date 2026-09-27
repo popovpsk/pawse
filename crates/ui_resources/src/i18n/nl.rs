@@ -127,7 +127,7 @@ pub static NL: Strings = lang! {
     new_playlist: "Nieuwe afspeellijst",
     delete: "Verwijderen",
 
-    settings_interface: "Interface",
+    settings_appearance: "Weergave",
     settings_general: "Algemeen",
     settings_library: "Bibliotheek",
     theme: "Thema",
@@ -141,6 +141,8 @@ pub static NL: Strings = lang! {
     exclusive_mode_button_desc: "Toon of verberg de schakelaar voor exclusieve modus in de kopregel",
     native_rate_button: "Knop voor native samplefrequentie",
     native_rate_button_desc: "De schakelaar voor native samplefrequentie in de kop tonen of verbergen",
+    device_picker_button: "Knop audioapparaat",
+    device_picker_button_desc: "De keuze voor het uitvoerapparaat in de koptekst tonen of verbergen",
     repeat_shuffle: "Herhalen en willekeurig",
     repeat_shuffle_desc: "Toon of verberg de knoppen voor herhalen en willekeurig in de bediening",
     time_labels: "Tijdlabels",

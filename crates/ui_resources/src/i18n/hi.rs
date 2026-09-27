@@ -127,7 +127,7 @@ pub static HI: Strings = lang! {
     new_playlist: "नई प्लेलिस्ट",
     delete: "हटाएँ",
 
-    settings_interface: "इंटरफ़ेस",
+    settings_appearance: "रूप-रंग",
     settings_general: "सामान्य",
     settings_library: "लाइब्रेरी",
     theme: "थीम",
@@ -141,6 +141,8 @@ pub static HI: Strings = lang! {
     exclusive_mode_button_desc: "हेडर में एक्सक्लूसिव मोड टॉगल दिखाएँ या छिपाएँ",
     native_rate_button: "मूल सैंपल दर बटन",
     native_rate_button_desc: "हेडर में मूल सैंपल दर टॉगल दिखाएँ या छिपाएँ",
+    device_picker_button: "ऑडियो डिवाइस बटन",
+    device_picker_button_desc: "हेडर में आउटपुट डिवाइस चयनकर्ता दिखाएँ या छिपाएँ",
     repeat_shuffle: "दोहराव और शफ़ल",
     repeat_shuffle_desc: "प्लेयर नियंत्रण में दोहराव और शफ़ल बटन दिखाएँ या छिपाएँ",
     time_labels: "समय लेबल",

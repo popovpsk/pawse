@@ -417,6 +417,8 @@ pub struct UserSettings {
     pub playback: PlaybackState,
     #[serde(default)]
     pub show_hog_button: bool,
+    #[serde(default)]
+    pub show_device_picker: bool,
     #[serde(default = "default_true")]
     pub show_repeat_shuffle: bool,
     #[serde(default = "default_true")]
@@ -507,6 +509,7 @@ impl Default for UserSettings {
             volume: 1.0,
             playback: PlaybackState::default(),
             show_hog_button: false,
+            show_device_picker: false,
             show_repeat_shuffle: true,
             show_time_labels: true,
             now_playing_details: NowPlayingDetails::default(),
@@ -901,6 +904,15 @@ impl SettingsStore {
 
     pub fn set_show_hog_button(&mut self, show: bool) -> anyhow::Result<()> {
         self.settings.show_hog_button = show;
+        self.save()
+    }
+
+    pub fn show_device_picker(&self) -> bool {
+        self.settings.show_device_picker
+    }
+
+    pub fn set_show_device_picker(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.show_device_picker = show;
         self.save()
     }
 
@@ -1471,6 +1483,7 @@ mod tests {
                 custom: true,
             },
             show_hog_button: true,
+            show_device_picker: true,
             show_repeat_shuffle: true,
             show_time_labels: true,
             now_playing_details: NowPlayingDetails::Album,

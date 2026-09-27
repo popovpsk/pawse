@@ -127,7 +127,7 @@ pub static RU: Strings = lang! {
     new_playlist: "Новый плейлист",
     delete: "Удалить",
 
-    settings_interface: "Интерфейс",
+    settings_appearance: "Внешний вид",
     settings_general: "Общие",
     settings_library: "Медиатека",
     theme: "Тема",
@@ -141,6 +141,8 @@ pub static RU: Strings = lang! {
     exclusive_mode_button_desc: "Показать или скрыть переключатель эксклюзивного режима в шапке",
     native_rate_button: "Кнопка родной частоты",
     native_rate_button_desc: "Показать или скрыть переключатель родной частоты в шапке",
+    device_picker_button: "Кнопка аудиоустройства",
+    device_picker_button_desc: "Показать или скрыть выбор устройства вывода в заголовке",
     repeat_shuffle: "Повтор и перемешивание",
     repeat_shuffle_desc: "Показать или скрыть кнопки повтора и перемешивания в управлении",
     time_labels: "Метки времени",

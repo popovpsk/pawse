@@ -65,8 +65,8 @@ pub fn build_settings_pages(
     let albums_layout = cx.global::<SettingsStore>().albums_layout();
     let blur_mode = cx.global::<SettingsStore>().blur_background();
     let mut pages = vec![
-        SettingPage::new(tr().settings_interface.clone())
-            .group(interface_group(
+        SettingPage::new(tr().settings_appearance.clone())
+            .group(appearance_group(
                 blur_mode,
                 sliders.blur_intensity,
                 sliders.blur_interface_opacity,
@@ -197,14 +197,12 @@ pub fn remove_folder_and_rescan(path: PathBuf, cx: &mut App) {
     crate::library_watcher::rebuild(cx);
 }
 
-fn interface_group(
+fn appearance_group(
     blur_mode: BlurBackground,
     blur_intensity_slider: Entity<SliderState>,
     blur_interface_opacity_slider: Entity<SliderState>,
 ) -> SettingGroup {
-    let mut group = SettingGroup::new().item(language_field());
-
-    group = group.item(
+    let mut group = SettingGroup::new().item(
         SettingItem::new(
             tr().theme.clone(),
             SettingField::render(|_window, cx: &mut App| {
@@ -393,6 +391,32 @@ fn interface_group(
     group
         .item(
             SettingItem::new(
+                tr().device_picker_button.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_device_picker();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("device-picker-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_device_picker(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                                let output = &cx.global::<Services>().output;
+                                output.set_follow_default(!*new_val);
+                                if !*new_val {
+                                    output.follow_system_default();
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().device_picker_button_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
                 tr().repeat_shuffle.clone(),
                 SettingField::render(|_window, cx: &mut App| {
                     let show = cx.global::<SettingsStore>().show_repeat_shuffle();
@@ -498,27 +522,7 @@ fn interface_group(
 }
 
 fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
-    let mut group = SettingGroup::new().item(
-        SettingItem::new(
-            tr().lyrics_from_internet.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let enabled = cx.global::<SettingsStore>().lyrics_from_internet();
-                h_flex().items_center().justify_end().child(
-                    Switch::new("lyrics-from-internet-toggle")
-                        .checked(enabled)
-                        .on_click(|new_val, _, cx| {
-                            if let Err(e) = cx
-                                .global_mut::<SettingsStore>()
-                                .set_lyrics_from_internet(*new_val)
-                            {
-                                notify_save_error(cx, e);
-                            }
-                        }),
-                )
-            }),
-        )
-        .description(tr().lyrics_from_internet_desc.clone()),
-    );
+    let mut group = SettingGroup::new().item(language_field());
 
     if updater::is_supported() {
         group = group.item(
@@ -543,6 +547,28 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
             .description(tr().automatic_updates_desc.clone()),
         );
     }
+
+    group = group.item(
+        SettingItem::new(
+            tr().lyrics_from_internet.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().lyrics_from_internet();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("lyrics-from-internet-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_lyrics_from_internet(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(tr().lyrics_from_internet_desc.clone()),
+    );
 
     group = group.item(
         SettingItem::new(

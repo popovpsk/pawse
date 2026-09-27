@@ -127,7 +127,7 @@ pub static ES: Strings = lang! {
     new_playlist: "Nueva lista",
     delete: "Eliminar",
 
-    settings_interface: "Interfaz",
+    settings_appearance: "Apariencia",
     settings_general: "General",
     settings_library: "Biblioteca",
     theme: "Tema",
@@ -141,6 +141,8 @@ pub static ES: Strings = lang! {
     exclusive_mode_button_desc: "Mostrar u ocultar el botón de modo exclusivo en la cabecera",
     native_rate_button: "Botón de frecuencia nativa",
     native_rate_button_desc: "Mostrar u ocultar el interruptor de frecuencia nativa en la cabecera",
+    device_picker_button: "Botón de dispositivo de audio",
+    device_picker_button_desc: "Mostrar u ocultar el selector de dispositivo de salida en la cabecera",
     repeat_shuffle: "Repetir y aleatorio",
     repeat_shuffle_desc: "Mostrar u ocultar los botones de repetición y aleatorio en los controles",
     time_labels: "Etiquetas de tiempo",

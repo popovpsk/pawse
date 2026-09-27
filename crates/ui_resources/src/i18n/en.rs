@@ -127,7 +127,7 @@ pub static EN: Strings = lang! {
     new_playlist: "New playlist",
     delete: "Delete",
 
-    settings_interface: "Interface",
+    settings_appearance: "Appearance",
     settings_general: "General",
     settings_library: "Library",
     theme: "Theme",
@@ -141,6 +141,8 @@ pub static EN: Strings = lang! {
     exclusive_mode_button_desc: "Show or hide the exclusive mode (hog) toggle in the header",
     native_rate_button: "Native sample rate button",
     native_rate_button_desc: "Show or hide the native sample rate toggle in the header",
+    device_picker_button: "Audio device button",
+    device_picker_button_desc: "Show or hide the output device picker in the header",
     repeat_shuffle: "Repeat & Shuffle",
     repeat_shuffle_desc: "Show or hide the repeat and shuffle buttons in the player controls",
     time_labels: "Time labels",
