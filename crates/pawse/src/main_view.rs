@@ -777,7 +777,7 @@ impl Render for MainView {
         }
         let (chrome_visible, controls_t) = {
             let view = self.cover_mode_view.read(cx);
-            (view.chrome_visible(), view.controls_progress())
+            (view.chrome_visible(), view.controls_progress(cx))
         };
 
         let title_bar = Colors::title_bar(cx);

@@ -4,11 +4,11 @@ use std::time::{Duration, Instant};
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt, AppContext, BoxShadow, ClickEvent, Context, Div, Entity, EventEmitter,
-    Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    RenderImage, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage, Subscription,
-    Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px, quadratic, size,
-    svg,
+    Animation, AnimationExt, App, AppContext, BoxShadow, ClickEvent, Context, Div, Entity,
+    EventEmitter, Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, Pixels,
+    Render, RenderImage, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px,
+    quadratic, size, svg,
 };
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
@@ -274,8 +274,11 @@ impl CoverModeView {
         self.controls_shown
     }
 
-    pub fn controls_progress(&self) -> f32 {
+    pub fn controls_progress(&self, cx: &App) -> f32 {
         let target = if self.controls_shown { 1. } else { 0. };
+        if cx.reduce_motion() {
+            return target;
+        }
         let span = (target - self.controls_from).abs();
         if span <= f32::EPSILON {
             return target;
@@ -332,7 +335,7 @@ impl CoverModeView {
         if self.controls_shown == shown {
             return;
         }
-        self.controls_from = self.controls_progress();
+        self.controls_from = self.controls_progress(cx);
         self.controls_shown = shown;
         self.controls_at = Instant::now();
         cx.notify();
@@ -773,7 +776,7 @@ impl Render for CoverModeView {
 
         let show_text = has_track && !self.chrome_visible;
         let show_progress_bar = show_text && show_progress;
-        let controls_t = self.controls_progress();
+        let controls_t = self.controls_progress(cx);
         let settled = if self.controls_shown {
             controls_t >= 1.
         } else {
