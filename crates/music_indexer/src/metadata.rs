@@ -391,21 +391,49 @@ fn find_cover_in_subdirs(dir: &Path) -> Option<(Vec<u8>, PathBuf)> {
 }
 
 fn find_cover_art_in_dir(dir: &Path) -> Option<(Vec<u8>, PathBuf)> {
+    let mut files: Vec<(String, u64, PathBuf)> = Vec::new();
+    for entry in std::fs::read_dir(dir).ok()? {
+        let entry = entry.ok()?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !is_cover_image_name(&name) {
+            continue;
+        }
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        files.push((name, size, entry.path()));
+    }
+    let named: Vec<(&str, u64)> = files
+        .iter()
+        .map(|(name, size, _)| (name.as_str(), *size))
+        .collect();
+    let best = best_cover_name(&named)?;
+    let path = files.swap_remove(best).2;
+    std::fs::read(&path).ok().map(|data| (data, path))
+}
+
+pub const COVER_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
+
+pub fn is_cover_image_name(name: &str) -> bool {
+    name.rsplit_once('.')
+        .is_some_and(|(_, ext)| COVER_IMAGE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+}
+
+pub fn is_artwork_dir_name(name: &str) -> bool {
+    ARTWORK_DIR_NAMES.contains(&name.to_lowercase().as_str())
+}
+
+pub fn best_cover_name(files: &[(&str, u64)]) -> Option<usize> {
     let prefixes = ["cover", "folder", "front", "album", "art"];
-    let exts = ["jpg", "jpeg", "png"];
     let negative = [
         "back", "rear", "inside", "booklet", "disc", "cd", "inlay", "tray", "label", "matrix",
         "scan", "photo", "poster",
     ];
-
     let mut candidates = Vec::new();
     let mut fallback = Vec::new();
 
-    for entry in std::fs::read_dir(dir).ok()? {
-        let entry = entry.ok()?;
-        let lossy = entry.file_name().to_string_lossy().to_lowercase();
+    for (ix, (name, size)) in files.iter().enumerate() {
+        let lossy = name.to_lowercase();
         let (stem, ext) = lossy.rsplit_once('.').unwrap_or((&lossy, ""));
-        if !exts.contains(&ext) {
+        if !COVER_IMAGE_EXTENSIONS.contains(&ext) {
             continue;
         }
 
@@ -438,30 +466,21 @@ fn find_cover_art_in_dir(dir: &Path) -> Option<(Vec<u8>, PathBuf)> {
             if is_red_ops_front {
                 priority -= 50;
             }
-            candidates.push((priority, entry.path()));
+            candidates.push((priority, ix));
         } else if is_red_ops_front {
-            candidates.push((-50, entry.path()));
+            candidates.push((-50, ix));
         } else if !is_negative {
-            let size = std::fs::metadata(entry.path())
-                .map(|m| m.len())
-                .unwrap_or(0);
-            fallback.push((size, entry.path()));
+            fallback.push((*size, ix));
         }
     }
 
     if !candidates.is_empty() {
         candidates.sort_by_key(|(p, _)| *p);
-        return candidates
-            .into_iter()
-            .next()
-            .and_then(|(_, p)| std::fs::read(&p).ok().map(|data| (data, p)));
+        return candidates.first().map(|(_, ix)| *ix);
     }
 
     fallback.sort_by_key(|(size, _)| std::cmp::Reverse(*size));
-    fallback
-        .into_iter()
-        .next()
-        .and_then(|(_, p)| std::fs::read(&p).ok().map(|data| (data, p)))
+    fallback.first().map(|(_, ix)| *ix)
 }
 
 fn contains_word(haystack: &str, needle: &str) -> bool {

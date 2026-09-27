@@ -113,7 +113,7 @@ that the theme still `matches` what it last committed and gives up if anything e
   threshold would otherwise land on hues 70° apart while looking identical going in.
 - `TrackEnded`/`Stopped` only restore when the queue has no current track; they fire mid-queue
   on every track change.
-- The theme picker's live preview and its Escape-revert write `Theme::colors` straight through
-  `apply_theme`, with no `SettingsStore` change to observe, so both close paths in
-  `settings_view` call `cover_skin::reapply`. The preview itself is deliberately left raw: a
+- The theme picker's live preview (hovering an item) and the revert when the menu closes write
+  `Theme::colors` straight through `apply_theme`, with no `SettingsStore` change to observe, so
+  both the choice and the close in `pickers.rs` call `cover_skin::reapply`. The preview itself is deliberately left raw: a
   rebase re-applies the *saved* theme, which would undo the preview being looked at.

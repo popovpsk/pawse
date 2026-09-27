@@ -85,16 +85,16 @@ Unsigned here too: in the SmartScreen dialog click *More info* → *Run anyway*.
 
 `chmod +x` the AppImage and launch it — it checks for new releases and updates itself. The `.deb` and pacman files are plain one-off packages, not a repository, so grab a new one when a release lands.
 
-Prefer something your system manages?
-
-**Flatpak** — signed and sandboxed, updated together with everything else. No self-update inside the app; it arrives with `flatpak update`.
+**Flatpak** 
 
 ```sh
 flatpak install --user https://popovpsk.github.io/pawse/pawse.flatpakref
 flatpak run io.github.popovpsk.pawse
 ```
 
-**[AM](https://github.com/ivan-hc/AM)** catalog — `am -i pawse`, or `appman -i pawse` without root.
+**[AM](https://github.com/ivan-hc/AM) catalog**
+
+`am -i pawse`, or `appman -i pawse` without root.
 
 ## Building from source
 

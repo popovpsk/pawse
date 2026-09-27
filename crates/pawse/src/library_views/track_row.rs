@@ -44,6 +44,11 @@ pub(crate) fn build_artist_map(
         .collect()
 }
 
+pub(crate) fn unavailable_label(tracks: &[Rc<music_library::Track>]) -> Option<SharedString> {
+    let count = tracks.iter().filter(|t| !t.available).count();
+    (count > 0).then(|| crate::localization::tr().unavailable_count(count).into())
+}
+
 pub(crate) fn build_haystacks(
     tracks: &[Rc<music_library::Track>],
     artist_by_track: &HashMap<i64, SharedString>,

@@ -86,7 +86,9 @@ pub struct TagEditorView {
 }
 
 pub fn open_for_track(track: Rc<music_library::Track>, window: &mut Window, cx: &mut App) {
-    let path = PathBuf::from(&track.path);
+    let Some(path) = track.local_file().map(PathBuf::from) else {
+        return;
+    };
     let Some(loaded) = load(&track, &path, true, cx) else {
         return;
     };
@@ -111,8 +113,7 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     let tracks = library.tracks_for_album(album_id);
     let files: Vec<PathBuf> = tracks
         .iter()
-        .filter(|t| !t.is_cue)
-        .map(|t| PathBuf::from(&t.path))
+        .filter_map(|t| t.own_file().map(PathBuf::from))
         .collect();
     let read_only = if files.is_empty() {
         Some(tr().tag_cue_readonly.clone())
@@ -121,7 +122,14 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     } else {
         None
     };
-    let Some(track) = tracks.iter().find(|t| !t.is_cue).or_else(|| tracks.first()) else {
+    let local: Vec<&music_library::Track> =
+        tracks.iter().filter(|t| t.local_file().is_some()).collect();
+    let Some(track) = local
+        .iter()
+        .find(|t| !t.is_cue)
+        .or_else(|| local.first())
+        .copied()
+    else {
         return;
     };
     let Some(mut loaded) = load(track, Path::new(&track.path), false, cx) else {

@@ -4,7 +4,7 @@ use gpui::{
 };
 use gpui_component::v_flex;
 
-use crate::library_views::albums_view::{AddMusicFolderRequested, AlbumSelectedEvent, AlbumsView};
+use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, OpenLibrarySettings};
 use crate::library_views::artist_tracks_view::ArtistTracksView;
 use crate::library_views::artists_view::{ArtistSelectedEvent, ArtistsView};
 use crate::library_views::liked_view::LikedView;
@@ -23,7 +23,7 @@ use music_library::ArtistGrouping;
 #[derive(Clone, Debug)]
 pub enum LibraryViewEvent {
     StateChanged,
-    AddMusicFolderRequested,
+    OpenLibrarySettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,7 +57,7 @@ pub struct LibraryView {
     _artist_subscription: Subscription,
     _playlist_subscription: Subscription,
     _all_tracks_subscription: Subscription,
-    _settings_subscription: Subscription,
+    _settings_subscriptions: [Subscription; 2],
     _settings_observer: Subscription,
 }
 
@@ -95,10 +95,14 @@ impl LibraryView {
             },
         );
 
-        let settings_subscription =
-            cx.subscribe(&albums_view, |_, _, _: &AddMusicFolderRequested, cx| {
-                cx.emit(LibraryViewEvent::AddMusicFolderRequested);
-            });
+        let settings_subscriptions = [
+            cx.subscribe(&albums_view, |_, _, _: &OpenLibrarySettings, cx| {
+                cx.emit(LibraryViewEvent::OpenLibrarySettings);
+            }),
+            cx.subscribe(&artists_view, |_, _, _: &OpenLibrarySettings, cx| {
+                cx.emit(LibraryViewEvent::OpenLibrarySettings);
+            }),
+        ];
 
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
             let store = cx.global::<SettingsStore>();
@@ -131,7 +135,7 @@ impl LibraryView {
             _artist_subscription: artist_subscription,
             _playlist_subscription: playlist_subscription,
             _all_tracks_subscription: all_tracks_subscription,
-            _settings_subscription: settings_subscription,
+            _settings_subscriptions: settings_subscriptions,
             _settings_observer: settings_observer,
         }
     }

@@ -1,3 +1,4 @@
+use crate::StreamingSource;
 use audio_common::StreamParams;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,24 +11,41 @@ pub enum PlaybackState {
     Paused = 2,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+pub struct StreamTrack {
+    pub source: StreamingSource,
+    pub start_offset: Option<Duration>,
+    pub track_duration: Option<Duration>,
+}
+
+#[derive(Debug)]
 pub enum Command {
     SetLocalTrack {
         path: PathBuf,
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
+        prepared: bool,
     },
+    Prepare {
+        play: Option<bool>,
+        track_duration: Option<Duration>,
+    },
+    SetStreamTrack(Box<StreamTrack>),
     Play {
         fade_in: bool,
     },
     Pause,
     Seek(f32),
     Stop,
+    Fail(String),
     Shutdown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {
+    Preparing {
+        duration: Option<Duration>,
+    },
     Loaded {
         params: StreamParams,
         duration: Duration,
@@ -37,6 +55,7 @@ pub enum EngineEvent {
     Stopped,
     PositionChanged(Duration),
     TrackEnded,
+    Buffering(bool),
     Error(String),
 }
 

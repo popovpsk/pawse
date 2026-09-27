@@ -20,6 +20,7 @@ use crate::footer::{ToggleLyricsEvent, ToggleQueueEvent};
 use crate::library_service::LibraryEvent;
 use crate::localization::tr;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
+use crate::playback_status::StatusChanged;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
@@ -83,6 +84,7 @@ pub struct CoverModeView {
     _full_cover_task: Option<Task<()>>,
     _slide_task: Option<Task<()>>,
     _engine_subscription: Subscription,
+    _status_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
 }
@@ -163,9 +165,6 @@ impl CoverModeView {
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
             |this, _, event: &EngineEvent, cx| match event {
-                EngineEvent::Loaded { .. } => {
-                    this.populate_current(true, cx);
-                }
                 EngineEvent::Playing => {
                     this.is_playing = true;
                     cx.notify();
@@ -176,24 +175,29 @@ impl CoverModeView {
                 }
                 EngineEvent::TrackEnded | EngineEvent::Stopped => {
                     this.is_playing = false;
-                    let services = cx.global::<Services>();
-                    let queue = services.playback_queue.borrow();
-                    if queue.current_track().is_none() {
-                        drop(queue);
-                        this.clear(cx);
-                    } else {
-                        drop(queue);
-                    }
                     cx.notify();
                 }
                 _ => {}
             },
         );
 
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let status_subscription = cx.subscribe(
+            &playback_status,
+            |this, status, event: &StatusChanged, cx| {
+                if status.read(cx).track_id().is_none() {
+                    this.clear(cx);
+                    cx.notify();
+                } else if event.track_changed {
+                    this.populate_current(true, cx);
+                }
+            },
+        );
+
         let library_event_bus = cx.global::<Services>().library_event_bus.clone();
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::ScanComplete { changed: true } = event {
+                if let LibraryEvent::CatalogChanged = event {
                     this.populate_current(false, cx);
                 }
             });
@@ -256,6 +260,7 @@ impl CoverModeView {
             _full_cover_task: None,
             _slide_task: None,
             _engine_subscription: engine_subscription,
+            _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
         }

@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LyricsRef, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
-    PlaylistTrackRef, ScanTrack, StoredLyrics, Track,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
+    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
+    StoredLyrics, Track,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -14,8 +15,8 @@ use crate::models::{
 /// matching [`add_cover`](ScanWrite::add_cover) (or inserted cover-less at
 /// [`finish`](ScanWrite::finish)).
 pub trait ScanWrite: Send {
-    /// Wipe tracks/artists/albums (keeping `cover_art`, like [`LibraryRepository::clear`]).
     fn clear(&mut self) -> Result<()>;
+    fn flush(&mut self) -> Result<()>;
     /// Register a freshly generated cover thumbnail by content hash.
     fn add_cover(
         &mut self,
@@ -123,31 +124,31 @@ pub trait LibraryRepository: Send + Sync {
     fn upsert_lyrics(&self, track_id: i64, text: &str, source: &str, not_found: bool)
     -> Result<()>;
 
-    /// Capture lyrics that can't be re-derived from disk (network fetches) by
-    /// content key, so a `clear()` + rescan doesn't drop them. Disk-backed
-    /// sources (`lrc`, `embedded`) are excluded — the scan re-reads those.
-    fn lyrics_refs(&self) -> Result<Vec<LyricsRef>>;
-    /// Re-insert snapshotted lyrics for tracks that don't already have a row
-    /// after the rescan (the scan's fresh disk lyrics win). Refs whose
-    /// (path, start_offset_ms) no longer resolve to a track are dropped.
-    fn restore_lyrics_refs(&self, refs: &[LyricsRef]) -> Result<()>;
-
     fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Result<Vec<Track>>;
-
-    /// Capture every `playlist_tracks` row by content key (path +
-    /// start_offset_ms) instead of by `track_id`. Survives a `clear()` where
-    /// tracks get fresh ids on the next scan.
-    fn playlist_track_refs(&self) -> Result<Vec<PlaylistTrackRef>>;
-    /// Re-insert playlist memberships from snapshots taken before a rescan.
-    /// Refs whose (path, start_offset_ms) no longer resolve to a track are
-    /// dropped silently; the surviving refs are renumbered into a dense
-    /// position sequence per playlist.
-    fn restore_playlist_track_refs(&self, refs: &[PlaylistTrackRef]) -> Result<()>;
 
     /// All `(hash, id)` pairs in `cover_art`. Lets the scan pipeline skip
     /// thumbnail generation for covers that already exist (they survive
     /// `clear()`), which is why the 2nd scan is much faster than the 1st.
     fn cover_art_hashes(&self) -> Result<Vec<(String, i64)>>;
+
+    fn reconcile_local_sources(&self, folders: &[LocalFolder]) -> Result<()>;
+    fn has_media_under(&self, root: &str) -> Result<bool>;
+    fn has_unplaced_media(&self) -> Result<bool>;
+    fn sources(&self) -> Result<Vec<SourceSummary>>;
+    fn reconcile_remote_sources(&self, kind: &str, sources: &[RemoteSource]) -> Result<()>;
+    fn set_source_available(&self, source_id: i64, available: bool) -> Result<bool>;
+    fn remote_cover_hashes(&self, source_id: i64) -> Result<HashMap<String, String>>;
+    fn apply_remote_listing(
+        &self,
+        source_id: i64,
+        songs: &[RemoteSong],
+        covers: &[RemoteCover],
+    ) -> Result<RemoteSyncReport>;
+    fn items_for_remote_keys(&self, source_id: i64, keys: &[String]) -> Result<Vec<i64>>;
+    fn remote_file_sizes(&self, source_id: i64, keys: &[String]) -> Result<HashMap<String, i64>>;
+    fn playback_locators(&self, item_id: i64) -> Result<Vec<(String, i64)>>;
+    fn invalidate_scan_fingerprint(&self) -> Result<()>;
+    fn refresh_item_snapshots(&self) -> Result<()>;
 
     /// Open a batched scan-write session on a dedicated connection.
     fn open_scan_session(&self) -> Result<Box<dyn ScanWrite>>;

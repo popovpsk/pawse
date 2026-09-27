@@ -4,7 +4,7 @@ pub mod pipeline;
 pub mod scanner;
 pub mod types;
 
-pub use pipeline::{collect_sources, run};
+pub use pipeline::{AUDIO_EXTENSIONS, CUE_EXTENSIONS, collect_sources, run};
 pub use scanner::DirectoryScanner;
 pub use types::{CoverArt, PreparedTrack, ScanEvent, ScannedTrack, SourceSet};
 

@@ -38,9 +38,8 @@ use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::scrobble_settings::{ScrobbleInputs, ScrobbleUiState};
 use crate::settings_store::{BlurBackground, SettingsStore, ui_scale};
-use crate::settings_view::{LangPickerState, SettingsSliders, ThemePickerState};
+use crate::settings_view::SettingsSliders;
 use crate::theme_colors::Colors;
-use ui_components::settings::SettingPage;
 
 const HEADER_HEIGHT: f32 = 44.;
 const FOOTER_HEIGHT: f32 = 80.;
@@ -116,13 +115,14 @@ pub struct MainView {
     _blur_interface_opacity_slider: Entity<SliderState>,
     _blur_interface_opacity_slider_observe: Subscription,
     _blur_interface_opacity_slider_subscription: Subscription,
-    settings_pages: Vec<SettingPage>,
+    settings_pages: crate::settings_view::SettingsPages,
     search_input: Entity<InputState>,
     _remote_port_input: Entity<InputState>,
     _remote_port_subscription: Subscription,
-    _theme_picker: Entity<ThemePickerState>,
-    _lang_picker: Entity<LangPickerState>,
     _scrobble_ui: Entity<ScrobbleUiState>,
+    library_sources: Entity<crate::library_sources::LibrarySources>,
+    settings_page_ix: usize,
+    _library_sources_observe: Subscription,
     _scrobble_ui_observe: Subscription,
     _scrobble_inputs: ScrobbleInputs,
     _scrobble_token_subscription: Subscription,
@@ -144,8 +144,6 @@ pub struct MainView {
     _cover_backdrop_observe: Subscription,
     _shuffle_subscription: gpui::Subscription,
     _theme_registry_subscription: gpui::Subscription,
-    _theme_picker_subscription: gpui::Subscription,
-    _lang_picker_subscription: gpui::Subscription,
     _settings_observer: gpui::Subscription,
     _lang_subscription: Subscription,
     _activation_subscription: gpui::Subscription,
@@ -171,8 +169,8 @@ impl MainView {
                     this.clear_search(window, cx);
                     cx.notify();
                 }
-                LibraryViewEvent::AddMusicFolderRequested => {
-                    crate::settings_view::pick_and_add_folder(cx);
+                LibraryViewEvent::OpenLibrarySettings => {
+                    this.open_settings(this.settings_pages.library, window, cx);
                 }
             },
         );
@@ -216,9 +214,6 @@ impl MainView {
                 });
             },
         );
-
-        let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
-        let lang_picker: Entity<LangPickerState> = cx.new(|cx| LangPickerState::new(cx));
 
         let saved_lyrics_size = cx.global::<SettingsStore>().lyrics_font_size();
         let lyrics_slider: Entity<SliderState> = cx.new(|_| {
@@ -322,6 +317,14 @@ impl MainView {
             },
         );
 
+        let library_sources = cx.new(crate::library_sources::LibrarySources::new);
+        let library_page = crate::settings_view::LibraryPage {
+            sources: library_sources.clone(),
+            subsonic_inputs: crate::remote_settings::ServerInputs::new(window, cx),
+            jellyfin_inputs: crate::remote_settings::ServerInputs::new(window, cx),
+            torrent_magnet: crate::torrent_settings::magnet_input(window, cx),
+        };
+        let library_sources_observe = cx.observe(&library_sources, |_, _, cx| cx.notify());
         let scrobble_ui: Entity<ScrobbleUiState> = cx.new(|_| ScrobbleUiState::new());
         let scrobble_ui_observe = cx.observe(&scrobble_ui, |_, _, cx| cx.notify());
         let scrobble_inputs = ScrobbleInputs {
@@ -360,22 +363,15 @@ impl MainView {
             scrobble_status.map(|status| cx.observe(&status, |_, _, cx| cx.notify()));
 
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
-            let theme_picker = theme_picker.clone();
-            let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
             let blur_interface_opacity_slider = blur_interface_opacity_slider.clone();
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
+            let library_page = library_page.clone();
             move |this, cx| {
-                theme_picker.update(cx, |state, cx| {
-                    state.options = ThemePickerState::build_options(&*cx);
-                    cx.notify();
-                });
                 this.settings_pages = crate::settings_view::build_settings_pages(
-                    theme_picker.clone(),
-                    lang_picker.clone(),
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
@@ -384,23 +380,14 @@ impl MainView {
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
+                    library_page.clone(),
                     cx,
                 );
                 cx.notify();
             }
         });
 
-        let theme_picker_subscription = cx.observe(&theme_picker, |_, _, cx| {
-            cx.notify();
-        });
-
-        let lang_picker_subscription = cx.observe(&lang_picker, |_, _, cx| {
-            cx.notify();
-        });
-
         let settings_pages = crate::settings_view::build_settings_pages(
-            theme_picker.clone(),
-            lang_picker.clone(),
             SettingsSliders {
                 lyrics: lyrics_slider.clone(),
                 blur_intensity: blur_intensity_slider.clone(),
@@ -409,6 +396,7 @@ impl MainView {
             remote_port_input.clone(),
             scrobble_ui.clone(),
             scrobble_inputs.clone(),
+            library_page.clone(),
             cx,
         );
 
@@ -507,22 +495,19 @@ impl MainView {
         let playlist_popup = cx.new(|cx| PlaylistPopup::new(window, cx));
 
         let settings_observer = cx.observe_global::<SettingsStore>({
-            let theme_picker = theme_picker.clone();
-            let lang_picker = lang_picker.clone();
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
             let blur_interface_opacity_slider = blur_interface_opacity_slider.clone();
             let remote_port_input = remote_port_input.clone();
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
+            let library_page = library_page.clone();
             move |this, cx| {
                 let grouping = cx.global::<SettingsStore>().artists_grouping();
                 cx.global::<crate::services::Services>()
                     .library
                     .set_artists_grouping(grouping);
                 this.settings_pages = crate::settings_view::build_settings_pages(
-                    theme_picker.clone(),
-                    lang_picker.clone(),
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
@@ -531,6 +516,7 @@ impl MainView {
                     remote_port_input.clone(),
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
+                    library_page.clone(),
                     cx,
                 );
                 cx.notify();
@@ -548,6 +534,7 @@ impl MainView {
                         .library
                         .request_rescan(folders, false, false);
                 }
+                crate::remote_settings::sync_offline(cx);
             }
         });
 
@@ -561,7 +548,7 @@ impl MainView {
                 if this.show_settings
                     && matches!(
                         event,
-                        LibraryEvent::ScanStarted | LibraryEvent::ScanComplete { .. }
+                        LibraryEvent::ScanStarted | LibraryEvent::ScanComplete
                     )
                 {
                     cx.notify();
@@ -612,9 +599,10 @@ impl MainView {
             search_input,
             _remote_port_input: remote_port_input,
             _remote_port_subscription: remote_port_subscription,
-            _theme_picker: theme_picker,
-            _lang_picker: lang_picker,
             _scrobble_ui: scrobble_ui,
+            library_sources: library_sources.clone(),
+            settings_page_ix: 0,
+            _library_sources_observe: library_sources_observe,
             _scrobble_ui_observe: scrobble_ui_observe,
             _scrobble_inputs: scrobble_inputs,
             _scrobble_token_subscription: scrobble_token_subscription,
@@ -636,8 +624,6 @@ impl MainView {
             _cover_backdrop_observe: cover_backdrop_observe,
             _shuffle_subscription: shuffle_subscription,
             _theme_registry_subscription: theme_registry_subscription,
-            _theme_picker_subscription: theme_picker_subscription,
-            _lang_picker_subscription: lang_picker_subscription,
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
             _activation_subscription: activation_subscription,
@@ -691,6 +677,15 @@ impl MainView {
 
     fn on_play_pause(&mut self, _: &PlayPause, _: &mut Window, cx: &mut Context<Self>) {
         crate::services::toggle_play_pause(cx);
+    }
+
+    fn open_settings(&mut self, page_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_overlays(window, cx);
+        self.show_settings = true;
+        self.settings_page_ix = page_ix;
+        self.library_sources
+            .update(cx, |sources, cx| sources.refresh_cache(cx));
+        cx.notify();
     }
 
     fn leave_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -993,7 +988,8 @@ impl Render for MainView {
                                 div()
                                     .size_full()
                                     .child(crate::settings_view::settings_widget(
-                                        self.settings_pages.clone(),
+                                        self.settings_pages.pages.clone(),
+                                        self.settings_page_ix,
                                     ))
                                     .into_any_element()
                             } else {
@@ -1181,11 +1177,7 @@ fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElem
                 .size(px(20. * scale)),
         )
         .tooltip(tr().settings.clone())
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.leave_overlays(window, cx);
-            this.show_settings = true;
-            cx.notify();
-        }))
+        .on_click(cx.listener(|this, _, window, cx| this.open_settings(0, window, cx)))
 }
 
 fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {

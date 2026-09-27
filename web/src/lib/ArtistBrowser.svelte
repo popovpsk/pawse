@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { fade } from "svelte/transition";
   import {
     Remote,
@@ -37,8 +38,24 @@
   let detailGen = 0;
 
   $effect(() => {
-    loadArtists();
+    remote.libraryRev;
+    untrack(() => {
+      refresh();
+    });
   });
+
+  async function refresh() {
+    await loadArtists();
+    if (!viewing || artists === null) return;
+    const name = detail !== null ? detail.name : pendingName;
+    const same = artists.find((a) => a.name === name);
+    if (same === undefined) {
+      goBack();
+      return;
+    }
+    currentId = same.id;
+    loadDetail(same.id, full);
+  }
 
   $effect(() => {
     inDetail = viewing;

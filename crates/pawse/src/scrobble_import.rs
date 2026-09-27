@@ -188,8 +188,8 @@ fn build_index(
 fn key(artist: &str, title: &str) -> String {
     format!(
         "{}\u{1}{}",
-        artist.trim().to_lowercase(),
-        title.trim().to_lowercase()
+        music_library::normalize_tag(artist),
+        music_library::normalize_tag(title)
     )
 }
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use audio_engine::EngineEvent;
+use crate::playback_status::{Phase, StatusChanged};
 use gpui::{
     AnyElement, Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement,
     Render, SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
@@ -77,39 +77,40 @@ fn format_specs(
 
 impl NowPlaying {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
-
-        let subscription =
-            cx.subscribe(
-                &engine_event_bus,
-                |this, _, event: &EngineEvent, cx| match event {
-                    EngineEvent::Loaded { params, .. } => {
-                        this.populate_current(
-                            Some(params.sample_rate),
-                            Some(params.bit_depth),
-                            params.dsd_rate,
-                            cx,
-                        );
+        let playback_status = cx.global::<Services>().playback_status.clone();
+        let subscription = cx.subscribe(
+            &playback_status,
+            |this, status, event: &StatusChanged, cx| {
+                let (track_id, phase) = {
+                    let status = status.read(cx);
+                    (status.track_id(), status.phase())
+                };
+                match (track_id, phase) {
+                    (None, _) => {
+                        this.clear();
+                        cx.notify();
                     }
-                    EngineEvent::TrackEnded | EngineEvent::Stopped => {
-                        let services = cx.global::<Services>();
-                        let queue = services.playback_queue.borrow();
-                        if queue.current_track().is_none() {
-                            drop(queue);
-                            this.clear();
-                            cx.notify();
-                        } else {
-                            drop(queue);
-                        }
+                    (
+                        Some(_),
+                        Phase::Ready {
+                            sample_rate,
+                            bit_depth,
+                            dsd_rate,
+                        },
+                    ) => this.populate_current(Some(sample_rate), Some(bit_depth), dsd_rate, cx),
+                    (Some(_), Phase::Preparing) => this.populate_current(None, None, None, cx),
+                    (Some(_), Phase::Idle) if event.track_changed => {
+                        this.populate_current(None, None, None, cx)
                     }
-                    _ => {}
-                },
-            );
+                    (Some(_), Phase::Idle) => {}
+                }
+            },
+        );
 
         let library_event_bus = cx.global::<Services>().library_event_bus.clone();
         let library_subscription =
             cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
-                if let LibraryEvent::ScanComplete { changed: true } = event {
+                if let LibraryEvent::CatalogChanged = event {
                     let (sample_rate, bit_depth) = cx
                         .global::<Services>()
                         .output

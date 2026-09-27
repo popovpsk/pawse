@@ -1,9 +1,9 @@
 use audio_engine::EngineEvent;
 use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px, svg,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px, svg,
 };
-use gpui_component::tooltip::Tooltip;
+use gpui_component::{Sizable, spinner::Spinner, tooltip::Tooltip};
 
 use crate::theme_colors::Colors;
 
@@ -12,6 +12,7 @@ use crate::services::Services;
 
 struct PlayButtonState {
     is_playing: bool,
+    is_buffering: bool,
 }
 
 pub struct PlayButton {
@@ -41,17 +42,27 @@ impl PlayButton {
                         this.state.is_playing = false;
                         cx.notify();
                     }
+                    EngineEvent::Buffering(buffering) => {
+                        this.state.is_buffering = *buffering;
+                        cx.notify();
+                    }
                     _ => {}
                 },
             );
 
-        let is_playing = cx
-            .global::<Services>()
+        let services = cx.global::<Services>();
+        let is_playing = services
             .is_playing
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let is_buffering = services
+            .is_buffering
             .load(std::sync::atomic::Ordering::Relaxed);
 
         Self {
-            state: PlayButtonState { is_playing },
+            state: PlayButtonState {
+                is_playing,
+                is_buffering,
+            },
             _subscription: subscription,
         }
     }
@@ -90,11 +101,20 @@ impl Render for PlayButton {
             .hover(|style| style.bg(Colors::primary_hover(cx)))
             .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
             .on_click(cx.listener(PlayButton::on_click))
-            .child(
-                svg()
-                    .path(icon_path)
-                    .size(px(30.))
-                    .text_color(Colors::primary_foreground(cx)),
-            )
+            .when(self.state.is_buffering, |this| {
+                this.child(
+                    Spinner::new()
+                        .with_size(px(22.))
+                        .color(Colors::primary_foreground(cx)),
+                )
+            })
+            .when(!self.state.is_buffering, |this| {
+                this.child(
+                    svg()
+                        .path(icon_path)
+                        .size(px(30.))
+                        .text_color(Colors::primary_foreground(cx)),
+                )
+            })
     }
 }

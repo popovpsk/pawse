@@ -74,7 +74,16 @@ impl SettingItem {
         }
     }
 
-    /// Add a secondary description line under the label.
+    pub fn unlabeled(field: SettingField) -> Self {
+        Self {
+            label: SharedString::default(),
+            description: None,
+            layout: Axis::Vertical,
+            field,
+        }
+    }
+
+    /// Add a secondary description under the whole row.
     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
         self.description = Some(description.into());
         self
@@ -90,42 +99,43 @@ impl SettingItem {
     fn render(&self, window: &mut Window, cx: &mut App) -> AnyElement {
         let horizontal = self.layout == Axis::Horizontal;
 
-        let label = v_flex()
-            .when(horizontal, |this| this.flex_1().overflow_hidden())
-            .when(!horizontal, |this| this.w_full())
-            .gap_1()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().foreground)
-                    .child(self.label.clone()),
-            )
-            .when_some(self.description.clone(), |this, desc| {
-                this.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(desc),
-                )
-            });
+        let label = div()
+            .text_sm()
+            .text_color(cx.theme().foreground)
+            .child(self.label.clone());
+        let description = self.description.clone().map(|desc| {
+            div()
+                .w_full()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(desc)
+        });
 
         let field = (self.field.0)(window, cx);
-        let field = if horizontal {
-            div().flex_shrink_0().child(field).into_any_element()
+        let labeled = !self.label.is_empty();
+        let (head, below) = if horizontal {
+            let row = div()
+                .w_full()
+                .flex()
+                .flex_row()
+                .justify_between()
+                .items_center()
+                .gap_3()
+                .child(div().flex_1().overflow_hidden().child(label))
+                .child(div().flex_shrink_0().child(field));
+            (Some(row.into_any_element()), None)
         } else {
-            field
+            let above = labeled || description.is_some();
+            let field = div().when(above, |this| this.pt_2()).child(field);
+            (labeled.then(|| label.into_any_element()), Some(field))
         };
 
-        div()
+        v_flex()
             .w_full()
-            .flex()
-            .gap_3()
-            .when(horizontal, |this| {
-                this.flex_row().justify_between().items_start()
-            })
-            .when(!horizontal, |this| this.flex_col())
-            .child(label)
-            .child(field)
+            .gap_1()
+            .children(head)
+            .children(description)
+            .children(below)
             .into_any_element()
     }
 }
@@ -134,6 +144,7 @@ impl SettingItem {
 #[derive(Clone, Default)]
 pub struct SettingGroup {
     title: Option<SharedString>,
+    description: Option<SharedString>,
     items: Vec<SettingItem>,
 }
 
@@ -145,6 +156,11 @@ impl SettingGroup {
     /// Optional heading shown above the card.
     pub fn title(mut self, title: impl Into<SharedString>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    pub fn description(mut self, description: impl Into<SharedString>) -> Self {
+        self.description = Some(description.into());
         self
     }
 
@@ -173,6 +189,14 @@ impl SettingGroup {
                     .border_1()
                     .border_color(cx.theme().border)
                     .bg(cx.theme().group_box)
+                    .when_some(self.description.clone(), |this, description| {
+                        this.child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(description),
+                        )
+                    })
                     .children(self.items.iter().map(|item| item.render(window, cx))),
             )
             .into_any_element()
@@ -213,6 +237,7 @@ struct SettingsState {
 pub struct Settings {
     id: ElementId,
     pages: Vec<SettingPage>,
+    initial_page: usize,
 }
 
 impl Settings {
@@ -220,7 +245,13 @@ impl Settings {
         Self {
             id: id.into(),
             pages: Vec::new(),
+            initial_page: 0,
         }
+    }
+
+    pub fn initial_page(mut self, page_ix: usize) -> Self {
+        self.initial_page = page_ix;
+        self
     }
 
     pub fn pages(mut self, pages: impl IntoIterator<Item = SettingPage>) -> Self {
@@ -233,7 +264,7 @@ impl RenderOnce for Settings {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let state: Entity<SettingsState> =
             window.use_keyed_state(self.id.clone(), cx, |_, _| SettingsState {
-                active: 0,
+                active: self.initial_page,
                 scroll: ScrollHandle::new(),
             });
 

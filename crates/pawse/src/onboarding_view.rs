@@ -1,6 +1,6 @@
 use gpui::{
-    App, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window, div, px,
+    App, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Window, div, px,
 };
 use gpui_component::{
     Disableable, Icon, IconName,
@@ -12,51 +12,21 @@ use gpui_component::{
 
 use crate::localization::tr;
 use crate::settings_store::{SettingsStore, notify_save_error};
-use crate::settings_view::{
-    LangPickerState, ThemePickerState, lang_picker_dropdown, pick_and_add_folder,
-    remove_folder_and_rescan, theme_picker_dropdown,
-};
+use crate::settings_view::{pick_and_add_folder, remove_folder_and_rescan};
 use crate::theme_colors::Colors;
 
 pub struct OnboardingView {
-    theme_picker: Entity<ThemePickerState>,
-    lang_picker: Entity<LangPickerState>,
     focus_handle: FocusHandle,
-    _theme_picker_subscription: Subscription,
-    _lang_picker_subscription: Subscription,
     _theme_registry_subscription: Subscription,
     _settings_observer: Subscription,
 }
 
 impl OnboardingView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let theme_picker: Entity<ThemePickerState> = cx.new(|cx| ThemePickerState::new(cx));
-        let lang_picker: Entity<LangPickerState> = cx.new(|cx| LangPickerState::new(cx));
-        let focus_handle = cx.focus_handle();
-
-        let theme_picker_subscription = cx.observe(&theme_picker, |_, _, cx| cx.notify());
-        let lang_picker_subscription = cx.observe(&lang_picker, |_, _, cx| cx.notify());
-
-        let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
-            let theme_picker = theme_picker.clone();
-            move |_, cx| {
-                theme_picker.update(cx, |state, cx| {
-                    state.options = ThemePickerState::build_options(cx);
-                    cx.notify();
-                });
-            }
-        });
-
-        let settings_observer = cx.observe_global::<SettingsStore>(|_, cx| cx.notify());
-
         Self {
-            theme_picker,
-            lang_picker,
-            focus_handle,
-            _theme_picker_subscription: theme_picker_subscription,
-            _lang_picker_subscription: lang_picker_subscription,
-            _theme_registry_subscription: theme_registry_subscription,
-            _settings_observer: settings_observer,
+            focus_handle: cx.focus_handle(),
+            _theme_registry_subscription: cx.observe_global::<ThemeRegistry>(|_, cx| cx.notify()),
+            _settings_observer: cx.observe_global::<SettingsStore>(|_, cx| cx.notify()),
         }
     }
 }
@@ -88,7 +58,7 @@ fn section(label: SharedString, field: impl IntoElement, cx: &App) -> impl IntoE
 }
 
 impl Render for OnboardingView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = tr();
         let folders = cx.global::<SettingsStore>().music_folders().to_vec();
         let can_finish = !folders.is_empty();
@@ -179,12 +149,12 @@ impl Render for OnboardingView {
                     )
                     .child(section(
                         s.onboarding_theme_prompt.clone(),
-                        theme_picker_dropdown(self.theme_picker.clone(), window, cx),
+                        crate::pickers::theme_dropdown("onboarding-theme", cx),
                         cx,
                     ))
                     .child(section(
                         s.onboarding_language_prompt.clone(),
-                        lang_picker_dropdown(self.lang_picker.clone(), window, cx),
+                        crate::pickers::language_dropdown("onboarding-language", cx),
                         cx,
                     ))
                     .child(section(
