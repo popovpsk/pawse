@@ -95,6 +95,15 @@ jobs:
           ' "$version"
           grep -m2 '<release ' "$METAINFO"
 
+      - name: Stamp the release into Cargo.toml
+        run: |
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            python3 scripts/stamp_version.py "$VERSION"
+          else
+            echo "no semver release version ($VERSION); leaving Cargo.toml as-is"
+          fi
+          grep -m1 '^version = ' Cargo.toml
+
       - name: Bake the integration keys into the manifest
         env:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
