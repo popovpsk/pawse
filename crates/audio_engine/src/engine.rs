@@ -84,6 +84,7 @@ impl AudioEngine {
             preparing: false,
             pending_play: None,
             starved_since: None,
+            prepare_started: None,
         }
         .run();
 
@@ -172,6 +173,7 @@ struct AudioEngineLoop {
     preparing: bool,
     pending_play: Option<bool>,
     starved_since: Option<Instant>,
+    prepare_started: Option<Instant>,
 }
 
 impl AudioEngineLoop {
@@ -210,6 +212,15 @@ impl AudioEngineLoop {
                             }
                             TryRecvError::Empty => None,
                         },
+                    }
+                } else if let Some(wait) = self.prepare_buffering_wait() {
+                    match self.command_receiver.recv_timeout(wait) {
+                        Ok(c) => Some(c),
+                        Err(flume::RecvTimeoutError::Timeout) => {
+                            self.set_buffering(true);
+                            continue;
+                        }
+                        Err(flume::RecvTimeoutError::Disconnected) => return,
                     }
                 } else {
                     let command = self.command_receiver.recv();
@@ -320,6 +331,7 @@ impl AudioEngineLoop {
         match source.poll() {
             Poll::Ready(batch) => {
                 self.starved_since = None;
+                self.prepare_started = None;
                 self.set_buffering(false);
                 Some(batch)
             }
@@ -345,7 +357,9 @@ impl AudioEngineLoop {
     }
 
     fn on_starved(&mut self) {
-        let since = *self.starved_since.get_or_insert_with(Instant::now);
+        let since = *self
+            .starved_since
+            .get_or_insert_with(|| self.prepare_started.take().unwrap_or_else(Instant::now));
         let starved_for = since.elapsed();
         if starved_for >= BUFFERING_AFTER {
             self.set_buffering(true);
@@ -381,7 +395,16 @@ impl AudioEngineLoop {
     fn clear_preparation(&mut self) {
         self.preparing = false;
         self.pending_play = None;
+        self.prepare_started = None;
         self.set_buffering(false);
+    }
+
+    fn prepare_buffering_wait(&self) -> Option<Duration> {
+        if self.buffering {
+            return None;
+        }
+        let started = self.prepare_started?;
+        Some(BUFFERING_AFTER.saturating_sub(started.elapsed()))
     }
 
     fn handle_command(&mut self, command: Command) {
@@ -457,8 +480,11 @@ impl AudioEngineLoop {
         self.output.pause();
         self.preparing = true;
         self.pending_play = play;
+        self.prepare_started = play.map(|_| Instant::now());
         self.set_state(AudioEngineState::TrackNotSet);
-        self.set_buffering(play.is_some());
+        if play.is_none() {
+            self.set_buffering(false);
+        }
     }
 
     fn handle_set_stream_track(&mut self, track: StreamTrack) {
@@ -468,6 +494,9 @@ impl AudioEngineLoop {
             track_duration,
         } = track;
         let pending_play = self.pending_play.take();
+        if pending_play.is_none() {
+            self.prepare_started = None;
+        }
         self.reset_track();
         self.install(Source::Stream(source), start_offset, track_duration);
         self.preparing = false;
@@ -485,6 +514,7 @@ impl AudioEngineLoop {
         prepared: bool,
     ) {
         let pending_play = self.pending_play.take().filter(|_| prepared);
+        self.prepare_started = None;
         self.reset_track();
 
         let decoder = match (self.resolver)(&path)
@@ -654,7 +684,7 @@ impl AudioEngineLoop {
             AudioEngineState::TrackNotSet => {
                 if self.preparing {
                     self.pending_play = Some(fade_in);
-                    self.set_buffering(true);
+                    self.prepare_started.get_or_insert_with(Instant::now);
                 }
             }
             AudioEngineState::Paused => {
@@ -696,6 +726,7 @@ impl AudioEngineLoop {
             }
             AudioEngineState::TrackNotSet => {
                 if self.pending_play.take().is_some() {
+                    self.prepare_started = None;
                     self.set_buffering(false);
                     _ = self.event_sender.send(EngineEvent::Paused);
                 }

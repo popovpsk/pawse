@@ -73,9 +73,12 @@ through low chroma, while a polar one would sweep the accent through hues belong
 Only track changes and stop/restore animate, so `refresh`/`restore` carry the flag down to
 `apply`. The launch pass from `CoverSkin::new` is instant — otherwise the window opens on the
 user's plain theme and visibly fades into the cover's. The `dynamic_theme` toggle, a theme change
-and `reapply` are instant too. There is deliberately no `App::reduce_motion` guard: gpui never
-sets that flag, so the check would only look like it worked. Switching `dynamic_theme` off removes
-every animation this module can produce, and the blur setting does the same for the backdrop.
+and `reapply` are instant too. There is deliberately no `App::reduce_motion` guard, even though
+`gpui-base` (via `gpui_component::init`) sets that flag from the OS setting at startup (macOS
+"Reduce motion", Windows "Animation effects", Linux's portal `reduced-motion`): the fade is a
+colour crossfade, not motion. Switching `dynamic_theme` off removes every animation this module can
+produce, and the blur setting does the same for the backdrop. The cover-mode controls slide does
+honour the flag (`CoverModeView::controls_progress`).
 A fade whose
 ends `matches` is skipped outright: stopping playback with nothing tinted would otherwise repaint
 the whole window twenty times to arrive where it started.

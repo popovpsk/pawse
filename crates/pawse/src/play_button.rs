@@ -1,9 +1,11 @@
+use std::time::{Duration, Instant};
+
 use audio_engine::EngineEvent;
 use gpui::{
-    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render,
+    ClickEvent, Context, Hsla, InteractiveElement, IntoElement, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px, svg,
 };
-use gpui_component::{Sizable, spinner::Spinner, tooltip::Tooltip};
+use gpui_component::tooltip::Tooltip;
 
 use crate::theme_colors::Colors;
 
@@ -15,8 +17,35 @@ struct PlayButtonState {
     is_buffering: bool,
 }
 
+const EQ_PERIOD: Duration = Duration::from_millis(900);
+const EQ_BARS: usize = 4;
+const EQ_BAR_W: f32 = 3.;
+const EQ_GAP: f32 = 2.5;
+const EQ_MIN_H: f32 = 5.;
+const EQ_MAX_H: f32 = 18.;
+const EQ_PHASE_STEP: f32 = 0.22;
+
+fn equalizer_loader(elapsed: f32, color: Hsla) -> impl IntoElement {
+    let phase = elapsed / EQ_PERIOD.as_secs_f32();
+    div()
+        .flex()
+        .items_center()
+        .gap(px(EQ_GAP))
+        .h(px(EQ_MAX_H))
+        .children((0..EQ_BARS).map(|i| {
+            let wave = (std::f32::consts::TAU * (phase - i as f32 * EQ_PHASE_STEP)).sin();
+            let h = EQ_MIN_H + (EQ_MAX_H - EQ_MIN_H) * (0.5 + 0.5 * wave);
+            div()
+                .w(px(EQ_BAR_W))
+                .h(px(h))
+                .rounded(px(EQ_BAR_W / 2.))
+                .bg(color)
+        }))
+}
+
 pub struct PlayButton {
     state: PlayButtonState,
+    loader_epoch: Instant,
     _subscription: Subscription,
 }
 
@@ -63,6 +92,7 @@ impl PlayButton {
                 is_playing,
                 is_buffering,
             },
+            loader_epoch: Instant::now(),
             _subscription: subscription,
         }
     }
@@ -76,7 +106,7 @@ impl PlayButton {
 }
 
 impl Render for PlayButton {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let icon_path: &str = if !self.state.is_playing {
             "icons/play.svg"
         } else {
@@ -102,11 +132,10 @@ impl Render for PlayButton {
             .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
             .on_click(cx.listener(PlayButton::on_click))
             .when(self.state.is_buffering, |this| {
-                this.child(
-                    Spinner::new()
-                        .with_size(px(22.))
-                        .color(Colors::primary_foreground(cx)),
-                )
+                window.request_animation_frame();
+                let elapsed = self.loader_epoch.elapsed().as_secs_f32();
+                let color = Colors::primary_foreground(cx);
+                this.child(equalizer_loader(elapsed, color))
             })
             .when(!self.state.is_buffering, |this| {
                 this.child(

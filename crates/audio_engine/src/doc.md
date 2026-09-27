@@ -37,11 +37,19 @@ and the loop only polls that channel:
 
 Opening a stream (reading the headers) also happens off the engine thread, in
 `pawse::playback_opener::PlaybackOpener::start`. It first sends `Command::Prepare { play,
-track_duration }`, which stops the old track, shows buffering and emits
+track_duration }`, which stops the old track and emits
 `EngineEvent::Preparing { duration }` so the UI switches to the new track (title,
 cover, a disabled slider at 0 with the catalog duration) before any audio; `SetStreamTrack` arrives when the
 decoder is ready. Play and pause that arrive in between are remembered
 (`pending_play`) instead of being lost, since there is no track to act on yet.
+
+`Buffering(true)` is not sent on `Prepare` itself. The moment playback was requested is kept
+in `prepare_started`. While the track is still being prepared, the loop waits for commands with
+`recv_timeout` up to `BUFFERING_AFTER` (250 ms) past that moment and raises buffering only on the
+timeout. After a stream is installed, the first starvation continues the count from
+`prepare_started` instead of restarting it. So the indicator appears 250 ms after the request no
+matter which phase is slow, and an open that finishes sooner (a partly cached file, a fast LAN
+server) never flashes it. This is the same rule as the stall indicator during playback.
 
 APE and DSD decoders are tied to `std::fs::File`, so those formats are never
 streamed: `pawse` downloads them whole first (`audio_decoder::can_stream`).
