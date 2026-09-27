@@ -50,6 +50,7 @@ const LYRICS_WIDTH_DEFAULT: f32 = 360.;
 const LYRICS_WIDTH_MIN: f32 = 280.;
 const LYRICS_WIDTH_MAX: f32 = 560.;
 const QUEUE_ANIM: Duration = Duration::from_millis(200);
+const PANEL_BORDER: f32 = 1.;
 
 pub(crate) fn footer_height(cx: &App) -> f32 {
     FOOTER_HEIGHT * ui_scale(cx)
@@ -1013,15 +1014,18 @@ impl Render for MainView {
                         d.child(
                             div()
                                 .flex_shrink_0()
-                                .border_l(px(1.))
+                                .border_l(px(PANEL_BORDER))
                                 .border_color(Colors::border(cx))
                                 .relative()
                                 .when(!veil_content, |d| d.bg(panel_bg))
                                 .child(
-                                    div()
-                                        .size_full()
-                                        .overflow_hidden()
-                                        .child(self.lyrics_view.clone()),
+                                    div().size_full().overflow_hidden().child(
+                                        div()
+                                            .h_full()
+                                            .flex_shrink_0()
+                                            .w(px(lyrics_width - PANEL_BORDER))
+                                            .child(self.lyrics_view.clone()),
+                                    ),
                                 )
                                 .child(
                                     div()
@@ -1063,15 +1067,18 @@ impl Render for MainView {
                         d.child(
                             div()
                                 .flex_shrink_0()
-                                .border_l(px(1.))
+                                .border_l(px(PANEL_BORDER))
                                 .border_color(Colors::border(cx))
                                 .relative()
                                 .when(!veil_content, |d| d.bg(panel_bg))
                                 .child(
-                                    div()
-                                        .size_full()
-                                        .overflow_hidden()
-                                        .child(self.queue_view.clone()),
+                                    div().size_full().overflow_hidden().child(
+                                        div()
+                                            .h_full()
+                                            .flex_shrink_0()
+                                            .w(px(queue_width - PANEL_BORDER))
+                                            .child(self.queue_view.clone()),
+                                    ),
                                 )
                                 .child(
                                     div()
