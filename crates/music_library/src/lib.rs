@@ -1451,6 +1451,25 @@ mod tests {
     }
 
     #[test]
+    fn test_add_tracks_to_playlist_skips_missing_tracks() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        let b = seed_track(&lib, "B", "Album", "Artist");
+        let missing = a.max(b) + 1000;
+        let playlist_id = lib.create_playlist("Stale").unwrap();
+        lib.add_tracks_to_playlist(playlist_id, &[a, missing, b])
+            .unwrap();
+
+        let ids: Vec<i64> = lib
+            .tracks_for_playlist(playlist_id)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec![a, b]);
+    }
+
+    #[test]
     fn test_move_track_in_playlist_reorders_positions() {
         let (lib, _path) = create_test_db();
         let a = seed_track(&lib, "A", "Album", "Artist");

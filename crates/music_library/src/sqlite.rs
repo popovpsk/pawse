@@ -2139,7 +2139,8 @@ impl LibraryRepository for SqliteLibrary {
         // harmless instead of erroring or producing duplicates.
         {
             let mut insert = tx.prepare(
-                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id)
+                 SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM media_items WHERE id = ?3)",
             )?;
             for &track_id in track_ids {
                 if insert.execute(rusqlite::params![playlist_id, next_position, track_id])? > 0 {

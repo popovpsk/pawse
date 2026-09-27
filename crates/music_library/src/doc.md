@@ -222,8 +222,11 @@ like was silently lost.
 
 `add_tracks_to_playlist` appends the whole batch in one transaction, in the given
 order, skipping tracks already in the playlist (and repeats within the batch) via
-the `(playlist_id, track_id)` unique index; positions advance only for rows that
-were actually inserted, so they stay contiguous.
+the `(playlist_id, track_id)` unique index; ids with no `media_items` row (a queue
+can still hold the playing track after a rescan dropped it, or a queue restored from
+settings) are skipped too, so one stale entry cannot fail the whole batch on the
+foreign key. Positions advance only for rows that were actually inserted, so they
+stay contiguous.
 
 ## Server sources (Subsonic, Jellyfin, torrents)
 
