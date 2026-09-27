@@ -782,11 +782,14 @@ impl LibraryService {
         let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
     }
 
-    pub fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) {
-        if let Err(e) = self.repo.add_track_to_playlist(playlist_id, track_id) {
+    pub fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) {
+        if track_ids.is_empty() {
+            return;
+        }
+        if let Err(e) = self.repo.add_tracks_to_playlist(playlist_id, track_ids) {
             log::error!(
-                "Failed to add track {} to playlist {}: {}",
-                track_id,
+                "Failed to add {} track(s) to playlist {}: {}",
+                track_ids.len(),
                 playlist_id,
                 e
             );

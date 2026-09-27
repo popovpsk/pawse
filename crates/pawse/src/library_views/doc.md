@@ -196,6 +196,12 @@ drive the `PlaybackQueue` on click.
 - `liked_view.rs` — the liked-tracks screen. Rows are drag-reorderable (only with
   an empty filter) via `LibraryService::move_liked_track`.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
+  Creating is a list row, not a button: the first row ("New playlist") turns into an
+  inline name input in place with ✓ / ✕ icon buttons (✓ stays dimmed until a name is
+  typed). Enter creates, Esc or blurring it empty cancels; a typed name survives blur
+  so clicking ✓ still works. With
+  no playlists at all the row is replaced by a centered empty state (hint + primary
+  button) until creation starts.
 - `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable
   (only with an empty filter), persisted via `LibraryService::move_track_in_playlist`.
   Liked and playlist screens show "Unavailable: N" when entries have no file right

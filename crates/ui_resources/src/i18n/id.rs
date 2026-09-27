@@ -17,6 +17,7 @@ pub static ID: Strings = lang! {
     remove_from_queue: "Hapus dari antrean",
     queue_is_empty: "Antrean kosong.",
     clear_queue: "Kosongkan antrean",
+    save_queue_to_playlist: "Simpan antrean ke playlist",
 
     add_to_playlist: "Tambahkan ke playlist",
     remove_from_playlist: "Hapus dari playlist",
@@ -119,10 +120,11 @@ pub static ID: Strings = lang! {
     create: "Buat",
     cancel: "Batal",
     no_playlists_yet: "Belum ada playlist.",
+    playlists_empty_hint: "Tambahkan lagu dengan tombol + di daftar mana pun, atau simpan antrean dari panelnya.",
     no_playlists_match: "Tidak ada playlist yang cocok dengan pencarian.",
     create_new_playlist: "Buat playlist baru…",
     new_playlist_name: "Nama playlist baru",
-    new_playlist: "+ Playlist baru",
+    new_playlist: "Playlist baru",
     delete: "Hapus",
 
     settings_interface: "Antarmuka",

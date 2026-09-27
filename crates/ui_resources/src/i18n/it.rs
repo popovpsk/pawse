@@ -17,6 +17,7 @@ pub static IT: Strings = lang! {
     remove_from_queue: "Rimuovi dalla coda",
     queue_is_empty: "La coda è vuota.",
     clear_queue: "Svuota coda",
+    save_queue_to_playlist: "Salva coda in una playlist",
 
     add_to_playlist: "Aggiungi alla playlist",
     remove_from_playlist: "Rimuovi dalla playlist",
@@ -119,10 +120,11 @@ pub static IT: Strings = lang! {
     create: "Crea",
     cancel: "Annulla",
     no_playlists_yet: "Ancora nessuna playlist.",
+    playlists_empty_hint: "Aggiungi brani con il pulsante + in qualsiasi elenco o salva la coda dal suo pannello.",
     no_playlists_match: "Nessuna playlist corrisponde alla ricerca.",
     create_new_playlist: "Crea nuova playlist…",
     new_playlist_name: "Nome della nuova playlist",
-    new_playlist: "+ Nuova playlist",
+    new_playlist: "Nuova playlist",
     delete: "Elimina",
 
     settings_interface: "Interfaccia",

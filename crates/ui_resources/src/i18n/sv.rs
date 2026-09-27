@@ -17,6 +17,7 @@ pub static SV: Strings = lang! {
     remove_from_queue: "Ta bort från kön",
     queue_is_empty: "Kön är tom.",
     clear_queue: "Rensa kön",
+    save_queue_to_playlist: "Spara kön i en spellista",
 
     add_to_playlist: "Lägg till i spellista",
     remove_from_playlist: "Ta bort från spellista",
@@ -119,10 +120,11 @@ pub static SV: Strings = lang! {
     create: "Skapa",
     cancel: "Avbryt",
     no_playlists_yet: "Inga spellistor än.",
+    playlists_empty_hint: "Lägg till spår med +-knappen i valfri lista eller spara kön från dess panel.",
     no_playlists_match: "Inga spellistor matchar din sökning.",
     create_new_playlist: "Skapa ny spellista…",
     new_playlist_name: "Namn på ny spellista",
-    new_playlist: "+ Ny spellista",
+    new_playlist: "Ny spellista",
     delete: "Ta bort",
 
     settings_interface: "Gränssnitt",

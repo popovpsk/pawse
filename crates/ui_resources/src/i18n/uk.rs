@@ -17,6 +17,7 @@ pub static UK: Strings = lang! {
     remove_from_queue: "Прибрати з черги",
     queue_is_empty: "Черга порожня.",
     clear_queue: "Очистити чергу",
+    save_queue_to_playlist: "Зберегти чергу до плейлиста",
 
     add_to_playlist: "Додати до плейлиста",
     remove_from_playlist: "Прибрати з плейлиста",
@@ -119,10 +120,11 @@ pub static UK: Strings = lang! {
     create: "Створити",
     cancel: "Скасувати",
     no_playlists_yet: "Плейлистів поки немає.",
+    playlists_empty_hint: "Додавайте треки кнопкою + у будь-якому списку або збережіть чергу з її панелі.",
     no_playlists_match: "Немає плейлистів за вашим запитом.",
     create_new_playlist: "Створити новий плейлист…",
     new_playlist_name: "Назва нового плейлиста",
-    new_playlist: "+ Новий плейлист",
+    new_playlist: "Новий плейлист",
     delete: "Видалити",
 
     settings_interface: "Інтерфейс",

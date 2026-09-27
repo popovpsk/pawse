@@ -213,11 +213,17 @@ about 65 ms for 2000 new files, seconds for a first scan of tens of thousands,
 during which a like waits on the busy timeout.
 
 The UI-side writers that read before they write (`set_liked`, `like_many`,
-`add_track_to_playlist`, `remove_track_from_playlist`, `move_track_in_playlist`)
+`add_tracks_to_playlist` — `add_track_to_playlist` is its one-track form —,
+`remove_track_from_playlist`, `move_track_in_playlist`)
 open their transaction with `BEGIN IMMEDIATE` for the same reason: a deferred
 transaction that already read is refused `SQLITE_BUSY` at once while a scan batch
 or a server listing holds the lock, without the busy timeout ever waiting, and the
 like was silently lost.
+
+`add_tracks_to_playlist` appends the whole batch in one transaction, in the given
+order, skipping tracks already in the playlist (and repeats within the batch) via
+the `(playlist_id, track_id)` unique index; positions advance only for rows that
+were actually inserted, so they stay contiguous.
 
 ## Server sources (Subsonic, Jellyfin, torrents)
 

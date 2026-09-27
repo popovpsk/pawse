@@ -17,6 +17,7 @@ pub static PT: Strings = lang! {
     remove_from_queue: "Remover da fila",
     queue_is_empty: "A fila está vazia.",
     clear_queue: "Limpar fila",
+    save_queue_to_playlist: "Salvar fila em uma playlist",
 
     add_to_playlist: "Adicionar à playlist",
     remove_from_playlist: "Remover da playlist",
@@ -119,10 +120,11 @@ pub static PT: Strings = lang! {
     create: "Criar",
     cancel: "Cancelar",
     no_playlists_yet: "Ainda não há playlists.",
+    playlists_empty_hint: "Adicione faixas com o botão + em qualquer lista ou salve a fila pelo painel dela.",
     no_playlists_match: "Nenhuma playlist corresponde à sua busca.",
     create_new_playlist: "Criar nova playlist…",
     new_playlist_name: "Nome da nova playlist",
-    new_playlist: "+ Nova playlist",
+    new_playlist: "Nova playlist",
     delete: "Excluir",
 
     settings_interface: "Interface",

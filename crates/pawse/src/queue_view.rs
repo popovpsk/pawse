@@ -5,9 +5,10 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, Div, ElementId, FontWeight, Hsla, Image, InteractiveElement,
-    IntoElement, ObjectFit, ParentElement, Pixels, Render, SharedString, Size,
-    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, px, rems,
+    AnyElement, AppContext, ClickEvent, Context, Div, ElementId, FontWeight, Hsla, Image,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, Pixels, Render, SharedString, Size,
+    StatefulInteractiveElement, Styled, StyledImage, Subscription, Window, div, img, point, px,
+    rems,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -26,7 +27,9 @@ use ui_components::cover_placeholder::cover_placeholder;
 use crate::library_service::LibraryEvent;
 use crate::library_views::track_row::build_artist_map;
 use crate::localization::tr;
+use crate::panel_header::{panel_header, panel_header_actions, panel_header_button};
 use crate::playback_queue::RemoveOutcome;
+use crate::playlist_popup::OpenAddToPlaylist;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -550,56 +553,56 @@ fn queue_empty_state(cx: &Context<QueueView>, header: Div) -> Div {
 }
 
 fn queue_header(cx: &mut Context<QueueView>, has_tracks: bool) -> Div {
-    let header = h_flex()
-        .w_full()
-        .h(px(40.))
-        .flex_shrink_0()
-        .px_4()
-        .items_center()
-        .justify_between()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(Colors::foreground(cx))
-                .child(tr().queue.clone()),
-        );
-
-    if !has_tracks {
-        return header;
-    }
-
-    header.child(
-        div()
-            .id("clear-queue")
-            .flex_shrink_0()
-            .size(rems(26. / 16.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .cursor(gpui::CursorStyle::PointingHand)
-            .hover(|s| s.bg(Colors::muted(cx)))
-            .tooltip(|window, cx| {
-                gpui_component::tooltip::Tooltip::new(tr().clear_queue.clone()).build(window, cx)
-            })
-            .on_click(cx.listener(|this, _, _, cx| {
-                let services = cx.global::<Services>();
-                services.playback_queue.borrow_mut().clear();
-                services
-                    .current_position_ms
-                    .store(0, std::sync::atomic::Ordering::Relaxed);
-                services.stop_playback();
-                this.refresh_tracks(cx);
-                crate::services::queue_mutated(cx);
-            }))
-            .child(
-                gpui::svg()
-                    .path("icons/s1-trash.svg")
-                    .size(rems(14. / 16.))
-                    .text_color(Colors::muted_foreground(cx)),
-            ),
-    )
+    let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+    let actions = panel_header_actions()
+        .when(has_tracks && playlists_enabled, |d| {
+            d.child(
+                panel_header_button(
+                    "save-queue-to-playlist",
+                    "icons/s1-queue-save.svg",
+                    tr().save_queue_to_playlist.clone(),
+                    cx,
+                )
+                .on_click(cx.listener(|_, event: &ClickEvent, _, cx| {
+                    let track_ids: Vec<i64> = {
+                        let queue = cx.global::<Services>().playback_queue.borrow();
+                        queue
+                            .original_order_vec()
+                            .unwrap_or_else(|| queue.tracks_vec())
+                            .iter()
+                            .map(|t| t.id)
+                            .collect()
+                    };
+                    let click_pos = event.position();
+                    let anchor = point(click_pos.x - px(260.), click_pos.y + px(8.));
+                    let bus = cx.global::<Services>().playlist_popup_bus.clone();
+                    bus.update(cx, |_, cx| {
+                        cx.emit(OpenAddToPlaylist { track_ids, anchor });
+                    });
+                })),
+            )
+        })
+        .when(has_tracks, |d| {
+            d.child(
+                panel_header_button(
+                    "clear-queue",
+                    "icons/s1-trash.svg",
+                    tr().clear_queue.clone(),
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let services = cx.global::<Services>();
+                    services.playback_queue.borrow_mut().clear();
+                    services
+                        .current_position_ms
+                        .store(0, std::sync::atomic::Ordering::Relaxed);
+                    services.stop_playback();
+                    this.refresh_tracks(cx);
+                    crate::services::queue_mutated(cx);
+                })),
+            )
+        });
+    panel_header(tr().queue.clone(), actions, cx)
 }
 
 fn album_cover_cell(params: &QueueRowParams, cover_img: Option<Arc<Image>>) -> AnyElement {

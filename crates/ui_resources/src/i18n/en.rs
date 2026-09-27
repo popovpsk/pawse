@@ -17,6 +17,7 @@ pub static EN: Strings = lang! {
     remove_from_queue: "Remove from queue",
     queue_is_empty: "Queue is empty.",
     clear_queue: "Clear queue",
+    save_queue_to_playlist: "Save queue to playlist",
 
     add_to_playlist: "Add to playlist",
     remove_from_playlist: "Remove from playlist",
@@ -119,10 +120,11 @@ pub static EN: Strings = lang! {
     create: "Create",
     cancel: "Cancel",
     no_playlists_yet: "No playlists yet.",
+    playlists_empty_hint: "Add tracks with the + button in any track list, or save the queue from its panel.",
     no_playlists_match: "No playlists match your search.",
     create_new_playlist: "Create new playlist…",
     new_playlist_name: "New playlist name",
-    new_playlist: "+ New playlist",
+    new_playlist: "New playlist",
     delete: "Delete",
 
     settings_interface: "Interface",

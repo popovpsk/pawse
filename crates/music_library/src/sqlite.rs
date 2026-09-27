@@ -2121,9 +2121,13 @@ impl LibraryRepository for SqliteLibrary {
     }
 
     fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
+        self.add_tracks_to_playlist(playlist_id, &[track_id])
+    }
+
+    fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let next_position: i64 = tx
+        let mut next_position: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
                 [playlist_id],
@@ -2133,10 +2137,16 @@ impl LibraryRepository for SqliteLibrary {
         // INSERT OR IGNORE: the (playlist_id, track_id) UNIQUE index silently
         // dedupes — double-clicks and stale "containing" UI checks become
         // harmless instead of erroring or producing duplicates.
-        tx.execute(
-            "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
-            rusqlite::params![playlist_id, next_position, track_id],
-        )?;
+        {
+            let mut insert = tx.prepare(
+                "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) VALUES (?1, ?2, ?3)",
+            )?;
+            for &track_id in track_ids {
+                if insert.execute(rusqlite::params![playlist_id, next_position, track_id])? > 0 {
+                    next_position += 1;
+                }
+            }
+        }
         tx.commit()?;
         Ok(())
     }

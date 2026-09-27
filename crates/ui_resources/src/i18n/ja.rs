@@ -17,6 +17,7 @@ pub static JA: Strings = lang! {
     remove_from_queue: "キューから削除",
     queue_is_empty: "キューは空です。",
     clear_queue: "キューをクリア",
+    save_queue_to_playlist: "キューをプレイリストに保存",
 
     add_to_playlist: "プレイリストに追加",
     remove_from_playlist: "プレイリストから削除",
@@ -119,10 +120,11 @@ pub static JA: Strings = lang! {
     create: "作成",
     cancel: "キャンセル",
     no_playlists_yet: "プレイリストはまだありません。",
+    playlists_empty_hint: "曲リストの + ボタンで曲を追加するか、キューのパネルからキューを保存できます。",
     no_playlists_match: "検索に一致するプレイリストはありません。",
     create_new_playlist: "新しいプレイリストを作成…",
     new_playlist_name: "新しいプレイリスト名",
-    new_playlist: "+ 新しいプレイリスト",
+    new_playlist: "新しいプレイリスト",
     delete: "削除",
 
     settings_interface: "インターフェース",

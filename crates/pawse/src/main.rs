@@ -36,6 +36,7 @@ pub mod media_bridge;
 pub mod next_button;
 pub mod now_playing;
 pub mod onboarding_view;
+pub mod panel_header;
 pub mod pickers;
 pub mod play_button;
 pub mod playback_opener;

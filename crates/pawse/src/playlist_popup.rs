@@ -21,7 +21,7 @@ use crate::services::Services;
 
 #[derive(Clone, Debug)]
 pub struct OpenAddToPlaylist {
-    pub track_id: i64,
+    pub track_ids: Vec<i64>,
     pub anchor: Point<Pixels>,
 }
 
@@ -55,7 +55,7 @@ impl Global for PlaylistPopupBus {}
 /// `MainView`; when `open == false` it returns an empty element.
 pub struct PlaylistPopup {
     open: bool,
-    track_id: Option<i64>,
+    track_ids: Vec<i64>,
     anchor: Point<Pixels>,
     playlists: Vec<music_library::PlaylistSummary>,
     containing: HashSet<i64>,
@@ -115,13 +115,13 @@ impl PlaylistPopup {
             &popup_bus,
             window,
             |this, _, ev: &OpenAddToPlaylist, window, cx| {
-                this.open(ev.track_id, ev.anchor, window, cx);
+                this.open(ev.track_ids.clone(), ev.anchor, window, cx);
             },
         );
 
         Self {
             open: false,
-            track_id: None,
+            track_ids: Vec::new(),
             anchor: point(px(0.), px(0.)),
             playlists: Vec::new(),
             containing: HashSet::new(),
@@ -140,13 +140,13 @@ impl PlaylistPopup {
 
     fn open(
         &mut self,
-        track_id: i64,
+        track_ids: Vec<i64>,
         anchor: Point<Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.open = true;
-        self.track_id = Some(track_id);
+        self.track_ids = track_ids;
         self.anchor = anchor;
         self.creating = false;
         self.filter.clear();
@@ -164,22 +164,22 @@ impl PlaylistPopup {
             return;
         }
         self.open = false;
-        self.track_id = None;
+        self.track_ids.clear();
         self.creating = false;
         cx.notify();
     }
 
     fn refresh_lists(&mut self, cx: &mut Context<Self>) {
-        let Some(track_id) = self.track_id else {
-            return;
-        };
         let services = cx.global::<Services>();
         self.playlists = services.library.playlists();
-        self.containing = services
-            .library
-            .playlists_containing_track(track_id)
-            .into_iter()
-            .collect();
+        self.containing = match self.track_ids.as_slice() {
+            [track_id] => services
+                .library
+                .playlists_containing_track(*track_id)
+                .into_iter()
+                .collect(),
+            _ => HashSet::new(),
+        };
     }
 
     fn filtered_playlists(&self) -> Vec<&music_library::PlaylistSummary> {
@@ -198,29 +198,28 @@ impl PlaylistPopup {
         if name.is_empty() {
             return;
         }
-        let services = cx.global::<Services>();
-        let Some(track_id) = self.track_id else {
+        if self.track_ids.is_empty() {
             return;
-        };
-        let library = services.library.clone();
+        }
+        let library = cx.global::<Services>().library.clone();
         let Some(playlist_id) = library.create_playlist(&name) else {
             return;
         };
-        library.add_track_to_playlist(playlist_id, track_id);
+        library.add_tracks_to_playlist(playlist_id, &self.track_ids);
         self.close(cx);
     }
 
     fn add_to(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
-        let Some(track_id) = self.track_id else {
+        if self.track_ids.is_empty() {
             return;
-        };
+        }
         if self.containing.contains(&playlist_id) {
             self.close(cx);
             return;
         }
         cx.global::<Services>()
             .library
-            .add_track_to_playlist(playlist_id, track_id);
+            .add_tracks_to_playlist(playlist_id, &self.track_ids);
         self.close(cx);
     }
 }

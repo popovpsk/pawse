@@ -17,6 +17,7 @@ pub static KO: Strings = lang! {
     remove_from_queue: "대기열에서 제거",
     queue_is_empty: "대기열이 비어 있습니다.",
     clear_queue: "대기열 지우기",
+    save_queue_to_playlist: "대기열을 재생목록에 저장",
 
     add_to_playlist: "재생목록에 추가",
     remove_from_playlist: "재생목록에서 제거",
@@ -119,10 +120,11 @@ pub static KO: Strings = lang! {
     create: "만들기",
     cancel: "취소",
     no_playlists_yet: "아직 재생목록이 없습니다.",
+    playlists_empty_hint: "목록의 + 버튼으로 곡을 추가하거나 대기열 패널에서 대기열을 저장하세요.",
     no_playlists_match: "검색과 일치하는 재생목록이 없습니다.",
     create_new_playlist: "새 재생목록 만들기…",
     new_playlist_name: "새 재생목록 이름",
-    new_playlist: "+ 새 재생목록",
+    new_playlist: "새 재생목록",
     delete: "삭제",
 
     settings_interface: "인터페이스",

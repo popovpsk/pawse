@@ -32,7 +32,10 @@ pub fn add_to_playlist_button(track_id: i64, colors: &RowButtonColors) -> impl I
         let anchor = point(click_pos.x - px(220.), click_pos.y + px(8.));
         let bus = cx.global::<Services>().playlist_popup_bus.clone();
         bus.update(cx, |_, cx| {
-            cx.emit(OpenAddToPlaylist { track_id, anchor });
+            cx.emit(OpenAddToPlaylist {
+                track_ids: vec![track_id],
+                anchor,
+            });
         });
     })
 }

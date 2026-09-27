@@ -60,6 +60,7 @@ pub struct Strings {
     pub remove_from_queue: SharedString,
     pub queue_is_empty: SharedString,
     pub clear_queue: SharedString,
+    pub save_queue_to_playlist: SharedString,
 
     // --- Track-row actions ---
     pub add_to_playlist: SharedString,
@@ -166,6 +167,7 @@ pub struct Strings {
     pub create: SharedString,
     pub cancel: SharedString,
     pub no_playlists_yet: SharedString,
+    pub playlists_empty_hint: SharedString,
     pub no_playlists_match: SharedString,
     pub create_new_playlist: SharedString,
     pub new_playlist_name: SharedString,

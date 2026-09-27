@@ -17,6 +17,7 @@ pub static DE: Strings = lang! {
     remove_from_queue: "Aus Warteschlange entfernen",
     queue_is_empty: "Die Warteschlange ist leer.",
     clear_queue: "Warteschlange leeren",
+    save_queue_to_playlist: "Warteschlange in Playlist speichern",
 
     add_to_playlist: "Zur Playlist hinzufügen",
     remove_from_playlist: "Aus Playlist entfernen",
@@ -119,10 +120,11 @@ pub static DE: Strings = lang! {
     create: "Erstellen",
     cancel: "Abbrechen",
     no_playlists_yet: "Noch keine Playlists.",
+    playlists_empty_hint: "Füge Titel über die +-Schaltfläche in einer Titelliste hinzu oder speichere die Warteschlange aus ihrem Bereich.",
     no_playlists_match: "Keine Playlists passen zu deiner Suche.",
     create_new_playlist: "Neue Playlist erstellen…",
     new_playlist_name: "Name der neuen Playlist",
-    new_playlist: "+ Neue Playlist",
+    new_playlist: "Neue Playlist",
     delete: "Löschen",
 
     settings_interface: "Oberfläche",

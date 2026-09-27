@@ -17,6 +17,7 @@ pub static ES: Strings = lang! {
     remove_from_queue: "Quitar de la cola",
     queue_is_empty: "La cola está vacía.",
     clear_queue: "Vaciar cola",
+    save_queue_to_playlist: "Guardar cola en una lista",
 
     add_to_playlist: "Añadir a la lista",
     remove_from_playlist: "Quitar de la lista",
@@ -119,10 +120,11 @@ pub static ES: Strings = lang! {
     create: "Crear",
     cancel: "Cancelar",
     no_playlists_yet: "Aún no hay listas.",
+    playlists_empty_hint: "Añade canciones con el botón + en cualquier lista o guarda la cola desde su panel.",
     no_playlists_match: "Ninguna lista coincide con tu búsqueda.",
     create_new_playlist: "Crear nueva lista…",
     new_playlist_name: "Nombre de la nueva lista",
-    new_playlist: "+ Nueva lista",
+    new_playlist: "Nueva lista",
     delete: "Eliminar",
 
     settings_interface: "Interfaz",

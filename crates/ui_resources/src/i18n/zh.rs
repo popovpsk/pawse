@@ -17,6 +17,7 @@ pub static ZH: Strings = lang! {
     remove_from_queue: "从队列移除",
     queue_is_empty: "队列为空。",
     clear_queue: "清空队列",
+    save_queue_to_playlist: "将队列保存到播放列表",
 
     add_to_playlist: "添加到播放列表",
     remove_from_playlist: "从播放列表移除",
@@ -119,10 +120,11 @@ pub static ZH: Strings = lang! {
     create: "创建",
     cancel: "取消",
     no_playlists_yet: "还没有播放列表。",
+    playlists_empty_hint: "在任意曲目列表中点击 + 添加曲目，或在队列面板中保存队列。",
     no_playlists_match: "没有匹配搜索的播放列表。",
     create_new_playlist: "创建新播放列表…",
     new_playlist_name: "新播放列表名称",
-    new_playlist: "+ 新播放列表",
+    new_playlist: "新播放列表",
     delete: "删除",
 
     settings_interface: "界面",

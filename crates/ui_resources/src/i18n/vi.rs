@@ -17,6 +17,7 @@ pub static VI: Strings = lang! {
     remove_from_queue: "Xóa khỏi hàng đợi",
     queue_is_empty: "Hàng đợi trống.",
     clear_queue: "Xóa hàng đợi",
+    save_queue_to_playlist: "Lưu hàng đợi vào danh sách phát",
 
     add_to_playlist: "Thêm vào danh sách phát",
     remove_from_playlist: "Xóa khỏi danh sách phát",
@@ -119,10 +120,11 @@ pub static VI: Strings = lang! {
     create: "Tạo",
     cancel: "Hủy",
     no_playlists_yet: "Chưa có danh sách phát.",
+    playlists_empty_hint: "Thêm bài hát bằng nút + trong bất kỳ danh sách nào, hoặc lưu hàng đợi từ bảng của nó.",
     no_playlists_match: "Không có danh sách phát nào khớp với tìm kiếm.",
     create_new_playlist: "Tạo danh sách phát mới…",
     new_playlist_name: "Tên danh sách phát mới",
-    new_playlist: "+ Danh sách phát mới",
+    new_playlist: "Danh sách phát mới",
     delete: "Xóa",
 
     settings_interface: "Giao diện",

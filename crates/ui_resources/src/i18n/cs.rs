@@ -17,6 +17,7 @@ pub static CS: Strings = lang! {
     remove_from_queue: "Odebrat z fronty",
     queue_is_empty: "Fronta je prázdná.",
     clear_queue: "Vymazat frontu",
+    save_queue_to_playlist: "Uložit frontu do playlistu",
 
     add_to_playlist: "Přidat do playlistu",
     remove_from_playlist: "Odebrat z playlistu",
@@ -119,10 +120,11 @@ pub static CS: Strings = lang! {
     create: "Vytvořit",
     cancel: "Zrušit",
     no_playlists_yet: "Zatím žádné playlisty.",
+    playlists_empty_hint: "Přidávejte skladby tlačítkem + v libovolném seznamu nebo uložte frontu z jejího panelu.",
     no_playlists_match: "Vašemu hledání neodpovídají žádné playlisty.",
     create_new_playlist: "Vytvořit nový playlist…",
     new_playlist_name: "Název nového playlistu",
-    new_playlist: "+ Nový playlist",
+    new_playlist: "Nový playlist",
     delete: "Smazat",
 
     settings_interface: "Rozhraní",

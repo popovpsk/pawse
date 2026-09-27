@@ -17,6 +17,7 @@ pub static HI: Strings = lang! {
     remove_from_queue: "क़तार से हटाएँ",
     queue_is_empty: "क़तार ख़ाली है।",
     clear_queue: "कतार साफ़ करें",
+    save_queue_to_playlist: "कतार को प्लेलिस्ट में सहेजें",
 
     add_to_playlist: "प्लेलिस्ट में जोड़ें",
     remove_from_playlist: "प्लेलिस्ट से हटाएँ",
@@ -119,10 +120,11 @@ pub static HI: Strings = lang! {
     create: "बनाएँ",
     cancel: "रद्द करें",
     no_playlists_yet: "अभी तक कोई प्लेलिस्ट नहीं।",
+    playlists_empty_hint: "किसी भी सूची में + बटन से ट्रैक जोड़ें, या कतार पैनल से कतार सहेजें।",
     no_playlists_match: "आपकी खोज से कोई प्लेलिस्ट मेल नहीं खाती।",
     create_new_playlist: "नई प्लेलिस्ट बनाएँ…",
     new_playlist_name: "नई प्लेलिस्ट का नाम",
-    new_playlist: "+ नई प्लेलिस्ट",
+    new_playlist: "नई प्लेलिस्ट",
     delete: "हटाएँ",
 
     settings_interface: "इंटरफ़ेस",

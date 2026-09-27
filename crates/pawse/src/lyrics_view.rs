@@ -7,13 +7,14 @@ use gpui::{
     Animation, AnimationExt, AppContext, Context, Entity, FontWeight, Hsla, InteractiveElement,
     IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString, Size,
     StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div, ease_out_quint,
-    px, svg,
+    px,
 };
-use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
+use gpui_component::{tooltip::Tooltip, v_flex};
 
 use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
 use crate::lyrics_fill::{self, FillPlan, LineShape};
+use crate::panel_header::{panel_header, panel_header_actions, panel_header_button};
 use crate::playback_status::{Phase, StatusChanged};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -352,7 +353,7 @@ impl LyricsView {
         self.source = source.to_string();
         self.current_raw = Some(raw.to_string());
         self.can_export =
-            !self.rows.is_empty() && source != music_library::lyrics_source::LRC && !self.is_cue;
+            !self.rows.is_empty() && source == music_library::lyrics_source::LRCLIB && !self.is_cue;
         self.fetching = false;
         self.loading = false;
         self.not_found = false;
@@ -651,7 +652,6 @@ impl Render for LyricsView {
         let foreground = Colors::foreground(cx);
         let muted_foreground = Colors::muted_foreground(cx);
         let primary = Colors::primary(cx);
-        let muted = Colors::muted(cx);
         let settings = cx.global::<SettingsStore>();
         let lyrics_font_size = settings.lyrics_font_size();
         let karaoke = settings.lyrics_karaoke_fill();
@@ -694,71 +694,30 @@ impl Render for LyricsView {
         let hovered_ix = self.hovered_ix;
         let show_sync = synced && active_ix.is_some() && !self.autoscroll;
 
-        let header = h_flex()
-            .w_full()
-            .h(px(40.))
-            .flex_shrink_0()
-            .px_4()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(foreground)
-                    .child(tr().lyrics.clone()),
-            )
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_1()
-                    .when(show_sync, |d| {
-                        d.child(
-                            div()
-                                .id("lyrics_sync")
-                                .size(px(28.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_full()
-                                .cursor_pointer()
-                                .hover(|s| s.bg(muted))
-                                .tooltip(|window, cx| {
-                                    Tooltip::new(tr().lyrics_follow.clone()).build(window, cx)
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| this.resync(cx)))
-                                .child(
-                                    svg()
-                                        .path("icons/locate.svg")
-                                        .size(px(18.))
-                                        .text_color(foreground),
-                                ),
-                        )
-                    })
-                    .when(self.can_export, |d| {
-                        d.child(
-                            div()
-                                .id("lyrics_save")
-                                .size(px(28.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_full()
-                                .cursor_pointer()
-                                .hover(|s| s.bg(muted))
-                                .tooltip(|window, cx| {
-                                    Tooltip::new(tr().lyrics_save.clone()).build(window, cx)
-                                })
-                                .on_click(cx.listener(|this, _, _, cx| this.export(cx)))
-                                .child(
-                                    svg()
-                                        .path("icons/save.svg")
-                                        .size(px(18.))
-                                        .text_color(foreground),
-                                ),
-                        )
-                    }),
-            );
+        let actions = panel_header_actions()
+            .when(show_sync, |d| {
+                d.child(
+                    panel_header_button(
+                        "lyrics_sync",
+                        "icons/locate.svg",
+                        tr().lyrics_follow.clone(),
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.resync(cx))),
+                )
+            })
+            .when(self.can_export, |d| {
+                d.child(
+                    panel_header_button(
+                        "lyrics_save",
+                        "icons/save.svg",
+                        tr().lyrics_save.clone(),
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+                )
+            });
+        let header = panel_header(tr().lyrics.clone(), actions, cx);
 
         let body = if self.fetching {
             centered_message(tr().lyrics_fetching.clone(), muted_foreground).into_any_element()

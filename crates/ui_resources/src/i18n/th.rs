@@ -17,6 +17,7 @@ pub static TH: Strings = lang! {
     remove_from_queue: "นำออกจากคิว",
     queue_is_empty: "คิวว่างเปล่า",
     clear_queue: "ล้างคิว",
+    save_queue_to_playlist: "บันทึกคิวลงเพลย์ลิสต์",
 
     add_to_playlist: "เพิ่มลงเพลย์ลิสต์",
     remove_from_playlist: "นำออกจากเพลย์ลิสต์",
@@ -119,10 +120,11 @@ pub static TH: Strings = lang! {
     create: "สร้าง",
     cancel: "ยกเลิก",
     no_playlists_yet: "ยังไม่มีเพลย์ลิสต์",
+    playlists_empty_hint: "เพิ่มเพลงด้วยปุ่ม + ในรายการใดก็ได้ หรือบันทึกคิวจากแผงคิว",
     no_playlists_match: "ไม่มีเพลย์ลิสต์ที่ตรงกับการค้นหา",
     create_new_playlist: "สร้างเพลย์ลิสต์ใหม่…",
     new_playlist_name: "ชื่อเพลย์ลิสต์ใหม่",
-    new_playlist: "+ เพลย์ลิสต์ใหม่",
+    new_playlist: "เพลย์ลิสต์ใหม่",
     delete: "ลบ",
 
     settings_interface: "อินเทอร์เฟซ",

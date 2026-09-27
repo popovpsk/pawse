@@ -17,6 +17,7 @@ pub static NL: Strings = lang! {
     remove_from_queue: "Uit wachtrij verwijderen",
     queue_is_empty: "De wachtrij is leeg.",
     clear_queue: "Wachtrij leegmaken",
+    save_queue_to_playlist: "Wachtrij opslaan in afspeellijst",
 
     add_to_playlist: "Aan afspeellijst toevoegen",
     remove_from_playlist: "Uit afspeellijst verwijderen",
@@ -119,10 +120,11 @@ pub static NL: Strings = lang! {
     create: "Aanmaken",
     cancel: "Annuleren",
     no_playlists_yet: "Nog geen afspeellijsten.",
+    playlists_empty_hint: "Voeg nummers toe met de +-knop in een lijst, of sla de wachtrij op vanuit het paneel.",
     no_playlists_match: "Geen afspeellijsten komen overeen met je zoekopdracht.",
     create_new_playlist: "Nieuwe afspeellijst aanmaken…",
     new_playlist_name: "Naam nieuwe afspeellijst",
-    new_playlist: "+ Nieuwe afspeellijst",
+    new_playlist: "Nieuwe afspeellijst",
     delete: "Verwijderen",
 
     settings_interface: "Interface",

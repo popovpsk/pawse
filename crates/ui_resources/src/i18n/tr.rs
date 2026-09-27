@@ -17,6 +17,7 @@ pub static TR: Strings = lang! {
     remove_from_queue: "Sıradan kaldır",
     queue_is_empty: "Sıra boş.",
     clear_queue: "Kuyruğu temizle",
+    save_queue_to_playlist: "Kuyruğu çalma listesine kaydet",
 
     add_to_playlist: "Çalma listesine ekle",
     remove_from_playlist: "Çalma listesinden kaldır",
@@ -119,10 +120,11 @@ pub static TR: Strings = lang! {
     create: "Oluştur",
     cancel: "İptal",
     no_playlists_yet: "Henüz çalma listesi yok.",
+    playlists_empty_hint: "Herhangi bir listedeki + düğmesiyle parça ekleyin ya da kuyruğu kendi panelinden kaydedin.",
     no_playlists_match: "Aramanızla eşleşen çalma listesi yok.",
     create_new_playlist: "Yeni çalma listesi oluştur…",
     new_playlist_name: "Yeni çalma listesi adı",
-    new_playlist: "+ Yeni çalma listesi",
+    new_playlist: "Yeni çalma listesi",
     delete: "Sil",
 
     settings_interface: "Arayüz",

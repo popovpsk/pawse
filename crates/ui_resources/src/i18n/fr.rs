@@ -17,6 +17,7 @@ pub static FR: Strings = lang! {
     remove_from_queue: "Retirer de la file",
     queue_is_empty: "La file d'attente est vide.",
     clear_queue: "Vider la file d'attente",
+    save_queue_to_playlist: "Enregistrer la file d'attente dans une playlist",
 
     add_to_playlist: "Ajouter à la playlist",
     remove_from_playlist: "Retirer de la playlist",
@@ -119,10 +120,11 @@ pub static FR: Strings = lang! {
     create: "Créer",
     cancel: "Annuler",
     no_playlists_yet: "Aucune playlist pour l'instant.",
+    playlists_empty_hint: "Ajoutez des titres avec le bouton + dans une liste, ou enregistrez la file d'attente depuis son panneau.",
     no_playlists_match: "Aucune playlist ne correspond à votre recherche.",
     create_new_playlist: "Créer une nouvelle playlist…",
     new_playlist_name: "Nom de la nouvelle playlist",
-    new_playlist: "+ Nouvelle playlist",
+    new_playlist: "Nouvelle playlist",
     delete: "Supprimer",
 
     settings_interface: "Interface",

@@ -2,16 +2,17 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, ElementId, Entity, EventEmitter, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px, size, svg,
+    AppContext, Context, ElementId, Entity, EventEmitter, FontWeight, Hsla, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString, Size,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, px, size, svg,
 };
 use gpui_component::{
-    Sizable, VirtualListScrollHandle,
+    Icon, Sizable, VirtualListScrollHandle,
     button::{Button, ButtonVariants},
     h_flex,
-    input::{Input, InputEvent, InputState},
+    input::{self, Input, InputEvent, InputState},
     scroll::{ScrollableElement, ScrollbarAxis},
+    tooltip::Tooltip,
     v_flex, v_virtual_list,
 };
 use nucleo_matcher::{Config, Matcher};
@@ -73,6 +74,7 @@ pub struct PlaylistsView {
     filter: String,
     matcher: Matcher,
     creating: bool,
+    create_has_text: bool,
     create_input: Entity<InputState>,
     pending_delete_id: Option<i64>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
@@ -85,17 +87,26 @@ impl PlaylistsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library_event_bus = cx.global::<Services>().library_event_bus.clone();
 
-        let create_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(tr().new_playlist_name.clone())
-                .clean_on_escape()
-        });
+        let create_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr().new_playlist_name.clone()));
 
-        let create_subscription = cx.subscribe(&create_input, |this, _, event: &InputEvent, cx| {
-            if let InputEvent::PressEnter { .. } = event {
-                this.commit_create(cx);
-            }
-        });
+        let create_subscription = cx.subscribe(
+            &create_input,
+            |this, input, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter { .. } => this.commit_create(cx),
+                InputEvent::Change => {
+                    let has_text = !input.read(cx).value().trim().is_empty();
+                    if this.create_has_text != has_text {
+                        this.create_has_text = has_text;
+                        cx.notify();
+                    }
+                }
+                InputEvent::Blur if input.read(cx).value().trim().is_empty() => {
+                    this.cancel_create(cx)
+                }
+                _ => {}
+            },
+        );
 
         let playlists_all = cx.global::<Services>().library.playlists();
         let all_tracks_count = cx.global::<Services>().library.track_count();
@@ -128,6 +139,7 @@ impl PlaylistsView {
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             creating: false,
+            create_has_text: false,
             create_input,
             pending_delete_id: None,
             item_sizes: Rc::new(item_sizes),
@@ -185,6 +197,24 @@ impl PlaylistsView {
         self.item_sizes = Rc::new(sizes);
     }
 
+    fn start_create(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.creating = true;
+        self.create_has_text = false;
+        self.create_input.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn cancel_create(&mut self, cx: &mut Context<Self>) {
+        if !self.creating {
+            return;
+        }
+        self.creating = false;
+        cx.notify();
+    }
+
     fn commit_create(&mut self, cx: &mut Context<Self>) {
         let name = self.create_input.read(cx).value().trim().to_string();
         if name.is_empty() {
@@ -207,57 +237,6 @@ impl Render for PlaylistsView {
         let danger_fg = Colors::foreground(cx);
         let icon_btn_hover = Colors::accent(cx);
 
-        let create_section = if self.creating {
-            v_flex().px_4().py_3().child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().w(px(240.)).child(
-                        Input::new(&self.create_input).small().cleanable(false).bg(
-                            crate::cover_backdrop::field_bg(
-                                Colors::background(cx),
-                                crate::cover_backdrop::veil_factor(cx),
-                            ),
-                        ),
-                    ))
-                    .child(
-                        Button::new("playlists-cancel-create")
-                            .label(tr().cancel.clone())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.creating = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("playlists-confirm-create")
-                            .label(tr().create.clone())
-                            .primary()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.commit_create(cx);
-                            })),
-                    ),
-            )
-        } else {
-            v_flex().px_4().py_3().child(
-                h_flex().child(
-                    Button::new("playlists-new")
-                        .label(tr().new_playlist.clone())
-                        .bg(crate::cover_backdrop::popover_bg(
-                            Colors::popover(cx),
-                            crate::cover_backdrop::veil_factor(cx),
-                        ))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.creating = true;
-                            this.create_input.update(cx, |s, cx| {
-                                s.set_value("", window, cx);
-                                s.focus(window, cx);
-                            });
-                            cx.notify();
-                        })),
-                ),
-            )
-        };
-
         let all_tracks = (self.all_tracks_count > 0).then(|| {
             all_tracks_row(
                 self.all_tracks_count_label.clone(),
@@ -269,24 +248,29 @@ impl Render for PlaylistsView {
             )
         });
 
+        let show_empty_state = self.playlists_all.is_empty() && !self.creating;
+        let new_row = (!show_empty_state)
+            .then(|| new_playlist_row(self, border, list_hover, muted_fg, icon_btn_hover, cx));
+
         if self.row_data.is_empty() {
-            let message = if self.playlists_all.is_empty() {
-                tr().no_playlists_yet.clone()
+            let body = if show_empty_state {
+                empty_state(muted_fg, cx).into_any_element()
+            } else if self.playlists_all.is_empty() {
+                div().into_any_element()
             } else {
-                tr().no_playlists_match.clone()
+                div()
+                    .px_4()
+                    .py_2()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(tr().no_playlists_match.clone())
+                    .into_any_element()
             };
             return v_flex()
                 .size_full()
-                .child(create_section)
+                .children(new_row)
                 .children(all_tracks)
-                .child(
-                    div()
-                        .px_4()
-                        .py_2()
-                        .text_sm()
-                        .text_color(muted_fg)
-                        .child(message),
-                );
+                .child(body);
         }
 
         let params = PlaylistRowParams {
@@ -299,7 +283,7 @@ impl Render for PlaylistsView {
         let item_sizes = self.item_sizes.clone();
         v_flex()
             .size_full()
-            .child(create_section)
+            .children(new_row)
             .children(all_tracks)
             .child(
                 v_flex()
@@ -329,6 +313,148 @@ impl Render for PlaylistsView {
                     .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
             )
     }
+}
+
+fn new_playlist_row(
+    view: &PlaylistsView,
+    border: Hsla,
+    list_hover: Hsla,
+    muted_fg: Hsla,
+    icon_btn_hover: Hsla,
+    cx: &mut Context<PlaylistsView>,
+) -> gpui::AnyElement {
+    let row = h_flex()
+        .id("playlists-new")
+        .w_full()
+        .h(px(PLAYLIST_ROW_HEIGHT))
+        .flex_shrink_0()
+        .px_4()
+        .gap_3()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(border)
+        .child(
+            svg()
+                .path("icons/s1-plus.svg")
+                .size(px(20.))
+                .text_color(muted_fg),
+        );
+
+    if view.creating {
+        return row
+            .on_action(cx.listener(|this, _: &input::Escape, _, cx| this.cancel_create(cx)))
+            .child(
+                div().flex_1().child(
+                    Input::new(&view.create_input)
+                        .small()
+                        .appearance(false)
+                        .cleanable(false),
+                ),
+            )
+            .child(
+                h_flex()
+                    .gap_1()
+                    .child(
+                        create_row_button(
+                            "playlists-new-confirm",
+                            "icons/check.svg",
+                            tr().create.clone(),
+                            if view.create_has_text {
+                                Colors::primary(cx)
+                            } else {
+                                muted_fg.opacity(0.5)
+                            },
+                            icon_btn_hover,
+                            view.create_has_text,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.commit_create(cx))),
+                    )
+                    .child(
+                        create_row_button(
+                            "playlists-new-cancel",
+                            "icons/s1-x.svg",
+                            tr().cancel.clone(),
+                            muted_fg,
+                            icon_btn_hover,
+                            true,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_create(cx))),
+                    ),
+            )
+            .into_any_element();
+    }
+
+    row.cursor_pointer()
+        .hover(move |s| s.bg(list_hover))
+        .child(
+            div()
+                .flex_1()
+                .text_color(muted_fg)
+                .child(tr().new_playlist.clone()),
+        )
+        .on_click(cx.listener(|this, _, window, cx| this.start_create(window, cx)))
+        .into_any_element()
+}
+
+fn create_row_button(
+    id: &'static str,
+    icon: &'static str,
+    tooltip: SharedString,
+    icon_color: Hsla,
+    hover_bg: Hsla,
+    enabled: bool,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .size(px(ROW_ACTION_SIZE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .when(enabled, |d| {
+            d.cursor_pointer().hover(move |s| s.bg(hover_bg))
+        })
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .child(svg().path(icon).size(px(16.)).text_color(icon_color))
+}
+
+fn empty_state(muted_fg: Hsla, cx: &mut Context<PlaylistsView>) -> gpui::Div {
+    v_flex()
+        .flex_1()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .px_8()
+        .pb_16()
+        .child(
+            svg()
+                .path("icons/s1-playlists.svg")
+                .size(px(40.))
+                .text_color(muted_fg),
+        )
+        .child(
+            div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(tr().no_playlists_yet.clone()),
+        )
+        .child(
+            div()
+                .max_w(px(360.))
+                .text_sm()
+                .text_center()
+                .text_color(muted_fg)
+                .child(tr().playlists_empty_hint.clone()),
+        )
+        .child(
+            div().pt_2().child(
+                Button::new("playlists-empty-create")
+                    .primary()
+                    .small()
+                    .icon(Icon::default().path("icons/s1-plus.svg"))
+                    .label(tr().new_playlist.clone())
+                    .on_click(cx.listener(|this, _, window, cx| this.start_create(window, cx))),
+            ),
+        )
 }
 
 fn all_tracks_row(

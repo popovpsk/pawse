@@ -1421,6 +1421,36 @@ mod tests {
     }
 
     #[test]
+    fn test_add_tracks_to_playlist_appends_in_order_and_skips_present() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        let b = seed_track(&lib, "B", "Album", "Artist");
+        let c = seed_track(&lib, "C", "Album", "Artist");
+        let playlist_id = lib.create_playlist("Batch").unwrap();
+        lib.add_track_to_playlist(playlist_id, b).unwrap();
+        lib.add_tracks_to_playlist(playlist_id, &[a, b, c, a])
+            .unwrap();
+        lib.add_tracks_to_playlist(playlist_id, &[]).unwrap();
+
+        let ids: Vec<i64> = lib
+            .tracks_for_playlist(playlist_id)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec![b, a, c]);
+
+        lib.move_track_in_playlist(playlist_id, 2, 0).unwrap();
+        let ids: Vec<i64> = lib
+            .tracks_for_playlist(playlist_id)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(ids, vec![c, b, a]);
+    }
+
+    #[test]
     fn test_move_track_in_playlist_reorders_positions() {
         let (lib, _path) = create_test_db();
         let a = seed_track(&lib, "A", "Album", "Artist");
