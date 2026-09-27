@@ -57,6 +57,7 @@ pub static EN: Strings = lang! {
     server_sync: "Sync",
     server_import_favorites: "Import favorites",
     network_cache: "Network cache",
+    network_cache_desc: "Tracks are saved to disk as you listen. Saved tracks start instantly and play offline.",
     cache_fill: "Save to cache",
     cache_fill_progress_t: "Saved {} of {} · click to stop",
     cache_fill_too_big_title: "Not everything fits in the cache",

@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use music_indexer::{PreparedTrack, ScanEvent};
 use music_library::{ArtistGrouping, LibraryRepository, NewTrack, ScanTrack, SqliteLibrary};
@@ -23,6 +23,8 @@ pub struct AlbumTagEdits {
 }
 
 const SCAN_DEBOUNCE: Duration = Duration::from_secs(2);
+const WATCH_QUIET: Duration = Duration::from_secs(10);
+const WATCH_COOLDOWN: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 struct ScanState {
@@ -32,6 +34,18 @@ struct ScanState {
     warned_unavailable: AtomicBool,
     debounce_gen: AtomicU64,
     folders: Mutex<Vec<PathBuf>>,
+    holds: AtomicUsize,
+    watch_pending: AtomicBool,
+    last_change: Mutex<Option<Instant>>,
+    last_finished: Mutex<Option<Instant>>,
+}
+
+pub struct RescanHold(Arc<ScanState>);
+
+impl Drop for RescanHold {
+    fn drop(&mut self) {
+        self.0.holds.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1093,7 +1107,51 @@ impl LibraryService {
         self.request_rescan(paths, true, false);
     }
 
+    pub fn hold_rescans(&self) -> RescanHold {
+        self.scan_state.holds.fetch_add(1, Ordering::AcqRel);
+        RescanHold(self.scan_state.clone())
+    }
+
+    pub fn watched_change(&self, folders: Vec<PathBuf>) {
+        let state = self.scan_state.clone();
+        if state.holds.load(Ordering::Acquire) > 0 {
+            return;
+        }
+        *state.folders.lock().unwrap() = folders;
+        *state.last_change.lock().unwrap() = Some(Instant::now());
+        if state.watch_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        self.executor
+            .spawn(async move {
+                loop {
+                    let now = Instant::now();
+                    let quiet = state.last_change.lock().unwrap().unwrap_or(now) + WATCH_QUIET;
+                    let ready_at = match *state.last_finished.lock().unwrap() {
+                        Some(finished) => quiet.max(finished + WATCH_COOLDOWN),
+                        None => quiet,
+                    };
+                    if now >= ready_at {
+                        break;
+                    }
+                    executor.timer(ready_at - now).await;
+                }
+                state.watch_pending.store(false, Ordering::Release);
+                if state.holds.load(Ordering::Acquire) > 0 {
+                    return;
+                }
+                Self::spawn_scan(repo, event_tx, executor.clone(), state);
+            })
+            .detach();
+    }
+
     pub fn request_rescan(&self, folders: Vec<PathBuf>, force: bool, manual: bool) {
+        if !force && !manual && self.scan_state.holds.load(Ordering::Acquire) > 0 {
+            return;
+        }
         *self.scan_state.folders.lock().unwrap() = folders;
         if manual {
             self.scan_state.manual.store(true, Ordering::Release);
@@ -1151,6 +1209,7 @@ impl LibraryService {
                         manual,
                     )
                     .await;
+                    *state.last_finished.lock().unwrap() = Some(Instant::now());
 
                     if state.pending.swap(false, Ordering::AcqRel) {
                         continue;

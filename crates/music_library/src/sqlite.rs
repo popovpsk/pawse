@@ -664,7 +664,7 @@ fn load_identities(conn: &Connection) -> Result<Vec<Identity>> {
 }
 
 fn upsert_remote_track(conn: &Connection, binding_id: i64, song: &RemoteSong) -> Result<usize> {
-    Ok(conn.execute(
+    let changed = conn.execute(
         UPSERT_REMOTE_TRACK,
         rusqlite::params![
             binding_id,
@@ -685,7 +685,12 @@ fn upsert_remote_track(conn: &Connection, binding_id: i64, song: &RemoteSong) ->
             song.cover_hash,
             unix_now(),
         ],
-    )?)
+    )?;
+    conn.execute(
+        "UPDATE remote_tracks SET cover_key = ?1 WHERE binding_id = ?2 AND cover_key IS NOT ?1",
+        rusqlite::params![song.cover_key, binding_id],
+    )?;
+    Ok(changed)
 }
 
 fn apply_remote_listing(

@@ -57,6 +57,7 @@ pub static CS: Strings = lang! {
     server_sync: "Synchronizovat",
     server_import_favorites: "Importovat oblíbené",
     network_cache: "Síťová mezipaměť",
+    network_cache_desc: "Skladby se během poslechu ukládají na disk. Uložené skladby se spustí okamžitě a hrají i offline.",
     cache_fill: "Uložit do mezipaměti",
     cache_fill_progress_t: "Uloženo {} z {} · klikněte pro zastavení",
     cache_fill_too_big_title: "Do mezipaměti se nevejde vše",

@@ -57,6 +57,7 @@ pub static RU: Strings = lang! {
     server_sync: "Синхронизировать",
     server_import_favorites: "Импортировать избранное",
     network_cache: "Кэш сетевых источников",
+    network_cache_desc: "Треки сохраняются на диск, пока вы их слушаете. Сохранённые треки запускаются сразу и играют без сети.",
     cache_fill: "Сохранить в кэш",
     cache_fill_progress_t: "Сохранено {} из {} · нажмите, чтобы остановить",
     cache_fill_too_big_title: "В кэш поместится не всё",

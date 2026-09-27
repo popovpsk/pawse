@@ -80,4 +80,8 @@ stable across rescans), so the buttons follow what the album holds now; right
 after a move, `AlbumExport` hides both buttons for that album until the next
 `CatalogChanged` — the rescan that makes its tracks local. Cancelling a move
 ends quietly, without an error toast. The rescan is a full one: the catalog has
-no per-folder refresh yet.
+no per-folder refresh yet. While a move runs it holds
+`LibraryService::hold_rescans()`: the watcher and window-activation rescans are
+dropped, since every file landing in the folder would otherwise trigger its own
+full rescan between downloads. The hold is released right before the move's own
+rescan, which also picks up anything else that changed meanwhile.

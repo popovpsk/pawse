@@ -3266,6 +3266,37 @@ mod tests {
     }
 
     #[test]
+    fn a_new_cover_key_for_the_same_image_is_remembered_without_counting_as_a_change() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let jpeg = make_test_jpeg(&[1, 2, 3]);
+        let thumbs = crate::thumbnail::generate_thumbnails(&jpeg).unwrap();
+        let hash = sha256_hex(&jpeg);
+        let mut song = remote_song("s1", "A");
+        song.cover_key = Some("al-1_old".into());
+        song.cover_hash = Some(hash.clone());
+        lib.apply_remote_listing(
+            source,
+            std::slice::from_ref(&song),
+            &[RemoteCover {
+                hash: hash.clone(),
+                small: thumbs.small,
+                large: thumbs.large,
+                source_path: "subsonic-cover://1/al-1_old".into(),
+            }],
+        )
+        .unwrap();
+
+        song.cover_key = Some("al-1_new".into());
+        let report = lib.apply_remote_listing(source, &[song], &[]).unwrap();
+        assert!(!report.changed());
+        assert_eq!(
+            lib.remote_cover_hashes(source).unwrap(),
+            HashMap::from([("al-1_new".to_string(), hash)])
+        );
+    }
+
+    #[test]
     fn removing_the_server_hides_its_tracks_and_keeps_user_data() {
         let (lib, _path) = create_test_db();
         let source = server(&lib);

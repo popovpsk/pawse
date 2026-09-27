@@ -406,6 +406,7 @@ impl AlbumExport {
         );
         cx.notify();
         let media = cx.global::<Services>().remote_media.clone();
+        let hold = cx.global::<Services>().library.hold_rescans();
         cx.spawn(async move |this, cx| {
             let mut placed = 0usize;
             let mut failure: Option<String> = None;
@@ -447,6 +448,7 @@ impl AlbumExport {
                     .await;
             }
             let cancelled = cancel.load(Ordering::Acquire);
+            drop(hold);
             let _ = this.update(cx, |this, cx| {
                 this.jobs.remove(&album_id);
                 if failure.is_none() && !cancelled {

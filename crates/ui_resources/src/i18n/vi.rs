@@ -57,6 +57,7 @@ pub static VI: Strings = lang! {
     server_sync: "Đồng bộ",
     server_import_favorites: "Nhập mục yêu thích",
     network_cache: "Bộ nhớ đệm mạng",
+    network_cache_desc: "Bài hát được lưu vào ổ đĩa khi bạn nghe. Bài đã lưu phát ngay lập tức và phát được khi không có mạng.",
     cache_fill: "Lưu vào bộ nhớ đệm",
     cache_fill_progress_t: "Đã lưu {} / {} · nhấn để dừng",
     cache_fill_too_big_title: "Không phải tất cả đều vừa bộ nhớ đệm",

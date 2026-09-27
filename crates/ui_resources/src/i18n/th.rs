@@ -57,6 +57,7 @@ pub static TH: Strings = lang! {
     server_sync: "ซิงค์",
     server_import_favorites: "นำเข้ารายการโปรด",
     network_cache: "แคชเครือข่าย",
+    network_cache_desc: "เพลงจะถูกบันทึกลงดิสก์ขณะที่คุณฟัง เพลงที่บันทึกไว้จะเริ่มเล่นทันทีและเล่นได้แม้ไม่มีเน็ต",
     cache_fill: "บันทึกลงแคช",
     cache_fill_progress_t: "บันทึกแล้ว {} จาก {} · คลิกเพื่อหยุด",
     cache_fill_too_big_title: "แคชเก็บได้ไม่ทั้งหมด",

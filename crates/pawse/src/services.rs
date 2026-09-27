@@ -145,7 +145,7 @@ impl Services {
                         .global::<crate::settings_store::SettingsStore>()
                         .music_folders()
                         .to_vec();
-                    watcher_library.request_rescan(folders, false, false);
+                    watcher_library.watched_change(folders);
                 });
             }
         })

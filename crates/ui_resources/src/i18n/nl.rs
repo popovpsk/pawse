@@ -57,6 +57,7 @@ pub static NL: Strings = lang! {
     server_sync: "Synchroniseren",
     server_import_favorites: "Favorieten importeren",
     network_cache: "Netwerkcache",
+    network_cache_desc: "Nummers worden tijdens het luisteren op schijf opgeslagen. Opgeslagen nummers starten direct en spelen offline.",
     cache_fill: "Opslaan in cache",
     cache_fill_progress_t: "{} van {} opgeslagen · klik om te stoppen",
     cache_fill_too_big_title: "Niet alles past in de cache",

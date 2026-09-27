@@ -103,6 +103,7 @@ pub struct Strings {
     pub server_sync: SharedString,
     pub server_import_favorites: SharedString,
     pub network_cache: SharedString,
+    pub network_cache_desc: SharedString,
     pub cache_fill: SharedString,
     pub cache_fill_progress_t: SharedString,
     pub cache_fill_too_big_title: SharedString,

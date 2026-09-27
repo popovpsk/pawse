@@ -57,6 +57,7 @@ pub static SV: Strings = lang! {
     server_sync: "Synkronisera",
     server_import_favorites: "Importera favoriter",
     network_cache: "Nätverkscache",
+    network_cache_desc: "Spår sparas på disken medan du lyssnar. Sparade spår startar direkt och spelas offline.",
     cache_fill: "Spara i cachen",
     cache_fill_progress_t: "{} av {} sparade · klicka för att stoppa",
     cache_fill_too_big_title: "Allt får inte plats i cachen",

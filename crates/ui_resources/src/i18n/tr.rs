@@ -57,6 +57,7 @@ pub static TR: Strings = lang! {
     server_sync: "Eşitle",
     server_import_favorites: "Favorileri içe aktar",
     network_cache: "Ağ önbelleği",
+    network_cache_desc: "Parçalar siz dinlerken diske kaydedilir. Kaydedilen parçalar anında başlar ve çevrimdışı çalar.",
     cache_fill: "Önbelleğe kaydet",
     cache_fill_progress_t: "{}/{} kaydedildi · durdurmak için tıklayın",
     cache_fill_too_big_title: "Hepsi önbelleğe sığmıyor",

@@ -57,6 +57,7 @@ pub static ID: Strings = lang! {
     server_sync: "Sinkronkan",
     server_import_favorites: "Impor favorit",
     network_cache: "Cache jaringan",
+    network_cache_desc: "Lagu disimpan ke disk saat Anda mendengarkan. Lagu yang tersimpan langsung diputar dan bisa diputar offline.",
     cache_fill: "Simpan ke cache",
     cache_fill_progress_t: "Tersimpan {} dari {} · klik untuk berhenti",
     cache_fill_too_big_title: "Tidak semuanya muat di cache",

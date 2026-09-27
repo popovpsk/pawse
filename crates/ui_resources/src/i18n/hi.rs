@@ -57,6 +57,7 @@ pub static HI: Strings = lang! {
     server_sync: "सिंक करें",
     server_import_favorites: "पसंदीदा आयात करें",
     network_cache: "नेटवर्क कैश",
+    network_cache_desc: "सुनते समय ट्रैक डिस्क पर सहेजे जाते हैं। सहेजे गए ट्रैक तुरंत शुरू होते हैं और ऑफ़लाइन चलते हैं।",
     cache_fill: "कैश में सहेजें",
     cache_fill_progress_t: "{} / {} सहेजे गए · रोकने के लिए क्लिक करें",
     cache_fill_too_big_title: "सब कुछ कैश में नहीं समाएगा",

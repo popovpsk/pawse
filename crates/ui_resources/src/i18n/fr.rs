@@ -57,6 +57,7 @@ pub static FR: Strings = lang! {
     server_sync: "Synchroniser",
     server_import_favorites: "Importer les favoris",
     network_cache: "Cache réseau",
+    network_cache_desc: "Les morceaux sont enregistrés sur le disque pendant l'écoute. Les morceaux enregistrés démarrent instantanément et se lisent hors ligne.",
     cache_fill: "Enregistrer dans le cache",
     cache_fill_progress_t: "{} sur {} enregistrés · cliquez pour arrêter",
     cache_fill_too_big_title: "Tout ne tient pas dans le cache",

@@ -57,6 +57,7 @@ pub static PT: Strings = lang! {
     server_sync: "Sincronizar",
     server_import_favorites: "Importar favoritos",
     network_cache: "Cache de rede",
+    network_cache_desc: "As faixas são guardadas no disco enquanto as ouve. As faixas guardadas começam de imediato e tocam offline.",
     cache_fill: "Guardar na cache",
     cache_fill_progress_t: "Guardados {} de {} · clique para parar",
     cache_fill_too_big_title: "Nem tudo cabe na cache",

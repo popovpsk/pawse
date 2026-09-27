@@ -57,6 +57,7 @@ pub static JA: Strings = lang! {
     server_sync: "同期",
     server_import_favorites: "お気に入りをインポート",
     network_cache: "ネットワークキャッシュ",
+    network_cache_desc: "再生した曲はディスクに保存されます。保存済みの曲はすぐに再生でき、オフラインでも再生できます。",
     cache_fill: "キャッシュに保存",
     cache_fill_progress_t: "{} / {} 件保存済み · クリックで停止",
     cache_fill_too_big_title: "すべてはキャッシュに入りません",

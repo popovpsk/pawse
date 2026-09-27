@@ -343,6 +343,15 @@ until a real scan re-points them; `run_scan` refuses the fast path while
 `has_unplaced_media()` is true, otherwise an unchanged disk would keep the folders
 looking empty (and their missing files never retired) indefinitely.
 
+Folder-watcher events go through `LibraryService::watched_change`, not the 2 s
+debounce of `request_rescan`: the scan waits until the folders have been quiet
+for `WATCH_QUIET` (10 s) and at least `WATCH_COOLDOWN` (60 s) have passed since
+the previous scan finished. A torrent client or a copy writing into a music
+folder therefore yields one scan when it stops, or at most one a minute while it
+trickles — not one per file. Explicit requests (settings, window activation,
+album moves) keep the short debounce, and `hold_rescans()` suppresses the
+non-forced ones.
+
 ### Servers (Subsonic, Jellyfin)
 
 The Subsonic and Jellyfin groups on the same page share their rendering and

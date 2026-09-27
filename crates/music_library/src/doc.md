@@ -234,7 +234,11 @@ covers arrive with the listing and are inserted in the same transaction, so the
 orphan-cover sweep of a concurrent scan cannot delete them before `remote_tracks`
 names them; known songs refresh their `remote_tracks` row (the upsert only writes
 when something differs, which is how `RemoteSyncReport::changed` knows whether a
-rescan is needed); songs no longer listed get `present = 0`; new songs are born
+rescan is needed; `cover_key` is left out of that check and written by a
+separate uncounted `UPDATE`, because it never reaches the catalog but must stay
+current — Navidrome's cover ids carry the album's timestamp, and a stale key
+would make `remote_cover_hashes` miss and re-download the same image on every
+sync); songs no longer listed get `present = 0`; new songs are born
 against every item that has no binding this listing accounts for — so a song
 the server renamed (new id) finds its old item. An empty listing while the server still had present songs is refused, not
 applied: a server whose library is unmounted must not retire everything.

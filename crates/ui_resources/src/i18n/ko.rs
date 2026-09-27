@@ -57,6 +57,7 @@ pub static KO: Strings = lang! {
     server_sync: "동기화",
     server_import_favorites: "즐겨찾기 가져오기",
     network_cache: "네트워크 캐시",
+    network_cache_desc: "들은 트랙은 디스크에 저장됩니다. 저장된 트랙은 바로 재생되며 오프라인에서도 재생됩니다.",
     cache_fill: "캐시에 저장",
     cache_fill_progress_t: "{}/{} 저장됨 · 클릭하면 중지",
     cache_fill_too_big_title: "캐시에 모두 들어가지 않습니다",

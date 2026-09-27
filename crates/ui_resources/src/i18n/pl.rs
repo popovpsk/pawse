@@ -57,6 +57,7 @@ pub static PL: Strings = lang! {
     server_sync: "Synchronizuj",
     server_import_favorites: "Importuj ulubione",
     network_cache: "Pamięć podręczna sieci",
+    network_cache_desc: "Utwory są zapisywane na dysku podczas słuchania. Zapisane utwory startują od razu i grają bez sieci.",
     cache_fill: "Zapisz w pamięci podręcznej",
     cache_fill_progress_t: "Zapisano {} z {} · kliknij, aby zatrzymać",
     cache_fill_too_big_title: "Nie wszystko się zmieści",

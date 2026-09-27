@@ -57,6 +57,7 @@ pub static ZH: Strings = lang! {
     server_sync: "同步",
     server_import_favorites: "导入收藏",
     network_cache: "网络缓存",
+    network_cache_desc: "收听时曲目会保存到磁盘。已保存的曲目可立即播放，离线也能播放。",
     cache_fill: "保存到缓存",
     cache_fill_progress_t: "已保存 {} / {} · 点击停止",
     cache_fill_too_big_title: "缓存放不下全部内容",

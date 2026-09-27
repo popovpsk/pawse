@@ -45,6 +45,7 @@ pub fn cache_group(sources: Entity<LibrarySources>) -> SettingGroup {
         .collect();
     SettingGroup::new()
         .title(tr().network_cache.clone())
+        .description(tr().network_cache_desc.clone())
         .item(SettingItem::new(
             tr().cache_used.clone(),
             SettingField::render(move |_window, cx: &mut App| {

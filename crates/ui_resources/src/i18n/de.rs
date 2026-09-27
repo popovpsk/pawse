@@ -57,6 +57,7 @@ pub static DE: Strings = lang! {
     server_sync: "Synchronisieren",
     server_import_favorites: "Favoriten importieren",
     network_cache: "Netzwerk-Cache",
+    network_cache_desc: "Titel werden beim Hören auf der Festplatte gespeichert. Gespeicherte Titel starten sofort und laufen auch offline.",
     cache_fill: "Im Cache speichern",
     cache_fill_progress_t: "{} von {} gespeichert · klicken zum Anhalten",
     cache_fill_too_big_title: "Nicht alles passt in den Cache",
