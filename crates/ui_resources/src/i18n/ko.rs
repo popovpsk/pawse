@@ -220,6 +220,7 @@ pub static KO: Strings = lang! {
     onboarding_theme_prompt: "색상 테마 선택",
     onboarding_language_prompt: "언어 선택",
     onboarding_folder_prompt: "음악 폴더 추가",
+    onboarding_servers_hint: "Subsonic, Jellyfin 같은 네트워크 소스는 나중에 설정 → 라이브러리에서 추가하거나 변경할 수 있습니다.",
     onboarding_finish: "재생 시작",
 
     quit_pawse: "Pawse 종료",

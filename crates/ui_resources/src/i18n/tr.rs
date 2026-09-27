@@ -220,6 +220,7 @@ pub static TR: Strings = lang! {
     onboarding_theme_prompt: "Bir renk teması seç",
     onboarding_language_prompt: "Dilini seç",
     onboarding_folder_prompt: "Müziğinin bulunduğu bir klasör ekle",
+    onboarding_servers_hint: "Subsonic ve Jellyfin gibi ağ kaynaklarını daha sonra Ayarlar → Kitaplık bölümünden ekleyebilir veya değiştirebilirsin.",
     onboarding_finish: "Dinlemeye başla",
 
     quit_pawse: "Pawse'dan çık",

@@ -81,13 +81,13 @@ fn theme_menu(menu: PopupMenu, cx: &App) -> PopupMenu {
     )
 }
 
-pub fn theme_dropdown(id: &'static str, cx: &App) -> AnyElement {
+pub fn theme_dropdown(id: &'static str, anchor: Anchor, cx: &App) -> AnyElement {
     let label = theme_label(&cx.global::<SettingsStore>().theme());
     Button::new(id)
         .small()
         .label(label)
         .dropdown_caret(true)
-        .dropdown_menu_with_anchor(Anchor::TopRight, |menu, _, cx| theme_menu(menu, cx))
+        .dropdown_menu_with_anchor(anchor, |menu, _, cx| theme_menu(menu, cx))
         .on_open_change(|open, _, cx| {
             if !*open {
                 restore_saved_theme(cx);
@@ -135,12 +135,12 @@ fn lang_menu(menu: PopupMenu, cx: &App) -> PopupMenu {
     )
 }
 
-pub fn language_dropdown(id: &'static str, cx: &App) -> AnyElement {
+pub fn language_dropdown(id: &'static str, anchor: Anchor, cx: &App) -> AnyElement {
     let label = lang_label(&cx.global::<SettingsStore>().language());
     Button::new(id)
         .small()
         .label(label)
         .dropdown_caret(true)
-        .dropdown_menu_with_anchor(Anchor::TopRight, |menu, _, cx| lang_menu(menu, cx))
+        .dropdown_menu_with_anchor(anchor, |menu, _, cx| lang_menu(menu, cx))
         .into_any_element()
 }

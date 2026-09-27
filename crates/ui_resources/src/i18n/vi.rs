@@ -220,6 +220,7 @@ pub static VI: Strings = lang! {
     onboarding_theme_prompt: "Chọn chủ đề màu sắc",
     onboarding_language_prompt: "Chọn ngôn ngữ của bạn",
     onboarding_folder_prompt: "Thêm thư mục chứa nhạc của bạn",
+    onboarding_servers_hint: "Bạn có thể thêm hoặc thay đổi nguồn mạng như Subsonic và Jellyfin sau trong Cài đặt → Thư viện.",
     onboarding_finish: "Bắt đầu nghe",
 
     quit_pawse: "Thoát Pawse",

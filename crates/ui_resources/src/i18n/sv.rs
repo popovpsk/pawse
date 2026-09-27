@@ -220,6 +220,7 @@ pub static SV: Strings = lang! {
     onboarding_theme_prompt: "Välj ett färgtema",
     onboarding_language_prompt: "Välj ditt språk",
     onboarding_folder_prompt: "Lägg till en mapp med din musik",
+    onboarding_servers_hint: "Du kan lägga till eller ändra nätverkskällor som Subsonic och Jellyfin senare under Inställningar → Bibliotek.",
     onboarding_finish: "Börja lyssna",
 
     quit_pawse: "Avsluta Pawse",

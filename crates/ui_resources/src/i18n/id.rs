@@ -220,6 +220,7 @@ pub static ID: Strings = lang! {
     onboarding_theme_prompt: "Pilih tema warna",
     onboarding_language_prompt: "Pilih bahasamu",
     onboarding_folder_prompt: "Tambahkan folder berisi musikmu",
+    onboarding_servers_hint: "Kamu bisa menambah atau mengubah sumber jaringan seperti Subsonic dan Jellyfin nanti di Pengaturan → Pustaka.",
     onboarding_finish: "Mulai mendengarkan",
 
     quit_pawse: "Keluar dari Pawse",

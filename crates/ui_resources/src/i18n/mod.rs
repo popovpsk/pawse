@@ -275,6 +275,7 @@ pub struct Strings {
     pub onboarding_theme_prompt: SharedString,
     pub onboarding_language_prompt: SharedString,
     pub onboarding_folder_prompt: SharedString,
+    pub onboarding_servers_hint: SharedString,
     pub onboarding_finish: SharedString,
 
     // --- App menu ---

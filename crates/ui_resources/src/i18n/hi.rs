@@ -220,6 +220,7 @@ pub static HI: Strings = lang! {
     onboarding_theme_prompt: "रंग थीम चुनें",
     onboarding_language_prompt: "अपनी भाषा चुनें",
     onboarding_folder_prompt: "अपने संगीत वाला फ़ोल्डर जोड़ें",
+    onboarding_servers_hint: "Subsonic और Jellyfin जैसे नेटवर्क स्रोत आप बाद में सेटिंग्स → लाइब्रेरी में जोड़ या बदल सकते हैं।",
     onboarding_finish: "सुनना शुरू करें",
 
     quit_pawse: "Pawse से बाहर निकलें",

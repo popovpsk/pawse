@@ -220,6 +220,7 @@ pub static TH: Strings = lang! {
     onboarding_theme_prompt: "เลือกธีมสี",
     onboarding_language_prompt: "เลือกภาษาของคุณ",
     onboarding_folder_prompt: "เพิ่มโฟลเดอร์เพลงของคุณ",
+    onboarding_servers_hint: "คุณสามารถเพิ่มหรือเปลี่ยนแหล่งเพลงบนเครือข่าย เช่น Subsonic และ Jellyfin ได้ภายหลังใน การตั้งค่า → คลัง",
     onboarding_finish: "เริ่มฟัง",
 
     quit_pawse: "ออกจาก Pawse",

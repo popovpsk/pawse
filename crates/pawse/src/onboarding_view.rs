@@ -1,9 +1,9 @@
 use gpui::{
-    App, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window, div, px,
+    Anchor, App, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, Styled, Subscription, Window, div, px,
 };
 use gpui_component::{
-    Disableable, Icon, IconName,
+    Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
     theme::ThemeRegistry,
@@ -11,6 +11,7 @@ use gpui_component::{
 };
 
 use crate::localization::tr;
+use crate::remote_settings::ICON_SIZE;
 use crate::settings_store::{SettingsStore, notify_save_error};
 use crate::settings_view::{pick_and_add_folder, remove_folder_and_rescan};
 use crate::theme_colors::Colors;
@@ -47,6 +48,7 @@ fn section(label: SharedString, field: impl IntoElement, cx: &App) -> impl IntoE
     v_flex()
         .gap_2()
         .w_full()
+        .items_start()
         .child(
             div()
                 .text_sm()
@@ -61,7 +63,6 @@ impl Render for OnboardingView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = tr();
         let folders = cx.global::<SettingsStore>().music_folders().to_vec();
-        let can_finish = !folders.is_empty();
 
         let mut folder_list = v_flex().gap_2().w_full();
         if folders.is_empty() {
@@ -86,17 +87,23 @@ impl Render for OnboardingView {
                         .py_2()
                         .rounded(px(6.))
                         .bg(Colors::muted(cx))
-                        .child(Icon::new(IconName::Folder).text_color(Colors::muted_foreground(cx)))
+                        .child(
+                            Icon::new(IconName::Folder)
+                                .with_size(px(ICON_SIZE))
+                                .flex_shrink_0()
+                                .text_color(Colors::muted_foreground(cx)),
+                        )
                         .child(
                             div()
                                 .flex_1()
+                                .min_w(px(0.))
                                 .text_sm()
-                                .truncate()
                                 .text_color(Colors::foreground(cx))
                                 .child(path_text),
                         )
                         .child(
                             Button::new(SharedString::from(remove_id))
+                                .small()
                                 .label(s.remove.clone())
                                 .on_click(move |_, _, cx| {
                                     remove_folder_and_rescan(path_for_remove.clone(), cx)
@@ -106,11 +113,25 @@ impl Render for OnboardingView {
             }
         }
 
-        let folder_field = v_flex().gap_3().w_full().child(folder_list).child(
-            Button::new("ob-add-folder")
-                .label(s.add_folder.clone())
-                .on_click(|_, _, cx| pick_and_add_folder(cx)),
-        );
+        let folder_field = v_flex()
+            .gap_3()
+            .w_full()
+            .child(folder_list)
+            .child(
+                h_flex().child(
+                    Button::new("ob-add-folder")
+                        .small()
+                        .label(s.add_folder.clone())
+                        .on_click(|_, _, cx| pick_and_add_folder(cx)),
+                ),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .text_xs()
+                    .text_color(Colors::muted_foreground(cx))
+                    .child(s.onboarding_servers_hint.clone()),
+            );
 
         div()
             .id("onboarding")
@@ -149,12 +170,16 @@ impl Render for OnboardingView {
                     )
                     .child(section(
                         s.onboarding_theme_prompt.clone(),
-                        crate::pickers::theme_dropdown("onboarding-theme", cx),
+                        crate::pickers::theme_dropdown("onboarding-theme", Anchor::TopLeft, cx),
                         cx,
                     ))
                     .child(section(
                         s.onboarding_language_prompt.clone(),
-                        crate::pickers::language_dropdown("onboarding-language", cx),
+                        crate::pickers::language_dropdown(
+                            "onboarding-language",
+                            Anchor::TopLeft,
+                            cx,
+                        ),
                         cx,
                     ))
                     .child(section(
@@ -166,8 +191,8 @@ impl Render for OnboardingView {
                         h_flex().justify_end().child(
                             Button::new("ob-finish")
                                 .primary()
+                                .small()
                                 .label(s.onboarding_finish.clone())
-                                .disabled(!can_finish)
                                 .on_click(|_, window, cx| finish_onboarding(window, cx)),
                         ),
                     ),

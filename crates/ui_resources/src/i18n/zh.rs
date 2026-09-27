@@ -220,6 +220,7 @@ pub static ZH: Strings = lang! {
     onboarding_theme_prompt: "选择配色主题",
     onboarding_language_prompt: "选择你的语言",
     onboarding_folder_prompt: "添加一个音乐文件夹",
+    onboarding_servers_hint: "之后可以在 设置 → 音乐库 中添加或更改 Subsonic、Jellyfin 等网络来源。",
     onboarding_finish: "开始聆听",
 
     quit_pawse: "退出 Pawse",

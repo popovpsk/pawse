@@ -220,6 +220,7 @@ pub static FR: Strings = lang! {
     onboarding_theme_prompt: "Choisissez un thème de couleurs",
     onboarding_language_prompt: "Choisissez votre langue",
     onboarding_folder_prompt: "Ajoutez un dossier contenant votre musique",
+    onboarding_servers_hint: "Vous pourrez ajouter ou modifier des sources réseau comme Subsonic et Jellyfin plus tard dans Réglages → Bibliothèque.",
     onboarding_finish: "Commencer l'écoute",
 
     quit_pawse: "Quitter Pawse",

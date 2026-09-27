@@ -220,6 +220,7 @@ pub static CS: Strings = lang! {
     onboarding_theme_prompt: "Vyberte barevné téma",
     onboarding_language_prompt: "Vyberte svůj jazyk",
     onboarding_folder_prompt: "Přidejte složku s hudbou",
+    onboarding_servers_hint: "Síťové zdroje, jako jsou Subsonic a Jellyfin, můžete později přidat nebo změnit v Nastavení → Knihovna.",
     onboarding_finish: "Začít poslouchat",
 
     quit_pawse: "Ukončit Pawse",

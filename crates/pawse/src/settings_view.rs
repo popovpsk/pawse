@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gpui::{App, Entity, ParentElement, SharedString, Styled, Window, div, px};
+use gpui::{Anchor, App, Entity, ParentElement, SharedString, Styled, Window, div, px};
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
@@ -206,7 +206,7 @@ fn appearance_group(
         SettingItem::new(
             tr().theme.clone(),
             SettingField::render(|_window, cx: &mut App| {
-                crate::pickers::theme_dropdown("settings-theme", cx)
+                crate::pickers::theme_dropdown("settings-theme", Anchor::TopRight, cx)
             }),
         )
         .description(tr().theme_desc.clone()),
@@ -1257,7 +1257,7 @@ fn language_field() -> SettingItem {
     SettingItem::new(
         tr().language.clone(),
         SettingField::render(|_window, cx: &mut App| {
-            crate::pickers::language_dropdown("settings-language", cx)
+            crate::pickers::language_dropdown("settings-language", Anchor::TopRight, cx)
         }),
     )
     .description(tr().language_desc.clone())

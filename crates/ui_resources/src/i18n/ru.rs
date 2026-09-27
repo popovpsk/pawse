@@ -220,6 +220,7 @@ pub static RU: Strings = lang! {
     onboarding_theme_prompt: "Выберите цветовую тему",
     onboarding_language_prompt: "Выберите язык",
     onboarding_folder_prompt: "Добавьте папку с музыкой",
+    onboarding_servers_hint: "Сетевые источники, такие как Subsonic и Jellyfin, можно добавить или изменить позже в Настройки → Медиатека.",
     onboarding_finish: "Начать слушать",
 
     quit_pawse: "Выйти из Pawse",

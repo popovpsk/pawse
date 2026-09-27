@@ -220,6 +220,7 @@ pub static NL: Strings = lang! {
     onboarding_theme_prompt: "Kies een kleurthema",
     onboarding_language_prompt: "Kies je taal",
     onboarding_folder_prompt: "Voeg een map met je muziek toe",
+    onboarding_servers_hint: "Netwerkbronnen zoals Subsonic en Jellyfin kun je later toevoegen of wijzigen in Instellingen → Bibliotheek.",
     onboarding_finish: "Beginnen met luisteren",
 
     quit_pawse: "Pawse afsluiten",

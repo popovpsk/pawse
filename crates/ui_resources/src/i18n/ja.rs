@@ -220,6 +220,7 @@ pub static JA: Strings = lang! {
     onboarding_theme_prompt: "カラーテーマを選択",
     onboarding_language_prompt: "言語を選択",
     onboarding_folder_prompt: "音楽フォルダを追加",
+    onboarding_servers_hint: "Subsonic や Jellyfin などのネットワークソースは、あとで 設定 → ライブラリ から追加・変更できます。",
     onboarding_finish: "再生を始める",
 
     quit_pawse: "Pawse を終了",
