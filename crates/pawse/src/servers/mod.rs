@@ -2,23 +2,27 @@ use std::sync::Arc;
 
 use music_library::RemoteSong;
 
+mod dlna;
 mod jellyfin;
 mod subsonic;
 pub mod torrent;
 
+pub use self::dlna::describe as describe_dlna;
 pub use self::jellyfin::authenticate as authenticate_jellyfin;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ServerKind {
     Subsonic,
     Jellyfin,
+    Dlna,
     Torrent,
 }
 
 impl ServerKind {
-    pub const ALL: [ServerKind; 3] = [
+    pub const ALL: [ServerKind; 4] = [
         ServerKind::Subsonic,
         ServerKind::Jellyfin,
+        ServerKind::Dlna,
         ServerKind::Torrent,
     ];
 
@@ -26,6 +30,7 @@ impl ServerKind {
         match self {
             ServerKind::Subsonic => "subsonic",
             ServerKind::Jellyfin => "jellyfin",
+            ServerKind::Dlna => "dlna",
             ServerKind::Torrent => "torrent",
         }
     }
@@ -34,13 +39,14 @@ impl ServerKind {
         match self {
             ServerKind::Subsonic => "Subsonic",
             ServerKind::Jellyfin => "Jellyfin",
+            ServerKind::Dlna => "DLNA",
             ServerKind::Torrent => "Torrent",
         }
     }
 
     pub fn manual_sync(self) -> bool {
         match self {
-            ServerKind::Subsonic | ServerKind::Jellyfin => true,
+            ServerKind::Subsonic | ServerKind::Jellyfin | ServerKind::Dlna => true,
             ServerKind::Torrent => false,
         }
     }
@@ -48,13 +54,13 @@ impl ServerKind {
     pub fn imports_favorites(self) -> bool {
         match self {
             ServerKind::Subsonic | ServerKind::Jellyfin => true,
-            ServerKind::Torrent => false,
+            ServerKind::Dlna | ServerKind::Torrent => false,
         }
     }
 
     pub fn syncs_alone(self) -> bool {
         match self {
-            ServerKind::Subsonic | ServerKind::Jellyfin => false,
+            ServerKind::Subsonic | ServerKind::Jellyfin | ServerKind::Dlna => false,
             ServerKind::Torrent => true,
         }
     }
@@ -62,13 +68,13 @@ impl ServerKind {
     pub fn titled_by_name(self) -> bool {
         match self {
             ServerKind::Subsonic | ServerKind::Jellyfin => false,
-            ServerKind::Torrent => true,
+            ServerKind::Dlna | ServerKind::Torrent => true,
         }
     }
 
     pub fn has_peers(self) -> bool {
         match self {
-            ServerKind::Subsonic | ServerKind::Jellyfin => false,
+            ServerKind::Subsonic | ServerKind::Jellyfin | ServerKind::Dlna => false,
             ServerKind::Torrent => true,
         }
     }
@@ -82,6 +88,7 @@ impl ServerKind {
 pub enum RemoteConfig {
     Subsonic(::subsonic::Config),
     Jellyfin(::jellyfin::Config),
+    Dlna(::dlna::Config),
     Torrent(torrent::Config),
 }
 
@@ -90,6 +97,7 @@ impl RemoteConfig {
         match self {
             RemoteConfig::Subsonic(_) => ServerKind::Subsonic,
             RemoteConfig::Jellyfin(_) => ServerKind::Jellyfin,
+            RemoteConfig::Dlna(_) => ServerKind::Dlna,
             RemoteConfig::Torrent(_) => ServerKind::Torrent,
         }
     }
@@ -98,7 +106,7 @@ impl RemoteConfig {
         match self {
             RemoteConfig::Subsonic(config) => Some(&config.url),
             RemoteConfig::Jellyfin(config) => Some(&config.url),
-            RemoteConfig::Torrent(_) => None,
+            RemoteConfig::Dlna(_) | RemoteConfig::Torrent(_) => None,
         }
     }
 
@@ -106,6 +114,7 @@ impl RemoteConfig {
         match self {
             RemoteConfig::Subsonic(config) => Arc::new(subsonic::Subsonic::new(config)),
             RemoteConfig::Jellyfin(config) => Arc::new(jellyfin::Jellyfin::new(config)),
+            RemoteConfig::Dlna(config) => Arc::new(dlna::Dlna::new(config)),
             RemoteConfig::Torrent(config) => Arc::new(torrent::Torrent::new(config)),
         }
     }
@@ -163,6 +172,9 @@ pub trait ServerClient: Send + Sync {
         end: Option<u64>,
     ) -> Result<server_http::RangeBody, RemoteError>;
     fn forget(&self) {}
+    fn moved(&self) -> Option<RemoteConfig> {
+        None
+    }
     fn peers(&self) -> Option<Peers> {
         None
     }

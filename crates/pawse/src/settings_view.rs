@@ -50,6 +50,7 @@ pub struct LibraryPage {
     pub sources: Entity<crate::library_sources::LibrarySources>,
     pub subsonic_inputs: crate::remote_settings::ServerInputs,
     pub jellyfin_inputs: crate::remote_settings::ServerInputs,
+    pub dlna_address: Entity<InputState>,
     pub torrent_magnet: Entity<InputState>,
 }
 
@@ -99,6 +100,10 @@ pub fn build_settings_pages(
             .group(crate::jellyfin_settings::jellyfin_group(
                 library_page.sources.clone(),
                 library_page.jellyfin_inputs,
+            ))
+            .group(crate::dlna_settings::dlna_group(
+                library_page.sources.clone(),
+                library_page.dlna_address,
             ))
             .group(crate::torrent_settings::torrent_group(
                 library_page.sources.clone(),

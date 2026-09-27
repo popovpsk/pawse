@@ -4,5 +4,7 @@
 <dict>
     <key>LSMultipleInstancesProhibited</key>
     <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Pawse finds and plays music from media servers on your local network.</string>
 </dict>
 </plist>

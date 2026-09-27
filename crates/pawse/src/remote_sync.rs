@@ -48,6 +48,7 @@ pub fn source_ids(repo: &dyn LibraryRepository) -> HashMap<String, i64> {
 pub struct SyncOutcome {
     pub result: Result<RemoteSyncReport, RemoteError>,
     pub changed: bool,
+    pub moved: Option<RemoteConfig>,
 }
 
 pub fn offline_servers(
@@ -111,14 +112,17 @@ pub fn sync_server(
             let covers = fetch_covers(repo, &*client, config.kind(), source_id, &mut songs);
             apply_listing(repo, source_id, &songs, &covers)
         });
+    let moved = client.moved();
     match listed {
         Ok(report) => SyncOutcome {
             changed: report.changed(),
             result: Ok(report),
+            moved,
         },
         Err(Failure::Local(error)) => SyncOutcome {
             result: Err(error),
             changed: false,
+            moved,
         },
         Err(Failure::Source(error)) => {
             let changed = repo
@@ -130,6 +134,7 @@ pub fn sync_server(
             SyncOutcome {
                 result: Err(error),
                 changed,
+                moved,
             }
         }
     }

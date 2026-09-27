@@ -7,7 +7,9 @@ use crate::library_service::LibraryEvent;
 use crate::localization::{LangChanged, tr};
 use crate::servers::{Peers, RemoteError, RemoteServer, ServerKind};
 use crate::services::Services;
-use crate::settings_store::{JellyfinServer, SettingsStore, SubsonicServer, TorrentSource};
+use crate::settings_store::{
+    DlnaServer, JellyfinServer, SettingsStore, SubsonicServer, TorrentSource,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceStatus {
@@ -123,12 +125,49 @@ pub struct ConnectState {
     pub error: Option<SharedString>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct DlnaDiscovery {
+    pub searching: bool,
+    pub searched: bool,
+    pub found: Vec<FoundDevice>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FoundDevice {
+    pub device: dlna::Device,
+    pub name: SharedString,
+    pub detail: SharedString,
+}
+
+impl FoundDevice {
+    pub fn new(device: dlna::Device) -> Self {
+        let host = device
+            .location
+            .split_once("://")
+            .map_or(device.location.as_str(), |(_, rest)| rest)
+            .split('/')
+            .next()
+            .unwrap_or_default();
+        let detail = match &device.model {
+            Some(model) => format!("{model} · {host}"),
+            None => host.to_string(),
+        };
+        Self {
+            name: device.name.clone().into(),
+            detail: detail.into(),
+            device,
+        }
+    }
+}
+
 pub struct LibrarySources {
     folders: Vec<PathBuf>,
     subsonic: Vec<SubsonicServer>,
     jellyfin: Vec<JellyfinServer>,
+    dlna: Vec<DlnaServer>,
     torrents: Vec<TorrentSource>,
     servers: Vec<RemoteServer>,
+    dlna_discovery: DlnaDiscovery,
     peers: HashMap<String, Peers>,
     peers_poll: Option<Task<()>>,
     summaries: Vec<music_library::SourceSummary>,
@@ -195,6 +234,7 @@ impl LibrarySources {
             if store.music_folders() != this.folders.as_slice()
                 || store.subsonic_servers() != this.subsonic.as_slice()
                 || store.jellyfin_servers() != this.jellyfin.as_slice()
+                || store.dlna_servers() != this.dlna.as_slice()
                 || store.torrent_sources() != this.torrents.as_slice()
             {
                 this.load(cx);
@@ -204,8 +244,10 @@ impl LibrarySources {
             folders: Vec::new(),
             subsonic: Vec::new(),
             jellyfin: Vec::new(),
+            dlna: Vec::new(),
             torrents: Vec::new(),
             servers: Vec::new(),
+            dlna_discovery: DlnaDiscovery::default(),
             peers: HashMap::new(),
             peers_poll: None,
             summaries: Vec::new(),
@@ -333,16 +375,35 @@ impl LibrarySources {
         self.connect.insert(kind, state);
     }
 
+    pub fn dlna_discovery(&self) -> &DlnaDiscovery {
+        &self.dlna_discovery
+    }
+
+    pub fn set_dlna_discovery(&mut self, discovery: DlnaDiscovery) {
+        self.dlna_discovery = discovery;
+    }
+
+    pub fn dlna_unadded(&self) -> impl Iterator<Item = &FoundDevice> {
+        self.dlna_discovery.found.iter().filter(|found| {
+            !self
+                .dlna
+                .iter()
+                .any(|server| server.udn.eq_ignore_ascii_case(&found.device.udn))
+        })
+    }
+
     fn load(&mut self, cx: &mut Context<Self>) {
         self.folders = cx.global::<SettingsStore>().music_folders().to_vec();
         self.subsonic = cx.global::<SettingsStore>().subsonic_servers().to_vec();
         self.jellyfin = cx.global::<SettingsStore>().jellyfin_servers().to_vec();
+        self.dlna = cx.global::<SettingsStore>().dlna_servers().to_vec();
         self.torrents = cx.global::<SettingsStore>().torrent_sources().to_vec();
         self.summaries = cx.global::<Services>().library.sources();
         self.syncing = cx.global::<Services>().library.remote_syncing();
         self.servers = crate::remote_settings::configured_servers(
             &self.subsonic,
             &self.jellyfin,
+            &self.dlna,
             &self.torrents,
             &cx.global::<Services>().torrents,
         );

@@ -2153,6 +2153,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dlna"
+version = "1.0.0"
+dependencies = [
+ "log",
+ "network-interface",
+ "roxmltree 0.21.1",
+ "rstest",
+ "server_http",
+ "socket2 0.6.5",
+ "thiserror 2.0.19",
+ "ureq",
+ "url",
+]
+
+[[package]]
 name = "doctest-file"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6535,6 +6550,7 @@ dependencies = [
  "diagnostics",
  "dirs 6.0.0",
  "discord",
+ "dlna",
  "flume",
  "gpui-component",
  "gpui-pre",

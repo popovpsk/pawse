@@ -15,6 +15,8 @@ to `subsonic::` or `jellyfin::` directly.
   `subsonic::Error` → `RemoteError`.
 - `jellyfin.rs` — the Jellyfin adapter: `jellyfin::Item` → `RemoteSong`, error
   mapping, and `authenticate` (log in once, get a token).
+- `dlna.rs` — the DLNA adapter: `dlna::Item` → `RemoteSong`, error mapping,
+  and `describe` (an address typed by the user → `dlna::Device`).
 - `torrent/mod.rs` — the torrent adapter over the `torrent` crate.
   `TorrentHost` owns what used to be process-wide statics: the engine config,
   the one `torrent::Engine` (created by the first `engine()` call — never on
@@ -44,7 +46,9 @@ to `subsonic::` or `jellyfin::` directly.
 - **What differs between kinds is asked, not compared.** `ServerKind` answers
   `manual_sync`, `imports_favorites`, `syncs_alone` (its own sync thread),
   `titled_by_name` and `has_peers`; `ServerClient` has `forget` (removal
-  cleanup) and `peers`, both no-ops by default; `RemoteConfig::web_url` is the
+  cleanup), `peers` and `moved` (a config to save because the server was
+  found elsewhere — DLNA only; a sync sends it as `LibraryEvent::RemoteMoved`
+  and `remote_settings::server_moved` stores it), all no-ops by default; `RemoteConfig::web_url` is the
   address the "Open in browser" button opens (none for a torrent). Code outside this module
   never tests `kind == Torrent`; the only per-kind `match`es left are
   exhaustive maps from a kind to a value (icon, element ids),
@@ -64,6 +68,32 @@ to `subsonic::` or `jellyfin::` directly.
 - **Placeholders** (`[Unknown Artist]`, `[Unknown Album]`) become empty, and a
   track number above 999 is dropped — Navidrome takes one from a leading number
   in an untagged file name.
+
+## DLNA
+
+A DLNA/UPnP media server is `ServerKind::Dlna` with `uri` = its UDN
+(lowercased), titled by its friendly name. The `dlna` crate's `doc.md` has the
+protocol side (discovery, re-finding a moved server, listing, which resource
+is played). What the adapter adds:
+
+- **Nothing to log into, no stars.** `imports_favorites` is false. There is a
+  Sync button, like the other servers: a DLNA listing can change any time.
+- **Keys** are `dlna::Res::id` (media path + `#size`) and covers
+  `dlna::Item::cover_id` — see the `dlna` crate for why the size is part of
+  the key.
+- **Units.** The bitrate is measured from `size` and `duration` when both are
+  known; otherwise `res@bitrate` is taken as bytes per second (the spec), and a
+  value that would be over 20 Mbit/s is taken as bits per second instead.
+  MiniDLNA sends bits per second, but always sends size and duration too.
+- **Extension.** From the media path when it ends in a known audio extension
+  (MiniDLNA, Gerbera), else from the MIME type (Serviio's
+  `/resource/…/ORIGINAL` has none).
+- **Year** is the leading four digits of `dc:date`. The first performer is the
+  artist, the others are aliases; the first `AlbumArtist` is the album artist.
+- **Settings** (`dlna_settings.rs`): "Search the network" runs `dlna::discover`
+  in the background and lists what is not added yet; an address field adds a
+  server that discovery cannot reach (VPN, another subnet, multicast filtered).
+  Both add through a ping, like the other servers.
 
 ## Torrents
 

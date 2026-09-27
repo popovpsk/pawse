@@ -20,7 +20,7 @@ use crate::servers::torrent::TorrentHost;
 use crate::servers::{RemoteConfig, RemoteServer, ServerKind};
 use crate::services::Services;
 use crate::settings_store::{
-    JellyfinServer, SettingsStore, SubsonicServer, TorrentSource, notify_save_error,
+    DlnaServer, JellyfinServer, SettingsStore, SubsonicServer, TorrentSource, notify_save_error,
 };
 use crate::theme_colors::Colors;
 
@@ -90,6 +90,14 @@ pub fn jellyfin_remote(server: &JellyfinServer) -> RemoteServer {
     }
 }
 
+pub fn dlna_remote(server: &DlnaServer) -> RemoteServer {
+    RemoteServer {
+        uri: server.source_uri(),
+        name: server.name.clone(),
+        config: RemoteConfig::Dlna(server.config()),
+    }
+}
+
 pub fn torrent_remote(source: &TorrentSource, host: &Arc<TorrentHost>) -> RemoteServer {
     RemoteServer {
         uri: source.source_uri(),
@@ -101,6 +109,7 @@ pub fn torrent_remote(source: &TorrentSource, host: &Arc<TorrentHost>) -> Remote
 pub fn configured_servers(
     subsonic: &[SubsonicServer],
     jellyfin: &[JellyfinServer],
+    dlna: &[DlnaServer],
     torrents: &[TorrentSource],
     host: &Arc<TorrentHost>,
 ) -> Vec<RemoteServer> {
@@ -108,6 +117,7 @@ pub fn configured_servers(
         .iter()
         .map(subsonic_remote)
         .chain(jellyfin.iter().map(jellyfin_remote))
+        .chain(dlna.iter().map(dlna_remote))
         .chain(torrents.iter().map(|source| torrent_remote(source, host)))
         .collect()
 }
@@ -115,6 +125,7 @@ pub fn configured_servers(
 pub fn has_servers(store: &SettingsStore) -> bool {
     !store.subsonic_servers().is_empty()
         || !store.jellyfin_servers().is_empty()
+        || !store.dlna_servers().is_empty()
         || !store.torrent_sources().is_empty()
 }
 
@@ -123,6 +134,7 @@ pub fn remote_servers(cx: &App) -> Vec<RemoteServer> {
     configured_servers(
         store.subsonic_servers(),
         store.jellyfin_servers(),
+        store.dlna_servers(),
         store.torrent_sources(),
         &cx.global::<Services>().torrents,
     )
@@ -166,6 +178,14 @@ pub fn set_connecting(
         sources.set_connect_state(kind, state);
         cx.notify();
     });
+}
+
+pub fn server_moved(config: &RemoteConfig, cx: &mut App) {
+    match cx.global_mut::<SettingsStore>().update_server(config) {
+        Ok(true) => apply_remote_sources(cx),
+        Ok(false) => {}
+        Err(e) => notify_save_error(cx, e),
+    }
 }
 
 pub fn added(server: RemoteServer, cx: &mut App) {
@@ -242,6 +262,13 @@ fn ids(kind: ServerKind) -> Ids {
             remove: "subsonic-remove",
             connect: "subsonic-connect",
         },
+        ServerKind::Dlna => Ids {
+            browse: "dlna-browse",
+            sync: "dlna-sync",
+            stars: "dlna-stars",
+            remove: "dlna-remove",
+            connect: "dlna-connect",
+        },
         ServerKind::Torrent => Ids {
             browse: "torrent-browse",
             sync: "torrent-sync",
@@ -285,9 +312,9 @@ pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option
                                 .flex_shrink_0()
                                 .path(match kind {
                                     ServerKind::Torrent => "icons/torrent.svg",
-                                    ServerKind::Subsonic | ServerKind::Jellyfin => {
-                                        "icons/devices.svg"
-                                    }
+                                    ServerKind::Subsonic
+                                    | ServerKind::Jellyfin
+                                    | ServerKind::Dlna => "icons/devices.svg",
                                 })
                                 .size(px(ICON_SIZE))
                                 .text_color(muted_fg),

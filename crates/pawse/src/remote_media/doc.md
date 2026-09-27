@@ -10,10 +10,11 @@ prefetch, the cache settings); behind it each source id maps to a
 - `mod.rs` — `RemoteMedia`, the `SourceMedia` trait, `PendingStream`,
   `StreamControl` (abort and failure reason of an opening stream).
 - `cache.rs` — `CacheStore`: the one on-disk cache every source writes into
-  (`<cache>/pawse/media/<source_id>/<key>-<digest>.<ext>`), LRU by mtime, the
+  (`<cache>/pawse/media/<source_id>/<key>-<digest>.<ext>`, the key sanitized
+  and cut to 96 characters — a DLNA key is a URL path), LRU by mtime, the
   size limit, clearing, and the move of the old `<cache>/pawse/subsonic` dir.
 - `http.rs` — `HttpMedia`, the `SourceMedia` for every source that serves byte
-  ranges (Subsonic, Jellyfin, torrents; DLNA would fit too): a `media_stream`
+  ranges (Subsonic, Jellyfin, DLNA, torrents): a `media_stream`
   download fed by the source's `ServerClient::fetch_range` (`ServerFetch`). For
   a torrent a range blocks until its pieces arrive — as long as the torrent
   keeps receiving bytes, up to 5 minutes; without any, 20 s for opening a range

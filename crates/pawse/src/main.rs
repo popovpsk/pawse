@@ -20,6 +20,7 @@ pub mod cover_mode_view;
 pub mod cover_skin;
 pub mod cover_volume;
 pub mod discord_bridge;
+pub mod dlna_settings;
 pub mod error_bridge;
 pub mod footer;
 pub mod jellyfin_settings;

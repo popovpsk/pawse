@@ -1,0 +1,24 @@
+[package]
+name = "dlna"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = { workspace = true }
+ureq = "3"
+thiserror = "2.0"
+roxmltree = "0.21"
+url = "2"
+socket2 = "0.6"
+network-interface = "2"
+server_http = { path = "../server_http" }
+
+[dev-dependencies]
+rstest = "0.26"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

@@ -104,6 +104,9 @@ impl Services {
                     if matches!(&event, LibraryEvent::CatalogChanged) {
                         remap_queue_after_rescan(cx);
                     }
+                    if let LibraryEvent::RemoteMoved { config } = &event {
+                        crate::remote_settings::server_moved(config, cx);
+                    }
                     if matches!(&event, LibraryEvent::TagsSaved) {
                         let cache = cx.global::<Services>().cover_art_cache.clone();
                         cache.borrow_mut().clear(cx);

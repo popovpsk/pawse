@@ -1597,35 +1597,27 @@ mod tests {
         scan(
             &lib,
             vec![
-                on_album(
-                    "/m/a.flac",
-                    "Thank You, Happy Birthday",
-                    "Cage the Elephant",
-                ),
-                on_album("/m/b.flac", "Melophobia", "Cage The Elephant"),
-                on_album("/m/c.flac", "Мегаполис", "ЗВЕРИ"),
-                on_album("/m/d.flac", "Районы-кварталы", "Звери"),
+                on_album("/m/a.flac", "Paper Lanterns", "Glass the Harbor"),
+                on_album("/m/b.flac", "Quiet Rooms", "Glass The Harbor"),
+                on_album("/m/c.flac", "Мегаполис", "ЛИСЫ"),
+                on_album("/m/d.flac", "Дворы", "Лисы"),
             ],
         );
         let artists = artist_ids(&lib);
         assert_eq!(artists.len(), 2);
-        let cage = artists["Cage the Elephant"];
-        assert_eq!(lib.upsert_artist("CAGE THE ELEPHANT").unwrap(), cage);
+        let glass = artists["Glass the Harbor"];
+        assert_eq!(lib.upsert_artist("GLASS THE HARBOR").unwrap(), glass);
 
         scan(
             &lib,
             vec![
-                on_album("/m/b.flac", "Melophobia", "Cage The Elephant"),
-                on_album(
-                    "/m/a.flac",
-                    "Thank You, Happy Birthday",
-                    "Cage the Elephant",
-                ),
+                on_album("/m/b.flac", "Quiet Rooms", "Glass The Harbor"),
+                on_album("/m/a.flac", "Paper Lanterns", "Glass the Harbor"),
             ],
         );
         assert_eq!(
             artist_ids(&lib).into_values().collect::<Vec<_>>(),
-            vec![cage]
+            vec![glass]
         );
     }
 
@@ -1636,8 +1628,8 @@ mod tests {
         scan(
             &lib,
             vec![
-                on_album("/m/a.flac", "Black Holes", "Muse"),
-                on_album("/m/b.flac", "The Slip", "NIN"),
+                on_album("/m/a.flac", "Night Drive", "Nova"),
+                on_album("/m/b.flac", "Static", "KTX"),
             ],
         );
         let albums = album_ids(&lib);
@@ -1646,54 +1638,54 @@ mod tests {
         scan(
             &lib,
             vec![
-                on_album("/m/c.flac", "Absolution", "Placebo"),
-                on_album("/m/b.flac", "The Slip", "NIN"),
-                on_album("/m/a.flac", "Black Holes", "Muse"),
+                on_album("/m/c.flac", "Low Tide", "Mirrors"),
+                on_album("/m/b.flac", "Static", "KTX"),
+                on_album("/m/a.flac", "Night Drive", "Nova"),
             ],
         );
         let after = album_ids(&lib);
-        assert_eq!(after["Black Holes"], albums["Black Holes"]);
-        assert_eq!(after["The Slip"], albums["The Slip"]);
-        assert!(!albums.values().any(|id| *id == after["Absolution"]));
+        assert_eq!(after["Night Drive"], albums["Night Drive"]);
+        assert_eq!(after["Static"], albums["Static"]);
+        assert!(!albums.values().any(|id| *id == after["Low Tide"]));
         let artists_after = artist_ids(&lib);
-        assert_eq!(artists_after["Muse"], artists["Muse"]);
-        assert_eq!(artists_after["NIN"], artists["NIN"]);
+        assert_eq!(artists_after["Nova"], artists["Nova"]);
+        assert_eq!(artists_after["KTX"], artists["KTX"]);
 
-        let gone = after["Absolution"];
+        let gone = after["Low Tide"];
         scan(
             &lib,
             vec![
-                on_album("/m/a.flac", "Black Holes", "Muse"),
-                on_album("/m/b.flac", "The Slip", "NIN"),
+                on_album("/m/a.flac", "Night Drive", "Nova"),
+                on_album("/m/b.flac", "Static", "KTX"),
             ],
         );
         scan(
             &lib,
             vec![
-                on_album("/m/a.flac", "Black Holes", "Muse"),
-                on_album("/m/b.flac", "The Slip", "NIN"),
-                on_album("/m/d.flac", "Origin of Symmetry", "Muse"),
+                on_album("/m/a.flac", "Night Drive", "Nova"),
+                on_album("/m/b.flac", "Static", "KTX"),
+                on_album("/m/d.flac", "Second Sun", "Nova"),
             ],
         );
-        assert!(album_ids(&lib)["Origin of Symmetry"] > gone);
+        assert!(album_ids(&lib)["Second Sun"] > gone);
 
         let edited = lib.upsert_album("Edited", Some(2001), None).unwrap();
-        assert!(edited > album_ids(&lib)["Origin of Symmetry"]);
+        assert!(edited > album_ids(&lib)["Second Sun"]);
 
         let mut session = lib.open_scan_session().unwrap();
         session.clear().unwrap();
         session
-            .add_track(on_album("/m/a.flac", "Black Holes", "Muse"))
+            .add_track(on_album("/m/a.flac", "Night Drive", "Nova"))
             .unwrap();
         session.flush().unwrap();
         let during = lib.upsert_album("During Scan", Some(2002), None).unwrap();
         session
-            .add_track(on_album("/m/e.flac", "Showbiz", "Muse"))
+            .add_track(on_album("/m/e.flac", "Afterglow", "Nova"))
             .unwrap();
         session.finish().unwrap();
         let ids = album_ids(&lib);
-        assert_eq!(ids["Black Holes"], after["Black Holes"]);
-        assert!(ids["Showbiz"] > during);
+        assert_eq!(ids["Night Drive"], after["Night Drive"]);
+        assert!(ids["Afterglow"] > during);
     }
 
     fn folders(paths: &[&str]) -> Vec<LocalFolder> {

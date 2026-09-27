@@ -8,6 +8,7 @@ use music_library::remote::RemoteRef;
 
 const PARTIAL_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 const DIR_NAME: &str = "media";
+const MAX_KEY_CHARS: usize = 96;
 const LEGACY_DIR_NAMES: [&str; 1] = ["subsonic"];
 
 pub struct CacheStore {
@@ -44,6 +45,7 @@ impl CacheStore {
                     '_'
                 }
             })
+            .take(MAX_KEY_CHARS)
             .collect();
         let digest = &music_library::sha256_hex(reference.key.as_bytes())[..12];
         self.dir
@@ -191,6 +193,16 @@ mod tests {
         assert_ne!(a, b);
         assert!(a.extension().is_some_and(|e| e == "flac"));
         assert!(!a.file_name().unwrap().to_string_lossy().contains('/'));
+    }
+
+    #[test]
+    fn a_long_key_is_cut_to_a_file_name_that_fits_and_stays_distinct() {
+        let store = CacheStore::new(PathBuf::from("/c"));
+        let long = format!("/WMPNSSv4/{}/a.flac", "x".repeat(400));
+        let a = store.path_for(&reference(3, &long, "flac"));
+        let b = store.path_for(&reference(3, &format!("{long}?b"), "flac"));
+        assert!(a.file_name().unwrap().len() < 128);
+        assert_ne!(a, b);
     }
 
     #[test]

@@ -67,6 +67,9 @@ pub enum LibraryEvent {
     RemoteSyncStarted {
         key: String,
     },
+    RemoteMoved {
+        config: crate::servers::RemoteConfig,
+    },
     RemoteSyncFinished {
         key: String,
         outcome: Result<music_library::RemoteSyncReport, crate::servers::RemoteError>,
@@ -1025,6 +1028,9 @@ impl LibraryService {
             }
         }
         drop(claim);
+        if let Some(config) = outcome.moved {
+            let _ = event_tx.send(LibraryEvent::RemoteMoved { config });
+        }
         let _ = event_tx.send(LibraryEvent::RemoteSyncFinished {
             key,
             outcome: outcome.result,

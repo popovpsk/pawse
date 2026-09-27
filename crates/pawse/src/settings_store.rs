@@ -351,6 +351,26 @@ impl JellyfinServer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DlnaServer {
+    pub udn: String,
+    pub location: String,
+    pub name: String,
+}
+
+impl DlnaServer {
+    pub fn source_uri(&self) -> String {
+        self.udn.trim().to_ascii_lowercase()
+    }
+
+    pub fn config(&self) -> dlna::Config {
+        dlna::Config {
+            udn: self.udn.clone(),
+            location: self.location.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TorrentSource {
     pub info_hash: String,
     pub name: String,
@@ -476,6 +496,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub jellyfin_servers: Vec<JellyfinServer>,
     #[serde(default)]
+    pub dlna_servers: Vec<DlnaServer>,
+    #[serde(default)]
     pub torrent_sources: Vec<TorrentSource>,
     #[serde(default)]
     pub torrent_upload: TorrentUpload,
@@ -538,6 +560,7 @@ impl Default for UserSettings {
             scrobble: ScrobbleSettings::default(),
             subsonic_servers: Vec::new(),
             jellyfin_servers: Vec::new(),
+            dlna_servers: Vec::new(),
             torrent_sources: Vec::new(),
             torrent_upload: TorrentUpload::default(),
             legacy_lastfm_enabled: None,
@@ -836,6 +859,54 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn dlna_servers(&self) -> &[DlnaServer] {
+        &self.settings.dlna_servers
+    }
+
+    pub fn add_dlna_server(&mut self, server: DlnaServer) -> anyhow::Result<()> {
+        let uri = server.source_uri();
+        self.settings
+            .dlna_servers
+            .retain(|existing| existing.source_uri() != uri);
+        self.settings.dlna_servers.push(server);
+        self.save()
+    }
+
+    pub fn update_server(&mut self, config: &crate::servers::RemoteConfig) -> anyhow::Result<bool> {
+        match config {
+            crate::servers::RemoteConfig::Dlna(config) => {
+                let Some(server) = self
+                    .settings
+                    .dlna_servers
+                    .iter_mut()
+                    .find(|server| server.udn.eq_ignore_ascii_case(&config.udn))
+                else {
+                    return Ok(false);
+                };
+                if server.location == config.location {
+                    return Ok(false);
+                }
+                server.location = config.location.clone();
+                self.save()?;
+                Ok(true)
+            }
+            crate::servers::RemoteConfig::Subsonic(_)
+            | crate::servers::RemoteConfig::Jellyfin(_)
+            | crate::servers::RemoteConfig::Torrent(_) => Ok(false),
+        }
+    }
+
+    pub fn remove_dlna_server(&mut self, uri: &str) -> anyhow::Result<()> {
+        let before = self.settings.dlna_servers.len();
+        self.settings
+            .dlna_servers
+            .retain(|server| server.source_uri() != uri);
+        if self.settings.dlna_servers.len() == before {
+            return Ok(());
+        }
+        self.save()
+    }
+
     pub fn torrent_sources(&self) -> &[TorrentSource] {
         &self.settings.torrent_sources
     }
@@ -876,6 +947,7 @@ impl SettingsStore {
         match kind {
             crate::servers::ServerKind::Subsonic => self.remove_subsonic_server(uri),
             crate::servers::ServerKind::Jellyfin => self.remove_jellyfin_server(uri),
+            crate::servers::ServerKind::Dlna => self.remove_dlna_server(uri),
             crate::servers::ServerKind::Torrent => self.remove_torrent_source(uri),
         }
     }
@@ -1300,9 +1372,11 @@ mod tests {
     use std::path::Path;
 
     fn tmp_settings_path() -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "pawse-settings-test-{}-{}",
+            "pawse-settings-test-{}-{}-{}",
             std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             // monotonically-ish unique per test invocation
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1329,6 +1403,37 @@ mod tests {
         assert_eq!(store.theme(), ThemeChoice::System);
         assert!(store.music_folders().is_empty());
 
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_moved_dlna_server_is_saved_under_its_udn_and_others_are_untouched() {
+        let path = tmp_settings_path();
+        let mut store = SettingsStore::load_from(path.clone());
+        store
+            .add_dlna_server(DlnaServer {
+                udn: "uuid:ABC".into(),
+                location: "http://10.0.0.5:8200/rootDesc.xml".into(),
+                name: "NAS".into(),
+            })
+            .unwrap();
+        let moved = crate::servers::RemoteConfig::Dlna(dlna::Config {
+            udn: "uuid:abc".into(),
+            location: "http://10.0.0.9:8200/rootDesc.xml".into(),
+        });
+        assert!(store.update_server(&moved).unwrap());
+        assert!(!store.update_server(&moved).unwrap());
+        let other = crate::servers::RemoteConfig::Dlna(dlna::Config {
+            udn: "uuid:other".into(),
+            location: "http://x/".into(),
+        });
+        assert!(!store.update_server(&other).unwrap());
+        let reloaded = SettingsStore::load_from(path.clone());
+        assert_eq!(
+            reloaded.dlna_servers()[0].location,
+            "http://10.0.0.9:8200/rootDesc.xml"
+        );
+        assert_eq!(reloaded.dlna_servers().len(), 1);
         cleanup(&path);
     }
 
@@ -1512,6 +1617,7 @@ mod tests {
             scrobble: ScrobbleSettings::default(),
             subsonic_servers: Vec::new(),
             jellyfin_servers: Vec::new(),
+            dlna_servers: Vec::new(),
             torrent_sources: Vec::new(),
             torrent_upload: TorrentUpload::default(),
             legacy_lastfm_enabled: None,

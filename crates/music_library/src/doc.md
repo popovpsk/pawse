@@ -345,8 +345,8 @@ between two scan batches can neither reuse a dead id nor take one the scan is
 about to hand back. Genres are not covered:
 nothing outside the database holds their ids.
 
-Artists are keyed by the lowercased name (`artist_key`): `Cage the Elephant`
-and `Cage The Elephant`, or `MUSE` and `Muse`, are one artist, shown under the
+Artists are keyed by the lowercased name (`artist_key`): `Glass the Harbor`
+and `Glass The Harbor`, or `NOVA` and `Nova`, are one artist, shown under the
 name met first. Tags differ in case across sources and rips far more often than
 two real artists do. Lowercasing is Rust's (Unicode), not SQLite's `NOCASE`
 (ASCII only), so the tag editor's `get_or_insert_artist` compares in Rust too.

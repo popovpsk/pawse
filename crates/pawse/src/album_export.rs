@@ -626,8 +626,8 @@ mod tests {
     fn meta() -> AlbumMeta {
         AlbumMeta {
             id: 1,
-            title: "Absolution".into(),
-            artist: "Muse".into(),
+            title: "Low Tide".into(),
+            artist: "Nova".into(),
             year: Some(2003),
             genre: Some("Rock".into()),
             cover_art_id: None,
@@ -652,19 +652,19 @@ mod tests {
         let a = remote::locator(3, "a", "flac");
         let b = remote::locator(3, "b", "mp3");
         let tracks = vec![
-            track(1, &a, "Apocalypse Please", Some(1)),
+            track(1, &a, "First Light", Some(1)),
             track(2, "/music/local.flac", "Local", Some(2)),
-            track(3, &b, "Time Is Running Out", Some(3)),
+            track(3, &b, "Third Wave", Some(3)),
         ];
         let sizes = HashMap::from([(PathBuf::from(&a), 10), (PathBuf::from(&b), 20)]);
         let plan = build_plan(&meta(), &tracks, &HashMap::new(), &sizes);
-        assert_eq!(plan.dir, PathBuf::from("Muse/2003 - Absolution"));
+        assert_eq!(plan.dir, PathBuf::from("Nova/2003 - Low Tide"));
         let targets: Vec<PathBuf> = plan.entries.iter().map(|e| e.target.clone()).collect();
         assert_eq!(
             targets,
             vec![
-                PathBuf::from("Muse/2003 - Absolution/01 - Apocalypse Please.flac"),
-                PathBuf::from("Muse/2003 - Absolution/03 - Time Is Running Out.mp3"),
+                PathBuf::from("Nova/2003 - Low Tide/01 - First Light.flac"),
+                PathBuf::from("Nova/2003 - Low Tide/03 - Third Wave.mp3"),
             ]
         );
         assert_eq!(plan.total(), 30);
@@ -706,7 +706,7 @@ mod tests {
         second.start_offset_ms = 4 * 60_000 + 33 * 1000 + 8 * 1000 / 75;
         let mut first = track(10, &image, "Intro", Some(1));
         first.is_cue = true;
-        let artists = HashMap::from([(11, vec!["Muse".to_string()])]);
+        let artists = HashMap::from([(11, vec!["Nova".to_string()])]);
         let plan = build_plan(
             &meta(),
             &[second, first],
@@ -717,15 +717,15 @@ mod tests {
         let entry = &plan.entries[0];
         assert_eq!(
             entry.target,
-            PathBuf::from("Muse/2003 - Absolution/Muse - Absolution.flac")
+            PathBuf::from("Nova/2003 - Low Tide/Nova - Low Tide.flac")
         );
-        let text = cue_text(entry.cue.as_ref().unwrap(), "Muse - Absolution.flac");
+        let text = cue_text(entry.cue.as_ref().unwrap(), "Nova - Low Tide.flac");
         assert_eq!(
             text,
-            "REM GENRE \"Rock\"\nREM DATE 2003\nPERFORMER \"Muse\"\nTITLE \"Absolution\"\n\
-             FILE \"Muse - Absolution.flac\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"Intro\"\n\
+            "REM GENRE \"Rock\"\nREM DATE 2003\nPERFORMER \"Nova\"\nTITLE \"Low Tide\"\n\
+             FILE \"Nova - Low Tide.flac\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"Intro\"\n\
              \x20   INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE \"Yes Please\"\n\
-             \x20   PERFORMER \"Muse\"\n    INDEX 01 04:33:08\n"
+             \x20   PERFORMER \"Nova\"\n    INDEX 01 04:33:08\n"
         );
     }
 
