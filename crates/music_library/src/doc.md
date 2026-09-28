@@ -369,9 +369,17 @@ Albums still merge on the exact title.
 - **Likes have one source of truth.** The hidden playlist (its id in
   `scan_meta.liked_playlist_id`). `Track.liked` is computed through the
   `liked_track_ids` view in `TRACK_COLUMNS`; there is no `liked` column.
-- **Lyrics precedence is unchanged:** a disk lyric found by a scan overwrites a
-  fetched one (`ON CONFLICT DO UPDATE` in `insert_track`); `clear()` removes
-  disk lyrics so a deleted `.lrc` disappears; fetched lyrics survive.
+- **Lyrics keep one row per source** (`PRIMARY KEY (track_id, source)`, migration
+  10): a `.lrc` sidecar, the embedded tag and an LRCLIB result live side by side, so
+  a scan never overwrites fetched words and the user can switch between them.
+  `clear()` removes the disk rows (`lrc` / `embedded`) so a deleted `.lrc`
+  disappears; fetched rows (and LRCLIB `not_found` markers) survive.
+  `lyrics_variants` returns every row; which one is shown is decided outside SQL by
+  `lyrics_source::choices` / `pick`: default order `lrc > embedded > lrclib`, or
+  `lrclib > lrc > embedded` when the user prefers LRCLIB; rows whose text equals a
+  higher-ranked one are dropped, so an exported `.lrc` hides the LRCLIB copy it came
+  from. Migration 10 drops and recreates `media_items_guard_user_data`, because
+  `ALTER TABLE … RENAME` refuses while a trigger names the dropped `lyrics`.
 
 ## Unavailable tracks
 

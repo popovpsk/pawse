@@ -367,7 +367,7 @@ const ABSORB_ITEM: [&str; 9] = [
     "UPDATE track_genres SET track_id = ?1 WHERE track_id = ?2",
     "INSERT INTO lyrics (track_id, source, text, not_found, updated_at) \
         SELECT ?1, source, text, not_found, updated_at FROM lyrics WHERE track_id = ?2 \
-        ON CONFLICT(track_id) DO UPDATE SET source = excluded.source, text = excluded.text, \
+        ON CONFLICT(track_id, source) DO UPDATE SET text = excluded.text, \
         not_found = excluded.not_found, updated_at = excluded.updated_at",
     "DELETE FROM lyrics WHERE track_id = ?2",
     "UPDATE media_bindings SET item_id = ?1 WHERE item_id = ?2",
@@ -2277,37 +2277,39 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
-    fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>> {
+    fn lyrics_variants(&self, track_id: i64) -> Result<Vec<StoredLyrics>> {
         let conn = self.conn.lock().unwrap();
-        let row = conn
-            .query_row(
-                "SELECT source, text, not_found FROM lyrics WHERE track_id = ?1",
-                [track_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, Vec<u8>>(1)?,
-                        row.get::<_, i64>(2)? != 0,
-                    ))
-                },
-            )
-            .optional()
+        let mut stmt =
+            conn.prepare_cached("SELECT source, text, not_found FROM lyrics WHERE track_id = ?1")?;
+        let rows = stmt
+            .query_map([track_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, i64>(2)? != 0,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)?;
-        let Some((source, blob, not_found)) = row else {
-            return Ok(None);
-        };
-        if not_found {
-            return Ok(Some(StoredLyrics {
-                source,
-                text: String::new(),
-                not_found: true,
-            }));
-        }
-        Ok(decompress_lyrics(&blob).map(|text| StoredLyrics {
-            source,
-            text,
-            not_found: false,
-        }))
+        let mut variants: Vec<StoredLyrics> = rows
+            .into_iter()
+            .filter_map(|(source, blob, not_found)| {
+                if not_found {
+                    return Some(StoredLyrics {
+                        source,
+                        text: String::new(),
+                        not_found: true,
+                    });
+                }
+                decompress_lyrics(&blob).map(|text| StoredLyrics {
+                    source,
+                    text,
+                    not_found: false,
+                })
+            })
+            .collect();
+        variants.sort_by_key(|v| crate::lyrics_source::rank(&v.source, false));
+        Ok(variants)
     }
 
     fn upsert_lyrics(
@@ -2321,8 +2323,7 @@ impl LibraryRepository for SqliteLibrary {
         conn.execute(
             "INSERT INTO lyrics (track_id, source, text, not_found, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5) \
-             ON CONFLICT(track_id) DO UPDATE SET \
-                source = excluded.source, \
+             ON CONFLICT(track_id, source) DO UPDATE SET \
                 text = excluded.text, \
                 not_found = excluded.not_found, \
                 updated_at = excluded.updated_at",
@@ -3216,7 +3217,7 @@ impl ScanSession {
                             .map(|offset| (offset > 0).then_some(offset as u64))?,
                         bitrate: row.get(14)?,
                         is_cue: row.get(17)?,
-                        lyrics: None,
+                        lyrics: Vec::new(),
                         file_size: None,
                     },
                 ))
@@ -3495,11 +3496,11 @@ impl ScanSession {
             )?;
         }
 
-        if let Some(lyrics) = &track.lyrics {
+        for lyrics in &track.lyrics {
             self.conn.execute(
                 "INSERT INTO lyrics (track_id, source, text, not_found, updated_at) \
                  VALUES (?1, ?2, ?3, 0, ?4) \
-                 ON CONFLICT(track_id) DO UPDATE SET source = excluded.source, \
+                 ON CONFLICT(track_id, source) DO UPDATE SET \
                  text = excluded.text, not_found = 0, updated_at = excluded.updated_at",
                 rusqlite::params![
                     track_id,
@@ -3739,7 +3740,7 @@ mod tests {
     }
 
     #[test]
-    fn test_upsert_lyrics_insert_then_update_single_row() {
+    fn test_upsert_lyrics_keeps_one_row_per_source() {
         let lib = open_test_lib();
         let track_id = lib
             .upsert_track(
@@ -3752,22 +3753,27 @@ mod tests {
                 &[],
             )
             .unwrap();
+        let find = |source: &str| {
+            lib.lyrics_variants(track_id)
+                .unwrap()
+                .into_iter()
+                .find(|v| v.source == source)
+                .unwrap()
+        };
 
         lib.upsert_lyrics(track_id, "plain words", "embedded", false)
             .unwrap();
-        let first = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        let first = find("embedded");
         assert!(!first.not_found);
-        assert_eq!(first.source, "embedded");
         assert_eq!(first.text, "plain words");
 
         lib.upsert_lyrics(track_id, "[00:00.00] synced now", "lrclib", false)
             .unwrap();
-        let second = lib.lyrics_for_track(track_id).unwrap().unwrap();
-        assert_eq!(second.source, "lrclib");
-        assert_eq!(second.text, "[00:00.00] synced now");
+        assert_eq!(find("lrclib").text, "[00:00.00] synced now");
+        assert_eq!(find("embedded").text, "plain words");
 
         lib.upsert_lyrics(track_id, "", "lrclib", true).unwrap();
-        let third = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        let third = find("lrclib");
         assert!(third.not_found);
         assert_eq!(third.text, "");
 
@@ -3780,6 +3786,6 @@ mod tests {
             )
             .unwrap()
         };
-        assert_eq!(count, 1);
+        assert_eq!(count, 2);
     }
 }

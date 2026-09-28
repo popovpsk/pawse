@@ -10,11 +10,15 @@ use gpui::{
     px,
 };
 use gpui_component::{tooltip::Tooltip, v_flex};
+use music_library::{StoredLyrics, lyrics_source};
 
 use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
 use crate::lyrics_fill::{self, FillPlan, LineShape};
-use crate::panel_header::{panel_header, panel_header_actions, panel_header_button};
+use crate::panel_header::{
+    panel_header, panel_header_actions, panel_header_button, panel_header_segment,
+    panel_header_segments,
+};
 use crate::playback_status::{Phase, StatusChanged};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -35,25 +39,41 @@ struct TrackContext {
     duration_secs: Option<u64>,
 }
 
-enum LoadOutcome {
-    Lyrics {
-        text: String,
-        source: String,
-        is_cue: bool,
-    },
-    NotFound {
-        is_cue: bool,
-    },
-    Absent {
-        is_cue: bool,
-    },
+struct LoadOutcome {
+    variants: Vec<StoredLyrics>,
+    is_cue: bool,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lrclib {
+    Unknown,
+    NotFound,
+    Found,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SourceSegment {
+    source: &'static str,
+    available: bool,
+}
+
+const SEGMENT_ORDER: [&str; 3] = [
+    lyrics_source::LRC,
+    lyrics_source::EMBEDDED,
+    lyrics_source::LRCLIB,
+];
 
 pub struct LyricsView {
     current_track_id: Option<i64>,
     rows: Vec<lyrics_fill::LyricRow>,
     synced: bool,
     source: String,
+    variants: Vec<StoredLyrics>,
+    lrclib: Lrclib,
+    choice: Option<&'static str>,
+    segments: Vec<SourceSegment>,
+    prefer_lrclib: bool,
+    online: bool,
     track_duration_ms: Option<u64>,
     active_ix: Option<usize>,
     hovered_ix: Option<usize>,
@@ -82,9 +102,11 @@ pub struct LyricsView {
     _scroll_task: Option<Task<()>>,
     _frame_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
+    _fetch_task: Option<Task<()>>,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
+    _settings_subscription: Subscription,
 }
 
 impl LyricsView {
@@ -152,11 +174,23 @@ impl LyricsView {
                 }
             });
 
+        let settings_subscription =
+            cx.observe_global::<SettingsStore>(|this, cx| this.settings_changed(cx));
+        let settings = cx.global::<SettingsStore>();
+        let prefer_lrclib = settings.lyrics_prefer_lrclib();
+        let online = settings.lyrics_from_internet();
+
         let mut result = Self {
             current_track_id: None,
             rows: Vec::new(),
             synced: false,
             source: String::new(),
+            variants: Vec::new(),
+            lrclib: Lrclib::Unknown,
+            choice: None,
+            segments: Vec::new(),
+            prefer_lrclib,
+            online,
             track_duration_ms: None,
             active_ix: None,
             hovered_ix: None,
@@ -185,9 +219,11 @@ impl LyricsView {
             _scroll_task: None,
             _frame_task: None,
             _load_task: None,
+            _fetch_task: None,
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
+            _settings_subscription: settings_subscription,
         };
         result.load(cx);
         result
@@ -203,6 +239,23 @@ impl LyricsView {
         }
         if visible && self.rows.is_empty() && !self.fetching && !self.loading && !self.not_found {
             self.load(cx);
+        } else if visible {
+            self.maybe_fetch(cx);
+        }
+    }
+
+    fn settings_changed(&mut self, cx: &mut Context<Self>) {
+        let settings = cx.global::<SettingsStore>();
+        let prefer_lrclib = settings.lyrics_prefer_lrclib();
+        let online = settings.lyrics_from_internet();
+        if prefer_lrclib == self.prefer_lrclib && online == self.online {
+            return;
+        }
+        self.prefer_lrclib = prefer_lrclib;
+        self.online = online;
+        if self.current_track_id.is_some() && !self.loading {
+            self.show_best(cx);
+            self.maybe_fetch(cx);
         }
     }
 
@@ -237,79 +290,114 @@ impl LyricsView {
         if self.rows.is_empty() && !self.fetching {
             self.loading = true;
         }
-        let want_fetch = self.visible && cx.global::<SettingsStore>().lyrics_from_internet();
-        self.spawn_load(ctx, want_fetch, cx);
+        self.spawn_load(ctx, cx);
         cx.notify();
     }
 
-    fn spawn_load(&mut self, ctx: TrackContext, want_fetch: bool, cx: &mut Context<Self>) {
+    fn spawn_load(&mut self, ctx: TrackContext, cx: &mut Context<Self>) {
         let access = self.access.clone();
         self._load_task = Some(cx.spawn(async move |this, cx| {
-            let bg = ctx.clone();
-            let outcome = cx
-                .background_spawn(async move {
-                    let is_cue = bg.is_cue;
-                    match access.stored(bg.id) {
-                        Some(s) if s.not_found => LoadOutcome::NotFound { is_cue },
-                        Some(s) => LoadOutcome::Lyrics {
-                            text: s.text,
-                            source: s.source,
-                            is_cue,
-                        },
-                        None => LoadOutcome::Absent { is_cue },
-                    }
-                })
+            let id = ctx.id;
+            let is_cue = ctx.is_cue;
+            let variants = cx
+                .background_spawn(async move { access.variants(id) })
                 .await;
             this.update(cx, |this, cx| {
-                this.apply_load_outcome(ctx, want_fetch, outcome, cx)
+                this.apply_load_outcome(id, LoadOutcome { variants, is_cue }, cx)
             })
             .ok();
         }));
     }
 
-    fn apply_load_outcome(
-        &mut self,
-        ctx: TrackContext,
-        want_fetch: bool,
-        outcome: LoadOutcome,
-        cx: &mut Context<Self>,
-    ) {
-        if self.current_track_id != Some(ctx.id) {
+    fn apply_load_outcome(&mut self, track_id: i64, outcome: LoadOutcome, cx: &mut Context<Self>) {
+        if self.current_track_id != Some(track_id) {
             return;
         }
         self.loading = false;
-        match outcome {
-            LoadOutcome::Lyrics {
-                text,
-                source,
-                is_cue,
-            } => {
-                self.is_cue = is_cue;
-                self.apply_text(&text, &source, cx);
-            }
-            LoadOutcome::NotFound { is_cue } => {
-                self.is_cue = is_cue;
-                self.set_not_found(cx);
-            }
-            LoadOutcome::Absent { is_cue } => {
-                self.is_cue = is_cue;
-                if want_fetch {
-                    self.kick_fetch(ctx, cx);
-                } else {
-                    self.set_empty(cx);
-                }
-            }
+        self.is_cue = outcome.is_cue;
+        self.set_variants(outcome.variants);
+        self.show_best(cx);
+        self.maybe_fetch(cx);
+    }
+
+    fn set_variants(&mut self, variants: Vec<StoredLyrics>) {
+        self.lrclib = match variants.iter().find(|v| v.source == lyrics_source::LRCLIB) {
+            Some(v) if v.not_found => Lrclib::NotFound,
+            Some(_) => Lrclib::Found,
+            None => Lrclib::Unknown,
+        };
+        self.variants = variants;
+        if self.choice.is_some_and(|choice| {
+            choice == lyrics_source::LRCLIB && self.lrclib == Lrclib::NotFound
+        }) {
+            self.choice = None;
+        }
+    }
+
+    fn show_best(&mut self, cx: &mut Context<Self>) {
+        let choices = lyrics_source::choices(&self.variants, self.prefer_lrclib);
+        let can_search = self.online && self.lrclib == Lrclib::Unknown;
+        self.segments = SEGMENT_ORDER
+            .iter()
+            .filter_map(|&source| {
+                let available = choices.iter().any(|v| v.source == source);
+                let searchable = source == lyrics_source::LRCLIB && can_search;
+                (available || searchable).then_some(SourceSegment { source, available })
+            })
+            .collect();
+        let picked = lyrics_source::pick(&self.variants, self.prefer_lrclib, self.choice)
+            .map(|v| (v.text.clone(), v.source.clone()));
+        match picked {
+            Some((text, source)) => self.apply_text(&text, &source, cx),
+            None if self.lrclib == Lrclib::NotFound && !self.fetching => self.set_not_found(cx),
+            None => self.set_empty(cx),
+        }
+    }
+
+    fn maybe_fetch(&mut self, cx: &mut Context<Self>) {
+        if !self.visible || !self.online || self.fetching || self.loading {
+            return;
+        }
+        if self.lrclib != Lrclib::Unknown {
+            return;
+        }
+        let has_local = !lyrics_source::choices(&self.variants, self.prefer_lrclib).is_empty();
+        if has_local && !self.prefer_lrclib {
+            return;
+        }
+        if let Some(ctx) = Self::current_context(cx)
+            && self.current_track_id == Some(ctx.id)
+        {
+            self.kick_fetch(ctx, cx);
+        }
+    }
+
+    fn select_source(&mut self, source: &'static str, cx: &mut Context<Self>) {
+        let Some(segment) = self.segments.iter().find(|s| s.source == source).copied() else {
+            return;
+        };
+        self.choice = Some(source);
+        if segment.available {
+            self.show_best(cx);
+            return;
+        }
+        if self.fetching {
+            return;
+        }
+        if let Some(ctx) = Self::current_context(cx)
+            && self.current_track_id == Some(ctx.id)
+        {
+            self.kick_fetch(ctx, cx);
         }
     }
 
     fn kick_fetch(&mut self, ctx: TrackContext, cx: &mut Context<Self>) {
         self.fetching = true;
-        self.not_found = false;
         cx.notify();
         let access = self.access.clone();
-        self._load_task = Some(cx.spawn(async move |this, cx| {
+        self._fetch_task = Some(cx.spawn(async move |this, cx| {
             let id = ctx.id;
-            let emitted = cx
+            let refreshed = cx
                 .background_spawn(async move {
                     let artist = access.first_artist(id).unwrap_or_default();
                     let album = ctx.album_id.and_then(|aid| access.album_title(aid));
@@ -319,11 +407,9 @@ impl LyricsView {
                         album,
                         duration_secs: ctx.duration_secs,
                     };
-                    match lyrics::fetch(&query) {
+                    let written = match lyrics::fetch(&query) {
                         Ok(Some(remote)) => match pick_remote(remote) {
-                            Some(raw) => {
-                                access.save(id, &raw, music_library::lyrics_source::LRCLIB)
-                            }
+                            Some(raw) => access.save(id, &raw, lyrics_source::LRCLIB),
                             None => access.mark_not_found(id),
                         },
                         Ok(None) => access.mark_not_found(id),
@@ -331,14 +417,24 @@ impl LyricsView {
                             log::warn!("lyrics fetch failed for track {}: {}", id, e);
                             false
                         }
-                    }
+                    };
+                    written.then(|| access.variants(id))
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.current_track_id == Some(id) && !emitted && this.fetching {
-                    this.fetching = false;
-                    cx.notify();
+                if this.current_track_id != Some(id) {
+                    return;
                 }
+                this.fetching = false;
+                match refreshed {
+                    Some(variants) => this.set_variants(variants),
+                    None => {
+                        if this.choice == Some(lyrics_source::LRCLIB) {
+                            this.choice = None;
+                        }
+                    }
+                }
+                this.show_best(cx);
             })
             .ok();
         }));
@@ -352,9 +448,11 @@ impl LyricsView {
         self.rows = rows;
         self.source = source.to_string();
         self.current_raw = Some(raw.to_string());
-        self.can_export =
-            !self.rows.is_empty() && source == music_library::lyrics_source::LRCLIB && !self.is_cue;
-        self.fetching = false;
+        let has_sidecar = self.variants.iter().any(|v| v.source == lyrics_source::LRC);
+        self.can_export = !self.rows.is_empty()
+            && source == lyrics_source::LRCLIB
+            && !self.is_cue
+            && !has_sidecar;
         self.loading = false;
         self.not_found = false;
         if rows_changed {
@@ -386,12 +484,16 @@ impl LyricsView {
         self.clear_content();
         self.not_found = false;
         self.fetching = false;
+        self._fetch_task = None;
+        self.variants.clear();
+        self.lrclib = Lrclib::Unknown;
+        self.choice = None;
+        self.segments.clear();
     }
 
     fn set_empty(&mut self, cx: &mut Context<Self>) {
         self.clear_content();
         self.not_found = false;
-        self.fetching = false;
         self.loading = false;
         cx.notify();
     }
@@ -399,7 +501,6 @@ impl LyricsView {
     fn set_not_found(&mut self, cx: &mut Context<Self>) {
         self.clear_content();
         self.not_found = true;
-        self.fetching = false;
         self.loading = false;
         cx.notify();
     }
@@ -694,7 +795,44 @@ impl Render for LyricsView {
         let hovered_ix = self.hovered_ix;
         let show_sync = synced && active_ix.is_some() && !self.autoscroll;
 
+        let segments = (self.segments.len() > 1).then(|| {
+            let shown = self.source.as_str();
+            let fetching = self.fetching;
+            panel_header_segments(cx).children(self.segments.iter().enumerate().map(
+                |(ix, segment)| {
+                    let source = segment.source;
+                    let (icon, tooltip) = match source {
+                        lyrics_source::LRC => {
+                            ("icons/lyrics-lrc.svg", tr().lyrics_source_lrc.clone())
+                        }
+                        lyrics_source::EMBEDDED => {
+                            ("icons/lyrics-tag.svg", tr().lyrics_source_tags.clone())
+                        }
+                        _ if fetching => (
+                            "icons/loader-circle.svg",
+                            tr().lyrics_searching_lrclib.clone(),
+                        ),
+                        _ if segment.available => {
+                            ("icons/lyrics-web.svg", tr().lyrics_source_lrclib.clone())
+                        }
+                        _ => ("icons/lyrics-web.svg", tr().lyrics_search_lrclib.clone()),
+                    };
+                    let spinning = fetching && source == lyrics_source::LRCLIB;
+                    panel_header_segment(
+                        ("lyrics_source", ix),
+                        icon,
+                        tooltip,
+                        segment.available && source == shown,
+                        spinning,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_source(source, cx)))
+                },
+            ))
+        });
+
         let actions = panel_header_actions()
+            .children(segments)
             .when(show_sync, |d| {
                 d.child(
                     panel_header_button(
@@ -719,7 +857,7 @@ impl Render for LyricsView {
             });
         let header = panel_header(tr().lyrics.clone(), actions, cx);
 
-        let body = if self.fetching {
+        let body = if self.fetching && self.rows.is_empty() {
             centered_message(tr().lyrics_fetching.clone(), muted_foreground).into_any_element()
         } else if self.loading {
             div().flex_1().into_any_element()

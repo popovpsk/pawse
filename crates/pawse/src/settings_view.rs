@@ -577,6 +577,31 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
 
     group = group.item(
         SettingItem::new(
+            tr().lyrics_prefer_lrclib.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let settings = cx.global::<SettingsStore>();
+                let enabled = settings.lyrics_prefer_lrclib_setting();
+                let online = settings.lyrics_from_internet();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("lyrics-prefer-lrclib-toggle")
+                        .checked(enabled && online)
+                        .disabled(!online)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_lyrics_prefer_lrclib(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(tr().lyrics_prefer_lrclib_desc.clone()),
+    );
+
+    group = group.item(
+        SettingItem::new(
             tr().remote_control.clone(),
             SettingField::render(|_window, cx: &mut App| {
                 let enabled = cx.global::<SettingsStore>().remote_enabled();

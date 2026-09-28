@@ -78,6 +78,43 @@ mod tests {
             VALUES (10, 1, 0), (11, 1, 0), (12, 1, 0);
     ";
 
+    fn lyric(lib: &SqliteLibrary, track_id: i64, source: &str) -> Option<StoredLyrics> {
+        lib.lyrics_variants(track_id)
+            .unwrap()
+            .into_iter()
+            .find(|v| v.source == source)
+    }
+
+    #[test]
+    fn migration_to_v10_keys_lyrics_by_source_and_keeps_the_guard() {
+        let path = fresh_db_path();
+        build_v8_db(
+            &path,
+            &format!(
+                "{V8_CATALOG}
+                INSERT INTO lyrics (track_id, source, text, not_found, updated_at)
+                    VALUES (10, 'lrclib', x'00', 0, 1);"
+            ),
+        );
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+
+        lib.upsert_lyrics(10, "from tag", "embedded", false)
+            .unwrap();
+        let sources: Vec<String> = lib
+            .lyrics_variants(10)
+            .unwrap()
+            .into_iter()
+            .map(|v| v.source)
+            .collect();
+        assert_eq!(sources, vec!["embedded".to_string(), "lrclib".to_string()]);
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("DELETE FROM tracks WHERE id = 10")
+            .unwrap();
+        let guarded = conn.execute("DELETE FROM media_items WHERE id = 10", []);
+        assert!(guarded.is_err());
+    }
+
     fn user_version(path: &PathBuf) -> i64 {
         count_rows(path, "SELECT user_version FROM pragma_user_version")
     }
@@ -1777,9 +1814,8 @@ mod tests {
 
         scan(&lib, vec![scan_track("/m/fetched.flac", "Fetched")]);
 
-        let kept = lib.lyrics_for_track(track_id).unwrap().unwrap();
+        let kept = lyric(&lib, track_id, "lrclib").unwrap();
         assert_eq!(kept.text, "la la la");
-        assert_eq!(kept.source, "lrclib");
     }
 
     #[test]
@@ -1797,32 +1833,114 @@ mod tests {
 
         lib.clear().unwrap();
 
-        assert!(lib.lyrics_for_track(lrc).unwrap().is_none());
-        assert!(lib.lyrics_for_track(embedded).unwrap().is_none());
+        assert!(lib.lyrics_variants(lrc).unwrap().is_empty());
+        assert!(lib.lyrics_variants(embedded).unwrap().is_empty());
+        assert_eq!(lyric(&lib, fetched, "lrclib").unwrap().text, "from net");
+    }
+
+    #[test]
+    fn disk_and_fetched_lyrics_live_side_by_side_across_rescans() {
+        let (lib, _path) = create_test_db();
+        scan(&lib, vec![scan_track("/m/song.flac", "Song")]);
+        let track_id = id_of(&lib, "/m/song.flac");
+        lib.upsert_lyrics(track_id, "fetched", "lrclib", false)
+            .unwrap();
+
+        let mut with_both = scan_track("/m/song.flac", "Song");
+        with_both.lyrics = vec![
+            ScanLyrics {
+                text: "from sidecar".into(),
+                source: "lrc".into(),
+            },
+            ScanLyrics {
+                text: "from tag".into(),
+                source: "embedded".into(),
+            },
+        ];
+        scan(&lib, vec![with_both]);
+
+        let texts: Vec<(String, String)> = lib
+            .lyrics_variants(track_id)
+            .unwrap()
+            .into_iter()
+            .map(|v| (v.source, v.text))
+            .collect();
         assert_eq!(
-            lib.lyrics_for_track(fetched).unwrap().unwrap().text,
-            "from net"
+            texts,
+            vec![
+                ("lrc".to_string(), "from sidecar".to_string()),
+                ("embedded".to_string(), "from tag".to_string()),
+                ("lrclib".to_string(), "fetched".to_string()),
+            ]
+        );
+
+        scan(&lib, vec![scan_track("/m/song.flac", "Song")]);
+        let left: Vec<String> = lib
+            .lyrics_variants(track_id)
+            .unwrap()
+            .into_iter()
+            .map(|v| v.source)
+            .collect();
+        assert_eq!(left, vec!["lrclib".to_string()]);
+    }
+
+    fn stored(source: &str, text: &str, not_found: bool) -> StoredLyrics {
+        StoredLyrics {
+            source: source.into(),
+            text: text.into(),
+            not_found,
+        }
+    }
+
+    #[test]
+    fn lyrics_pick_follows_priority_and_choice() {
+        let variants = vec![
+            stored("lrclib", "net", false),
+            stored("embedded", "tag", false),
+            stored("lrc", "file", false),
+        ];
+        for (prefer_lrclib, chosen, expected) in [
+            (false, None, "lrc"),
+            (true, None, "lrclib"),
+            (false, Some("embedded"), "embedded"),
+            (false, Some("nope"), "lrc"),
+        ] {
+            assert_eq!(
+                lyrics_source::pick(&variants, prefer_lrclib, chosen)
+                    .unwrap()
+                    .source,
+                expected,
+                "prefer_lrclib={prefer_lrclib} chosen={chosen:?}"
+            );
+        }
+        let without_sidecar = &variants[..2];
+        assert_eq!(
+            lyrics_source::pick(without_sidecar, false, None)
+                .unwrap()
+                .source,
+            "embedded"
         );
     }
 
     #[test]
-    fn fresh_disk_lyrics_win_over_fetched_ones() {
-        let (lib, _path) = create_test_db();
-        scan(&lib, vec![scan_track("/m/song.flac", "Song")]);
-        let track_id = id_of(&lib, "/m/song.flac");
-        lib.upsert_lyrics(track_id, "stale fetched", "lrclib", false)
-            .unwrap();
+    fn lyrics_choices_skip_not_found_and_duplicate_text() {
+        let variants = vec![
+            stored("lrclib", "same words\n", false),
+            stored("embedded", "junk", false),
+            stored("lrc", "same words", false),
+        ];
+        let sources: Vec<&str> = lyrics_source::choices(&variants, false)
+            .iter()
+            .map(|v| v.source.as_str())
+            .collect();
+        assert_eq!(sources, vec!["lrc", "embedded"]);
 
-        let mut with_sidecar = scan_track("/m/song.flac", "Song");
-        with_sidecar.lyrics = Some(ScanLyrics {
-            text: "fresh from disk".into(),
-            source: "lrc".into(),
-        });
-        scan(&lib, vec![with_sidecar]);
-
-        let kept = lib.lyrics_for_track(track_id).unwrap().unwrap();
-        assert_eq!(kept.text, "fresh from disk");
-        assert_eq!(kept.source, "lrc");
+        let only_miss = vec![stored("lrclib", "", true), stored("embedded", "tag", false)];
+        let sources: Vec<&str> = lyrics_source::choices(&only_miss, true)
+            .iter()
+            .map(|v| v.source.as_str())
+            .collect();
+        assert_eq!(sources, vec!["embedded"]);
     }
 
     #[test]
@@ -2072,10 +2190,10 @@ mod tests {
         let playlist_id = lib.create_playlist("Mix").unwrap();
         lib.add_track_to_playlist(playlist_id, original).unwrap();
         let mut copy = scan_track("/music/copy/a.flac", "A");
-        copy.lyrics = Some(ScanLyrics {
+        copy.lyrics = vec![ScanLyrics {
             text: "from disk".into(),
             source: "lrc".into(),
-        });
+        }];
         scan(&lib, vec![scan_track("/music/a.flac", "A"), copy.clone()]);
         let copy_id = id_of(&lib, "/music/copy/a.flac");
         assert_ne!(copy_id, original);
@@ -2091,10 +2209,7 @@ mod tests {
             lib.track_artists(original).unwrap(),
             vec!["Artist".to_string()]
         );
-        assert_eq!(
-            lib.lyrics_for_track(original).unwrap().unwrap().text,
-            "from disk"
-        );
+        assert_eq!(lyric(&lib, original, "lrc").unwrap().text, "from disk");
         assert_eq!(
             count_rows(
                 &path,
@@ -2188,9 +2303,8 @@ mod tests {
         );
 
         assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
-        let lyrics = lib.lyrics_for_track(original).unwrap().unwrap();
+        let lyrics = lyric(&lib, original, "lrclib").unwrap();
         assert_eq!(lyrics.text, "from the net");
-        assert_eq!(lyrics.source, "lrclib");
     }
 
     #[test]
@@ -3419,7 +3533,7 @@ mod tests {
                 cover_hash: Some(hash.clone()),
                 start_offset_ms: None,
                 bitrate: None,
-                lyrics: None,
+                lyrics: Vec::new(),
                 file_size: None,
             })
             .unwrap();
@@ -3564,7 +3678,7 @@ mod tests {
                 cover_hash: Some(hash),
                 start_offset_ms: None,
                 bitrate: None,
-                lyrics: None,
+                lyrics: Vec::new(),
                 file_size: None,
             })
             .unwrap();
@@ -3598,7 +3712,7 @@ mod tests {
                     cover_hash: None,
                     start_offset_ms: None,
                     bitrate: None,
-                    lyrics: None,
+                    lyrics: Vec::new(),
                     file_size: None,
                 })
                 .unwrap();
@@ -3631,10 +3745,10 @@ mod tests {
                 cover_hash: None,
                 start_offset_ms: None,
                 bitrate: None,
-                lyrics: Some(ScanLyrics {
+                lyrics: vec![ScanLyrics {
                     text: "[00:01.00] hello\n[00:02.00] world".into(),
                     source: "lrclib".into(),
-                }),
+                }],
                 file_size: None,
             })
             .unwrap();
@@ -3642,9 +3756,8 @@ mod tests {
 
         let tracks = lib.all_tracks().unwrap();
         assert_eq!(tracks.len(), 1);
-        let stored = lib.lyrics_for_track(tracks[0].id).unwrap().unwrap();
+        let stored = lyric(&lib, tracks[0].id, "lrclib").unwrap();
         assert!(!stored.not_found);
-        assert_eq!(stored.source, "lrclib");
         assert_eq!(stored.text, "[00:01.00] hello\n[00:02.00] world");
     }
 
@@ -3669,20 +3782,20 @@ mod tests {
                 cover_hash: None,
                 start_offset_ms: None,
                 bitrate: None,
-                lyrics: Some(ScanLyrics {
+                lyrics: vec![ScanLyrics {
                     text: "to be wiped".into(),
                     source: "embedded".into(),
-                }),
+                }],
                 file_size: None,
             })
             .unwrap();
         session.finish().unwrap();
 
         let track_id = lib.all_tracks().unwrap()[0].id;
-        assert!(lib.lyrics_for_track(track_id).unwrap().is_some());
+        assert!(lyric(&lib, track_id, "embedded").is_some());
 
         lib.clear().unwrap();
-        assert!(lib.lyrics_for_track(track_id).unwrap().is_none());
+        assert!(lib.lyrics_variants(track_id).unwrap().is_empty());
     }
 
     #[test]
@@ -3914,7 +4027,7 @@ mod tests {
                 cover_hash: Some("cover-hash".into()),
                 start_offset_ms: Some(5000),
                 bitrate: None,
-                lyrics: None,
+                lyrics: Vec::new(),
                 file_size: None,
             })
             .unwrap();

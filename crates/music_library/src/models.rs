@@ -199,6 +199,54 @@ pub mod lyrics_source {
     pub fn is_disk_derived(source: &str) -> bool {
         matches!(source, LRC | EMBEDDED)
     }
+
+    pub fn order(prefer_lrclib: bool) -> [&'static str; 3] {
+        if prefer_lrclib {
+            [LRCLIB, LRC, EMBEDDED]
+        } else {
+            [LRC, EMBEDDED, LRCLIB]
+        }
+    }
+
+    pub fn rank(source: &str, prefer_lrclib: bool) -> usize {
+        order(prefer_lrclib)
+            .iter()
+            .position(|known| *known == source)
+            .unwrap_or(usize::MAX)
+    }
+
+    pub fn choices(
+        variants: &[super::StoredLyrics],
+        prefer_lrclib: bool,
+    ) -> Vec<&super::StoredLyrics> {
+        let mut usable: Vec<&super::StoredLyrics> = variants
+            .iter()
+            .filter(|v| !v.not_found && !v.text.trim().is_empty())
+            .collect();
+        usable.sort_by_key(|v| rank(&v.source, prefer_lrclib));
+        let mut distinct: Vec<&super::StoredLyrics> = Vec::with_capacity(usable.len());
+        for variant in usable {
+            if !distinct
+                .iter()
+                .any(|kept| kept.text.trim() == variant.text.trim())
+            {
+                distinct.push(variant);
+            }
+        }
+        distinct
+    }
+
+    pub fn pick<'a>(
+        variants: &'a [super::StoredLyrics],
+        prefer_lrclib: bool,
+        chosen: Option<&str>,
+    ) -> Option<&'a super::StoredLyrics> {
+        let choices = choices(variants, prefer_lrclib);
+        chosen
+            .and_then(|source| choices.iter().find(|v| v.source == source))
+            .or_else(|| choices.first())
+            .copied()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -235,7 +283,7 @@ pub struct ScanTrack {
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
     pub is_cue: bool,
-    pub lyrics: Option<ScanLyrics>,
+    pub lyrics: Vec<ScanLyrics>,
     pub file_size: Option<u64>,
 }
 

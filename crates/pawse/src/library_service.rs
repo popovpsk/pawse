@@ -399,12 +399,12 @@ fn group_artist_albums(
 }
 
 impl LyricsAccess {
-    pub fn stored(&self, track_id: i64) -> Option<music_library::StoredLyrics> {
-        match self.repo.lyrics_for_track(track_id) {
-            Ok(stored) => stored,
+    pub fn variants(&self, track_id: i64) -> Vec<music_library::StoredLyrics> {
+        match self.repo.lyrics_variants(track_id) {
+            Ok(variants) => variants,
             Err(e) => {
                 log::error!("Failed to read lyrics for track {}: {}", track_id, e);
-                None
+                Vec::new()
             }
         }
     }
@@ -1793,10 +1793,14 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         start_offset_ms: track.start_offset_ms,
         bitrate: track.bitrate,
         is_cue: track.is_cue,
-        lyrics: track.lyrics.map(|l| music_library::ScanLyrics {
-            text: l.text,
-            source: l.source.as_str().to_string(),
-        }),
+        lyrics: track
+            .lyrics
+            .into_iter()
+            .map(|l| music_library::ScanLyrics {
+                text: l.text,
+                source: l.source.as_str().to_string(),
+            })
+            .collect(),
     }
 }
 
@@ -1973,7 +1977,7 @@ mod tests {
                     start_offset_ms: Some(0),
                     bitrate: None,
                     is_cue: true,
-                    lyrics: None,
+                    lyrics: Vec::new(),
                     file_size: None,
                 })
                 .unwrap();
@@ -2936,7 +2940,7 @@ mod tests {
             start_offset_ms: None,
             bitrate: None,
             is_cue: true,
-            lyrics: None,
+            lyrics: Vec::new(),
         };
 
         let scanned = to_scan_track(prepared);

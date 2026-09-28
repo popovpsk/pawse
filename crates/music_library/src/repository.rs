@@ -121,7 +121,7 @@ pub trait LibraryRepository: Send + Sync {
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>>;
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>>;
 
-    fn lyrics_for_track(&self, track_id: i64) -> Result<Option<StoredLyrics>>;
+    fn lyrics_variants(&self, track_id: i64) -> Result<Vec<StoredLyrics>>;
     fn upsert_lyrics(&self, track_id: i64, text: &str, source: &str, not_found: bool)
     -> Result<()>;
 

@@ -291,22 +291,21 @@ pub(crate) fn read_sidecar_lrc(audio_path: &Path) -> Option<String> {
     }
 }
 
-fn read_lyrics(audio_path: &Path, embedded: Option<String>) -> Option<IndexedLyrics> {
+fn read_lyrics(audio_path: &Path, embedded: Option<String>) -> Vec<IndexedLyrics> {
+    let mut found = Vec::new();
     if let Some(text) = read_sidecar_lrc(audio_path) {
-        return Some(IndexedLyrics {
+        found.push(IndexedLyrics {
             text,
             source: LyricsSource::Lrc,
         });
     }
-
-    let text = embedded?;
-    if text.trim().is_empty() {
-        return None;
+    if let Some(text) = embedded.filter(|text| !text.trim().is_empty()) {
+        found.push(IndexedLyrics {
+            text,
+            source: LyricsSource::Embedded,
+        });
     }
-    Some(IndexedLyrics {
-        text,
-        source: LyricsSource::Embedded,
-    })
+    found
 }
 
 pub(crate) fn embedded_cover(tag: &Tag) -> Option<Vec<u8>> {
@@ -696,9 +695,10 @@ mod tests {
         std::fs::write(&track, b"").unwrap();
         std::fs::write(tmp.path.join("track.lrc"), "[00:01.00]a\n[00:02.00]b").unwrap();
 
-        let parsed = super::read_lyrics(&track, None).unwrap();
-        assert_eq!(parsed.source, LyricsSource::Lrc);
-        assert_eq!(parsed.text, "[00:01.00]a\n[00:02.00]b");
+        let parsed = super::read_lyrics(&track, None);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].source, LyricsSource::Lrc);
+        assert_eq!(parsed[0].text, "[00:01.00]a\n[00:02.00]b");
     }
 
     #[test]
@@ -708,21 +708,25 @@ mod tests {
         std::fs::write(&track, b"").unwrap();
         std::fs::write(tmp.path.join("track.lrc"), "first line\nsecond line").unwrap();
 
-        let parsed = super::read_lyrics(&track, None).unwrap();
-        assert_eq!(parsed.source, LyricsSource::Lrc);
-        assert_eq!(parsed.text, "first line\nsecond line");
+        let parsed = super::read_lyrics(&track, None);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].source, LyricsSource::Lrc);
+        assert_eq!(parsed[0].text, "first line\nsecond line");
     }
 
     #[test]
-    fn sidecar_lrc_takes_priority_over_embedded() {
+    fn sidecar_lrc_and_embedded_are_both_kept() {
         let tmp = TempDir::new();
         let track = tmp.path.join("track.flac");
         std::fs::write(&track, b"").unwrap();
         std::fs::write(tmp.path.join("track.lrc"), "[00:01.00]from sidecar").unwrap();
 
-        let parsed = super::read_lyrics(&track, Some("from embedded tag".to_string())).unwrap();
-        assert_eq!(parsed.source, LyricsSource::Lrc);
-        assert_eq!(parsed.text, "[00:01.00]from sidecar");
+        let parsed = super::read_lyrics(&track, Some("from embedded tag".to_string()));
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].source, LyricsSource::Lrc);
+        assert_eq!(parsed[0].text, "[00:01.00]from sidecar");
+        assert_eq!(parsed[1].source, LyricsSource::Embedded);
+        assert_eq!(parsed[1].text, "from embedded tag");
     }
 
     #[test]
@@ -731,9 +735,10 @@ mod tests {
         let track = tmp.path.join("track.flac");
         std::fs::write(&track, b"").unwrap();
 
-        let parsed = super::read_lyrics(&track, Some("plain embedded".to_string())).unwrap();
-        assert_eq!(parsed.source, LyricsSource::Embedded);
-        assert_eq!(parsed.text, "plain embedded");
+        let parsed = super::read_lyrics(&track, Some("plain embedded".to_string()));
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].source, LyricsSource::Embedded);
+        assert_eq!(parsed[0].text, "plain embedded");
     }
 
     #[test]
@@ -742,8 +747,8 @@ mod tests {
         let track = tmp.path.join("track.flac");
         std::fs::write(&track, b"").unwrap();
 
-        assert!(super::read_lyrics(&track, None).is_none());
-        assert!(super::read_lyrics(&track, Some("   ".to_string())).is_none());
+        assert!(super::read_lyrics(&track, None).is_empty());
+        assert!(super::read_lyrics(&track, Some("   ".to_string())).is_empty());
     }
 
     #[test]

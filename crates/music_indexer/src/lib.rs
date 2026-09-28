@@ -1576,7 +1576,7 @@ FILE \"disc2.flac\" WAVE
             .collect();
 
         assert_eq!(tracks.len(), 1);
-        let lyrics = tracks[0].lyrics.as_ref().expect("sidecar lyrics present");
+        let lyrics = tracks[0].lyrics.first().expect("sidecar lyrics present");
         assert_eq!(lyrics.source, LyricsSource::Lrc);
         assert_eq!(lyrics.text, "[00:01.00]first\n[00:02.50]second");
     }
@@ -1597,7 +1597,7 @@ FILE \"disc2.flac\" WAVE
             })
             .collect();
 
-        let lyrics = tracks[0].lyrics.as_ref().expect("sidecar lyrics present");
+        let lyrics = tracks[0].lyrics.first().expect("sidecar lyrics present");
         assert_eq!(lyrics.source, LyricsSource::Lrc);
         assert_eq!(lyrics.text, "just a plain\nlyric sheet");
     }
@@ -1616,7 +1616,7 @@ FILE \"disc2.flac\" WAVE
             })
             .collect();
 
-        assert!(tracks[0].lyrics.is_none());
+        assert!(tracks[0].lyrics.is_empty());
     }
 
     #[test]

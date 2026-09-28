@@ -1,6 +1,10 @@
+use std::time::Duration;
+
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    App, Div, FontWeight, InteractiveElement, ParentElement, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, div, px, rems, svg,
+    Animation, AnimationExt, App, Div, ElementId, FontWeight, InteractiveElement, ParentElement,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Transformation, div, percentage,
+    px, rems, svg,
 };
 use gpui_component::{h_flex, tooltip::Tooltip};
 
@@ -56,4 +60,60 @@ pub fn panel_header_button(
                 .size(rems(ICON_SIZE / 16.))
                 .text_color(Colors::muted_foreground(cx)),
         )
+}
+
+pub fn panel_header_segments(cx: &App) -> Div {
+    h_flex()
+        .flex_shrink_0()
+        .items_center()
+        .mr_1()
+        .rounded_full()
+        .border_1()
+        .border_color(Colors::border(cx))
+}
+
+pub fn panel_header_segment(
+    id: impl Into<ElementId>,
+    icon: &'static str,
+    tooltip: SharedString,
+    selected: bool,
+    spinning: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    let hover_bg = Colors::muted(cx);
+    let icon_color = if selected {
+        Colors::foreground(cx)
+    } else {
+        Colors::muted_foreground(cx)
+    };
+    let icon = svg()
+        .path(icon)
+        .size(rems(ICON_SIZE / 16.))
+        .text_color(icon_color);
+    let id = id.into();
+    div()
+        .id(id.clone())
+        .flex_shrink_0()
+        .size(rems(BUTTON_SIZE / 16.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .cursor_pointer()
+        .when(selected, |d| d.bg(hover_bg))
+        .hover(move |s| s.bg(hover_bg))
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .map(|d| {
+            if spinning {
+                d.child(icon.with_animation(
+                    id,
+                    Animation::new(Duration::from_secs(1)).repeat(),
+                    |icon, delta| {
+                        icon.with_transformation(Transformation::rotate(percentage(delta)))
+                    },
+                ))
+            } else {
+                d.child(icon)
+            }
+        })
 }

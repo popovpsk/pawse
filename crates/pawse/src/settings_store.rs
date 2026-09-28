@@ -486,6 +486,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub lyrics_from_internet: bool,
     #[serde(default)]
+    pub lyrics_prefer_lrclib: bool,
+    #[serde(default)]
     pub remote_enabled: bool,
     #[serde(default = "default_remote_port")]
     pub remote_port: u16,
@@ -555,6 +557,7 @@ impl Default for UserSettings {
             artists_grouping: music_library::ArtistGrouping::default(),
             auto_update: true,
             lyrics_from_internet: true,
+            lyrics_prefer_lrclib: false,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
             scrobble: ScrobbleSettings::default(),
@@ -1003,6 +1006,19 @@ impl SettingsStore {
 
     pub fn set_lyrics_from_internet(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.lyrics_from_internet = enabled;
+        self.save()
+    }
+
+    pub fn lyrics_prefer_lrclib(&self) -> bool {
+        self.settings.lyrics_from_internet && self.settings.lyrics_prefer_lrclib
+    }
+
+    pub fn lyrics_prefer_lrclib_setting(&self) -> bool {
+        self.settings.lyrics_prefer_lrclib
+    }
+
+    pub fn set_lyrics_prefer_lrclib(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_prefer_lrclib = enabled;
         self.save()
     }
 
@@ -1612,6 +1628,7 @@ mod tests {
             artists_grouping: music_library::ArtistGrouping::TrackArtist,
             auto_update: true,
             lyrics_from_internet: true,
+            lyrics_prefer_lrclib: false,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
             scrobble: ScrobbleSettings::default(),

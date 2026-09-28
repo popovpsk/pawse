@@ -19,8 +19,9 @@ own *parsing rules*. Either can change without touching the other.
   bytes replaced by a content *hash*), `SourceSet` (walk result + fingerprint),
   the `ScanEvent` enum, and `IndexedLyrics`/`LyricsSource` (a track's words plus
   whether they are timestamped and where they came from — `lrc` sidecar or
-  `embedded` tag). Both `ScannedTrack` and `PreparedTrack` carry an
-  `Option<IndexedLyrics>` that rides straight through `into_prepared`.
+  `embedded` tag). Both `ScannedTrack` and `PreparedTrack` carry a
+  `Vec<IndexedLyrics>` (at most one per source) that rides straight through
+  `into_prepared`.
 - `pipeline.rs` — the only place with threading. `collect_sources` (cheap
   stat-only walk + fingerprint) and `run` (cue-dedup + worker pool → events).
   Contains the `AUDIO_EXTENSIONS`/`CUE_EXTENSIONS` (both public, so other
@@ -121,13 +122,19 @@ own *parsing rules*. Either can change without touching the other.
   workers; peers reference the hash and let the writer resolve the id. Hashes
   already in the DB (`known_hashes`) skip thumbnail generation entirely.
 
-- **Lyrics: sidecar wins, CUE gets none.** `read_lyrics` prefers a `.lrc` sidecar
-  (same stem as the audio, same dir — `read_sidecar_lrc`, UTF-8 with a lossy
-  fallback) over the embedded `ItemKey::Lyrics` tag (USLT / `©lyr`); empty/
-  whitespace-only text yields no lyrics. The raw text is stored as-is (timed vs.
-  plain is re-derived at display time by `lyrics::parse_lrc`). CUE tracks always get
-  `lyrics: None` — they share one whole-album audio file, so its embedded text would
-  be the wrong words for every track.
+- **Lyrics: every disk source, CUE gets none.** `read_lyrics` returns both the
+  `.lrc` sidecar (same stem as the audio, same dir — `read_sidecar_lrc`, UTF-8 with
+  a lossy fallback) and the embedded `ItemKey::Lyrics` tag (USLT / `©lyr`), sidecar
+  first; empty/whitespace-only text is dropped. Which one is shown is not decided
+  here: the library keeps one row per source and the lyrics panel picks by
+  priority (`music_library::lyrics_source::pick`) and lets the user switch —
+  embedded text is often junk. The raw text is stored as-is (timed vs. plain is
+  re-derived at display time by `lyrics::parse_lrc`). CUE tracks always get no
+  lyrics — they share one whole-album audio file, so its embedded text would be the
+  wrong words for every track. Emitting both sources did not bump
+  `INDEXER_FORMAT_VERSION` (by decision, to spare a full reindex): a track that has
+  both a sidecar and a tag gains the second row the next time its folder is
+  rescanned for real.
 
 - **Graceful degradation.** A failed file (bad tags, unreadable cue) emits a
   `ScanEvent::Error` and the scan continues. Every `tx.send` is checked: a dropped

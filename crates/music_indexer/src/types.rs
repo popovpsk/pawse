@@ -63,7 +63,7 @@ pub struct ScannedTrack {
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
     pub is_cue: bool,
-    pub lyrics: Option<IndexedLyrics>,
+    pub lyrics: Vec<IndexedLyrics>,
 }
 
 impl ScannedTrack {
@@ -107,7 +107,7 @@ pub struct PreparedTrack {
     pub start_offset_ms: Option<u64>,
     pub bitrate: Option<u32>,
     pub is_cue: bool,
-    pub lyrics: Option<IndexedLyrics>,
+    pub lyrics: Vec<IndexedLyrics>,
 }
 
 /// The filesystem state to index, captured cheaply by [`collect_sources`](crate::collect_sources).

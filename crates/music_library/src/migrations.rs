@@ -436,4 +436,35 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_remote_tracks_cover_hash ON remote_tracks(cover_hash);
         "#,
     ),
+    (
+        10,
+        r#"
+        DROP TRIGGER media_items_guard_user_data;
+
+        CREATE TABLE lyrics_new (
+            track_id   INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+            source     TEXT    NOT NULL,
+            text       BLOB    NOT NULL,
+            not_found  INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (track_id, source)
+        );
+        INSERT INTO lyrics_new (track_id, source, text, not_found, updated_at)
+        SELECT track_id, source, text, not_found, updated_at FROM lyrics;
+        DROP TABLE lyrics;
+        ALTER TABLE lyrics_new RENAME TO lyrics;
+
+        CREATE TRIGGER media_items_guard_user_data BEFORE DELETE ON media_items
+        WHEN EXISTS (SELECT 1 FROM playlist_tracks WHERE track_id = OLD.id)
+          OR EXISTS (
+              SELECT 1 FROM lyrics
+              WHERE track_id = OLD.id AND source NOT IN ('lrc', 'embedded')
+          )
+          OR EXISTS (SELECT 1 FROM plays WHERE track_id = OLD.id)
+          OR EXISTS (SELECT 1 FROM loves WHERE track_id = OLD.id)
+        BEGIN
+            SELECT RAISE(ABORT, 'media item is referenced by user data');
+        END;
+        "#,
+    ),
 ];

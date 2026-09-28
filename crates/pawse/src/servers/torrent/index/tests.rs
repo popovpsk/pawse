@@ -218,7 +218,7 @@ fn a_track_becomes_a_song_keyed_by_its_file_with_cue_offsets() {
         start_offset_ms: offset,
         bitrate: Some(900),
         is_cue: cue,
-        lyrics: None,
+        lyrics: Vec::new(),
     };
     let whole = song(track(false, None), &file);
     assert_eq!(whole.key, "7");
