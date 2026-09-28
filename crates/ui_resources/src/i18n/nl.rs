@@ -227,6 +227,9 @@ pub static NL: Strings = lang! {
     onboarding_folder_prompt: "Voeg een map met je muziek toe",
     onboarding_servers_hint: "Netwerkbronnen zoals Subsonic en Jellyfin kun je later toevoegen of wijzigen in Instellingen → Bibliotheek.",
     onboarding_finish: "Beginnen met luisteren",
+    pipewire_alsa_missing_title: "PipeWire ALSA-plug-in ontbreekt",
+    pipewire_alsa_missing_body: "Pawse speelt audio af via de ALSA-plug-in van PipeWire, en die is op dit systeem niet ingesteld. Installeer hem met het commando voor je distributie en start Pawse opnieuw.",
+    copy: "Kopiëren",
 
     quit_pawse: "Pawse afsluiten",
     rescan_library: "Bibliotheek opnieuw scannen...",

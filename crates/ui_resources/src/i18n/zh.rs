@@ -227,6 +227,9 @@ pub static ZH: Strings = lang! {
     onboarding_folder_prompt: "添加一个音乐文件夹",
     onboarding_servers_hint: "之后可以在 设置 → 音乐库 中添加或更改 Subsonic、Jellyfin 等网络来源。",
     onboarding_finish: "开始聆听",
+    pipewire_alsa_missing_title: "缺少 PipeWire 的 ALSA 插件",
+    pipewire_alsa_missing_body: "Pawse 通过 PipeWire 的 ALSA 插件播放音频，但此系统尚未配置该插件。请使用适合你发行版的命令安装，然后重新启动 Pawse。",
+    copy: "复制",
 
     quit_pawse: "退出 Pawse",
     rescan_library: "重新扫描音乐库...",

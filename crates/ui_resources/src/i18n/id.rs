@@ -227,6 +227,9 @@ pub static ID: Strings = lang! {
     onboarding_folder_prompt: "Tambahkan folder berisi musikmu",
     onboarding_servers_hint: "Kamu bisa menambah atau mengubah sumber jaringan seperti Subsonic dan Jellyfin nanti di Pengaturan → Pustaka.",
     onboarding_finish: "Mulai mendengarkan",
+    pipewire_alsa_missing_title: "Plugin ALSA PipeWire tidak ditemukan",
+    pipewire_alsa_missing_body: "Pawse memutar audio melalui plugin ALSA PipeWire, dan plugin itu belum dipasang di sistem ini. Pasang dengan perintah untuk distribusi Anda, lalu jalankan Pawse lagi.",
+    copy: "Salin",
 
     quit_pawse: "Keluar dari Pawse",
     rescan_library: "Pindai ulang pustaka...",

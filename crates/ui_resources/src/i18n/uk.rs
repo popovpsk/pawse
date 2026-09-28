@@ -227,6 +227,9 @@ pub static UK: Strings = lang! {
     onboarding_folder_prompt: "Додайте папку з музикою",
     onboarding_servers_hint: "Мережеві джерела, як-от Subsonic і Jellyfin, можна додати або змінити пізніше в Налаштування → Медіатека.",
     onboarding_finish: "Почати слухати",
+    pipewire_alsa_missing_title: "Не знайдено ALSA-плагін PipeWire",
+    pipewire_alsa_missing_body: "Pawse виводить звук через ALSA-плагін PipeWire, а в цій системі його не встановлено. Встановіть його командою для вашого дистрибутива й запустіть Pawse знову.",
+    copy: "Копіювати",
 
     quit_pawse: "Вийти з Pawse",
     rescan_library: "Пересканувати медіатеку...",

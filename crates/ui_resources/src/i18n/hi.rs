@@ -227,6 +227,9 @@ pub static HI: Strings = lang! {
     onboarding_folder_prompt: "अपने संगीत वाला फ़ोल्डर जोड़ें",
     onboarding_servers_hint: "Subsonic और Jellyfin जैसे नेटवर्क स्रोत आप बाद में सेटिंग्स → लाइब्रेरी में जोड़ या बदल सकते हैं।",
     onboarding_finish: "सुनना शुरू करें",
+    pipewire_alsa_missing_title: "PipeWire का ALSA प्लगइन नहीं मिला",
+    pipewire_alsa_missing_body: "Pawse ऑडियो PipeWire के ALSA प्लगइन के ज़रिए चलाता है, और यह इस सिस्टम पर सेट नहीं है। अपने डिस्ट्रीब्यूशन के कमांड से इसे इंस्टॉल करें, फिर Pawse दोबारा शुरू करें।",
+    copy: "कॉपी करें",
 
     quit_pawse: "Pawse से बाहर निकलें",
     rescan_library: "लाइब्रेरी फिर से स्कैन करें...",

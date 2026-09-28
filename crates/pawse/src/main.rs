@@ -39,6 +39,7 @@ pub mod now_playing;
 pub mod onboarding_view;
 pub mod panel_header;
 pub mod pickers;
+pub mod pipewire_alsa_gate;
 pub mod play_button;
 pub mod playback_opener;
 pub mod playback_queue;
@@ -119,7 +120,7 @@ fn restore_engine_state(cx: &mut App) {
     }
 }
 
-fn build_window_options(cx: &mut App) -> WindowOptions {
+pub(crate) fn build_window_options(cx: &mut App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(900.0), px(600.0)), cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -235,6 +236,20 @@ fn main() {
                 crate::settings_store::apply_named_theme(&name, cx);
             }
         });
+
+        if crate::pipewire_alsa_gate::should_block_startup() {
+            cx.on_window_closed(|cx, _| {
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
+            cx.activate(true);
+            crate::pipewire_alsa_gate::open(cx);
+            #[cfg(not(target_os = "macos"))]
+            single_instance::install(cx, single_instance);
+            return;
+        }
 
         let services = Services::initialize(cx);
 

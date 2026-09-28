@@ -227,6 +227,9 @@ pub static VI: Strings = lang! {
     onboarding_folder_prompt: "Thêm thư mục chứa nhạc của bạn",
     onboarding_servers_hint: "Bạn có thể thêm hoặc thay đổi nguồn mạng như Subsonic và Jellyfin sau trong Cài đặt → Thư viện.",
     onboarding_finish: "Bắt đầu nghe",
+    pipewire_alsa_missing_title: "Thiếu plugin ALSA của PipeWire",
+    pipewire_alsa_missing_body: "Pawse phát âm thanh qua plugin ALSA của PipeWire, nhưng hệ thống này chưa cài plugin đó. Hãy cài bằng lệnh cho bản phân phối của bạn rồi mở lại Pawse.",
+    copy: "Sao chép",
 
     quit_pawse: "Thoát Pawse",
     rescan_library: "Quét lại thư viện...",

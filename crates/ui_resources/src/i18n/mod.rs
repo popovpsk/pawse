@@ -282,6 +282,9 @@ pub struct Strings {
     pub onboarding_folder_prompt: SharedString,
     pub onboarding_servers_hint: SharedString,
     pub onboarding_finish: SharedString,
+    pub pipewire_alsa_missing_title: SharedString,
+    pub pipewire_alsa_missing_body: SharedString,
+    pub copy: SharedString,
 
     // --- App menu ---
     pub quit_pawse: SharedString,

@@ -227,6 +227,9 @@ pub static DE: Strings = lang! {
     onboarding_folder_prompt: "Füge einen Ordner mit deiner Musik hinzu",
     onboarding_servers_hint: "Netzwerkquellen wie Subsonic und Jellyfin kannst du später unter Einstellungen → Bibliothek hinzufügen oder ändern.",
     onboarding_finish: "Hören beginnen",
+    pipewire_alsa_missing_title: "PipeWire-ALSA-Plugin fehlt",
+    pipewire_alsa_missing_body: "Pawse gibt Audio über das ALSA-Plugin von PipeWire aus, das auf diesem System nicht eingerichtet ist. Installiere es mit dem Befehl für deine Distribution und starte Pawse dann neu.",
+    copy: "Kopieren",
 
     quit_pawse: "Pawse beenden",
     rescan_library: "Bibliothek neu scannen...",

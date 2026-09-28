@@ -227,6 +227,9 @@ pub static JA: Strings = lang! {
     onboarding_folder_prompt: "音楽フォルダを追加",
     onboarding_servers_hint: "Subsonic や Jellyfin などのネットワークソースは、あとで 設定 → ライブラリ から追加・変更できます。",
     onboarding_finish: "再生を始める",
+    pipewire_alsa_missing_title: "PipeWire の ALSA プラグインがありません",
+    pipewire_alsa_missing_body: "Pawse は PipeWire の ALSA プラグイン経由で音声を再生しますが、このシステムには設定されていません。お使いのディストリビューション用のコマンドでインストールしてから、Pawse を再起動してください。",
+    copy: "コピー",
 
     quit_pawse: "Pawse を終了",
     rescan_library: "ライブラリを再スキャン...",

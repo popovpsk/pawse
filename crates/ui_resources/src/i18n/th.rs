@@ -227,6 +227,9 @@ pub static TH: Strings = lang! {
     onboarding_folder_prompt: "เพิ่มโฟลเดอร์เพลงของคุณ",
     onboarding_servers_hint: "คุณสามารถเพิ่มหรือเปลี่ยนแหล่งเพลงบนเครือข่าย เช่น Subsonic และ Jellyfin ได้ภายหลังใน การตั้งค่า → คลัง",
     onboarding_finish: "เริ่มฟัง",
+    pipewire_alsa_missing_title: "ไม่พบปลั๊กอิน ALSA ของ PipeWire",
+    pipewire_alsa_missing_body: "Pawse เล่นเสียงผ่านปลั๊กอิน ALSA ของ PipeWire แต่ระบบนี้ยังไม่ได้ติดตั้ง ติดตั้งด้วยคำสั่งสำหรับดิสทริบิวชันของคุณ แล้วเปิด Pawse ใหม่",
+    copy: "คัดลอก",
 
     quit_pawse: "ออกจาก Pawse",
     rescan_library: "สแกนคลังใหม่...",

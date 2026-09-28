@@ -8,6 +8,7 @@ pub mod thread_priority;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioError, AudioSamples, Metadata};
@@ -57,14 +58,66 @@ pub fn native_mode_available() -> bool {
     *AVAILABLE.get_or_init(|| {
         #[cfg(target_os = "linux")]
         {
-            std::env::var_os("XDG_RUNTIME_DIR")
-                .is_some_and(|dir| std::path::Path::new(&dir).join("pipewire-0").exists())
+            pipewire_running() && alsa_server_plugins().pipewire
         }
 
         #[cfg(not(target_os = "linux"))]
         {
             true
         }
+    })
+}
+
+pub fn pipewire_alsa_missing() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let plugins = alsa_server_plugins();
+        pipewire_running() && !plugins.pipewire && !plugins.pulse
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pipewire_running() -> bool {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .is_some_and(|dir| std::path::Path::new(&dir).join("pipewire-0").exists())
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+struct AlsaServerPlugins {
+    pipewire: bool,
+    pulse: bool,
+}
+
+#[cfg(target_os = "linux")]
+fn alsa_server_plugins() -> AlsaServerPlugins {
+    static PLUGINS: std::sync::OnceLock<AlsaServerPlugins> = std::sync::OnceLock::new();
+
+    *PLUGINS.get_or_init(|| {
+        let mut plugins = AlsaServerPlugins {
+            pipewire: false,
+            pulse: false,
+        };
+        if let Ok(hints) = alsa::device_name::HintIter::new_str(None, "pcm") {
+            for hint in hints {
+                match hint.name.as_deref() {
+                    Some("pipewire") => plugins.pipewire = true,
+                    Some("pulse") => plugins.pulse = true,
+                    _ => {}
+                }
+            }
+        }
+        if !plugins.pipewire {
+            log::warn!(
+                "audio output: ALSA has no 'pipewire' PCM (pipewire-alsa not installed?); device selection and native sample rate won't work"
+            );
+        }
+        plugins
     })
 }
 
@@ -84,12 +137,35 @@ pub struct Output {
     app_volume: AtomicF32,
     follow_default: AtomicBool,
     default_watch: Option<default_watch::DefaultDeviceWatcher>,
+    play_intent: AtomicBool,
+    last_reopen: Mutex<Option<Instant>>,
+    transition: Mutex<()>,
+}
+
+struct StreamSwap<'a> {
+    output: &'a Output,
+    _lock: parking_lot::MutexGuard<'a, ()>,
+}
+
+impl Drop for StreamSwap<'_> {
+    fn drop(&mut self) {
+        self.output.sync_play_state();
+    }
+}
+
+enum SelectionOpen {
+    Installed,
+    ResolveFailed,
+    OpenFailed,
 }
 
 fn calc_buffer_size(cfg: &OutputConfig) -> usize {
     const BUFFER_DURATION_MS: u32 = 128;
     cfg.channels as usize * (cfg.sample_rate as usize * BUFFER_DURATION_MS as usize / 1000)
 }
+
+const REOPEN_INTERVAL: Duration = Duration::from_secs(2);
+const NO_DEVICE_BACKOFF: Duration = Duration::from_millis(20);
 
 const DEFAULT_CONFIG: OutputConfig = OutputConfig {
     sample_rate: 44100,
@@ -131,6 +207,16 @@ impl Output {
             app_volume: AtomicF32::new(1.0),
             follow_default: AtomicBool::new(true),
             default_watch: default_watch::DefaultDeviceWatcher::start(),
+            play_intent: AtomicBool::new(false),
+            last_reopen: Mutex::new(None),
+            transition: Mutex::new(()),
+        }
+    }
+
+    fn begin_swap(&self) -> StreamSwap<'_> {
+        StreamSwap {
+            output: self,
+            _lock: self.transition.lock(),
         }
     }
 
@@ -148,6 +234,7 @@ impl Output {
     }
 
     pub fn follow_system_default(&self) {
+        let _swap = self.begin_swap();
         let was_pinned = self.device_manager.read().selected_uid().is_some();
         self.device_manager.write().select_default();
         if was_pinned && matches!(*self.current.read(), Some(OutputMode::Shared(_))) {
@@ -184,6 +271,7 @@ impl Output {
     }
 
     fn recreate_stream(&self, metadata: Metadata) {
+        let _swap = self.begin_swap();
         let was_playing = self.is_playing();
         let new_config = OutputConfig {
             sample_rate: metadata.sample_rate,
@@ -308,9 +396,25 @@ impl Output {
     /// On failure of the selected device, retries on system default; only
     /// returns false if even that doesn't work.
     fn install_shared_fallback(&self, config: &OutputConfig, resume_after: bool) -> bool {
-        let device = match self.device_manager.write().resolve_device() {
-            Ok(d) => d,
-            Err(_) => return self.try_install_shared_on_default(config, resume_after),
+        match self.install_shared_on_selection(config, resume_after) {
+            SelectionOpen::Installed => true,
+            SelectionOpen::ResolveFailed => {
+                self.try_install_shared_on_default(config, resume_after)
+            }
+            SelectionOpen::OpenFailed => {
+                self.device_manager.write().select_default();
+                self.try_install_shared_on_default(config, resume_after)
+            }
+        }
+    }
+
+    fn install_shared_on_selection(
+        &self,
+        config: &OutputConfig,
+        resume_after: bool,
+    ) -> SelectionOpen {
+        let Ok(device) = self.device_manager.write().resolve_device() else {
+            return SelectionOpen::ResolveFailed;
         };
         let selected = SelectedOutputDevice {
             host: self.host.clone(),
@@ -324,12 +428,9 @@ impl Output {
                 }
                 *self.current.write() = Some(OutputMode::Shared(stream));
                 self.apply_current_volume();
-                true
+                SelectionOpen::Installed
             }
-            Err(_) => {
-                self.device_manager.write().select_default();
-                self.try_install_shared_on_default(config, resume_after)
-            }
+            Err(_) => SelectionOpen::OpenFailed,
         }
     }
 
@@ -363,6 +464,7 @@ impl Output {
     }
 
     pub fn set_exclusive(&self, exclusive: bool) -> Result<(), AudioError> {
+        let _swap = self.begin_swap();
         let was_playing = self.is_playing();
         let config = self.current_config();
 
@@ -532,6 +634,7 @@ impl Output {
     }
 
     pub fn select_device(&self, index: usize) -> Result<(), AudioError> {
+        let _swap = self.begin_swap();
         let was_exclusive = self.is_exclusive();
         let was_playing = self.is_playing();
 
@@ -601,6 +704,7 @@ impl Output {
     /// Called when the user clicks "stop" or closes the playback view — *not*
     /// on app exit (which is handled by `Drop`).
     pub fn shutdown(&self) {
+        let _swap = self.begin_swap();
         self.source_present.store(false, Ordering::Relaxed);
         self.pause();
         // Tear down the existing output first so the device is fully released
@@ -615,6 +719,56 @@ impl Output {
         }
     }
 
+    fn reopen_while_idle(&self, metadata: &Metadata) {
+        let due = self
+            .last_reopen
+            .lock()
+            .is_none_or(|t| t.elapsed() >= REOPEN_INTERVAL);
+        if !due {
+            return;
+        }
+        let Some(lock) = self.transition.try_lock() else {
+            return;
+        };
+        let _swap = StreamSwap {
+            output: self,
+            _lock: lock,
+        };
+        let has_stream = self.current.read().is_some();
+        if has_stream {
+            return;
+        }
+        *self.last_reopen.lock() = Some(Instant::now());
+        let config = OutputConfig {
+            sample_rate: metadata.sample_rate,
+            channels: metadata.channels.to_u8(),
+            bit_depth: metadata.bit_depth,
+        };
+        let installed = match self.install_shared_on_selection(&config, self.is_playing()) {
+            SelectionOpen::Installed => true,
+            SelectionOpen::ResolveFailed => {
+                self.try_install_shared_on_default(&config, self.is_playing())
+            }
+            SelectionOpen::OpenFailed => false,
+        };
+        if installed {
+            self.push_event(OutputEvent::Recovered {
+                message: format!("Audio output opened on {}.", self.selected_device_name()),
+            });
+        }
+    }
+
+    fn sync_play_state(&self) {
+        let playing = self.play_intent.load(Ordering::SeqCst);
+        match self.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) if playing => s.resume(),
+            Some(OutputMode::Shared(s)) => s.pause(),
+            Some(OutputMode::Exclusive(e)) if playing => e.resume(),
+            Some(OutputMode::Exclusive(e)) => e.pause(),
+            None => {}
+        }
+    }
+
     /// Reacts to a `DeviceDisconnected` event by tearing down the dead exclusive
     /// output, clearing the selection (so future actions don't try the same
     /// ghost device), and installing a shared stream on the system default.
@@ -622,6 +776,7 @@ impl Output {
     /// This is the single source of recovery — UI must NOT separately call
     /// `set_exclusive(false)` after a disconnect.
     fn handle_device_disconnect(&self) {
+        let _swap = self.begin_swap();
         let was_playing = self.is_playing();
         let config = self.current_config();
         let _ = self.take_current();
@@ -738,6 +893,7 @@ impl AudioOutput for Output {
             self.recreate_stream(batch.metadata.clone());
         } else if self.default_device_changed() {
             log::info!("audio output: system default device changed, following it");
+            let _swap = self.begin_swap();
             self.recreate_shared(self.current_config(), self.is_playing());
         }
 
@@ -765,11 +921,20 @@ impl AudioOutput for Output {
             self.handle_device_disconnect();
         }
 
-        match self.current.read().as_ref() {
-            Some(OutputMode::Shared(s)) => s.write(batch),
-            Some(OutputMode::Exclusive(e)) => e.write(batch),
-            None => 0,
+        let has_stream = self.current.read().is_some();
+        if !has_stream {
+            self.reopen_while_idle(&batch.metadata);
         }
+
+        let written = match self.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => Some(s.write(batch)),
+            Some(OutputMode::Exclusive(e)) => Some(e.write(batch)),
+            None => None,
+        };
+        written.unwrap_or_else(|| {
+            std::thread::sleep(NO_DEVICE_BACKOFF);
+            0
+        })
     }
 
     fn clear(&self) {
@@ -781,6 +946,7 @@ impl AudioOutput for Output {
     }
 
     fn pause(&self) {
+        self.play_intent.store(false, Ordering::SeqCst);
         match self.current.read().as_ref() {
             Some(OutputMode::Shared(s)) => s.pause(),
             Some(OutputMode::Exclusive(e)) => e.pause(),
@@ -789,6 +955,7 @@ impl AudioOutput for Output {
     }
 
     fn resume(&self) {
+        self.play_intent.store(true, Ordering::SeqCst);
         match self.current.read().as_ref() {
             Some(OutputMode::Shared(s)) => s.resume(),
             Some(OutputMode::Exclusive(e)) => e.resume(),
@@ -797,11 +964,7 @@ impl AudioOutput for Output {
     }
 
     fn is_playing(&self) -> bool {
-        match self.current.read().as_ref() {
-            Some(OutputMode::Shared(s)) => s.is_playing(),
-            Some(OutputMode::Exclusive(e)) => e.is_playing(),
-            None => false,
-        }
+        self.play_intent.load(Ordering::SeqCst)
     }
 
     fn set_volume(&self, volume: f32) {
@@ -938,6 +1101,93 @@ mod tests {
             !devs.is_empty(),
             "dev host should expose at least one device"
         );
+    }
+
+    fn shared_stream_is_playing(out: &Output) -> bool {
+        match out.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => s.is_playing(),
+            _ => panic!("expected a shared stream"),
+        }
+    }
+
+    #[test]
+    fn resume_without_a_stream_is_applied_by_the_next_swap() {
+        let out = Output::new();
+        let _ = out.take_current();
+        out.resume();
+        assert!(out.is_playing());
+        assert!(out.current.read().is_none());
+        out.handle_device_disconnect();
+        assert!(shared_stream_is_playing(&out));
+        out.pause();
+        assert!(!out.is_playing());
+        assert!(!shared_stream_is_playing(&out));
+    }
+
+    #[test]
+    fn play_intent_changed_mid_swap_lands_on_the_new_stream() {
+        let out = Output::new();
+        {
+            let _swap = out.begin_swap();
+            let _ = out.take_current();
+            out.resume();
+            assert!(out.install_shared_fallback(&DEFAULT_CONFIG, false));
+        }
+        assert!(shared_stream_is_playing(&out));
+        {
+            let _swap = out.begin_swap();
+            let _ = out.take_current();
+            out.pause();
+            assert!(out.install_shared_fallback(&DEFAULT_CONFIG, true));
+        }
+        assert!(!shared_stream_is_playing(&out));
+    }
+
+    #[test]
+    fn write_during_a_stream_swap_leaves_the_gap_to_the_swap() {
+        let out = Output::new();
+        let _ = out.drain_events();
+        let _swap = out.transition.lock();
+        let _ = out.take_current();
+        let batch = AudioBatch {
+            data: AudioSamples::F32(vec![0.0; 64]),
+            metadata: Metadata {
+                sample_rate: 44100,
+                channels: audio_common::ChannelCount::Stereo,
+                bit_depth: 16,
+            },
+        };
+
+        assert_eq!(out.write(&batch), 0);
+        assert!(out.current.read().is_none());
+        assert!(out.drain_events().is_empty());
+    }
+
+    #[test]
+    fn write_without_a_stream_reopens_one() {
+        let out = Output::new();
+        let _ = out.take_current();
+        let _ = out.drain_events();
+        out.resume();
+        *out.last_reopen.lock() = None;
+        let batch = AudioBatch {
+            data: AudioSamples::F32(vec![0.0; 64]),
+            metadata: Metadata {
+                sample_rate: 48000,
+                channels: audio_common::ChannelCount::Stereo,
+                bit_depth: 16,
+            },
+        };
+
+        out.write(&batch);
+        match out.current.read().as_ref() {
+            Some(OutputMode::Shared(s)) => {
+                assert!(s.is_playing());
+                assert_eq!(s.config.sample_rate, 48000);
+            }
+            _ => panic!("write must reopen a shared stream"),
+        }
+        out.pause();
     }
 
     #[test]

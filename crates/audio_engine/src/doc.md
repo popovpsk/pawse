@@ -85,3 +85,57 @@ When the header device picker is hidden (`show_device_picker = false`, the
 default), `Output::set_follow_default(true)` also makes leaving exclusive mode
 drop the pin that `set_exclusive(true)` placed. The output then goes back to the
 system default instead of staying on the previously exclusive device.
+
+## When no output stream exists
+
+`Output::current` is `None` in two cases: during every deliberate stream swap
+(format change, device switch, exclusive toggle, following the default,
+disconnect recovery, shutdown), and when no device could be opened at all, for
+example at startup with nothing plugged in.
+
+- `Output::is_playing` returns the engine's intent (the last `resume`/`pause`),
+  not the state of the current stream. Every swap holds a `StreamSwap` guard,
+  and its `Drop` re-applies the intent to whatever stream the swap installed,
+  so a Play or Pause pressed during a swap still lands on the new stream. Before this, a `resume` issued while no stream existed was lost: the next
+  stream was installed paused, the engine sat in `Playing` feeding an idle
+  stream, and its fade-driven pause waited forever for a `FadedOut` that an
+  idle stream never sends. Play, Pause and device selection all stayed dead
+  until a restart.
+- With no stream, `write` tries to open one at the batch's format, at most
+  every 2 s. `resume` doesn't open anything: the engine writes right after it,
+  and opening at a guessed format would mean a second open once the real format
+  arrives. On success the UI gets a `Recovered` event. Between retries `write`
+  sleeps 20 ms and returns 0, so the engine loop does not spin.
+- The idle reopen never clears a pinned device. If the pinned device exists but
+  fails to open (busy, still initializing), it waits for the next retry and
+  doesn't fall back. Only a device that can't be resolved at all falls back to
+  the default, without dropping the pin.
+- Every deliberate swap holds `Output::transition` for its whole duration. The
+  idle reopen only `try_lock`s it, so a swap's `None` window is never mistaken
+  for "no device". Otherwise the engine thread would open a second stream on
+  the same device (EBUSY on single-subdevice cards) and show a false
+  "Audio output opened" toast on every track change. Swaps don't nest, so the
+  lock is taken only at the entry points.
+
+## Linux without the PipeWire ALSA plugin
+
+The shared path reaches PipeWire only through `pipewire-alsa`: ALSA's `default`
+becomes a PipeWire stream, `PIPEWIRE_NODE` picks the sink, and native sample
+rate opens the `pipewire:NODE=` PCM. A running PipeWire server does not mean the
+plugin is installed. Raspberry Pi OS Trixie, bare Arch, Void (plugin present
+but not linked into `/etc/alsa/conf.d`) and NixOS without
+`services.pipewire.alsa.enable` all ship without it. Without the plugin ALSA's
+`default` is just card 0: often an HDMI port with nothing attached, and device
+selection is silently ignored. Playing straight to ALSA cards was tried early
+on and failed (crackling, dropouts, EBUSY), so we don't fall back to it.
+
+`audio_output::pipewire_alsa_missing()` means "PipeWire is running, but ALSA has
+neither a `pipewire` nor a `pulse` PCM in its hints". The `pipewire-0` socket
+alone doesn't prove PipeWire handles audio: on PulseAudio systems (Ubuntu 22.04
+and older, Debian 11) PipeWire runs only for screen sharing, and ALSA's
+`default` goes through the `pulse` plugin and plays fine. The result is cached per process, because
+alsa-lib reads its config once anyway. When it is true, `pawse` does not start:
+`pipewire_alsa_gate.rs` opens a window with install commands for common distros
+and a Quit button. Flatpak is exempt, because the sandbox has its own ALSA
+config and the user can't fix the host from inside it.
+`native_mode_available()` also requires the plugin.

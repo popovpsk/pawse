@@ -227,6 +227,9 @@ pub static CS: Strings = lang! {
     onboarding_folder_prompt: "Přidejte složku s hudbou",
     onboarding_servers_hint: "Síťové zdroje, jako jsou Subsonic a Jellyfin, můžete později přidat nebo změnit v Nastavení → Knihovna.",
     onboarding_finish: "Začít poslouchat",
+    pipewire_alsa_missing_title: "Chybí ALSA plugin pro PipeWire",
+    pipewire_alsa_missing_body: "Pawse přehrává zvuk přes ALSA plugin PipeWire, který v tomto systému není nastaven. Nainstalujte ho příkazem pro svou distribuci a spusťte Pawse znovu.",
+    copy: "Kopírovat",
 
     quit_pawse: "Ukončit Pawse",
     rescan_library: "Znovu prohledat knihovnu...",

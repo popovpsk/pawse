@@ -227,6 +227,9 @@ pub static KO: Strings = lang! {
     onboarding_folder_prompt: "음악 폴더 추가",
     onboarding_servers_hint: "Subsonic, Jellyfin 같은 네트워크 소스는 나중에 설정 → 라이브러리에서 추가하거나 변경할 수 있습니다.",
     onboarding_finish: "재생 시작",
+    pipewire_alsa_missing_title: "PipeWire ALSA 플러그인이 없습니다",
+    pipewire_alsa_missing_body: "Pawse는 PipeWire의 ALSA 플러그인을 통해 오디오를 재생하는데, 이 시스템에는 설정되어 있지 않습니다. 배포판에 맞는 명령으로 설치한 뒤 Pawse를 다시 실행하세요.",
+    copy: "복사",
 
     quit_pawse: "Pawse 종료",
     rescan_library: "라이브러리 다시 스캔...",

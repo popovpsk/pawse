@@ -227,6 +227,9 @@ pub static TR: Strings = lang! {
     onboarding_folder_prompt: "Müziğinin bulunduğu bir klasör ekle",
     onboarding_servers_hint: "Subsonic ve Jellyfin gibi ağ kaynaklarını daha sonra Ayarlar → Kitaplık bölümünden ekleyebilir veya değiştirebilirsin.",
     onboarding_finish: "Dinlemeye başla",
+    pipewire_alsa_missing_title: "PipeWire ALSA eklentisi eksik",
+    pipewire_alsa_missing_body: "Pawse sesi PipeWire'ın ALSA eklentisi üzerinden çalar ve bu sistemde kurulu değil. Dağıtımınıza uygun komutla kurun, ardından Pawse'yi yeniden başlatın.",
+    copy: "Kopyala",
 
     quit_pawse: "Pawse'dan çık",
     rescan_library: "Kitaplığı yeniden tara...",
