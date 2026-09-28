@@ -1,7 +1,7 @@
 use std::mem;
 use std::ptr::{self, NonNull};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use audio_common::AudioError;
 use objc2_core_audio::{
@@ -22,6 +22,9 @@ const K_STREAM_FORMAT: u32 = 0x73666d74;
 // kAudioFormatFlagsNativeEndian: on little-endian (all Apple silicon + x86) this is 0.
 // Since deadbeef uses kAudioFormatFlagsNativeEndian which expands to 0 on LE, we replicate:
 const K_FLAGS_NATIVE_ENDIAN: u32 = 0;
+
+const RATE_SETTLE_TIMEOUT: Duration = Duration::from_secs(1);
+const RATE_SETTLE_POLL: Duration = Duration::from_millis(2);
 
 pub(super) fn get_stream_format_addr() -> AudioObjectPropertyAddress {
     AudioObjectPropertyAddress {
@@ -178,6 +181,14 @@ pub(super) fn apply_format(
 
     let status = set_device_format(device_id, &asbd);
 
+    if status == 0 && !wait_for_rate(device_id, asbd.mSampleRate) {
+        log::warn!(
+            "coreaudio: device didn't report {} Hz within {:?}",
+            asbd.mSampleRate,
+            RATE_SETTLE_TIMEOUT
+        );
+    }
+
     if status != 0 {
         // Fall back: try to re-apply whatever is currently on the device.
         // This may fail too (e.g. same format), so we ignore the result.
@@ -219,16 +230,22 @@ pub(super) fn apply_format(
 }
 
 /// Sets the nominal sample rate and polls until the stream format reflects the new
-/// value (up to ~500 ms). Returns Ok even if the poll times out — best-effort.
+/// value (up to `RATE_SETTLE_TIMEOUT`). Returns Ok even if the poll times out — best-effort.
 pub(super) fn set_and_wait_sample_rate(device_id: u32, rate: f64) -> Result<(), AudioError> {
     set_nominal_sample_rate(device_id, rate)?;
-    for _ in 0..50 {
-        if let Ok(asbd) = read_device_format(device_id)
-            && (asbd.mSampleRate - rate).abs() < 0.5
-        {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+    wait_for_rate(device_id, rate);
     Ok(())
+}
+
+fn wait_for_rate(device_id: u32, rate: f64) -> bool {
+    let deadline = Instant::now() + RATE_SETTLE_TIMEOUT;
+    loop {
+        if read_device_format(device_id).is_ok_and(|f| (f.mSampleRate - rate).abs() < 0.5) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(RATE_SETTLE_POLL);
+    }
 }
