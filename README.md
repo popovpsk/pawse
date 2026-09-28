@@ -4,7 +4,7 @@
 
 # Pawse
 
-**A fast, native music player for your local library, built in Rust and GPUI**, with a buttery-smooth, customizable 120+ fps interface, exclusive (bit-perfect) output, and a rich feature set.
+**A fast, native music player for your library, built in Rust and GPUI**, with a buttery-smooth, customizable 120+ fps interface, exclusive (bit-perfect) output, and a rich feature set.
 
 macOS · Windows · Linux
 
@@ -39,6 +39,7 @@ macOS · Windows · Linux
 - **Modern, fluid, customizable UI** — a clean, easy-to-use interface that stays smooth at 120+ fps, and strips down to your taste: hide the controls, labels and columns you never use, element by element.
 - **Themes & languages** — 20+ built-in themes and 20 UI languages, with an option for any theme to follow the cover art.
 - **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, DSD (DSF/DFF, decoded to PCM), and more.
+- **Media servers** — play from Subsonic/Navidrome, Jellyfin and DLNA/UPnP servers, or straight from a torrent, mixed into one library with your local files.
 - **CUE sheets** — single-file albums are split into individual tracks automatically.
 - **Instant fuzzy search** — find any album, artist or track as you type.
 - **Tag editor** *(beta)* — edit tags in your files, per track or album.
