@@ -101,6 +101,15 @@ impl AudioSamples {
         self.len() == 0
     }
 
+    pub fn truncate(&mut self, len: usize) {
+        match self {
+            AudioSamples::S16(data) => data.truncate(len),
+            AudioSamples::S24(data) => data.truncate(len),
+            AudioSamples::S32(data) => data.truncate(len),
+            AudioSamples::F32(data) => data.truncate(len),
+        }
+    }
+
     pub fn copy_from_offset(&self, start: usize) -> Self {
         match self {
             AudioSamples::S16(data) => AudioSamples::S16(data[start..].to_vec()),

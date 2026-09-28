@@ -58,6 +58,7 @@ pub struct CpalOutputStream {
     buffer: Arc<AudioRingBuffer>,
     volume: Arc<AtomicF32>,
     fade: Arc<FadeState>,
+    silenced: Arc<AtomicBool>,
     device_lost: Arc<AtomicBool>,
     pub config: OutputConfig,
 }
@@ -179,6 +180,7 @@ pub(crate) fn apply_fade_gain(
 /// native-f32 callback and the format-converting callbacks below.
 fn fill_f32(
     fade: &FadeState,
+    silenced: &AtomicBool,
     buffer: &AudioRingBuffer,
     volume: &AtomicF32,
     channels: usize,
@@ -186,7 +188,7 @@ fn fill_f32(
 ) {
     // Frozen after a fade-out: emit silence but leave the buffer intact so
     // resume can fade those same samples back in seamlessly.
-    if fade.is_frozen() {
+    if silenced.load(Ordering::Acquire) || fade.is_frozen() {
         for sample in data.iter_mut() {
             *sample = 0.0;
         }
@@ -220,15 +222,34 @@ fn negotiate_sample_format(device: &cpal::Device) -> SampleFormat {
         .unwrap_or(SampleFormat::F32)
 }
 
+#[derive(Clone)]
+struct RenderState {
+    buffer: Arc<AudioRingBuffer>,
+    volume: Arc<AtomicF32>,
+    fade: Arc<FadeState>,
+    silenced: Arc<AtomicBool>,
+}
+
+impl RenderState {
+    fn fill(&self, channels: usize, data: &mut [f32]) {
+        fill_f32(
+            &self.fade,
+            &self.silenced,
+            &self.buffer,
+            &self.volume,
+            channels,
+            data,
+        );
+    }
+}
+
 /// Builds an output stream whose hardware sample type is `T`, converting each
 /// rendered f32 sample to `T`. A reusable scratch buffer holds the f32 frame so
 /// the shared `fill_f32` logic stays format-agnostic.
 fn build_converting_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
-    buffer: Arc<AudioRingBuffer>,
-    volume: Arc<AtomicF32>,
-    fade: Arc<FadeState>,
+    render: RenderState,
     device_lost: Arc<AtomicBool>,
     channels: usize,
 ) -> Result<Stream, cpal::BuildStreamError>
@@ -248,7 +269,7 @@ where
             if scratch.len() != data.len() {
                 scratch.resize(data.len(), 0.0);
             }
-            fill_f32(&fade, &buffer, &volume, channels, &mut scratch);
+            render.fill(channels, &mut scratch);
             for (out, sample) in data.iter_mut().zip(scratch.iter()) {
                 *out = T::from_sample(*sample);
             }
@@ -285,6 +306,13 @@ impl CpalOutputStream {
     ) -> Result<Self, AudioError> {
         let volume = Arc::new(AtomicF32::new(1.0));
         let fade = Arc::new(FadeState::new());
+        let silenced = Arc::new(AtomicBool::new(true));
+        let render = RenderState {
+            buffer: buffer.clone(),
+            volume: volume.clone(),
+            fade: fade.clone(),
+            silenced: silenced.clone(),
+        };
         let device_lost = Arc::new(AtomicBool::new(false));
         let channels = output_config.channels as usize;
 
@@ -302,16 +330,11 @@ impl CpalOutputStream {
         let build = |stream_config: &StreamConfig| -> Result<Stream, cpal::BuildStreamError> {
             match format {
                 SampleFormat::F32 => {
-                    let (buffer, volume, fade, device_lost) = (
-                        buffer.clone(),
-                        volume.clone(),
-                        fade.clone(),
-                        device_lost.clone(),
-                    );
+                    let (render, device_lost) = (render.clone(), device_lost.clone());
                     dev.build_output_stream(
                         stream_config,
                         move |data: &mut [f32], _: &OutputCallbackInfo| {
-                            fill_f32(&fade, &buffer, &volume, channels, data);
+                            render.fill(channels, data);
                         },
                         move |err| on_stream_error(err, &device_lost),
                         None,
@@ -320,36 +343,28 @@ impl CpalOutputStream {
                 SampleFormat::I32 => build_converting_stream::<i32>(
                     dev,
                     stream_config,
-                    buffer.clone(),
-                    volume.clone(),
-                    fade.clone(),
+                    render.clone(),
                     device_lost.clone(),
                     channels,
                 ),
                 SampleFormat::I16 => build_converting_stream::<i16>(
                     dev,
                     stream_config,
-                    buffer.clone(),
-                    volume.clone(),
-                    fade.clone(),
+                    render.clone(),
                     device_lost.clone(),
                     channels,
                 ),
                 SampleFormat::U16 => build_converting_stream::<u16>(
                     dev,
                     stream_config,
-                    buffer.clone(),
-                    volume.clone(),
-                    fade.clone(),
+                    render.clone(),
                     device_lost.clone(),
                     channels,
                 ),
                 SampleFormat::U8 => build_converting_stream::<u8>(
                     dev,
                     stream_config,
-                    buffer.clone(),
-                    volume.clone(),
-                    fade.clone(),
+                    render.clone(),
                     device_lost.clone(),
                     channels,
                 ),
@@ -386,6 +401,7 @@ impl CpalOutputStream {
             config: output_config,
             volume,
             fade,
+            silenced,
             device_lost,
         })
     }
@@ -410,6 +426,16 @@ impl CpalOutputStream {
     pub fn reset_fade(&self) {
         self.fade.reset();
     }
+
+    pub fn release(&self) {
+        let inner = self.inner.read();
+        if inner.state == PlaybackState::Playing {
+            return;
+        }
+        if let Err(e) = inner.stream.pause() {
+            log::error!("audio output: failed to stop idle stream: {}", e);
+        }
+    }
 }
 
 impl AudioOutput for CpalOutputStream {
@@ -428,13 +454,18 @@ impl AudioOutput for CpalOutputStream {
 
     fn pause(&self) {
         let mut inner = self.inner.write();
-        if inner.state != PlaybackState::Playing {
-            return;
+        match inner.state {
+            PlaybackState::Playing => {
+                self.silenced.store(true, Ordering::SeqCst);
+                inner.state = PlaybackState::Paused;
+            }
+            PlaybackState::Idle => {
+                if let Err(e) = inner.stream.pause() {
+                    log::error!("audio output: failed to stop unused stream: {}", e);
+                }
+            }
+            PlaybackState::Paused => {}
         }
-        if let Err(e) = inner.stream.pause() {
-            log::error!("audio output: failed to pause stream: {}", e);
-        }
-        inner.state = PlaybackState::Paused;
     }
 
     fn resume(&self) {
@@ -442,6 +473,7 @@ impl AudioOutput for CpalOutputStream {
         if inner.state == PlaybackState::Playing {
             return;
         }
+        self.silenced.store(false, Ordering::SeqCst);
         if let Err(e) = inner.stream.play() {
             log::error!("audio output: failed to resume stream: {}", e);
         }
@@ -609,6 +641,61 @@ mod tests {
         output.clear();
 
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_pause_silences_and_release_keeps_it_paused() {
+        let (h, d) = make_test_device();
+        let selected_device = SelectedOutputDevice { host: h, device: d };
+        let output =
+            CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
+        assert!(output.silenced.load(Ordering::SeqCst));
+
+        output.resume();
+        assert!(!output.silenced.load(Ordering::SeqCst));
+
+        output.pause();
+        assert!(output.silenced.load(Ordering::SeqCst));
+        assert!(!output.is_playing());
+
+        output.release();
+        assert!(output.silenced.load(Ordering::SeqCst));
+        assert!(!output.is_playing());
+
+        output.resume();
+        assert!(!output.silenced.load(Ordering::SeqCst));
+        assert!(output.is_playing());
+    }
+
+    #[test]
+    fn test_release_leaves_playing_stream_alone() {
+        let (h, d) = make_test_device();
+        let selected_device = SelectedOutputDevice { host: h, device: d };
+        let output =
+            CpalOutputStream::new(make_test_buffer(), make_test_config(), selected_device).unwrap();
+        output.resume();
+        output.release();
+        assert!(output.is_playing());
+        assert!(!output.silenced.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_silenced_callback_keeps_buffer() {
+        let fade = FadeState::new();
+        let silenced = AtomicBool::new(true);
+        let buffer = AudioRingBuffer::new(64);
+        buffer.push_slice(&[0.5; 8]);
+        let volume = AtomicF32::new(1.0);
+        let mut data = [1.0f32; 4];
+
+        fill_f32(&fade, &silenced, &buffer, &volume, 2, &mut data);
+        assert_eq!(data, [0.0; 4]);
+        assert_eq!(buffer.len(), 8);
+
+        silenced.store(false, Ordering::SeqCst);
+        fill_f32(&fade, &silenced, &buffer, &volume, 2, &mut data);
+        assert_eq!(data, [0.5; 4]);
+        assert_eq!(buffer.len(), 4);
     }
 
     #[test]

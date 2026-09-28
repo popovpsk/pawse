@@ -574,6 +574,15 @@ mod tests {
         path
     }
 
+    #[test]
+    fn test_vorbis_can_yield_an_empty_batch() {
+        let mut decoder = Decoder::open(&fixture_path("tagged_ogg.ogg")).unwrap();
+        let first = decoder.next_buffer().unwrap().unwrap();
+        assert!(first.data.is_empty());
+        let second = decoder.next_buffer().unwrap().unwrap();
+        assert!(!second.data.is_empty());
+    }
+
     #[rstest]
     #[case::sine_440_16_44_mono("sine_440_16_44_mono.wav", 44100, 16, ChannelCount::Mono)]
     #[case::sine_440_16_48_mono("sine_440_16_48_mono.wav", 48000, 16, ChannelCount::Mono)]

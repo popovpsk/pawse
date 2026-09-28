@@ -188,7 +188,10 @@ impl Output {
             };
             CpalOutputStream::new(buffer, DEFAULT_CONFIG, selected)
         }) {
-            Ok(stream) => (Some(OutputMode::Shared(stream)), Vec::new()),
+            Ok(stream) => {
+                stream.pause();
+                (Some(OutputMode::Shared(stream)), Vec::new())
+            }
             Err(e) => {
                 let message = format!("No audio output device available: {e}");
                 log::error!("audio output: {message}");
@@ -578,6 +581,12 @@ impl Output {
             Some(OutputMode::Shared(s)) => s.reset_fade(),
             Some(OutputMode::Exclusive(e)) => e.reset_fade(),
             None => {}
+        }
+    }
+
+    pub fn release_paused(&self) {
+        if let Some(OutputMode::Shared(s)) = self.current.read().as_ref() {
+            s.release();
         }
     }
 

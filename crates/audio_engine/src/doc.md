@@ -54,6 +54,117 @@ server) never flashes it. This is the same rule as the stall indicator during pl
 APE and DSD decoders are tied to `std::fs::File`, so those formats are never
 streamed: `pawse` downloads them whole first (`audio_decoder::can_stream`).
 
+## Pause keeps the shared stream running for a while
+
+On macOS, stopping an output unit while another app keeps the same device
+running (YouTube in a browser) often gives an audible artifact at the moment of
+the stop: a short burst of white noise or a click. With nothing else playing the
+device stops as a whole and nothing is heard. It reproduces with bare cpal, and
+Firefox, which also stops its unit on pause, does it too. A third client holding
+the device with silence makes it go away. So it's the detach from a running
+device, not our signal, and rendering 100 ms of zeros before the stop didn't
+help (about 8 of 20 pauses were still noisy).
+
+mpv (7 s), Cog (10 s) and Chromium's media mixer (10 s) all keep the unit
+running with silence on pause and stop it only after an idle timeout. We do the
+same. `RELEASE_AFTER_PAUSE` is 10 s on macOS and 1 s on Windows and Linux,
+where the artifact was never heard: there it only covers quick pause/resume, and
+the device is freed sooner for exclusive apps and PipeWire's suspend-on-idle.
+
+- The shared output (`cpal_stream`) no longer stops the stream on `pause`. It
+  sets `silenced`, so the callback emits zeros without draining the ring buffer.
+  `resume` clears it and calls `Stream::play`. `release`
+  (`Output::release_paused`) calls `Stream::pause` on a stream that isn't
+  playing. There's no own "running" flag: cpal's `play`/`pause` are idempotent
+  on CoreAudio, WASAPI and ALSA, and cpal may start a stream on its own at build
+  (CoreAudio does; ALSA starts on its start threshold), so a flag of ours would
+  be wrong for a fresh stream. The callback reads `silenced` with `Acquire`, so
+  once it sees `false` it also sees the fade that `handle_play` set up before
+  `resume`.
+- The deadline is the engine's own state, not the stream's
+  (`RELEASE_AFTER_PAUSE` lives in `engine.rs`). Every pause the engine makes on
+  a user or track action goes through `pause_output`, which sets `release_at`;
+  `handle_play`, the only way into `Playing`, clears it. While parked with a
+  deadline the loop waits with `recv_deadline(release_at)`, without one with a
+  plain `recv`, so an idle engine never wakes up. On the deadline it calls
+  `Output::pause` and `Output::release_paused` on whatever stream is current.
+  A device switch or exclusive toggle on the UI thread can replace the stream
+  during the pause (`StreamSwap` re-applies the pause to the new one); since
+  the engine doesn't care which stream it is, the new one is released too.
+- The end of a track (`TrackEnded`, and a failed stream) also sets
+  `release_at`, but doesn't pause: the ring buffer still holds the tail of the
+  track, and the app may send the next track into the same running stream
+  (`SetLocalTrack` → `install` → `Play` → `handle_play` clears the deadline;
+  see "Gapless: keeping the tail"). At the end of the queue nothing comes, and
+  the deadline pauses and stops the output once the tail has played (under
+  200 ms, the deadline is 1 or 10 s). Before this the output stayed in
+  `Playing` feeding zeros forever after the last track. This covers exclusive
+  outputs too: `Output::pause` stops them.
+- cpal may start a stream on its own at build, so `pause` on a stream that has
+  never played (`Idle`) calls `Stream::pause` instead of doing nothing.
+  `Output::new` pauses the startup stream right away, and a swap while paused
+  (device switch, exclusive toggle, `Output::shutdown`'s fallback) ends in
+  `StreamSwap` → `sync_play_state` → `pause`. A swap while playing calls
+  `resume` on the new stream instead, so a format change mid-playback doesn't
+  stop and restart it.
+  - macOS: CoreAudio starts the unit at build and `pause` stops it at once. That
+    is a brief attach and detach, so launching pawse (or switching the device
+    while paused) while another app plays may still give the artifact. Avoiding
+    it would mean not building a stream until the first play.
+  - Linux: an ALSA PCM is still PREPARED right after build, where
+    `snd_pcm_pause` fails (cpal ignores the error), and cpal's worker then starts
+    it by writing. So the immediate `pause` may do nothing. The engine starts
+    with `release_at` already set, and by that deadline the PCM is running and
+    `pause` works, so the startup stream is released. A swap while paused on
+    Linux isn't covered: the engine doesn't know about it.
+- `handle_play` starts the fade-in before `resume`, so a pause without a fade
+  (gain at unity) can't leak one full-gain callback before the ramp starts.
+
+Within that window a pause and resume are cheap and silent. The stop at the end
+can still produce the artifact if another app is playing at that moment, but
+it's no longer tied to pressing pause. Exclusive outputs stop at once: hog mode has no
+other clients.
+
+## Gapless: keeping the tail
+
+The engine counts a track as ended when it has written the last sample into the
+ring buffer, not when it has been heard: up to the 128 ms buffer is still to
+play. The app answers `TrackEnded` with `SetLocalTrack` + `Play { fade_in:
+false }` right away. `SetLocalTrack` used to go through `reset_track`, whose
+`output.clear()` threw that tail away, so every gapless switch cut the end of
+the track.
+
+`end_track` now sets `ended_naturally` (only if no fade was running, since a
+pause fade left running into the next track would end frozen at zero).
+`handle_command` takes the flag for every command, so only a `SetLocalTrack`
+that comes straight after the end sees it. That one resets the track state
+(`reset_track_state`) but leaves the ring buffer, the fade and `needs_flush`
+alone, so the next track is written right behind the tail into the same running
+stream. Any other command in between consumes the flag, and the next
+`SetLocalTrack` then clears as usual (`Stop` and `Prepare` clear themselves). The
+release deadline drops the flag too: by then the tail has played. The engine
+can't tell the app's gapless `SetLocalTrack` from a user's click that lands in
+the few milliseconds between `TrackEnded` and it; the click then hears the
+tail, faded by its `Play { fade_in: true }`, before the chosen track.
+
+A cue track ends at `track_end` inside one file, and the engine used to notice
+only after writing a whole batch, so the start of the next track was already
+buffered (then cleared). Keeping the buffer would play it twice, so
+`trim_to_track_end` cuts each freshly decoded batch at `track_end`. When no
+whole frame is left before `track_end` (`frames_until` is 0; float position
+rounding can leave a fraction) it ends the track. A batch that is empty on its
+own is not an end: symphonia's gapless Vorbis decoder yields an empty first
+packet (`test_vorbis_can_yield_an_empty_batch`), and ending on it would skip
+every Ogg track. The cue seam is only as exact as the seek: `install` seeks the
+file coarsely (`SeekMode::Coarse`, up to a FLAC frame early) and takes
+`track_start` as the position, so the cut and the next start can be off by
+tens of ms. That predates this change.
+
+Not gapless by design: a track in a different format (`Output::write` rebuilds
+the stream with a new buffer, and the old tail goes with it; different albums
+aren't expected to flow into each other) and a remote track that isn't cached
+(`Prepare` pauses while it downloads).
+
 ## Following the system default device
 
 This lives in `audio_output` (`default_watch.rs` + `Output::write`), but the
