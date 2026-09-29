@@ -101,6 +101,8 @@ pub fn start(cx: &mut App, ui: Entity<ScrobbleUiState>, source: ImportSource) {
         return;
     };
     let library = cx.global::<Services>().library.clone();
+    let (rewriter, _) =
+        scrobble::Rewriter::compile(&cx.global::<SettingsStore>().scrobble().rewrite);
 
     ui.update(cx, |state, cx| {
         state.import_busy = Some(source);
@@ -113,7 +115,10 @@ pub fn start(cx: &mut App, ui: Entity<ScrobbleUiState>, source: ImportSource) {
             .background_spawn(async move {
                 let loved = fetcher.collect()?;
 
-                let index = build_index(&library);
+                let tracks = library.all_tracks();
+                let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+                let artists = library.track_artists_map(&ids);
+                let index = build_index(&tracks, &artists, &rewriter);
                 let mut found = 0usize;
                 let mut to_like: Vec<i64> = Vec::new();
                 for track in &loved {
@@ -164,20 +169,25 @@ pub fn start(cx: &mut App, ui: Entity<ScrobbleUiState>, source: ImportSource) {
     .detach();
 }
 
-fn build_index(
-    library: &crate::library_service::LibraryService,
+pub(crate) fn build_index(
+    tracks: &[music_library::Track],
+    artists: &HashMap<i64, Vec<String>>,
+    rewriter: &scrobble::Rewriter,
 ) -> HashMap<String, Vec<(i64, bool)>> {
-    let tracks = library.all_tracks();
-    let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-    let artists = library.track_artists_map(&ids);
     let mut index: HashMap<String, Vec<(i64, bool)>> = HashMap::with_capacity(tracks.len());
-    for track in &tracks {
+    for track in tracks {
         let Some(names) = artists.get(&track.id) else {
             continue;
         };
         for name in names {
+            let original = key(name, &track.title);
+            let (artist, title) = rewriter.artist_title(name, &track.title);
+            let sent = key(&artist, &title);
+            if sent != original {
+                index.entry(sent).or_default().push((track.id, track.liked));
+            }
             index
-                .entry(key(name, &track.title))
+                .entry(original)
                 .or_default()
                 .push((track.id, track.liked));
         }
@@ -185,7 +195,7 @@ fn build_index(
     index
 }
 
-fn key(artist: &str, title: &str) -> String {
+pub(crate) fn key(artist: &str, title: &str) -> String {
     format!(
         "{}\u{1}{}",
         music_library::normalize_tag(artist),
@@ -202,6 +212,47 @@ mod tests {
         assert_eq!(
             key("  Boards of Canada ", "Roygbiv"),
             key("boards of canada", "ROYGBIV")
+        );
+    }
+
+    fn track(id: i64, title: &str) -> music_library::Track {
+        music_library::Track {
+            id,
+            path: String::new(),
+            title: title.to_string(),
+            album_id: None,
+            track_number: None,
+            disc_number: 1,
+            duration_ms: None,
+            year: None,
+            cover_art_id: None,
+            start_offset_ms: 0,
+            liked: false,
+            bitrate: None,
+            is_cue: false,
+            available: true,
+        }
+    }
+
+    #[test]
+    fn a_love_sent_under_a_rewritten_name_still_matches_its_track() {
+        let tracks = vec![track(1, "Let It Be (Remastered 2009)")];
+        let artists = HashMap::from([(1, vec!["The Beatles".to_string()])]);
+        let config = scrobble::RewriteConfig {
+            presets: ["remastered".to_string()].into(),
+            rules: Vec::new(),
+        };
+        let (rewriter, _) = scrobble::Rewriter::compile(&config);
+
+        let index = build_index(&tracks, &artists, &rewriter);
+
+        assert_eq!(
+            index.get(&key("The Beatles", "Let It Be")),
+            Some(&vec![(1, false)])
+        );
+        assert_eq!(
+            index.get(&key("The Beatles", "Let It Be (Remastered 2009)")),
+            Some(&vec![(1, false)])
         );
     }
 

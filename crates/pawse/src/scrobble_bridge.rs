@@ -76,8 +76,7 @@ pub fn setup(cx: &mut App) {
     let store = Arc::new(LibraryScrobbleStore::new(repo));
     let targets = build_targets(cx);
     let active = !targets.is_empty();
-    let handle = ScrobbleHandle::spawn(store, targets, status_tx);
-    handle.set_rewriter(compile_rewriter(cx));
+    let handle = ScrobbleHandle::spawn(store, targets, compile_rewriter(cx), status_tx);
     let loves = spawn_love_writer(cx.background_executor(), handle.clone());
     let handle = Some(handle);
 
@@ -413,17 +412,7 @@ fn ensure_now_playing(st: &mut BridgeState) {
         }
         current.started = true;
         current.timestamp = unix_now();
-        (
-            NowPlaying {
-                artist: current.meta.artist.clone(),
-                title: current.meta.title.clone(),
-                album: current.meta.album.clone(),
-                album_artist: current.meta.album_artist.clone(),
-                track_number: current.meta.track_number,
-                duration_secs: Some(current.duration.as_secs()),
-            },
-            current.meta.track_id,
-        )
+        (now_playing_of(current), current.meta.track_id)
     };
     if let Some(handle) = &st.handle {
         handle.now_playing(now_playing, track_id);
@@ -492,15 +481,8 @@ fn commit_play(st: &mut BridgeState, now: Instant, commit: Commit) {
     let Some(handle) = st.handle.clone() else {
         return;
     };
-    let qualified = play.qualified;
     st.executor
-        .spawn(async move {
-            if qualified {
-                handle.scrobble(play);
-            } else {
-                handle.persist(play);
-            }
-        })
+        .spawn(async move { deliver(&handle, play) })
         .detach();
 }
 
@@ -517,34 +499,80 @@ fn commit_play_blocking(st: &mut BridgeState, now: Instant) -> Option<Task<()>> 
     }))
 }
 
+fn now_playing_of(current: &Current) -> NowPlaying {
+    NowPlaying {
+        artist: current.meta.artist.clone(),
+        title: current.meta.title.clone(),
+        album: current.meta.album.clone(),
+        album_artist: current.meta.album_artist.clone(),
+        track_number: current.meta.track_number,
+        duration_secs: Some(current.duration.as_secs()),
+    }
+}
+
+fn deliver(handle: &ScrobbleHandle, play: Play) {
+    if play.qualified {
+        handle.scrobble(play);
+    } else {
+        handle.persist(play);
+    }
+}
+
 fn read_current_meta(cx: &App, first_artist_only: bool) -> Option<CapturedMeta> {
     let services = cx.global::<Services>();
     let queue = services.playback_queue.borrow();
     let track = queue.current_track()?;
-    let artist =
-        scrobble::primary_artist(&services.library.track_artists(track.id), first_artist_only)
-            .unwrap_or_default();
+    Some(captured_meta(
+        &*services.library.repo(),
+        track,
+        first_artist_only,
+    ))
+}
+
+fn captured_meta(
+    repo: &dyn music_library::LibraryRepository,
+    track: &music_library::Track,
+    first_artist_only: bool,
+) -> CapturedMeta {
+    let artist = scrobble::primary_artist(
+        &repo.track_artists(track.id).unwrap_or_default(),
+        first_artist_only,
+    )
+    .unwrap_or_default();
     let album = track
         .album_id
-        .and_then(|id| services.library.album_title(id));
+        .and_then(|id| repo.album_title(id).ok().flatten());
     let album_artist = track
         .album_id
-        .and_then(|id| scrobble::primary_artist(&services.library.album_artists(id), true));
-    Some(CapturedMeta {
+        .and_then(|id| scrobble::primary_artist(&repo.album_artists(id).unwrap_or_default(), true));
+    CapturedMeta {
         track_id: Some(track.id),
         artist,
         title: track.title.clone(),
         album,
         album_artist,
         track_number: track.track_number.and_then(|n| u32::try_from(n).ok()),
-    })
+    }
 }
 
 fn read_track_meta(cx: &App, track_id: i64, first_artist_only: bool) -> Option<(String, String)> {
-    let services = cx.global::<Services>();
-    let track = services.library.track(track_id)?;
-    let artist =
-        scrobble::primary_artist(&services.library.track_artists(track.id), first_artist_only)?;
+    love_meta(
+        &*cx.global::<Services>().library.repo(),
+        track_id,
+        first_artist_only,
+    )
+}
+
+fn love_meta(
+    repo: &dyn music_library::LibraryRepository,
+    track_id: i64,
+    first_artist_only: bool,
+) -> Option<(String, String)> {
+    let track = repo.track(track_id).ok().flatten()?;
+    let artist = scrobble::primary_artist(
+        &repo.track_artists(track.id).unwrap_or_default(),
+        first_artist_only,
+    )?;
     Some((artist, track.title))
 }
 
@@ -947,3 +975,7 @@ mod tests {
         assert!(legacy_items("{not json").is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "scrobble_flow_tests.rs"]
+mod flow_tests;

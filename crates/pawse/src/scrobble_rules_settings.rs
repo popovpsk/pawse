@@ -352,16 +352,28 @@ impl ScrobbleRules {
     }
 }
 
-fn library_samples(repo: &dyn music_library::LibraryRepository, first_only: bool) -> Vec<Sample> {
-    let tracks = repo.all_tracks().unwrap_or_default();
+pub(crate) fn library_samples(
+    repo: &dyn music_library::LibraryRepository,
+    first_only: bool,
+) -> Vec<Sample> {
+    let tracks = repo.all_tracks().unwrap_or_else(|e| {
+        log::warn!("scrobble rules: could not read tracks for the preview: {e}");
+        Vec::new()
+    });
     let albums: std::collections::HashMap<i64, (String, String)> = repo
         .albums()
-        .unwrap_or_default()
+        .unwrap_or_else(|e| {
+            log::warn!("scrobble rules: could not read albums for the preview: {e}");
+            Vec::new()
+        })
         .into_iter()
         .map(|a| (a.id, (a.title, a.artist_name)))
         .collect();
     let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-    let artists = repo.track_artists_map(&ids).unwrap_or_default();
+    let artists = repo.track_artists_map(&ids).unwrap_or_else(|e| {
+        log::warn!("scrobble rules: could not read artists for the preview: {e}");
+        Default::default()
+    });
     tracks
         .into_iter()
         .map(|track| {

@@ -41,6 +41,7 @@ impl ScrobbleHandle {
     pub fn spawn(
         store: Arc<dyn ScrobbleStore>,
         targets: Vec<Box<dyn ScrobbleTarget>>,
+        rewriter: Rewriter,
         status: Sender<StatusEvent>,
     ) -> Self {
         let target_ids = Arc::new(Mutex::new(scrobble_targets(&targets)));
@@ -59,7 +60,7 @@ impl ScrobbleHandle {
                         backoff: HashMap::new(),
                         disabled: HashSet::new(),
                         status,
-                        rewriter: Arc::new(Rewriter::default()),
+                        rewriter: Arc::new(rewriter),
                     };
                     worker.run(rx);
                 })
@@ -1074,6 +1075,7 @@ mod tests {
                 TargetId::Lastfm,
                 vec![Err(SubmitError::Transient("offline".to_string()))],
             ))],
+            Rewriter::default(),
             status_tx,
         );
 
@@ -1124,6 +1126,7 @@ mod tests {
                 )),
                 Box::new(LovesOnly(Fake::new(TargetId::Server(3), vec![]))),
             ],
+            Rewriter::default(),
             status_tx,
         );
 
@@ -1242,11 +1245,72 @@ mod tests {
         assert_eq!(rows.loves[0].1.title, "T (Remastered)");
     }
 
+    fn remastered() -> Rewriter {
+        let config = crate::RewriteConfig {
+            presets: ["remastered".to_string()].into(),
+            rules: Vec::new(),
+        };
+        Rewriter::compile(&config).0
+    }
+
+    fn remastered_play() -> Play {
+        let mut play = play_at(1);
+        play.scrobble.title = "T (Remastered)".to_string();
+        play
+    }
+
+    #[test]
+    fn the_startup_flush_already_uses_the_rules() {
+        let (status_tx, _status_rx) = flume::unbounded();
+        let store = Arc::new(FakeStore::default());
+        store
+            .record_play(&remastered_play(), &[TargetId::Lastfm])
+            .unwrap();
+        let (target, seen) = Recording::new(TargetId::Lastfm, true);
+
+        let _handle = ScrobbleHandle::spawn(
+            store.clone(),
+            vec![Box::new(target)],
+            remastered(),
+            status_tx,
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while store.pending_ids(TargetId::Lastfm).len() == 1 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            store.pending_ids(TargetId::Lastfm).is_empty(),
+            "the backlog left from the last session was never delivered"
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["scrobble:T"]);
+    }
+
+    #[test]
+    fn a_rewriter_message_applies_to_what_is_flushed_after_it() {
+        let (idle, _) = Recording::new(TargetId::Lastfm, true);
+        let (target, seen) = Recording::new(TargetId::Lastfm, true);
+        let (mut worker, store, _rx) = worker(vec![Box::new(idle)]);
+        store
+            .record_play(&remastered_play(), &worker.active_targets())
+            .unwrap();
+        worker.disabled.insert(TargetId::Lastfm);
+        let (tx, rx) = flume::unbounded::<Msg>();
+        tx.send(Msg::Rewriter(Arc::new(remastered()))).unwrap();
+        tx.send(Msg::Configure(vec![Box::new(target)])).unwrap();
+        drop(tx);
+
+        worker.run(rx);
+
+        assert_eq!(*seen.lock().unwrap(), vec!["scrobble:T"]);
+    }
+
     #[test]
     fn history_is_kept_even_with_no_target_configured() {
         let (status_tx, _status_rx) = flume::unbounded();
         let store = Arc::new(FakeStore::default());
-        let handle = ScrobbleHandle::spawn(store.clone(), Vec::new(), status_tx);
+        let handle =
+            ScrobbleHandle::spawn(store.clone(), Vec::new(), Rewriter::default(), status_tx);
 
         handle.persist(play_at(100));
 
@@ -1261,6 +1325,7 @@ mod tests {
         let handle = ScrobbleHandle::spawn(
             store.clone(),
             vec![Box::new(Fake::new(TargetId::Lastfm, vec![]))],
+            Rewriter::default(),
             status_tx,
         );
 

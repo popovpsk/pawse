@@ -47,6 +47,8 @@ fn scrobble(artist: &str, title: &str, album: Option<&str>) -> Scrobble {
     "Wish You Were Here"
 )]
 #[case::untouched("Master of Puppets", "Master of Puppets")]
+#[case::keeps_an_earlier_feat("Song (feat. X) (2011 Remaster)", "Song (feat. X)")]
+#[case::keeps_an_earlier_live("Song (Live) [Remastered]", "Song (Live)")]
 fn remastered(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(run("remastered", Field::Title, input), expected);
     assert_eq!(run("remastered", Field::Album, input), expected);
@@ -109,6 +111,7 @@ fn version(#[case] input: &str, #[case] expected: &str) {
 )]
 #[case::reissue("Album Title Re-issue", "Album Title")]
 #[case::reissue_parens("Album Title (2015 Reissue)", "Album Title")]
+#[case::reissue_keeps_an_earlier_note("Album (Live) (2015 Reissue)", "Album (Live)")]
 fn edition(#[case] input: &str, #[case] expected: &str) {
     assert_eq!(run("edition", Field::Album, input), expected);
 }
@@ -423,6 +426,30 @@ fn preview_counts_tracks_and_collects_distinct_examples() {
             ("Album (Remastered)".to_string(), "Album".to_string()),
             ("Two (Remastered)".to_string(), "Two".to_string()),
         ]
+    );
+}
+
+#[test]
+fn preview_skips_what_delivery_would_not_change() {
+    let config = RewriteConfig {
+        presets: BTreeSet::new(),
+        rules: vec![CustomRule {
+            field: Field::Artist,
+            pattern: "Unknown".to_string(),
+            ..CustomRule::default()
+        }],
+    };
+    let (rewriter, _) = Rewriter::compile(&config);
+    let samples = vec![Sample {
+        artist: "Unknown".to_string(),
+        title: "T".to_string(),
+        album: None,
+        album_artist: None,
+    }];
+    assert_eq!(preview(&rewriter, &samples, 3), Preview::default());
+    assert_eq!(
+        rewriter.apply(&scrobble("Unknown", "T", None)).artist,
+        "Unknown"
     );
 }
 

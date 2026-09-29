@@ -1,5 +1,6 @@
 mod presets;
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 use regex::{NoExpand, Regex};
@@ -86,20 +87,17 @@ struct Step {
 
 impl Step {
     fn run(&self, text: &str) -> Option<String> {
-        if !self.regex.is_match(text) {
-            return None;
-        }
         let limit = if self.all { 0 } else { 1 };
         let out = if self.expand {
-            self.regex
-                .replacen(text, limit, self.replacement.as_str())
-                .into_owned()
+            self.regex.replacen(text, limit, self.replacement.as_str())
         } else {
             self.regex
                 .replacen(text, limit, NoExpand(&self.replacement))
-                .into_owned()
         };
-        (out != text).then_some(out)
+        match out {
+            Cow::Borrowed(_) => None,
+            Cow::Owned(out) => (out != text).then_some(out),
+        }
     }
 }
 
@@ -194,6 +192,13 @@ impl Rewriter {
             album_artist: self.optional(Field::AlbumArtist, &now_playing.album_artist),
             ..now_playing.clone()
         }
+    }
+
+    pub fn artist_title(&self, artist: &str, title: &str) -> (String, String) {
+        (
+            self.required(Field::Artist, artist),
+            self.required(Field::Title, title),
+        )
     }
 
     pub fn apply_love(&self, love: &Love) -> Love {
@@ -319,6 +324,9 @@ pub fn preview(rewriter: &Rewriter, samples: &[Sample], max_examples: usize) -> 
             let Some(out) = rewriter.rewrite(*field, text) else {
                 continue;
             };
+            if out.is_empty() && matches!(field, Field::Artist | Field::Title) {
+                continue;
+            }
             changed = true;
             if result.examples.len() < max_examples
                 && !result.examples.iter().any(|(before, _)| before == text)

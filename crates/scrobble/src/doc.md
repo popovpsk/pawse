@@ -77,7 +77,11 @@ service: built-in presets switched on one by one (all off by default), then the
 user's own find-and-replace rules. The UI is `pawse::scrobble_rules_settings`;
 `pawse::scrobble_bridge::apply_rewrite` compiles the config and hands the
 `Rewriter` to the worker (`ScrobbleHandle::set_rewriter`) without reconfiguring
-the targets, so editing a rule never resets a backoff.
+the targets, so editing a rule never resets a backoff. The initial `Rewriter` is
+an argument of `ScrobbleHandle::spawn`, not a `set_rewriter` right after it: the
+worker flushes the backlog left from the previous session before it reads its
+first message, and a rewriter still queued behind that flush would let the
+whole offline backlog go out unrewritten.
 
 - **Applied at delivery, not at recording.** `plays` / `loves` keep the text the
   file has; the worker rewrites each item right before `submit_tracks` /
@@ -108,10 +112,28 @@ the targets, so editing a rule never resets a backoff.
   with an empty library; a pawse test runs that example through the engine so
   the hint cannot drift from what the rule does. Presets are
   written with `${1}` directly.
+- **Bracket rules stay inside one bracket.** metadata-filter's remastered rule
+  (`\s[(\[].*Re-?master….*[)\]]$`) and its reissue rules (`.*?` from the first
+  `(`) span across brackets, so `Song (feat. X) (2011 Remaster)` lost the feat
+  credit too. Ours use `[^()\[\]]*` inside the brackets; the double
+  `[Remastered] (Remastered Version)` case that the greedy form used to cover is
+  metadata-filter's own dedicated rule, kept and moved first.
+- **Loves are imported under both names.** `pawse::scrobble_import` indexes
+  every library track under its own artist/title and, when the current rules
+  change them, under the rewritten pair too (`Rewriter::artist_title`), so a
+  love that went out as `Let It Be` finds `Let It Be (Remastered 2009)` again.
+- **Known limitation: a love and its unlove use the rules of their own send.**
+  Rules apply at delivery, so a track loved with a preset on and unliked after
+  it was switched off sends the unlove under the other name, and the love
+  stays on the service. Fixing it would mean storing the sent name per love
+  delivery (a migration) for a case that needs a rules change between the two
+  clicks; editing a track's tags in between has always had the same effect.
 - **Fields never become empty.** A field a rule changed is trimmed. An artist
   or title rewritten to nothing falls back to the original (every service
   rejects an empty one); an album or album artist rewritten to nothing is sent
-  as absent.
+  as absent. `preview` follows the same rule, so a rule that only empties an
+  artist or title shows no matches instead of promising a change that is never
+  sent.
 - **A broken custom rule is skipped, not fatal.** `Rewriter::compile` returns
   the rules that failed next to the working set; the bridge logs them. The UI
   refuses to save a pattern that does not compile, so this only guards a
@@ -143,6 +165,20 @@ the targets, so editing a rule never resets a backoff.
   font. Zero-width characters and NBSP are shown as `·` on the before side so
   there is something to highlight. Diffs are computed when previews are built,
   not per frame.
+
+## Flow tests
+
+`pawse/src/scrobble_flow_tests.rs` (a child module of `scrobble_bridge`, so it
+drives the bridge's own `captured_meta` / `love_meta` / `pending_play` /
+`deliver`) runs whole scenarios over real parts: a temp `SqliteLibrary` whose
+songs arrive through a server listing and a scan, `LibraryScrobbleStore`,
+`ScrobbleHandle` with its worker thread, `CsvLog`, and `ServerTarget` over a
+fake `ServerClient`. Only the internet services are stand-ins. Settings are
+parsed from JSON as `settings.json` would be. The scenarios pin the bugs that
+lived at the seams: rules missing from the startup flush after a restart, a
+like that would import back under the wrong name, the settings preview
+disagreeing with delivery, rules switched on while items are queued. Unit tests
+per crate stay the place for rule details (`$1` handling, each preset).
 
 ## Media servers as targets
 
