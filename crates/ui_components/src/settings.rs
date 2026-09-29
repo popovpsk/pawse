@@ -146,11 +146,17 @@ pub struct SettingGroup {
     title: Option<SharedString>,
     description: Option<SharedString>,
     items: Vec<SettingItem>,
+    anchor: Option<SharedString>,
 }
 
 impl SettingGroup {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn anchor(mut self, anchor: impl Into<SharedString>) -> Self {
+        self.anchor = Some(anchor.into());
+        self
     }
 
     /// Optional heading shown above the card.
@@ -229,6 +235,7 @@ impl SettingPage {
 struct SettingsState {
     active: usize,
     scroll: ScrollHandle,
+    request: u64,
 }
 
 /// The settings widget. Construct with [`Settings::new`], add [`Settings::pages`],
@@ -238,6 +245,8 @@ pub struct Settings {
     id: ElementId,
     pages: Vec<SettingPage>,
     initial_page: usize,
+    initial_anchor: Option<SharedString>,
+    request: u64,
 }
 
 impl Settings {
@@ -246,11 +255,23 @@ impl Settings {
             id: id.into(),
             pages: Vec::new(),
             initial_page: 0,
+            initial_anchor: None,
+            request: 0,
         }
     }
 
     pub fn initial_page(mut self, page_ix: usize) -> Self {
         self.initial_page = page_ix;
+        self
+    }
+
+    pub fn initial_anchor(mut self, anchor: Option<SharedString>) -> Self {
+        self.initial_anchor = anchor;
+        self
+    }
+
+    pub fn page_request(mut self, request: u64) -> Self {
+        self.request = request;
         self
     }
 
@@ -266,7 +287,25 @@ impl RenderOnce for Settings {
             window.use_keyed_state(self.id.clone(), cx, |_, _| SettingsState {
                 active: self.initial_page,
                 scroll: ScrollHandle::new(),
+                request: self.request.wrapping_sub(1),
             });
+        if state.read(cx).request != self.request {
+            let anchored = self.initial_anchor.as_ref().and_then(|anchor| {
+                self.pages.get(self.initial_page).and_then(|page| {
+                    page.groups
+                        .iter()
+                        .position(|group| group.anchor.as_ref() == Some(anchor))
+                })
+            });
+            state.update(cx, |s, _| {
+                s.request = self.request;
+                s.active = self.initial_page;
+                match anchored {
+                    Some(ix) => s.scroll.scroll_to_top_of_item(ix),
+                    None => s.scroll.set_offset(point(px(0.), px(0.))),
+                }
+            });
+        }
 
         // Clamped for this render only. The stored `active` can't actually go out of
         // range today (fixed tab set; clicks always store a valid index), so an

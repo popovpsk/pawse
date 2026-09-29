@@ -182,6 +182,52 @@ fn ping_signs_with_a_salted_token() {
 }
 
 #[test]
+fn plays_and_stars_are_reported_by_song_id() {
+    let stub = Stub::start(|_, _| ok(serde_json::json!({})));
+    let client = stub.client("x");
+    client.scrobble("s1", 1_700_000_000_000).unwrap();
+    client.now_playing("s2").unwrap();
+    client.set_starred("s3", true).unwrap();
+    client.set_starred("s4", false).unwrap();
+
+    let requests = stub.requests.lock().unwrap();
+    let calls: Vec<(&str, &str, Option<&str>, Option<&str>)> = requests
+        .iter()
+        .map(|(method, params)| {
+            (
+                method.as_str(),
+                params["id"].as_str(),
+                params.get("submission").map(String::as_str),
+                params.get("time").map(String::as_str),
+            )
+        })
+        .collect();
+    assert_eq!(
+        calls,
+        vec![
+            ("scrobble", "s1", Some("true"), Some("1700000000000")),
+            ("scrobble", "s2", Some("false"), None),
+            ("star", "s3", None, None),
+            ("unstar", "s4", None, None),
+        ]
+    );
+}
+
+#[test]
+fn a_song_the_server_no_longer_has_is_not_found() {
+    let stub = Stub::start(|_, _| failed(70));
+    assert!(matches!(
+        stub.client("x").set_starred("gone", true),
+        Err(Error::NotFound(_))
+    ));
+    let stub = Stub::start(|_, _| failed(0));
+    assert!(matches!(
+        stub.client("x").scrobble("s1", 1),
+        Err(Error::Server(_))
+    ));
+}
+
+#[test]
 fn a_server_without_token_auth_gets_the_encoded_password_instead() {
     let stub = Stub::start(|_, params| {
         if params.contains_key("t") {
@@ -327,7 +373,7 @@ fn a_ranged_download_with_an_error_reply_is_an_error() {
     let stub = Stub::start(|_, _| failed(70));
     assert!(matches!(
         stub.client("x").fetch_range("missing", 0, Some(10)),
-        Err(Error::Server(_))
+        Err(Error::NotFound(_))
     ));
     let stub = Stub::start(|_, _| failed(40));
     assert!(matches!(

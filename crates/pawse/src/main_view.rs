@@ -123,8 +123,11 @@ pub struct MainView {
     _scrobble_ui: Entity<ScrobbleUiState>,
     library_sources: Entity<crate::library_sources::LibrarySources>,
     settings_page_ix: usize,
+    settings_page_request: u64,
+    settings_anchor: Option<gpui::SharedString>,
     _library_sources_observe: Subscription,
     _scrobble_ui_observe: Subscription,
+    _scrobble_imports_subscription: Subscription,
     _scrobble_inputs: ScrobbleInputs,
     _scrobble_token_subscription: Subscription,
     _scrobble_status_observe: Option<Subscription>,
@@ -329,6 +332,8 @@ impl MainView {
         let library_sources_observe = cx.observe(&library_sources, |_, _, cx| cx.notify());
         let scrobble_ui: Entity<ScrobbleUiState> = cx.new(|_| ScrobbleUiState::new());
         let scrobble_ui_observe = cx.observe(&scrobble_ui, |_, _, cx| cx.notify());
+        let scrobble_imports_subscription =
+            crate::scrobble_settings::watch_server_imports(scrobble_ui.clone(), cx);
         let scrobble_inputs = ScrobbleInputs {
             token: cx.new(|cx| InputState::new(window, cx).masked(true)),
             api_root: cx.new(|cx| {
@@ -604,8 +609,11 @@ impl MainView {
             _scrobble_ui: scrobble_ui,
             library_sources: library_sources.clone(),
             settings_page_ix: 0,
+            settings_page_request: 0,
+            settings_anchor: None,
             _library_sources_observe: library_sources_observe,
             _scrobble_ui_observe: scrobble_ui_observe,
+            _scrobble_imports_subscription: scrobble_imports_subscription,
             _scrobble_inputs: scrobble_inputs,
             _scrobble_token_subscription: scrobble_token_subscription,
             _scrobble_status_observe: scrobble_status_observe,
@@ -682,9 +690,21 @@ impl MainView {
     }
 
     fn open_settings(&mut self, page_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_at(page_ix, None, window, cx);
+    }
+
+    fn open_settings_at(
+        &mut self,
+        page_ix: usize,
+        anchor: Option<gpui::SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_anchor = anchor;
         self.leave_overlays(window, cx);
         self.show_settings = true;
         self.settings_page_ix = page_ix;
+        self.settings_page_request += 1;
         self.library_sources
             .update(cx, |sources, cx| sources.refresh_cache(cx));
         cx.notify();
@@ -753,6 +773,22 @@ impl MainView {
             }));
         }
         cx.notify();
+    }
+
+    fn on_open_scrobbling_settings(
+        &mut self,
+        _: &crate::settings_view::OpenScrobblingSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_at(
+            self.settings_pages.scrobbling,
+            Some(gpui::SharedString::from(
+                crate::scrobble_settings::MEDIA_SERVERS_ANCHOR,
+            )),
+            window,
+            cx,
+        );
     }
 
     fn on_exit_cover_mode(&mut self, _: &ExitCoverMode, _: &mut Window, cx: &mut Context<Self>) {
@@ -992,6 +1028,8 @@ impl Render for MainView {
                                     .child(crate::settings_view::settings_widget(
                                         self.settings_pages.pages.clone(),
                                         self.settings_page_ix,
+                                        self.settings_anchor.clone(),
+                                        self.settings_page_request,
                                     ))
                                     .into_any_element()
                             } else {
@@ -1140,6 +1178,7 @@ impl Render for MainView {
                     .on_action(cx.listener(Self::on_volume_down))
                     .on_action(cx.listener(Self::on_play_pause))
                     .on_action(cx.listener(Self::on_exit_cover_mode))
+                    .on_action(cx.listener(Self::on_open_scrobbling_settings))
                     .when(show_chrome, |d| d.child(header_bar))
                     .child(middle)
                     .when(show_chrome, |d| d.child(footer_bar))

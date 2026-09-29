@@ -367,7 +367,11 @@ and `jellyfin_settings.rs` only hold each kind's connect. They list configured
 servers (`settings.json` → `subsonic_servers` with the password in plain text by
 decision, next to the scrobbling keys; `jellyfin_servers` with an access token,
 user id and device id — the password is only sent once, to log in) with status,
-track count, Sync, Import favorites and Remove, plus the connect form. Connect
+track count, Sync, a "Likes & scrobbling" link and Remove, plus the connect
+form. The link dispatches `settings_view::OpenScrobblingSettings`, which
+`MainView` turns into `open_settings(scrobbling)`; importing a server's
+favorites lives on that tab, next to the Last.fm/ListenBrainz imports, under
+one label ("Import liked tracks"). Connect
 pings (Jellyfin: logs in, then pings) and saves only a server that answered.
 Everything downstream is kind-agnostic: protocols live behind
 `crate::servers::ServerClient` (see `servers/doc.md`), bytes behind
@@ -375,8 +379,10 @@ Everything downstream is kind-agnostic: protocols live behind
 keyed `kind:uri` (`RemoteServer::key`) in `source_ids`, the sync queue, the
 events and the per-row messages, so a Subsonic and a Jellyfin account at the
 same address stay apart. The rows come from the same `LibrarySources` entity:
-`RemoteSyncStarted`/`Finished`/`RemoteStarsImported` events drive the Syncing
-state and the per-server result line.
+`RemoteSyncStarted`/`Finished` events drive the Syncing state and the
+per-server result line. `RemoteStarsImported` is read by the Scrobbling tab
+instead (`scrobble_settings::watch_server_imports`), which shows the import's
+result under that server's row.
 
 Sync (`remote_sync.rs`, run on its own thread by `LibraryService::sync_remote`,
 one at a time — requests arriving mid-sync are queued): ping → full listing →

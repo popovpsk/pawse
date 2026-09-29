@@ -17,6 +17,7 @@ const MAX_COVER_BYTES: u64 = 32 * 1024 * 1024;
 const ERROR_WRONG_CREDENTIALS: i64 = 40;
 const ERROR_TOKEN_AUTH_UNSUPPORTED: i64 = 41;
 const ERROR_NOT_AUTHORIZED: i64 = 50;
+const ERROR_NOT_FOUND: i64 = 70;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -31,6 +32,8 @@ pub enum Error {
     Transient(String),
     #[error("wrong username or password")]
     Auth,
+    #[error("not found: {0}")]
+    NotFound(String),
     #[error("{0}")]
     Server(String),
 }
@@ -126,7 +129,7 @@ impl Client {
         let search_error = match self.search_all() {
             Ok(songs) if !songs.is_empty() => return Ok(songs),
             Ok(_) => None,
-            Err(Error::Server(message)) => {
+            Err(Error::Server(message) | Error::NotFound(message)) => {
                 log::info!("subsonic: search3 listing unavailable ({message}), walking albums");
                 Some(Error::Server(message))
             }
@@ -142,6 +145,25 @@ impl Client {
     pub fn starred_songs(&self) -> Result<Vec<Song>, Error> {
         let response = self.json("getStarred2", &[])?;
         songs_at(&response, &["starred2", "song"])
+    }
+
+    pub fn scrobble(&self, song_id: &str, played_at_ms: u64) -> Result<(), Error> {
+        let time = played_at_ms.to_string();
+        self.json(
+            "scrobble",
+            &[("id", song_id), ("time", &time), ("submission", "true")],
+        )
+        .map(|_| ())
+    }
+
+    pub fn now_playing(&self, song_id: &str) -> Result<(), Error> {
+        self.json("scrobble", &[("id", song_id), ("submission", "false")])
+            .map(|_| ())
+    }
+
+    pub fn set_starred(&self, song_id: &str, starred: bool) -> Result<(), Error> {
+        let method = if starred { "star" } else { "unstar" };
+        self.json(method, &[("id", song_id)]).map(|_| ())
     }
 
     pub fn cover_art(&self, cover_id: &str) -> Result<Vec<u8>, Error> {
@@ -345,6 +367,9 @@ impl Client {
         Err(match code {
             ERROR_TOKEN_AUTH_UNSUPPORTED => ServerFailure::TokenAuthUnsupported,
             ERROR_WRONG_CREDENTIALS | ERROR_NOT_AUTHORIZED => ServerFailure::Error(Error::Auth),
+            ERROR_NOT_FOUND => {
+                ServerFailure::Error(Error::NotFound(format!("{method}: {message}")))
+            }
             _ => ServerFailure::Error(Error::Server(format!("{method}: {message}"))),
         })
     }

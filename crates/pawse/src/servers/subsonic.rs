@@ -14,6 +14,7 @@ fn error(error: subsonic::Error) -> RemoteError {
     match error {
         subsonic::Error::Auth => RemoteError::Auth,
         subsonic::Error::Transient(message) => RemoteError::Unreachable(message),
+        subsonic::Error::NotFound(message) => RemoteError::NotFound(message),
         subsonic::Error::Server(message) => RemoteError::Other(message),
     }
 }
@@ -45,6 +46,20 @@ impl ServerClient for Subsonic {
 
     fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
         self.0.cover_art(key).map_err(error)
+    }
+
+    fn scrobble(&self, key: &str, played_at: u64) -> Result<(), RemoteError> {
+        self.0
+            .scrobble(key, played_at.saturating_mul(1000))
+            .map_err(error)
+    }
+
+    fn now_playing(&self, key: &str) -> Result<(), RemoteError> {
+        self.0.now_playing(key).map_err(error)
+    }
+
+    fn set_favorite(&self, key: &str, favorite: bool) -> Result<(), RemoteError> {
+        self.0.set_starred(key, favorite).map_err(error)
     }
 
     fn fetch_range(

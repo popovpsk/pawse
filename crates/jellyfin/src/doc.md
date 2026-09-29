@@ -49,6 +49,11 @@ the library database; `pawse::remote_sync` turns its `Item`s into
   30 s body timeout, as in `subsonic`.
 - **No secrets in errors.** `server_http::redact` strips query strings from
   transport error texts anyway.
-- **Not done:** reporting plays or favorites back to the server, picking
-  individual music libraries, Quick Connect, logging the session out when a
-  server is removed.
+- **Setting a favorite.** `set_favorite` posts (or deletes)
+  `/UserFavoriteItems/{id}?userId=…`, the 10.9+ route. A 404/405 there means an
+  older server, which gets `/Users/{userId}/FavoriteItems/{id}` instead; a 404 on
+  both is `NotFound` (the item is gone), any other refusal a `Server` error
+  carrying its own status. Called by `pawse::server_scrobble` when a like is
+  sent back.
+- **Not done:** reporting plays back to the server, picking individual music
+  libraries, Quick Connect, logging the session out when a server is removed.

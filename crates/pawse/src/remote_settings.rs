@@ -190,6 +190,7 @@ pub fn server_moved(config: &RemoteConfig, cx: &mut App) {
 
 pub fn added(server: RemoteServer, cx: &mut App) {
     apply_remote_sources(cx);
+    crate::scrobble_bridge::apply_settings(cx);
     cx.global::<Services>().library.sync_remote(vec![server]);
 }
 
@@ -201,6 +202,7 @@ fn remove_server(server: &RemoteServer, cx: &mut App) {
         notify_save_error(cx, e);
     }
     apply_remote_sources(cx);
+    crate::scrobble_bridge::apply_settings(cx);
     cx.global::<Services>()
         .library
         .refresh_after_source_change();
@@ -241,7 +243,7 @@ fn confirm_remove_server(server: RemoteServer, window: &mut Window, cx: &mut App
 struct Ids {
     browse: &'static str,
     sync: &'static str,
-    stars: &'static str,
+    scrobbling: &'static str,
     remove: &'static str,
     connect: &'static str,
 }
@@ -251,28 +253,28 @@ fn ids(kind: ServerKind) -> Ids {
         ServerKind::Jellyfin => Ids {
             browse: "jellyfin-browse",
             sync: "jellyfin-sync",
-            stars: "jellyfin-stars",
+            scrobbling: "jellyfin-scrobbling",
             remove: "jellyfin-remove",
             connect: "jellyfin-connect",
         },
         ServerKind::Subsonic => Ids {
             browse: "subsonic-browse",
             sync: "subsonic-sync",
-            stars: "subsonic-stars",
+            scrobbling: "subsonic-scrobbling",
             remove: "subsonic-remove",
             connect: "subsonic-connect",
         },
         ServerKind::Dlna => Ids {
             browse: "dlna-browse",
             sync: "dlna-sync",
-            stars: "dlna-stars",
+            scrobbling: "dlna-scrobbling",
             remove: "dlna-remove",
             connect: "dlna-connect",
         },
         ServerKind::Torrent => Ids {
             browse: "torrent-browse",
             sync: "torrent-sync",
-            stars: "torrent-stars",
+            scrobbling: "torrent-scrobbling",
             remove: "torrent-remove",
             connect: "torrent-add",
         },
@@ -293,7 +295,6 @@ pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option
         };
         let syncing = row.status == ServerStatus::Syncing;
         let for_sync = row.server.clone();
-        let for_stars = row.server.clone();
         let for_remove = row.server.clone();
         let web_url = row.server.config.web_url().map(str::to_string);
         list = list.child(
@@ -354,14 +355,14 @@ pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option
                         })
                         .when(kind.imports_favorites(), |row| {
                             row.child(
-                                Button::new((ids.stars, ix))
+                                Button::new((ids.scrobbling, ix))
                                     .small()
-                                    .label(tr().server_import_favorites.clone())
-                                    .disabled(syncing)
-                                    .on_click(move |_, _, cx| {
-                                        cx.global::<Services>()
-                                            .library
-                                            .import_remote_stars(for_stars.clone());
+                                    .label(tr().server_scrobbling_link.clone())
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(
+                                            Box::new(crate::settings_view::OpenScrobblingSettings),
+                                            cx,
+                                        );
                                     }),
                             )
                         })

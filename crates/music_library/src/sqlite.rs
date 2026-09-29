@@ -2538,6 +2538,19 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn remote_key_for_item(&self, source_id: i64, item_id: i64) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let key = conn
+            .query_row(
+                "SELECT source_key FROM media_bindings \
+                 WHERE source_id = ?1 AND item_id = ?2 AND present = 1 ORDER BY id LIMIT 1",
+                [source_id, item_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(key)
+    }
+
     fn remote_file_sizes(&self, source_id: i64, keys: &[String]) -> Result<HashMap<String, i64>> {
         let conn = self.conn.lock().unwrap();
         let keys_json = serde_json::to_string(keys).unwrap_or_else(|_| "[]".into());
@@ -2710,13 +2723,14 @@ impl LibraryRepository for SqliteLibrary {
         let conn = self.scrobble_conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
             "SELECT p.id, p.artist, p.title, p.album, p.album_artist, p.track_number, \
-             p.duration_secs, p.started_at FROM play_deliveries d \
+             p.duration_secs, p.started_at, p.track_id FROM play_deliveries d \
              JOIN plays p ON p.id = d.play_id \
              WHERE d.target = ?1 AND d.state = 0 ORDER BY d.play_id LIMIT ?2",
         )?;
         let rows = stmt.query_map(rusqlite::params![target, max as i64], |row| {
             Ok(PendingPlay {
                 id: row.get(0)?,
+                track_id: row.get(8)?,
                 artist: row.get(1)?,
                 title: row.get(2)?,
                 album: row.get(3)?,
@@ -2733,13 +2747,14 @@ impl LibraryRepository for SqliteLibrary {
     fn pending_loves(&self, target: &str, max: usize) -> Result<Vec<PendingLove>> {
         let conn = self.scrobble_conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT l.id, l.artist, l.title, l.loved, l.at FROM love_deliveries d \
+            "SELECT l.id, l.artist, l.title, l.loved, l.at, l.track_id FROM love_deliveries d \
              JOIN loves l ON l.id = d.love_id \
              WHERE d.target = ?1 AND d.state = 0 ORDER BY d.love_id LIMIT ?2",
         )?;
         let rows = stmt.query_map(rusqlite::params![target, max as i64], |row| {
             Ok(PendingLove {
                 id: row.get(0)?,
+                track_id: row.get(5)?,
                 artist: row.get(1)?,
                 title: row.get(2)?,
                 loved: row.get::<_, i64>(3)? != 0,

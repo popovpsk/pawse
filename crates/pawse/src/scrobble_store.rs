@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use music_library::LibraryRepository;
@@ -18,8 +19,12 @@ fn backend<T>(result: music_library::Result<T>) -> StoreResult<T> {
     result.map_err(|e| StoreError::Backend(e.to_string()))
 }
 
-fn keys(targets: &[TargetId]) -> Vec<&'static str> {
+fn keys(targets: &[TargetId]) -> Vec<Cow<'static, str>> {
     targets.iter().map(|target| target.key()).collect()
+}
+
+fn borrowed<'a>(keys: &'a [Cow<'static, str>]) -> Vec<&'a str> {
+    keys.iter().map(|key| key.as_ref()).collect()
 }
 
 fn to_new_play(play: &Play) -> NewPlay {
@@ -47,9 +52,10 @@ fn to_new_love(love: &Love) -> NewLove {
     }
 }
 
-fn to_scrobble(pending: PendingPlay) -> (i64, Scrobble) {
+fn to_scrobble(pending: PendingPlay) -> (i64, Option<i64>, Scrobble) {
     (
         pending.id,
+        pending.track_id,
         Scrobble {
             artist: pending.artist,
             title: pending.title,
@@ -66,7 +72,7 @@ fn to_love(pending: PendingLove) -> (i64, Love) {
     (
         pending.id,
         Love {
-            track_id: None,
+            track_id: pending.track_id,
             artist: pending.artist,
             title: pending.title,
             loved: pending.loved,
@@ -85,20 +91,26 @@ fn to_outcome(outcome: &Outcome) -> DeliveryOutcome {
 
 impl ScrobbleStore for LibraryScrobbleStore {
     fn record_play(&self, play: &Play, targets: &[TargetId]) -> StoreResult<i64> {
-        backend(self.repo.record_play(&to_new_play(play), &keys(targets)))
+        let keys = keys(targets);
+        backend(self.repo.record_play(&to_new_play(play), &borrowed(&keys)))
     }
 
     fn record_love(&self, love: &Love, targets: &[TargetId]) -> StoreResult<i64> {
-        backend(self.repo.record_love(&to_new_love(love), &keys(targets)))
+        let keys = keys(targets);
+        backend(self.repo.record_love(&to_new_love(love), &borrowed(&keys)))
     }
 
-    fn pending_scrobbles(&self, target: TargetId, max: usize) -> StoreResult<Vec<(i64, Scrobble)>> {
-        let pending = backend(self.repo.pending_plays(target.key(), max))?;
+    fn pending_scrobbles(
+        &self,
+        target: TargetId,
+        max: usize,
+    ) -> StoreResult<Vec<(i64, Option<i64>, Scrobble)>> {
+        let pending = backend(self.repo.pending_plays(&target.key(), max))?;
         Ok(pending.into_iter().map(to_scrobble).collect())
     }
 
     fn pending_loves(&self, target: TargetId, max: usize) -> StoreResult<Vec<(i64, Love)>> {
-        let pending = backend(self.repo.pending_loves(target.key(), max))?;
+        let pending = backend(self.repo.pending_loves(&target.key(), max))?;
         Ok(pending.into_iter().map(to_love).collect())
     }
 
@@ -110,19 +122,20 @@ impl ScrobbleStore for LibraryScrobbleStore {
     ) -> StoreResult<()> {
         backend(
             self.repo
-                .settle_plays(ids, target.key(), &to_outcome(outcome)),
+                .settle_plays(ids, &target.key(), &to_outcome(outcome)),
         )
     }
 
     fn settle_loves(&self, ids: &[i64], target: TargetId, outcome: &Outcome) -> StoreResult<()> {
         backend(
             self.repo
-                .settle_loves(ids, target.key(), &to_outcome(outcome)),
+                .settle_loves(ids, &target.key(), &to_outcome(outcome)),
         )
     }
 
     fn pending_count(&self, targets: &[TargetId]) -> StoreResult<usize> {
-        backend(self.repo.pending_scrobble_count(&keys(targets)))
+        let keys = keys(targets);
+        backend(self.repo.pending_scrobble_count(&borrowed(&keys)))
     }
 
     fn trim(&self, cap: usize) -> StoreResult<()> {
@@ -178,10 +191,11 @@ mod tests {
 
         let pending = store.pending_scrobbles(TargetId::Lastfm, 10).unwrap();
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].1.artist, "Tool");
-        assert_eq!(pending[0].1.track_number, Some(2));
-        assert_eq!(pending[0].1.duration_secs, Some(713));
-        assert_eq!(pending[0].1.timestamp, 1_700_000_000);
+        assert_eq!(pending[0].1, None);
+        assert_eq!(pending[0].2.artist, "Tool");
+        assert_eq!(pending[0].2.track_number, Some(2));
+        assert_eq!(pending[0].2.duration_secs, Some(713));
+        assert_eq!(pending[0].2.timestamp, 1_700_000_000);
 
         store
             .settle_scrobbles(&[pending[0].0], TargetId::Lastfm, &Outcome::Sent)
@@ -248,6 +262,25 @@ mod tests {
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].1.at, 1_700_000_500);
         assert!(pending[0].1.loved);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_server_target_gets_its_own_deliveries() {
+        let (store, path) = store();
+        let server = TargetId::Server(4);
+        store
+            .record_play(&a_play(true), &[TargetId::Lastfm, server])
+            .unwrap();
+
+        let pending = store.pending_scrobbles(server, 10).unwrap();
+        assert_eq!(pending.len(), 1);
+        store
+            .settle_scrobbles(&[pending[0].0], server, &Outcome::Sent)
+            .unwrap();
+
+        assert_eq!(store.pending_count(&[server]).unwrap(), 0);
+        assert_eq!(store.pending_count(&[TargetId::Lastfm]).unwrap(), 1);
         let _ = std::fs::remove_file(&path);
     }
 

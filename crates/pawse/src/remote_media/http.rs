@@ -77,7 +77,9 @@ impl RangeFetch for ServerFetch {
             }),
             Err(RemoteError::Unreachable(message)) => Err(FetchError::Retry(message)),
             Err(RemoteError::Auth) => Err(FetchError::Fatal("wrong username or password".into())),
-            Err(RemoteError::Other(message)) => Err(FetchError::Fatal(message)),
+            Err(RemoteError::NotFound(message) | RemoteError::Other(message)) => {
+                Err(FetchError::Fatal(message))
+            }
         }
     }
 }

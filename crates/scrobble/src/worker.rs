@@ -23,7 +23,7 @@ pub enum StatusEvent {
 
 enum Msg {
     Configure(Vec<Box<dyn ScrobbleTarget>>),
-    NowPlaying(NowPlaying),
+    NowPlaying(NowPlaying, Option<i64>),
     Flush,
 }
 
@@ -41,9 +41,7 @@ impl ScrobbleHandle {
         targets: Vec<Box<dyn ScrobbleTarget>>,
         status: Sender<StatusEvent>,
     ) -> Self {
-        let target_ids = Arc::new(Mutex::new(
-            targets.iter().map(|t| t.id()).collect::<Vec<_>>(),
-        ));
+        let target_ids = Arc::new(Mutex::new(scrobble_targets(&targets)));
         let love_target_ids = Arc::new(Mutex::new(love_targets(&targets)));
         let (tx, rx) = flume::unbounded();
         let spawned = {
@@ -75,13 +73,13 @@ impl ScrobbleHandle {
     }
 
     pub fn configure(&self, targets: Vec<Box<dyn ScrobbleTarget>>) {
-        *self.target_ids.lock().unwrap() = targets.iter().map(|t| t.id()).collect();
+        *self.target_ids.lock().unwrap() = scrobble_targets(&targets);
         *self.love_target_ids.lock().unwrap() = love_targets(&targets);
         let _ = self.tx.send(Msg::Configure(targets));
     }
 
-    pub fn now_playing(&self, now_playing: NowPlaying) {
-        let _ = self.tx.send(Msg::NowPlaying(now_playing));
+    pub fn now_playing(&self, now_playing: NowPlaying, track_id: Option<i64>) {
+        let _ = self.tx.send(Msg::NowPlaying(now_playing, track_id));
     }
 
     pub fn scrobble(&self, play: Play) -> Option<i64> {
@@ -171,14 +169,15 @@ impl Worker {
             };
             match msg {
                 Some(Msg::Configure(targets)) => {
-                    let ids: Vec<TargetId> = targets.iter().map(|t| t.id()).collect();
-                    *self.target_ids.lock().unwrap() = ids;
+                    *self.target_ids.lock().unwrap() = scrobble_targets(&targets);
                     self.targets = targets;
                     self.disabled.clear();
                     self.backoff.clear();
                     self.flush();
                 }
-                Some(Msg::NowPlaying(now_playing)) => self.send_now_playing(&now_playing),
+                Some(Msg::NowPlaying(now_playing, track_id)) => {
+                    self.send_now_playing(&now_playing, track_id)
+                }
                 Some(Msg::Flush) | None => self.flush(),
             }
         }
@@ -232,7 +231,7 @@ impl Worker {
             }
         };
         for (item_id, love) in loves {
-            let result = self.targets[pos].love(&love.artist, &love.title, love.loved, love.at);
+            let result = self.targets[pos].love_track(&love);
             let (outcome, keep_going) = self.classify(id, 1, result);
             if !self.settle_loves(id, &[item_id], &outcome) {
                 self.bump(id);
@@ -261,9 +260,11 @@ impl Worker {
             if batch.is_empty() {
                 break;
             }
-            let item_ids: Vec<i64> = batch.iter().map(|(item_id, _)| *item_id).collect();
-            let items: Vec<Scrobble> = batch.into_iter().map(|(_, s)| s).collect();
-            let result = self.targets[pos].submit(&items);
+            let item_ids: Vec<i64> = batch.iter().map(|(item_id, _, _)| *item_id).collect();
+            let track_ids: Vec<Option<i64>> =
+                batch.iter().map(|(_, track_id, _)| *track_id).collect();
+            let items: Vec<Scrobble> = batch.into_iter().map(|(_, _, s)| s).collect();
+            let result = self.targets[pos].submit_tracks(&items, &track_ids);
             let (outcome, keep_going) = self.classify(id, items.len(), result);
             if !self.settle_scrobbles(id, &item_ids, &outcome) {
                 self.bump(id);
@@ -356,13 +357,13 @@ impl Worker {
         delay
     }
 
-    fn send_now_playing(&mut self, now_playing: &NowPlaying) {
+    fn send_now_playing(&mut self, now_playing: &NowPlaying, track_id: Option<i64>) {
         for pos in 0..self.targets.len() {
             let id = self.targets[pos].id();
             if self.disabled.contains(&id) {
                 continue;
             }
-            match self.targets[pos].now_playing(now_playing) {
+            match self.targets[pos].now_playing_track(now_playing, track_id) {
                 Ok(()) | Err(SubmitError::Unsupported) => {}
                 Err(SubmitError::Auth(message)) => {
                     log::warn!("scrobble: {} needs re-authorization: {message}", id.label());
@@ -376,6 +377,14 @@ impl Worker {
             }
         }
     }
+}
+
+fn scrobble_targets(targets: &[Box<dyn ScrobbleTarget>]) -> Vec<TargetId> {
+    targets
+        .iter()
+        .filter(|t| t.accepts_scrobbles())
+        .map(|t| t.id())
+        .collect()
 }
 
 fn love_targets(targets: &[Box<dyn ScrobbleTarget>]) -> Vec<TargetId> {
@@ -574,7 +583,7 @@ mod tests {
             &self,
             target: TargetId,
             max: usize,
-        ) -> StoreResult<Vec<(i64, Scrobble)>> {
+        ) -> StoreResult<Vec<(i64, Option<i64>, Scrobble)>> {
             let rows = self.rows.lock().unwrap();
             let mut ids: Vec<i64> = rows
                 .play_deliveries
@@ -590,7 +599,7 @@ mod tests {
                     rows.plays
                         .iter()
                         .find(|(play_id, _)| *play_id == id)
-                        .map(|(_, s)| (id, s.clone()))
+                        .map(|(_, s)| (id, None, s.clone()))
                 })
                 .collect())
         }
@@ -1045,6 +1054,58 @@ mod tests {
 
         assert_eq!(store.play_count(), 1);
         assert_eq!(store.pending_ids(TargetId::Lastfm).len(), 1);
+    }
+
+    struct LovesOnly(Fake);
+
+    impl ScrobbleTarget for LovesOnly {
+        fn id(&self) -> TargetId {
+            self.0.id()
+        }
+
+        fn max_batch(&self) -> usize {
+            self.0.max_batch()
+        }
+
+        fn now_playing(&self, now_playing: &NowPlaying) -> Result<(), SubmitError> {
+            self.0.now_playing(now_playing)
+        }
+
+        fn submit(&self, items: &[Scrobble]) -> Result<(), SubmitError> {
+            self.0.submit(items)
+        }
+
+        fn love(&self, artist: &str, title: &str, love: bool, at: u64) -> Result<(), SubmitError> {
+            self.0.love(artist, title, love, at)
+        }
+
+        fn accepts_scrobbles(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn a_target_that_takes_no_scrobbles_is_never_owed_a_play() {
+        let (status_tx, _status_rx) = flume::unbounded();
+        let store = Arc::new(FakeStore::default());
+        let handle = ScrobbleHandle::spawn(
+            store.clone(),
+            vec![
+                Box::new(Fake::new(
+                    TargetId::Lastfm,
+                    vec![Err(SubmitError::Transient("offline".to_string()))],
+                )),
+                Box::new(LovesOnly(Fake::new(TargetId::Server(3), vec![]))),
+            ],
+            status_tx,
+        );
+
+        handle.persist(play_at(100));
+        handle.love(a_love());
+
+        assert_eq!(store.pending_ids(TargetId::Lastfm).len(), 1);
+        assert!(store.pending_ids(TargetId::Server(3)).is_empty());
+        assert!(store.love_state(TargetId::Server(3)).is_some());
     }
 
     #[test]

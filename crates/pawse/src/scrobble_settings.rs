@@ -1,9 +1,10 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{
     AnyElement, App, AppContext, Axis, Entity, IntoElement, ParentElement, SharedString, Styled,
-    div, prelude::FluentBuilder, px,
+    Subscription, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Disableable, Sizable,
@@ -16,8 +17,11 @@ use gpui_component::{
 use scrobble::{SessionError, TargetId};
 use ui_components::settings::{SettingField, SettingGroup, SettingItem, SettingPage};
 
+use crate::library_service::LibraryEvent;
 use crate::localization::tr;
 use crate::scrobble_import::ImportSource;
+use crate::servers::{ServerKind, source_key};
+use crate::services::Services;
 use crate::settings_store::{ScrobbleSettings, ServiceState, SettingsStore, notify_save_error};
 use crate::theme_colors::Colors;
 
@@ -44,6 +48,8 @@ pub struct ScrobbleUiState {
     pub csv: ServiceUi,
     pub import_busy: Option<ImportSource>,
     pub import_result: Option<(ImportSource, SharedString)>,
+    pub server_imports_busy: HashSet<String>,
+    pub server_import_results: HashMap<String, SharedString>,
 }
 
 impl ScrobbleUiState {
@@ -137,6 +143,8 @@ impl WebAuthService {
 
 const FIELD_MAX_W: f32 = 360.;
 
+pub const MEDIA_SERVERS_ANCHOR: &str = "scrobble-media-servers";
+
 #[derive(Clone)]
 pub struct ScrobbleInputs {
     pub token: Entity<InputState>,
@@ -208,6 +216,19 @@ pub fn scrobble_page(
                 )
                 .layout(Axis::Vertical)
                 .description(tr().scrobble_csv_desc.clone()),
+            ),
+    );
+
+    let servers_ui = scrobble_ui.clone();
+    page = page.group(
+        SettingGroup::new()
+            .anchor(MEDIA_SERVERS_ANCHOR)
+            .title(tr().scrobble_servers.clone())
+            .item(
+                SettingItem::unlabeled(SettingField::render(move |_window, cx: &mut App| {
+                    servers_field(servers_ui.clone(), cx)
+                }))
+                .description(tr().scrobble_servers_desc.clone()),
             ),
     );
 
@@ -858,6 +879,131 @@ fn clear_csv_error(cx: &mut App, state: &Entity<ScrobbleUiState>) {
             cx.notify();
         }
     });
+}
+
+fn servers_field(state: Entity<ScrobbleUiState>, cx: &mut App) -> AnyElement {
+    let store = cx.global::<SettingsStore>();
+    let servers: Vec<(ServerKind, String)> = store
+        .subsonic_servers()
+        .iter()
+        .map(|server| (ServerKind::Subsonic, server.source_uri()))
+        .chain(
+            store
+                .jellyfin_servers()
+                .iter()
+                .map(|server| (ServerKind::Jellyfin, server.source_uri())),
+        )
+        .collect();
+    if servers.is_empty() {
+        return div()
+            .text_sm()
+            .text_color(Colors::muted_foreground(cx))
+            .child(tr().scrobble_no_servers.clone())
+            .into_any_element();
+    }
+    let settings = store.scrobble();
+    let ui = state.read(cx);
+    let mut list = v_flex().gap_2().w_full();
+    for (ix, (kind, uri)) in servers.into_iter().enumerate() {
+        let key = source_key(kind, &uri);
+        let reporting = settings.server(&key);
+        let mut controls = Vec::new();
+        if kind.reports_plays() {
+            let key = key.clone();
+            controls.push(
+                Switch::new(("scrobble-server-plays", ix))
+                    .checked(reporting.plays)
+                    .label(tr().scrobble_server_plays.clone())
+                    .on_click(move |new_val, _, cx| {
+                        let value = *new_val;
+                        let key = key.clone();
+                        update_scrobble(cx, move |s| s.server_mut(&key).plays = value);
+                    })
+                    .into_any_element(),
+            );
+        }
+        if kind.sends_favorites() {
+            let key = key.clone();
+            controls.push(
+                Switch::new(("scrobble-server-likes", ix))
+                    .checked(reporting.likes)
+                    .label(tr().scrobble_server_likes.clone())
+                    .on_click(move |new_val, _, cx| {
+                        let value = *new_val;
+                        let key = key.clone();
+                        update_scrobble(cx, move |s| s.server_mut(&key).likes = value);
+                    })
+                    .into_any_element(),
+            );
+        }
+        let mut result = None;
+        if kind.imports_favorites() {
+            let busy = ui.server_imports_busy.contains(&key);
+            result = ui.server_import_results.get(&key).cloned();
+            let state = state.clone();
+            let key = key.clone();
+            controls.push(
+                Button::new(("scrobble-server-import", ix))
+                    .small()
+                    .label(tr().scrobble_import_loves.clone())
+                    .loading(busy)
+                    .disabled(busy)
+                    .on_click(move |_, _, cx| start_server_import(cx, state.clone(), key.clone()))
+                    .into_any_element(),
+            );
+        }
+        let identity = identity_line(
+            Some(SharedString::from(uri)),
+            SharedString::from(kind.title()),
+            cx,
+        );
+        list = list.child(
+            v_flex()
+                .gap_1()
+                .child(service_row(identity, controls, None, cx))
+                .children(result.map(|text| {
+                    div()
+                        .w_full()
+                        .text_sm()
+                        .text_color(Colors::muted_foreground(cx))
+                        .child(text)
+                })),
+        );
+    }
+    list.into_any_element()
+}
+
+fn start_server_import(cx: &mut App, state: Entity<ScrobbleUiState>, key: String) {
+    let Some(server) = crate::remote_settings::remote_servers(cx)
+        .into_iter()
+        .find(|server| server.key() == key)
+    else {
+        return;
+    };
+    state.update(cx, |s, cx| {
+        s.server_import_results.remove(&key);
+        s.server_imports_busy.insert(key);
+        cx.notify();
+    });
+    cx.global::<Services>().library.import_remote_stars(server);
+}
+
+pub fn watch_server_imports(state: Entity<ScrobbleUiState>, cx: &mut App) -> Subscription {
+    let bus = cx.global::<Services>().library_event_bus.clone();
+    cx.subscribe(&bus, move |_, event: &LibraryEvent, cx| {
+        let LibraryEvent::RemoteStarsImported { key, outcome } = event else {
+            return;
+        };
+        let message = match outcome {
+            Ok((found, total)) => SharedString::from(tr().scrobble_import_result(*found, *total)),
+            Err(error) => crate::library_sources::describe_error(error),
+        };
+        state.update(cx, |s, cx| {
+            s.server_imports_busy.remove(key);
+            s.server_import_results.insert(key.clone(), message);
+            cx.notify();
+        });
+    })
 }
 
 fn import_loves_field(

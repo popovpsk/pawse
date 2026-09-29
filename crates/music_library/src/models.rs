@@ -343,6 +343,7 @@ pub struct NewLove {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingPlay {
     pub id: i64,
+    pub track_id: Option<i64>,
     pub artist: String,
     pub title: String,
     pub album: Option<String>,
@@ -355,6 +356,7 @@ pub struct PendingPlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingLove {
     pub id: i64,
+    pub track_id: Option<i64>,
     pub artist: String,
     pub title: String,
     pub loved: bool,

@@ -55,6 +55,7 @@ pub mod scrobble_bridge;
 mod scrobble_import;
 mod scrobble_settings;
 pub mod scrobble_store;
+pub mod server_scrobble;
 pub mod servers;
 pub mod services;
 pub mod settings_store;
@@ -142,6 +143,7 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
         let root = cx.new(|cx| Root::new(view, window, cx));
         if run_startup_tasks {
             crate::remote_settings::apply_remote_sources(cx);
+            crate::scrobble_bridge::apply_settings(cx);
             restore_engine_state(cx);
             window.on_next_frame(|_window, cx| {
                 let folders = cx

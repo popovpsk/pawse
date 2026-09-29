@@ -153,9 +153,11 @@ impl ServerClient for Torrent {
         let listed = index::songs(self.engine()?, &self.info_hash, &self.host.state);
         let failure = match &listed {
             Ok(_) => None,
-            Err(RemoteError::Unreachable(reason) | RemoteError::Other(reason)) => {
-                Some(reason.clone())
-            }
+            Err(
+                RemoteError::Unreachable(reason)
+                | RemoteError::NotFound(reason)
+                | RemoteError::Other(reason),
+            ) => Some(reason.clone()),
             Err(RemoteError::Auth) => Some("access denied".to_string()),
         };
         self.host.note_index(&self.info_hash, failure);

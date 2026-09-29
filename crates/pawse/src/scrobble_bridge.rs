@@ -16,6 +16,8 @@ use scrobble::{
 use crate::library_service::LibraryEvent;
 use crate::localization::tr;
 use crate::scrobble_store::LibraryScrobbleStore;
+use crate::server_scrobble::ServerTarget;
+use crate::servers::{RemoteServer, ServerKind};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -58,6 +60,7 @@ struct Current {
 struct BridgeState {
     executor: BackgroundExecutor,
     handle: Option<ScrobbleHandle>,
+    loves: flume::Sender<Love>,
     active: bool,
     first_artist_only: bool,
     current: Option<Current>,
@@ -72,12 +75,15 @@ pub fn setup(cx: &mut App) {
     let store = Arc::new(LibraryScrobbleStore::new(repo));
     let targets = build_targets(cx);
     let active = !targets.is_empty();
-    let handle = Some(ScrobbleHandle::spawn(store, targets, status_tx));
+    let handle = ScrobbleHandle::spawn(store, targets, status_tx);
+    let loves = spawn_love_writer(cx.background_executor(), handle.clone());
+    let handle = Some(handle);
 
     let first_artist_only = cx.global::<SettingsStore>().scrobble().first_artist_only;
     let state = Rc::new(RefCell::new(BridgeState {
         executor: cx.background_executor().clone(),
         handle,
+        loves,
         active,
         first_artist_only,
         current: None,
@@ -128,6 +134,18 @@ pub fn setup(cx: &mut App) {
     }
 }
 
+fn spawn_love_writer(executor: &BackgroundExecutor, handle: ScrobbleHandle) -> flume::Sender<Love> {
+    let (tx, rx) = flume::unbounded::<Love>();
+    executor
+        .spawn(async move {
+            while let Ok(love) = rx.recv_async().await {
+                handle.love(love);
+            }
+        })
+        .detach();
+    tx
+}
+
 pub fn apply_settings(cx: &mut App) {
     let targets = build_targets(cx);
     let active = !targets.is_empty();
@@ -166,18 +184,39 @@ fn report_failure(
     {
         return;
     }
-    if crate::error_bridge::push_background_error(cx, target_title(target), message.clone()) {
+    let title = target_title(cx, target);
+    if crate::error_bridge::push_background_error(cx, title, message.clone()) {
         state.borrow_mut().notified.insert(target, message);
     }
 }
 
-fn target_title(target: TargetId) -> SharedString {
+fn target_title(cx: &App, target: TargetId) -> SharedString {
     match target {
         TargetId::Lastfm => SharedString::from("Last.fm"),
         TargetId::Librefm => SharedString::from("Libre.fm"),
         TargetId::ListenBrainz => SharedString::from("ListenBrainz"),
         TargetId::CsvLog => tr().scrobble_csv.clone(),
+        TargetId::Server(source_id) => server_title(cx, source_id),
     }
+}
+
+fn server_title(cx: &App, source_id: i64) -> SharedString {
+    cx.global::<Services>()
+        .library
+        .repo()
+        .sources()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|source| source.id == source_id)
+        .and_then(|source| {
+            let kind = ServerKind::parse(&source.kind)?;
+            Some(SharedString::from(format!(
+                "{} · {}",
+                kind.title(),
+                source.uri
+            )))
+        })
+        .unwrap_or_else(|| SharedString::from("Server"))
 }
 
 pub fn finalize_on_quit(cx: &mut App) -> Option<Task<()>> {
@@ -229,7 +268,42 @@ fn build_targets(cx: &App) -> Vec<Box<dyn ScrobbleTarget>> {
         )));
     }
 
+    targets.extend(server_targets(cx));
     targets
+}
+
+fn server_targets(cx: &App) -> Vec<Box<dyn ScrobbleTarget>> {
+    let settings = cx.global::<SettingsStore>().scrobble();
+    let wanted: Vec<(RemoteServer, bool, bool)> = crate::remote_settings::remote_servers(cx)
+        .into_iter()
+        .filter_map(|server| {
+            let reporting = settings.server(&server.key());
+            let kind = server.kind();
+            let plays = reporting.plays && kind.reports_plays();
+            let likes = reporting.likes && kind.sends_favorites();
+            (plays || likes).then_some((server, plays, likes))
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let repo = cx.global::<Services>().library.repo();
+    let ids = crate::remote_sync::source_ids(&*repo);
+    wanted
+        .into_iter()
+        .filter_map(|(server, plays, likes)| {
+            let source_id = *ids.get(&server.key())?;
+            let target = ServerTarget::new(
+                source_id,
+                server.kind(),
+                server.config.client(),
+                repo.clone(),
+                plays,
+                likes,
+            )?;
+            Some(Box::new(target) as Box<dyn ScrobbleTarget>)
+        })
+        .collect()
 }
 
 fn on_engine_event(cx: &mut App, state: &Rc<RefCell<BridgeState>>, event: &EngineEvent) {
@@ -295,25 +369,18 @@ fn on_library_event(cx: &mut App, state: &Rc<RefCell<BridgeState>>, event: &Libr
     if artist.is_empty() || title.is_empty() {
         return;
     }
-    let st = state.borrow();
-    if let Some(handle) = st.handle.clone() {
-        let love = Love {
-            track_id: Some(*track_id),
-            artist,
-            title,
-            loved: *liked,
-            at: unix_now(),
-        };
-        st.executor
-            .spawn(async move {
-                handle.love(love);
-            })
-            .detach();
-    }
+    let love = Love {
+        track_id: Some(*track_id),
+        artist,
+        title,
+        loved: *liked,
+        at: unix_now(),
+    };
+    let _ = state.borrow().loves.send(love);
 }
 
 fn ensure_now_playing(st: &mut BridgeState) {
-    let now_playing = {
+    let (now_playing, track_id) = {
         let Some(current) = st.current.as_mut() else {
             return;
         };
@@ -322,17 +389,20 @@ fn ensure_now_playing(st: &mut BridgeState) {
         }
         current.started = true;
         current.timestamp = unix_now();
-        NowPlaying {
-            artist: current.meta.artist.clone(),
-            title: current.meta.title.clone(),
-            album: current.meta.album.clone(),
-            album_artist: current.meta.album_artist.clone(),
-            track_number: current.meta.track_number,
-            duration_secs: Some(current.duration.as_secs()),
-        }
+        (
+            NowPlaying {
+                artist: current.meta.artist.clone(),
+                title: current.meta.title.clone(),
+                album: current.meta.album.clone(),
+                album_artist: current.meta.album_artist.clone(),
+                track_number: current.meta.track_number,
+                duration_secs: Some(current.duration.as_secs()),
+            },
+            current.meta.track_id,
+        )
     };
     if let Some(handle) = &st.handle {
-        handle.now_playing(now_playing);
+        handle.now_playing(now_playing, track_id);
     }
 }
 
@@ -493,14 +563,15 @@ fn import_items(
     let mut plays = 0usize;
     let mut loves = 0usize;
     for item in items {
-        let targets: Vec<&str> = item
+        let keys: Vec<_> = item
             .targets
             .iter()
             .filter_map(|key| TargetId::from_key(key).map(|target| target.key()))
             .collect();
-        if targets.is_empty() {
+        if keys.is_empty() {
             continue;
         }
+        let targets: Vec<&str> = keys.iter().map(|key| key.as_ref()).collect();
         match &item.event {
             LegacyEvent::Scrobble(scrobble) => {
                 let play = music_library::models::NewPlay {

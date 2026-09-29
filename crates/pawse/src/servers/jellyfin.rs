@@ -19,6 +19,7 @@ fn error(error: jellyfin::Error) -> RemoteError {
     match error {
         jellyfin::Error::Auth => RemoteError::Auth,
         jellyfin::Error::Transient(message) => RemoteError::Unreachable(message),
+        jellyfin::Error::NotFound(message) => RemoteError::NotFound(message),
         jellyfin::Error::Server(message) => RemoteError::Other(message),
     }
 }
@@ -59,6 +60,10 @@ impl ServerClient for Jellyfin {
 
     fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
         self.0.cover_art(key).map_err(error)
+    }
+
+    fn set_favorite(&self, key: &str, favorite: bool) -> Result<(), RemoteError> {
+        self.0.set_favorite(key, favorite).map_err(error)
     }
 
     fn fetch_range(

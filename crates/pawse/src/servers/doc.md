@@ -44,8 +44,14 @@ to `subsonic::` or `jellyfin::` directly.
 ## Behaviour worth knowing
 
 - **What differs between kinds is asked, not compared.** `ServerKind` answers
-  `manual_sync`, `imports_favorites`, `syncs_alone` (its own sync thread),
-  `titled_by_name` and `has_peers`; `ServerClient` has `forget` (removal
+  `manual_sync`, `imports_favorites`, `reports_plays` / `sends_favorites` (what
+  `server_scrobble` may send back: plays to Subsonic, likes to Subsonic and
+  Jellyfin), `syncs_alone` (its own sync thread),
+  `titled_by_name` and `has_peers`; `RemoteError::NotFound` is a song the
+  server says is gone (shown and fetched like `Other`, but a report back to the
+  server drops it quietly); `ServerClient` has `scrobble`,
+  `now_playing` and `set_favorite` (an error unless the kind says it reports
+  that), `forget` (removal
   cleanup), `peers` and `moved` (a config to save because the server was
   found elsewhere — DLNA only; a sync sends it as `LibraryEvent::RemoteMoved`
   and `remote_settings::server_moved` stores it), all no-ops by default; `RemoteConfig::web_url` is the
@@ -156,7 +162,8 @@ the same settings rows, sync, statuses and playback path. What differs:
   much faster than it plays, so the clock usually starts early in a track;
   15 minutes keeps a torrent loaded across long tracks, and prefetching the
   next track 60 s before the end reloads it if not.
-- **Stars** do not exist; `imports_favorites` is false, so there is no button.
+- **Stars** do not exist; `imports_favorites` is false, so the torrent has no
+  import button and no link to the Scrobbling tab.
 - **No Sync button** (`manual_sync` is false). A torrent's content never changes and its index is saved,
   so a manual sync would only re-apply the same listing. An unavailable torrent
   comes back through the offline watcher (every 60 s and on window activation),

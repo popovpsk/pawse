@@ -62,6 +62,63 @@ failures are retried) lives here once, and every destination is a
   file the user already has.
 - `targets/mod.rs` — the shared `ureq` agent config and response reader.
 
+## Media servers as targets
+
+A Subsonic or Jellyfin server the user switched on (Settings → Scrobbling →
+Media servers, per server: plays and/or likes) is one more target,
+`TargetId::Server(source_id)`, stored in `target` as `server:<id>`. The id is the
+`sources` row, which is never deleted, so a key stays valid across renames and
+reconnects. The implementation, `pawse::server_scrobble::ServerTarget`, lives in
+the app because it needs the library and `ServerClient`; the crate only carries
+what it needs through the queue:
+
+- **The track id.** A server wants its own song id, not artist and title, so
+  the `track_id` already stored on `plays` / `loves` travels to the target:
+  `pending_scrobbles` returns it next to each item, and the worker calls
+  `submit_tracks` / `love_track` / `now_playing_track`. Their default bodies
+  forward to `submit` / `love` / `now_playing`, so the other targets never see
+  the id. The target looks the id up as the present binding of that source
+  (`LibraryRepository::remote_key_for_item`); a track the server does not have
+  — a local-only file, a server song that is gone — is `Unsupported` and settles
+  as `dropped`, like a love sent to ListenBrainz. A local file that the server
+  also has is reported: it is the same library item.
+- **One item per request** (`max_batch` 1). A batch settles as one outcome, and
+  a play the server does not have must not be marked sent because its neighbour
+  was.
+- **Plays and likes are switched separately.** `accepts_scrobbles` joins
+  `accepts_loves`: a server with only likes on gets no `play_deliveries` rows at
+  all, instead of rows that would all be dropped. Jellyfin only takes likes
+  (`ServerKind::reports_plays` is false), so its plays switch is not shown.
+- **Errors keep the usual split.** `Auth` disables the target until the next
+  `configure` and notifies, titled with the server's kind and address;
+  unreachable is `Transient` and heals itself; a song the server reports as
+  gone (`RemoteError::NotFound`: Subsonic error 70, Jellyfin 404) is
+  `Unsupported`, dropped quietly like a song that was never there — the
+  binding is only refreshed by the next sync; any other server error is
+  `Permanent`.
+- **Likes are recorded in order.** The bridge hands every like/unlike to one
+  background writer over a channel (`spawn_love_writer`) instead of a task per
+  click: two tasks could commit a quick like-then-unlike in reverse, and the
+  server would be left starred while the track is unliked here.
+- **Configured from the server list.** `scrobble_bridge::build_targets` reads
+  the configured servers and their source ids, so adding or removing a server
+  calls `apply_settings` (`remote_settings::added` / `remove_server`). At launch
+  `setup` runs before the window reconciles `sources`, so a server whose row
+  does not exist yet has no id there; `open_main_window` calls `apply_settings`
+  again right after `apply_remote_sources`, or such a server would get nothing
+  until the next settings change.
+- **Double counting is the user's call.** A server that itself forwards plays
+  to Last.fm/ListenBrainz (Navidrome can) plus the same service switched on here
+  counts every play twice; nothing in either API tells us, so both switches are
+  off by default and turning them on is left to the user. The settings text is
+  one sentence by choice — no warning there.
+- **Likes imported from a server are not sent back to it.** The import button
+  in the same Media servers row (`LibraryService::import_remote_stars` →
+  `like_many`) emits `LikesImported`, which the bridge ignores, as for the
+  Last.fm import. Every import — Last.fm, Libre.fm, ListenBrainz, a server —
+  is on this tab and carries the same label; the server rows in Library only
+  link here.
+
 ## Storage
 
 Migration 8 in `music_library`, in `library.db` next to the rest of the library

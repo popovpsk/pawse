@@ -36,7 +36,11 @@ pub enum Outcome {
 pub trait ScrobbleStore: Send + Sync {
     fn record_play(&self, play: &Play, targets: &[TargetId]) -> StoreResult<i64>;
     fn record_love(&self, love: &Love, targets: &[TargetId]) -> StoreResult<i64>;
-    fn pending_scrobbles(&self, target: TargetId, max: usize) -> StoreResult<Vec<(i64, Scrobble)>>;
+    fn pending_scrobbles(
+        &self,
+        target: TargetId,
+        max: usize,
+    ) -> StoreResult<Vec<(i64, Option<i64>, Scrobble)>>;
     fn pending_loves(&self, target: TargetId, max: usize) -> StoreResult<Vec<(i64, Love)>>;
     fn settle_scrobbles(&self, ids: &[i64], target: TargetId, outcome: &Outcome)
     -> StoreResult<()>;

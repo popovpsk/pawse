@@ -41,6 +41,19 @@ supplied by the caller (`pawse` → `settings_view.rs`).
 Active tab + `ScrollHandle` via `Window::use_keyed_state` keyed on `Settings` id.
 One scroll handle shared across tabs; switching resets offset to top.
 
+`initial_page` is only read when the state is created, i.e. when the widget
+appears. To switch tabs while it is already shown (a link from one settings
+tab to another), the caller bumps `page_request`: when the number differs from
+the one the state last saw, the widget jumps to `initial_page` once. A plain
+re-render with the same number leaves the user's own tab choice alone.
+The same request can name a group: `SettingGroup::anchor` tags a group and
+`Settings::initial_anchor` picks one on `initial_page`; the jump then scrolls
+that group to the top (`ScrollHandle::scroll_to_top_of_item`, one-shot — gpui
+clears it once the child's bounds exist) instead of resetting to the top. The
+index is the group's position among the scroll container's direct children, so
+every group must stay one child. The state starts with `request` one behind
+the caller's, so the first render goes through the same path.
+
 ### Theming
 
 `cx.theme()` properties only — no app‑specific colors.

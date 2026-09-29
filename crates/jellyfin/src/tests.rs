@@ -159,6 +159,62 @@ fn paged(total: usize, request: &Request) -> Reply {
 }
 
 #[test]
+fn a_favorite_is_set_and_cleared_through_user_favorite_items() {
+    let stub = Stub::start(|_| (200, "application/json", b"{}".to_vec()));
+    let client = stub.client();
+    client.set_favorite("s1", true).unwrap();
+    client.set_favorite("s1", false).unwrap();
+
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].method, "POST");
+    assert_eq!(requests[1].method, "DELETE");
+    for request in &requests {
+        assert_eq!(request.path, "/UserFavoriteItems/s1");
+        assert_eq!(request.params["userId"], "u1");
+        assert!(request.authorization.contains("Token=\"tok\""));
+    }
+}
+
+#[test]
+fn an_older_server_gets_the_per_user_favorite_route() {
+    let stub = Stub::start(|request| {
+        if request.path.starts_with("/UserFavoriteItems/") {
+            (404, "text/plain", Vec::new())
+        } else {
+            (200, "application/json", b"{}".to_vec())
+        }
+    });
+    stub.client().set_favorite("s1", true).unwrap();
+
+    let paths: Vec<String> = stub.requests().into_iter().map(|r| r.path).collect();
+    assert_eq!(
+        paths,
+        vec!["/UserFavoriteItems/s1", "/Users/u1/FavoriteItems/s1"]
+    );
+}
+
+#[test]
+fn a_missing_item_is_not_found_and_a_refused_method_says_so() {
+    let stub = Stub::start(|_| (404, "text/plain", Vec::new()));
+    assert!(matches!(
+        stub.client().set_favorite("s1", true),
+        Err(Error::NotFound(_))
+    ));
+    let stub = Stub::start(|_| (405, "text/plain", Vec::new()));
+    assert_eq!(
+        stub.client().set_favorite("s1", true),
+        Err(Error::Server("FavoriteItems: HTTP 405".into()))
+    );
+}
+
+#[test]
+fn a_favorite_with_a_revoked_token_is_auth() {
+    let stub = Stub::start(|_| (401, "text/plain", Vec::new()));
+    assert_eq!(stub.client().set_favorite("s1", true), Err(Error::Auth));
+}
+
+#[test]
 fn authentication_returns_the_token_and_user_and_a_wrong_password_is_auth() {
     let stub = Stub::start(|request| {
         if request.body.contains("\"Pw\":\"right\"") {

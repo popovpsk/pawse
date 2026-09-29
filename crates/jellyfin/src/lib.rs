@@ -26,6 +26,8 @@ pub enum Error {
     Transient(String),
     #[error("wrong username or password")]
     Auth,
+    #[error("not found: {0}")]
+    NotFound(String),
     #[error("{0}")]
     Server(String),
 }
@@ -190,6 +192,58 @@ impl Client {
 
     pub fn favorites(&self) -> Result<Vec<Item>, Error> {
         self.audio_items(&[("Filters", "IsFavorite")])
+    }
+
+    pub fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), Error> {
+        let current = format!("/UserFavoriteItems/{}", encode(item_id));
+        let Some(first) = self.send_favorite(&current, &[("userId", &self.user_id)], favorite)?
+        else {
+            return Ok(());
+        };
+        let legacy = format!(
+            "/Users/{}/FavoriteItems/{}",
+            encode(&self.user_id),
+            encode(item_id)
+        );
+        match self.send_favorite(&legacy, &[], favorite)? {
+            None => Ok(()),
+            Some(404) if first == 404 => Err(Error::NotFound(format!("FavoriteItems: {item_id}"))),
+            Some(status) => Err(Error::Server(format!("FavoriteItems: HTTP {status}"))),
+        }
+    }
+
+    fn send_favorite(
+        &self,
+        path: &str,
+        params: &[(&str, &str)],
+        favorite: bool,
+    ) -> Result<Option<u16>, Error> {
+        let url = format!("{}{path}", self.base);
+        let sent = if favorite {
+            let mut request = self
+                .agent
+                .post(url)
+                .header("Authorization", &self.authorization);
+            for (key, value) in params {
+                request = request.query(*key, *value);
+            }
+            request.send_empty()
+        } else {
+            let mut request = self
+                .agent
+                .delete(url)
+                .header("Authorization", &self.authorization);
+            for (key, value) in params {
+                request = request.query(*key, *value);
+            }
+            request.call()
+        };
+        let response = sent.map_err(|e| Error::Transient(server_http::redact(&e.to_string())))?;
+        let status = response.status().as_u16();
+        if matches!(status, 404 | 405) {
+            return Ok(Some(status));
+        }
+        check_status(response).map(|_| None)
     }
 
     pub fn cover_art(&self, item_id: &str) -> Result<Vec<u8>, Error> {

@@ -58,6 +58,20 @@ impl ServerKind {
         }
     }
 
+    pub fn reports_plays(self) -> bool {
+        match self {
+            ServerKind::Subsonic => true,
+            ServerKind::Jellyfin | ServerKind::Dlna | ServerKind::Torrent => false,
+        }
+    }
+
+    pub fn sends_favorites(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => true,
+            ServerKind::Dlna | ServerKind::Torrent => false,
+        }
+    }
+
     pub fn syncs_alone(self) -> bool {
         match self {
             ServerKind::Subsonic | ServerKind::Jellyfin | ServerKind::Dlna => false,
@@ -145,6 +159,7 @@ pub fn source_key(kind: ServerKind, uri: &str) -> String {
 pub enum RemoteError {
     Auth,
     Unreachable(String),
+    NotFound(String),
     Other(String),
 }
 
@@ -171,6 +186,15 @@ pub trait ServerClient: Send + Sync {
         start: u64,
         end: Option<u64>,
     ) -> Result<server_http::RangeBody, RemoteError>;
+    fn scrobble(&self, _key: &str, _played_at: u64) -> Result<(), RemoteError> {
+        Err(unsupported())
+    }
+    fn now_playing(&self, _key: &str) -> Result<(), RemoteError> {
+        Err(unsupported())
+    }
+    fn set_favorite(&self, _key: &str, _favorite: bool) -> Result<(), RemoteError> {
+        Err(unsupported())
+    }
     fn forget(&self) {}
     fn moved(&self) -> Option<RemoteConfig> {
         None
@@ -178,6 +202,10 @@ pub trait ServerClient: Send + Sync {
     fn peers(&self) -> Option<Peers> {
         None
     }
+}
+
+fn unsupported() -> RemoteError {
+    RemoteError::Other("not supported by this server".into())
 }
 
 const UNKNOWN_ALBUM: &str = "[unknown album]";

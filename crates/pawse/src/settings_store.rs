@@ -642,6 +642,8 @@ pub struct ScrobbleSettings {
     pub csv_log: CsvLogState,
     #[serde(default = "default_true")]
     pub first_artist_only: bool,
+    #[serde(default)]
+    pub servers: std::collections::BTreeMap<String, ServerReporting>,
 }
 
 impl Default for ScrobbleSettings {
@@ -652,7 +654,26 @@ impl Default for ScrobbleSettings {
             listenbrainz: ListenBrainzState::default(),
             csv_log: CsvLogState::default(),
             first_artist_only: true,
+            servers: std::collections::BTreeMap::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ServerReporting {
+    #[serde(default)]
+    pub plays: bool,
+    #[serde(default)]
+    pub likes: bool,
+}
+
+impl ScrobbleSettings {
+    pub fn server(&self, key: &str) -> ServerReporting {
+        self.servers.get(key).copied().unwrap_or_default()
+    }
+
+    pub fn server_mut(&mut self, key: &str) -> &mut ServerReporting {
+        self.servers.entry(key.to_string()).or_default()
     }
 }
 

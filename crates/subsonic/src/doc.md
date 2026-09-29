@@ -17,8 +17,8 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   A server that answers error 41 (token auth unsupported, e.g. LDAP-backed)
   gets `p=enc:<hex>` from then on, for the life of that `Client`.
 - **Errors.** `Auth` (40, 50, HTTP 401/403), `Transient` (transport failures and
-  HTTP 5xx), `Server` (everything else, including "this is not a Subsonic
-  server"). Callers show different things for "wrong password" and "server is
+  HTTP 5xx), `NotFound` (70: the song or album is gone), `Server` (everything
+  else, including "this is not a Subsonic server"). Callers show different things for "wrong password" and "server is
   down", so the split matters more than the message.
 - **Listing all songs.** `search3` with an empty query and paging (the
   OpenSubsonic convention Navidrome and most servers follow); if it errors or
@@ -37,6 +37,12 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   strings before any message leaves the crate.
 - **Ids** can be strings or numbers depending on the server; both deserialize
   to `String`.
+- **Reporting back.** `scrobble` sends `submission=true` with `time` in
+  milliseconds (when the play started); `now_playing` is the same call with
+  `submission=false`, which is what Navidrome shows as "now playing".
+  `set_starred` is `star` / `unstar`. One song per request: the caller settles
+  each play on its own. Streaming goes through `download`, which Navidrome does
+  not count as a play, so without `scrobble` a server's play counts never move.
 - **Bodies.** JSON is read through `into_reader` (no ureq 10 MB cap). Covers are
   capped at 32 MB.
 - **Audio.** `fetch_range` asks `download` (the original file, never a

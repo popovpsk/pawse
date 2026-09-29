@@ -115,7 +115,7 @@ pub fn describe_error(error: &RemoteError) -> SharedString {
     match error {
         RemoteError::Auth => tr().server_auth_failed.clone(),
         RemoteError::Unreachable(reason) => tr().server_unreachable(reason).into(),
-        RemoteError::Other(message) => message.clone().into(),
+        RemoteError::NotFound(message) | RemoteError::Other(message) => message.clone().into(),
     }
 }
 
@@ -205,15 +205,6 @@ impl LibrarySources {
                         this.messages.insert(key.clone(), describe_error(error));
                     }
                     this.load(cx);
-                }
-                LibraryEvent::RemoteStarsImported { key, outcome } => {
-                    let message = match outcome {
-                        Ok((found, total)) => tr().scrobble_import_result(*found, *total).into(),
-                        Err(error) => describe_error(error),
-                    };
-                    this.messages.insert(key.clone(), message);
-                    this.refresh_rows(cx);
-                    cx.notify();
                 }
                 LibraryEvent::ScanStarted | LibraryEvent::ScanIdle => {
                     this.refresh_rows(cx);

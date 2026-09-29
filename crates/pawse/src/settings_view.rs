@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gpui::{Anchor, App, Entity, ParentElement, SharedString, Styled, Window, div, px};
+use gpui::{Anchor, App, Entity, ParentElement, SharedString, Styled, Window, actions, div, px};
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
@@ -23,6 +23,8 @@ use crate::settings_store::{
 };
 use crate::theme_colors::Colors;
 use music_library::ArtistGrouping;
+
+actions!(settings, [OpenScrobblingSettings]);
 
 fn reveal_in_file_manager(path: &std::path::Path) {
     #[cfg(target_os = "macos")]
@@ -85,6 +87,7 @@ pub fn build_settings_pages(
         general = general.group(discord_group());
     }
     pages.push(general);
+    let scrobbling = pages.len();
     pages.push(crate::scrobble_settings::scrobble_page(
         scrobble_ui,
         scrobble_inputs,
@@ -111,20 +114,32 @@ pub fn build_settings_pages(
             ))
             .group(crate::cache_settings::cache_group(library_page.sources)),
     );
-    SettingsPages { pages, library }
+    SettingsPages {
+        pages,
+        library,
+        scrobbling,
+    }
 }
 
 #[derive(Clone)]
 pub struct SettingsPages {
     pub pages: Vec<SettingPage>,
     pub library: usize,
+    pub scrobbling: usize,
 }
 
 /// Wrap pre-built pages into the `Settings` element for inline rendering.
-pub fn settings_widget(pages: Vec<SettingPage>, page_ix: usize) -> Settings {
+pub fn settings_widget(
+    pages: Vec<SettingPage>,
+    page_ix: usize,
+    anchor: Option<SharedString>,
+    request: u64,
+) -> Settings {
     Settings::new("pawse-settings")
         .pages(pages)
         .initial_page(page_ix)
+        .initial_anchor(anchor)
+        .page_request(request)
 }
 
 /// Open a native folder picker (async, on the main thread), then add the
