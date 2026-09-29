@@ -8,7 +8,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
 };
 use gpui_component::{
-    Icon, Root, Sizable, Size, StyledExt,
+    Icon, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     slider::{SliderEvent, SliderState},
@@ -1236,8 +1236,6 @@ impl Render for MainView {
                 .absolute()
                 .size_full()
             })
-            .children(Root::render_notification_layer(window, cx))
-            .children(Root::render_dialog_layer(window, cx))
             .child(self.playlist_popup.clone())
     }
 }
