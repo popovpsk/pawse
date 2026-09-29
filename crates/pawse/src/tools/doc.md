@@ -3,7 +3,7 @@
 The Tools screen: one-off utilities that sit next to the player rather than in
 Settings. `MainView` shows it as an overlay like Settings (`show_tools`, the
 wrench button left of the gear, back button closes it). The button can be
-hidden in Settings → Appearance (`SettingsStore::tools_enabled`, default on).
+hidden in Settings → Appearance (`SettingsStore::tools_enabled`, default off — also for a `settings.json` written before the key existed).
 Each tool is one `SettingPage` on the shared `ui_components::Settings` widget,
 so a new tool (e.g. playlist / likes importers from other players) is a new
 page in `build_pages`.

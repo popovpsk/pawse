@@ -449,7 +449,7 @@ pub struct UserSettings {
     pub liked_enabled: bool,
     #[serde(default = "default_true")]
     pub playlists_enabled: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub tools_enabled: bool,
     #[serde(default = "default_true")]
     pub show_track_duration: bool,
@@ -541,7 +541,7 @@ impl Default for UserSettings {
             now_playing_details: NowPlayingDetails::default(),
             liked_enabled: true,
             playlists_enabled: true,
-            tools_enabled: true,
+            tools_enabled: false,
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
