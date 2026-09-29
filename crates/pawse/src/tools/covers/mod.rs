@@ -619,7 +619,7 @@ pub fn page(state: Entity<CoversState>, layout: Layout) -> SettingPage {
         .description(s.covers_intro.clone())
         .item(
             SettingItem::new(
-                s.covers_find.clone(),
+                SharedString::default(),
                 SettingField::render(move |_window, cx: &mut App| {
                     actions_field(actions_state.clone(), cx)
                 }),
