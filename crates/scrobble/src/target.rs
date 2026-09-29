@@ -90,6 +90,10 @@ pub trait ScrobbleTarget: Send {
         true
     }
 
+    fn rewrites(&self) -> bool {
+        true
+    }
+
     fn now_playing_track(
         &self,
         now_playing: &NowPlaying,

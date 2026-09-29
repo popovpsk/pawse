@@ -14,3 +14,7 @@ ureq = "3"
 md-5 = "0.10"
 thiserror = "2.0"
 percent-encoding = "2"
+regex = "1"
+
+[dev-dependencies]
+rstest = "0.26"

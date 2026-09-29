@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use flume::{Receiver, RecvTimeoutError, Sender};
 
+use crate::rewrite::Rewriter;
 use crate::store::{Love, Outcome, Play, ScrobbleStore};
 use crate::target::{ScrobbleTarget, SubmitError, TargetId};
 use crate::{NowPlaying, Scrobble};
@@ -23,6 +24,7 @@ pub enum StatusEvent {
 
 enum Msg {
     Configure(Vec<Box<dyn ScrobbleTarget>>),
+    Rewriter(Arc<Rewriter>),
     NowPlaying(NowPlaying, Option<i64>),
     Flush,
 }
@@ -57,6 +59,7 @@ impl ScrobbleHandle {
                         backoff: HashMap::new(),
                         disabled: HashSet::new(),
                         status,
+                        rewriter: Arc::new(Rewriter::default()),
                     };
                     worker.run(rx);
                 })
@@ -76,6 +79,10 @@ impl ScrobbleHandle {
         *self.target_ids.lock().unwrap() = scrobble_targets(&targets);
         *self.love_target_ids.lock().unwrap() = love_targets(&targets);
         let _ = self.tx.send(Msg::Configure(targets));
+    }
+
+    pub fn set_rewriter(&self, rewriter: Rewriter) {
+        let _ = self.tx.send(Msg::Rewriter(Arc::new(rewriter)));
     }
 
     pub fn now_playing(&self, now_playing: NowPlaying, track_id: Option<i64>) {
@@ -133,6 +140,7 @@ struct Worker {
     backoff: HashMap<TargetId, (Instant, Duration)>,
     disabled: HashSet<TargetId>,
     status: Sender<StatusEvent>,
+    rewriter: Arc<Rewriter>,
 }
 
 impl Worker {
@@ -175,6 +183,7 @@ impl Worker {
                     self.backoff.clear();
                     self.flush();
                 }
+                Some(Msg::Rewriter(rewriter)) => self.rewriter = rewriter,
                 Some(Msg::NowPlaying(now_playing, track_id)) => {
                     self.send_now_playing(&now_playing, track_id)
                 }
@@ -221,6 +230,10 @@ impl Worker {
             return;
         };
         let max_batch = self.targets[pos].max_batch().max(1);
+        let rewriter = self.targets[pos]
+            .rewrites()
+            .then(|| self.rewriter.clone())
+            .filter(|r| !r.is_empty());
         let mut sent = 0usize;
 
         let loves = match self.store.pending_loves(id, RUN_LIMIT) {
@@ -231,6 +244,10 @@ impl Worker {
             }
         };
         for (item_id, love) in loves {
+            let love = match &rewriter {
+                Some(rewriter) => rewriter.apply_love(&love),
+                None => love,
+            };
             let result = self.targets[pos].love_track(&love);
             let (outcome, keep_going) = self.classify(id, 1, result);
             if !self.settle_loves(id, &[item_id], &outcome) {
@@ -263,7 +280,13 @@ impl Worker {
             let item_ids: Vec<i64> = batch.iter().map(|(item_id, _, _)| *item_id).collect();
             let track_ids: Vec<Option<i64>> =
                 batch.iter().map(|(_, track_id, _)| *track_id).collect();
-            let items: Vec<Scrobble> = batch.into_iter().map(|(_, _, s)| s).collect();
+            let items: Vec<Scrobble> = batch
+                .into_iter()
+                .map(|(_, _, s)| match &rewriter {
+                    Some(rewriter) => rewriter.apply(&s),
+                    None => s,
+                })
+                .collect();
             let result = self.targets[pos].submit_tracks(&items, &track_ids);
             let (outcome, keep_going) = self.classify(id, items.len(), result);
             if !self.settle_scrobbles(id, &item_ids, &outcome) {
@@ -363,6 +386,9 @@ impl Worker {
             if self.disabled.contains(&id) {
                 continue;
             }
+            let rewritten = (self.targets[pos].rewrites() && !self.rewriter.is_empty())
+                .then(|| self.rewriter.apply_now_playing(now_playing));
+            let now_playing = rewritten.as_ref().unwrap_or(now_playing);
             match self.targets[pos].now_playing_track(now_playing, track_id) {
                 Ok(()) | Err(SubmitError::Unsupported) => {}
                 Err(SubmitError::Auth(message)) => {
@@ -755,6 +781,7 @@ mod tests {
                 backoff: HashMap::new(),
                 disabled: HashSet::new(),
                 status: tx,
+                rewriter: Arc::new(Rewriter::default()),
             },
             store,
             rx,
@@ -1106,6 +1133,113 @@ mod tests {
         assert_eq!(store.pending_ids(TargetId::Lastfm).len(), 1);
         assert!(store.pending_ids(TargetId::Server(3)).is_empty());
         assert!(store.love_state(TargetId::Server(3)).is_some());
+    }
+
+    struct Recording {
+        id: TargetId,
+        rewrites: bool,
+        seen: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Recording {
+        fn new(id: TargetId, rewrites: bool) -> (Self, Arc<Mutex<Vec<String>>>) {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    id,
+                    rewrites,
+                    seen: seen.clone(),
+                },
+                seen,
+            )
+        }
+    }
+
+    impl ScrobbleTarget for Recording {
+        fn id(&self) -> TargetId {
+            self.id
+        }
+
+        fn max_batch(&self) -> usize {
+            50
+        }
+
+        fn now_playing(&self, now_playing: &NowPlaying) -> Result<(), SubmitError> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(format!("np:{}", now_playing.title));
+            Ok(())
+        }
+
+        fn submit(&self, items: &[Scrobble]) -> Result<(), SubmitError> {
+            let mut seen = self.seen.lock().unwrap();
+            for item in items {
+                seen.push(format!("scrobble:{}", item.title));
+            }
+            Ok(())
+        }
+
+        fn love(
+            &self,
+            _artist: &str,
+            title: &str,
+            _love: bool,
+            _at: u64,
+        ) -> Result<(), SubmitError> {
+            self.seen.lock().unwrap().push(format!("love:{title}"));
+            Ok(())
+        }
+
+        fn rewrites(&self) -> bool {
+            self.rewrites
+        }
+    }
+
+    #[test]
+    fn rewrite_rules_reach_targets_but_not_the_store_or_servers() {
+        let (service, service_seen) = Recording::new(TargetId::Lastfm, true);
+        let (server, server_seen) = Recording::new(TargetId::Server(4), false);
+        let (mut worker, store, _rx) = worker(vec![Box::new(service), Box::new(server)]);
+        let config = crate::RewriteConfig {
+            presets: ["remastered".to_string()].into(),
+            rules: Vec::new(),
+        };
+        worker.rewriter = Arc::new(Rewriter::compile(&config).0);
+        let targets = worker.active_targets();
+        let mut play = play_at(1);
+        play.scrobble.title = "T (Remastered)".to_string();
+        store.record_play(&play, &targets).unwrap();
+        let mut love = a_love();
+        love.title = "T (Remastered)".to_string();
+        store.record_love(&love, &targets).unwrap();
+        let now_playing = NowPlaying {
+            artist: "A".to_string(),
+            title: "T (Remastered)".to_string(),
+            album: None,
+            album_artist: None,
+            track_number: None,
+            duration_secs: None,
+        };
+
+        worker.flush();
+        worker.send_now_playing(&now_playing, None);
+
+        assert_eq!(
+            *service_seen.lock().unwrap(),
+            vec!["love:T", "scrobble:T", "np:T"]
+        );
+        assert_eq!(
+            *server_seen.lock().unwrap(),
+            vec![
+                "love:T (Remastered)",
+                "scrobble:T (Remastered)",
+                "np:T (Remastered)"
+            ]
+        );
+        let rows = store.rows.lock().unwrap();
+        assert_eq!(rows.plays[0].1.title, "T (Remastered)");
+        assert_eq!(rows.loves[0].1.title, "T (Remastered)");
     }
 
     #[test]

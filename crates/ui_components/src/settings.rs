@@ -147,6 +147,7 @@ pub struct SettingGroup {
     description: Option<SharedString>,
     items: Vec<SettingItem>,
     anchor: Option<SharedString>,
+    separated: bool,
 }
 
 impl SettingGroup {
@@ -167,6 +168,11 @@ impl SettingGroup {
 
     pub fn description(mut self, description: impl Into<SharedString>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    pub fn separated(mut self) -> Self {
+        self.separated = true;
         self
     }
 
@@ -203,7 +209,15 @@ impl SettingGroup {
                                 .child(description),
                         )
                     })
-                    .children(self.items.iter().map(|item| item.render(window, cx))),
+                    .children(self.items.iter().enumerate().map(|(ix, item)| {
+                        let rule = self.separated && (ix > 0 || self.description.is_some());
+                        div()
+                            .w_full()
+                            .when(rule, |this| {
+                                this.pt_4().border_t_1().border_color(cx.theme().border)
+                            })
+                            .child(item.render(window, cx))
+                    })),
             )
             .into_any_element()
     }

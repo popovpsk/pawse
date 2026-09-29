@@ -644,6 +644,8 @@ pub struct ScrobbleSettings {
     pub first_artist_only: bool,
     #[serde(default)]
     pub servers: std::collections::BTreeMap<String, ServerReporting>,
+    #[serde(default)]
+    pub rewrite: scrobble::RewriteConfig,
 }
 
 impl Default for ScrobbleSettings {
@@ -655,6 +657,7 @@ impl Default for ScrobbleSettings {
             csv_log: CsvLogState::default(),
             first_artist_only: true,
             servers: std::collections::BTreeMap::new(),
+            rewrite: scrobble::RewriteConfig::default(),
         }
     }
 }
@@ -1808,6 +1811,31 @@ mod tests {
             store.scrobble().listenbrainz.api_root,
             scrobble::LISTENBRAINZ_ROOT
         );
+        cleanup(&path);
+    }
+
+    #[test]
+    fn rewrite_rules_default_to_off_and_survive_a_save() {
+        let path = tmp_settings_path();
+        fs::write(&path, r#"{"scrobble":{"first_artist_only":false}}"#).unwrap();
+
+        let mut store = SettingsStore::load_from(path.clone());
+        assert!(store.scrobble().rewrite.presets.is_empty());
+        assert!(store.scrobble().rewrite.rules.is_empty());
+        store
+            .update_scrobble(|s| {
+                s.rewrite.presets.insert("remastered".to_string());
+                s.rewrite.rules.push(scrobble::rewrite::CustomRule {
+                    pattern: "x".to_string(),
+                    ..Default::default()
+                });
+            })
+            .unwrap();
+
+        let reloaded = SettingsStore::load_from(path.clone());
+        assert!(reloaded.scrobble().rewrite.presets.contains("remastered"));
+        assert_eq!(reloaded.scrobble().rewrite.rules.len(), 1);
+        assert!(!reloaded.scrobble().first_artist_only);
         cleanup(&path);
     }
 

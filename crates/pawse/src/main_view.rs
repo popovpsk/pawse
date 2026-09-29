@@ -127,6 +127,7 @@ pub struct MainView {
     settings_anchor: Option<gpui::SharedString>,
     _library_sources_observe: Subscription,
     _scrobble_ui_observe: Subscription,
+    _scrobble_rules_observe: Subscription,
     _scrobble_imports_subscription: Subscription,
     _scrobble_inputs: ScrobbleInputs,
     _scrobble_token_subscription: Subscription,
@@ -334,7 +335,11 @@ impl MainView {
         let scrobble_ui_observe = cx.observe(&scrobble_ui, |_, _, cx| cx.notify());
         let scrobble_imports_subscription =
             crate::scrobble_settings::watch_server_imports(scrobble_ui.clone(), cx);
+        let scrobble_rules =
+            cx.new(|cx| crate::scrobble_rules_settings::ScrobbleRules::new(window, cx));
+        let scrobble_rules_observe = cx.observe(&scrobble_rules, |_, _, cx| cx.notify());
         let scrobble_inputs = ScrobbleInputs {
+            rules: scrobble_rules,
             token: cx.new(|cx| InputState::new(window, cx).masked(true)),
             api_root: cx.new(|cx| {
                 InputState::new(window, cx)
@@ -613,6 +618,7 @@ impl MainView {
             settings_anchor: None,
             _library_sources_observe: library_sources_observe,
             _scrobble_ui_observe: scrobble_ui_observe,
+            _scrobble_rules_observe: scrobble_rules_observe,
             _scrobble_imports_subscription: scrobble_imports_subscription,
             _scrobble_inputs: scrobble_inputs,
             _scrobble_token_subscription: scrobble_token_subscription,

@@ -147,6 +147,7 @@ pub const MEDIA_SERVERS_ANCHOR: &str = "scrobble-media-servers";
 
 #[derive(Clone)]
 pub struct ScrobbleInputs {
+    pub rules: Entity<crate::scrobble_rules_settings::ScrobbleRules>,
     pub token: Entity<InputState>,
     pub api_root: Entity<InputState>,
 }
@@ -156,7 +157,11 @@ pub fn scrobble_page(
     scrobble_inputs: ScrobbleInputs,
 ) -> SettingPage {
     let mut page = SettingPage::new(tr().settings_scrobbling.clone());
+    let rules = scrobble_inputs.rules.clone();
 
+    page = page
+        .group(crate::scrobble_rules_settings::presets_group(rules.clone()))
+        .group(crate::scrobble_rules_settings::custom_rules_group(rules));
     page = page.group(web_auth_group(WebAuthService::Lastfm, scrobble_ui.clone()));
 
     let ui = scrobble_ui.clone();
@@ -232,27 +237,7 @@ pub fn scrobble_page(
             ),
     );
 
-    page.group(
-        SettingGroup::new()
-            .title(tr().settings_general.clone())
-            .item(
-                SettingItem::new(
-                    tr().scrobble_first_artist.clone(),
-                    SettingField::render(|_window, cx: &mut App| {
-                        let enabled = cx.global::<SettingsStore>().scrobble().first_artist_only;
-                        h_flex().items_center().justify_end().child(
-                            Switch::new("scrobble-first-artist-toggle")
-                                .checked(enabled)
-                                .on_click(|new_val, _, cx| {
-                                    let value = *new_val;
-                                    update_scrobble(cx, move |s| s.first_artist_only = value);
-                                }),
-                        )
-                    }),
-                )
-                .description(tr().scrobble_first_artist_desc.clone()),
-            ),
-    )
+    page
 }
 
 fn web_auth_group(service: WebAuthService, scrobble_ui: Entity<ScrobbleUiState>) -> SettingGroup {
@@ -333,7 +318,7 @@ fn enabled_item(
     )
 }
 
-fn update_scrobble(cx: &mut App, edit: impl FnOnce(&mut ScrobbleSettings)) {
+pub(crate) fn update_scrobble(cx: &mut App, edit: impl FnOnce(&mut ScrobbleSettings)) {
     if let Err(e) = cx.global_mut::<SettingsStore>().update_scrobble(edit) {
         notify_save_error(cx, e);
     }

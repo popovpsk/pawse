@@ -83,6 +83,10 @@ impl ScrobbleTarget for ServerTarget {
         self.plays
     }
 
+    fn rewrites(&self) -> bool {
+        false
+    }
+
     fn now_playing_track(
         &self,
         _now_playing: &NowPlaying,

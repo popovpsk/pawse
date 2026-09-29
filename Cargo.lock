@@ -8059,6 +8059,8 @@ dependencies = [
  "log",
  "md-5",
  "percent-encoding",
+ "regex",
+ "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.19",

@@ -53,6 +53,7 @@ pub mod remote_sync;
 pub mod repeat_button;
 pub mod scrobble_bridge;
 mod scrobble_import;
+mod scrobble_rules_settings;
 mod scrobble_settings;
 pub mod scrobble_store;
 pub mod server_scrobble;

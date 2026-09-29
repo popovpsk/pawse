@@ -33,6 +33,11 @@ would otherwise squeeze the description into a narrow column.
 `SettingItem::unlabeled` is a vertical row without a label, for a group whose
 title already names its only row (a folder or server list).
 
+`SettingGroup::separated` draws a hairline (`theme.border`) between rows, and
+between the group description and the first row, for a group of many tall rows
+(the scrobble rules) where the default 16px gap alone does not tell where one
+row ends. Off by default: most groups have two or three short rows.
+
 Widget owns **only layout**. All behavior lives in `SettingField::render` closures
 supplied by the caller (`pawse` → `settings_view.rs`).
 

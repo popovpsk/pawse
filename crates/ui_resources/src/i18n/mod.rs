@@ -344,6 +344,43 @@ pub struct Strings {
     pub scrobble_file_new: SharedString,
     pub scrobble_not_a_log: SharedString,
     pub scrobble_token: SharedString,
+    pub scrobble_rules: SharedString,
+    pub scrobble_rules_desc: SharedString,
+    pub scrobble_custom_rules: SharedString,
+    pub scrobble_custom_rules_desc: SharedString,
+    pub rule_affects_t: SharedString,
+    pub rule_no_matches: SharedString,
+    pub rule_example: SharedString,
+    pub rule_none: SharedString,
+    pub rule_find: SharedString,
+    pub rule_replace: SharedString,
+    pub rule_regex: SharedString,
+    pub rule_ignore_case: SharedString,
+    pub rule_regex_hint: SharedString,
+    pub rule_add: SharedString,
+    pub rule_save: SharedString,
+    pub rule_edit: SharedString,
+    pub rule_invalid_t: SharedString,
+    pub rule_field_artist: SharedString,
+    pub rule_field_title: SharedString,
+    pub rule_field_album: SharedString,
+    pub rule_field_album_artist: SharedString,
+    pub preset_remastered: SharedString,
+    pub preset_remastered_desc: SharedString,
+    pub preset_explicit: SharedString,
+    pub preset_explicit_desc: SharedString,
+    pub preset_single_ep: SharedString,
+    pub preset_single_ep_desc: SharedString,
+    pub preset_version: SharedString,
+    pub preset_version_desc: SharedString,
+    pub preset_edition: SharedString,
+    pub preset_edition_desc: SharedString,
+    pub preset_remix_suffix: SharedString,
+    pub preset_remix_suffix_desc: SharedString,
+    pub preset_feat: SharedString,
+    pub preset_feat_desc: SharedString,
+    pub preset_live: SharedString,
+    pub preset_live_desc: SharedString,
     pub scrobble_server: SharedString,
     pub scrobble_connect: SharedString,
     pub scrobble_auth_expired: SharedString,
@@ -632,6 +669,14 @@ impl Strings {
 
     pub fn tags_save_failed(&self, err: &str) -> String {
         fill(&self.tags_save_failed_t, &[err])
+    }
+
+    pub fn rule_affects(&self, count: &str) -> String {
+        fill(&self.rule_affects_t, &[count])
+    }
+
+    pub fn rule_invalid(&self, err: &str) -> String {
+        fill(&self.rule_invalid_t, &[err])
     }
 }
 

@@ -4,7 +4,10 @@ Self-contained scrobbling engine. No GPUI, no pawse dependencies — a pure
 library the app drives through `ScrobbleHandle`. The GPUI/event wiring lives in
 `pawse::scrobble_bridge`, the loved-tracks import in `pawse::scrobble_import`,
 and the UI in `pawse::scrobble_settings` — its own Settings tab, one
-`SettingGroup` per target plus a shared options group.
+`SettingGroup` per target. The two rule groups (`pawse::scrobble_rules_settings`)
+come first on the tab, since rules are what people come back to adjust while an
+account is connected once; "first artist only" lives in the rules group, as it
+is one more way of shaping what gets sent.
 
 The engine is service-agnostic: policy (when a play counts, what is queued, how
 failures are retried) lives here once, and every destination is a
@@ -61,6 +64,85 @@ failures are retried) lives here once, and every destination is a
   `is_pawse_log` is the guard the settings UI runs before pointing the log at a
   file the user already has.
 - `targets/mod.rs` — the shared `ureq` agent config and response reader.
+- `rewrite/mod.rs` — rewrite rules: `RewriteConfig` (enabled preset ids +
+  `CustomRule`s, stored in `settings.json` under `scrobble.rewrite`),
+  `Rewriter` (compiled rules, `apply` / `apply_now_playing` / `apply_love`),
+  and `preview` for the settings screen. `rewrite/presets.rs` — the built-in
+  presets, `rewrite/tests.rs` — their cases.
+
+## Rewrite rules
+
+Rules that rewrite artist / title / album / album artist on the way to a
+service: built-in presets switched on one by one (all off by default), then the
+user's own find-and-replace rules. The UI is `pawse::scrobble_rules_settings`;
+`pawse::scrobble_bridge::apply_rewrite` compiles the config and hands the
+`Rewriter` to the worker (`ScrobbleHandle::set_rewriter`) without reconfiguring
+the targets, so editing a rule never resets a backoff.
+
+- **Applied at delivery, not at recording.** `plays` / `loves` keep the text the
+  file has; the worker rewrites each item right before `submit_tracks` /
+  `love_track` / `now_playing_track`. The history stays a fact about the file
+  (and the `(started_at, artist, title)` key stays stable), and a rule changed
+  while items are queued applies to them too — what has not been sent is sent
+  the new way.
+- **Server targets are exempt.** `ScrobbleTarget::rewrites` is `false` for
+  `ServerTarget`: a server matches by its own song id, and the text it gets is
+  irrelevant. The CSV log is rewritten — it records what the services got.
+- **Order is fixed.** Presets run in `PRESETS` order regardless of the order
+  they were switched on, then custom rules in list order, so a custom rule sees
+  text already cleaned by the presets.
+- **Presets replace the first match, custom rules every match.** Presets are
+  ported from Web Scrobbler's `metadata-filter` (MIT, license in
+  `rewrite/LICENSE-metadata-filter`), where each rule is a JS `replace` without `/g`; porting that exactly is
+  what keeps their test cases valid. A custom rule is find-and-replace, where
+  "every occurrence" is what people expect. Non-regex patterns are escaped and
+  their replacement is taken literally (`NoExpand`), so `$1` in a plain rule is
+  two characters, not a group. The `regex` crate reads `$1abc` as a group named
+  `1abc` (empty, so the text silently vanishes); a regex rule's replacement is
+  therefore rewritten by `brace_group_numbers` — `$<digits>` becomes
+  `${<digits>}`, `$$` stays a literal dollar, `${…}` and `$name` pass through —
+  so `$1abc` means group 1 then `abc`, as in every other regex tool. While regex mode
+  is on, the form explains groups and `$1` / `$$` with a fixed example
+  (`^(.+), (.+)$` → `$2 $1`, `Bach, Johann Sebastian` → `Johann Sebastian
+  Bach`) rather than one from the library, so the mechanism is visible even
+  with an empty library; a pawse test runs that example through the engine so
+  the hint cannot drift from what the rule does. Presets are
+  written with `${1}` directly.
+- **Fields never become empty.** A field a rule changed is trimmed. An artist
+  or title rewritten to nothing falls back to the original (every service
+  rejects an empty one); an album or album artist rewritten to nothing is sent
+  as absent.
+- **A broken custom rule is skipped, not fatal.** `Rewriter::compile` returns
+  the rules that failed next to the working set; the bridge logs them. The UI
+  refuses to save a pattern that does not compile, so this only guards a
+  hand-edited `settings.json`.
+- **Presets were picked from what others ship.** `metadata-filter` (the Web
+  Scrobbler browser extension's filters: remastered, version, reissue, live,
+  feat, suffix) and Pano Scrobbler's presets (the idea behind `single_ep`; its
+  code is GPL and none of it is copied). `explicit` joins metadata-filter's
+  clean/explicit rules with its `(Explicit Version)` rule; `edition` adds
+  `(Deluxe)` / `[Super Deluxe Edition]` on top of their exact
+  `(Deluxe Edition)`; `feat` also takes `ft.` and `featuring`; `live` also takes
+  `(Live at …)`. YouTube title parsing is left out: the library is files. A
+  typography preset (curly quotes, NBSP, zero-width, double spaces) was tried
+  and dropped as not worth a row: the fixes are invisible to most people, and
+  whoever cares about apostrophes can write a custom rule. A `settings.json`
+  that still lists its id is fine — unknown preset ids are ignored.
+- **The preview reads the library off the UI thread.** The settings screen
+  loads one `Sample` per track (`all_tracks` + `albums` + `track_artists_map`)
+  on a background task the first time the Scrobbling page renders, and drops
+  it on `CatalogChanged` / `TagsSaved` and when "first artist only" is toggled
+  (samples carry the artist as the bridge would send it), so it reloads the
+  next time. Preset
+  previews are computed once per load; the draft rule's preview is debounced
+  250 ms after typing.
+- **Examples highlight what changed.** A preview line is `before → after` with
+  a character-level diff (LCS; prefix/suffix only past 250k cells) drawn as
+  `theme.danger` / `theme.success` backgrounds, because a one-character fix (`’`
+  → `'`, a dropped double space — typical of custom rules) is otherwise invisible in a small proportional
+  font. Zero-width characters and NBSP are shown as `·` on the before side so
+  there is something to highlight. Diffs are computed when previews are built,
+  not per frame.
 
 ## Media servers as targets
 

@@ -10,7 +10,8 @@ use audio_engine::EngineEvent;
 use gpui::{App, AppContext, BackgroundExecutor, Entity, Global, SharedString, Task};
 use scrobble::{
     AudioscrobblerClient, CsvLog, ListenBrainzClient, Love, NowPlaying, Play, PlayAccumulator,
-    Profile, Scrobble, ScrobbleHandle, ScrobbleTarget, StatusEvent, TargetId, should_scrobble,
+    Profile, Rewriter, Scrobble, ScrobbleHandle, ScrobbleTarget, StatusEvent, TargetId,
+    should_scrobble,
 };
 
 use crate::library_service::LibraryEvent;
@@ -76,6 +77,7 @@ pub fn setup(cx: &mut App) {
     let targets = build_targets(cx);
     let active = !targets.is_empty();
     let handle = ScrobbleHandle::spawn(store, targets, status_tx);
+    handle.set_rewriter(compile_rewriter(cx));
     let loves = spawn_love_writer(cx.background_executor(), handle.clone());
     let handle = Some(handle);
 
@@ -168,6 +170,28 @@ pub fn apply_settings(cx: &mut App) {
         status.auth_failed.clear();
         cx.notify();
     });
+}
+
+pub fn apply_rewrite(cx: &mut App) {
+    let rewriter = compile_rewriter(cx);
+    let Some(service) = cx.try_global::<ScrobbleService>() else {
+        return;
+    };
+    if let Some(handle) = &service.state.borrow().handle {
+        handle.set_rewriter(rewriter);
+    }
+}
+
+fn compile_rewriter(cx: &App) -> Rewriter {
+    let (rewriter, errors) = Rewriter::compile(&cx.global::<SettingsStore>().scrobble().rewrite);
+    for error in errors {
+        log::warn!(
+            "scrobble: rewrite rule {} skipped: {}",
+            error.index + 1,
+            error.message
+        );
+    }
+    rewriter
 }
 
 fn report_failure(
