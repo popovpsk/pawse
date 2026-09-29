@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 log = { workspace = true }
+cover_search = { path = "../cover_search" }
 serde_json = "1"
 flume = "0.12"
 ureq = "3"

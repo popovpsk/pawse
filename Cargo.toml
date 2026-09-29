@@ -25,7 +25,8 @@ members = [
     "crates/updater",
     "crates/lyrics",
     "crates/tag_writer",
-    "crates/dsd"
+    "crates/dsd",
+    "crates/cover_search"
 ]
 
 default-members = ["crates/pawse"]

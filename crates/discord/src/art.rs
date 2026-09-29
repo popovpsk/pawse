@@ -4,6 +4,9 @@ use std::time::Duration;
 
 use ureq::Agent;
 
+const ART_SIZE: u32 = 512;
+const MAX_URL_LEN: usize = 254;
+
 pub struct ArtCache {
     path: PathBuf,
     agent: Agent,
@@ -63,56 +66,16 @@ fn non_empty(url: &str) -> Option<String> {
 }
 
 fn lookup(agent: &Agent, artist: &str, album: &str) -> Result<Option<String>, ()> {
-    let term = format!("{artist} {album}");
-    let body = agent
-        .get("https://itunes.apple.com/search")
-        .query("term", &term)
-        .query("entity", "album")
-        .query("limit", "1")
-        .call()
-        .map_err(|_| ())?
-        .body_mut()
-        .read_to_string()
-        .map_err(|_| ())?;
-    parse_artwork(&body)
-}
-
-fn parse_artwork(body: &str) -> Result<Option<String>, ()> {
-    let json: serde_json::Value = serde_json::from_str(body).map_err(|_| ())?;
-    let Some(art) = json
-        .get("results")
-        .and_then(|r| r.get(0))
-        .and_then(|a| a.get("artworkUrl100"))
-        .and_then(|v| v.as_str())
-    else {
-        return Ok(None);
-    };
-    let upscaled = art.replace("100x100bb", "512x512bb");
-    Ok((upscaled.len() <= 254).then_some(upscaled))
+    let found = cover_search::itunes::search(agent, artist, album, 1).map_err(|_| ())?;
+    Ok(found
+        .first()
+        .map(|candidate| candidate.art_url(ART_SIZE))
+        .filter(|url| url.len() <= MAX_URL_LEN))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn upscales_artwork_url() {
-        let body = r#"{"results":[{"artworkUrl100":"https://is1.mzstatic.com/a/100x100bb.jpg"}]}"#;
-        assert_eq!(
-            parse_artwork(body),
-            Ok(Some("https://is1.mzstatic.com/a/512x512bb.jpg".to_string()))
-        );
-    }
-
-    #[test]
-    fn empty_results_are_a_definitive_miss() {
-        assert_eq!(parse_artwork(r#"{"results":[]}"#), Ok(None));
-    }
-
-    #[test]
-    fn invalid_body_is_a_failure_not_a_miss() {
-        assert_eq!(parse_artwork("<html>throttled</html>"), Err(()));
-    }
 
     #[test]
     fn cache_hit_and_negative_hit_skip_network() {

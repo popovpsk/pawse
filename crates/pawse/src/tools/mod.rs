@@ -1,4 +1,5 @@
 pub mod ai_prompt;
+pub mod covers;
 
 use gpui::{
     AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
@@ -12,6 +13,7 @@ use crate::localization::LangChanged;
 use crate::services::Services;
 
 use ai_prompt::{AiPromptInputs, AiPromptState, Mode};
+use covers::CoversState;
 
 const WISHES_ROWS: (usize, usize) = (2, 6);
 const ANSWER_ROWS: (usize, usize) = (4, 12);
@@ -20,14 +22,18 @@ pub struct ToolsView {
     ai_prompt: Entity<AiPromptState>,
     inputs: AiPromptInputs,
     mode: Mode,
+    covers: Entity<CoversState>,
+    covers_layout: covers::Layout,
     pages: Vec<SettingPage>,
     _ai_prompt_observe: Subscription,
+    _covers_observe: Subscription,
     _lang_subscription: Subscription,
 }
 
 impl ToolsView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let ai_prompt = cx.new(|_| AiPromptState::default());
+        let covers = cx.new(|_| CoversState::default());
         let wishes = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(WISHES_ROWS.0, WISHES_ROWS.1)
@@ -51,7 +57,15 @@ impl ToolsView {
             let mode = state.read(cx).mode();
             if mode != this.mode {
                 this.mode = mode;
-                this.pages = build_pages(&this.ai_prompt, &this.inputs, mode);
+                this.pages = this.build_pages();
+            }
+            cx.notify();
+        });
+        let covers_observe = cx.observe(&covers, |this, state, cx| {
+            let layout = state.read(cx).layout();
+            if layout != this.covers_layout {
+                this.covers_layout = layout;
+                this.pages = this.build_pages();
             }
             cx.notify();
         });
@@ -68,28 +82,33 @@ impl ToolsView {
                 this.inputs.playlist_name.update(cx, |state, cx| {
                     state.set_placeholder(s.ai_answer_name_placeholder.clone(), window, cx)
                 });
-                this.pages = build_pages(&this.ai_prompt, &this.inputs, this.mode);
+                this.covers.update(cx, |state, _| state.relabel());
+                this.pages = this.build_pages();
                 cx.notify();
             });
         let mode = ai_prompt.read(cx).mode();
-        let pages = build_pages(&ai_prompt, &inputs, mode);
-        Self {
+        let covers_layout = covers.read(cx).layout();
+        let mut view = Self {
             ai_prompt,
             inputs,
             mode,
-            pages,
+            covers,
+            covers_layout,
+            pages: Vec::new(),
             _ai_prompt_observe: ai_prompt_observe,
+            _covers_observe: covers_observe,
             _lang_subscription: lang_subscription,
-        }
+        };
+        view.pages = view.build_pages();
+        view
     }
-}
 
-fn build_pages(
-    ai_prompt: &Entity<AiPromptState>,
-    inputs: &AiPromptInputs,
-    mode: Mode,
-) -> Vec<SettingPage> {
-    vec![ai_prompt::page(ai_prompt.clone(), inputs.clone(), mode)]
+    fn build_pages(&self) -> Vec<SettingPage> {
+        vec![
+            ai_prompt::page(self.ai_prompt.clone(), self.inputs.clone(), self.mode),
+            covers::page(self.covers.clone(), self.covers_layout),
+        ]
+    }
 }
 
 impl Render for ToolsView {

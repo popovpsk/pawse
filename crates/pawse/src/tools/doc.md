@@ -13,8 +13,10 @@ page in `build_pages`.
 - `mod.rs` — `ToolsView` (the screen entity). Builds the pages once and caches
   them; rebuilds on `LangChanged`, because page and item labels are baked in at
   build time, and when the AI prompt mode changes, because the answer-import
-  group exists only for playlist modes. Owns the long-lived state entities of every tool (for the AI
-  prompt: `AiPromptState` plus the `AiPromptInputs` text fields).
+  group exists only for playlist modes, and when the Covers page gains or loses
+  its results / skipped items. Owns the long-lived state entities of every tool
+  (for the AI prompt: `AiPromptState` plus the `AiPromptInputs` text fields; for
+  covers: `CoversState`).
 - `ai_prompt/` — the AI prompt generator:
   - `mod.rs` — `AiPromptState` (mode, period, count, detail, busy flag, the
     finished prompt, its preview and size line, the answer-import status), the
@@ -30,6 +32,7 @@ page in `build_pages`.
   - `answer.rs` — the way back: `TrackIndex` over the library's `TrackListing`s
     and `parse_answer`, a pure function from the pasted model answer to track
     ids in order + the lines it could not match. Parser tests live here.
+- `covers/` — cover search for albums without art (own `doc.md`).
 
 ## AI prompt
 

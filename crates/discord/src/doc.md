@@ -25,11 +25,12 @@ GPUI/event wiring lives in `pawse::discord_bridge`.
   `scrobble/build.rs`); reruns when `.env` or the env var changes.
 - `art.rs` — `ArtCache`: `resolve(artist, album)` over blocking `ureq`, backed by
   a `"artist|album" -> url` JSON cache (empty string = negative cache, so a miss
-  is never re-queried). `lookup`/`parse_artwork` return `Result<Option<_>, ()>`:
-  only a **definitive** answer (HTTP responded, JSON parsed) is cached — a request
-  failure (offline / 5xx / throttle) returns `Err` and is never persisted, so a
-  transient outage can't poison an album forever. `parse_artwork` upscales
-  `100x100bb` → `512x512bb` and rejects URLs over 254 bytes (Discord's limit).
+  is never re-queried). The iTunes request and response parsing are
+  `cover_search::itunes`; `lookup` takes the top result, asks for it at 512 px
+  and returns `Result<Option<_>, ()>`: only a **definitive** answer (HTTP
+  responded, JSON parsed) is cached — a request failure (offline / 5xx /
+  throttle) returns `Err` and is never persisted, so a transient outage can't
+  poison an album forever. URLs over 254 bytes (Discord's limit) count as a miss.
 - `ipc.rs` — `DiscordHandle` + a dedicated worker thread owning the IPC client
   and art cache, fed `Msg`s over a `flume` channel. Builds the `Listening`
   activity (details = title, state = artist, `large_image` = cover URL when

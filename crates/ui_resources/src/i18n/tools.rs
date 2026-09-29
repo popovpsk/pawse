@@ -44,6 +44,33 @@ pub struct ToolsStrings {
     pub ai_answer_nothing_found: SharedString,
     pub ai_answer_missing: SharedString,
     pub ai_answer_failed: SharedString,
+    pub tools_covers: SharedString,
+    pub covers_intro: SharedString,
+    pub covers_find: SharedString,
+    pub covers_stop: SharedString,
+    pub covers_searching_t: SharedString,
+    pub covers_found_t: SharedString,
+    pub covers_none_missing: SharedString,
+    pub covers_results: SharedString,
+    pub covers_results_desc: SharedString,
+    pub covers_uncertain: SharedString,
+    pub covers_select_all: SharedString,
+    pub covers_select_none: SharedString,
+    pub covers_apply_t: SharedString,
+    pub covers_applying_t: SharedString,
+    pub covers_summary_t: SharedString,
+    pub covers_skipped: SharedString,
+    pub covers_skip_no_name: SharedString,
+    pub covers_skip_shared: SharedString,
+    pub covers_skip_scattered: SharedString,
+    pub covers_skip_cover_exists_t: SharedString,
+    pub covers_skip_image_exists_t: SharedString,
+    pub covers_skip_read_only: SharedString,
+    pub covers_skip_not_found: SharedString,
+    pub covers_skip_search_failed_t: SharedString,
+    pub covers_skip_download_failed_t: SharedString,
+    pub covers_skip_bad_image: SharedString,
+    pub covers_skip_write_failed_t: SharedString,
 }
 
 impl ToolsStrings {
@@ -56,6 +83,58 @@ impl ToolsStrings {
             &self.ai_answer_created_t,
             &[name, &found.to_string(), &total.to_string()],
         )
+    }
+
+    pub fn covers_searching(&self, done: usize, total: usize) -> String {
+        fill(
+            &self.covers_searching_t,
+            &[&done.to_string(), &total.to_string()],
+        )
+    }
+
+    pub fn covers_found(&self, found: usize, total: usize) -> String {
+        fill(
+            &self.covers_found_t,
+            &[&found.to_string(), &total.to_string()],
+        )
+    }
+
+    pub fn covers_apply(&self, count: usize) -> String {
+        fill(&self.covers_apply_t, &[&count.to_string()])
+    }
+
+    pub fn covers_applying(&self, done: usize, total: usize) -> String {
+        fill(
+            &self.covers_applying_t,
+            &[&done.to_string(), &total.to_string()],
+        )
+    }
+
+    pub fn covers_summary(&self, found: usize, total: usize, written: usize) -> String {
+        fill(
+            &self.covers_summary_t,
+            &[&found.to_string(), &total.to_string(), &written.to_string()],
+        )
+    }
+
+    pub fn covers_skip_cover_exists(&self, name: &str) -> String {
+        fill(&self.covers_skip_cover_exists_t, &[name])
+    }
+
+    pub fn covers_skip_image_exists(&self, name: &str) -> String {
+        fill(&self.covers_skip_image_exists_t, &[name])
+    }
+
+    pub fn covers_skip_search_failed(&self, error: &str) -> String {
+        fill(&self.covers_skip_search_failed_t, &[error])
+    }
+
+    pub fn covers_skip_download_failed(&self, error: &str) -> String {
+        fill(&self.covers_skip_download_failed_t, &[error])
+    }
+
+    pub fn covers_skip_write_failed(&self, error: &str) -> String {
+        fill(&self.covers_skip_write_failed_t, &[error])
     }
 }
 
@@ -142,6 +221,37 @@ static EN: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Not found in the library:"),
     ai_answer_failed: SharedString::new_static("Could not create the playlist"),
+    tools_covers: SharedString::new_static("Covers"),
+    covers_intro: SharedString::new_static(
+        "Finds covers for albums that have none, on iTunes and MusicBrainz. A cover is saved as cover.jpg next to the album's files: the music files are not changed, and existing covers are never replaced. Only albums from your local folders; albums from servers (Subsonic, Jellyfin, DLNA, torrents) are not included.",
+    ),
+    covers_find: SharedString::new_static("Find covers"),
+    covers_stop: SharedString::new_static("Stop"),
+    covers_searching_t: SharedString::new_static("Searching: {} of {}"),
+    covers_found_t: SharedString::new_static("Found {} of {}"),
+    covers_none_missing: SharedString::new_static("Every album already has a cover."),
+    covers_results: SharedString::new_static("Found covers"),
+    covers_results_desc: SharedString::new_static(
+        "Uncertain matches, where the artist or album title differs, are unchecked.",
+    ),
+    covers_uncertain: SharedString::new_static("Uncertain match"),
+    covers_select_all: SharedString::new_static("Select all"),
+    covers_select_none: SharedString::new_static("Select none"),
+    covers_apply_t: SharedString::new_static("Save selected ({})"),
+    covers_applying_t: SharedString::new_static("Saving: {} of {}"),
+    covers_summary_t: SharedString::new_static("Found {} of {}, saved {}"),
+    covers_skipped: SharedString::new_static("Skipped"),
+    covers_skip_no_name: SharedString::new_static("no artist or album title"),
+    covers_skip_shared: SharedString::new_static("the folder also holds other albums"),
+    covers_skip_scattered: SharedString::new_static("tracks are spread over unrelated folders"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} is already there"),
+    covers_skip_image_exists_t: SharedString::new_static("the folder already has an image: {}"),
+    covers_skip_read_only: SharedString::new_static("the folder is read-only"),
+    covers_skip_not_found: SharedString::new_static("nothing found"),
+    covers_skip_search_failed_t: SharedString::new_static("search failed: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("download failed: {}"),
+    covers_skip_bad_image: SharedString::new_static("the downloaded file is not a usable image"),
+    covers_skip_write_failed_t: SharedString::new_static("could not save: {}"),
 };
 
 static ZH: ToolsStrings = ToolsStrings {
@@ -196,6 +306,35 @@ static ZH: ToolsStrings = ToolsStrings {
     ai_answer_nothing_found: SharedString::new_static("回答中没有找到曲库里的曲目。"),
     ai_answer_missing: SharedString::new_static("曲库中未找到："),
     ai_answer_failed: SharedString::new_static("无法创建播放列表"),
+    tools_covers: SharedString::new_static("封面"),
+    covers_intro: SharedString::new_static(
+        "在 iTunes 和 MusicBrainz 上为没有封面的专辑查找封面。封面会以 cover.jpg 保存在专辑文件旁边：不会修改音乐文件，也绝不会替换已有的封面。仅限本地文件夹中的专辑；来自服务器（Subsonic、Jellyfin、DLNA、种子）的专辑不包括在内。",
+    ),
+    covers_find: SharedString::new_static("查找封面"),
+    covers_stop: SharedString::new_static("停止"),
+    covers_searching_t: SharedString::new_static("正在查找：{} / {}"),
+    covers_found_t: SharedString::new_static("找到 {} / {}"),
+    covers_none_missing: SharedString::new_static("所有专辑都已有封面。"),
+    covers_results: SharedString::new_static("找到的封面"),
+    covers_results_desc: SharedString::new_static("艺人或专辑名不一致的不确定匹配默认不勾选。"),
+    covers_uncertain: SharedString::new_static("不确定的匹配"),
+    covers_select_all: SharedString::new_static("全选"),
+    covers_select_none: SharedString::new_static("全不选"),
+    covers_apply_t: SharedString::new_static("保存所选（{}）"),
+    covers_applying_t: SharedString::new_static("正在保存：{} / {}"),
+    covers_summary_t: SharedString::new_static("找到 {} / {}，已保存 {}"),
+    covers_skipped: SharedString::new_static("已跳过"),
+    covers_skip_no_name: SharedString::new_static("没有艺人或专辑名"),
+    covers_skip_shared: SharedString::new_static("该文件夹中还有其他专辑"),
+    covers_skip_scattered: SharedString::new_static("曲目分散在互不相关的文件夹中"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} 已存在"),
+    covers_skip_image_exists_t: SharedString::new_static("文件夹中已有图片：{}"),
+    covers_skip_read_only: SharedString::new_static("文件夹为只读"),
+    covers_skip_not_found: SharedString::new_static("未找到"),
+    covers_skip_search_failed_t: SharedString::new_static("查找失败：{}"),
+    covers_skip_download_failed_t: SharedString::new_static("下载失败：{}"),
+    covers_skip_bad_image: SharedString::new_static("下载的文件不是可用的图片"),
+    covers_skip_write_failed_t: SharedString::new_static("无法保存：{}"),
 };
 
 static PT: ToolsStrings = ToolsStrings {
@@ -256,6 +395,39 @@ static PT: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Não encontradas na biblioteca:"),
     ai_answer_failed: SharedString::new_static("Não foi possível criar a playlist"),
+    tools_covers: SharedString::new_static("Capas"),
+    covers_intro: SharedString::new_static(
+        "Procura capas para álbuns sem capa no iTunes e no MusicBrainz. A capa é salva como cover.jpg ao lado dos arquivos do álbum: os arquivos de música não são alterados e capas existentes nunca são substituídas. Apenas álbuns das suas pastas locais; álbuns de servidores (Subsonic, Jellyfin, DLNA, torrents) não são incluídos.",
+    ),
+    covers_find: SharedString::new_static("Procurar capas"),
+    covers_stop: SharedString::new_static("Parar"),
+    covers_searching_t: SharedString::new_static("Procurando: {} de {}"),
+    covers_found_t: SharedString::new_static("Encontradas {} de {}"),
+    covers_none_missing: SharedString::new_static("Todos os álbuns já têm capa."),
+    covers_results: SharedString::new_static("Capas encontradas"),
+    covers_results_desc: SharedString::new_static(
+        "Correspondências incertas, em que o artista ou o título do álbum diferem, ficam desmarcadas.",
+    ),
+    covers_uncertain: SharedString::new_static("Correspondência incerta"),
+    covers_select_all: SharedString::new_static("Marcar todas"),
+    covers_select_none: SharedString::new_static("Desmarcar todas"),
+    covers_apply_t: SharedString::new_static("Salvar selecionadas ({})"),
+    covers_applying_t: SharedString::new_static("Salvando: {} de {}"),
+    covers_summary_t: SharedString::new_static("Encontradas {} de {}, salvas {}"),
+    covers_skipped: SharedString::new_static("Ignorados"),
+    covers_skip_no_name: SharedString::new_static("sem artista ou título do álbum"),
+    covers_skip_shared: SharedString::new_static("a pasta também contém outros álbuns"),
+    covers_skip_scattered: SharedString::new_static("as faixas estão em pastas não relacionadas"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} já existe"),
+    covers_skip_image_exists_t: SharedString::new_static("a pasta já tem uma imagem: {}"),
+    covers_skip_read_only: SharedString::new_static("a pasta é somente leitura"),
+    covers_skip_not_found: SharedString::new_static("nada encontrado"),
+    covers_skip_search_failed_t: SharedString::new_static("falha na busca: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("falha no download: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "o arquivo baixado não é uma imagem utilizável",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("não foi possível salvar: {}"),
 };
 
 static RU: ToolsStrings = ToolsStrings {
@@ -318,6 +490,37 @@ static RU: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Не нашлись в библиотеке:"),
     ai_answer_failed: SharedString::new_static("Не удалось создать плейлист"),
+    tools_covers: SharedString::new_static("Обложки"),
+    covers_intro: SharedString::new_static(
+        "Ищет обложки для альбомов без обложки в iTunes и MusicBrainz. Обложка сохраняется как cover.jpg рядом с файлами альбома: музыкальные файлы не меняются, существующие обложки никогда не заменяются. Только альбомы из локальных папок; альбомы с серверов (Subsonic, Jellyfin, DLNA, торренты) не затрагиваются.",
+    ),
+    covers_find: SharedString::new_static("Найти обложки"),
+    covers_stop: SharedString::new_static("Остановить"),
+    covers_searching_t: SharedString::new_static("Поиск: {} из {}"),
+    covers_found_t: SharedString::new_static("Найдено {} из {}"),
+    covers_none_missing: SharedString::new_static("У всех альбомов уже есть обложка."),
+    covers_results: SharedString::new_static("Найденные обложки"),
+    covers_results_desc: SharedString::new_static(
+        "Сомнительные совпадения, где исполнитель или название альбома расходятся, не отмечены.",
+    ),
+    covers_uncertain: SharedString::new_static("Сомнительное совпадение"),
+    covers_select_all: SharedString::new_static("Выбрать все"),
+    covers_select_none: SharedString::new_static("Снять все"),
+    covers_apply_t: SharedString::new_static("Записать выбранные ({})"),
+    covers_applying_t: SharedString::new_static("Запись: {} из {}"),
+    covers_summary_t: SharedString::new_static("Найдено {} из {}, записано {}"),
+    covers_skipped: SharedString::new_static("Пропущено"),
+    covers_skip_no_name: SharedString::new_static("нет исполнителя или названия альбома"),
+    covers_skip_shared: SharedString::new_static("в папке есть и другие альбомы"),
+    covers_skip_scattered: SharedString::new_static("треки лежат в несвязанных папках"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} уже есть"),
+    covers_skip_image_exists_t: SharedString::new_static("в папке уже есть картинка: {}"),
+    covers_skip_read_only: SharedString::new_static("папка только для чтения"),
+    covers_skip_not_found: SharedString::new_static("ничего не найдено"),
+    covers_skip_search_failed_t: SharedString::new_static("ошибка поиска: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("ошибка загрузки: {}"),
+    covers_skip_bad_image: SharedString::new_static("скачанный файл — не пригодная картинка"),
+    covers_skip_write_failed_t: SharedString::new_static("не удалось записать: {}"),
 };
 
 static JA: ToolsStrings = ToolsStrings {
@@ -378,6 +581,39 @@ static JA: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("ライブラリに見つからない曲："),
     ai_answer_failed: SharedString::new_static("プレイリストを作成できませんでした"),
+    tools_covers: SharedString::new_static("カバー"),
+    covers_intro: SharedString::new_static(
+        "カバーのないアルバムのカバーを iTunes と MusicBrainz で探します。カバーはアルバムのファイルの横に cover.jpg として保存されます。音楽ファイルは変更されず、既存のカバーが置き換えられることはありません。対象はローカルフォルダのアルバムのみで、サーバー（Subsonic、Jellyfin、DLNA、トレント）のアルバムは含まれません。",
+    ),
+    covers_find: SharedString::new_static("カバーを探す"),
+    covers_stop: SharedString::new_static("停止"),
+    covers_searching_t: SharedString::new_static("検索中：{} / {}"),
+    covers_found_t: SharedString::new_static("{} / {} 件見つかりました"),
+    covers_none_missing: SharedString::new_static("すべてのアルバムにカバーがあります。"),
+    covers_results: SharedString::new_static("見つかったカバー"),
+    covers_results_desc: SharedString::new_static(
+        "アーティスト名やアルバム名が一致しない不確かな候補はチェックされていません。",
+    ),
+    covers_uncertain: SharedString::new_static("不確かな一致"),
+    covers_select_all: SharedString::new_static("すべて選択"),
+    covers_select_none: SharedString::new_static("すべて解除"),
+    covers_apply_t: SharedString::new_static("選択したものを保存（{}）"),
+    covers_applying_t: SharedString::new_static("保存中：{} / {}"),
+    covers_summary_t: SharedString::new_static("{} / {} 件見つかり、{} 件保存しました"),
+    covers_skipped: SharedString::new_static("スキップ"),
+    covers_skip_no_name: SharedString::new_static("アーティスト名またはアルバム名がありません"),
+    covers_skip_shared: SharedString::new_static("フォルダに他のアルバムもあります"),
+    covers_skip_scattered: SharedString::new_static("トラックが無関係なフォルダに分かれています"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} がすでにあります"),
+    covers_skip_image_exists_t: SharedString::new_static("フォルダにすでに画像があります：{}"),
+    covers_skip_read_only: SharedString::new_static("フォルダは読み取り専用です"),
+    covers_skip_not_found: SharedString::new_static("見つかりませんでした"),
+    covers_skip_search_failed_t: SharedString::new_static("検索に失敗しました：{}"),
+    covers_skip_download_failed_t: SharedString::new_static("ダウンロードに失敗しました：{}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "ダウンロードしたファイルは使える画像ではありません",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("保存できませんでした：{}"),
 };
 
 static DE: ToolsStrings = ToolsStrings {
@@ -440,6 +676,41 @@ static DE: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Nicht in der Bibliothek gefunden:"),
     ai_answer_failed: SharedString::new_static("Playlist konnte nicht erstellt werden"),
+    tools_covers: SharedString::new_static("Cover"),
+    covers_intro: SharedString::new_static(
+        "Sucht auf iTunes und MusicBrainz Cover für Alben ohne Cover. Das Cover wird als cover.jpg neben den Dateien des Albums gespeichert: Die Musikdateien bleiben unverändert, vorhandene Cover werden nie ersetzt. Nur Alben aus deinen lokalen Ordnern; Alben von Servern (Subsonic, Jellyfin, DLNA, Torrents) sind nicht enthalten.",
+    ),
+    covers_find: SharedString::new_static("Cover suchen"),
+    covers_stop: SharedString::new_static("Stopp"),
+    covers_searching_t: SharedString::new_static("Suche: {} von {}"),
+    covers_found_t: SharedString::new_static("{} von {} gefunden"),
+    covers_none_missing: SharedString::new_static("Alle Alben haben bereits ein Cover."),
+    covers_results: SharedString::new_static("Gefundene Cover"),
+    covers_results_desc: SharedString::new_static(
+        "Unsichere Treffer, bei denen Interpret oder Albumtitel abweichen, sind nicht ausgewählt.",
+    ),
+    covers_uncertain: SharedString::new_static("Unsicherer Treffer"),
+    covers_select_all: SharedString::new_static("Alle auswählen"),
+    covers_select_none: SharedString::new_static("Keine auswählen"),
+    covers_apply_t: SharedString::new_static("Auswahl speichern ({})"),
+    covers_applying_t: SharedString::new_static("Speichern: {} von {}"),
+    covers_summary_t: SharedString::new_static("{} von {} gefunden, {} gespeichert"),
+    covers_skipped: SharedString::new_static("Übersprungen"),
+    covers_skip_no_name: SharedString::new_static("kein Interpret oder Albumtitel"),
+    covers_skip_shared: SharedString::new_static("der Ordner enthält auch andere Alben"),
+    covers_skip_scattered: SharedString::new_static(
+        "die Titel liegen in nicht zusammenhängenden Ordnern",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} ist bereits vorhanden"),
+    covers_skip_image_exists_t: SharedString::new_static("der Ordner enthält bereits ein Bild: {}"),
+    covers_skip_read_only: SharedString::new_static("der Ordner ist schreibgeschützt"),
+    covers_skip_not_found: SharedString::new_static("nichts gefunden"),
+    covers_skip_search_failed_t: SharedString::new_static("Suche fehlgeschlagen: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("Download fehlgeschlagen: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "die heruntergeladene Datei ist kein brauchbares Bild",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("Speichern nicht möglich: {}"),
 };
 
 static FR: ToolsStrings = ToolsStrings {
@@ -502,6 +773,41 @@ static FR: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Introuvables dans la bibliothèque :"),
     ai_answer_failed: SharedString::new_static("Impossible de créer la playlist"),
+    tools_covers: SharedString::new_static("Pochettes"),
+    covers_intro: SharedString::new_static(
+        "Cherche sur iTunes et MusicBrainz des pochettes pour les albums qui n'en ont pas. La pochette est enregistrée en cover.jpg à côté des fichiers de l'album : les fichiers musicaux ne sont pas modifiés et les pochettes existantes ne sont jamais remplacées. Uniquement les albums de vos dossiers locaux ; les albums des serveurs (Subsonic, Jellyfin, DLNA, torrents) ne sont pas concernés.",
+    ),
+    covers_find: SharedString::new_static("Chercher des pochettes"),
+    covers_stop: SharedString::new_static("Arrêter"),
+    covers_searching_t: SharedString::new_static("Recherche : {} sur {}"),
+    covers_found_t: SharedString::new_static("{} trouvées sur {}"),
+    covers_none_missing: SharedString::new_static("Tous les albums ont déjà une pochette."),
+    covers_results: SharedString::new_static("Pochettes trouvées"),
+    covers_results_desc: SharedString::new_static(
+        "Les correspondances incertaines, où l'artiste ou le titre de l'album diffère, sont décochées.",
+    ),
+    covers_uncertain: SharedString::new_static("Correspondance incertaine"),
+    covers_select_all: SharedString::new_static("Tout cocher"),
+    covers_select_none: SharedString::new_static("Tout décocher"),
+    covers_apply_t: SharedString::new_static("Enregistrer la sélection ({})"),
+    covers_applying_t: SharedString::new_static("Enregistrement : {} sur {}"),
+    covers_summary_t: SharedString::new_static("{} trouvées sur {}, {} enregistrées"),
+    covers_skipped: SharedString::new_static("Ignorés"),
+    covers_skip_no_name: SharedString::new_static("pas d'artiste ni de titre d'album"),
+    covers_skip_shared: SharedString::new_static("le dossier contient aussi d'autres albums"),
+    covers_skip_scattered: SharedString::new_static(
+        "les pistes sont réparties dans des dossiers sans rapport",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} existe déjà"),
+    covers_skip_image_exists_t: SharedString::new_static("le dossier contient déjà une image : {}"),
+    covers_skip_read_only: SharedString::new_static("le dossier est en lecture seule"),
+    covers_skip_not_found: SharedString::new_static("rien trouvé"),
+    covers_skip_search_failed_t: SharedString::new_static("échec de la recherche : {}"),
+    covers_skip_download_failed_t: SharedString::new_static("échec du téléchargement : {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "le fichier téléchargé n'est pas une image utilisable",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("impossible d'enregistrer : {}"),
 };
 
 static KO: ToolsStrings = ToolsStrings {
@@ -560,6 +866,39 @@ static KO: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("라이브러리에 없는 곡:"),
     ai_answer_failed: SharedString::new_static("플레이리스트를 만들 수 없습니다"),
+    tools_covers: SharedString::new_static("커버"),
+    covers_intro: SharedString::new_static(
+        "커버가 없는 앨범의 커버를 iTunes와 MusicBrainz에서 찾습니다. 커버는 앨범 파일 옆에 cover.jpg로 저장됩니다. 음악 파일은 변경되지 않으며 기존 커버는 절대 교체되지 않습니다. 로컬 폴더의 앨범만 대상이며, 서버(Subsonic, Jellyfin, DLNA, 토렌트)의 앨범은 포함되지 않습니다.",
+    ),
+    covers_find: SharedString::new_static("커버 찾기"),
+    covers_stop: SharedString::new_static("중지"),
+    covers_searching_t: SharedString::new_static("검색 중: {} / {}"),
+    covers_found_t: SharedString::new_static("{} / {} 찾음"),
+    covers_none_missing: SharedString::new_static("모든 앨범에 이미 커버가 있습니다."),
+    covers_results: SharedString::new_static("찾은 커버"),
+    covers_results_desc: SharedString::new_static(
+        "아티스트나 앨범 제목이 다른 불확실한 일치는 선택 해제되어 있습니다.",
+    ),
+    covers_uncertain: SharedString::new_static("불확실한 일치"),
+    covers_select_all: SharedString::new_static("모두 선택"),
+    covers_select_none: SharedString::new_static("모두 해제"),
+    covers_apply_t: SharedString::new_static("선택 항목 저장 ({})"),
+    covers_applying_t: SharedString::new_static("저장 중: {} / {}"),
+    covers_summary_t: SharedString::new_static("{} / {} 찾음, {} 저장됨"),
+    covers_skipped: SharedString::new_static("건너뜀"),
+    covers_skip_no_name: SharedString::new_static("아티스트 또는 앨범 제목 없음"),
+    covers_skip_shared: SharedString::new_static("폴더에 다른 앨범도 있음"),
+    covers_skip_scattered: SharedString::new_static("트랙이 서로 관련 없는 폴더에 흩어져 있음"),
+    covers_skip_cover_exists_t: SharedString::new_static("{}이(가) 이미 있음"),
+    covers_skip_image_exists_t: SharedString::new_static("폴더에 이미 이미지가 있음: {}"),
+    covers_skip_read_only: SharedString::new_static("폴더가 읽기 전용임"),
+    covers_skip_not_found: SharedString::new_static("찾지 못함"),
+    covers_skip_search_failed_t: SharedString::new_static("검색 실패: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("다운로드 실패: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "다운로드한 파일이 사용할 수 있는 이미지가 아님",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("저장할 수 없음: {}"),
 };
 
 static IT: ToolsStrings = ToolsStrings {
@@ -620,6 +959,41 @@ static IT: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Non trovati nella libreria:"),
     ai_answer_failed: SharedString::new_static("Impossibile creare la playlist"),
+    tools_covers: SharedString::new_static("Copertine"),
+    covers_intro: SharedString::new_static(
+        "Cerca su iTunes e MusicBrainz le copertine degli album che non ne hanno. La copertina viene salvata come cover.jpg accanto ai file dell'album: i file musicali non vengono modificati e le copertine esistenti non vengono mai sostituite. Solo gli album delle cartelle locali; gli album dai server (Subsonic, Jellyfin, DLNA, torrent) non sono inclusi.",
+    ),
+    covers_find: SharedString::new_static("Cerca copertine"),
+    covers_stop: SharedString::new_static("Interrompi"),
+    covers_searching_t: SharedString::new_static("Ricerca: {} di {}"),
+    covers_found_t: SharedString::new_static("Trovate {} di {}"),
+    covers_none_missing: SharedString::new_static("Tutti gli album hanno già una copertina."),
+    covers_results: SharedString::new_static("Copertine trovate"),
+    covers_results_desc: SharedString::new_static(
+        "Le corrispondenze incerte, in cui l'artista o il titolo dell'album differiscono, non sono selezionate.",
+    ),
+    covers_uncertain: SharedString::new_static("Corrispondenza incerta"),
+    covers_select_all: SharedString::new_static("Seleziona tutte"),
+    covers_select_none: SharedString::new_static("Deseleziona tutte"),
+    covers_apply_t: SharedString::new_static("Salva selezionate ({})"),
+    covers_applying_t: SharedString::new_static("Salvataggio: {} di {}"),
+    covers_summary_t: SharedString::new_static("Trovate {} di {}, salvate {}"),
+    covers_skipped: SharedString::new_static("Saltati"),
+    covers_skip_no_name: SharedString::new_static("nessun artista o titolo dell'album"),
+    covers_skip_shared: SharedString::new_static("la cartella contiene anche altri album"),
+    covers_skip_scattered: SharedString::new_static(
+        "le tracce sono sparse in cartelle non correlate",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} esiste già"),
+    covers_skip_image_exists_t: SharedString::new_static("la cartella ha già un'immagine: {}"),
+    covers_skip_read_only: SharedString::new_static("la cartella è di sola lettura"),
+    covers_skip_not_found: SharedString::new_static("nulla trovato"),
+    covers_skip_search_failed_t: SharedString::new_static("ricerca non riuscita: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("download non riuscito: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "il file scaricato non è un'immagine utilizzabile",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("impossibile salvare: {}"),
 };
 
 static TR: ToolsStrings = ToolsStrings {
@@ -682,6 +1056,39 @@ static TR: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Kitaplıkta bulunamayanlar:"),
     ai_answer_failed: SharedString::new_static("Çalma listesi oluşturulamadı"),
+    tools_covers: SharedString::new_static("Kapaklar"),
+    covers_intro: SharedString::new_static(
+        "Kapağı olmayan albümler için iTunes ve MusicBrainz'de kapak arar. Kapak, albüm dosyalarının yanına cover.jpg olarak kaydedilir: müzik dosyaları değiştirilmez, mevcut kapaklar asla değiştirilmez. Yalnızca yerel klasörlerdeki albümler; sunuculardan (Subsonic, Jellyfin, DLNA, torrent) gelen albümler dahil değildir.",
+    ),
+    covers_find: SharedString::new_static("Kapak bul"),
+    covers_stop: SharedString::new_static("Durdur"),
+    covers_searching_t: SharedString::new_static("Aranıyor: {} / {}"),
+    covers_found_t: SharedString::new_static("{} / {} bulundu"),
+    covers_none_missing: SharedString::new_static("Tüm albümlerin zaten kapağı var."),
+    covers_results: SharedString::new_static("Bulunan kapaklar"),
+    covers_results_desc: SharedString::new_static(
+        "Sanatçı veya albüm adının farklı olduğu belirsiz eşleşmeler seçili değildir.",
+    ),
+    covers_uncertain: SharedString::new_static("Belirsiz eşleşme"),
+    covers_select_all: SharedString::new_static("Tümünü seç"),
+    covers_select_none: SharedString::new_static("Hiçbirini seçme"),
+    covers_apply_t: SharedString::new_static("Seçilenleri kaydet ({})"),
+    covers_applying_t: SharedString::new_static("Kaydediliyor: {} / {}"),
+    covers_summary_t: SharedString::new_static("{} / {} bulundu, {} kaydedildi"),
+    covers_skipped: SharedString::new_static("Atlananlar"),
+    covers_skip_no_name: SharedString::new_static("sanatçı veya albüm adı yok"),
+    covers_skip_shared: SharedString::new_static("klasörde başka albümler de var"),
+    covers_skip_scattered: SharedString::new_static("parçalar ilgisiz klasörlere dağılmış"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} zaten var"),
+    covers_skip_image_exists_t: SharedString::new_static("klasörde zaten bir görsel var: {}"),
+    covers_skip_read_only: SharedString::new_static("klasör salt okunur"),
+    covers_skip_not_found: SharedString::new_static("hiçbir şey bulunamadı"),
+    covers_skip_search_failed_t: SharedString::new_static("arama başarısız: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("indirme başarısız: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "indirilen dosya kullanılabilir bir görsel değil",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("kaydedilemedi: {}"),
 };
 
 static PL: ToolsStrings = ToolsStrings {
@@ -742,6 +1149,37 @@ static PL: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Nie znaleziono w bibliotece:"),
     ai_answer_failed: SharedString::new_static("Nie udało się utworzyć playlisty"),
+    tools_covers: SharedString::new_static("Okładki"),
+    covers_intro: SharedString::new_static(
+        "Szuka w iTunes i MusicBrainz okładek dla albumów, które ich nie mają. Okładka jest zapisywana jako cover.jpg obok plików albumu: pliki muzyczne nie są zmieniane, a istniejące okładki nigdy nie są zastępowane. Tylko albumy z lokalnych folderów; albumy z serwerów (Subsonic, Jellyfin, DLNA, torrenty) nie są uwzględniane.",
+    ),
+    covers_find: SharedString::new_static("Znajdź okładki"),
+    covers_stop: SharedString::new_static("Zatrzymaj"),
+    covers_searching_t: SharedString::new_static("Wyszukiwanie: {} z {}"),
+    covers_found_t: SharedString::new_static("Znaleziono {} z {}"),
+    covers_none_missing: SharedString::new_static("Wszystkie albumy mają już okładkę."),
+    covers_results: SharedString::new_static("Znalezione okładki"),
+    covers_results_desc: SharedString::new_static(
+        "Niepewne dopasowania, w których wykonawca lub tytuł albumu się różnią, są odznaczone.",
+    ),
+    covers_uncertain: SharedString::new_static("Niepewne dopasowanie"),
+    covers_select_all: SharedString::new_static("Zaznacz wszystkie"),
+    covers_select_none: SharedString::new_static("Odznacz wszystkie"),
+    covers_apply_t: SharedString::new_static("Zapisz zaznaczone ({})"),
+    covers_applying_t: SharedString::new_static("Zapisywanie: {} z {}"),
+    covers_summary_t: SharedString::new_static("Znaleziono {} z {}, zapisano {}"),
+    covers_skipped: SharedString::new_static("Pominięte"),
+    covers_skip_no_name: SharedString::new_static("brak wykonawcy lub tytułu albumu"),
+    covers_skip_shared: SharedString::new_static("folder zawiera też inne albumy"),
+    covers_skip_scattered: SharedString::new_static("utwory są w niepowiązanych folderach"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} już istnieje"),
+    covers_skip_image_exists_t: SharedString::new_static("folder ma już obraz: {}"),
+    covers_skip_read_only: SharedString::new_static("folder jest tylko do odczytu"),
+    covers_skip_not_found: SharedString::new_static("nic nie znaleziono"),
+    covers_skip_search_failed_t: SharedString::new_static("wyszukiwanie nie powiodło się: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("pobieranie nie powiodło się: {}"),
+    covers_skip_bad_image: SharedString::new_static("pobrany plik nie jest użytecznym obrazem"),
+    covers_skip_write_failed_t: SharedString::new_static("nie udało się zapisać: {}"),
 };
 
 static NL: ToolsStrings = ToolsStrings {
@@ -804,6 +1242,41 @@ static NL: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Niet gevonden in de bibliotheek:"),
     ai_answer_failed: SharedString::new_static("Kan de playlist niet maken"),
+    tools_covers: SharedString::new_static("Hoezen"),
+    covers_intro: SharedString::new_static(
+        "Zoekt op iTunes en MusicBrainz naar hoezen voor albums zonder hoes. De hoes wordt als cover.jpg naast de bestanden van het album opgeslagen: de muziekbestanden worden niet gewijzigd en bestaande hoezen worden nooit vervangen. Alleen albums uit je lokale mappen; albums van servers (Subsonic, Jellyfin, DLNA, torrents) vallen erbuiten.",
+    ),
+    covers_find: SharedString::new_static("Hoezen zoeken"),
+    covers_stop: SharedString::new_static("Stoppen"),
+    covers_searching_t: SharedString::new_static("Zoeken: {} van {}"),
+    covers_found_t: SharedString::new_static("{} van {} gevonden"),
+    covers_none_missing: SharedString::new_static("Alle albums hebben al een hoes."),
+    covers_results: SharedString::new_static("Gevonden hoezen"),
+    covers_results_desc: SharedString::new_static(
+        "Onzekere overeenkomsten, waarbij artiest of albumtitel verschillen, zijn niet aangevinkt.",
+    ),
+    covers_uncertain: SharedString::new_static("Onzekere overeenkomst"),
+    covers_select_all: SharedString::new_static("Alles selecteren"),
+    covers_select_none: SharedString::new_static("Niets selecteren"),
+    covers_apply_t: SharedString::new_static("Selectie opslaan ({})"),
+    covers_applying_t: SharedString::new_static("Opslaan: {} van {}"),
+    covers_summary_t: SharedString::new_static("{} van {} gevonden, {} opgeslagen"),
+    covers_skipped: SharedString::new_static("Overgeslagen"),
+    covers_skip_no_name: SharedString::new_static("geen artiest of albumtitel"),
+    covers_skip_shared: SharedString::new_static("de map bevat ook andere albums"),
+    covers_skip_scattered: SharedString::new_static(
+        "de nummers staan in losse, niet-verwante mappen",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} bestaat al"),
+    covers_skip_image_exists_t: SharedString::new_static("de map heeft al een afbeelding: {}"),
+    covers_skip_read_only: SharedString::new_static("de map is alleen-lezen"),
+    covers_skip_not_found: SharedString::new_static("niets gevonden"),
+    covers_skip_search_failed_t: SharedString::new_static("zoeken mislukt: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("downloaden mislukt: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "het gedownloade bestand is geen bruikbare afbeelding",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("kan niet opslaan: {}"),
 };
 
 static UK: ToolsStrings = ToolsStrings {
@@ -864,6 +1337,37 @@ static UK: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Не знайдено в бібліотеці:"),
     ai_answer_failed: SharedString::new_static("Не вдалося створити плейлист"),
+    tools_covers: SharedString::new_static("Обкладинки"),
+    covers_intro: SharedString::new_static(
+        "Шукає обкладинки для альбомів без обкладинки в iTunes і MusicBrainz. Обкладинка зберігається як cover.jpg поруч із файлами альбому: музичні файли не змінюються, наявні обкладинки ніколи не замінюються. Лише альбоми з локальних тек; альбоми із серверів (Subsonic, Jellyfin, DLNA, торенти) не зачіпаються.",
+    ),
+    covers_find: SharedString::new_static("Знайти обкладинки"),
+    covers_stop: SharedString::new_static("Зупинити"),
+    covers_searching_t: SharedString::new_static("Пошук: {} з {}"),
+    covers_found_t: SharedString::new_static("Знайдено {} з {}"),
+    covers_none_missing: SharedString::new_static("Усі альбоми вже мають обкладинку."),
+    covers_results: SharedString::new_static("Знайдені обкладинки"),
+    covers_results_desc: SharedString::new_static(
+        "Сумнівні збіги, де виконавець або назва альбому відрізняються, не позначені.",
+    ),
+    covers_uncertain: SharedString::new_static("Сумнівний збіг"),
+    covers_select_all: SharedString::new_static("Вибрати всі"),
+    covers_select_none: SharedString::new_static("Зняти всі"),
+    covers_apply_t: SharedString::new_static("Записати вибрані ({})"),
+    covers_applying_t: SharedString::new_static("Запис: {} з {}"),
+    covers_summary_t: SharedString::new_static("Знайдено {} з {}, записано {}"),
+    covers_skipped: SharedString::new_static("Пропущено"),
+    covers_skip_no_name: SharedString::new_static("немає виконавця або назви альбому"),
+    covers_skip_shared: SharedString::new_static("у теці є й інші альбоми"),
+    covers_skip_scattered: SharedString::new_static("треки лежать у непов'язаних теках"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} вже є"),
+    covers_skip_image_exists_t: SharedString::new_static("у теці вже є зображення: {}"),
+    covers_skip_read_only: SharedString::new_static("тека лише для читання"),
+    covers_skip_not_found: SharedString::new_static("нічого не знайдено"),
+    covers_skip_search_failed_t: SharedString::new_static("помилка пошуку: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("помилка завантаження: {}"),
+    covers_skip_bad_image: SharedString::new_static("завантажений файл не є придатним зображенням"),
+    covers_skip_write_failed_t: SharedString::new_static("не вдалося записати: {}"),
 };
 
 static VI: ToolsStrings = ToolsStrings {
@@ -924,6 +1428,39 @@ static VI: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Không có trong thư viện:"),
     ai_answer_failed: SharedString::new_static("Không thể tạo danh sách phát"),
+    tools_covers: SharedString::new_static("Ảnh bìa"),
+    covers_intro: SharedString::new_static(
+        "Tìm ảnh bìa trên iTunes và MusicBrainz cho các album chưa có. Ảnh bìa được lưu thành cover.jpg cạnh các tệp của album: tệp nhạc không bị thay đổi và ảnh bìa hiện có không bao giờ bị thay thế. Chỉ áp dụng cho album trong thư mục cục bộ; album từ máy chủ (Subsonic, Jellyfin, DLNA, torrent) không được tính.",
+    ),
+    covers_find: SharedString::new_static("Tìm ảnh bìa"),
+    covers_stop: SharedString::new_static("Dừng"),
+    covers_searching_t: SharedString::new_static("Đang tìm: {} / {}"),
+    covers_found_t: SharedString::new_static("Tìm thấy {} / {}"),
+    covers_none_missing: SharedString::new_static("Tất cả album đã có ảnh bìa."),
+    covers_results: SharedString::new_static("Ảnh bìa tìm được"),
+    covers_results_desc: SharedString::new_static(
+        "Các kết quả không chắc chắn, khi nghệ sĩ hoặc tên album khác nhau, không được chọn.",
+    ),
+    covers_uncertain: SharedString::new_static("Kết quả không chắc chắn"),
+    covers_select_all: SharedString::new_static("Chọn tất cả"),
+    covers_select_none: SharedString::new_static("Bỏ chọn tất cả"),
+    covers_apply_t: SharedString::new_static("Lưu mục đã chọn ({})"),
+    covers_applying_t: SharedString::new_static("Đang lưu: {} / {}"),
+    covers_summary_t: SharedString::new_static("Tìm thấy {} / {}, đã lưu {}"),
+    covers_skipped: SharedString::new_static("Đã bỏ qua"),
+    covers_skip_no_name: SharedString::new_static("không có nghệ sĩ hoặc tên album"),
+    covers_skip_shared: SharedString::new_static("thư mục còn chứa album khác"),
+    covers_skip_scattered: SharedString::new_static(
+        "các bài nằm rải rác ở những thư mục không liên quan",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} đã có sẵn"),
+    covers_skip_image_exists_t: SharedString::new_static("thư mục đã có hình ảnh: {}"),
+    covers_skip_read_only: SharedString::new_static("thư mục chỉ đọc"),
+    covers_skip_not_found: SharedString::new_static("không tìm thấy"),
+    covers_skip_search_failed_t: SharedString::new_static("tìm kiếm thất bại: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("tải xuống thất bại: {}"),
+    covers_skip_bad_image: SharedString::new_static("tệp tải về không phải hình ảnh dùng được"),
+    covers_skip_write_failed_t: SharedString::new_static("không thể lưu: {}"),
 };
 
 static ID: ToolsStrings = ToolsStrings {
@@ -984,6 +1521,39 @@ static ID: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Tidak ditemukan di pustaka:"),
     ai_answer_failed: SharedString::new_static("Gagal membuat playlist"),
+    tools_covers: SharedString::new_static("Sampul"),
+    covers_intro: SharedString::new_static(
+        "Mencari sampul di iTunes dan MusicBrainz untuk album yang belum punya sampul. Sampul disimpan sebagai cover.jpg di samping file album: file musik tidak diubah dan sampul yang ada tidak pernah diganti. Hanya album dari folder lokal; album dari server (Subsonic, Jellyfin, DLNA, torrent) tidak disertakan.",
+    ),
+    covers_find: SharedString::new_static("Cari sampul"),
+    covers_stop: SharedString::new_static("Berhenti"),
+    covers_searching_t: SharedString::new_static("Mencari: {} dari {}"),
+    covers_found_t: SharedString::new_static("Ditemukan {} dari {}"),
+    covers_none_missing: SharedString::new_static("Semua album sudah punya sampul."),
+    covers_results: SharedString::new_static("Sampul yang ditemukan"),
+    covers_results_desc: SharedString::new_static(
+        "Kecocokan yang meragukan, saat artis atau judul album berbeda, tidak dicentang.",
+    ),
+    covers_uncertain: SharedString::new_static("Kecocokan meragukan"),
+    covers_select_all: SharedString::new_static("Pilih semua"),
+    covers_select_none: SharedString::new_static("Batalkan semua"),
+    covers_apply_t: SharedString::new_static("Simpan yang dipilih ({})"),
+    covers_applying_t: SharedString::new_static("Menyimpan: {} dari {}"),
+    covers_summary_t: SharedString::new_static("Ditemukan {} dari {}, disimpan {}"),
+    covers_skipped: SharedString::new_static("Dilewati"),
+    covers_skip_no_name: SharedString::new_static("tidak ada artis atau judul album"),
+    covers_skip_shared: SharedString::new_static("folder juga berisi album lain"),
+    covers_skip_scattered: SharedString::new_static("trek tersebar di folder yang tidak berkaitan"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} sudah ada"),
+    covers_skip_image_exists_t: SharedString::new_static("folder sudah berisi gambar: {}"),
+    covers_skip_read_only: SharedString::new_static("folder hanya-baca"),
+    covers_skip_not_found: SharedString::new_static("tidak ditemukan"),
+    covers_skip_search_failed_t: SharedString::new_static("pencarian gagal: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("unduhan gagal: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "file yang diunduh bukan gambar yang bisa dipakai",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("tidak dapat menyimpan: {}"),
 };
 
 static TH: ToolsStrings = ToolsStrings {
@@ -1038,6 +1608,37 @@ static TH: ToolsStrings = ToolsStrings {
     ai_answer_nothing_found: SharedString::new_static("ไม่พบเพลงจากคลังของคุณในคำตอบ"),
     ai_answer_missing: SharedString::new_static("ไม่พบในคลัง:"),
     ai_answer_failed: SharedString::new_static("สร้างเพลย์ลิสต์ไม่สำเร็จ"),
+    tools_covers: SharedString::new_static("ปก"),
+    covers_intro: SharedString::new_static(
+        "ค้นหาปกบน iTunes และ MusicBrainz สำหรับอัลบั้มที่ยังไม่มีปก ปกจะถูกบันทึกเป็น cover.jpg ข้างไฟล์ของอัลบั้ม ไฟล์เพลงจะไม่ถูกแก้ไข และจะไม่แทนที่ปกที่มีอยู่แล้ว เฉพาะอัลบั้มในโฟลเดอร์ในเครื่องเท่านั้น ไม่รวมอัลบั้มจากเซิร์ฟเวอร์ (Subsonic, Jellyfin, DLNA, ทอร์เรนต์)",
+    ),
+    covers_find: SharedString::new_static("ค้นหาปก"),
+    covers_stop: SharedString::new_static("หยุด"),
+    covers_searching_t: SharedString::new_static("กำลังค้นหา: {} จาก {}"),
+    covers_found_t: SharedString::new_static("พบ {} จาก {}"),
+    covers_none_missing: SharedString::new_static("ทุกอัลบั้มมีปกแล้ว"),
+    covers_results: SharedString::new_static("ปกที่พบ"),
+    covers_results_desc: SharedString::new_static(
+        "ผลที่ไม่แน่ใจ ซึ่งชื่อศิลปินหรือชื่ออัลบั้มไม่ตรงกัน จะไม่ถูกเลือกไว้",
+    ),
+    covers_uncertain: SharedString::new_static("ผลที่ไม่แน่ใจ"),
+    covers_select_all: SharedString::new_static("เลือกทั้งหมด"),
+    covers_select_none: SharedString::new_static("ไม่เลือกเลย"),
+    covers_apply_t: SharedString::new_static("บันทึกที่เลือก ({})"),
+    covers_applying_t: SharedString::new_static("กำลังบันทึก: {} จาก {}"),
+    covers_summary_t: SharedString::new_static("พบ {} จาก {} บันทึกแล้ว {}"),
+    covers_skipped: SharedString::new_static("ข้ามไป"),
+    covers_skip_no_name: SharedString::new_static("ไม่มีชื่อศิลปินหรือชื่ออัลบั้ม"),
+    covers_skip_shared: SharedString::new_static("ในโฟลเดอร์มีอัลบั้มอื่นด้วย"),
+    covers_skip_scattered: SharedString::new_static("แทร็กกระจายอยู่ในโฟลเดอร์ที่ไม่เกี่ยวข้องกัน"),
+    covers_skip_cover_exists_t: SharedString::new_static("มี {} อยู่แล้ว"),
+    covers_skip_image_exists_t: SharedString::new_static("ในโฟลเดอร์มีรูปภาพอยู่แล้ว: {}"),
+    covers_skip_read_only: SharedString::new_static("โฟลเดอร์เป็นแบบอ่านอย่างเดียว"),
+    covers_skip_not_found: SharedString::new_static("ไม่พบ"),
+    covers_skip_search_failed_t: SharedString::new_static("ค้นหาไม่สำเร็จ: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("ดาวน์โหลดไม่สำเร็จ: {}"),
+    covers_skip_bad_image: SharedString::new_static("ไฟล์ที่ดาวน์โหลดไม่ใช่รูปภาพที่ใช้ได้"),
+    covers_skip_write_failed_t: SharedString::new_static("บันทึกไม่ได้: {}"),
 };
 
 static CS: ToolsStrings = ToolsStrings {
@@ -1098,6 +1699,39 @@ static CS: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Nenalezeno v knihovně:"),
     ai_answer_failed: SharedString::new_static("Playlist se nepodařilo vytvořit"),
+    tools_covers: SharedString::new_static("Obaly"),
+    covers_intro: SharedString::new_static(
+        "Hledá na iTunes a MusicBrainz obaly pro alba, která žádný nemají. Obal se uloží jako cover.jpg vedle souborů alba: hudební soubory se nemění a existující obaly se nikdy nenahrazují. Jen alba z místních složek; alba ze serverů (Subsonic, Jellyfin, DLNA, torrenty) se nezahrnují.",
+    ),
+    covers_find: SharedString::new_static("Najít obaly"),
+    covers_stop: SharedString::new_static("Zastavit"),
+    covers_searching_t: SharedString::new_static("Hledání: {} z {}"),
+    covers_found_t: SharedString::new_static("Nalezeno {} z {}"),
+    covers_none_missing: SharedString::new_static("Všechna alba už obal mají."),
+    covers_results: SharedString::new_static("Nalezené obaly"),
+    covers_results_desc: SharedString::new_static(
+        "Nejisté shody, kde se liší interpret nebo název alba, nejsou zaškrtnuté.",
+    ),
+    covers_uncertain: SharedString::new_static("Nejistá shoda"),
+    covers_select_all: SharedString::new_static("Vybrat vše"),
+    covers_select_none: SharedString::new_static("Zrušit výběr"),
+    covers_apply_t: SharedString::new_static("Uložit vybrané ({})"),
+    covers_applying_t: SharedString::new_static("Ukládání: {} z {}"),
+    covers_summary_t: SharedString::new_static("Nalezeno {} z {}, uloženo {}"),
+    covers_skipped: SharedString::new_static("Přeskočeno"),
+    covers_skip_no_name: SharedString::new_static("chybí interpret nebo název alba"),
+    covers_skip_shared: SharedString::new_static("složka obsahuje i jiná alba"),
+    covers_skip_scattered: SharedString::new_static(
+        "skladby jsou rozeseté v nesouvisejících složkách",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} už existuje"),
+    covers_skip_image_exists_t: SharedString::new_static("složka už obsahuje obrázek: {}"),
+    covers_skip_read_only: SharedString::new_static("složka je jen pro čtení"),
+    covers_skip_not_found: SharedString::new_static("nic nenalezeno"),
+    covers_skip_search_failed_t: SharedString::new_static("hledání selhalo: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("stažení selhalo: {}"),
+    covers_skip_bad_image: SharedString::new_static("stažený soubor není použitelný obrázek"),
+    covers_skip_write_failed_t: SharedString::new_static("nelze uložit: {}"),
 };
 
 static SV: ToolsStrings = ToolsStrings {
@@ -1160,6 +1794,37 @@ static SV: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("Hittades inte i biblioteket:"),
     ai_answer_failed: SharedString::new_static("Kunde inte skapa spellistan"),
+    tools_covers: SharedString::new_static("Omslag"),
+    covers_intro: SharedString::new_static(
+        "Söker på iTunes och MusicBrainz efter omslag till album som saknar omslag. Omslaget sparas som cover.jpg bredvid albumets filer: musikfilerna ändras inte och befintliga omslag ersätts aldrig. Bara album från dina lokala mappar; album från servrar (Subsonic, Jellyfin, DLNA, torrenter) ingår inte.",
+    ),
+    covers_find: SharedString::new_static("Hitta omslag"),
+    covers_stop: SharedString::new_static("Stoppa"),
+    covers_searching_t: SharedString::new_static("Söker: {} av {}"),
+    covers_found_t: SharedString::new_static("Hittade {} av {}"),
+    covers_none_missing: SharedString::new_static("Alla album har redan ett omslag."),
+    covers_results: SharedString::new_static("Hittade omslag"),
+    covers_results_desc: SharedString::new_static(
+        "Osäkra träffar, där artist eller albumtitel skiljer sig, är avmarkerade.",
+    ),
+    covers_uncertain: SharedString::new_static("Osäker träff"),
+    covers_select_all: SharedString::new_static("Markera alla"),
+    covers_select_none: SharedString::new_static("Avmarkera alla"),
+    covers_apply_t: SharedString::new_static("Spara markerade ({})"),
+    covers_applying_t: SharedString::new_static("Sparar: {} av {}"),
+    covers_summary_t: SharedString::new_static("Hittade {} av {}, sparade {}"),
+    covers_skipped: SharedString::new_static("Överhoppade"),
+    covers_skip_no_name: SharedString::new_static("ingen artist eller albumtitel"),
+    covers_skip_shared: SharedString::new_static("mappen innehåller även andra album"),
+    covers_skip_scattered: SharedString::new_static("spåren ligger i orelaterade mappar"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} finns redan"),
+    covers_skip_image_exists_t: SharedString::new_static("mappen har redan en bild: {}"),
+    covers_skip_read_only: SharedString::new_static("mappen är skrivskyddad"),
+    covers_skip_not_found: SharedString::new_static("inget hittades"),
+    covers_skip_search_failed_t: SharedString::new_static("sökningen misslyckades: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("nedladdningen misslyckades: {}"),
+    covers_skip_bad_image: SharedString::new_static("den nedladdade filen är ingen användbar bild"),
+    covers_skip_write_failed_t: SharedString::new_static("kunde inte spara: {}"),
 };
 
 static HI: ToolsStrings = ToolsStrings {
@@ -1218,6 +1883,37 @@ static HI: ToolsStrings = ToolsStrings {
     ai_answer_nothing_found: SharedString::new_static("जवाब में आपकी लाइब्रेरी का कोई ट्रैक नहीं मिला।"),
     ai_answer_missing: SharedString::new_static("लाइब्रेरी में नहीं मिले:"),
     ai_answer_failed: SharedString::new_static("प्लेलिस्ट नहीं बन सकी"),
+    tools_covers: SharedString::new_static("कवर"),
+    covers_intro: SharedString::new_static(
+        "जिन एल्बमों का कवर नहीं है, उनके लिए iTunes और MusicBrainz पर कवर खोजता है। कवर एल्बम की फ़ाइलों के पास cover.jpg के रूप में सहेजा जाता है: संगीत फ़ाइलें नहीं बदली जातीं और मौजूदा कवर कभी नहीं बदले जाते। केवल आपके लोकल फ़ोल्डरों के एल्बम; सर्वर (Subsonic, Jellyfin, DLNA, टोरेंट) के एल्बम शामिल नहीं हैं।",
+    ),
+    covers_find: SharedString::new_static("कवर खोजें"),
+    covers_stop: SharedString::new_static("रोकें"),
+    covers_searching_t: SharedString::new_static("खोज रहे हैं: {} / {}"),
+    covers_found_t: SharedString::new_static("{} / {} मिले"),
+    covers_none_missing: SharedString::new_static("सभी एल्बमों के पास पहले से कवर है।"),
+    covers_results: SharedString::new_static("मिले हुए कवर"),
+    covers_results_desc: SharedString::new_static(
+        "अनिश्चित मिलान, जहाँ कलाकार या एल्बम का नाम अलग है, चुने नहीं गए हैं।",
+    ),
+    covers_uncertain: SharedString::new_static("अनिश्चित मिलान"),
+    covers_select_all: SharedString::new_static("सभी चुनें"),
+    covers_select_none: SharedString::new_static("कोई नहीं"),
+    covers_apply_t: SharedString::new_static("चुने हुए सहेजें ({})"),
+    covers_applying_t: SharedString::new_static("सहेज रहे हैं: {} / {}"),
+    covers_summary_t: SharedString::new_static("{} / {} मिले, {} सहेजे गए"),
+    covers_skipped: SharedString::new_static("छोड़े गए"),
+    covers_skip_no_name: SharedString::new_static("कलाकार या एल्बम का नाम नहीं है"),
+    covers_skip_shared: SharedString::new_static("फ़ोल्डर में दूसरे एल्बम भी हैं"),
+    covers_skip_scattered: SharedString::new_static("ट्रैक असंबंधित फ़ोल्डरों में बिखरे हैं"),
+    covers_skip_cover_exists_t: SharedString::new_static("{} पहले से मौजूद है"),
+    covers_skip_image_exists_t: SharedString::new_static("फ़ोल्डर में पहले से एक छवि है: {}"),
+    covers_skip_read_only: SharedString::new_static("फ़ोल्डर केवल-पढ़ने के लिए है"),
+    covers_skip_not_found: SharedString::new_static("कुछ नहीं मिला"),
+    covers_skip_search_failed_t: SharedString::new_static("खोज विफल: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("डाउनलोड विफल: {}"),
+    covers_skip_bad_image: SharedString::new_static("डाउनलोड की गई फ़ाइल उपयोग योग्य छवि नहीं है"),
+    covers_skip_write_failed_t: SharedString::new_static("सहेजा नहीं जा सका: {}"),
 };
 
 static ES: ToolsStrings = ToolsStrings {
@@ -1278,4 +1974,39 @@ static ES: ToolsStrings = ToolsStrings {
     ),
     ai_answer_missing: SharedString::new_static("No encontradas en la biblioteca:"),
     ai_answer_failed: SharedString::new_static("No se pudo crear la playlist"),
+    tools_covers: SharedString::new_static("Portadas"),
+    covers_intro: SharedString::new_static(
+        "Busca en iTunes y MusicBrainz portadas para los álbumes que no tienen. La portada se guarda como cover.jpg junto a los archivos del álbum: los archivos de música no se modifican y las portadas existentes nunca se reemplazan. Solo álbumes de tus carpetas locales; los álbumes de servidores (Subsonic, Jellyfin, DLNA, torrents) no se incluyen.",
+    ),
+    covers_find: SharedString::new_static("Buscar portadas"),
+    covers_stop: SharedString::new_static("Detener"),
+    covers_searching_t: SharedString::new_static("Buscando: {} de {}"),
+    covers_found_t: SharedString::new_static("Encontradas {} de {}"),
+    covers_none_missing: SharedString::new_static("Todos los álbumes ya tienen portada."),
+    covers_results: SharedString::new_static("Portadas encontradas"),
+    covers_results_desc: SharedString::new_static(
+        "Las coincidencias dudosas, en las que el artista o el título del álbum difieren, quedan sin marcar.",
+    ),
+    covers_uncertain: SharedString::new_static("Coincidencia dudosa"),
+    covers_select_all: SharedString::new_static("Marcar todas"),
+    covers_select_none: SharedString::new_static("Desmarcar todas"),
+    covers_apply_t: SharedString::new_static("Guardar seleccionadas ({})"),
+    covers_applying_t: SharedString::new_static("Guardando: {} de {}"),
+    covers_summary_t: SharedString::new_static("Encontradas {} de {}, guardadas {}"),
+    covers_skipped: SharedString::new_static("Omitidos"),
+    covers_skip_no_name: SharedString::new_static("sin artista ni título del álbum"),
+    covers_skip_shared: SharedString::new_static("la carpeta también contiene otros álbumes"),
+    covers_skip_scattered: SharedString::new_static(
+        "las pistas están repartidas en carpetas sin relación",
+    ),
+    covers_skip_cover_exists_t: SharedString::new_static("{} ya existe"),
+    covers_skip_image_exists_t: SharedString::new_static("la carpeta ya tiene una imagen: {}"),
+    covers_skip_read_only: SharedString::new_static("la carpeta es de solo lectura"),
+    covers_skip_not_found: SharedString::new_static("no se encontró nada"),
+    covers_skip_search_failed_t: SharedString::new_static("falló la búsqueda: {}"),
+    covers_skip_download_failed_t: SharedString::new_static("falló la descarga: {}"),
+    covers_skip_bad_image: SharedString::new_static(
+        "el archivo descargado no es una imagen utilizable",
+    ),
+    covers_skip_write_failed_t: SharedString::new_static("no se pudo guardar: {}"),
 };

@@ -1679,6 +1679,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cover_search"
+version = "1.0.0"
+dependencies = [
+ "log",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "ureq",
+]
+
+[[package]]
 name = "cpal"
 version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2092,6 +2104,7 @@ dependencies = [
 name = "discord"
 version = "1.0.0"
 dependencies = [
+ "cover_search",
  "discord-rich-presence",
  "flume",
  "log",
@@ -6547,6 +6560,7 @@ dependencies = [
  "anyhow",
  "audio_engine",
  "audio_output",
+ "cover_search",
  "diagnostics",
  "dirs 6.0.0",
  "discord",
