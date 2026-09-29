@@ -131,6 +131,7 @@ pub static TR: Strings = lang! {
     new_playlist_name: "Yeni çalma listesi adı",
     new_playlist: "Yeni çalma listesi",
     delete: "Sil",
+    rename: "Yeniden adlandır",
 
     settings_appearance: "Görünüm",
     settings_general: "Genel",
@@ -246,6 +247,10 @@ pub static TR: Strings = lang! {
     version: "Sürüm",
     restart_to_update: "Güncellemek için yeniden başlat",
     up_to_date: "Pawse güncel",
+    feedback: "Geri bildirim",
+    feedback_desc: "Şikâyet, soru ve öneriler için bana doğrudan yazın.",
+    email: "E-posta",
+    copied_to_clipboard: "Panoya kopyalandı",
 
     lyrics: "Sözler",
     lyrics_empty: "Söz yok",

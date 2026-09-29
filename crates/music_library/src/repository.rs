@@ -112,6 +112,7 @@ pub trait LibraryRepository: Send + Sync {
 
     fn create_playlist(&self, name: &str) -> Result<i64>;
     fn delete_playlist(&self, playlist_id: i64) -> Result<()>;
+    fn rename_playlist(&self, playlist_id: i64, name: &str) -> Result<()>;
     fn playlists(&self) -> Result<Vec<PlaylistSummary>>;
     fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()>;
     fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<()>;

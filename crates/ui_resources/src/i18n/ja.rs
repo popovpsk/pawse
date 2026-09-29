@@ -131,6 +131,7 @@ pub static JA: Strings = lang! {
     new_playlist_name: "新しいプレイリスト名",
     new_playlist: "新しいプレイリスト",
     delete: "削除",
+    rename: "名前を変更",
 
     settings_appearance: "外観",
     settings_general: "一般",
@@ -246,6 +247,10 @@ pub static JA: Strings = lang! {
     version: "バージョン",
     restart_to_update: "再起動して更新",
     up_to_date: "Pawse は最新です",
+    feedback: "フィードバック",
+    feedback_desc: "不具合報告・質問・提案は直接ご連絡ください。",
+    email: "メール",
+    copied_to_clipboard: "クリップボードにコピーしました",
 
     lyrics: "歌詞",
     lyrics_empty: "歌詞なし",

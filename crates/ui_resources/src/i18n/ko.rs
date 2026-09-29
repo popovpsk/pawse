@@ -131,6 +131,7 @@ pub static KO: Strings = lang! {
     new_playlist_name: "새 재생목록 이름",
     new_playlist: "새 재생목록",
     delete: "삭제",
+    rename: "이름 바꾸기",
 
     settings_appearance: "모양",
     settings_general: "일반",
@@ -246,6 +247,10 @@ pub static KO: Strings = lang! {
     version: "버전",
     restart_to_update: "업데이트하려면 다시 시작",
     up_to_date: "Pawse가 최신 상태입니다",
+    feedback: "피드백",
+    feedback_desc: "불만, 질문, 제안은 저에게 직접 보내 주세요.",
+    email: "이메일",
+    copied_to_clipboard: "클립보드에 복사됨",
 
     lyrics: "가사",
     lyrics_empty: "가사 없음",

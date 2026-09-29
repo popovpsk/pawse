@@ -131,6 +131,7 @@ pub static TH: Strings = lang! {
     new_playlist_name: "ชื่อเพลย์ลิสต์ใหม่",
     new_playlist: "เพลย์ลิสต์ใหม่",
     delete: "ลบ",
+    rename: "เปลี่ยนชื่อ",
 
     settings_appearance: "รูปลักษณ์",
     settings_general: "ทั่วไป",
@@ -246,6 +247,10 @@ pub static TH: Strings = lang! {
     version: "เวอร์ชัน",
     restart_to_update: "รีสตาร์ทเพื่ออัปเดต",
     up_to_date: "Pawse เป็นเวอร์ชันล่าสุดแล้ว",
+    feedback: "ข้อเสนอแนะ",
+    feedback_desc: "ร้องเรียน คำถาม ข้อเสนอแนะ — เขียนถึงฉันได้โดยตรง",
+    email: "อีเมล",
+    copied_to_clipboard: "คัดลอกไปยังคลิปบอร์ดแล้ว",
 
     lyrics: "เนื้อเพลง",
     lyrics_empty: "ไม่มีเนื้อเพลง",

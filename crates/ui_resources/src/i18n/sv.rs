@@ -131,6 +131,7 @@ pub static SV: Strings = lang! {
     new_playlist_name: "Namn på ny spellista",
     new_playlist: "Ny spellista",
     delete: "Ta bort",
+    rename: "Byt namn",
 
     settings_appearance: "Utseende",
     settings_general: "Allmänt",
@@ -246,6 +247,10 @@ pub static SV: Strings = lang! {
     version: "Version",
     restart_to_update: "Starta om för att uppdatera",
     up_to_date: "Pawse är uppdaterat",
+    feedback: "Feedback",
+    feedback_desc: "Klagomål, frågor, förslag — skriv direkt till mig.",
+    email: "E-post",
+    copied_to_clipboard: "Kopierat till urklipp",
 
     lyrics: "Låttext",
     lyrics_empty: "Ingen låttext",

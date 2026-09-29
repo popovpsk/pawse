@@ -131,6 +131,7 @@ pub static FR: Strings = lang! {
     new_playlist_name: "Nom de la nouvelle playlist",
     new_playlist: "Nouvelle playlist",
     delete: "Supprimer",
+    rename: "Renommer",
 
     settings_appearance: "Apparence",
     settings_general: "Général",
@@ -246,6 +247,10 @@ pub static FR: Strings = lang! {
     version: "Version",
     restart_to_update: "Redémarrer pour mettre à jour",
     up_to_date: "Pawse est à jour",
+    feedback: "Retours",
+    feedback_desc: "Réclamations, questions, suggestions : écrivez-moi directement.",
+    email: "E-mail",
+    copied_to_clipboard: "Copié dans le presse-papiers",
 
     lyrics: "Paroles",
     lyrics_empty: "Pas de paroles",

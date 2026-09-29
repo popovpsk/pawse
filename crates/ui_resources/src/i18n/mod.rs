@@ -181,6 +181,7 @@ pub struct Strings {
     pub new_playlist_name: SharedString,
     pub new_playlist: SharedString,
     pub delete: SharedString,
+    pub rename: SharedString,
 
     // --- Settings page ---
     pub settings_appearance: SharedString,
@@ -305,6 +306,10 @@ pub struct Strings {
     pub version: SharedString,
     pub restart_to_update: SharedString,
     pub up_to_date: SharedString,
+    pub feedback: SharedString,
+    pub feedback_desc: SharedString,
+    pub email: SharedString,
+    pub copied_to_clipboard: SharedString,
 
     // --- Lyrics ---
     pub lyrics: SharedString,

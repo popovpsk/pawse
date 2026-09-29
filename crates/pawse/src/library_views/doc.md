@@ -204,7 +204,12 @@ drive the `PlaybackQueue` on click.
   typed). Enter creates, Esc or blurring it empty cancels; a typed name survives blur
   so clicking ✓ still works. With
   no playlists at all the row is replaced by a centered empty state (hint + primary
-  button) until creation starts.
+  button) until creation starts. Renaming reuses the pattern: the hover pencil next to
+  the trash swaps that row for an inline input prefilled with the name (✓ / ✕,
+  Enter / Esc). Blur cancels only when the text is empty or unchanged, so ✓ still
+  works after typing; clicking another row while renaming just closes the editor.
+  The rename goes through `LibraryService::rename_playlist` → `PlaylistsChanged`;
+  the SQL refuses the hidden liked playlist.
 - `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable
   (only with an empty filter), persisted via `LibraryService::move_track_in_playlist`.
   Liked and playlist screens show "Unavailable: N" when entries have no file right

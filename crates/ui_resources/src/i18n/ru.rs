@@ -131,6 +131,7 @@ pub static RU: Strings = lang! {
     new_playlist_name: "Название нового плейлиста",
     new_playlist: "Новый плейлист",
     delete: "Удалить",
+    rename: "Переименовать",
 
     settings_appearance: "Внешний вид",
     settings_general: "Общие",
@@ -246,6 +247,10 @@ pub static RU: Strings = lang! {
     version: "Версия",
     restart_to_update: "Перезапустить для обновления",
     up_to_date: "Установлена последняя версия Pawse",
+    feedback: "Обратная связь",
+    feedback_desc: "Жалобы, вопросы, предложения — пишите мне напрямую.",
+    email: "Почта",
+    copied_to_clipboard: "Скопировано в буфер обмена",
 
     lyrics: "Текст",
     lyrics_empty: "Нет текста",

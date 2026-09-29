@@ -2092,6 +2092,15 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
+    fn rename_playlist(&self, playlist_id: i64, name: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlists SET name = ?2 WHERE id = ?1 AND id != ?3",
+            rusqlite::params![playlist_id, name, self.liked_playlist_id],
+        )?;
+        Ok(())
+    }
+
     fn playlists(&self) -> Result<Vec<PlaylistSummary>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(

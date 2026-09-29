@@ -131,6 +131,7 @@ pub static VI: Strings = lang! {
     new_playlist_name: "Tên danh sách phát mới",
     new_playlist: "Danh sách phát mới",
     delete: "Xóa",
+    rename: "Đổi tên",
 
     settings_appearance: "Giao diện",
     settings_general: "Chung",
@@ -246,6 +247,10 @@ pub static VI: Strings = lang! {
     version: "Phiên bản",
     restart_to_update: "Khởi động lại để cập nhật",
     up_to_date: "Pawse đã là bản mới nhất",
+    feedback: "Phản hồi",
+    feedback_desc: "Khiếu nại, câu hỏi, góp ý — hãy viết trực tiếp cho tôi.",
+    email: "Email",
+    copied_to_clipboard: "Đã sao chép vào bộ nhớ tạm",
 
     lyrics: "Lời bài hát",
     lyrics_empty: "Không có lời",

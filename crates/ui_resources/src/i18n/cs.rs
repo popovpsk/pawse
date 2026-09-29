@@ -131,6 +131,7 @@ pub static CS: Strings = lang! {
     new_playlist_name: "Název nového playlistu",
     new_playlist: "Nový playlist",
     delete: "Smazat",
+    rename: "Přejmenovat",
 
     settings_appearance: "Vzhled",
     settings_general: "Obecné",
@@ -246,6 +247,10 @@ pub static CS: Strings = lang! {
     version: "Verze",
     restart_to_update: "Restartovat pro aktualizaci",
     up_to_date: "Pawse je aktuální",
+    feedback: "Zpětná vazba",
+    feedback_desc: "Stížnosti, dotazy, návrhy — napište mi přímo.",
+    email: "E-mail",
+    copied_to_clipboard: "Zkopírováno do schránky",
 
     lyrics: "Text písně",
     lyrics_empty: "Žádný text",

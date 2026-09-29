@@ -1,12 +1,16 @@
 use std::path::PathBuf;
 
-use gpui::{Anchor, App, Entity, ParentElement, SharedString, Styled, Window, actions, div, px};
+use gpui::{
+    Anchor, App, ClipboardItem, Entity, ParentElement, SharedString, Styled, Window, actions, div,
+    px,
+};
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
     button::{Button, ButtonGroup, ButtonVariants},
     dialog::{Cancel, Confirm, DialogFooter},
     h_flex,
     input::{Input, InputState},
+    notification::Notification,
     slider::{Slider, SliderState},
     switch::Switch,
     v_flex,
@@ -86,7 +90,7 @@ pub fn build_settings_pages(
     if discord::is_available() {
         general = general.group(discord_group());
     }
-    pages.push(general);
+    pages.push(general.group(feedback_group()));
     let scrobbling = pages.len();
     pages.push(crate::scrobble_settings::scrobble_page(
         scrobble_ui,
@@ -698,6 +702,68 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
             )
         }),
     ))
+}
+
+const FEEDBACK_TELEGRAM: &str = concat!("t.me", "/", "popov", "psk");
+const FEEDBACK_EMAIL: &str = concat!("popov", ".", "psk", "@", "gmail", ".", "com");
+
+fn feedback_group() -> SettingGroup {
+    SettingGroup::new()
+        .title(tr().feedback.clone())
+        .description(tr().feedback_desc.clone())
+        .item(SettingItem::new(
+            SharedString::new_static("Telegram"),
+            SettingField::render(|_window, cx: &mut App| {
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .justify_end()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Colors::muted_foreground(cx))
+                            .child(SharedString::new_static(FEEDBACK_TELEGRAM)),
+                    )
+                    .child(
+                        Button::new("feedback-telegram")
+                            .small()
+                            .icon(Icon::default().path("icons/external-link.svg"))
+                            .tooltip(tr().open_in_browser.clone())
+                            .on_click(|_, _, cx| {
+                                cx.open_url(&format!("https://{FEEDBACK_TELEGRAM}"));
+                            }),
+                    )
+            }),
+        ))
+        .item(SettingItem::new(
+            tr().email.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .justify_end()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Colors::muted_foreground(cx))
+                            .child(SharedString::new_static(FEEDBACK_EMAIL)),
+                    )
+                    .child(
+                        Button::new("feedback-email-copy")
+                            .small()
+                            .label(tr().copy.clone())
+                            .on_click(|_, window, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    FEEDBACK_EMAIL.to_string(),
+                                ));
+                                window.push_notification(
+                                    Notification::success(tr().copied_to_clipboard.clone()),
+                                    cx,
+                                );
+                            }),
+                    )
+            }),
+        ))
 }
 
 fn discord_group() -> SettingGroup {

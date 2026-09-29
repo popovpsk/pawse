@@ -1448,6 +1448,22 @@ mod tests {
     }
 
     #[test]
+    fn test_rename_playlist_keeps_its_tracks() {
+        let (lib, _path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        let playlist_id = lib.create_playlist("Old").unwrap();
+        lib.add_track_to_playlist(playlist_id, track_id).unwrap();
+
+        lib.rename_playlist(playlist_id, "New").unwrap();
+
+        let playlists = lib.playlists().unwrap();
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(playlists[0].id, playlist_id);
+        assert_eq!(playlists[0].name, "New");
+        assert_eq!(playlists[0].track_count, 1);
+    }
+
+    #[test]
     fn test_add_track_to_playlist_is_idempotent() {
         // Double-click / stale `containing` UI checks should be harmless.
         let (lib, _path) = create_test_db();

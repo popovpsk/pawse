@@ -77,10 +77,14 @@ pub struct PlaylistsView {
     create_has_text: bool,
     create_input: Entity<InputState>,
     pending_delete_id: Option<i64>,
+    renaming_id: Option<i64>,
+    rename_has_text: bool,
+    rename_input: Entity<InputState>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
     _create_subscription: Subscription,
+    _rename_subscription: Subscription,
 }
 
 impl PlaylistsView {
@@ -108,6 +112,25 @@ impl PlaylistsView {
             },
         );
 
+        let rename_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr().playlist_name.clone()));
+
+        let rename_subscription = cx.subscribe(
+            &rename_input,
+            |this, input, event: &InputEvent, cx| match event {
+                InputEvent::PressEnter { .. } => this.commit_rename(cx),
+                InputEvent::Change => {
+                    let has_text = !input.read(cx).value().trim().is_empty();
+                    if this.rename_has_text != has_text {
+                        this.rename_has_text = has_text;
+                        cx.notify();
+                    }
+                }
+                InputEvent::Blur if this.rename_is_noop(cx) => this.cancel_rename(cx),
+                _ => {}
+            },
+        );
+
         let playlists_all = cx.global::<Services>().library.playlists();
         let all_tracks_count = cx.global::<Services>().library.track_count();
         let all_tracks_count_label: SharedString = tr().n_tracks(all_tracks_count).into();
@@ -125,6 +148,11 @@ impl PlaylistsView {
                 this.playlists_all = services.library.playlists();
                 this.all_tracks_count = services.library.track_count();
                 this.all_tracks_count_label = tr().n_tracks(this.all_tracks_count).into();
+                if let Some(id) = this.renaming_id
+                    && !this.playlists_all.iter().any(|p| p.id == id)
+                {
+                    this.renaming_id = None;
+                }
                 this.recompute_visible();
                 cx.notify();
             }
@@ -142,10 +170,14 @@ impl PlaylistsView {
             create_has_text: false,
             create_input,
             pending_delete_id: None,
+            renaming_id: None,
+            rename_has_text: false,
+            rename_input,
             item_sizes: Rc::new(item_sizes),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _create_subscription: create_subscription,
+            _rename_subscription: rename_subscription,
         }
     }
 
@@ -222,6 +254,59 @@ impl PlaylistsView {
         }
         cx.global::<Services>().library.create_playlist(&name);
         self.creating = false;
+        cx.notify();
+    }
+
+    fn start_rename(&mut self, playlist_id: i64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .playlists_all
+            .iter()
+            .find(|p| p.id == playlist_id)
+            .map(|p| p.name.clone())
+        else {
+            return;
+        };
+        self.pending_delete_id = None;
+        self.renaming_id = Some(playlist_id);
+        self.rename_has_text = !name.trim().is_empty();
+        self.rename_input.update(cx, |s, cx| {
+            s.set_value(name, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        if self.renaming_id.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn rename_is_noop(&self, cx: &Context<Self>) -> bool {
+        let Some(id) = self.renaming_id else {
+            return false;
+        };
+        let value = self.rename_input.read(cx).value();
+        let value = value.trim();
+        value.is_empty()
+            || self
+                .playlists_all
+                .iter()
+                .any(|p| p.id == id && p.name == value)
+    }
+
+    fn commit_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.renaming_id else {
+            return;
+        };
+        let name = self.rename_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        if !self.rename_is_noop(cx) {
+            cx.global::<Services>().library.rename_playlist(id, &name);
+        }
+        self.renaming_id = None;
         cx.notify();
     }
 }
@@ -396,6 +481,72 @@ fn new_playlist_row(
         .into_any_element()
 }
 
+fn renaming_row(
+    view: &PlaylistsView,
+    playlist_id: i64,
+    p: &PlaylistRowParams,
+    cx: &mut Context<PlaylistsView>,
+) -> gpui::AnyElement {
+    h_flex()
+        .id(ElementId::NamedInteger(
+            "pl-renaming".into(),
+            playlist_id as u64,
+        ))
+        .w_full()
+        .h(px(PLAYLIST_ROW_HEIGHT))
+        .px_4()
+        .gap_3()
+        .items_center()
+        .border_b(px(1.))
+        .border_color(p.border)
+        .on_action(cx.listener(|this, _: &input::Escape, _, cx| this.cancel_rename(cx)))
+        .child(
+            svg()
+                .path("icons/s1-playlists.svg")
+                .size(px(20.))
+                .text_color(p.danger_fg),
+        )
+        .child(
+            div().flex_1().child(
+                Input::new(&view.rename_input)
+                    .small()
+                    .appearance(false)
+                    .cleanable(false),
+            ),
+        )
+        .child(
+            h_flex()
+                .gap_1()
+                .child(
+                    create_row_button(
+                        "pl-rename-confirm",
+                        "icons/check.svg",
+                        tr().rename.clone(),
+                        if view.rename_has_text {
+                            Colors::primary(cx)
+                        } else {
+                            p.muted_fg.opacity(0.5)
+                        },
+                        p.icon_btn_hover,
+                        view.rename_has_text,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.commit_rename(cx))),
+                )
+                .child(
+                    create_row_button(
+                        "pl-rename-cancel",
+                        "icons/s1-x.svg",
+                        tr().cancel.clone(),
+                        p.muted_fg,
+                        p.icon_btn_hover,
+                        true,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_rename(cx))),
+                ),
+        )
+        .into_any_element()
+}
+
 fn create_row_button(
     id: &'static str,
     icon: &'static str,
@@ -508,6 +659,36 @@ fn playlist_row(
     let count_label = row.count_label.clone();
     let pending_delete = view.pending_delete_id == Some(playlist_id);
 
+    if view.renaming_id == Some(playlist_id) {
+        return renaming_row(view, playlist_id, p, cx);
+    }
+
+    let pencil_button = div()
+        .id(ElementId::NamedInteger(
+            "pl-rename".into(),
+            playlist_id as u64,
+        ))
+        .size(px(ROW_ACTION_SIZE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .cursor_pointer()
+        .opacity(0.)
+        .group_hover(LIKE_ROW_GROUP, |s| s.opacity(1.))
+        .hover(|s| s.bg(p.icon_btn_hover))
+        .tooltip(|window, cx| Tooltip::new(tr().rename.clone()).build(window, cx))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.start_rename(playlist_id, window, cx);
+        }))
+        .child(
+            svg()
+                .path("icons/s1-pencil.svg")
+                .size(px(15.))
+                .text_color(p.danger_fg),
+        );
+
     let trash_button = div()
         .id(ElementId::NamedInteger(
             "pl-trash".into(),
@@ -587,9 +768,15 @@ fn playlist_row(
                     ),
             )
         })
-        .when(!pending_delete, |row| row.child(trash_button))
+        .when(!pending_delete, |row| {
+            row.child(pencil_button).child(trash_button)
+        })
         .id(ElementId::Integer(playlist_id as u64))
         .on_click(cx.listener(move |this, _, _, cx| {
+            if this.renaming_id.is_some() {
+                this.cancel_rename(cx);
+                return;
+            }
             if this.pending_delete_id.is_some() {
                 return;
             }

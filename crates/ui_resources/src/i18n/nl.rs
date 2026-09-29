@@ -131,6 +131,7 @@ pub static NL: Strings = lang! {
     new_playlist_name: "Naam nieuwe afspeellijst",
     new_playlist: "Nieuwe afspeellijst",
     delete: "Verwijderen",
+    rename: "Naam wijzigen",
 
     settings_appearance: "Weergave",
     settings_general: "Algemeen",
@@ -246,6 +247,10 @@ pub static NL: Strings = lang! {
     version: "Versie",
     restart_to_update: "Herstart om bij te werken",
     up_to_date: "Pawse is up-to-date",
+    feedback: "Feedback",
+    feedback_desc: "Klachten, vragen, suggesties — schrijf me direct.",
+    email: "E-mail",
+    copied_to_clipboard: "Gekopieerd naar klembord",
 
     lyrics: "Songtekst",
     lyrics_empty: "Geen songtekst",

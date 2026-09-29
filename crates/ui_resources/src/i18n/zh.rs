@@ -131,6 +131,7 @@ pub static ZH: Strings = lang! {
     new_playlist_name: "新播放列表名称",
     new_playlist: "新播放列表",
     delete: "删除",
+    rename: "重命名",
 
     settings_appearance: "外观",
     settings_general: "通用",
@@ -246,6 +247,10 @@ pub static ZH: Strings = lang! {
     version: "版本",
     restart_to_update: "重启以更新",
     up_to_date: "Pawse 已是最新版本",
+    feedback: "反馈",
+    feedback_desc: "投诉、问题或建议，请直接联系我。",
+    email: "邮箱",
+    copied_to_clipboard: "已复制到剪贴板",
 
     lyrics: "歌词",
     lyrics_empty: "无歌词",

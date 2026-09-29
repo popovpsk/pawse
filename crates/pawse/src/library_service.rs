@@ -785,6 +785,14 @@ impl LibraryService {
         let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
     }
 
+    pub fn rename_playlist(&self, playlist_id: i64, name: &str) {
+        if let Err(e) = self.repo.rename_playlist(playlist_id, name) {
+            log::error!("Failed to rename playlist {}: {}", playlist_id, e);
+            return;
+        }
+        let _ = self.event_tx.send(LibraryEvent::PlaylistsChanged);
+    }
+
     pub fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) {
         if track_ids.is_empty() {
             return;

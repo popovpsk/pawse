@@ -131,6 +131,7 @@ pub static ID: Strings = lang! {
     new_playlist_name: "Nama playlist baru",
     new_playlist: "Playlist baru",
     delete: "Hapus",
+    rename: "Ganti nama",
 
     settings_appearance: "Tampilan",
     settings_general: "Umum",
@@ -246,6 +247,10 @@ pub static ID: Strings = lang! {
     version: "Versi",
     restart_to_update: "Mulai ulang untuk memperbarui",
     up_to_date: "Pawse sudah versi terbaru",
+    feedback: "Masukan",
+    feedback_desc: "Keluhan, pertanyaan, saran — tulis langsung ke saya.",
+    email: "Email",
+    copied_to_clipboard: "Disalin ke papan klip",
 
     lyrics: "Lirik",
     lyrics_empty: "Tidak ada lirik",
