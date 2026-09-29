@@ -9,7 +9,8 @@ use crate::servers::{
 pub fn reconcile(
     repo: &dyn LibraryRepository,
     servers: &[RemoteServer],
-) -> HashMap<i64, RemoteConfig> {
+) -> (HashMap<i64, RemoteConfig>, bool) {
+    let mut changed = false;
     for kind in ServerKind::ALL {
         let sources: Vec<RemoteSource> = servers
             .iter()
@@ -19,18 +20,20 @@ pub fn reconcile(
                 name: server.name.clone(),
             })
             .collect();
-        if let Err(e) = repo.reconcile_remote_sources(kind.as_str(), &sources) {
-            log::error!("Failed to reconcile {} sources: {e}", kind.title());
+        match repo.reconcile_remote_sources(kind.as_str(), &sources) {
+            Ok(kind_changed) => changed |= kind_changed,
+            Err(e) => log::error!("Failed to reconcile {} sources: {e}", kind.title()),
         }
     }
     let ids = source_ids(repo);
-    servers
+    let configs = servers
         .iter()
         .filter_map(|server| {
             ids.get(&server.key())
                 .map(|id| (*id, server.config.clone()))
         })
-        .collect()
+        .collect();
+    (configs, changed)
 }
 
 pub fn source_ids(repo: &dyn LibraryRepository) -> HashMap<String, i64> {
@@ -343,7 +346,7 @@ mod tests {
         scan_local(&repo, vec![local_track()]);
         let url = stub_server();
         let servers = vec![server(&url)];
-        let configs = reconcile(&repo, &servers);
+        let (configs, _) = reconcile(&repo, &servers);
         let (&source_id, _) = configs.iter().next().unwrap();
 
         let outcome = sync_server(&repo, source_id, &servers[0].config);
@@ -463,7 +466,7 @@ mod tests {
                 }),
             },
         ];
-        let configs = reconcile(&repo, &servers);
+        let (configs, _) = reconcile(&repo, &servers);
         assert_eq!(configs.len(), 2);
         let (&source_id, config) = configs
             .iter()
@@ -544,7 +547,7 @@ mod tests {
         let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         drop(listener);
         let servers = vec![server(&url)];
-        let (&source_id, _) = reconcile(&repo, &servers).iter().next().unwrap();
+        let (&source_id, _) = reconcile(&repo, &servers).0.iter().next().unwrap();
 
         let outcome = sync_server(&repo, source_id, &servers[0].config);
         assert!(matches!(outcome.result, Err(RemoteError::Unreachable(_))));

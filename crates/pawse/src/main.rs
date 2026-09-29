@@ -142,7 +142,7 @@ fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
         let view = cx.new(|cx| MainView::new(window, cx));
         let root = cx.new(|cx| Root::new(view, window, cx));
         if run_startup_tasks {
-            crate::remote_settings::apply_remote_sources(cx);
+            crate::remote_settings::reconcile_sources(cx);
             crate::scrobble_bridge::apply_settings(cx);
             restore_engine_state(cx);
             window.on_next_frame(|_window, cx| {

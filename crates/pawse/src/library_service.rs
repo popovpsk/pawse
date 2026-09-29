@@ -898,8 +898,12 @@ impl LibraryService {
     pub fn reconcile_remote(
         &self,
         servers: &[crate::servers::RemoteServer],
-    ) -> HashMap<i64, crate::servers::RemoteConfig> {
-        crate::remote_sync::reconcile(&*self.repo, servers)
+    ) -> (HashMap<i64, crate::servers::RemoteConfig>, bool) {
+        let (configs, changed) = crate::remote_sync::reconcile(&*self.repo, servers);
+        if changed && let Err(e) = self.repo.invalidate_scan_fingerprint() {
+            log::error!("Failed to invalidate scan fingerprint: {e}");
+        }
+        (configs, changed)
     }
 
     pub fn remote_syncing(&self) -> HashSet<String> {

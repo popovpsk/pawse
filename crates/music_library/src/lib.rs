@@ -3080,6 +3080,38 @@ mod tests {
     }
 
     #[test]
+    fn reconciling_remote_sources_reports_whether_any_was_enabled_or_disabled() {
+        let (lib, _path) = create_test_db();
+        let both: Vec<RemoteSource> = ["me@http://one", "me@http://two"]
+            .into_iter()
+            .map(|uri| RemoteSource {
+                uri: uri.into(),
+                name: uri.into(),
+            })
+            .collect();
+        let (one, two) = (&both[..1], &both[1..]);
+        let reconcile = |kind: &str, sources: &[RemoteSource]| {
+            lib.reconcile_remote_sources(kind, sources).unwrap()
+        };
+
+        assert!(reconcile("dlna", one));
+        assert!(!reconcile("dlna", one));
+        assert!(!reconcile("subsonic", &[]));
+        assert!(reconcile("dlna", &both));
+        assert!(reconcile("dlna", two));
+        assert!(reconcile("dlna", &[]));
+        assert!(!reconcile("dlna", &[]));
+        assert!(reconcile("dlna", one));
+        assert!(reconcile("jellyfin", two));
+        assert!(
+            lib.sources()
+                .unwrap()
+                .into_iter()
+                .any(|s| s.kind == "dlna" && s.uri == "me@http://one" && s.enabled)
+        );
+    }
+
+    #[test]
     fn a_second_server_joins_the_tracks_of_a_first_one_that_is_offline() {
         let (lib, path) = create_test_db();
         let ids = servers(&lib, &["me@http://one", "me@http://two"]);

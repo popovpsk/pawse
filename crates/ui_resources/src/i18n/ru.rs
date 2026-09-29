@@ -288,7 +288,7 @@ pub static RU: Strings = lang! {
     scrobble_auth_expired: "Авторизация истекла, войдите снова",
     scrobble_auth_cancel: "Отмена",
     scrobble_auth_link_expired: "Ссылка для авторизации больше не действует. Войдите снова, чтобы получить новую.",
-    scrobble_import_loves: "Импортировать понравившиеся",
+    scrobble_import_loves: "Импортировать лайки",
     scrobble_import_loves_desc: "Отмеченное в профиле попадёт в «Понравившиеся». Обратно ничего не отправляется.",
     scrobble_import_run: "Импортировать",
     scrobble_import_result_t: "Найдено в медиатеке: {} из {}",

@@ -288,7 +288,7 @@ pub static EN: Strings = lang! {
     scrobble_auth_expired: "Authorization expired, sign in again",
     scrobble_auth_cancel: "Cancel",
     scrobble_auth_link_expired: "The authorization link is no longer valid. Sign in again to get a new one.",
-    scrobble_import_loves: "Import liked tracks",
+    scrobble_import_loves: "Import likes",
     scrobble_import_loves_desc: "Tracks marked in your profile are added to Liked tracks here. Nothing is sent back.",
     scrobble_import_run: "Import",
     scrobble_import_result_t: "Found {} of {} in your library",

@@ -140,11 +140,20 @@ pub fn remote_servers(cx: &App) -> Vec<RemoteServer> {
     )
 }
 
-pub fn apply_remote_sources(cx: &mut App) {
+pub fn reconcile_sources(cx: &mut App) -> bool {
     let servers = remote_servers(cx);
     let services = cx.global::<Services>();
-    let configs = services.library.reconcile_remote(&servers);
+    let (configs, changed) = services.library.reconcile_remote(&servers);
     services.remote_media.set_servers(configs);
+    changed
+}
+
+pub fn apply_remote_sources(cx: &mut App) {
+    if reconcile_sources(cx) {
+        cx.global::<Services>()
+            .library
+            .refresh_after_source_change();
+    }
 }
 
 pub fn sync_all(cx: &mut App) {
@@ -203,9 +212,6 @@ fn remove_server(server: &RemoteServer, cx: &mut App) {
     }
     apply_remote_sources(cx);
     crate::scrobble_bridge::apply_settings(cx);
-    cx.global::<Services>()
-        .library
-        .refresh_after_source_change();
     let client = server.config.client();
     cx.background_spawn(async move { client.forget() }).detach();
 }

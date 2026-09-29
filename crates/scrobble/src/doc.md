@@ -105,7 +105,7 @@ what it needs through the queue:
   calls `apply_settings` (`remote_settings::added` / `remove_server`). At launch
   `setup` runs before the window reconciles `sources`, so a server whose row
   does not exist yet has no id there; `open_main_window` calls `apply_settings`
-  again right after `apply_remote_sources`, or such a server would get nothing
+  again right after `reconcile_sources`, or such a server would get nothing
   until the next settings change.
 - **Double counting is the user's call.** A server that itself forwards plays
   to Last.fm/ListenBrainz (Navidrome can) plus the same service switched on here

@@ -2478,9 +2478,18 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
-    fn reconcile_remote_sources(&self, kind: &str, sources: &[RemoteSource]) -> Result<()> {
+    fn reconcile_remote_sources(&self, kind: &str, sources: &[RemoteSource]) -> Result<bool> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
+        let enabled_ids = |tx: &rusqlite::Transaction| -> Result<Vec<i64>> {
+            let mut stmt =
+                tx.prepare("SELECT id FROM sources WHERE kind = ?1 AND enabled = 1 ORDER BY id")?;
+            let ids = stmt
+                .query_map([kind], |row| row.get(0))?
+                .collect::<std::result::Result<Vec<i64>, _>>()?;
+            Ok(ids)
+        };
+        let before = enabled_ids(&tx)?;
         tx.execute("UPDATE sources SET enabled = 0 WHERE kind = ?1", [kind])?;
         for source in sources {
             tx.execute(
@@ -2489,8 +2498,9 @@ impl LibraryRepository for SqliteLibrary {
                 rusqlite::params![kind, source.name, source.uri],
             )?;
         }
+        let changed = enabled_ids(&tx)? != before;
         tx.commit()?;
-        Ok(())
+        Ok(changed)
     }
 
     fn set_source_available(&self, source_id: i64, available: bool) -> Result<bool> {

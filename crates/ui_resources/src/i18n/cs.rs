@@ -288,7 +288,7 @@ pub static CS: Strings = lang! {
     scrobble_auth_expired: "Autorizace vypršela, přihlaste se znovu",
     scrobble_auth_cancel: "Zrušit",
     scrobble_auth_link_expired: "Autorizační odkaz už neplatí. Přihlaste se znovu a získejte nový.",
-    scrobble_import_loves: "Importovat oblíbené skladby",
+    scrobble_import_loves: "Importovat oblíbené",
     scrobble_import_loves_desc: "Co je označeno v profilu, se přidá do «Oblíbených». Zpět se nic neposílá.",
     scrobble_import_run: "Importovat",
     scrobble_import_result_t: "Nalezeno v knihovně: {} z {}",

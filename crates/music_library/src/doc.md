@@ -232,7 +232,12 @@ stay contiguous.
 
 A server is a `sources` row with `kind = 'subsonic'`, `'jellyfin'` or `'torrent'` and
 `uri = user@url` (a torrent: `btih:<info hash>`) (`reconcile_remote_sources(kind, …)` enables the configured ones
-of that kind and disables the rest of that kind only). Nothing in this crate
+of that kind and disables the rest of that kind only, and returns whether any
+row of that kind was enabled or disabled). That flag matters because the scan's
+fast path only fingerprints local folders: a source that turns on or off changes
+what `project_remote_tracks` would write, so the caller must invalidate the
+fingerprint and rescan, or a removed server's tracks linger in the catalog and a
+re-added one's never come back. Nothing in this crate
 depends on the kind beyond `'local'` versus not; the protocol lives in `pawse`.
 Its songs are bindings like files, with `source_key` = the server's song id.
 

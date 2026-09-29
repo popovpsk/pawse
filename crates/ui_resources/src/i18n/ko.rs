@@ -288,7 +288,7 @@ pub static KO: Strings = lang! {
     scrobble_auth_expired: "인증이 만료되었습니다. 다시 로그인하세요",
     scrobble_auth_cancel: "취소",
     scrobble_auth_link_expired: "인증 링크가 만료되었습니다. 다시 로그인하여 새 링크를 받으세요.",
-    scrobble_import_loves: "좋아요한 트랙 가져오기",
+    scrobble_import_loves: "좋아요 가져오기",
     scrobble_import_loves_desc: "프로필에 표시한 항목이 「좋아요한 트랙」에 추가됩니다. 되돌려 보내지 않습니다.",
     scrobble_import_run: "가져오기",
     scrobble_import_result_t: "라이브러리에서 찾음: {}/{}",

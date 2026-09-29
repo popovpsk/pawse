@@ -371,7 +371,8 @@ track count, Sync, a "Likes & scrobbling" link and Remove, plus the connect
 form. The link dispatches `settings_view::OpenScrobblingSettings`, which
 `MainView` turns into `open_settings(scrobbling)`; importing a server's
 favorites lives on that tab, next to the Last.fm/ListenBrainz imports, under
-one label ("Import liked tracks"). Connect
+one label ("Import likes" — the same word as "Send likes" and the servers'
+"Likes" switch). Connect
 pings (Jellyfin: logs in, then pings) and saves only a server that answered.
 Everything downstream is kind-agnostic: protocols live behind
 `crate::servers::ServerClient` (see `servers/doc.md`), bytes behind
@@ -396,7 +397,14 @@ its container list (`mov,mp4,m4a,…` → `m4a`), since the decoder picks a back
 extension; its bitrate arrives in bit/s and is stored in kbit/s like Subsonic's.
 Only when something changed (songs, tags, availability)
 is the scan fingerprint dropped and a scan run so the catalog re-projects;
-otherwise a launch with a server keeps the local fast path. A failed ping or
+otherwise a launch with a server keeps the local fast path. A server that is
+added, removed or re-added turns its `sources` row on or off, which no listing
+reports (re-adding a server whose songs did not change syncs as "nothing
+changed"), so `apply_remote_sources` rescans itself whenever
+`reconcile_remote_sources` says a row flipped. At launch `main.rs` calls
+`reconcile_sources` instead: it only drops the fingerprint, because the launch
+scan that follows has the folder list and a scan started earlier would run
+without it. A failed ping or
 listing, or a listing the library refuses (empty while it had songs), marks the
 source unavailable and changes nothing else. Failing to *store* a listing is our
 own database being busy, not the server being down: it is retried a few times
