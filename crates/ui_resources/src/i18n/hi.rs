@@ -248,7 +248,7 @@ pub static HI: Strings = lang! {
     restart_to_update: "अपडेट के लिए पुनः आरंभ करें",
     up_to_date: "Pawse अप टू डेट है",
     feedback: "प्रतिक्रिया",
-    feedback_desc: "शिकायतें, सवाल, सुझाव — सीधे मुझे लिखें।",
+    feedback_desc: "कुछ खटक रहा है, कोई सवाल या आइडिया है? सीधे मुझे लिखें।",
     email: "ईमेल",
     copied_to_clipboard: "क्लिपबोर्ड पर कॉपी किया गया",
 

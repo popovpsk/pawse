@@ -248,7 +248,7 @@ pub static CS: Strings = lang! {
     restart_to_update: "Restartovat pro aktualizaci",
     up_to_date: "Pawse je aktuální",
     feedback: "Zpětná vazba",
-    feedback_desc: "Stížnosti, dotazy, návrhy — napište mi přímo.",
+    feedback_desc: "Něco vám vadí, máte dotaz nebo nápad? Napište mi přímo.",
     email: "E-mail",
     copied_to_clipboard: "Zkopírováno do schránky",
 

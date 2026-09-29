@@ -248,7 +248,7 @@ pub static ID: Strings = lang! {
     restart_to_update: "Mulai ulang untuk memperbarui",
     up_to_date: "Pawse sudah versi terbaru",
     feedback: "Masukan",
-    feedback_desc: "Keluhan, pertanyaan, saran — tulis langsung ke saya.",
+    feedback_desc: "Ada yang mengganjal, pertanyaan, atau ide? Tulis langsung ke saya.",
     email: "Email",
     copied_to_clipboard: "Disalin ke papan klip",
 

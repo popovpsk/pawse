@@ -248,7 +248,7 @@ pub static TH: Strings = lang! {
     restart_to_update: "รีสตาร์ทเพื่ออัปเดต",
     up_to_date: "Pawse เป็นเวอร์ชันล่าสุดแล้ว",
     feedback: "ข้อเสนอแนะ",
-    feedback_desc: "ร้องเรียน คำถาม ข้อเสนอแนะ — เขียนถึงฉันได้โดยตรง",
+    feedback_desc: "มีอะไรไม่ถูกใจ มีคำถาม หรือมีไอเดีย? เขียนถึงฉันได้โดยตรง",
     email: "อีเมล",
     copied_to_clipboard: "คัดลอกไปยังคลิปบอร์ดแล้ว",
 

@@ -248,7 +248,7 @@ pub static ZH: Strings = lang! {
     restart_to_update: "重启以更新",
     up_to_date: "Pawse 已是最新版本",
     feedback: "反馈",
-    feedback_desc: "投诉、问题或建议，请直接联系我。",
+    feedback_desc: "有不顺手的地方、疑问或想法？欢迎直接联系我。",
     email: "邮箱",
     copied_to_clipboard: "已复制到剪贴板",
 

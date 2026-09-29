@@ -248,7 +248,7 @@ pub static TR: Strings = lang! {
     restart_to_update: "Güncellemek için yeniden başlat",
     up_to_date: "Pawse güncel",
     feedback: "Geri bildirim",
-    feedback_desc: "Şikâyet, soru ve öneriler için bana doğrudan yazın.",
+    feedback_desc: "Canınızı sıkan bir şey, bir soru ya da fikir mi var? Bana doğrudan yazın.",
     email: "E-posta",
     copied_to_clipboard: "Panoya kopyalandı",
 

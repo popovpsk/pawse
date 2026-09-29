@@ -248,7 +248,7 @@ pub static FR: Strings = lang! {
     restart_to_update: "Redémarrer pour mettre à jour",
     up_to_date: "Pawse est à jour",
     feedback: "Retours",
-    feedback_desc: "Réclamations, questions, suggestions : écrivez-moi directement.",
+    feedback_desc: "Quelque chose vous gêne, une question ou une idée ? Écrivez-moi directement.",
     email: "E-mail",
     copied_to_clipboard: "Copié dans le presse-papiers",
 

@@ -248,7 +248,7 @@ pub static SV: Strings = lang! {
     restart_to_update: "Starta om för att uppdatera",
     up_to_date: "Pawse är uppdaterat",
     feedback: "Feedback",
-    feedback_desc: "Klagomål, frågor, förslag — skriv direkt till mig.",
+    feedback_desc: "Är det något som stör dig, har du en fråga eller en idé? Skriv direkt till mig.",
     email: "E-post",
     copied_to_clipboard: "Kopierat till urklipp",
 

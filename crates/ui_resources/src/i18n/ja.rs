@@ -248,7 +248,7 @@ pub static JA: Strings = lang! {
     restart_to_update: "再起動して更新",
     up_to_date: "Pawse は最新です",
     feedback: "フィードバック",
-    feedback_desc: "不具合報告・質問・提案は直接ご連絡ください。",
+    feedback_desc: "使いにくい点や質問、アイデアがあれば、直接ご連絡ください。",
     email: "メール",
     copied_to_clipboard: "クリップボードにコピーしました",
 

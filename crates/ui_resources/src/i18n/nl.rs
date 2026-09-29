@@ -248,7 +248,7 @@ pub static NL: Strings = lang! {
     restart_to_update: "Herstart om bij te werken",
     up_to_date: "Pawse is up-to-date",
     feedback: "Feedback",
-    feedback_desc: "Klachten, vragen, suggesties — schrijf me direct.",
+    feedback_desc: "Zit iets je dwars, heb je een vraag of een idee? Schrijf me direct.",
     email: "E-mail",
     copied_to_clipboard: "Gekopieerd naar klembord",
 

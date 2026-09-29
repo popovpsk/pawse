@@ -248,7 +248,7 @@ pub static KO: Strings = lang! {
     restart_to_update: "업데이트하려면 다시 시작",
     up_to_date: "Pawse가 최신 상태입니다",
     feedback: "피드백",
-    feedback_desc: "불만, 질문, 제안은 저에게 직접 보내 주세요.",
+    feedback_desc: "불편한 점, 질문, 아이디어가 있다면 저에게 직접 알려 주세요.",
     email: "이메일",
     copied_to_clipboard: "클립보드에 복사됨",
 

@@ -248,7 +248,7 @@ pub static EN: Strings = lang! {
     restart_to_update: "Restart to update",
     up_to_date: "Pawse is up to date",
     feedback: "Feedback",
-    feedback_desc: "Complaints, questions or suggestions — write to me directly.",
+    feedback_desc: "Something bugging you, have a question or an idea? Write to me directly.",
     email: "Email",
     copied_to_clipboard: "Copied to clipboard",
 
