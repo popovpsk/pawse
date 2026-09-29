@@ -311,6 +311,38 @@ pub struct PlaylistSummary {
     pub track_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayTally {
+    pub artist: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub plays: u32,
+    pub qualified_plays: u32,
+    pub last_played: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecentPlay {
+    pub artist: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackListing {
+    pub track_id: i64,
+    pub title: String,
+    pub artist: String,
+    pub album_id: Option<i64>,
+    pub album: Option<String>,
+    pub album_artist: Option<String>,
+    pub year: Option<i32>,
+    pub liked: bool,
+    pub plays: u32,
+    pub last_played: Option<u64>,
+}
+
 pub mod delivery_state {
     pub const PENDING: i64 = 0;
     pub const SENT: i64 = 1;

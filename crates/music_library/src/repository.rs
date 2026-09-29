@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
-    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
-    StoredLyrics, Track,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayTally, PlaylistSummary,
+    RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
+    StoredLyrics, Track, TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -173,4 +173,8 @@ pub trait LibraryRepository: Send + Sync {
     fn settle_loves(&self, ids: &[i64], target: &str, outcome: &DeliveryOutcome) -> Result<()>;
     fn pending_scrobble_count(&self, targets: &[&str]) -> Result<usize>;
     fn trim_pending_deliveries(&self, cap: usize) -> Result<usize>;
+
+    fn play_tallies(&self, since: Option<u64>) -> Result<Vec<PlayTally>>;
+    fn recent_plays(&self, limit: usize) -> Result<Vec<RecentPlay>>;
+    fn track_listings(&self) -> Result<Vec<TrackListing>>;
 }

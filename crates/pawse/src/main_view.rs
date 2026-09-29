@@ -92,6 +92,8 @@ pub struct MainView {
     is_drilled_in: bool,
     current_tab: LibraryRootTab,
     show_settings: bool,
+    show_tools: bool,
+    tools_view: Entity<crate::tools::ToolsView>,
     cover_mode: bool,
     cover_mode_view: Entity<CoverModeView>,
     cover_backdrop: Entity<CoverBackdrop>,
@@ -427,7 +429,7 @@ impl MainView {
         let footer_album_subscription = cx.subscribe(&footer, {
             let library_view = library_view.clone();
             move |this, _, event: &NavigateToAlbumRequested, cx| {
-                this.show_settings = false;
+                this.close_screens();
                 this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
                     view.navigate_to_album(event.album_id, cx);
@@ -438,7 +440,7 @@ impl MainView {
         let footer_artist_subscription = cx.subscribe(&footer, {
             let library_view = library_view.clone();
             move |this, _, event: &NavigateToArtistRequested, cx| {
-                this.show_settings = false;
+                this.close_screens();
                 this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
                     view.navigate_to_artist(event.artist_id, cx);
@@ -583,6 +585,8 @@ impl MainView {
             is_drilled_in: false,
             current_tab: LibraryRootTab::Albums,
             show_settings: false,
+            show_tools: false,
+            tools_view: cx.new(|cx| crate::tools::ToolsView::new(window, cx)),
             cover_mode: false,
             cover_mode_view,
             cover_backdrop,
@@ -708,12 +712,25 @@ impl MainView {
     ) {
         self.settings_anchor = anchor;
         self.leave_overlays(window, cx);
+        self.show_tools = false;
         self.show_settings = true;
         self.settings_page_ix = page_ix;
         self.settings_page_request += 1;
         self.library_sources
             .update(cx, |sources, cx| sources.refresh_cache(cx));
         cx.notify();
+    }
+
+    fn open_tools(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_overlays(window, cx);
+        self.show_settings = false;
+        self.show_tools = true;
+        cx.notify();
+    }
+
+    fn close_screens(&mut self) {
+        self.show_settings = false;
+        self.show_tools = false;
     }
 
     fn leave_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -810,7 +827,9 @@ impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity_id = cx.entity_id();
         let show_settings = self.show_settings;
-        let has_back = show_settings || self.is_drilled_in;
+        let show_tools = self.show_tools;
+        let show_screen = show_settings || show_tools;
+        let has_back = show_screen || self.is_drilled_in;
         let cover_mode = self.cover_mode;
         let active_tab = (!cover_mode).then_some(self.current_tab);
         if cover_mode {
@@ -826,7 +845,7 @@ impl Render for MainView {
         let title_bar = Colors::title_bar(cx);
         let background = Colors::background(cx);
         let blur = cx.global::<SettingsStore>().blur_background();
-        let backdrop = (!show_settings && (cover_mode || blur == BlurBackground::AllViews))
+        let backdrop = (!show_screen && (cover_mode || blur == BlurBackground::AllViews))
             .then(|| self.cover_backdrop.read(cx).frame())
             .flatten();
         let has_backdrop = backdrop.is_some();
@@ -863,6 +882,7 @@ impl Render for MainView {
         let settings = cx.global::<SettingsStore>();
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
+        let tools_enabled = settings.tools_enabled();
         let scale = settings.font_scale().ui_scale();
 
         let left_group = div()
@@ -930,10 +950,13 @@ impl Render for MainView {
             .justify_end()
             .gap_2()
             .h_full()
-            .when(update_ready && !show_settings, |d| {
+            .when(update_ready && !show_screen, |d| {
                 d.child(update_button(scale, cx))
             })
-            .when(!show_settings, |d| d.child(settings_gear_button(scale, cx)))
+            .when(!show_screen && tools_enabled, |d| {
+                d.child(tools_button(scale, cx))
+            })
+            .when(!show_screen, |d| d.child(settings_gear_button(scale, cx)))
             .child(self.audio_settings.clone());
 
         div()
@@ -996,7 +1019,7 @@ impl Render for MainView {
                     .pr_2()
                     .bg(bar_bg)
                     .child(left_group)
-                    .when(!show_settings && !cover_mode, |d| {
+                    .when(!show_screen && !cover_mode, |d| {
                         d.child(
                             div().w(px(260.)).child(
                                 Input::new(&self.search_input)
@@ -1038,6 +1061,8 @@ impl Render for MainView {
                                         self.settings_page_request,
                                     ))
                                     .into_any_element()
+                            } else if show_tools {
+                                self.tools_view.clone().into_any_element()
                             } else {
                                 self.library_view.clone().into_any_element()
                             })
@@ -1233,6 +1258,22 @@ fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElem
         .on_click(cx.listener(|this, _, window, cx| this.open_settings(0, window, cx)))
 }
 
+fn tools_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
+    Button::new("tools_button")
+        .ghost()
+        .compact()
+        .rounded_full()
+        .w(px(40. * scale))
+        .h(px(40. * scale))
+        .icon(
+            Icon::default()
+                .path("icons/tools.svg")
+                .size(px(20. * scale)),
+        )
+        .tooltip(crate::tools::title())
+        .on_click(cx.listener(|this, _, window, cx| this.open_tools(window, cx)))
+}
+
 fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
     Button::new("update_button")
         .ghost()
@@ -1265,8 +1306,8 @@ fn back_button(
         .hover(move |style| style.bg(hover_bg))
         .on_click(cx.listener(|this, _, window, cx| {
             this.leave_overlays(window, cx);
-            if this.show_settings {
-                this.show_settings = false;
+            if this.show_settings || this.show_tools {
+                this.close_screens();
                 cx.notify();
             } else {
                 this.library_view.update(cx, |view, cx| view.go_back(cx));

@@ -144,8 +144,7 @@ pub fn settings_widget(
 
 /// Open a native folder picker (async, on the main thread), then add the
 /// chosen folder to `SettingsStore` and trigger a full clear+rescan over the
-/// whole list. Shared between the Settings view and the app menu's "Rescan"
-/// action.
+/// whole list. Shared between the Settings view and onboarding.
 pub fn pick_and_add_folder(cx: &mut App) {
     cx.spawn(async move |cx| {
         if let Some(handle) = rfd::AsyncFileDialog::new().pick_folder().await {
@@ -517,6 +516,26 @@ fn appearance_group(
                 }),
             )
             .description(tr().playlists_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                ui_resources::i18n::tools_strings().tools.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().tools_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("tools-enabled-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_tools_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(ui_resources::i18n::tools_strings().tools_desc.clone()),
         )
         .item(
             SettingItem::new(

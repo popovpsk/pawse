@@ -450,6 +450,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub playlists_enabled: bool,
     #[serde(default = "default_true")]
+    pub tools_enabled: bool,
+    #[serde(default = "default_true")]
     pub show_track_duration: bool,
     #[serde(default = "default_true")]
     pub show_queue_actions: bool,
@@ -539,6 +541,7 @@ impl Default for UserSettings {
             now_playing_details: NowPlayingDetails::default(),
             liked_enabled: true,
             playlists_enabled: true,
+            tools_enabled: true,
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
@@ -1121,6 +1124,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn tools_enabled(&self) -> bool {
+        self.settings.tools_enabled
+    }
+
+    pub fn set_tools_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.tools_enabled = enabled;
+        self.save()
+    }
+
     pub fn show_track_duration(&self) -> bool {
         self.settings.show_track_duration
     }
@@ -1634,6 +1646,7 @@ mod tests {
             now_playing_details: NowPlayingDetails::Album,
             liked_enabled: true,
             playlists_enabled: true,
+            tools_enabled: true,
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,

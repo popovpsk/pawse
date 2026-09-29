@@ -12,8 +12,9 @@ pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    LocalFolder, NewTrack, Playlist, PlaylistSummary, RemoteCover, RemoteSong, RemoteSource,
-    RemoteSyncReport, ScanLyrics, ScanTrack, SourceSummary, StoredLyrics, Track, lyrics_source,
+    LocalFolder, NewTrack, PlayTally, Playlist, PlaylistSummary, RecentPlay, RemoteCover,
+    RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, SourceSummary, StoredLyrics,
+    Track, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -4655,6 +4656,115 @@ mod tests {
     fn count_rows(db_path: &PathBuf, sql: &str) -> i64 {
         let conn = rusqlite::Connection::open(db_path).unwrap();
         conn.query_row(sql, [], |row| row.get(0)).unwrap()
+    }
+
+    #[test]
+    fn play_tallies_group_case_insensitively_and_honour_since() {
+        let (lib, _path) = create_test_db();
+        lib.record_play(&a_play_at(true, 100), &[]).unwrap();
+        lib.record_play(
+            &models::NewPlay {
+                artist: "TOOL".into(),
+                title: "pneuma".into(),
+                album: Some("fear inoculum".into()),
+                ..a_play_at(false, 200)
+            },
+            &[],
+        )
+        .unwrap();
+        lib.record_play(
+            &models::NewPlay {
+                title: "Invincible".into(),
+                ..a_play_at(true, 300)
+            },
+            &[],
+        )
+        .unwrap();
+
+        let all = lib.play_tallies(None).unwrap();
+        assert_eq!(all.len(), 2);
+        let pneuma = all
+            .iter()
+            .find(|t| t.title.eq_ignore_ascii_case("pneuma"))
+            .unwrap();
+        assert_eq!(pneuma.plays, 2);
+        assert_eq!(pneuma.qualified_plays, 1);
+        assert_eq!(pneuma.last_played, 200);
+
+        let recent = lib.play_tallies(Some(250)).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].title, "Invincible");
+    }
+
+    #[test]
+    fn recent_plays_are_newest_first_and_limited() {
+        let (lib, _path) = create_test_db();
+        for at in [10, 30, 20] {
+            lib.record_play(&a_play_at(true, at), &[]).unwrap();
+        }
+        let recent = lib.recent_plays(2).unwrap();
+        let times: Vec<u64> = recent.iter().map(|p| p.started_at).collect();
+        assert_eq!(times, vec![30, 20]);
+    }
+
+    #[test]
+    fn track_listings_carry_names_likes_and_play_stats() {
+        let (lib, _path) = create_test_db();
+        let artist_id = lib.upsert_artist("Tool").unwrap();
+        let album_id = lib.upsert_album("Fear Inoculum", Some(2019), None).unwrap();
+        lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
+        let new_track = |path: &str, title: &str| NewTrack {
+            path: path.into(),
+            title: Some(title.into()),
+            album_title: Some("Fear Inoculum".into()),
+            artist_names: vec!["Tool".into()],
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: None,
+            duration_ms: Some(700_000),
+            cover_art_id: None,
+            start_offset_ms: None,
+            bitrate: None,
+        };
+        let played = lib
+            .upsert_track(
+                &new_track("/m/pneuma.flac", "Pneuma"),
+                Some(album_id),
+                &[(artist_id, 0)],
+            )
+            .unwrap();
+        let unplayed = lib
+            .upsert_track(
+                &new_track("/m/descending.flac", "Descending"),
+                Some(album_id),
+                &[(artist_id, 0)],
+            )
+            .unwrap();
+        lib.set_liked(unplayed, true).unwrap();
+        for at in [100, 500] {
+            lib.record_play(
+                &models::NewPlay {
+                    track_id: Some(played),
+                    ..a_play_at(true, at)
+                },
+                &[],
+            )
+            .unwrap();
+        }
+
+        let listings = lib.track_listings().unwrap();
+        let by_id = |id: i64| listings.iter().find(|l| l.track_id == id).unwrap();
+        let p = by_id(played);
+        assert_eq!(p.artist, "Tool");
+        assert_eq!(p.album_id, Some(album_id));
+        assert_eq!(p.album.as_deref(), Some("Fear Inoculum"));
+        assert_eq!(p.album_artist.as_deref(), Some("Tool"));
+        assert_eq!(p.year, Some(2019));
+        assert_eq!((p.plays, p.last_played), (2, Some(500)));
+        assert!(!p.liked);
+        let u = by_id(unplayed);
+        assert_eq!((u.plays, u.last_played), (0, None));
+        assert!(u.liked);
     }
 
     #[test]

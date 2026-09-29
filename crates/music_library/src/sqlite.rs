@@ -14,9 +14,9 @@ use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlaylistSummary,
-    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
-    StoredLyrics, Track,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayTally, PlaylistSummary,
+    RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
+    StoredLyrics, Track, TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -2828,6 +2828,97 @@ impl LibraryRepository for SqliteLibrary {
         }
         tx.commit()?;
         Ok(dropped.max(0) as usize)
+    }
+
+    fn play_tallies(&self, since: Option<u64>) -> Result<Vec<PlayTally>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT MAX(artist), MAX(title), MAX(album), COUNT(*), SUM(qualified), \
+             MAX(started_at) FROM plays WHERE started_at >= ?1 \
+             GROUP BY lower(artist), lower(title), lower(COALESCE(album, '')) \
+             ORDER BY 5 DESC, 4 DESC, 6 DESC",
+        )?;
+        let since = since.map_or(0, |secs| secs as i64);
+        let rows = stmt.query_map([since], |row| {
+            Ok(PlayTally {
+                artist: row.get(0)?,
+                title: row.get(1)?,
+                album: row.get::<_, Option<String>>(2)?.filter(|a| !a.is_empty()),
+                plays: row.get::<_, i64>(3)? as u32,
+                qualified_plays: row.get::<_, i64>(4)? as u32,
+                last_played: row.get::<_, i64>(5)? as u64,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn recent_plays(&self, limit: usize) -> Result<Vec<RecentPlay>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT artist, title, album, started_at FROM plays \
+             ORDER BY started_at DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok(RecentPlay {
+                artist: row.get(0)?,
+                title: row.get(1)?,
+                album: row.get::<_, Option<String>>(2)?.filter(|a| !a.is_empty()),
+                started_at: row.get::<_, i64>(3)? as u64,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn track_listings(&self) -> Result<Vec<TrackListing>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            r#"
+            WITH stats AS (
+                SELECT track_id, COUNT(*) AS plays, MAX(started_at) AS last_played
+                FROM plays WHERE track_id IS NOT NULL GROUP BY track_id
+            )
+            SELECT
+                t.id,
+                t.title,
+                COALESCE(
+                    (SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+                     WHERE ta.track_id = t.id ORDER BY ta.position LIMIT 1),
+                    m.artist,
+                    ''
+                ),
+                t.album_id,
+                al.title,
+                (SELECT a.name FROM album_artists aa JOIN artists a ON a.id = aa.artist_id
+                 WHERE aa.album_id = t.album_id ORDER BY aa.position LIMIT 1),
+                COALESCE(t.year, al.year),
+                EXISTS(SELECT 1 FROM liked_track_ids lk WHERE lk.track_id = t.id),
+                COALESCE(s.plays, 0),
+                s.last_played
+            FROM tracks t
+            LEFT JOIN media_items m ON m.id = t.id
+            LEFT JOIN albums al ON al.id = t.album_id
+            LEFT JOIN stats s ON s.track_id = t.id
+            ORDER BY t.id
+            "#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TrackListing {
+                track_id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album_id: row.get(3)?,
+                album: row.get::<_, Option<String>>(4)?.filter(|a| !a.is_empty()),
+                album_artist: row.get::<_, Option<String>>(5)?.filter(|a| !a.is_empty()),
+                year: row.get(6)?,
+                liked: row.get(7)?,
+                plays: row.get::<_, i64>(8)? as u32,
+                last_played: row.get::<_, Option<i64>>(9)?.map(|secs| secs as u64),
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
     }
 }
 

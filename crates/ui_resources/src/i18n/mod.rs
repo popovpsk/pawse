@@ -36,10 +36,13 @@ mod pt;
 mod ru;
 mod sv;
 mod th;
+mod tools;
 mod tr;
 mod uk;
 mod vi;
 mod zh;
+
+pub use tools::{ToolsStrings, tools_strings};
 
 /// One immutable string per UI label. See the module docs.
 pub struct Strings {

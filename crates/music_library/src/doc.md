@@ -407,6 +407,20 @@ runs in `settle_derived_rows` **before** the orphan sweep: the sweep keeps any
 cover a snapshot still references, so refreshing afterwards would keep a replaced
 cover alive forever.
 
+## Reading listening history
+
+`plays` is written only through `record_play` (scrobble connection) and read
+through three queries on the main connection, used by `pawse::tools::ai_prompt`:
+
+- `play_tallies(since)` — plays grouped by artist / title / album,
+  case-insensitively, with total and qualified counts and the last play. Counts
+  every row, qualified or not.
+- `recent_plays(limit)` — raw rows, newest first.
+- `track_listings()` — one row per catalog track with its first artist, album,
+  album artist, year, like flag and play stats joined on `plays.track_id`
+  (the item id). Plays of tracks that left the catalog are only visible through
+  `play_tallies`.
+
 ## Migrations
 
 There are users: schema changes are versioned steps in `MIGRATIONS`, never a

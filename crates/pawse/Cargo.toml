@@ -124,5 +124,6 @@ installer-mode = "currentUser"
 workspace = true
 
 [dev-dependencies]
+rstest = "0.26"
 tempfile = "3"
 torrent = { path = "../torrent", features = ["test-support"] }

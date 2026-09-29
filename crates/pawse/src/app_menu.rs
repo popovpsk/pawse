@@ -5,7 +5,6 @@ use crate::localization::tr;
 actions!(
     pawse,
     [
-        Rescan,
         Quit,
         Hide,
         HideOthers,
@@ -20,7 +19,7 @@ pub(crate) const REPOSITORY_URL: &str = "https://github.com/popovpsk/pawse/";
 
 pub fn app_menus() -> Vec<Menu> {
     let s = tr();
-    let mut pawse_items = vec![MenuItem::action(s.rescan_library.clone(), Rescan)];
+    let mut pawse_items = Vec::new();
     if updater::is_supported() {
         pawse_items.push(MenuItem::action(
             s.check_for_updates.clone(),

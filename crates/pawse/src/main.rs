@@ -67,6 +67,7 @@ pub mod single_instance;
 pub mod subsonic_settings;
 pub mod tag_editor_view;
 pub mod theme_colors;
+pub mod tools;
 pub mod torrent_settings;
 pub mod track_list;
 pub mod track_progress_slider;
@@ -320,18 +321,6 @@ fn main() {
             }
         })
         .detach();
-
-        cx.on_action(|_: &crate::app_menu::Rescan, cx| {
-            let folders = cx
-                .global::<crate::settings_store::SettingsStore>()
-                .music_folders()
-                .to_vec();
-            if !folders.is_empty() {
-                cx.global::<Services>()
-                    .library
-                    .request_rescan(folders, true, true);
-            }
-        });
 
         cx.on_action(|_: &crate::app_menu::Quit, cx| {
             cx.quit();
