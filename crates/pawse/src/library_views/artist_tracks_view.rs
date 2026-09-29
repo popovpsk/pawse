@@ -65,7 +65,7 @@ impl TrackRow {
 struct AlbumGroup {
     album_id: Option<i64>,
     album_title: SharedString,
-    year: Option<i32>,
+    year_label: Option<SharedString>,
     cover: Option<Arc<Image>>,
     tracks: Vec<TrackRow>,
     /// Indices of `tracks` in the flat artist-wide list (used as playback queue index).
@@ -298,7 +298,7 @@ impl ArtistTracksView {
             groups.push(AlbumGroup {
                 album_id,
                 album_title: album_title.into(),
-                year: track.year,
+                year_label: track.year.map(|y| y.to_string().into()),
                 cover,
                 tracks: vec![TrackRow::from_track(track)],
                 global_indices: vec![ix],
@@ -384,7 +384,7 @@ impl ArtistTracksView {
                 groups.push(AlbumGroup {
                     album_id,
                     album_title: album_title.into(),
-                    year: track.year,
+                    year_label: track.year.map(|y| y.to_string().into()),
                     cover,
                     tracks: vec![TrackRow::from_track(track)],
                     global_indices: vec![global_ix],
@@ -580,11 +580,11 @@ fn artist_album_header(
         fallback_fg,
     );
     let album_id = group.album_id;
-    let year_str = group.year.map(|y| format!(" · {}", y)).unwrap_or_default();
     let label = match album_id {
-        None => format!("{}{}", tr().no_metadata, year_str),
-        Some(_) => format!("{}{}", group.album_title, year_str),
+        None => tr().no_metadata.clone(),
+        Some(_) => group.album_title.clone(),
     };
+    let year = group.year_label.clone();
     let title_el = match album_id {
         Some(aid) => div()
             .id(("artist_album_link", aid as u64))
@@ -617,7 +617,16 @@ fn artist_album_header(
         .border_b(px(1.))
         .border_color(border)
         .child(cover_el)
-        .child(h_flex().flex_1().overflow_hidden().child(title_el))
+        .child(
+            v_flex()
+                .flex_1()
+                .overflow_hidden()
+                .gap_1()
+                .child(h_flex().text_lg().child(title_el))
+                .when_some(year, |el, year| {
+                    el.child(div().text_sm().text_color(muted_fg).child(year))
+                }),
+        )
         .child(album_queue_trigger(
             g_ix,
             menu_album,

@@ -193,6 +193,9 @@ drive the `PlaybackQueue` on click.
   flipping it on re-fetches the source so partial albums expand to every track
   (`tracks_for_album`) — `tracks_all` is the playback/queue source, so it stays in
   sync — and suppresses the per-album queue menu (the displayed album is already full).
+  Each album header mirrors `album_info` at list scale (60 px cover, title over a
+  muted year, no artist line — it is the page's artist); the year string is
+  precomputed in `AlbumGroup::year_label` so the virtual-list closure doesn't format.
 - `liked_view.rs` — the liked-tracks screen. Rows are drag-reorderable (only with
   an empty filter) via `LibraryService::move_liked_track`.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
