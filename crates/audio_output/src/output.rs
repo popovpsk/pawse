@@ -1040,6 +1040,7 @@ mod tests {
         // we still expect to remain in a working state and we expect
         // set_exclusive(false) to bring us back to shared without error.
         let _ = out.set_exclusive(true);
+        std::thread::sleep(Duration::from_millis(100));
         let res = out.set_exclusive(false);
         assert!(res.is_ok());
         assert!(
