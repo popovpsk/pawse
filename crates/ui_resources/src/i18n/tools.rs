@@ -71,6 +71,24 @@ pub struct ToolsStrings {
     pub covers_skip_download_failed_t: SharedString,
     pub covers_skip_bad_image: SharedString,
     pub covers_skip_write_failed_t: SharedString,
+    pub tools_timer: SharedString,
+    pub timer_intro: SharedString,
+    pub timer_off: SharedString,
+    pub timer_pauses_at_t: SharedString,
+    pub timer_pauses_after_track: SharedString,
+    pub timer_auto_started: SharedString,
+    pub timer_start: SharedString,
+    pub timer_minutes_t: SharedString,
+    pub timer_end_of_track: SharedString,
+    pub timer_extend_t: SharedString,
+    pub timer_cancel: SharedString,
+    pub timer_fade: SharedString,
+    pub timer_fade_desc: SharedString,
+    pub timer_auto: SharedString,
+    pub timer_auto_desc: SharedString,
+    pub timer_auto_from: SharedString,
+    pub timer_auto_until: SharedString,
+    pub timer_auto_duration: SharedString,
 }
 
 impl ToolsStrings {
@@ -135,6 +153,18 @@ impl ToolsStrings {
 
     pub fn covers_skip_write_failed(&self, error: &str) -> String {
         fill(&self.covers_skip_write_failed_t, &[error])
+    }
+
+    pub fn timer_pauses_at(&self, clock: &str) -> String {
+        fill(&self.timer_pauses_at_t, &[clock])
+    }
+
+    pub fn timer_minutes(&self, minutes: u32) -> String {
+        fill(&self.timer_minutes_t, &[&minutes.to_string()])
+    }
+
+    pub fn timer_extend(&self, minutes: u32) -> String {
+        fill(&self.timer_extend_t, &[&minutes.to_string()])
     }
 }
 
@@ -252,6 +282,28 @@ static EN: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("download failed: {}"),
     covers_skip_bad_image: SharedString::new_static("the downloaded file is not a usable image"),
     covers_skip_write_failed_t: SharedString::new_static("could not save: {}"),
+    tools_timer: SharedString::new_static("Sleep timer"),
+    timer_intro: SharedString::new_static("Pauses playback after the chosen time."),
+    timer_off: SharedString::new_static("Off"),
+    timer_pauses_at_t: SharedString::new_static("Pauses at {}"),
+    timer_pauses_after_track: SharedString::new_static("Pauses when the current track ends"),
+    timer_auto_started: SharedString::new_static("started automatically"),
+    timer_start: SharedString::new_static("Pause after"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("End of track"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Turn off"),
+    timer_fade: SharedString::new_static("Fade out"),
+    timer_fade_desc: SharedString::new_static(
+        "Lower the volume gradually during the last 30 seconds. Not available in exclusive mode.",
+    ),
+    timer_auto: SharedString::new_static("Automatic sleep timer"),
+    timer_auto_desc: SharedString::new_static(
+        "Starts the timer by itself when music plays during these hours. You can also start it by hand in Tools.",
+    ),
+    timer_auto_from: SharedString::new_static("From"),
+    timer_auto_until: SharedString::new_static("Until"),
+    timer_auto_duration: SharedString::new_static("Duration"),
 };
 
 static ZH: ToolsStrings = ToolsStrings {
@@ -335,6 +387,26 @@ static ZH: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("下载失败：{}"),
     covers_skip_bad_image: SharedString::new_static("下载的文件不是可用的图片"),
     covers_skip_write_failed_t: SharedString::new_static("无法保存：{}"),
+    tools_timer: SharedString::new_static("睡眠定时"),
+    timer_intro: SharedString::new_static("在选定的时间后暂停播放。"),
+    timer_off: SharedString::new_static("关闭"),
+    timer_pauses_at_t: SharedString::new_static("将于 {} 暂停"),
+    timer_pauses_after_track: SharedString::new_static("当前曲目结束时暂停"),
+    timer_auto_started: SharedString::new_static("自动启动"),
+    timer_start: SharedString::new_static("暂停于"),
+    timer_minutes_t: SharedString::new_static("{} 分钟"),
+    timer_end_of_track: SharedString::new_static("曲目结束"),
+    timer_extend_t: SharedString::new_static("+{} 分钟"),
+    timer_cancel: SharedString::new_static("关闭"),
+    timer_fade: SharedString::new_static("淡出"),
+    timer_fade_desc: SharedString::new_static("在最后 30 秒内逐渐降低音量。独占模式下不可用。"),
+    timer_auto: SharedString::new_static("自动睡眠定时"),
+    timer_auto_desc: SharedString::new_static(
+        "在这些时段播放音乐时自动启动定时器。你也可以在 工具 中手动启动。",
+    ),
+    timer_auto_from: SharedString::new_static("从"),
+    timer_auto_until: SharedString::new_static("到"),
+    timer_auto_duration: SharedString::new_static("时长"),
 };
 
 static PT: ToolsStrings = ToolsStrings {
@@ -428,6 +500,28 @@ static PT: ToolsStrings = ToolsStrings {
         "o arquivo baixado não é uma imagem utilizável",
     ),
     covers_skip_write_failed_t: SharedString::new_static("não foi possível salvar: {}"),
+    tools_timer: SharedString::new_static("Timer de sono"),
+    timer_intro: SharedString::new_static("Pausa a reprodução após o tempo escolhido."),
+    timer_off: SharedString::new_static("Desligado"),
+    timer_pauses_at_t: SharedString::new_static("Pausa às {}"),
+    timer_pauses_after_track: SharedString::new_static("Pausa quando a faixa atual terminar"),
+    timer_auto_started: SharedString::new_static("iniciado automaticamente"),
+    timer_start: SharedString::new_static("Pausar após"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Fim da faixa"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Desligar"),
+    timer_fade: SharedString::new_static("Diminuir volume"),
+    timer_fade_desc: SharedString::new_static(
+        "Baixa o volume gradualmente nos últimos 30 segundos. Indisponível no modo exclusivo.",
+    ),
+    timer_auto: SharedString::new_static("Timer de sono automático"),
+    timer_auto_desc: SharedString::new_static(
+        "Inicia o timer sozinho quando há música tocando nesse horário. Você também pode iniciá-lo manualmente em Ferramentas.",
+    ),
+    timer_auto_from: SharedString::new_static("De"),
+    timer_auto_until: SharedString::new_static("Até"),
+    timer_auto_duration: SharedString::new_static("Duração"),
 };
 
 static RU: ToolsStrings = ToolsStrings {
@@ -521,6 +615,28 @@ static RU: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("ошибка загрузки: {}"),
     covers_skip_bad_image: SharedString::new_static("скачанный файл — не пригодная картинка"),
     covers_skip_write_failed_t: SharedString::new_static("не удалось записать: {}"),
+    tools_timer: SharedString::new_static("Таймер сна"),
+    timer_intro: SharedString::new_static("Ставит воспроизведение на паузу через выбранное время."),
+    timer_off: SharedString::new_static("Выключен"),
+    timer_pauses_at_t: SharedString::new_static("Пауза в {}"),
+    timer_pauses_after_track: SharedString::new_static("Пауза в конце текущего трека"),
+    timer_auto_started: SharedString::new_static("запущен автоматически"),
+    timer_start: SharedString::new_static("Пауза через"),
+    timer_minutes_t: SharedString::new_static("{} мин"),
+    timer_end_of_track: SharedString::new_static("Конец трека"),
+    timer_extend_t: SharedString::new_static("+{} мин"),
+    timer_cancel: SharedString::new_static("Выключить"),
+    timer_fade: SharedString::new_static("Плавное затухание"),
+    timer_fade_desc: SharedString::new_static(
+        "Постепенно убавляет громкость за последние 30 секунд. Недоступно в эксклюзивном режиме.",
+    ),
+    timer_auto: SharedString::new_static("Автоматический таймер сна"),
+    timer_auto_desc: SharedString::new_static(
+        "Сам запускает таймер, когда музыка играет в эти часы. Вручную таймер можно запустить в Инструментах.",
+    ),
+    timer_auto_from: SharedString::new_static("С"),
+    timer_auto_until: SharedString::new_static("До"),
+    timer_auto_duration: SharedString::new_static("Длительность"),
 };
 
 static JA: ToolsStrings = ToolsStrings {
@@ -614,6 +730,28 @@ static JA: ToolsStrings = ToolsStrings {
         "ダウンロードしたファイルは使える画像ではありません",
     ),
     covers_skip_write_failed_t: SharedString::new_static("保存できませんでした：{}"),
+    tools_timer: SharedString::new_static("スリープタイマー"),
+    timer_intro: SharedString::new_static("選んだ時間が経つと再生を一時停止します。"),
+    timer_off: SharedString::new_static("オフ"),
+    timer_pauses_at_t: SharedString::new_static("{} に一時停止"),
+    timer_pauses_after_track: SharedString::new_static("現在の曲が終わったら一時停止"),
+    timer_auto_started: SharedString::new_static("自動で開始"),
+    timer_start: SharedString::new_static("一時停止まで"),
+    timer_minutes_t: SharedString::new_static("{} 分"),
+    timer_end_of_track: SharedString::new_static("曲の終わり"),
+    timer_extend_t: SharedString::new_static("+{} 分"),
+    timer_cancel: SharedString::new_static("オフにする"),
+    timer_fade: SharedString::new_static("フェードアウト"),
+    timer_fade_desc: SharedString::new_static(
+        "最後の 30 秒で徐々に音量を下げます。排他モードでは使えません。",
+    ),
+    timer_auto: SharedString::new_static("自動スリープタイマー"),
+    timer_auto_desc: SharedString::new_static(
+        "この時間帯に音楽を再生すると自動でタイマーを開始します。ツール から手動で開始することもできます。",
+    ),
+    timer_auto_from: SharedString::new_static("開始"),
+    timer_auto_until: SharedString::new_static("終了"),
+    timer_auto_duration: SharedString::new_static("時間"),
 };
 
 static DE: ToolsStrings = ToolsStrings {
@@ -711,6 +849,28 @@ static DE: ToolsStrings = ToolsStrings {
         "die heruntergeladene Datei ist kein brauchbares Bild",
     ),
     covers_skip_write_failed_t: SharedString::new_static("Speichern nicht möglich: {}"),
+    tools_timer: SharedString::new_static("Sleep-Timer"),
+    timer_intro: SharedString::new_static("Pausiert die Wiedergabe nach der gewählten Zeit."),
+    timer_off: SharedString::new_static("Aus"),
+    timer_pauses_at_t: SharedString::new_static("Pause um {}"),
+    timer_pauses_after_track: SharedString::new_static("Pause am Ende des aktuellen Titels"),
+    timer_auto_started: SharedString::new_static("automatisch gestartet"),
+    timer_start: SharedString::new_static("Pause nach"),
+    timer_minutes_t: SharedString::new_static("{} Min."),
+    timer_end_of_track: SharedString::new_static("Titelende"),
+    timer_extend_t: SharedString::new_static("+{} Min."),
+    timer_cancel: SharedString::new_static("Ausschalten"),
+    timer_fade: SharedString::new_static("Ausblenden"),
+    timer_fade_desc: SharedString::new_static(
+        "Senkt die Lautstärke in den letzten 30 Sekunden allmählich. Im Exklusivmodus nicht verfügbar.",
+    ),
+    timer_auto: SharedString::new_static("Automatischer Sleep-Timer"),
+    timer_auto_desc: SharedString::new_static(
+        "Startet den Timer von selbst, wenn in diesen Stunden Musik läuft. Von Hand startest du ihn unter Werkzeuge.",
+    ),
+    timer_auto_from: SharedString::new_static("Von"),
+    timer_auto_until: SharedString::new_static("Bis"),
+    timer_auto_duration: SharedString::new_static("Dauer"),
 };
 
 static FR: ToolsStrings = ToolsStrings {
@@ -808,6 +968,28 @@ static FR: ToolsStrings = ToolsStrings {
         "le fichier téléchargé n'est pas une image utilisable",
     ),
     covers_skip_write_failed_t: SharedString::new_static("impossible d'enregistrer : {}"),
+    tools_timer: SharedString::new_static("Minuteur de sommeil"),
+    timer_intro: SharedString::new_static("Met la lecture en pause après la durée choisie."),
+    timer_off: SharedString::new_static("Désactivé"),
+    timer_pauses_at_t: SharedString::new_static("Pause à {}"),
+    timer_pauses_after_track: SharedString::new_static("Pause à la fin du morceau en cours"),
+    timer_auto_started: SharedString::new_static("lancé automatiquement"),
+    timer_start: SharedString::new_static("Pause après"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Fin du morceau"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Désactiver"),
+    timer_fade: SharedString::new_static("Fondu de sortie"),
+    timer_fade_desc: SharedString::new_static(
+        "Baisse le volume progressivement pendant les 30 dernières secondes. Indisponible en mode exclusif.",
+    ),
+    timer_auto: SharedString::new_static("Minuteur de sommeil automatique"),
+    timer_auto_desc: SharedString::new_static(
+        "Lance le minuteur tout seul quand de la musique joue pendant ces heures. Vous pouvez aussi le lancer à la main dans Outils.",
+    ),
+    timer_auto_from: SharedString::new_static("De"),
+    timer_auto_until: SharedString::new_static("À"),
+    timer_auto_duration: SharedString::new_static("Durée"),
 };
 
 static KO: ToolsStrings = ToolsStrings {
@@ -899,6 +1081,28 @@ static KO: ToolsStrings = ToolsStrings {
         "다운로드한 파일이 사용할 수 있는 이미지가 아님",
     ),
     covers_skip_write_failed_t: SharedString::new_static("저장할 수 없음: {}"),
+    tools_timer: SharedString::new_static("취침 타이머"),
+    timer_intro: SharedString::new_static("선택한 시간이 지나면 재생을 일시정지합니다."),
+    timer_off: SharedString::new_static("꺼짐"),
+    timer_pauses_at_t: SharedString::new_static("{}에 일시정지"),
+    timer_pauses_after_track: SharedString::new_static("현재 트랙이 끝나면 일시정지"),
+    timer_auto_started: SharedString::new_static("자동으로 시작됨"),
+    timer_start: SharedString::new_static("일시정지까지"),
+    timer_minutes_t: SharedString::new_static("{}분"),
+    timer_end_of_track: SharedString::new_static("트랙 끝"),
+    timer_extend_t: SharedString::new_static("+{}분"),
+    timer_cancel: SharedString::new_static("끄기"),
+    timer_fade: SharedString::new_static("페이드 아웃"),
+    timer_fade_desc: SharedString::new_static(
+        "마지막 30초 동안 볼륨을 서서히 낮춥니다. 독점 모드에서는 사용할 수 없습니다.",
+    ),
+    timer_auto: SharedString::new_static("자동 취침 타이머"),
+    timer_auto_desc: SharedString::new_static(
+        "이 시간대에 음악이 재생되면 타이머를 자동으로 시작합니다. 도구에서 직접 시작할 수도 있습니다.",
+    ),
+    timer_auto_from: SharedString::new_static("시작"),
+    timer_auto_until: SharedString::new_static("종료"),
+    timer_auto_duration: SharedString::new_static("시간"),
 };
 
 static IT: ToolsStrings = ToolsStrings {
@@ -994,6 +1198,28 @@ static IT: ToolsStrings = ToolsStrings {
         "il file scaricato non è un'immagine utilizzabile",
     ),
     covers_skip_write_failed_t: SharedString::new_static("impossibile salvare: {}"),
+    tools_timer: SharedString::new_static("Timer di spegnimento"),
+    timer_intro: SharedString::new_static("Mette in pausa la riproduzione dopo il tempo scelto."),
+    timer_off: SharedString::new_static("Spento"),
+    timer_pauses_at_t: SharedString::new_static("Pausa alle {}"),
+    timer_pauses_after_track: SharedString::new_static("Pausa alla fine del brano corrente"),
+    timer_auto_started: SharedString::new_static("avviato automaticamente"),
+    timer_start: SharedString::new_static("Pausa dopo"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Fine del brano"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Spegni"),
+    timer_fade: SharedString::new_static("Dissolvenza"),
+    timer_fade_desc: SharedString::new_static(
+        "Abbassa il volume gradualmente negli ultimi 30 secondi. Non disponibile in modalità esclusiva.",
+    ),
+    timer_auto: SharedString::new_static("Timer di spegnimento automatico"),
+    timer_auto_desc: SharedString::new_static(
+        "Avvia il timer da solo quando la musica suona in queste ore. Puoi anche avviarlo a mano in Strumenti.",
+    ),
+    timer_auto_from: SharedString::new_static("Dalle"),
+    timer_auto_until: SharedString::new_static("Alle"),
+    timer_auto_duration: SharedString::new_static("Durata"),
 };
 
 static TR: ToolsStrings = ToolsStrings {
@@ -1089,6 +1315,28 @@ static TR: ToolsStrings = ToolsStrings {
         "indirilen dosya kullanılabilir bir görsel değil",
     ),
     covers_skip_write_failed_t: SharedString::new_static("kaydedilemedi: {}"),
+    tools_timer: SharedString::new_static("Uyku zamanlayıcısı"),
+    timer_intro: SharedString::new_static("Seçilen süreden sonra çalmayı duraklatır."),
+    timer_off: SharedString::new_static("Kapalı"),
+    timer_pauses_at_t: SharedString::new_static("Duraklatma saati: {}"),
+    timer_pauses_after_track: SharedString::new_static("Geçerli parça bitince duraklatılacak"),
+    timer_auto_started: SharedString::new_static("otomatik başlatıldı"),
+    timer_start: SharedString::new_static("Duraklatma süresi"),
+    timer_minutes_t: SharedString::new_static("{} dk"),
+    timer_end_of_track: SharedString::new_static("Parça sonu"),
+    timer_extend_t: SharedString::new_static("+{} dk"),
+    timer_cancel: SharedString::new_static("Kapat"),
+    timer_fade: SharedString::new_static("Sesi azaltarak bitir"),
+    timer_fade_desc: SharedString::new_static(
+        "Son 30 saniyede sesi yavaş yavaş kısar. Özel modda kullanılamaz.",
+    ),
+    timer_auto: SharedString::new_static("Otomatik uyku zamanlayıcısı"),
+    timer_auto_desc: SharedString::new_static(
+        "Bu saatlerde müzik çalarken zamanlayıcıyı kendiliğinden başlatır. Araçlar bölümünden elle de başlatabilirsiniz.",
+    ),
+    timer_auto_from: SharedString::new_static("Başlangıç"),
+    timer_auto_until: SharedString::new_static("Bitiş"),
+    timer_auto_duration: SharedString::new_static("Süre"),
 };
 
 static PL: ToolsStrings = ToolsStrings {
@@ -1180,6 +1428,28 @@ static PL: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("pobieranie nie powiodło się: {}"),
     covers_skip_bad_image: SharedString::new_static("pobrany plik nie jest użytecznym obrazem"),
     covers_skip_write_failed_t: SharedString::new_static("nie udało się zapisać: {}"),
+    tools_timer: SharedString::new_static("Wyłącznik czasowy"),
+    timer_intro: SharedString::new_static("Wstrzymuje odtwarzanie po wybranym czasie."),
+    timer_off: SharedString::new_static("Wyłączony"),
+    timer_pauses_at_t: SharedString::new_static("Pauza o {}"),
+    timer_pauses_after_track: SharedString::new_static("Pauza po zakończeniu bieżącego utworu"),
+    timer_auto_started: SharedString::new_static("uruchomiony automatycznie"),
+    timer_start: SharedString::new_static("Pauza po"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Koniec utworu"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Wyłącz"),
+    timer_fade: SharedString::new_static("Wyciszanie"),
+    timer_fade_desc: SharedString::new_static(
+        "Stopniowo ścisza przez ostatnie 30 sekund. Niedostępne w trybie wyłącznym.",
+    ),
+    timer_auto: SharedString::new_static("Automatyczny wyłącznik czasowy"),
+    timer_auto_desc: SharedString::new_static(
+        "Sam uruchamia wyłącznik, gdy muzyka gra w tych godzinach. Ręcznie włączysz go w Narzędziach.",
+    ),
+    timer_auto_from: SharedString::new_static("Od"),
+    timer_auto_until: SharedString::new_static("Do"),
+    timer_auto_duration: SharedString::new_static("Czas"),
 };
 
 static NL: ToolsStrings = ToolsStrings {
@@ -1277,6 +1547,30 @@ static NL: ToolsStrings = ToolsStrings {
         "het gedownloade bestand is geen bruikbare afbeelding",
     ),
     covers_skip_write_failed_t: SharedString::new_static("kan niet opslaan: {}"),
+    tools_timer: SharedString::new_static("Slaaptimer"),
+    timer_intro: SharedString::new_static("Pauzeert het afspelen na de gekozen tijd."),
+    timer_off: SharedString::new_static("Uit"),
+    timer_pauses_at_t: SharedString::new_static("Pauzeert om {}"),
+    timer_pauses_after_track: SharedString::new_static(
+        "Pauze aan het einde van het huidige nummer",
+    ),
+    timer_auto_started: SharedString::new_static("automatisch gestart"),
+    timer_start: SharedString::new_static("Pauzeren na"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Einde nummer"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Uitzetten"),
+    timer_fade: SharedString::new_static("Uitfaden"),
+    timer_fade_desc: SharedString::new_static(
+        "Verlaagt het volume geleidelijk in de laatste 30 seconden. Niet beschikbaar in exclusieve modus.",
+    ),
+    timer_auto: SharedString::new_static("Automatische slaaptimer"),
+    timer_auto_desc: SharedString::new_static(
+        "Start de timer vanzelf als er in deze uren muziek speelt. Je kunt hem ook zelf starten bij Hulpmiddelen.",
+    ),
+    timer_auto_from: SharedString::new_static("Van"),
+    timer_auto_until: SharedString::new_static("Tot"),
+    timer_auto_duration: SharedString::new_static("Duur"),
 };
 
 static UK: ToolsStrings = ToolsStrings {
@@ -1368,6 +1662,28 @@ static UK: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("помилка завантаження: {}"),
     covers_skip_bad_image: SharedString::new_static("завантажений файл не є придатним зображенням"),
     covers_skip_write_failed_t: SharedString::new_static("не вдалося записати: {}"),
+    tools_timer: SharedString::new_static("Таймер сну"),
+    timer_intro: SharedString::new_static("Ставить відтворення на паузу через вибраний час."),
+    timer_off: SharedString::new_static("Вимкнено"),
+    timer_pauses_at_t: SharedString::new_static("Пауза о {}"),
+    timer_pauses_after_track: SharedString::new_static("Пауза в кінці поточного треку"),
+    timer_auto_started: SharedString::new_static("запущено автоматично"),
+    timer_start: SharedString::new_static("Пауза через"),
+    timer_minutes_t: SharedString::new_static("{} хв"),
+    timer_end_of_track: SharedString::new_static("Кінець треку"),
+    timer_extend_t: SharedString::new_static("+{} хв"),
+    timer_cancel: SharedString::new_static("Вимкнути"),
+    timer_fade: SharedString::new_static("Плавне згасання"),
+    timer_fade_desc: SharedString::new_static(
+        "Поступово зменшує гучність за останні 30 секунд. Недоступно в ексклюзивному режимі.",
+    ),
+    timer_auto: SharedString::new_static("Автоматичний таймер сну"),
+    timer_auto_desc: SharedString::new_static(
+        "Сам запускає таймер, коли музика грає в ці години. Вручну таймер можна запустити в Інструментах.",
+    ),
+    timer_auto_from: SharedString::new_static("З"),
+    timer_auto_until: SharedString::new_static("До"),
+    timer_auto_duration: SharedString::new_static("Тривалість"),
 };
 
 static VI: ToolsStrings = ToolsStrings {
@@ -1461,6 +1777,28 @@ static VI: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("tải xuống thất bại: {}"),
     covers_skip_bad_image: SharedString::new_static("tệp tải về không phải hình ảnh dùng được"),
     covers_skip_write_failed_t: SharedString::new_static("không thể lưu: {}"),
+    tools_timer: SharedString::new_static("Hẹn giờ ngủ"),
+    timer_intro: SharedString::new_static("Tạm dừng phát sau khoảng thời gian đã chọn."),
+    timer_off: SharedString::new_static("Tắt"),
+    timer_pauses_at_t: SharedString::new_static("Tạm dừng lúc {}"),
+    timer_pauses_after_track: SharedString::new_static("Tạm dừng khi bài hiện tại kết thúc"),
+    timer_auto_started: SharedString::new_static("tự động bật"),
+    timer_start: SharedString::new_static("Tạm dừng sau"),
+    timer_minutes_t: SharedString::new_static("{} phút"),
+    timer_end_of_track: SharedString::new_static("Hết bài"),
+    timer_extend_t: SharedString::new_static("+{} phút"),
+    timer_cancel: SharedString::new_static("Tắt"),
+    timer_fade: SharedString::new_static("Giảm dần âm lượng"),
+    timer_fade_desc: SharedString::new_static(
+        "Giảm âm lượng dần trong 30 giây cuối. Không khả dụng ở chế độ độc quyền.",
+    ),
+    timer_auto: SharedString::new_static("Hẹn giờ ngủ tự động"),
+    timer_auto_desc: SharedString::new_static(
+        "Tự bật hẹn giờ khi có nhạc phát trong khung giờ này. Bạn cũng có thể bật thủ công trong Công cụ.",
+    ),
+    timer_auto_from: SharedString::new_static("Từ"),
+    timer_auto_until: SharedString::new_static("Đến"),
+    timer_auto_duration: SharedString::new_static("Thời lượng"),
 };
 
 static ID: ToolsStrings = ToolsStrings {
@@ -1554,6 +1892,28 @@ static ID: ToolsStrings = ToolsStrings {
         "file yang diunduh bukan gambar yang bisa dipakai",
     ),
     covers_skip_write_failed_t: SharedString::new_static("tidak dapat menyimpan: {}"),
+    tools_timer: SharedString::new_static("Timer tidur"),
+    timer_intro: SharedString::new_static("Menjeda pemutaran setelah waktu yang dipilih."),
+    timer_off: SharedString::new_static("Mati"),
+    timer_pauses_at_t: SharedString::new_static("Jeda pukul {}"),
+    timer_pauses_after_track: SharedString::new_static("Jeda saat lagu ini selesai"),
+    timer_auto_started: SharedString::new_static("dimulai otomatis"),
+    timer_start: SharedString::new_static("Jeda setelah"),
+    timer_minutes_t: SharedString::new_static("{} mnt"),
+    timer_end_of_track: SharedString::new_static("Akhir lagu"),
+    timer_extend_t: SharedString::new_static("+{} mnt"),
+    timer_cancel: SharedString::new_static("Matikan"),
+    timer_fade: SharedString::new_static("Pelankan perlahan"),
+    timer_fade_desc: SharedString::new_static(
+        "Menurunkan volume secara bertahap selama 30 detik terakhir. Tidak tersedia dalam mode eksklusif.",
+    ),
+    timer_auto: SharedString::new_static("Timer tidur otomatis"),
+    timer_auto_desc: SharedString::new_static(
+        "Memulai timer sendiri saat musik diputar pada jam-jam ini. Anda juga bisa memulainya secara manual di Alat.",
+    ),
+    timer_auto_from: SharedString::new_static("Dari"),
+    timer_auto_until: SharedString::new_static("Sampai"),
+    timer_auto_duration: SharedString::new_static("Durasi"),
 };
 
 static TH: ToolsStrings = ToolsStrings {
@@ -1639,6 +1999,28 @@ static TH: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("ดาวน์โหลดไม่สำเร็จ: {}"),
     covers_skip_bad_image: SharedString::new_static("ไฟล์ที่ดาวน์โหลดไม่ใช่รูปภาพที่ใช้ได้"),
     covers_skip_write_failed_t: SharedString::new_static("บันทึกไม่ได้: {}"),
+    tools_timer: SharedString::new_static("ตั้งเวลาปิด"),
+    timer_intro: SharedString::new_static("หยุดเล่นชั่วคราวเมื่อครบเวลาที่เลือก"),
+    timer_off: SharedString::new_static("ปิด"),
+    timer_pauses_at_t: SharedString::new_static("หยุดเวลา {}"),
+    timer_pauses_after_track: SharedString::new_static("หยุดเมื่อเพลงปัจจุบันจบ"),
+    timer_auto_started: SharedString::new_static("เริ่มโดยอัตโนมัติ"),
+    timer_start: SharedString::new_static("หยุดหลังจาก"),
+    timer_minutes_t: SharedString::new_static("{} นาที"),
+    timer_end_of_track: SharedString::new_static("จบเพลง"),
+    timer_extend_t: SharedString::new_static("+{} นาที"),
+    timer_cancel: SharedString::new_static("ปิด"),
+    timer_fade: SharedString::new_static("ค่อยๆ เบาเสียง"),
+    timer_fade_desc: SharedString::new_static(
+        "ค่อยๆ ลดระดับเสียงในช่วง 30 วินาทีสุดท้าย ใช้ไม่ได้ในโหมดเอกสิทธิ์",
+    ),
+    timer_auto: SharedString::new_static("ตั้งเวลาปิดอัตโนมัติ"),
+    timer_auto_desc: SharedString::new_static(
+        "เริ่มตั้งเวลาเองเมื่อมีเพลงเล่นในช่วงเวลานี้ คุณยังเริ่มเองได้ที่ เครื่องมือ",
+    ),
+    timer_auto_from: SharedString::new_static("ตั้งแต่"),
+    timer_auto_until: SharedString::new_static("ถึง"),
+    timer_auto_duration: SharedString::new_static("ระยะเวลา"),
 };
 
 static CS: ToolsStrings = ToolsStrings {
@@ -1732,6 +2114,28 @@ static CS: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("stažení selhalo: {}"),
     covers_skip_bad_image: SharedString::new_static("stažený soubor není použitelný obrázek"),
     covers_skip_write_failed_t: SharedString::new_static("nelze uložit: {}"),
+    tools_timer: SharedString::new_static("Časovač spánku"),
+    timer_intro: SharedString::new_static("Pozastaví přehrávání po zvolené době."),
+    timer_off: SharedString::new_static("Vypnuto"),
+    timer_pauses_at_t: SharedString::new_static("Pozastavení v {}"),
+    timer_pauses_after_track: SharedString::new_static("Pauza na konci aktuální skladby"),
+    timer_auto_started: SharedString::new_static("spuštěno automaticky"),
+    timer_start: SharedString::new_static("Pauza za"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Konec skladby"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Vypnout"),
+    timer_fade: SharedString::new_static("Postupné ztlumení"),
+    timer_fade_desc: SharedString::new_static(
+        "Během posledních 30 sekund postupně ztlumí hlasitost. V exkluzivním režimu není k dispozici.",
+    ),
+    timer_auto: SharedString::new_static("Automatický časovač spánku"),
+    timer_auto_desc: SharedString::new_static(
+        "Sám spustí časovač, když v těchto hodinách hraje hudba. Ručně ho spustíte v Nástrojích.",
+    ),
+    timer_auto_from: SharedString::new_static("Od"),
+    timer_auto_until: SharedString::new_static("Do"),
+    timer_auto_duration: SharedString::new_static("Délka"),
 };
 
 static SV: ToolsStrings = ToolsStrings {
@@ -1825,6 +2229,28 @@ static SV: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("nedladdningen misslyckades: {}"),
     covers_skip_bad_image: SharedString::new_static("den nedladdade filen är ingen användbar bild"),
     covers_skip_write_failed_t: SharedString::new_static("kunde inte spara: {}"),
+    tools_timer: SharedString::new_static("Insomningstimer"),
+    timer_intro: SharedString::new_static("Pausar uppspelningen efter vald tid."),
+    timer_off: SharedString::new_static("Av"),
+    timer_pauses_at_t: SharedString::new_static("Pausar kl. {}"),
+    timer_pauses_after_track: SharedString::new_static("Pausar när aktuellt spår tar slut"),
+    timer_auto_started: SharedString::new_static("startad automatiskt"),
+    timer_start: SharedString::new_static("Pausa efter"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Spårets slut"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Stäng av"),
+    timer_fade: SharedString::new_static("Tona ut"),
+    timer_fade_desc: SharedString::new_static(
+        "Sänker volymen gradvis under de sista 30 sekunderna. Inte tillgängligt i exklusivt läge.",
+    ),
+    timer_auto: SharedString::new_static("Automatisk insomningstimer"),
+    timer_auto_desc: SharedString::new_static(
+        "Startar timern av sig själv när musik spelas under de här timmarna. Du kan också starta den för hand under Verktyg.",
+    ),
+    timer_auto_from: SharedString::new_static("Från"),
+    timer_auto_until: SharedString::new_static("Till"),
+    timer_auto_duration: SharedString::new_static("Längd"),
 };
 
 static HI: ToolsStrings = ToolsStrings {
@@ -1914,6 +2340,28 @@ static HI: ToolsStrings = ToolsStrings {
     covers_skip_download_failed_t: SharedString::new_static("डाउनलोड विफल: {}"),
     covers_skip_bad_image: SharedString::new_static("डाउनलोड की गई फ़ाइल उपयोग योग्य छवि नहीं है"),
     covers_skip_write_failed_t: SharedString::new_static("सहेजा नहीं जा सका: {}"),
+    tools_timer: SharedString::new_static("स्लीप टाइमर"),
+    timer_intro: SharedString::new_static("चुने गए समय के बाद प्लेबैक रोक देता है।"),
+    timer_off: SharedString::new_static("बंद"),
+    timer_pauses_at_t: SharedString::new_static("{} बजे रुकेगा"),
+    timer_pauses_after_track: SharedString::new_static("मौजूदा ट्रैक खत्म होने पर रुकेगा"),
+    timer_auto_started: SharedString::new_static("अपने आप शुरू हुआ"),
+    timer_start: SharedString::new_static("इतने बाद रोकें"),
+    timer_minutes_t: SharedString::new_static("{} मिनट"),
+    timer_end_of_track: SharedString::new_static("ट्रैक का अंत"),
+    timer_extend_t: SharedString::new_static("+{} मिनट"),
+    timer_cancel: SharedString::new_static("बंद करें"),
+    timer_fade: SharedString::new_static("धीरे-धीरे आवाज़ कम करें"),
+    timer_fade_desc: SharedString::new_static(
+        "आखिरी 30 सेकंड में आवाज़ धीरे-धीरे कम करता है। एक्सक्लूसिव मोड में उपलब्ध नहीं।",
+    ),
+    timer_auto: SharedString::new_static("ऑटोमैटिक स्लीप टाइमर"),
+    timer_auto_desc: SharedString::new_static(
+        "इन घंटों में संगीत चलने पर टाइमर अपने आप शुरू करता है। आप इसे टूल में खुद भी शुरू कर सकते हैं।",
+    ),
+    timer_auto_from: SharedString::new_static("से"),
+    timer_auto_until: SharedString::new_static("तक"),
+    timer_auto_duration: SharedString::new_static("अवधि"),
 };
 
 static ES: ToolsStrings = ToolsStrings {
@@ -2009,4 +2457,26 @@ static ES: ToolsStrings = ToolsStrings {
         "el archivo descargado no es una imagen utilizable",
     ),
     covers_skip_write_failed_t: SharedString::new_static("no se pudo guardar: {}"),
+    tools_timer: SharedString::new_static("Temporizador de apagado"),
+    timer_intro: SharedString::new_static("Pausa la reproducción tras el tiempo elegido."),
+    timer_off: SharedString::new_static("Desactivado"),
+    timer_pauses_at_t: SharedString::new_static("Pausa a las {}"),
+    timer_pauses_after_track: SharedString::new_static("Pausa al terminar la pista actual"),
+    timer_auto_started: SharedString::new_static("iniciado automáticamente"),
+    timer_start: SharedString::new_static("Pausar tras"),
+    timer_minutes_t: SharedString::new_static("{} min"),
+    timer_end_of_track: SharedString::new_static("Fin de la pista"),
+    timer_extend_t: SharedString::new_static("+{} min"),
+    timer_cancel: SharedString::new_static("Desactivar"),
+    timer_fade: SharedString::new_static("Fundido de salida"),
+    timer_fade_desc: SharedString::new_static(
+        "Baja el volumen poco a poco durante los últimos 30 segundos. No disponible en modo exclusivo.",
+    ),
+    timer_auto: SharedString::new_static("Temporizador de apagado automático"),
+    timer_auto_desc: SharedString::new_static(
+        "Inicia el temporizador solo cuando suena música en estas horas. También puedes iniciarlo a mano en Herramientas.",
+    ),
+    timer_auto_from: SharedString::new_static("Desde"),
+    timer_auto_until: SharedString::new_static("Hasta"),
+    timer_auto_duration: SharedString::new_static("Duración"),
 };

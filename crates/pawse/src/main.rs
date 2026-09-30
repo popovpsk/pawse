@@ -64,6 +64,7 @@ pub mod settings_view;
 pub mod shuffle_button;
 #[cfg(not(target_os = "macos"))]
 pub mod single_instance;
+pub mod sleep_timer;
 pub mod subsonic_settings;
 pub mod tag_editor_view;
 pub mod theme_colors;
@@ -355,6 +356,7 @@ fn main() {
         crate::app_menu::set_menus(cx);
 
         crate::scrobble_bridge::setup(cx);
+        crate::sleep_timer::setup(cx);
 
         open_initial_window(cx, true);
 

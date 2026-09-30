@@ -317,6 +317,7 @@ pub fn tinted(base: &ThemeColor, tint: Tint) -> ThemeColor {
         table_row_border,
         input,
         border,
+        chart_grid,
         button,
         button_hover,
         button_active,
@@ -412,7 +413,7 @@ mod tests {
         let base = dark_theme();
         let walked = map_colors(&base, |color| color);
         let before = serde_json::to_value(base).expect("serialize");
-        assert_eq!(before.as_object().expect("object").len(), 138);
+        assert_eq!(before.as_object().expect("object").len(), 139);
         assert_eq!(before, serde_json::to_value(walked).expect("serialize"));
     }
 

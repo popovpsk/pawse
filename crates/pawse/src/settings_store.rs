@@ -523,6 +523,8 @@ pub struct UserSettings {
     pub lyrics_dim_inactive: bool,
     #[serde(default)]
     pub onboarding_complete: bool,
+    #[serde(default)]
+    pub sleep_timer: SleepTimerSettings,
 }
 
 impl Default for UserSettings {
@@ -578,7 +580,49 @@ impl Default for UserSettings {
             lyrics_dim_inactive: true,
             onboarding_complete: false,
             network_cache_gb: default_network_cache_gb(),
+            sleep_timer: SleepTimerSettings::default(),
         }
+    }
+}
+
+pub const SLEEP_TIMER_STEP_MIN: u16 = 30;
+pub const SLEEP_TIMER_DURATIONS: [u32; 6] = [15, 30, 45, 60, 90, 120];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SleepTimerSettings {
+    pub fade_out: bool,
+    pub auto: bool,
+    pub auto_from_min: u16,
+    pub auto_until_min: u16,
+    pub auto_duration_min: u32,
+}
+
+impl Default for SleepTimerSettings {
+    fn default() -> Self {
+        Self {
+            fade_out: true,
+            auto: false,
+            auto_from_min: 23 * 60,
+            auto_until_min: 6 * 60,
+            auto_duration_min: 30,
+        }
+    }
+}
+
+impl SleepTimerSettings {
+    fn sanitized(mut self) -> Self {
+        let default = Self::default();
+        if self.auto_from_min >= 24 * 60 {
+            self.auto_from_min = default.auto_from_min;
+        }
+        if self.auto_until_min >= 24 * 60 {
+            self.auto_until_min = default.auto_until_min;
+        }
+        if self.auto_duration_min == 0 {
+            self.auto_duration_min = default.auto_duration_min;
+        }
+        self
     }
 }
 
@@ -1121,6 +1165,15 @@ impl SettingsStore {
 
     pub fn set_playlists_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.playlists_enabled = enabled;
+        self.save()
+    }
+
+    pub fn sleep_timer(&self) -> SleepTimerSettings {
+        self.settings.sleep_timer.sanitized()
+    }
+
+    pub fn set_sleep_timer(&mut self, settings: SleepTimerSettings) -> anyhow::Result<()> {
+        self.settings.sleep_timer = settings;
         self.save()
     }
 
@@ -1683,6 +1736,13 @@ mod tests {
             lyrics_dim_inactive: true,
             onboarding_complete: false,
             network_cache_gb: 8,
+            sleep_timer: SleepTimerSettings {
+                fade_out: false,
+                auto: true,
+                auto_from_min: 22 * 60 + 30,
+                auto_until_min: 5 * 60,
+                auto_duration_min: 45,
+            },
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
@@ -1704,6 +1764,21 @@ mod tests {
         assert_eq!(back.playback.repeat, RepeatModePersist::All);
         assert_eq!(back.playback.source, QueueSourcePersist::Playlist(7));
         assert!(back.playback.custom);
+        assert_eq!(back.sleep_timer, settings.sleep_timer);
+    }
+
+    #[test]
+    fn sleep_timer_defaults_and_partial_json() {
+        let settings: UserSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.sleep_timer, SleepTimerSettings::default());
+        let settings: UserSettings =
+            serde_json::from_str(r#"{"sleep_timer":{"auto":true,"auto_from_min":9999}}"#).unwrap();
+        assert!(settings.sleep_timer.auto);
+        assert!(settings.sleep_timer.fade_out);
+        assert_eq!(
+            settings.sleep_timer.sanitized().auto_from_min,
+            SleepTimerSettings::default().auto_from_min
+        );
     }
 
     #[test]

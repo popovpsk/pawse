@@ -156,6 +156,8 @@ pub struct MainView {
     _activation_subscription: gpui::Subscription,
     updater: Option<Entity<updater::AutoUpdater>>,
     _updater_observer: Option<gpui::Subscription>,
+    sleep_timer: Option<Entity<crate::sleep_timer::SleepTimer>>,
+    _sleep_timer_observe: Option<Subscription>,
     focus_handle: FocusHandle,
 }
 
@@ -570,6 +572,11 @@ impl MainView {
             },
         );
 
+        let sleep_timer = crate::sleep_timer::timer(cx);
+        let sleep_timer_observe = sleep_timer
+            .as_ref()
+            .map(|timer| cx.observe(timer, |_, _, cx| cx.notify()));
+
         let updater = updater::handle(cx);
         let updater_observer = updater
             .as_ref()
@@ -649,6 +656,8 @@ impl MainView {
             _activation_subscription: activation_subscription,
             updater,
             _updater_observer: updater_observer,
+            sleep_timer,
+            _sleep_timer_observe: sleep_timer_observe,
             focus_handle,
         }
     }
@@ -726,6 +735,12 @@ impl MainView {
         self.show_settings = false;
         self.show_tools = true;
         cx.notify();
+    }
+
+    fn open_tools_page(&mut self, page_ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_tools(window, cx);
+        self.tools_view
+            .update(cx, |view, cx| view.show_page(page_ix, cx));
     }
 
     fn close_screens(&mut self) {
@@ -814,6 +829,22 @@ impl MainView {
         );
     }
 
+    fn on_open_sleep_timer_settings(
+        &mut self,
+        _: &crate::settings_view::OpenSleepTimerSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_at(
+            self.settings_pages.general,
+            Some(gpui::SharedString::from(
+                crate::sleep_timer::settings::SETTINGS_ANCHOR,
+            )),
+            window,
+            cx,
+        );
+    }
+
     fn on_exit_cover_mode(&mut self, _: &ExitCoverMode, _: &mut Window, cx: &mut Context<Self>) {
         if self.cover_mode {
             self.set_cover_mode(false, cx);
@@ -878,6 +909,12 @@ impl Render for MainView {
             primary: Colors::primary(cx),
             foreground,
         };
+
+        let sleep_badge = self
+            .sleep_timer
+            .as_ref()
+            .and_then(|timer| timer.read(cx).badge())
+            .map(|label| sleep_timer_badge(label, muted, cx));
 
         let settings = cx.global::<SettingsStore>();
         let liked_enabled = settings.liked_enabled();
@@ -1007,7 +1044,11 @@ impl Render for MainView {
             .when_some(backdrop, |d, frame| {
                 d.child(cover_backdrop::layers(frame, background))
             })
-            .child(crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg))
+            .child(
+                crate::window_title_bar::WindowTitleBar::new()
+                    .bg(title_bar_bg)
+                    .center(sleep_badge),
+            )
             .child({
                 let header_bar = div()
                     .w_full()
@@ -1210,6 +1251,7 @@ impl Render for MainView {
                     .on_action(cx.listener(Self::on_play_pause))
                     .on_action(cx.listener(Self::on_exit_cover_mode))
                     .on_action(cx.listener(Self::on_open_scrobbling_settings))
+                    .on_action(cx.listener(Self::on_open_sleep_timer_settings))
                     .when(show_chrome, |d| d.child(header_bar))
                     .child(middle)
                     .when(show_chrome, |d| d.child(footer_bar))
@@ -1269,7 +1311,39 @@ fn tools_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
                 .size(px(20. * scale)),
         )
         .tooltip(crate::tools::title())
-        .on_click(cx.listener(|this, _, window, cx| this.open_tools(window, cx)))
+        .on_click(cx.listener(|this, _, window, cx| this.open_tools_page(0, window, cx)))
+}
+
+fn sleep_timer_badge(
+    label: gpui::SharedString,
+    hover_bg: Hsla,
+    cx: &mut Context<MainView>,
+) -> gpui::AnyElement {
+    let color = Colors::muted_foreground(cx);
+    div()
+        .id("sleep_timer_badge")
+        .occlude()
+        .flex()
+        .items_center()
+        .gap_1()
+        .h(px(22.))
+        .px_2()
+        .rounded_full()
+        .text_xs()
+        .text_color(color)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover_bg))
+        .on_mouse_down(MouseButton::Left, |_, window, cx| {
+            window.prevent_default();
+            cx.stop_propagation();
+        })
+        .on_click(cx.listener(|this, _, window, cx| {
+            cx.stop_propagation();
+            this.open_tools_page(crate::tools::TIMER_PAGE, window, cx);
+        }))
+        .child(svg().path("icons/moon.svg").size(px(12.)).text_color(color))
+        .child(label)
+        .into_any_element()
 }
 
 fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {

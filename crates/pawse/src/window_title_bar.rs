@@ -1,9 +1,11 @@
-use gpui::{App, Hsla, IntoElement, RenderOnce, Styled, Window, div, px};
+use gpui::{
+    AnyElement, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px,
+};
 
 #[cfg(target_os = "linux")]
 use gpui::{
-    Decorations, InteractiveElement, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement as _, WindowControlArea, prelude::FluentBuilder, svg,
+    Decorations, InteractiveElement, MouseButton, Render, StatefulInteractiveElement as _,
+    WindowControlArea, prelude::FluentBuilder, svg,
 };
 
 #[cfg(target_os = "linux")]
@@ -25,6 +27,7 @@ pub fn title_bar_height(window: &Window) -> f32 {
 #[derive(IntoElement, Default)]
 pub struct WindowTitleBar {
     bg: Option<Hsla>,
+    center: Option<AnyElement>,
 }
 
 impl WindowTitleBar {
@@ -36,6 +39,34 @@ impl WindowTitleBar {
         self.bg = Some(bg);
         self
     }
+
+    pub fn center(mut self, center: Option<AnyElement>) -> Self {
+        self.center = center;
+        self
+    }
+}
+
+fn with_center(bar: AnyElement, center: Option<AnyElement>) -> AnyElement {
+    let Some(center) = center else {
+        return bar;
+    };
+    div()
+        .relative()
+        .w_full()
+        .flex_shrink_0()
+        .child(bar)
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(center),
+        )
+        .into_any_element()
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -50,10 +81,11 @@ impl RenderOnce for WindowTitleBar {
                 .bg(bg)
                 .into_any_element();
         }
-        gpui_component::TitleBar::new()
+        let bar = gpui_component::TitleBar::new()
             .bg(bg)
             .border_color(gpui::transparent_black())
-            .into_any_element()
+            .into_any_element();
+        with_center(bar, self.center)
     }
 }
 
@@ -181,7 +213,7 @@ impl RenderOnce for WindowTitleBar {
                     .group_hover("ctrl-close", |s| s.text_color(danger)),
             );
 
-        div().flex_shrink_0().child(
+        let bar = div().flex_shrink_0().child(
             div()
                 .id("title-bar")
                 .flex()
@@ -248,6 +280,7 @@ impl RenderOnce for WindowTitleBar {
                         .child(max_restore_btn)
                         .child(close_btn),
                 ),
-        )
+        );
+        with_center(bar.into_any_element(), self.center)
     }
 }

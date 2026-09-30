@@ -1,5 +1,6 @@
 pub mod ai_prompt;
 pub mod covers;
+mod timer;
 
 use gpui::{
     AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
@@ -15,8 +16,11 @@ use crate::services::Services;
 use ai_prompt::{AiPromptInputs, AiPromptState, Mode};
 use covers::CoversState;
 
+use crate::sleep_timer::SleepTimer;
+
 const WISHES_ROWS: (usize, usize) = (2, 6);
 const ANSWER_ROWS: (usize, usize) = (4, 12);
+pub const TIMER_PAGE: usize = 2;
 
 pub struct ToolsView {
     ai_prompt: Entity<AiPromptState>,
@@ -24,9 +28,13 @@ pub struct ToolsView {
     mode: Mode,
     covers: Entity<CoversState>,
     covers_layout: covers::Layout,
+    sleep_timer: Option<Entity<SleepTimer>>,
     pages: Vec<SettingPage>,
+    page_ix: usize,
+    page_request: u64,
     _ai_prompt_observe: Subscription,
     _covers_observe: Subscription,
+    _sleep_timer_observe: Option<Subscription>,
     _lang_subscription: Subscription,
 }
 
@@ -88,15 +96,23 @@ impl ToolsView {
             });
         let mode = ai_prompt.read(cx).mode();
         let covers_layout = covers.read(cx).layout();
+        let sleep_timer = crate::sleep_timer::timer(cx);
+        let sleep_timer_observe = sleep_timer
+            .as_ref()
+            .map(|timer| cx.observe(timer, |_, _, cx| cx.notify()));
         let mut view = Self {
             ai_prompt,
             inputs,
             mode,
             covers,
             covers_layout,
+            sleep_timer,
             pages: Vec::new(),
+            page_ix: 0,
+            page_request: 0,
             _ai_prompt_observe: ai_prompt_observe,
             _covers_observe: covers_observe,
+            _sleep_timer_observe: sleep_timer_observe,
             _lang_subscription: lang_subscription,
         };
         view.pages = view.build_pages();
@@ -104,18 +120,31 @@ impl ToolsView {
     }
 
     fn build_pages(&self) -> Vec<SettingPage> {
-        vec![
+        let mut pages = vec![
             ai_prompt::page(self.ai_prompt.clone(), self.inputs.clone(), self.mode),
             covers::page(self.covers.clone(), self.covers_layout),
-        ]
+        ];
+        if let Some(timer) = &self.sleep_timer {
+            pages.push(timer::page(timer.clone()));
+        }
+        pages
+    }
+
+    pub fn show_page(&mut self, page_ix: usize, cx: &mut Context<Self>) {
+        self.page_ix = page_ix;
+        self.page_request += 1;
+        cx.notify();
     }
 }
 
 impl Render for ToolsView {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .child(Settings::new("pawse-tools").pages(self.pages.clone()))
+        div().size_full().child(
+            Settings::new("pawse-tools")
+                .initial_page(self.page_ix)
+                .page_request(self.page_request)
+                .pages(self.pages.clone()),
+        )
     }
 }
 

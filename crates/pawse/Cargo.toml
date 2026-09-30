@@ -52,6 +52,7 @@ updater = { path = "../updater", default-features = false }
 sys-locale = "0.3"
 nucleo-matcher = "0.3"
 rand = "0.9"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]

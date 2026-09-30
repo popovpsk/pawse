@@ -28,7 +28,7 @@ use crate::settings_store::{
 use crate::theme_colors::Colors;
 use music_library::ArtistGrouping;
 
-actions!(settings, [OpenScrobblingSettings]);
+actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
 
 fn reveal_in_file_manager(path: &std::path::Path) {
     #[cfg(target_os = "macos")]
@@ -85,11 +85,13 @@ pub fn build_settings_pages(
             .group(lyrics_group(sliders.lyrics))
             .group(now_playing_group()),
     ];
-    let mut general =
-        SettingPage::new(tr().settings_general.clone()).group(general_group(remote_port_input));
+    let mut general = SettingPage::new(tr().settings_general.clone())
+        .group(general_group(remote_port_input))
+        .group(crate::sleep_timer::settings::settings_group());
     if discord::is_available() {
         general = general.group(discord_group());
     }
+    let general_ix = pages.len();
     pages.push(general.group(feedback_group()));
     let scrobbling = pages.len();
     pages.push(crate::scrobble_settings::scrobble_page(
@@ -120,6 +122,7 @@ pub fn build_settings_pages(
     );
     SettingsPages {
         pages,
+        general: general_ix,
         library,
         scrobbling,
     }
@@ -128,6 +131,7 @@ pub fn build_settings_pages(
 #[derive(Clone)]
 pub struct SettingsPages {
     pub pages: Vec<SettingPage>,
+    pub general: usize,
     pub library: usize,
     pub scrobbling: usize,
 }
