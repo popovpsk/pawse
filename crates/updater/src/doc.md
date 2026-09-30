@@ -72,8 +72,12 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   matcher here only protects future versions; the copies already installed cannot be
   fixed, so the naming is the real guarantee and must not be "tidied up" later.
 - **Windows portable builds are a separate compilation, not a runtime flag.** The
-  portable zip is built with `cargo build --release -p pawse --no-default-features`,
-  which drops pawse's `self-update` feature and with it `updater/self-update`:
+  portable zip is built with `cargo build --release -p pawse --no-default-features`
+  in its own `portable` job of `release.yml`, parallel to the installer `bundle` job
+  (sequentially on one runner it re-ran the `pawse` compile + thin LTO and added
+  ~6 min to the slowest job of every release). Both jobs share one rust-cache key per
+  target: dependencies are identical apart from the updater's optional ones. The flag
+  drops pawse's `self-update` feature and with it `updater/self-update`:
   `github.rs` and `install/` are swapped for the stubs in `src/disabled/`, and
   `is_supported()` becomes a compile-time `false`. The public API is identical either
   way, so `crates/pawse` carries no `#[cfg]` of its own. Inside this crate the feature

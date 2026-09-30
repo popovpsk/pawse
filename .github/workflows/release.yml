@@ -67,11 +67,9 @@ jobs:
           - label: windows-x86_64
             os: windows-latest
             formats: nsis
-            arch_tag: x64
           - label: windows-arm64
             os: windows-11-arm
             formats: nsis
-            arch_tag: arm64
           - label: linux-x86_64
             os: ubuntu-22.04
             formats: appimage,deb,pacman
@@ -277,35 +275,6 @@ jobs:
             echo "re-imaged unsigned: $dmg"
           done
 
-      - name: Build the portable binary
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
-          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
-        run: |
-          cargo build --release -p pawse --no-default-features
-          hits=$(LC_ALL=C tr -c '[:print:]' '\n' < target/release/pawse.exe | grep -c 'pawse-updater' || true)
-          echo "updater marker occurrences in the portable binary: $hits"
-          if [ "$hits" -ne 0 ]; then
-            echo "::error::the portable binary still links the updater — --no-default-features did not reach updater/self-update, or the build failed and left the installer binary in place."
-            exit 1
-          fi
-
-      - name: Build portable archive
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
-          $stage = Join-Path $env:RUNNER_TEMP 'portable'
-          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $stage | Out-Null
-          Copy-Item target/release/pawse.exe $stage
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "$stage/*" -DestinationPath "dist/pawse_${version}_${{ matrix.arch_tag }}-portable.zip"
-          Get-ChildItem dist
-
       - name: Collect artifacts
         shell: bash
         run: |
@@ -346,9 +315,101 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  portable:
+    name: Portable (${{ matrix.label }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            os: windows-latest
+            arch_tag: x64
+          - label: windows-arm64
+            os: windows-11-arm
+            arch_tag: arm64
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify Last.fm secrets
+        shell: bash
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+        run: |
+          if [ -z "$LASTFM_API_KEY" ] || [ -z "$LASTFM_API_SECRET" ]; then
+            echo "::error::LASTFM_API_KEY / LASTFM_API_SECRET repo secrets are not set; refusing to build a release binary without scrobbling keys baked in."
+            exit 1
+          fi
+          echo "Last.fm secrets present."
+
+      - name: Stamp release version
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            PY=python3
+            command -v "$PY" >/dev/null 2>&1 || PY=python
+            "$PY" scripts/stamp_version.py "$VERSION"
+          else
+            echo "No semver release version (got '$VERSION'); leaving Cargo.toml version as-is"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build web remote
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.label }}
+          cache-on-failure: true
+
+      - name: Build the portable binary
+        shell: bash
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+        run: |
+          cargo build --release -p pawse --no-default-features
+          cargo tree -p pawse -e normal -f '{p} {f}' --no-default-features | grep 'updater v' || true
+          hits=$(LC_ALL=C tr -c '[:print:]' '\n' < target/release/pawse.exe | grep -c 'pawse-updater' || true)
+          echo "updater marker occurrences in the portable binary: $hits"
+          if [ "$hits" -ne 0 ]; then
+            echo "::error::the portable binary still links the updater — --no-default-features did not reach updater/self-update."
+            exit 1
+          fi
+
+      - name: Build portable archive
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $stage = Join-Path $env:RUNNER_TEMP 'portable'
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item target/release/pawse.exe $stage
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/pawse_${version}_${{ matrix.arch_tag }}-portable.zip"
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.label }}-portable
+          path: dist/*
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
-    needs: bundle
+    needs: [bundle, portable]
     if: inputs.version != ''
     runs-on: ubuntu-latest
     steps:

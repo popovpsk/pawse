@@ -217,6 +217,9 @@ fn main() {
             log_dir,
             ..Default::default()
         });
+        if let Err(err) = rlimit::increase_nofile_limit(u64::MAX) {
+            log::warn!("could not raise open file limit: {err}");
+        }
 
         gpui_component::init(cx);
         crate::playlist_popup::init(cx);

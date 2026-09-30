@@ -44,6 +44,12 @@ tags from. It knows nothing about audio, the library or the media cache.
   duration is a stall limit, not a deadline: it fails with `Timeout` only after
   that long without a single new byte, so a slow swarm finishes and a dead one
   gives up quickly.
+- **One file descriptor per torrent file.** librqbit's filesystem storage opens
+  every file of a loaded torrent read/write (even with `only_files = []`) and
+  keeps it open for the torrent's life. An app started from Finder gets a soft
+  `RLIMIT_NOFILE` of 256, so a torrent of a few hundred files (artwork scans)
+  exhausted it and also broke a library scan running next to it. `pawse::main`
+  raises the soft limit to the hard one at startup, as the rqbit CLI does.
 - **Stream count is limited.** librqbit 9 gives every open file stream one
   permit of its blocking-I/O semaphore for the stream's whole life, and writing
   a received block to disk needs a permit from the same semaphore. With as many
