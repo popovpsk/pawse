@@ -129,7 +129,10 @@ pub(crate) fn build_window_options(cx: &mut App) -> WindowOptions {
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         window_min_size: Some(size(px(900.0), px(400.0))),
-        titlebar: Some(TitleBar::title_bar_options()),
+        titlebar: Some(TitlebarOptions {
+            title: Some("Pawse".into()),
+            ..TitleBar::title_bar_options()
+        }),
         app_id: Some("pawse".into()),
         #[cfg(target_os = "linux")]
         window_background: WindowBackgroundAppearance::Transparent,
