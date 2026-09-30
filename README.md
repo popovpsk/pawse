@@ -46,7 +46,7 @@ macOS · Windows · Linux
 - **Lyrics** — time-synced lyrics from your files or fetched online.
 - **Remote control** — control playback from any device on your network through a built-in HTTP web view.
 - **System media integration** — control playback from your OS media controls and hardware media keys.
-- **Scrobbling** — Last.fm, Libre.fm, ListenBrainz (including a custom server) and a local CSV log, all at once, each enabled and configured on its own. Import loved tracks from a service into Liked, or optionally sync your likes back to it.
+- **Scrobbling** — Last.fm, Libre.fm, ListenBrainz (including a custom server) and a local CSV log, all at once, each enabled and configured on its own, with preset and custom rewrite rules. Import loved tracks from a service into Liked, or optionally sync your likes back to it.
 - **Discord** — show what you're listening to as your Discord status.
 - **The little things** — click-free fades on pause and seek, artist grouping by album artist (with per-track fallback), keyboard shortcuts, a blurred cover backdrop, and queue de-duplication — small comforts that add up to a player you actually want to live in.
 
