@@ -1,11 +1,13 @@
 use gpui::{
-    App, AppContext, ClipboardItem, Context, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Window, div, px,
+    App, AppContext, ClipboardItem, Context, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px,
 };
 use gpui_component::{
     ActiveTheme, Sizable,
     button::{Button, ButtonVariants},
     h_flex,
+    scroll::ScrollableElement,
     theme::ThemeRegistry,
     v_flex,
 };
@@ -42,12 +44,14 @@ pub fn open(cx: &mut App) {
 }
 
 pub struct PipewireAlsaGate {
+    scroll: ScrollHandle,
     _theme_registry_subscription: gpui::Subscription,
 }
 
 impl PipewireAlsaGate {
     fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
+            scroll: ScrollHandle::new(),
             _theme_registry_subscription: cx.observe_global::<ThemeRegistry>(|_, cx| cx.notify()),
         }
     }
@@ -106,48 +110,64 @@ impl Render for PipewireAlsaGate {
         }
 
         div()
+            .relative()
             .size_full()
             .overflow_hidden()
             .bg(Colors::title_bar(cx))
-            .flex()
-            .items_center()
-            .justify_center()
             .child(
-                v_flex()
-                    .w(px(560.))
-                    .gap_5()
-                    .p_8()
-                    .rounded(px(12.))
-                    .bg(Colors::background(cx))
-                    .border_1()
-                    .border_color(Colors::border(cx))
+                div()
+                    .id("pw-alsa-scroll")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
                     .child(
-                        v_flex()
-                            .gap_2()
+                        div()
+                            .w_full()
+                            .min_h_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .p_4()
                             .child(
-                                div()
-                                    .text_xl()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(Colors::foreground(cx))
-                                    .child(s.pipewire_alsa_missing_title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(Colors::muted_foreground(cx))
-                                    .child(s.pipewire_alsa_missing_body.clone()),
+                                v_flex()
+                                    .w_full()
+                                    .max_w(px(560.))
+                                    .gap_5()
+                                    .p_8()
+                                    .rounded(px(12.))
+                                    .bg(Colors::background(cx))
+                                    .border_1()
+                                    .border_color(Colors::border(cx))
+                                    .child(
+                                        v_flex()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_xl()
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(Colors::foreground(cx))
+                                                    .child(s.pipewire_alsa_missing_title.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(Colors::muted_foreground(cx))
+                                                    .child(s.pipewire_alsa_missing_body.clone()),
+                                            ),
+                                    )
+                                    .child(commands)
+                                    .child(
+                                        h_flex().justify_end().child(
+                                            Button::new("pw-alsa-quit")
+                                                .primary()
+                                                .small()
+                                                .label(s.quit_pawse.clone())
+                                                .on_click(|_, _, cx| cx.quit()),
+                                        ),
+                                    ),
                             ),
-                    )
-                    .child(commands)
-                    .child(
-                        h_flex().justify_end().child(
-                            Button::new("pw-alsa-quit")
-                                .primary()
-                                .small()
-                                .label(s.quit_pawse.clone())
-                                .on_click(|_, _, cx| cx.quit()),
-                        ),
                     ),
             )
+            .vertical_scrollbar(&self.scroll)
     }
 }
