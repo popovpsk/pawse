@@ -114,7 +114,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libasound2-dev libfontconfig-dev libwayland-dev \
             libxkbcommon-x11-dev libssl-dev libzstd-dev libgit2-dev \
-            libfuse2 build-essential cmake clang zsync
+            libfuse2 build-essential cmake clang zsync squashfs-tools
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -195,6 +195,21 @@ jobs:
           chmod +x "$dest"
           echo "LDAI_RUNTIME_FILE=$dest" >> "$GITHUB_ENV"
 
+      - name: Seed cargo-packager AppRun with mode 755
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          arch="$(uname -m)"
+          dir="${XDG_CACHE_HOME:-$HOME/.cache}/.cargo-packager/AppImage"
+          dest="$dir/AppRun-${arch}"
+          url="https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-${arch}"
+          mkdir -p "$dir"
+          rm -f "$dest"
+          curl -fSL --retry 5 --retry-all-errors --retry-delay 5 -o "$dest" "$url"
+          test -s "$dest"
+          chmod 755 "$dest"
+          ls -l "$dest"
+
       - name: Package
         working-directory: crates/pawse
         env:
@@ -205,6 +220,33 @@ jobs:
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
           LDAI_UPDATE_INFORMATION: ${{ matrix.update_info }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
+
+      - name: Verify AppImage file modes
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          images=(target/release/*.AppImage)
+          if [ ${#images[@]} -eq 0 ]; then
+            echo "::error::no AppImage found in target/release"
+            exit 1
+          fi
+          for img in "${images[@]}"; do
+            chmod +x "$img"
+            offset=$("$img" --appimage-offset)
+            listing=$(unsquashfs -lln -o "$offset" "$img")
+            echo "$listing" | grep -E ' squashfs-root/AppRun$'
+            bad=$(echo "$listing" | awk '
+              $1 ~ /^-/ && substr($1,4,1) == "x" && substr($1,10,1) != "x" { print; next }
+              $1 ~ /^-/ && substr($1,8,1) != "r" { print; next }
+              $1 ~ /^d/ && substr($1,10,1) != "x" { print }
+            ')
+            if [ -n "$bad" ]; then
+              echo "$bad"
+              echo "::error::$img has files other users cannot read or run; root-mounted launches (firejail, the AppImage catalog test) fail with Permission denied"
+              exit 1
+            fi
+          done
 
       - name: Collect AppImage update metadata
         if: runner.os == 'Linux'
