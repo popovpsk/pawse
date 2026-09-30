@@ -710,6 +710,7 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
 
 const FEEDBACK_TELEGRAM: &str = concat!("t.me", "/", "popov", "psk");
 const FEEDBACK_EMAIL: &str = concat!("popov", ".", "psk", "@", "gmail", ".", "com");
+const FEEDBACK_GITHUB: &str = "github.com/popovpsk/pawse";
 
 fn feedback_group() -> SettingGroup {
     SettingGroup::new()
@@ -755,7 +756,8 @@ fn feedback_group() -> SettingGroup {
                     .child(
                         Button::new("feedback-email-copy")
                             .small()
-                            .label(tr().copy.clone())
+                            .icon(Icon::default().path("icons/copy.svg"))
+                            .tooltip(tr().copy.clone())
                             .on_click(|_, window, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(
                                     FEEDBACK_EMAIL.to_string(),
@@ -764,6 +766,30 @@ fn feedback_group() -> SettingGroup {
                                     Notification::success(tr().copied_to_clipboard.clone()),
                                     cx,
                                 );
+                            }),
+                    )
+            }),
+        ))
+        .item(SettingItem::new(
+            SharedString::new_static("GitHub"),
+            SettingField::render(|_window, cx: &mut App| {
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .justify_end()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Colors::muted_foreground(cx))
+                            .child(SharedString::new_static(FEEDBACK_GITHUB)),
+                    )
+                    .child(
+                        Button::new("feedback-github")
+                            .small()
+                            .icon(Icon::default().path("icons/external-link.svg"))
+                            .tooltip(tr().open_in_browser.clone())
+                            .on_click(|_, _, cx| {
+                                cx.open_url(&format!("https://{FEEDBACK_GITHUB}"));
                             }),
                     )
             }),
