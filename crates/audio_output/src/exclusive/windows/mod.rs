@@ -392,8 +392,9 @@ impl Backend for WasapiBackend {
             .ctx
             .playing
             .store(STATE_PLAYING, Ordering::SeqCst);
-        self.shared.want_play.store(true, Ordering::SeqCst);
-        self.shared.wake();
+        if !self.shared.want_play.swap(true, Ordering::SeqCst) {
+            self.shared.wake();
+        }
     }
 
     fn is_playing(&self) -> bool {
