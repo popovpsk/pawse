@@ -445,8 +445,4 @@ jobs:
           draft: true
           generate_release_notes: true
           body: |
-            ## Installation
-
-            - **macOS** — move `Pawse.app` to Applications and open it. If macOS blocks it, go to System Settings → Privacy & Security and click **Open Anyway**.
-            - **Windows** — run the installer for your CPU (`x64-setup.exe`, or `arm64-installer.exe` on Snapdragon machines). In the SmartScreen dialog click **More info** → **Run anyway**. The `-portable.zip` runs unpacked from anywhere and does not update itself.
-            - **Linux** — `chmod +x` the `.AppImage` and run it (it updates itself), or install the `.deb`. On Arch, `pawse-bin` is in the [AUR](https://aur.archlinux.org/packages/pawse-bin). It's also in the [AM](https://github.com/ivan-hc/AM) catalog: `am -i pawse`, or `appman -i pawse` without root.
+            TODO
