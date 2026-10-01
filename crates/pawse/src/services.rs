@@ -263,15 +263,6 @@ impl Services {
 
 fn notify_scan_event(event: &LibraryEvent, cx: &mut App) {
     let notification = match event {
-        LibraryEvent::ScanStarted => {
-            Notification::info(crate::localization::tr().library_updating.clone())
-        }
-        LibraryEvent::ScanSucceeded => {
-            Notification::success(crate::localization::tr().library_updated.clone())
-        }
-        LibraryEvent::ScanUpToDate => {
-            Notification::success(crate::localization::tr().library_up_to_date.clone())
-        }
         LibraryEvent::ScanFailed => {
             Notification::error(crate::localization::tr().library_update_failed.clone())
         }

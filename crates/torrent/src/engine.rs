@@ -229,6 +229,9 @@ impl Engine {
                         } else if last_progress.elapsed() >= stall {
                             return Err(Error::Timeout);
                         }
+                        if !shared.torrent_file(&hash).is_file() {
+                            return Err(Error::Unknown);
+                        }
                     }
                 }
             }

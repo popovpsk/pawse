@@ -150,7 +150,12 @@ impl ServerClient for Torrent {
     }
 
     fn songs(&self) -> Result<Vec<RemoteSong>, RemoteError> {
-        let listed = index::songs(self.engine()?, &self.info_hash, &self.host.state);
+        let engine = self.engine()?;
+        let listed = index::songs(engine, &self.info_hash, &self.host.state);
+        let _state = self.host.state_lock();
+        if !engine.is_stored(&self.info_hash) {
+            return listed;
+        }
         let failure = match &listed {
             Ok(_) => None,
             Err(
@@ -177,6 +182,7 @@ impl ServerClient for Torrent {
         if let Some(engine) = self.host.engine() {
             engine.forget(&self.info_hash);
         }
+        self.host.note_index(&self.info_hash, None);
     }
 
     fn peers(&self) -> Option<Peers> {

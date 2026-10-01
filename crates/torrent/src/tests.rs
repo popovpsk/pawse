@@ -312,6 +312,42 @@ fn a_probe_without_progress_gives_up_after_the_stall_time() {
 }
 
 #[test]
+fn forgetting_a_torrent_ends_its_running_probe() {
+    let seeder = seeder();
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(crate::Config {
+        work_dir: root.path().join("work"),
+        state_dir: root.path().join("state"),
+        upload: crate::Upload::WhileActive,
+        idle_unload: Duration::from_secs(600),
+        work_limit_bytes: u64::MAX,
+        network: crate::Network::Local {
+            listen_port: crate::testing::free_port(),
+            peers: vec![([127, 0, 0, 1], crate::testing::free_port()).into()],
+        },
+    })
+    .unwrap();
+    let meta = engine
+        .resolve(Input::File(seeder.torrent.clone()), WAIT)
+        .unwrap();
+    let want = Want {
+        file: index_of(&meta, "01.flac"),
+        start: 0,
+        end: 1000,
+    };
+    let started = Instant::now();
+    let probe = std::thread::scope(|scope| {
+        let running =
+            scope.spawn(|| engine.probe(&meta.info_hash, &[want], Duration::from_secs(60)));
+        std::thread::sleep(Duration::from_millis(1500));
+        engine.forget(&meta.info_hash);
+        running.join().unwrap()
+    });
+    assert!(matches!(probe, Err(Error::Unknown)));
+    assert!(started.elapsed() < Duration::from_secs(15));
+}
+
+#[test]
 fn parallel_first_calls_share_one_session() {
     let seeder = seeder();
     let root = tempfile::tempdir().unwrap();

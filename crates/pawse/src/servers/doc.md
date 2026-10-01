@@ -147,7 +147,8 @@ the same settings rows, sync, statuses and playback path. What differs:
   dead swarm must not hold Subsonic/Jellyfin or the other torrents back. A probe
   gives up after 90 s without a byte. Any failed index makes `ping` fail for
   the next 10 minutes with the failure's reason, so the offline watcher does
-  not re-download heads every minute. The sync's "running" marks are drop
+  not re-download heads every minute (except when the torrent was removed
+  meanwhile: that failure is not recorded, so adding it again syncs at once). The sync's "running" marks are drop
   guards (`Claim`), so a panic in an index does not leave a torrent syncing.
 - **Peers** (`connected/known`) show next to a torrent while it is loaded —
   indexing or playing — polled every 2 s by `LibrarySources` through

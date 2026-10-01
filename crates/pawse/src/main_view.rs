@@ -157,6 +157,7 @@ pub struct MainView {
     updater: Option<Entity<updater::AutoUpdater>>,
     _updater_observer: Option<gpui::Subscription>,
     sleep_timer: Option<Entity<crate::sleep_timer::SleepTimer>>,
+    scan_indicator: Entity<crate::library_scan_indicator::LibraryScanIndicator>,
     _sleep_timer_observe: Option<Subscription>,
     focus_handle: FocusHandle,
 }
@@ -657,6 +658,7 @@ impl MainView {
             updater,
             _updater_observer: updater_observer,
             sleep_timer,
+            scan_indicator: crate::library_scan_indicator::indicator(cx),
             _sleep_timer_observe: sleep_timer_observe,
             focus_handle,
         }
@@ -1047,7 +1049,8 @@ impl Render for MainView {
             .child(
                 crate::window_title_bar::WindowTitleBar::new()
                     .bg(title_bar_bg)
-                    .center(sleep_badge),
+                    .center(sleep_badge)
+                    .corner(Some(self.scan_indicator.clone().into_any_element())),
             )
             .child({
                 let header_bar = div()

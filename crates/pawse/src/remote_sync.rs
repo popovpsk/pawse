@@ -48,6 +48,15 @@ pub fn source_ids(repo: &dyn LibraryRepository) -> HashMap<String, i64> {
         .collect()
 }
 
+fn is_enabled(repo: &dyn LibraryRepository, source_id: i64) -> bool {
+    match repo.sources() {
+        Ok(sources) => sources
+            .iter()
+            .any(|source| source.id == source_id && source.enabled),
+        Err(_) => true,
+    }
+}
+
 pub struct SyncOutcome {
     pub result: Result<RemoteSyncReport, RemoteError>,
     pub changed: bool,
@@ -128,12 +137,13 @@ pub fn sync_server(
             moved,
         },
         Err(Failure::Source(error)) => {
-            let changed = repo
-                .set_source_available(source_id, false)
-                .unwrap_or_else(|db| {
-                    log::error!("Failed to mark source {source_id} unavailable: {db}");
-                    false
-                });
+            let changed = is_enabled(repo, source_id)
+                && repo
+                    .set_source_available(source_id, false)
+                    .unwrap_or_else(|db| {
+                        log::error!("Failed to mark source {source_id} unavailable: {db}");
+                        false
+                    });
             SyncOutcome {
                 result: Err(error),
                 changed,
@@ -369,6 +379,28 @@ mod tests {
 
         let (items, total) = import_stars(&repo, source_id, &servers[0].config).unwrap();
         assert_eq!((items, total), (vec![remote_track.id], 2));
+    }
+
+    #[test]
+    fn a_failed_sync_of_a_removed_source_changes_nothing() {
+        let repo = temp_db("removed-failed");
+        let dead = format!("http://127.0.0.1:{}", {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            listener.local_addr().unwrap().port()
+        });
+        let servers = vec![server(&dead)];
+        let (configs, _) = reconcile(&repo, &servers);
+        let (&source_id, _) = configs.iter().next().unwrap();
+
+        let live = sync_server(&repo, source_id, &servers[0].config);
+        assert!(live.result.is_err());
+        assert!(live.changed);
+
+        repo.set_source_available(source_id, true).unwrap();
+        reconcile(&repo, &[]);
+        let removed = sync_server(&repo, source_id, &servers[0].config);
+        assert!(removed.result.is_err());
+        assert!(!removed.changed);
     }
 
     fn jellyfin_stub() -> String {

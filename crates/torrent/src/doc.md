@@ -43,7 +43,13 @@ tags from. It knows nothing about audio, the library or the media cache.
   would delay the start of the track by a whole piece. A probe's
   duration is a stall limit, not a deadline: it fails with `Timeout` only after
   that long without a single new byte, so a slow swarm finishes and a dead one
-  gives up quickly.
+  gives up quickly. A probe also checks once a second that the `.torrent` file is
+  still there and fails with `Unknown` when `forget` removed it, so removing a
+  source ends its running sync at once instead of after the stall limit. The
+  file, not the loaded slot, is the signal: a probe fails with `Unknown` only
+  once the file is gone, so `is_stored` is already false, and it also catches a
+  `forget` that lands while the probe is still being acquired, before its slot
+  exists.
 - **One file descriptor per torrent file.** librqbit's filesystem storage opens
   every file of a loaded torrent read/write (even with `only_files = []`) and
   keeps it open for the torrent's life. An app started from Finder gets a soft

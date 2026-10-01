@@ -25,6 +25,7 @@ pub mod error_bridge;
 pub mod footer;
 pub mod jellyfin_settings;
 pub mod keyboard_shortcuts;
+pub mod library_scan_indicator;
 pub mod library_service;
 pub mod library_sources;
 pub mod library_views;
@@ -272,6 +273,7 @@ fn main() {
         let is_playing = services.is_playing.clone();
         let remote_handle = services.remote_handle.clone();
         cx.set_global(services);
+        crate::library_scan_indicator::setup(cx);
         crate::remote_settings::watch_offline_servers(cx);
 
         {
