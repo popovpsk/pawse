@@ -1,3 +1,4 @@
+pub mod controls;
 mod schedule;
 pub mod settings;
 
@@ -16,8 +17,6 @@ use crate::settings_store::SettingsStore;
 
 pub use schedule::clock_label;
 
-const FADE: Duration = Duration::from_secs(30);
-const FADE_STEP: Duration = Duration::from_millis(250);
 const RESTORE_DELAY: Duration = Duration::from_secs(2);
 pub const EXTEND_MIN: u32 = 5;
 
@@ -29,6 +28,8 @@ pub enum Armed {
 
 pub struct SleepTimer {
     armed: Option<Armed>,
+    span: Duration,
+    fade: Duration,
     badge: Option<SharedString>,
     status: SharedString,
     suppressed_night: Option<NaiveDate>,
@@ -88,6 +89,8 @@ impl SleepTimer {
     fn new() -> Self {
         let mut timer = Self {
             armed: None,
+            span: Duration::ZERO,
+            fade: Duration::ZERO,
             badge: None,
             status: SharedString::default(),
             suppressed_night: None,
@@ -128,6 +131,8 @@ impl SleepTimer {
             return;
         };
         *deadline += Duration::from_secs(u64::from(minutes) * 60);
+        self.span = deadline.saturating_duration_since(Instant::now());
+        self.fade = self.wanted_fade(cx);
         self.schedule_tick(cx);
     }
 
@@ -149,6 +154,8 @@ impl SleepTimer {
             deadline: Instant::now() + duration,
             auto,
         });
+        self.span = duration;
+        self.fade = self.wanted_fade(cx);
         self.restore_volume(cx);
         self.schedule_tick(cx);
     }
@@ -217,25 +224,29 @@ impl SleepTimer {
             self.expire(cx);
             return None;
         }
-        self.apply_fade(remaining, cx);
+        self.fade = schedule::settled_fade(self.fade, self.wanted_fade(cx), remaining);
+        self.apply_fade(remaining, self.fade, cx);
         self.relabel();
         cx.notify();
-        Some(schedule::next_tick(remaining, FADE, FADE_STEP))
+        Some(schedule::next_tick(
+            remaining,
+            self.fade,
+            schedule::fade_tick(self.fade),
+        ))
     }
 
-    fn apply_fade(&mut self, remaining: Duration, cx: &mut Context<Self>) {
-        let store = cx.global::<SettingsStore>();
-        let fade_out = store.sleep_timer().fade_out;
-        let volume = store.volume();
+    fn wanted_fade(&self, cx: &App) -> Duration {
+        let settings = cx.global::<SettingsStore>().sleep_timer();
+        schedule::fade_window(settings.fade_out, settings.fade_secs, self.span)
+    }
+
+    fn apply_fade(&mut self, remaining: Duration, fade: Duration, cx: &mut Context<Self>) {
+        let volume = cx.global::<SettingsStore>().volume();
         let services = cx.global::<Services>();
         if !services.is_playing.load(Ordering::Relaxed) {
             return;
         }
-        let gain = if fade_out {
-            schedule::fade_gain(remaining, FADE)
-        } else {
-            1.
-        };
+        let gain = schedule::fade_gain(remaining, fade);
         if gain >= 1. {
             if self.faded {
                 self.restore_volume(cx);

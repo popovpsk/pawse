@@ -17,6 +17,7 @@ use ai_prompt::{AiPromptInputs, AiPromptState, Mode};
 use covers::CoversState;
 
 use crate::sleep_timer::SleepTimer;
+use crate::sleep_timer::controls::SleepTimerControls;
 
 const WISHES_ROWS: (usize, usize) = (2, 6);
 const ANSWER_ROWS: (usize, usize) = (4, 12);
@@ -29,17 +30,23 @@ pub struct ToolsView {
     covers: Entity<CoversState>,
     covers_layout: covers::Layout,
     sleep_timer: Option<Entity<SleepTimer>>,
+    sleep_timer_controls: Entity<SleepTimerControls>,
     pages: Vec<SettingPage>,
     page_ix: usize,
     page_request: u64,
     _ai_prompt_observe: Subscription,
     _covers_observe: Subscription,
     _sleep_timer_observe: Option<Subscription>,
+    _sleep_timer_controls_observe: Subscription,
     _lang_subscription: Subscription,
 }
 
 impl ToolsView {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        sleep_timer_controls: Entity<SleepTimerControls>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let ai_prompt = cx.new(|_| AiPromptState::default());
         let covers = cx.new(|_| CoversState::default());
         let wishes = cx.new(|cx| {
@@ -100,6 +107,8 @@ impl ToolsView {
         let sleep_timer_observe = sleep_timer
             .as_ref()
             .map(|timer| cx.observe(timer, |_, _, cx| cx.notify()));
+        let sleep_timer_controls_observe =
+            cx.observe(&sleep_timer_controls, |_, _, cx| cx.notify());
         let mut view = Self {
             ai_prompt,
             inputs,
@@ -107,12 +116,14 @@ impl ToolsView {
             covers,
             covers_layout,
             sleep_timer,
+            sleep_timer_controls,
             pages: Vec::new(),
             page_ix: 0,
             page_request: 0,
             _ai_prompt_observe: ai_prompt_observe,
             _covers_observe: covers_observe,
             _sleep_timer_observe: sleep_timer_observe,
+            _sleep_timer_controls_observe: sleep_timer_controls_observe,
             _lang_subscription: lang_subscription,
         };
         view.pages = view.build_pages();
@@ -125,7 +136,10 @@ impl ToolsView {
             covers::page(self.covers.clone(), self.covers_layout),
         ];
         if let Some(timer) = &self.sleep_timer {
-            pages.push(timer::page(timer.clone()));
+            pages.push(timer::page(
+                timer.clone(),
+                self.sleep_timer_controls.clone(),
+            ));
         }
         pages
     }

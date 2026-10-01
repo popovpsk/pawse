@@ -1,25 +1,25 @@
-use gpui::{Anchor, AnyElement, App, IntoElement, ParentElement, SharedString, Styled, px};
+use gpui::{AnyElement, App, Entity, IntoElement, ParentElement, Styled, div, px};
 use gpui_component::{
-    Disableable, Sizable,
-    button::Button,
-    h_flex,
-    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
+    Disableable, Sizable, h_flex,
+    input::{InputState, NumberInput},
+    slider::Slider,
     switch::Switch,
+    time_field::TimeField,
 };
 use ui_components::settings::{SettingField, SettingGroup, SettingItem};
 use ui_resources::i18n::tools_strings;
 
-use crate::settings_store::{
-    SLEEP_TIMER_DURATIONS, SLEEP_TIMER_STEP_MIN, SettingsStore, SleepTimerSettings,
-    notify_save_error,
-};
+use crate::settings_store::{SettingsStore, SleepTimerSettings, notify_save_error};
+use crate::theme_colors::Colors;
 
-use super::schedule::MINUTES_PER_DAY;
+use super::controls::SleepTimerControls;
 
-const MENU_MAX_HEIGHT: f32 = 320.;
 pub const SETTINGS_ANCHOR: &str = "sleep-timer";
+const DURATION_INPUT_WIDTH: f32 = 112.;
+const FADE_SLIDER_WIDTH: f32 = 160.;
+const FADE_LABEL_MIN_WIDTH: f32 = 48.;
 
-fn update(cx: &mut App, change: impl FnOnce(&mut SleepTimerSettings)) {
+pub(super) fn update(cx: &mut App, change: impl FnOnce(&mut SleepTimerSettings)) {
     let mut settings = cx.global::<SettingsStore>().sleep_timer();
     change(&mut settings);
     if let Err(e) = cx.global_mut::<SettingsStore>().set_sleep_timer(settings) {
@@ -27,125 +27,109 @@ fn update(cx: &mut App, change: impl FnOnce(&mut SleepTimerSettings)) {
     }
 }
 
-pub fn fade_item(id: &'static str) -> SettingItem {
+pub fn duration_field(input: &Entity<InputState>, disabled: bool, cx: &App) -> AnyElement {
+    h_flex()
+        .gap_2()
+        .items_center()
+        .child(
+            div()
+                .w(px(DURATION_INPUT_WIDTH))
+                .child(NumberInput::new(input).small().disabled(disabled)),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(Colors::muted_foreground(cx))
+                .child(tools_strings().timer_minutes_unit.clone()),
+        )
+        .into_any_element()
+}
+
+pub fn fade_item(id: &'static str, controls: Entity<SleepTimerControls>) -> SettingItem {
     SettingItem::new(
         tools_strings().timer_fade.clone(),
         SettingField::render(move |_window, cx: &mut App| {
             let enabled = cx.global::<SettingsStore>().sleep_timer().fade_out;
-            h_flex().items_center().justify_end().child(
-                Switch::new(id)
-                    .checked(enabled)
-                    .on_click(|on, _, cx| update(cx, |s| s.fade_out = *on)),
-            )
+            let (slider, label) = {
+                let controls = controls.read(cx);
+                (controls.fade.clone(), controls.fade_label())
+            };
+            h_flex()
+                .gap_3()
+                .items_center()
+                .justify_end()
+                .child(
+                    div()
+                        .min_w(px(FADE_LABEL_MIN_WIDTH))
+                        .text_right()
+                        .text_sm()
+                        .text_color(Colors::muted_foreground(cx))
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .w(px(FADE_SLIDER_WIDTH))
+                        .child(Slider::new(&slider).disabled(!enabled)),
+                )
+                .child(
+                    Switch::new(id)
+                        .checked(enabled)
+                        .on_click(|on, _, cx| update(cx, |s| s.fade_out = *on)),
+                )
         }),
     )
     .description(tools_strings().timer_fade_desc.clone())
 }
 
-fn time_menu(menu: PopupMenu, current: u16, set: fn(&mut SleepTimerSettings, u16)) -> PopupMenu {
-    (0..MINUTES_PER_DAY)
-        .step_by(SLEEP_TIMER_STEP_MIN as usize)
-        .fold(
-            menu.max_h(px(MENU_MAX_HEIGHT)).scrollable(true),
-            |menu, minute| {
-                menu.item(
-                    PopupMenuItem::new(SharedString::from(super::clock_label(minute)))
-                        .checked(minute == current)
-                        .on_click(move |_, _, cx| update(cx, |s| set(s, minute))),
+fn auto_item(controls: Entity<SleepTimerControls>) -> SettingItem {
+    SettingItem::new(
+        tools_strings().timer_auto.clone(),
+        SettingField::render(move |_window, cx: &mut App| {
+            let enabled = cx.global::<SettingsStore>().sleep_timer().auto;
+            let (from, until) = {
+                let controls = controls.read(cx);
+                (controls.from.clone(), controls.until.clone())
+            };
+            h_flex()
+                .gap_2()
+                .items_center()
+                .justify_end()
+                .child(TimeField::new(&from).small().disabled(!enabled))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(Colors::muted_foreground(cx))
+                        .child("–"),
                 )
-            },
-        )
-}
-
-fn time_dropdown(
-    id: &'static str,
-    current: u16,
-    enabled: bool,
-    set: fn(&mut SleepTimerSettings, u16),
-) -> AnyElement {
-    Button::new(id)
-        .small()
-        .label(SharedString::from(super::clock_label(current)))
-        .dropdown_caret(true)
-        .disabled(!enabled)
-        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            time_menu(menu, current, set)
-        })
-        .into_any_element()
-}
-
-fn duration_dropdown(current: u32, enabled: bool) -> AnyElement {
-    let s = tools_strings();
-    Button::new("sleep-timer-auto-duration")
-        .small()
-        .label(SharedString::from(s.timer_minutes(current)))
-        .dropdown_caret(true)
-        .disabled(!enabled)
-        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            SLEEP_TIMER_DURATIONS
-                .into_iter()
-                .fold(menu, |menu, minutes| {
-                    menu.item(
-                        PopupMenuItem::new(SharedString::from(
-                            tools_strings().timer_minutes(minutes),
-                        ))
-                        .checked(minutes == current)
-                        .on_click(move |_, _, cx| update(cx, |s| s.auto_duration_min = minutes)),
-                    )
-                })
-        })
-        .into_any_element()
-}
-
-pub fn settings_group() -> SettingGroup {
-    let s = tools_strings();
-    SettingGroup::new()
-        .anchor(SETTINGS_ANCHOR)
-        .title(s.tools_timer.clone())
-        .item(
-            SettingItem::new(
-                s.timer_auto.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let enabled = cx.global::<SettingsStore>().sleep_timer().auto;
-                    h_flex().items_center().justify_end().child(
+                .child(TimeField::new(&until).small().disabled(!enabled))
+                .child(
+                    div().pl_2().child(
                         Switch::new("sleep-timer-auto")
                             .checked(enabled)
                             .on_click(|on, _, cx| update(cx, |s| s.auto = *on)),
-                    )
-                }),
-            )
-            .description(s.timer_auto_desc.clone()),
-        )
-        .item(SettingItem::new(
-            s.timer_auto_from.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let settings = cx.global::<SettingsStore>().sleep_timer();
-                time_dropdown(
-                    "sleep-timer-auto-from",
-                    settings.auto_from_min,
-                    settings.auto,
-                    |s, minute| s.auto_from_min = minute,
+                    ),
                 )
-            }),
-        ))
-        .item(SettingItem::new(
-            s.timer_auto_until.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let settings = cx.global::<SettingsStore>().sleep_timer();
-                time_dropdown(
-                    "sleep-timer-auto-until",
-                    settings.auto_until_min,
-                    settings.auto,
-                    |s, minute| s.auto_until_min = minute,
-                )
-            }),
-        ))
-        .item(SettingItem::new(
-            s.timer_auto_duration.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let settings = cx.global::<SettingsStore>().sleep_timer();
-                duration_dropdown(settings.auto_duration_min, settings.auto)
-            }),
-        ))
-        .item(fade_item("sleep-timer-fade-general"))
+        }),
+    )
+    .description(tools_strings().timer_auto_desc.clone())
+}
+
+fn duration_item(controls: Entity<SleepTimerControls>) -> SettingItem {
+    SettingItem::new(
+        tools_strings().timer_auto_duration.clone(),
+        SettingField::render(move |_window, cx: &mut App| {
+            let enabled = cx.global::<SettingsStore>().sleep_timer().auto;
+            let input = controls.read(cx).auto_duration.clone();
+            duration_field(&input, !enabled, cx)
+        }),
+    )
+}
+
+pub fn settings_group(controls: Entity<SleepTimerControls>) -> SettingGroup {
+    SettingGroup::new()
+        .anchor(SETTINGS_ANCHOR)
+        .title(tools_strings().tools_timer.clone())
+        .item(auto_item(controls.clone()))
+        .item(duration_item(controls.clone()))
+        .item(fade_item("sleep-timer-fade-general", controls))
 }

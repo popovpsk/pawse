@@ -1,11 +1,45 @@
 use std::time::Duration;
 
-use chrono::{Days, NaiveDate, NaiveDateTime, TimeDelta, Timelike};
+use chrono::{Days, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, Timelike};
 
-pub const MINUTES_PER_DAY: u16 = 24 * 60;
+pub fn time_of_day(minute_of_day: u16) -> NaiveTime {
+    NaiveTime::from_hms_opt(
+        u32::from(minute_of_day / 60),
+        u32::from(minute_of_day % 60),
+        0,
+    )
+    .unwrap_or(NaiveTime::MIN)
+}
+
+pub fn minute_of_day(time: NaiveTime) -> u16 {
+    (time.hour() * 60 + time.minute()) as u16
+}
+
+pub fn fade_window(enabled: bool, fade_secs: u32, span: Duration) -> Duration {
+    if !enabled {
+        return Duration::ZERO;
+    }
+    Duration::from_secs(u64::from(fade_secs)).min(span)
+}
+
+const FADE_UPDATES: u32 = 120;
+const FADE_TICK_MIN: Duration = Duration::from_millis(250);
+const FADE_TICK_MAX: Duration = Duration::from_secs(1);
+
+pub fn fade_tick(fade: Duration) -> Duration {
+    (fade / FADE_UPDATES).clamp(FADE_TICK_MIN, FADE_TICK_MAX)
+}
+
+pub fn settled_fade(current: Duration, wanted: Duration, remaining: Duration) -> Duration {
+    if wanted.is_zero() || (remaining > current && remaining > wanted) {
+        wanted
+    } else {
+        current
+    }
+}
 
 pub fn window_opened_on(now: NaiveDateTime, from_min: u16, until_min: u16) -> Option<NaiveDate> {
-    let minute = (now.hour() * 60 + now.minute()) as u16;
+    let minute = minute_of_day(now.time());
     let today = now.date();
     let yesterday = || today.checked_sub_days(Days::new(1));
     if from_min == until_min {
@@ -148,6 +182,74 @@ mod tests {
     fn clock() {
         assert_eq!(clock_label(0), "00:00");
         assert_eq!(clock_label(23 * 60 + 30), "23:30");
+    }
+
+    #[rstest]
+    #[case::midnight(0)]
+    #[case::odd_minute(23 * 60 + 47)]
+    #[case::last_minute(24 * 60 - 1)]
+    fn minute_of_day_round_trips(#[case] minute: u16) {
+        assert_eq!(minute_of_day(time_of_day(minute)), minute);
+    }
+
+    #[test]
+    fn seconds_are_ignored_by_minute_of_day() {
+        let time = NaiveTime::from_hms_opt(6, 5, 59).unwrap();
+        assert_eq!(minute_of_day(time), 6 * 60 + 5);
+    }
+
+    #[rstest]
+    #[case::off(false, 30, Duration::from_secs(600), Duration::ZERO)]
+    #[case::setting(true, 30, Duration::from_secs(600), Duration::from_secs(30))]
+    #[case::capped_by_short_timer(true, 120, Duration::from_secs(60), Duration::from_secs(60))]
+    fn fade_windows(
+        #[case] enabled: bool,
+        #[case] secs: u32,
+        #[case] span: Duration,
+        #[case] expected: Duration,
+    ) {
+        assert_eq!(fade_window(enabled, secs, span), expected);
+    }
+
+    #[rstest]
+    #[case::before_any_fade(600, 30, 90, 90)]
+    #[case::shortened_during_fade(20, 120, 5, 120)]
+    #[case::lengthened_into_remaining(40, 30, 120, 30)]
+    #[case::switched_off_during_fade(10, 30, 0, 0)]
+    #[case::switched_on_during_window(10, 0, 30, 0)]
+    fn fade_changes_never_jump_the_volume(
+        #[case] remaining: u64,
+        #[case] current: u64,
+        #[case] wanted: u64,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(
+            settled_fade(
+                Duration::from_secs(current),
+                Duration::from_secs(wanted),
+                Duration::from_secs(remaining),
+            ),
+            Duration::from_secs(expected)
+        );
+    }
+
+    #[rstest]
+    #[case::short_fade(5, 250)]
+    #[case::default_fade(30, 250)]
+    #[case::one_minute(60, 500)]
+    #[case::hour(3600, 1000)]
+    fn fade_ticks_scale_with_the_fade(#[case] fade_secs: u64, #[case] tick_ms: u64) {
+        assert_eq!(
+            fade_tick(Duration::from_secs(fade_secs)),
+            Duration::from_millis(tick_ms)
+        );
+    }
+
+    #[test]
+    fn a_capped_fade_starts_at_full_volume() {
+        let span = Duration::from_secs(60);
+        let fade = fade_window(true, 120, span);
+        assert_eq!(fade_gain(span, fade), 1.);
     }
 
     #[test]

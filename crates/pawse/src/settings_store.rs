@@ -585,13 +585,26 @@ impl Default for UserSettings {
     }
 }
 
-pub const SLEEP_TIMER_STEP_MIN: u16 = 30;
 pub const SLEEP_TIMER_DURATIONS: [u32; 6] = [15, 30, 45, 60, 90, 120];
+pub const SLEEP_TIMER_MAX_MIN: u32 = 12 * 60;
+pub const SLEEP_TIMER_FADE_STEPS: [u32; 26] = [
+    5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 90, 120, 180, 240, 300, 360, 480, 600, 720, 900, 1200,
+    1500, 1800, 2400, 3000, 3600,
+];
+
+pub fn sleep_timer_fade_step(secs: u32) -> usize {
+    SLEEP_TIMER_FADE_STEPS
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, step)| step.abs_diff(secs))
+        .map_or(0, |(ix, _)| ix)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SleepTimerSettings {
     pub fade_out: bool,
+    pub fade_secs: u32,
     pub auto: bool,
     pub auto_from_min: u16,
     pub auto_until_min: u16,
@@ -602,6 +615,7 @@ impl Default for SleepTimerSettings {
     fn default() -> Self {
         Self {
             fade_out: true,
+            fade_secs: 30,
             auto: false,
             auto_from_min: 23 * 60,
             auto_until_min: 6 * 60,
@@ -622,6 +636,8 @@ impl SleepTimerSettings {
         if self.auto_duration_min == 0 {
             self.auto_duration_min = default.auto_duration_min;
         }
+        self.auto_duration_min = self.auto_duration_min.min(SLEEP_TIMER_MAX_MIN);
+        self.fade_secs = SLEEP_TIMER_FADE_STEPS[sleep_timer_fade_step(self.fade_secs)];
         self
     }
 }
@@ -1738,6 +1754,7 @@ mod tests {
             network_cache_gb: 8,
             sleep_timer: SleepTimerSettings {
                 fade_out: false,
+                fade_secs: 75,
                 auto: true,
                 auto_from_min: 22 * 60 + 30,
                 auto_until_min: 5 * 60,
@@ -1775,9 +1792,45 @@ mod tests {
             serde_json::from_str(r#"{"sleep_timer":{"auto":true,"auto_from_min":9999}}"#).unwrap();
         assert!(settings.sleep_timer.auto);
         assert!(settings.sleep_timer.fade_out);
+        assert_eq!(settings.sleep_timer.fade_secs, 30);
         assert_eq!(
             settings.sleep_timer.sanitized().auto_from_min,
             SleepTimerSettings::default().auto_from_min
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::below_range(0, 5)]
+    #[case::on_a_step(240, 240)]
+    #[case::between_steps(35, 30)]
+    #[case::closer_to_upper(110, 120)]
+    #[case::above_range(9999, 3600)]
+    fn sleep_timer_fade_snaps_to_a_slider_step(#[case] stored: u32, #[case] expected: u32) {
+        let settings = SleepTimerSettings {
+            fade_secs: stored,
+            ..SleepTimerSettings::default()
+        };
+        assert_eq!(settings.sanitized().fade_secs, expected);
+    }
+
+    #[test]
+    fn sleep_timer_fade_steps_grow() {
+        assert!(SLEEP_TIMER_FADE_STEPS.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(SLEEP_TIMER_FADE_STEPS[0], 5);
+        assert_eq!(
+            SLEEP_TIMER_FADE_STEPS[SLEEP_TIMER_FADE_STEPS.len() - 1],
+            3600
+        );
+        assert!(SLEEP_TIMER_FADE_STEPS.contains(&SleepTimerSettings::default().fade_secs));
+    }
+
+    #[test]
+    fn sleep_timer_duration_is_clamped() {
+        let settings: UserSettings =
+            serde_json::from_str(r#"{"sleep_timer":{"auto_duration_min":100000}}"#).unwrap();
+        assert_eq!(
+            settings.sleep_timer.sanitized().auto_duration_min,
+            SLEEP_TIMER_MAX_MIN
         );
     }
 

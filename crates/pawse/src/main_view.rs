@@ -159,6 +159,7 @@ pub struct MainView {
     sleep_timer: Option<Entity<crate::sleep_timer::SleepTimer>>,
     scan_indicator: Entity<crate::library_scan_indicator::LibraryScanIndicator>,
     _sleep_timer_observe: Option<Subscription>,
+    _sleep_timer_controls_observe: Subscription,
     focus_handle: FocusHandle,
 }
 
@@ -379,6 +380,11 @@ impl MainView {
         let scrobble_status_observe =
             scrobble_status.map(|status| cx.observe(&status, |_, _, cx| cx.notify()));
 
+        let sleep_timer_controls =
+            cx.new(|cx| crate::sleep_timer::controls::SleepTimerControls::new(window, cx));
+        let sleep_timer_controls_observe =
+            cx.observe(&sleep_timer_controls, |_, _, cx| cx.notify());
+
         let theme_registry_subscription = cx.observe_global::<ThemeRegistry>({
             let lyrics_slider = lyrics_slider.clone();
             let blur_intensity_slider = blur_intensity_slider.clone();
@@ -387,6 +393,7 @@ impl MainView {
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
             let library_page = library_page.clone();
+            let sleep_timer_controls = sleep_timer_controls.clone();
             move |this, cx| {
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     SettingsSliders {
@@ -398,6 +405,7 @@ impl MainView {
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
                     library_page.clone(),
+                    sleep_timer_controls.clone(),
                     cx,
                 );
                 cx.notify();
@@ -414,6 +422,7 @@ impl MainView {
             scrobble_ui.clone(),
             scrobble_inputs.clone(),
             library_page.clone(),
+            sleep_timer_controls.clone(),
             cx,
         );
 
@@ -519,6 +528,7 @@ impl MainView {
             let scrobble_ui = scrobble_ui.clone();
             let scrobble_inputs = scrobble_inputs.clone();
             let library_page = library_page.clone();
+            let sleep_timer_controls = sleep_timer_controls.clone();
             move |this, cx| {
                 let grouping = cx.global::<SettingsStore>().artists_grouping();
                 cx.global::<crate::services::Services>()
@@ -534,6 +544,7 @@ impl MainView {
                     scrobble_ui.clone(),
                     scrobble_inputs.clone(),
                     library_page.clone(),
+                    sleep_timer_controls.clone(),
                     cx,
                 );
                 cx.notify();
@@ -594,7 +605,8 @@ impl MainView {
             current_tab: LibraryRootTab::Albums,
             show_settings: false,
             show_tools: false,
-            tools_view: cx.new(|cx| crate::tools::ToolsView::new(window, cx)),
+            tools_view: cx
+                .new(|cx| crate::tools::ToolsView::new(sleep_timer_controls.clone(), window, cx)),
             cover_mode: false,
             cover_mode_view,
             cover_backdrop,
@@ -660,6 +672,7 @@ impl MainView {
             sleep_timer,
             scan_indicator: crate::library_scan_indicator::indicator(cx),
             _sleep_timer_observe: sleep_timer_observe,
+            _sleep_timer_controls_observe: sleep_timer_controls_observe,
             focus_handle,
         }
     }

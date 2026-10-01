@@ -13,6 +13,8 @@ use ui_resources::i18n::tools_strings;
 use crate::localization::tr;
 use crate::settings_store::{SLEEP_TIMER_DURATIONS, SettingsStore};
 use crate::settings_view::OpenSleepTimerSettings;
+use crate::sleep_timer::controls::SleepTimerControls;
+use crate::sleep_timer::settings::duration_field;
 use crate::sleep_timer::{Armed, EXTEND_MIN, SleepTimer, clock_label};
 use crate::theme_colors::Colors;
 
@@ -53,7 +55,11 @@ fn status_field(timer: Entity<SleepTimer>, cx: &mut App) -> AnyElement {
     row.into_any_element()
 }
 
-fn presets_field(timer: Entity<SleepTimer>, cx: &mut App) -> AnyElement {
+fn presets_field(
+    timer: Entity<SleepTimer>,
+    controls: Entity<SleepTimerControls>,
+    cx: &mut App,
+) -> AnyElement {
     let s = tools_strings();
     let end_of_track = timer.read(cx).armed() == Some(Armed::EndOfTrack);
     let mut row = h_flex().gap_2().flex_wrap();
@@ -66,14 +72,29 @@ fn presets_field(timer: Entity<SleepTimer>, cx: &mut App) -> AnyElement {
                 .on_click(move |_, _, cx| timer.update(cx, |t, cx| t.start(minutes, cx))),
         );
     }
+    let end_timer = timer.clone();
     row = row.child(
         Button::new("sleep-timer-end-of-track")
             .small()
             .label(s.timer_end_of_track.clone())
             .when(end_of_track, |b| b.primary())
-            .on_click(move |_, _, cx| timer.update(cx, |t, cx| t.start_end_of_track(cx))),
+            .on_click(move |_, _, cx| end_timer.update(cx, |t, cx| t.start_end_of_track(cx))),
     );
-    v_flex().child(row).into_any_element()
+    let input = controls.read(cx).manual_duration.clone();
+    let custom = h_flex()
+        .gap_2()
+        .items_center()
+        .child(duration_field(&input, false, cx))
+        .child(
+            Button::new("sleep-timer-custom-start")
+                .small()
+                .label(s.timer_run.clone())
+                .on_click(move |_, _, cx| {
+                    let minutes = controls.read(cx).manual_minutes();
+                    timer.update(cx, |t, cx| t.start(minutes, cx));
+                }),
+        );
+    v_flex().gap_2().child(row).child(custom).into_any_element()
 }
 
 fn auto_field(cx: &mut App) -> AnyElement {
@@ -108,9 +129,10 @@ fn auto_field(cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-pub fn page(timer: Entity<SleepTimer>) -> SettingPage {
+pub fn page(timer: Entity<SleepTimer>, controls: Entity<SleepTimerControls>) -> SettingPage {
     let s = tools_strings();
     let status_timer = timer.clone();
+    let presets_controls = controls.clone();
     SettingPage::new(s.tools_timer.clone()).group(
         SettingGroup::new()
             .title(s.tools_timer.clone())
@@ -122,13 +144,14 @@ pub fn page(timer: Entity<SleepTimer>) -> SettingPage {
                 SettingItem::new(
                     s.timer_start.clone(),
                     SettingField::render(move |_window, cx: &mut App| {
-                        presets_field(timer.clone(), cx)
+                        presets_field(timer.clone(), presets_controls.clone(), cx)
                     }),
                 )
                 .layout(Axis::Vertical),
             )
             .item(crate::sleep_timer::settings::fade_item(
                 "sleep-timer-fade-tools",
+                controls,
             ))
             .item(SettingItem::new(
                 s.timer_auto.clone(),

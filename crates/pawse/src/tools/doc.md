@@ -34,10 +34,12 @@ page in `build_pages`.
     ids in order + the lines it could not match. Parser tests live here.
 - `covers/` — cover search for albums without art (own `doc.md`).
 - `timer.rs` — the Timer page: status with +5 min / turn off, presets and
-  "end of track", the fade-out switch, and an "Automatic sleep timer" row
+  "end of track", a minutes field with Start for any other length, the
+  fade-out row (shared with Settings), and an "Automatic sleep timer" row
   (its hours or "Off") whose Settings button jumps to Settings → General,
   scrolled to the timer group (`OpenSleepTimerSettings`). The timer itself is `crate::sleep_timer`
-  (own `doc.md`); the page only reads it. It is page `TIMER_PAGE`, which
+  (own `doc.md`); the page only reads it. The field and slider states come
+  from `sleep_timer::controls`, passed in by `MainView`. It is page `TIMER_PAGE`, which
   `show_page` opens when the title-bar badge is clicked (`page_request` makes
   the `Settings` widget switch tabs even if the screen was already open).
 

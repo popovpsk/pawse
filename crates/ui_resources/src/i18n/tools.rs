@@ -86,9 +86,10 @@ pub struct ToolsStrings {
     pub timer_fade_desc: SharedString,
     pub timer_auto: SharedString,
     pub timer_auto_desc: SharedString,
-    pub timer_auto_from: SharedString,
-    pub timer_auto_until: SharedString,
     pub timer_auto_duration: SharedString,
+    pub timer_seconds_t: SharedString,
+    pub timer_minutes_unit: SharedString,
+    pub timer_run: SharedString,
 }
 
 impl ToolsStrings {
@@ -165,6 +166,10 @@ impl ToolsStrings {
 
     pub fn timer_extend(&self, minutes: u32) -> String {
         fill(&self.timer_extend_t, &[&minutes.to_string()])
+    }
+
+    pub fn timer_seconds(&self, seconds: u32) -> String {
+        fill(&self.timer_seconds_t, &[&seconds.to_string()])
     }
 }
 
@@ -295,15 +300,16 @@ static EN: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Turn off"),
     timer_fade: SharedString::new_static("Fade out"),
     timer_fade_desc: SharedString::new_static(
-        "Lower the volume gradually during the last 30 seconds. Not available in exclusive mode.",
+        "Lower the volume gradually before the pause. Not available in exclusive mode.",
     ),
     timer_auto: SharedString::new_static("Automatic sleep timer"),
     timer_auto_desc: SharedString::new_static(
         "Starts the timer by itself when music plays during these hours. You can also start it by hand in Tools.",
     ),
-    timer_auto_from: SharedString::new_static("From"),
-    timer_auto_until: SharedString::new_static("Until"),
     timer_auto_duration: SharedString::new_static("Duration"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Start"),
 };
 
 static ZH: ToolsStrings = ToolsStrings {
@@ -399,14 +405,15 @@ static ZH: ToolsStrings = ToolsStrings {
     timer_extend_t: SharedString::new_static("+{} 分钟"),
     timer_cancel: SharedString::new_static("关闭"),
     timer_fade: SharedString::new_static("淡出"),
-    timer_fade_desc: SharedString::new_static("在最后 30 秒内逐渐降低音量。独占模式下不可用。"),
+    timer_fade_desc: SharedString::new_static("暂停前逐渐降低音量。独占模式下不可用。"),
     timer_auto: SharedString::new_static("自动睡眠定时"),
     timer_auto_desc: SharedString::new_static(
         "在这些时段播放音乐时自动启动定时器。你也可以在 工具 中手动启动。",
     ),
-    timer_auto_from: SharedString::new_static("从"),
-    timer_auto_until: SharedString::new_static("到"),
     timer_auto_duration: SharedString::new_static("时长"),
+    timer_seconds_t: SharedString::new_static("{} 秒"),
+    timer_minutes_unit: SharedString::new_static("分钟"),
+    timer_run: SharedString::new_static("开始"),
 };
 
 static PT: ToolsStrings = ToolsStrings {
@@ -513,15 +520,16 @@ static PT: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Desligar"),
     timer_fade: SharedString::new_static("Diminuir volume"),
     timer_fade_desc: SharedString::new_static(
-        "Baixa o volume gradualmente nos últimos 30 segundos. Indisponível no modo exclusivo.",
+        "Baixa o volume gradualmente antes da pausa. Indisponível no modo exclusivo.",
     ),
     timer_auto: SharedString::new_static("Timer de sono automático"),
     timer_auto_desc: SharedString::new_static(
         "Inicia o timer sozinho quando há música tocando nesse horário. Você também pode iniciá-lo manualmente em Ferramentas.",
     ),
-    timer_auto_from: SharedString::new_static("De"),
-    timer_auto_until: SharedString::new_static("Até"),
     timer_auto_duration: SharedString::new_static("Duração"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Iniciar"),
 };
 
 static RU: ToolsStrings = ToolsStrings {
@@ -628,15 +636,16 @@ static RU: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Выключить"),
     timer_fade: SharedString::new_static("Плавное затухание"),
     timer_fade_desc: SharedString::new_static(
-        "Постепенно убавляет громкость за последние 30 секунд. Недоступно в эксклюзивном режиме.",
+        "Постепенно убавляет громкость перед паузой. Недоступно в эксклюзивном режиме.",
     ),
     timer_auto: SharedString::new_static("Автоматический таймер сна"),
     timer_auto_desc: SharedString::new_static(
         "Сам запускает таймер, когда музыка играет в эти часы. Вручную таймер можно запустить в Инструментах.",
     ),
-    timer_auto_from: SharedString::new_static("С"),
-    timer_auto_until: SharedString::new_static("До"),
     timer_auto_duration: SharedString::new_static("Длительность"),
+    timer_seconds_t: SharedString::new_static("{} с"),
+    timer_minutes_unit: SharedString::new_static("мин"),
+    timer_run: SharedString::new_static("Запустить"),
 };
 
 static JA: ToolsStrings = ToolsStrings {
@@ -743,15 +752,16 @@ static JA: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("オフにする"),
     timer_fade: SharedString::new_static("フェードアウト"),
     timer_fade_desc: SharedString::new_static(
-        "最後の 30 秒で徐々に音量を下げます。排他モードでは使えません。",
+        "一時停止の前に徐々に音量を下げます。排他モードでは使えません。",
     ),
     timer_auto: SharedString::new_static("自動スリープタイマー"),
     timer_auto_desc: SharedString::new_static(
         "この時間帯に音楽を再生すると自動でタイマーを開始します。ツール から手動で開始することもできます。",
     ),
-    timer_auto_from: SharedString::new_static("開始"),
-    timer_auto_until: SharedString::new_static("終了"),
     timer_auto_duration: SharedString::new_static("時間"),
+    timer_seconds_t: SharedString::new_static("{} 秒"),
+    timer_minutes_unit: SharedString::new_static("分"),
+    timer_run: SharedString::new_static("開始"),
 };
 
 static DE: ToolsStrings = ToolsStrings {
@@ -862,15 +872,16 @@ static DE: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Ausschalten"),
     timer_fade: SharedString::new_static("Ausblenden"),
     timer_fade_desc: SharedString::new_static(
-        "Senkt die Lautstärke in den letzten 30 Sekunden allmählich. Im Exklusivmodus nicht verfügbar.",
+        "Senkt die Lautstärke vor der Pause allmählich. Im Exklusivmodus nicht verfügbar.",
     ),
     timer_auto: SharedString::new_static("Automatischer Sleep-Timer"),
     timer_auto_desc: SharedString::new_static(
         "Startet den Timer von selbst, wenn in diesen Stunden Musik läuft. Von Hand startest du ihn unter Werkzeuge.",
     ),
-    timer_auto_from: SharedString::new_static("Von"),
-    timer_auto_until: SharedString::new_static("Bis"),
     timer_auto_duration: SharedString::new_static("Dauer"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("Min."),
+    timer_run: SharedString::new_static("Starten"),
 };
 
 static FR: ToolsStrings = ToolsStrings {
@@ -981,15 +992,16 @@ static FR: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Désactiver"),
     timer_fade: SharedString::new_static("Fondu de sortie"),
     timer_fade_desc: SharedString::new_static(
-        "Baisse le volume progressivement pendant les 30 dernières secondes. Indisponible en mode exclusif.",
+        "Baisse le volume progressivement avant la pause. Indisponible en mode exclusif.",
     ),
     timer_auto: SharedString::new_static("Minuteur de sommeil automatique"),
     timer_auto_desc: SharedString::new_static(
         "Lance le minuteur tout seul quand de la musique joue pendant ces heures. Vous pouvez aussi le lancer à la main dans Outils.",
     ),
-    timer_auto_from: SharedString::new_static("De"),
-    timer_auto_until: SharedString::new_static("À"),
     timer_auto_duration: SharedString::new_static("Durée"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Démarrer"),
 };
 
 static KO: ToolsStrings = ToolsStrings {
@@ -1094,15 +1106,16 @@ static KO: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("끄기"),
     timer_fade: SharedString::new_static("페이드 아웃"),
     timer_fade_desc: SharedString::new_static(
-        "마지막 30초 동안 볼륨을 서서히 낮춥니다. 독점 모드에서는 사용할 수 없습니다.",
+        "일시정지 전에 볼륨을 서서히 낮춥니다. 독점 모드에서는 사용할 수 없습니다.",
     ),
     timer_auto: SharedString::new_static("자동 취침 타이머"),
     timer_auto_desc: SharedString::new_static(
         "이 시간대에 음악이 재생되면 타이머를 자동으로 시작합니다. 도구에서 직접 시작할 수도 있습니다.",
     ),
-    timer_auto_from: SharedString::new_static("시작"),
-    timer_auto_until: SharedString::new_static("종료"),
     timer_auto_duration: SharedString::new_static("시간"),
+    timer_seconds_t: SharedString::new_static("{}초"),
+    timer_minutes_unit: SharedString::new_static("분"),
+    timer_run: SharedString::new_static("시작"),
 };
 
 static IT: ToolsStrings = ToolsStrings {
@@ -1211,15 +1224,16 @@ static IT: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Spegni"),
     timer_fade: SharedString::new_static("Dissolvenza"),
     timer_fade_desc: SharedString::new_static(
-        "Abbassa il volume gradualmente negli ultimi 30 secondi. Non disponibile in modalità esclusiva.",
+        "Abbassa il volume gradualmente prima della pausa. Non disponibile in modalità esclusiva.",
     ),
     timer_auto: SharedString::new_static("Timer di spegnimento automatico"),
     timer_auto_desc: SharedString::new_static(
         "Avvia il timer da solo quando la musica suona in queste ore. Puoi anche avviarlo a mano in Strumenti.",
     ),
-    timer_auto_from: SharedString::new_static("Dalle"),
-    timer_auto_until: SharedString::new_static("Alle"),
     timer_auto_duration: SharedString::new_static("Durata"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Avvia"),
 };
 
 static TR: ToolsStrings = ToolsStrings {
@@ -1328,15 +1342,16 @@ static TR: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Kapat"),
     timer_fade: SharedString::new_static("Sesi azaltarak bitir"),
     timer_fade_desc: SharedString::new_static(
-        "Son 30 saniyede sesi yavaş yavaş kısar. Özel modda kullanılamaz.",
+        "Duraklatmadan önce sesi yavaş yavaş kısar. Özel modda kullanılamaz.",
     ),
     timer_auto: SharedString::new_static("Otomatik uyku zamanlayıcısı"),
     timer_auto_desc: SharedString::new_static(
         "Bu saatlerde müzik çalarken zamanlayıcıyı kendiliğinden başlatır. Araçlar bölümünden elle de başlatabilirsiniz.",
     ),
-    timer_auto_from: SharedString::new_static("Başlangıç"),
-    timer_auto_until: SharedString::new_static("Bitiş"),
     timer_auto_duration: SharedString::new_static("Süre"),
+    timer_seconds_t: SharedString::new_static("{} sn"),
+    timer_minutes_unit: SharedString::new_static("dk"),
+    timer_run: SharedString::new_static("Başlat"),
 };
 
 static PL: ToolsStrings = ToolsStrings {
@@ -1441,15 +1456,16 @@ static PL: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Wyłącz"),
     timer_fade: SharedString::new_static("Wyciszanie"),
     timer_fade_desc: SharedString::new_static(
-        "Stopniowo ścisza przez ostatnie 30 sekund. Niedostępne w trybie wyłącznym.",
+        "Stopniowo ścisza przed pauzą. Niedostępne w trybie wyłącznym.",
     ),
     timer_auto: SharedString::new_static("Automatyczny wyłącznik czasowy"),
     timer_auto_desc: SharedString::new_static(
         "Sam uruchamia wyłącznik, gdy muzyka gra w tych godzinach. Ręcznie włączysz go w Narzędziach.",
     ),
-    timer_auto_from: SharedString::new_static("Od"),
-    timer_auto_until: SharedString::new_static("Do"),
     timer_auto_duration: SharedString::new_static("Czas"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Uruchom"),
 };
 
 static NL: ToolsStrings = ToolsStrings {
@@ -1562,15 +1578,16 @@ static NL: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Uitzetten"),
     timer_fade: SharedString::new_static("Uitfaden"),
     timer_fade_desc: SharedString::new_static(
-        "Verlaagt het volume geleidelijk in de laatste 30 seconden. Niet beschikbaar in exclusieve modus.",
+        "Verlaagt het volume geleidelijk voor de pauze. Niet beschikbaar in exclusieve modus.",
     ),
     timer_auto: SharedString::new_static("Automatische slaaptimer"),
     timer_auto_desc: SharedString::new_static(
         "Start de timer vanzelf als er in deze uren muziek speelt. Je kunt hem ook zelf starten bij Hulpmiddelen.",
     ),
-    timer_auto_from: SharedString::new_static("Van"),
-    timer_auto_until: SharedString::new_static("Tot"),
     timer_auto_duration: SharedString::new_static("Duur"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Starten"),
 };
 
 static UK: ToolsStrings = ToolsStrings {
@@ -1675,15 +1692,16 @@ static UK: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Вимкнути"),
     timer_fade: SharedString::new_static("Плавне згасання"),
     timer_fade_desc: SharedString::new_static(
-        "Поступово зменшує гучність за останні 30 секунд. Недоступно в ексклюзивному режимі.",
+        "Поступово зменшує гучність перед паузою. Недоступно в ексклюзивному режимі.",
     ),
     timer_auto: SharedString::new_static("Автоматичний таймер сну"),
     timer_auto_desc: SharedString::new_static(
         "Сам запускає таймер, коли музика грає в ці години. Вручну таймер можна запустити в Інструментах.",
     ),
-    timer_auto_from: SharedString::new_static("З"),
-    timer_auto_until: SharedString::new_static("До"),
     timer_auto_duration: SharedString::new_static("Тривалість"),
+    timer_seconds_t: SharedString::new_static("{} с"),
+    timer_minutes_unit: SharedString::new_static("хв"),
+    timer_run: SharedString::new_static("Запустити"),
 };
 
 static VI: ToolsStrings = ToolsStrings {
@@ -1790,15 +1808,16 @@ static VI: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Tắt"),
     timer_fade: SharedString::new_static("Giảm dần âm lượng"),
     timer_fade_desc: SharedString::new_static(
-        "Giảm âm lượng dần trong 30 giây cuối. Không khả dụng ở chế độ độc quyền.",
+        "Giảm âm lượng dần trước khi tạm dừng. Không khả dụng ở chế độ độc quyền.",
     ),
     timer_auto: SharedString::new_static("Hẹn giờ ngủ tự động"),
     timer_auto_desc: SharedString::new_static(
         "Tự bật hẹn giờ khi có nhạc phát trong khung giờ này. Bạn cũng có thể bật thủ công trong Công cụ.",
     ),
-    timer_auto_from: SharedString::new_static("Từ"),
-    timer_auto_until: SharedString::new_static("Đến"),
     timer_auto_duration: SharedString::new_static("Thời lượng"),
+    timer_seconds_t: SharedString::new_static("{} giây"),
+    timer_minutes_unit: SharedString::new_static("phút"),
+    timer_run: SharedString::new_static("Bắt đầu"),
 };
 
 static ID: ToolsStrings = ToolsStrings {
@@ -1905,15 +1924,16 @@ static ID: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Matikan"),
     timer_fade: SharedString::new_static("Pelankan perlahan"),
     timer_fade_desc: SharedString::new_static(
-        "Menurunkan volume secara bertahap selama 30 detik terakhir. Tidak tersedia dalam mode eksklusif.",
+        "Menurunkan volume secara bertahap sebelum jeda. Tidak tersedia dalam mode eksklusif.",
     ),
     timer_auto: SharedString::new_static("Timer tidur otomatis"),
     timer_auto_desc: SharedString::new_static(
         "Memulai timer sendiri saat musik diputar pada jam-jam ini. Anda juga bisa memulainya secara manual di Alat.",
     ),
-    timer_auto_from: SharedString::new_static("Dari"),
-    timer_auto_until: SharedString::new_static("Sampai"),
     timer_auto_duration: SharedString::new_static("Durasi"),
+    timer_seconds_t: SharedString::new_static("{} dtk"),
+    timer_minutes_unit: SharedString::new_static("mnt"),
+    timer_run: SharedString::new_static("Mulai"),
 };
 
 static TH: ToolsStrings = ToolsStrings {
@@ -2011,16 +2031,15 @@ static TH: ToolsStrings = ToolsStrings {
     timer_extend_t: SharedString::new_static("+{} นาที"),
     timer_cancel: SharedString::new_static("ปิด"),
     timer_fade: SharedString::new_static("ค่อยๆ เบาเสียง"),
-    timer_fade_desc: SharedString::new_static(
-        "ค่อยๆ ลดระดับเสียงในช่วง 30 วินาทีสุดท้าย ใช้ไม่ได้ในโหมดเอกสิทธิ์",
-    ),
+    timer_fade_desc: SharedString::new_static("ค่อยๆ ลดระดับเสียงก่อนหยุดชั่วคราว ใช้ไม่ได้ในโหมดเอกสิทธิ์"),
     timer_auto: SharedString::new_static("ตั้งเวลาปิดอัตโนมัติ"),
     timer_auto_desc: SharedString::new_static(
         "เริ่มตั้งเวลาเองเมื่อมีเพลงเล่นในช่วงเวลานี้ คุณยังเริ่มเองได้ที่ เครื่องมือ",
     ),
-    timer_auto_from: SharedString::new_static("ตั้งแต่"),
-    timer_auto_until: SharedString::new_static("ถึง"),
     timer_auto_duration: SharedString::new_static("ระยะเวลา"),
+    timer_seconds_t: SharedString::new_static("{} วินาที"),
+    timer_minutes_unit: SharedString::new_static("นาที"),
+    timer_run: SharedString::new_static("เริ่ม"),
 };
 
 static CS: ToolsStrings = ToolsStrings {
@@ -2127,15 +2146,16 @@ static CS: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Vypnout"),
     timer_fade: SharedString::new_static("Postupné ztlumení"),
     timer_fade_desc: SharedString::new_static(
-        "Během posledních 30 sekund postupně ztlumí hlasitost. V exkluzivním režimu není k dispozici.",
+        "Před pozastavením postupně ztlumí hlasitost. V exkluzivním režimu není k dispozici.",
     ),
     timer_auto: SharedString::new_static("Automatický časovač spánku"),
     timer_auto_desc: SharedString::new_static(
         "Sám spustí časovač, když v těchto hodinách hraje hudba. Ručně ho spustíte v Nástrojích.",
     ),
-    timer_auto_from: SharedString::new_static("Od"),
-    timer_auto_until: SharedString::new_static("Do"),
     timer_auto_duration: SharedString::new_static("Délka"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Spustit"),
 };
 
 static SV: ToolsStrings = ToolsStrings {
@@ -2242,15 +2262,16 @@ static SV: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Stäng av"),
     timer_fade: SharedString::new_static("Tona ut"),
     timer_fade_desc: SharedString::new_static(
-        "Sänker volymen gradvis under de sista 30 sekunderna. Inte tillgängligt i exklusivt läge.",
+        "Sänker volymen gradvis före pausen. Inte tillgängligt i exklusivt läge.",
     ),
     timer_auto: SharedString::new_static("Automatisk insomningstimer"),
     timer_auto_desc: SharedString::new_static(
         "Startar timern av sig själv när musik spelas under de här timmarna. Du kan också starta den för hand under Verktyg.",
     ),
-    timer_auto_from: SharedString::new_static("Från"),
-    timer_auto_until: SharedString::new_static("Till"),
     timer_auto_duration: SharedString::new_static("Längd"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Starta"),
 };
 
 static HI: ToolsStrings = ToolsStrings {
@@ -2353,15 +2374,16 @@ static HI: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("बंद करें"),
     timer_fade: SharedString::new_static("धीरे-धीरे आवाज़ कम करें"),
     timer_fade_desc: SharedString::new_static(
-        "आखिरी 30 सेकंड में आवाज़ धीरे-धीरे कम करता है। एक्सक्लूसिव मोड में उपलब्ध नहीं।",
+        "रोकने से पहले आवाज़ धीरे-धीरे कम करता है। एक्सक्लूसिव मोड में उपलब्ध नहीं।",
     ),
     timer_auto: SharedString::new_static("ऑटोमैटिक स्लीप टाइमर"),
     timer_auto_desc: SharedString::new_static(
         "इन घंटों में संगीत चलने पर टाइमर अपने आप शुरू करता है। आप इसे टूल में खुद भी शुरू कर सकते हैं।",
     ),
-    timer_auto_from: SharedString::new_static("से"),
-    timer_auto_until: SharedString::new_static("तक"),
     timer_auto_duration: SharedString::new_static("अवधि"),
+    timer_seconds_t: SharedString::new_static("{} सेकंड"),
+    timer_minutes_unit: SharedString::new_static("मिनट"),
+    timer_run: SharedString::new_static("शुरू करें"),
 };
 
 static ES: ToolsStrings = ToolsStrings {
@@ -2470,13 +2492,14 @@ static ES: ToolsStrings = ToolsStrings {
     timer_cancel: SharedString::new_static("Desactivar"),
     timer_fade: SharedString::new_static("Fundido de salida"),
     timer_fade_desc: SharedString::new_static(
-        "Baja el volumen poco a poco durante los últimos 30 segundos. No disponible en modo exclusivo.",
+        "Baja el volumen poco a poco antes de la pausa. No disponible en modo exclusivo.",
     ),
     timer_auto: SharedString::new_static("Temporizador de apagado automático"),
     timer_auto_desc: SharedString::new_static(
         "Inicia el temporizador solo cuando suena música en estas horas. También puedes iniciarlo a mano en Herramientas.",
     ),
-    timer_auto_from: SharedString::new_static("Desde"),
-    timer_auto_until: SharedString::new_static("Hasta"),
     timer_auto_duration: SharedString::new_static("Duración"),
+    timer_seconds_t: SharedString::new_static("{} s"),
+    timer_minutes_unit: SharedString::new_static("min"),
+    timer_run: SharedString::new_static("Iniciar"),
 };

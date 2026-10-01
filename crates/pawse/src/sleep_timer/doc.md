@@ -14,11 +14,22 @@ thin inset, so there is no badge.
   fade-out and the automatic arming. `stop_at_track_end` is the hook
   `services::advance_on_track_end` asks before starting the next track.
 - `schedule.rs` — pure functions: which night a moment belongs to
-  (`window_opened_on`), the remaining-time, end-time and clock labels, the fade
+  (`window_opened_on`), minute-of-day ↔ `NaiveTime`, the remaining-time,
+  end-time and clock labels, the effective fade length (`fade_window`), the fade
   gain curve and the tick spacing. Tests live here.
-- `settings.rs` — the "Sleep timer" group of Settings → General (automatic timer
-  on/off, from / until, duration) and the fade-out switch shared with the Tools
-  page. The group carries `SETTINGS_ANCHOR`: the Tools page's "Settings" button
+- `controls.rs` — `SleepTimerControls`, the entity holding the window-bound
+  editor states: the from / until `TimeFieldState`s, the auto-duration and
+  manual-duration number inputs and the fade-length slider. `MainView` creates
+  it once and hands the same entity to the Settings pages and to `ToolsView`, so
+  the fade slider shown on both screens is one state and can't drift. Its
+  subscriptions write the settings; the manual minutes live only here (not
+  saved). Both screens observe it, because `TimeField` and `Slider` read their
+  state while the parent renders and don't redraw on their own.
+- `settings.rs` — the "Sleep timer" group of Settings → General, three rows:
+  the automatic timer switch with its from–until window on the same line, the
+  duration, and the fade-out row (length slider + switch) shared with the Tools
+  page; plus `duration_field` (number input + "min"), also used by Tools. The
+  group carries `SETTINGS_ANCHOR`: the Tools page's "Settings" button
   dispatches `settings_view::OpenSleepTimerSettings`, and `MainView` opens the
   General page scrolled to this group. `SleepTimerSettings` itself lives in
   `settings_store.rs`.
@@ -32,11 +43,30 @@ The Tools page is `tools/timer.rs`; the badge is `sleep_timer_badge` in
   manual pause does not stop it. When it runs out while nothing plays it just
   turns off.
 - **Ticks only while armed.** The task wakes on whole-second boundaries of the
-  remaining time (so the badge changes once a second), every `FADE_STEP` during
-  the fade, and never when the timer is off or armed for end of track.
-- **Fade-out** (on by default) lowers the output gain over the last `FADE`
-  (30 s) with a squared curve (linear amplitude sounds like it drops only at the
-  very end). It sets `Output` volume directly and never touches the saved
+  remaining time (so the badge changes once a second), every `fade_tick` during
+  the fade (the fade / 120, 250 ms – 1 s: an hour-long fade needs no faster
+  updates than the badge, and 4 redraws a second for an hour would be waste),
+  and never when the timer is off or armed for end of track.
+- **Fade-out** (on by default) lowers the output gain over the last
+  `fade_secs` (default 30) with a squared curve (linear amplitude sounds like
+  it drops only at the very end). The length is one of
+  `SLEEP_TIMER_FADE_STEPS` (5 s … 1 h, `settings_store.rs`): a roughly
+  geometric scale (~1.25× per step) of round values, so the slider is fine at
+  the short end and coarse at the long end; the slider value is the step index.
+  Under 2 min the label is in seconds, from 2 min in whole minutes (every step
+  from 120 s up is a whole minute). `sanitized` snaps any stored value to the
+  nearest step, so a settings file from before the slider (no `fade_secs` →
+  default 30) or a hand-edited one always matches a slider position. The length is taken when the
+  timer is armed or extended and capped by `span` (the countdown length as
+  armed, or as left after +5 min): a 1-minute timer with a 2-minute fade starts
+  at full volume and fades over the whole minute instead of starting already
+  quieter. Moving the slider while a timer runs is picked up on a tick only
+  while neither the old nor the new fade has begun (`settled_fade`): shortening
+  mid-fade would snap back to full volume, lengthening into the remaining time
+  would drop it at once. Switching fade off applies immediately (explicit, and
+  it restores the volume); switching it on inside the would-be window does
+  nothing for this timer. With fade off the window is zero, so there are no
+  fast ticks at the end. It sets `Output` volume directly and never touches the saved
   volume, so the volume slider does not move and a restart can't persist a
   faded volume. After the pause the full volume comes back `RESTORE_DELAY` later
   (the engine's own pause fade must finish at the low gain first) or at once
@@ -66,3 +96,14 @@ The Tools page is `tools/timer.rs`; the badge is `sleep_timer_badge` in
   fade start for whole-minute presets.
 - The status line in Tools says when a timer was started automatically, so an
   unexpected pause is explainable.
+- **Picking values.** Times are `TimeField`s (type `2330`, or ↑/↓ on the
+  selected segment), not a menu of half-hour steps; every edit is saved at
+  once, so a half-typed hour is briefly stored. The window is read only on a
+  `Playing` event, so a stray automatic arm needs a track to start in the
+  second between two digits — accepted: the badge shows it and Turn off undoes
+  it, while saving only on focus-out could lose an edit when the overlay closes
+  with the field focused. Durations are number inputs, 1–720 min: typing saves
+  each in-range value, −/+ snap to multiples of 5, and Enter or leaving the
+  field commits the text clamped to 1–720 (`committed_minutes`; empty or not a
+  number puts the last valid value back). Presets stay on the Tools page for the
+  one-click case; the field next to them (Enter or Start) covers the rest.

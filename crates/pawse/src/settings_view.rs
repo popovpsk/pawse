@@ -67,6 +67,7 @@ pub fn build_settings_pages(
     scrobble_ui: Entity<crate::scrobble_settings::ScrobbleUiState>,
     scrobble_inputs: crate::scrobble_settings::ScrobbleInputs,
     library_page: LibraryPage,
+    sleep_timer_controls: Entity<crate::sleep_timer::controls::SleepTimerControls>,
     cx: &App,
 ) -> SettingsPages {
     let albums_layout = cx.global::<SettingsStore>().albums_layout();
@@ -87,7 +88,9 @@ pub fn build_settings_pages(
     ];
     let mut general = SettingPage::new(tr().settings_general.clone())
         .group(general_group(remote_port_input))
-        .group(crate::sleep_timer::settings::settings_group());
+        .group(crate::sleep_timer::settings::settings_group(
+            sleep_timer_controls,
+        ));
     if discord::is_available() {
         general = general.group(discord_group());
     }
