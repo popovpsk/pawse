@@ -90,7 +90,7 @@ impl RangeFetch for Fake {
         }
         if self
             .retry_first
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok()
         {
             return Err(FetchError::Retry("busy".into()));

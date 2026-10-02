@@ -200,7 +200,9 @@ pub fn tools_strings() -> &'static ToolsStrings {
 
 static EN: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Tools"),
-    tools_desc: SharedString::new_static("Show the Tools button in the title bar."),
+    tools_desc: SharedString::new_static(
+        "Shows the Tools button in the title bar, with extras such as the AI prompt for music recommendations.",
+    ),
     tools_ai_prompt: SharedString::new_static("AI prompt"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse builds a prompt from your library and listening history. Paste it into any AI chat to get recommendations. Pawse itself doesn't send anything anywhere.",
@@ -314,7 +316,9 @@ static EN: ToolsStrings = ToolsStrings {
 
 static ZH: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("工具"),
-    tools_desc: SharedString::new_static("在标题栏显示“工具”按钮。"),
+    tools_desc: SharedString::new_static(
+        "在标题栏显示“工具”按钮，提供用于音乐推荐的 AI 提示词等附加功能。",
+    ),
     tools_ai_prompt: SharedString::new_static("AI 提示词"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse 根据你的音乐库和收听历史生成提示词。粘贴到任意 AI 聊天中即可获得推荐。Pawse 本身不会向任何地方发送数据。",
@@ -418,7 +422,9 @@ static ZH: ToolsStrings = ToolsStrings {
 
 static PT: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Ferramentas"),
-    tools_desc: SharedString::new_static("Mostrar o botão Ferramentas na barra de título."),
+    tools_desc: SharedString::new_static(
+        "Mostra o botão Ferramentas na barra de título, com extras como o prompt para IA para recomendações musicais.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt para IA"),
     ai_prompt_intro: SharedString::new_static(
         "O Pawse monta um prompt a partir da sua biblioteca e do seu histórico de reprodução. Cole-o em qualquer chat de IA para receber recomendações. O próprio Pawse não envia nada a lugar nenhum.",
@@ -534,7 +540,9 @@ static PT: ToolsStrings = ToolsStrings {
 
 static RU: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Инструменты"),
-    tools_desc: SharedString::new_static("Показывать кнопку «Инструменты» в заголовке окна."),
+    tools_desc: SharedString::new_static(
+        "Показывает кнопку «Инструменты» в заголовке окна с дополнительными функциями вроде промпта для ИИ-рекомендаций.",
+    ),
     tools_ai_prompt: SharedString::new_static("Промпт для ИИ"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse собирает промпт из вашей библиотеки и истории прослушиваний. Вставьте его в любой чат с ИИ — и получите рекомендации. Сам Pawse никуда ничего не отправляет.",
@@ -650,7 +658,9 @@ static RU: ToolsStrings = ToolsStrings {
 
 static JA: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("ツール"),
-    tools_desc: SharedString::new_static("タイトルバーにツールボタンを表示します。"),
+    tools_desc: SharedString::new_static(
+        "タイトルバーに「ツール」ボタンを表示します。音楽のおすすめ用 AI プロンプトなどの追加機能があります。",
+    ),
     tools_ai_prompt: SharedString::new_static("AI プロンプト"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse はライブラリと再生履歴からプロンプトを作成します。任意の AI チャットに貼り付けるとおすすめが得られます。Pawse 自体はどこにもデータを送信しません。",
@@ -767,7 +777,7 @@ static JA: ToolsStrings = ToolsStrings {
 static DE: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Werkzeuge"),
     tools_desc: SharedString::new_static(
-        "Die Schaltfläche „Werkzeuge“ in der Titelleiste anzeigen.",
+        "Zeigt die Schaltfläche „Werkzeuge“ in der Titelleiste mit Extras wie dem KI-Prompt für Musikempfehlungen.",
     ),
     tools_ai_prompt: SharedString::new_static("KI-Prompt"),
     ai_prompt_intro: SharedString::new_static(
@@ -886,7 +896,9 @@ static DE: ToolsStrings = ToolsStrings {
 
 static FR: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Outils"),
-    tools_desc: SharedString::new_static("Afficher le bouton Outils dans la barre de titre."),
+    tools_desc: SharedString::new_static(
+        "Affiche le bouton Outils dans la barre de titre, avec des extras comme le prompt IA pour des recommandations musicales.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt IA"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse crée un prompt à partir de votre bibliothèque et de votre historique d’écoute. Collez-le dans n’importe quel chat IA pour obtenir des recommandations. Pawse lui-même n’envoie rien nulle part.",
@@ -1006,7 +1018,9 @@ static FR: ToolsStrings = ToolsStrings {
 
 static KO: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("도구"),
-    tools_desc: SharedString::new_static("제목 표시줄에 도구 버튼을 표시합니다."),
+    tools_desc: SharedString::new_static(
+        "제목 표시줄에 도구 버튼을 표시합니다. 음악 추천용 AI 프롬프트 같은 추가 기능이 있습니다.",
+    ),
     tools_ai_prompt: SharedString::new_static("AI 프롬프트"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse가 보관함과 재생 기록으로 프롬프트를 만듭니다. 아무 AI 채팅에 붙여 넣으면 추천을 받을 수 있습니다. Pawse 자체는 어디에도 아무것도 보내지 않습니다.",
@@ -1120,7 +1134,9 @@ static KO: ToolsStrings = ToolsStrings {
 
 static IT: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Strumenti"),
-    tools_desc: SharedString::new_static("Mostra il pulsante Strumenti nella barra del titolo."),
+    tools_desc: SharedString::new_static(
+        "Mostra il pulsante Strumenti nella barra del titolo, con extra come il prompt per IA per consigli musicali.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt per IA"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse crea un prompt dalla tua libreria e dalla cronologia di ascolto. Incollalo in qualsiasi chat IA per ricevere consigli. Pawse di per sé non invia nulla da nessuna parte.",
@@ -1238,7 +1254,9 @@ static IT: ToolsStrings = ToolsStrings {
 
 static TR: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Araçlar"),
-    tools_desc: SharedString::new_static("Başlık çubuğunda Araçlar düğmesini göster."),
+    tools_desc: SharedString::new_static(
+        "Başlık çubuğunda, müzik önerileri için yapay zekâ istemi gibi ek özellikler sunan Araçlar düğmesini gösterir.",
+    ),
     tools_ai_prompt: SharedString::new_static("Yapay zekâ istemi"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse, kitaplığınızdan ve dinleme geçmişinizden bir istem oluşturur. Öneri almak için herhangi bir yapay zekâ sohbetine yapıştırın. Pawse hiçbir yere hiçbir şey göndermez.",
@@ -1356,7 +1374,9 @@ static TR: ToolsStrings = ToolsStrings {
 
 static PL: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Narzędzia"),
-    tools_desc: SharedString::new_static("Pokazuj przycisk Narzędzia na pasku tytułu."),
+    tools_desc: SharedString::new_static(
+        "Pokazuje przycisk Narzędzia na pasku tytułu z dodatkami, takimi jak prompt dla AI z rekomendacjami muzyki.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt dla AI"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse tworzy prompt z Twojej biblioteki i historii słuchania. Wklej go do dowolnego czatu AI, aby dostać rekomendacje. Sam Pawse nigdzie niczego nie wysyła.",
@@ -1470,7 +1490,9 @@ static PL: ToolsStrings = ToolsStrings {
 
 static NL: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Hulpmiddelen"),
-    tools_desc: SharedString::new_static("De knop Hulpmiddelen in de titelbalk tonen."),
+    tools_desc: SharedString::new_static(
+        "Toont de knop Hulpmiddelen in de titelbalk, met extra's zoals de AI-prompt voor muziekaanbevelingen.",
+    ),
     tools_ai_prompt: SharedString::new_static("AI-prompt"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse maakt een prompt van je bibliotheek en luistergeschiedenis. Plak hem in een AI-chat om aanbevelingen te krijgen. Pawse zelf verstuurt nergens iets naartoe.",
@@ -1592,7 +1614,9 @@ static NL: ToolsStrings = ToolsStrings {
 
 static UK: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Інструменти"),
-    tools_desc: SharedString::new_static("Показувати кнопку «Інструменти» в заголовку вікна."),
+    tools_desc: SharedString::new_static(
+        "Показує кнопку «Інструменти» в заголовку вікна з додатковими функціями, як-от промпт для ШІ-рекомендацій.",
+    ),
     tools_ai_prompt: SharedString::new_static("Промпт для ШІ"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse складає промпт із вашої бібліотеки та історії прослуховувань. Вставте його в будь-який чат зі ШІ — і отримайте рекомендації. Сам Pawse нікуди нічого не надсилає.",
@@ -1706,7 +1730,9 @@ static UK: ToolsStrings = ToolsStrings {
 
 static VI: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Công cụ"),
-    tools_desc: SharedString::new_static("Hiện nút Công cụ trên thanh tiêu đề."),
+    tools_desc: SharedString::new_static(
+        "Hiển thị nút Công cụ trên thanh tiêu đề với các tính năng bổ sung như lời nhắc AI để gợi ý nhạc.",
+    ),
     tools_ai_prompt: SharedString::new_static("Lời nhắc AI"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse tạo lời nhắc từ thư viện và lịch sử nghe của bạn. Dán vào bất kỳ trò chuyện AI nào để nhận gợi ý. Bản thân Pawse không gửi gì đi đâu cả.",
@@ -1822,7 +1848,9 @@ static VI: ToolsStrings = ToolsStrings {
 
 static ID: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Alat"),
-    tools_desc: SharedString::new_static("Tampilkan tombol Alat di bilah judul."),
+    tools_desc: SharedString::new_static(
+        "Menampilkan tombol Alat di bilah judul dengan fitur tambahan seperti prompt AI untuk rekomendasi musik.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt AI"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse menyusun prompt dari pustaka dan riwayat dengar Anda. Tempel ke chat AI mana pun untuk mendapat rekomendasi. Pawse sendiri tidak mengirim apa pun ke mana pun.",
@@ -1938,7 +1966,9 @@ static ID: ToolsStrings = ToolsStrings {
 
 static TH: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("เครื่องมือ"),
-    tools_desc: SharedString::new_static("แสดงปุ่มเครื่องมือในแถบชื่อเรื่อง"),
+    tools_desc: SharedString::new_static(
+        "แสดงปุ่มเครื่องมือในแถบชื่อเรื่อง พร้อมฟีเจอร์เสริม เช่น พรอมต์ AI สำหรับแนะนำเพลง",
+    ),
     tools_ai_prompt: SharedString::new_static("พรอมต์ AI"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse สร้างพรอมต์จากคลังเพลงและประวัติการฟังของคุณ วางลงในแชต AI ใดก็ได้เพื่อรับคำแนะนำ ตัว Pawse เองไม่ส่งข้อมูลใดๆ ออกไป",
@@ -2044,7 +2074,9 @@ static TH: ToolsStrings = ToolsStrings {
 
 static CS: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Nástroje"),
-    tools_desc: SharedString::new_static("Zobrazovat tlačítko Nástroje v záhlaví okna."),
+    tools_desc: SharedString::new_static(
+        "Zobrazuje tlačítko Nástroje v záhlaví okna s doplňky, jako je prompt pro AI s hudebními doporučeními.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt pro AI"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse sestaví prompt z vaší knihovny a historie poslechu. Vložte ho do libovolného AI chatu a získejte doporučení. Samotný Pawse nikam nic neodesílá.",
@@ -2160,7 +2192,9 @@ static CS: ToolsStrings = ToolsStrings {
 
 static SV: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Verktyg"),
-    tools_desc: SharedString::new_static("Visa knappen Verktyg i namnlisten."),
+    tools_desc: SharedString::new_static(
+        "Visar knappen Verktyg i namnlisten med extrafunktioner som AI-prompten för musiktips.",
+    ),
     tools_ai_prompt: SharedString::new_static("AI-prompt"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse bygger en prompt av ditt bibliotek och din lyssningshistorik. Klistra in den i valfri AI-chatt för att få rekommendationer. Pawse själv skickar ingenting någonstans.",
@@ -2276,7 +2310,9 @@ static SV: ToolsStrings = ToolsStrings {
 
 static HI: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("टूल"),
-    tools_desc: SharedString::new_static("टाइटल बार में टूल बटन दिखाएँ।"),
+    tools_desc: SharedString::new_static(
+        "टाइटल बार में टूल बटन दिखाता है, जिसमें संगीत सुझावों के लिए AI प्रॉम्प्ट जैसी अतिरिक्त सुविधाएँ हैं।",
+    ),
     tools_ai_prompt: SharedString::new_static("AI प्रॉम्प्ट"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse आपकी लाइब्रेरी और सुनने के इतिहास से एक प्रॉम्प्ट बनाता है। सुझाव पाने के लिए इसे किसी भी AI चैट में चिपकाएँ। Pawse ख़ुद कहीं कुछ नहीं भेजता।",
@@ -2388,7 +2424,9 @@ static HI: ToolsStrings = ToolsStrings {
 
 static ES: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Herramientas"),
-    tools_desc: SharedString::new_static("Mostrar el botón Herramientas en la barra de título."),
+    tools_desc: SharedString::new_static(
+        "Muestra el botón Herramientas en la barra de título, con extras como el prompt para IA para recomendaciones musicales.",
+    ),
     tools_ai_prompt: SharedString::new_static("Prompt para IA"),
     ai_prompt_intro: SharedString::new_static(
         "Pawse crea un prompt a partir de tu biblioteca y tu historial de escucha. Pégalo en cualquier chat de IA para obtener recomendaciones. Pawse por sí mismo no envía nada a ningún sitio.",
