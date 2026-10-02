@@ -22,18 +22,29 @@ const SLIDER_MAX_W: f32 = 400.0;
 // Fixed-width elements outside slider in footer layout:
 // now_playing(200) + queue+vol(200) + footer px_4(32) + gaps(32) + slider row px_4(32)
 const FOOTER_FIXED_W: f32 = 496.0;
+const LABEL_W_REM: f32 = 2.6;
+const LABEL_TEXT_W_REM: f32 = 2.15;
 
 fn labels_width(rem: f32, show_labels: bool) -> f32 {
     if show_labels {
-        2.0 * (rem * 2.6) + 2.0 * (rem * 0.75)
+        2.0 * (rem * LABEL_W_REM) + 2.0 * (rem * 0.75)
     } else {
         0.0
     }
 }
 
-pub fn row_content_width(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
+fn row_content_width(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
     let labels_w = labels_width(rem, show_labels);
     labels_w + (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W)
+}
+
+pub fn row_visible_left(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
+    let left = (viewport_w - row_content_width(viewport_w, rem, show_labels)) * 0.5;
+    if show_labels {
+        left + rem * (LABEL_W_REM - LABEL_TEXT_W_REM)
+    } else {
+        left
+    }
 }
 
 pub struct TrackProgressSlider {
@@ -59,7 +70,7 @@ impl Render for TrackProgressSlider {
         let show_labels = self.show_labels;
         let viewport_w = f32::from(window.viewport_size().width);
         let rem = f32::from(window.rem_size());
-        let label_w = rem * 2.6;
+        let label_w = rem * LABEL_W_REM;
         let labels_w = labels_width(rem, show_labels);
         let slider_w = row_content_width(viewport_w, rem, show_labels) - labels_w;
         let text_secondary = Colors::muted_foreground(cx);

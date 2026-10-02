@@ -307,9 +307,8 @@ impl Render for NowPlaying {
         let left_of = |x: f32, margin: f32| {
             (x - rem - cover_size - rem * 0.75 - margin).clamp(96. * scale, 460.)
         };
-        let progress_left = (viewport_w
-            - crate::track_progress_slider::row_content_width(viewport_w, rem, show_time_labels))
-            * 0.5;
+        let progress_left =
+            crate::track_progress_slider::row_visible_left(viewport_w, rem, show_time_labels);
         let buttons_left =
             (viewport_w - (transport_buttons * 36. + (transport_buttons - 1.) * rem * 0.5)) * 0.5;
         let text_w = left_of(buttons_left, rem * 0.5);
