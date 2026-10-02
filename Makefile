@@ -223,7 +223,8 @@ SAN_CRATES = \
 	-p music_library
 
 # Crates miri can run: pure Rust, no FFI in the crate or its deps. audio_decoder
-# is included (symphonia is pure Rust) but its fixture-decoding tests are slow.
+# is the exception: its Opus decoder is libopus (FFI), so the Opus tests carry
+# #[cfg_attr(miri, ignore)]. Its fixture-decoding tests are slow.
 MIRI_CRATES = \
 	-p audio_common \
 	-p cue_parser \
@@ -248,9 +249,11 @@ test-tsan:
 	cargo +nightly test $(SAN_CRATES) --target $(TARGET) -Zbuild-std
 
 # -Zmiri-disable-isolation lets the fixture-reading tests (cue_parser,
-# audio_decoder) perform real file I/O under miri.
+# audio_decoder) perform real file I/O under miri. -Zmiri-deterministic-floats
+# turns off miri's deliberate powf/exp jitter, which trips an exact-integer
+# assert in symphonia's Vorbis codebook setup.
 test-miri:
-	MIRIFLAGS="-Zmiri-disable-isolation" \
+	MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-deterministic-floats" \
 	cargo +nightly miri test $(MIRI_CRATES)
 
 # Runs every workspace test binary under leaks(1). Requires `jq` and `leaks`.

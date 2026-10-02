@@ -887,6 +887,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_decodes_to_48k_stereo_float() {
         let mut decoder = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
         let params = decoder.params();
@@ -904,6 +905,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_reports_its_duration() {
         let decoder = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
         let secs = decoder.duration().unwrap().as_secs_f64();
@@ -911,6 +913,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_seeks_and_keeps_decoding() {
         let mut decoder = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
         let position = decoder.seek(0.5).unwrap().as_secs_f64();
@@ -927,6 +930,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_replays_identically_when_its_timeline_starts_late() {
         let mut decoder = Decoder::open(&fixture_path("late_start_opus.opus")).unwrap();
         let first = drain_f32(&mut decoder);
@@ -943,6 +947,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_seek_matches_a_straight_decode() {
         let name = "late_start_opus.opus";
         let mut straight = Decoder::open(&fixture_path(name)).unwrap();
@@ -1013,6 +1018,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_applies_the_header_output_gain() {
         let mut plain = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
         let plain_peak = drain_f32(&mut plain)
@@ -1031,6 +1037,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn opus_decodes_from_a_stream() {
         let mut from_file = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
         let mut from_stream =

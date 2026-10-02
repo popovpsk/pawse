@@ -53,3 +53,6 @@ Turns a file or a network stream into `AudioBatch`es for the engine. The lib roo
   decode, `opus_replays_identically_when_its_timeline_starts_late` guards the pre-skip
   re-arm and the `start_ts` clamp, `opus_applies_the_header_output_gain` patches the
   OpusHead gain (and the Ogg page CRC) in memory.
+- Every test that decodes Opus is `#[cfg_attr(miri, ignore)]`: libopus is C, miri
+  cannot call it and aborts the whole test binary. The crate stays in `MIRI_CRATES`
+  for the rest of its tests.
