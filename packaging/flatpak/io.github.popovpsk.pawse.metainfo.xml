@@ -20,7 +20,7 @@
     <p>Features:</p>
     <ul>
       <li>Bit-perfect playback at the native sample rate</li>
-      <li>Wide format support: FLAC, ALAC, MP3, WAV, OGG and DSD</li>
+      <li>Wide format support: FLAC, ALAC, MP3, WAV, OGG, Opus and DSD</li>
       <li>CUE sheets split single-file albums into tracks automatically</li>
       <li>Instant fuzzy search across albums, artists and tracks</li>
       <li>Time-synced lyrics from your files or fetched online</li>

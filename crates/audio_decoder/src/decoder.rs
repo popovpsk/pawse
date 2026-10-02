@@ -4,13 +4,18 @@ use audio_common::{
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::Duration;
 use symphonia::core::audio::{Audio, GenericAudioBufferRef};
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
 use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
+use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
+use symphonia::core::packet::Packet;
+use symphonia::core::units::{Time, Timestamp};
 
 // ============================================================================
 // APE source — uses ape-decoder crate for Monkey's Audio (.ape) files
@@ -229,12 +234,34 @@ impl AudioSource for DsdAdapter {
 // Symphonia decoder — handles all other formats via Symphonia
 // ============================================================================
 
+static CODECS: LazyLock<CodecRegistry> = LazyLock::new(|| {
+    let mut registry = CodecRegistry::new();
+    symphonia::default::register_enabled_codecs(&mut registry);
+    registry.register_audio_decoder::<symphonia_adapter_libopus::OpusDecoder>();
+    registry
+});
+
+const OPUS_PREROLL_MS: i64 = 320;
+
+fn opus_output_gain(params: &AudioCodecParameters) -> Option<f32> {
+    let head = params.extra_data.as_deref()?;
+    if !head.starts_with(b"OpusHead") {
+        return None;
+    }
+    let raw = i16::from_le_bytes([*head.get(16)?, *head.get(17)?]);
+    (raw != 0).then(|| 10f32.powf(f32::from(raw) / (20.0 * 256.0)))
+}
+
 struct SymphoniaDecoder {
     format: Box<dyn symphonia::core::formats::FormatReader>,
     decoder: Box<dyn symphonia::core::codecs::audio::AudioDecoder>,
     track_id: u32,
     codec_params: AudioCodecParameters,
     duration: Option<Duration>,
+    start_time: Option<Time>,
+    opus: bool,
+    gain: Option<f32>,
+    pending: Option<Packet>,
 }
 
 impl SymphoniaDecoder {
@@ -273,6 +300,9 @@ impl SymphoniaDecoder {
 
         let track_id = track.id;
         let num_frames = track.num_frames;
+        let start_time = track
+            .time_base
+            .and_then(|time_base| time_base.calc_time(track.start_ts));
         let codec_params = track
             .codec_params
             .as_ref()
@@ -290,9 +320,16 @@ impl SymphoniaDecoder {
         });
 
         let decoder_opts = AudioDecoderOptions::default();
-        let decoder = symphonia::default::get_codecs()
+        let decoder = CODECS
             .make_audio_decoder(&codec_params, &decoder_opts)
             .map_err(|e| AudioError::Decoder(e.to_string()))?;
+
+        let opus = codec_params.codec == CODEC_ID_OPUS;
+        let gain = if opus {
+            opus_output_gain(&codec_params)
+        } else {
+            None
+        };
 
         Ok(Self {
             format,
@@ -300,10 +337,14 @@ impl SymphoniaDecoder {
             track_id,
             codec_params,
             duration,
+            start_time,
+            opus,
+            gain,
+            pending: None,
         })
     }
 
-    fn decode_next(&mut self) -> Result<Option<AudioBatch>, AudioError> {
+    fn discard_before(&mut self, target: Timestamp) -> Result<Option<Timestamp>, AudioError> {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(Some(p)) => p,
@@ -314,6 +355,38 @@ impl SymphoniaDecoder {
                     return Ok(None);
                 }
                 Err(e) => return Err(AudioError::Decoder(e.to_string())),
+            };
+            if packet.track_id != self.track_id {
+                continue;
+            }
+            if packet
+                .pts
+                .checked_add(packet.dur)
+                .is_some_and(|end| end <= target)
+            {
+                let _ = self.decoder.decode(&packet);
+                continue;
+            }
+            let first = packet.pts;
+            self.pending = Some(packet);
+            return Ok(Some(first));
+        }
+    }
+
+    fn decode_next(&mut self) -> Result<Option<AudioBatch>, AudioError> {
+        loop {
+            let packet = match self.pending.take() {
+                Some(packet) => packet,
+                None => match self.format.next_packet() {
+                    Ok(Some(p)) => p,
+                    Ok(None) => return Ok(None),
+                    Err(symphonia::core::errors::Error::IoError(ref e))
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                    {
+                        return Ok(None);
+                    }
+                    Err(e) => return Err(AudioError::Decoder(e.to_string())),
+                },
             };
 
             if packet.track_id != self.track_id {
@@ -330,7 +403,10 @@ impl SymphoniaDecoder {
             let sample_rate = symphonia_spec.rate();
             let channels = ChannelCount::from_u8(symphonia_spec.channels().count() as u8);
 
-            let audio_sample = map_audio_buffer_ref(decoded);
+            let mut audio_sample = map_audio_buffer_ref(decoded);
+            if let (Some(gain), AudioSamples::F32(samples)) = (self.gain, &mut audio_sample) {
+                samples.iter_mut().for_each(|sample| *sample *= gain);
+            }
 
             return Ok(Some(AudioBatch {
                 data: audio_sample,
@@ -369,29 +445,48 @@ impl AudioSource for SymphoniaDecoder {
             .ok_or_else(|| AudioError::Decoder("Seek needs a known duration".to_string()))?
             .mul_f32(position);
 
-        let time = symphonia::core::units::Time::try_new(
-            duration.as_secs() as i64,
-            duration.subsec_nanos(),
-        )
-        .ok_or_else(|| AudioError::Decoder("Seek position out of range".to_string()))?;
+        let target = Time::try_new(duration.as_secs() as i64, duration.subsec_nanos())
+            .ok_or_else(|| AudioError::Decoder("Seek position out of range".to_string()))?;
+        let target = self.start_time.map_or(target, |start| target.max(start));
+        let seek_time = if self.opus {
+            let earlier = target.checked_sub_millis(OPUS_PREROLL_MS).unwrap_or(target);
+            self.start_time.map_or(earlier, |start| earlier.max(start))
+        } else {
+            target
+        };
 
         let seeked = self
             .format
             .seek(
                 symphonia::core::formats::SeekMode::Coarse,
                 symphonia::core::formats::SeekTo::Time {
-                    time,
+                    time: seek_time,
                     track_id: Some(self.track_id),
                 },
             )
             .map_err(|e| AudioError::Decoder(e.to_string()))?;
+        self.pending = None;
 
         let sample_rate = self
             .codec_params
             .sample_rate
             .ok_or_else(|| AudioError::Decoder("Sample rate unknown after seek".to_string()))?;
-        let actual_ts = seeked.actual_ts.get() as f64 / sample_rate as f64;
-        Ok(Duration::from_secs_f64(actual_ts))
+        let mut landed = seeked.actual_ts;
+        if self.opus {
+            self.decoder = CODECS
+                .make_audio_decoder(&self.codec_params, &AudioDecoderOptions::default())
+                .map_err(|e| AudioError::Decoder(e.to_string()))?;
+            let target_ts =
+                Timestamp::new((target.as_secs_f64() * sample_rate as f64).round() as i64);
+            if let Some(first) = self.discard_before(target_ts)? {
+                landed = first;
+            }
+        } else {
+            self.decoder.reset();
+        }
+
+        let seconds = (landed.get() as f64 / sample_rate as f64).max(0.0);
+        Ok(Duration::from_secs_f64(seconds))
     }
 
     fn duration(&self) -> Option<Duration> {
@@ -778,6 +873,170 @@ mod tests {
             expected_secs,
             duration
         );
+    }
+
+    fn drain_f32(decoder: &mut Decoder) -> Vec<f32> {
+        let mut out = Vec::new();
+        while let Some(batch) = decoder.next_buffer().unwrap() {
+            match batch.data {
+                AudioSamples::F32(samples) => out.extend(samples),
+                _ => panic!("expected F32 from opus"),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn opus_decodes_to_48k_stereo_float() {
+        let mut decoder = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
+        let params = decoder.params();
+        assert_eq!(params.sample_rate, 48_000);
+        assert_eq!(params.channels, ChannelCount::Stereo);
+
+        let samples = drain_f32(&mut decoder);
+        let frames = samples.len() / 2;
+        assert!(
+            (frames as i64 - 96_000).abs() < 2_000,
+            "expected about two seconds, got {frames} frames"
+        );
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(peak > 0.05 && peak < 0.2, "peak {peak}");
+    }
+
+    #[test]
+    fn opus_reports_its_duration() {
+        let decoder = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
+        let secs = decoder.duration().unwrap().as_secs_f64();
+        assert!((secs - 2.0).abs() < 0.05, "duration {secs}");
+    }
+
+    #[test]
+    fn opus_seeks_and_keeps_decoding() {
+        let mut decoder = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
+        let position = decoder.seek(0.5).unwrap().as_secs_f64();
+        assert!((position - 1.0).abs() < 0.1, "landed at {position}");
+
+        let samples = drain_f32(&mut decoder);
+        let remaining = samples.len() as f64 / 2.0 / 48_000.0;
+        assert!(
+            (remaining - (2.0 - position)).abs() < 0.1,
+            "remaining {remaining} after landing at {position}"
+        );
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(peak > 0.05, "silent after seek");
+    }
+
+    #[test]
+    fn opus_replays_identically_when_its_timeline_starts_late() {
+        let mut decoder = Decoder::open(&fixture_path("late_start_opus.opus")).unwrap();
+        let first = drain_f32(&mut decoder);
+
+        let position = decoder.seek(0.0).unwrap().as_secs_f64();
+        assert!(position < 0.05, "landed at {position}");
+        assert_eq!(drain_f32(&mut decoder), first);
+    }
+
+    fn frame_error(a: &[f32], b: &[f32]) -> f64 {
+        let diff: f64 = a.iter().zip(b).map(|(x, y)| f64::from(x - y).powi(2)).sum();
+        let power: f64 = b.iter().map(|y| f64::from(*y).powi(2)).sum();
+        (diff / power.max(1e-12)).sqrt()
+    }
+
+    #[test]
+    fn opus_seek_matches_a_straight_decode() {
+        let name = "late_start_opus.opus";
+        let mut straight = Decoder::open(&fixture_path(name)).unwrap();
+        let reference = drain_f32(&mut straight);
+
+        for fraction in [0.2f32, 0.5, 0.8] {
+            let mut decoder = Decoder::open(&fixture_path(name)).unwrap();
+            let landed = decoder.seek(fraction).unwrap().as_secs_f64();
+            let samples = drain_f32(&mut decoder);
+
+            let expected = (landed * 48_000.0) as i64 - 936;
+            let window = 960 * 2;
+            let best = (expected - 40..expected + 40)
+                .filter(|start| *start >= 0)
+                .map(|start| {
+                    let start = start as usize * 2;
+                    (
+                        frame_error(&samples[..window], &reference[start..start + window]),
+                        start,
+                    )
+                })
+                .fold(
+                    (f64::MAX, 0),
+                    |best, cur| if cur.0 < best.0 { cur } else { best },
+                );
+            assert!(
+                best.0 < 0.01,
+                "seek to {fraction} deviates by {:.2}% from a straight decode",
+                best.0 * 100.0
+            );
+        }
+    }
+
+    fn opus_with_header_gain(raw: i16) -> Vec<u8> {
+        fn ogg_crc(data: &[u8]) -> u32 {
+            let mut crc = 0u32;
+            for byte in data {
+                crc ^= u32::from(*byte) << 24;
+                for _ in 0..8 {
+                    crc = if crc & 0x8000_0000 != 0 {
+                        (crc << 1) ^ 0x04C1_1DB7
+                    } else {
+                        crc << 1
+                    };
+                }
+            }
+            crc
+        }
+
+        let mut bytes = std::fs::read(fixture_path("tagged_opus.opus")).unwrap();
+        assert_eq!(&bytes[..4], b"OggS");
+        let segments = bytes[26] as usize;
+        let page_len = 27
+            + segments
+            + bytes[27..27 + segments]
+                .iter()
+                .map(|s| *s as usize)
+                .sum::<usize>();
+        let head = bytes[..page_len]
+            .windows(8)
+            .position(|w| w == b"OpusHead")
+            .unwrap();
+        bytes[head + 16..head + 18].copy_from_slice(&raw.to_le_bytes());
+        bytes[22..26].copy_from_slice(&[0; 4]);
+        let crc = ogg_crc(&bytes[..page_len]);
+        bytes[22..26].copy_from_slice(&crc.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn opus_applies_the_header_output_gain() {
+        let mut plain = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
+        let plain_peak = drain_f32(&mut plain)
+            .iter()
+            .fold(0.0f32, |m, s| m.max(s.abs()));
+
+        let quieter = opus_with_header_gain(-1541);
+        let stream = Box::new(MemoryStream(std::io::Cursor::new(quieter)));
+        let mut decoder = Decoder::open_stream(stream, Some("opus")).unwrap();
+        let peak = drain_f32(&mut decoder)
+            .iter()
+            .fold(0.0f32, |m, s| m.max(s.abs()));
+
+        let ratio = peak / plain_peak;
+        assert!((ratio - 0.5).abs() < 0.01, "gain ratio {ratio}");
+    }
+
+    #[test]
+    fn opus_decodes_from_a_stream() {
+        let mut from_file = Decoder::open(&fixture_path("tagged_opus.opus")).unwrap();
+        let mut from_stream =
+            Decoder::open_stream(memory_stream("tagged_opus.opus"), Some("opus")).unwrap();
+        assert_eq!(from_stream.params(), from_file.params());
+        assert_eq!(drain_f32(&mut from_stream), drain_f32(&mut from_file));
     }
 
     struct MemoryStream(std::io::Cursor<Vec<u8>>);

@@ -21,6 +21,8 @@ FIXTURES = \
 	$(FIXTURES_DIR)/tagless.flac \
 	$(FIXTURES_DIR)/tagged_mp3.mp3 \
 	$(FIXTURES_DIR)/tagged_ogg.ogg \
+	$(FIXTURES_DIR)/tagged_opus.opus \
+	$(FIXTURES_DIR)/late_start_opus.opus \
 	$(FIXTURES_DIR)/tagged_m4a.m4a
 
 .PHONY: all generate clean bin-deps
@@ -148,6 +150,22 @@ $(FIXTURES_DIR)/tagged_ogg.ogg: | $(FIXTURES_DIR)
 		-metadata album="OGG Album" \
 		-metadata track="9" \
 		-codec:a libvorbis "$@"
+
+# --- Tagged Opus ---
+
+$(FIXTURES_DIR)/tagged_opus.opus: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=2" -ac 2 \
+		-metadata title="Opus Track" \
+		-metadata artist="Opus Artist" \
+		-metadata album="Opus Album" \
+		-metadata track="3" \
+		-codec:a libopus "$@"
+
+# --- Late-start Opus ---
+
+$(FIXTURES_DIR)/late_start_opus.opus: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "aevalsrc=0.4*sin(2*PI*(300+600*t)*t)+0.1*random(0):s=48000:d=2" -ac 2 \
+		-output_ts_offset 0.013 -codec:a libopus "$@"
 
 # --- Tagged M4A (MP4 ilst) ---
 

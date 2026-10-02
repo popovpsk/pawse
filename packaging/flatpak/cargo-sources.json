@@ -7243,6 +7243,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/opusic-sys/opusic-sys-0.7.5.crate",
+        "sha256": "c9d1ecdf206421bc74343ab3bb2f30ad2abbfee41fa341f7181fecbaf957769a",
+        "dest": "cargo/vendor/opusic-sys-0.7.5"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"c9d1ecdf206421bc74343ab3bb2f30ad2abbfee41fa341f7181fecbaf957769a\", \"files\": {}}",
+        "dest": "cargo/vendor/opusic-sys-0.7.5",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/ordered-float/ordered-float-5.5.0.crate",
         "sha256": "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0",
         "dest": "cargo/vendor/ordered-float-5.5.0"
@@ -10111,6 +10124,19 @@
         "type": "inline",
         "contents": "{\"package\": \"1758d6c853020a7244de03cc3e0185eaea3f58715122422dd3cc7452e6d4c16a\", \"files\": {}}",
         "dest": "cargo/vendor/symphonia-0.6.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/symphonia-adapter-libopus/symphonia-adapter-libopus-0.3.0.crate",
+        "sha256": "c6febe6f88f9a9483db7e5b72a2dad916d8f8eb588d18905a39c861319fc7fa1",
+        "dest": "cargo/vendor/symphonia-adapter-libopus-0.3.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"c6febe6f88f9a9483db7e5b72a2dad916d8f8eb588d18905a39c861319fc7fa1\", \"files\": {}}",
+        "dest": "cargo/vendor/symphonia-adapter-libopus-0.3.0",
         "dest-filename": ".cargo-checksum.json"
     },
     {
