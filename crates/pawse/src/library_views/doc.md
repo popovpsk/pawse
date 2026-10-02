@@ -21,10 +21,27 @@ drive the `PlaybackQueue` on click.
   type; they are separate variants only so the settings observer can tell genre
   frames apart. `go_back` pops one frame; picking a tab resets the
   stack to `[Root(tab)]`; jumps from footer/now-playing/cover-mode push frames that
-  unwind on back. `navigate_to_artist` (those jumps, plus the album header's artist
-  link) resolves the id with `artist_summary` in the configured grouping and falls
-  back to `TrackArtist` — a featured performer with no album of their own is not in
-  the album-artist list, and the click must still land somewhere. Only `stack.last()` renders and receives the header search query —
+  unwind on back. `navigate_to_artist` (those jumps, plus the album headers' artist
+  links) goes through `resolve_artist_page` (pure, unit-tested) and opens the first
+  page that exists, lazily: the clicked artist in the configured grouping; else the
+  artist the *track* is listed under in that grouping, but only when the clicked
+  credit is that artist plus a join marker (`listed_artist_for_credit`, the same
+  `is_credit_of` rule album-artist derivation uses; only when the event carries
+  `track_id`); else the clicked artist in the other grouping. Now-playing and cover
+  mode send the id of the track whose artists they show (`artists_track_id`, set where
+  the artist list is filled), not `PlaybackStatus`'s track: after a launch that
+  restores an uncached server track the status is still empty while the queue's
+  track is on screen. The second step is for a credit like "Samurai feat. Refused" on
+  a track tagged album artist "Samurai": in the album-artist grouping the credit is
+  not a listed artist, and landing on its one-track `TrackArtist` page felt broken,
+  so the click goes to "Samurai", which holds that track. The join-marker condition
+  is what keeps a compilation guest ("Martin Stig Andersen" on a "Various Artists"
+  soundtrack) going to their own `TrackArtist` page as before instead of to "Various
+  Artists". The other-grouping step covers both old fallbacks: a featured performer
+  with no album of their own (album-artist grouping → `TrackArtist`), and an album
+  artist nobody is credited as on a track ("Various Artists" on a soundtrack) while
+  the grouping is `TrackArtist` — without it the genre page's album-artist link did
+  nothing. Only `stack.last()` renders and receives the header search query —
   buried frames stay live (their like/track-change subscriptions keep them current)
   but unmounted, so they cost nothing per frame. `is_drilled_in() = stack.len() > 1`;
   `current_tab()` is `None` while drilled in (`MainView` keeps the prior tab lit).

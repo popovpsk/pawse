@@ -42,7 +42,7 @@ fn is_join_marker(rest: &str) -> bool {
     word_end < trimmed.len() && JOIN_WORDS.contains(&word.as_str())
 }
 
-fn covers(primary: &str, other: &str) -> bool {
+pub(crate) fn is_credit_of(primary: &str, other: &str) -> bool {
     let (primary, other) = (primary.to_lowercase(), other.to_lowercase());
     other == primary || (other.starts_with(&primary) && is_join_marker(&other[primary.len()..]))
 }
@@ -83,7 +83,7 @@ pub fn derive_album_artists(tracks: &[AlbumTrackArtists]) -> DerivedAlbumArtists
         if !seen.insert(*id) {
             continue;
         }
-        if primaries.iter().all(|(_, other)| covers(name, other)) {
+        if primaries.iter().all(|(_, other)| is_credit_of(name, other)) {
             candidates.push(*id);
         }
     }

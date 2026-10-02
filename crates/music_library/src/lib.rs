@@ -5330,4 +5330,95 @@ mod tests {
         let album = lib.albums().unwrap().into_iter().find(|a| a.title == "A");
         assert_eq!(map.get(&album.unwrap().id), Some(&vec!["Rock".to_string()]));
     }
+
+    #[test]
+    fn a_featured_credit_leads_to_its_listed_artist_but_a_compilation_guest_does_not() {
+        let (lib, _path) = create_test_db();
+        let track = |path: &str, title: &str, artist: &str, album_artist: &str, album: &str| {
+            let mut t = scan_track(path, title);
+            t.artist_names = vec![artist.into()];
+            t.album_artist_names = vec![album_artist.into()];
+            t.album_title = Some(album.into());
+            t
+        };
+        scan(
+            &lib,
+            vec![
+                track(
+                    "/m/chippin.flac",
+                    "Chippin' in",
+                    "Samurai feat. Refused",
+                    "Samurai",
+                    "Chippin' in",
+                ),
+                track(
+                    "/m/archangel.flac",
+                    "Archangel",
+                    "Samurai",
+                    "Samurai",
+                    "Archangel",
+                ),
+                track(
+                    "/m/ost1.flac",
+                    "Theme",
+                    "Martin Stig Andersen",
+                    "Various Artists",
+                    "OST",
+                ),
+                track(
+                    "/m/ost2.flac",
+                    "Fight",
+                    "Mick Gordon & Chad Mossholder",
+                    "Mick Gordon",
+                    "Doom",
+                ),
+            ],
+        );
+        lib.resolve_album_artists().unwrap();
+
+        let id_of = |name: &str| {
+            lib.artists(ArtistGrouping::TrackArtist)
+                .unwrap()
+                .into_iter()
+                .chain(lib.artists(ArtistGrouping::AlbumArtist).unwrap())
+                .find(|a| a.name == name)
+                .unwrap()
+                .id
+        };
+        let track_id = |title: &str| id_of_title(&lib, title);
+        let listed = |title: &str, credit: &str, grouping| {
+            lib.listed_artist_for_credit(track_id(title), id_of(credit), grouping)
+                .unwrap()
+        };
+
+        assert_eq!(
+            listed(
+                "Chippin' in",
+                "Samurai feat. Refused",
+                ArtistGrouping::AlbumArtist
+            ),
+            Some(id_of("Samurai"))
+        );
+        assert_eq!(
+            listed(
+                "Fight",
+                "Mick Gordon & Chad Mossholder",
+                ArtistGrouping::AlbumArtist
+            ),
+            Some(id_of("Mick Gordon"))
+        );
+        assert_eq!(
+            listed("Theme", "Martin Stig Andersen", ArtistGrouping::AlbumArtist),
+            None,
+            "a compilation guest keeps their own page"
+        );
+        assert_eq!(
+            listed(
+                "Chippin' in",
+                "Samurai feat. Refused",
+                ArtistGrouping::TrackArtist
+            ),
+            Some(id_of("Samurai feat. Refused"))
+        );
+    }
 }

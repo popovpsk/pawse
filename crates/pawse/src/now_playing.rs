@@ -24,12 +24,14 @@ pub struct NavigateToAlbumRequested {
 #[derive(Clone, Debug)]
 pub struct NavigateToArtistRequested {
     pub artist_id: i64,
+    pub track_id: Option<i64>,
 }
 
 pub struct NowPlaying {
     has_track: bool,
     track_title: SharedString,
     artists: Vec<(i64, SharedString)>,
+    artists_track_id: Option<i64>,
     album_id: Option<i64>,
     album_title: SharedString,
     year: Option<SharedString>,
@@ -132,6 +134,7 @@ impl NowPlaying {
             has_track: false,
             track_title: SharedString::default(),
             artists: Vec::new(),
+            artists_track_id: None,
             album_id: None,
             album_title: SharedString::default(),
             year: None,
@@ -193,6 +196,7 @@ impl NowPlaying {
             self.year = year.map(|y| SharedString::from(y.to_string()));
             self.specs =
                 SharedString::from(format_specs(sample_rate, bit_depth, bitrate, dsd_rate));
+            self.artists_track_id = Some(track_id);
             self.artists = services
                 .library
                 .unique_track_artists(track_id)
@@ -267,6 +271,7 @@ impl NowPlaying {
         self.has_track = false;
         self.track_title = SharedString::default();
         self.artists.clear();
+        self.artists_track_id = None;
         self.album_id = None;
         self.album_title = SharedString::default();
         self.year = None;
@@ -406,8 +411,11 @@ impl Render for NowPlaying {
                                     .cursor_pointer()
                                     .border_b(px(1.))
                                     .hover(|s| s.border_color(muted_fg))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        cx.emit(NavigateToArtistRequested { artist_id });
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.emit(NavigateToArtistRequested {
+                                            artist_id,
+                                            track_id: this.artists_track_id,
+                                        });
                                     }))
                                     .child(name.clone());
                                 row = row.child(if i == last {

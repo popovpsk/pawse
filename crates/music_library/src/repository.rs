@@ -90,6 +90,12 @@ pub trait LibraryRepository: Send + Sync {
     fn album_artist_known(&self, album_id: i64) -> Result<bool>;
     fn artists(&self, grouping: ArtistGrouping) -> Result<Vec<ArtistSummary>>;
     fn artist_summary(&self, id: i64, grouping: ArtistGrouping) -> Result<Option<ArtistSummary>>;
+    fn listed_artist_for_credit(
+        &self,
+        track_id: i64,
+        credited_artist_id: i64,
+        grouping: ArtistGrouping,
+    ) -> Result<Option<i64>>;
     fn artist_name(&self, id: i64) -> Result<Option<String>>;
     fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, String>>;
     fn artist_album_covers(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, Vec<i64>>>;

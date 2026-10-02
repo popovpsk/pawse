@@ -102,9 +102,7 @@ impl Footer {
         let np_artist_subscription = cx.subscribe(
             &now_playing,
             |_, _, event: &NavigateToArtistRequested, cx| {
-                cx.emit(NavigateToArtistRequested {
-                    artist_id: event.artist_id,
-                });
+                cx.emit(event.clone());
             },
         );
 

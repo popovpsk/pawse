@@ -186,9 +186,7 @@ impl TracksView {
         let album_info_subscription = cx.subscribe(
             &album_info,
             |_, _, event: &NavigateToArtistRequested, cx| {
-                cx.emit(NavigateToArtistRequested {
-                    artist_id: event.artist_id,
-                });
+                cx.emit(event.clone());
             },
         );
 

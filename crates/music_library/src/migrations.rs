@@ -474,6 +474,13 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         AND EXISTS (
             SELECT 1 FROM remote_tracks
             WHERE genre LIKE '%;%' OR genre LIKE '%,%' OR genre LIKE '%/%'
+            OR genre <> trim(genre) OR genre LIKE '%  %'
+            OR genre GLOB '*[' || char(9, 10, 11, 12, 13, 133, 160, 5760, 8192, 8193, 8194,
+                8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287,
+                12288) || ']*'
+            OR lower(genre) IN ('album', 'unknown', 'unknown genre', 'other', 'various',
+                'various artists', 'genre', 'none', 'no genre', 'misc')
+            OR (genre <> '' AND genre NOT GLOB '*[^0-9]*')
         );
         "#,
     ),

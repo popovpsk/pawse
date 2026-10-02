@@ -1890,6 +1890,42 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn listed_artist_for_credit(
+        &self,
+        track_id: i64,
+        credited_artist_id: i64,
+        grouping: ArtistGrouping,
+    ) -> Result<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let credited: Option<String> = conn
+            .query_row(
+                "SELECT name FROM artists WHERE id = ?1",
+                [credited_artist_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(credited) = credited else {
+            return Ok(None);
+        };
+        let listed = artist_membership_sql(grouping);
+        let sql = format!(
+            "WITH m AS ({listed}) \
+             SELECT a.id, a.name FROM m JOIN artists a ON a.id = m.artist_id \
+             WHERE m.track_id = ?1 ORDER BY m.position, a.id"
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map([track_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, name) = row.map_err(LibraryError::Database)?;
+            if crate::album_artists::is_credit_of(&name, &credited) {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
     fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, String>> {
         let conn = self.conn.lock().unwrap();
         let ctes = membership_ctes(grouping);

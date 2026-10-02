@@ -455,7 +455,7 @@ impl MainView {
                 this.close_screens();
                 this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
-                    view.navigate_to_artist(event.artist_id, cx);
+                    view.navigate_to_artist(event.artist_id, event.track_id, cx);
                 });
             }
         });
@@ -492,7 +492,7 @@ impl MainView {
             move |this: &mut MainView, _, event: &NavigateToArtistRequested, cx| {
                 this.set_cover_mode(false, cx);
                 library_view.update(cx, |view, cx| {
-                    view.navigate_to_artist(event.artist_id, cx);
+                    view.navigate_to_artist(event.artist_id, event.track_id, cx);
                 });
             }
         });

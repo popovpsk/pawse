@@ -53,6 +53,7 @@ const COVER_SLIDE_GAP: f32 = 40.;
 pub struct CoverModeView {
     track_title: SharedString,
     artists: Vec<(i64, SharedString)>,
+    artists_track_id: Option<i64>,
     album_id: Option<i64>,
     cover_art_id: Option<i64>,
     track_path: Option<String>,
@@ -229,6 +230,7 @@ impl CoverModeView {
         Self {
             track_title: SharedString::default(),
             artists: Vec::new(),
+            artists_track_id: None,
             album_id: None,
             cover_art_id: None,
             track_path: None,
@@ -581,6 +583,7 @@ impl CoverModeView {
         self.track_title = title.into();
         self.album_id = album_id;
         self.track_path = Some(path);
+        self.artists_track_id = Some(track_id);
         self.artists = services
             .library
             .unique_track_artists(track_id)
@@ -652,6 +655,7 @@ impl CoverModeView {
     fn clear(&mut self, cx: &mut Context<Self>) {
         self.track_title = SharedString::default();
         self.artists.clear();
+        self.artists_track_id = None;
         self.album_id = None;
         self.cover_art_id = None;
         self.track_path = None;
@@ -961,8 +965,11 @@ impl Render for CoverModeView {
                                         .cursor_pointer()
                                         .border_b(px(1.))
                                         .hover(move |s| s.border_color(artist_color))
-                                        .on_click(cx.listener(move |_, _, _, cx| {
-                                            cx.emit(NavigateToArtistRequested { artist_id });
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.emit(NavigateToArtistRequested {
+                                                artist_id,
+                                                track_id: this.artists_track_id,
+                                            });
                                         }))
                                         .child(name.clone()),
                                 );

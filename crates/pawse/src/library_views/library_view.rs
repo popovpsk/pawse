@@ -241,16 +241,24 @@ impl LibraryView {
         }
     }
 
-    pub fn navigate_to_artist(&mut self, artist_id: i64, cx: &mut Context<Self>) {
+    pub fn navigate_to_artist(
+        &mut self,
+        artist_id: i64,
+        from_track: Option<i64>,
+        cx: &mut Context<Self>,
+    ) {
         let preferred = cx.global::<SettingsStore>().artists_grouping();
         let library = &cx.global::<Services>().library;
-        let found = [preferred, ArtistGrouping::TrackArtist]
-            .into_iter()
-            .find_map(|grouping| {
-                library
-                    .artist_summary(artist_id, grouping)
-                    .map(|artist| (artist, grouping))
-            });
+        let found = resolve_artist_page(
+            artist_id,
+            preferred,
+            || {
+                from_track.and_then(|track_id| {
+                    library.listed_artist_for_credit(track_id, artist_id, preferred)
+                })
+            },
+            |id, grouping| library.artist_summary(id, grouping),
+        );
         if let Some((artist, grouping)) = found {
             self.show_artist_tracks(artist, grouping, cx);
         }
@@ -259,7 +267,7 @@ impl LibraryView {
     fn show_album_tracks(&mut self, album: music_library::AlbumSummary, cx: &mut Context<Self>) {
         let view = cx.new(|cx| TracksView::new(&album, cx));
         let sub = cx.subscribe(&view, |this, _, event: &NavigateToArtistRequested, cx| {
-            this.navigate_to_artist(event.artist_id, cx);
+            this.navigate_to_artist(event.artist_id, event.track_id, cx);
         });
         self.stack.push(NavEntry::AlbumTracks { view, _sub: sub });
         cx.emit(LibraryViewEvent::StateChanged);
@@ -298,7 +306,7 @@ impl LibraryView {
                 this.navigate_to_album(event.album_id, cx);
             }),
             cx.subscribe(view, |this, _, event: &NavigateToArtistRequested, cx| {
-                this.navigate_to_artist(event.artist_id, cx);
+                this.navigate_to_artist(event.artist_id, event.track_id, cx);
             }),
         ]
     }
@@ -348,6 +356,26 @@ impl LibraryView {
     }
 }
 
+fn resolve_artist_page(
+    artist_id: i64,
+    preferred: ArtistGrouping,
+    listed_for_credit: impl FnOnce() -> Option<i64>,
+    summary: impl Fn(i64, ArtistGrouping) -> Option<music_library::ArtistSummary>,
+) -> Option<(music_library::ArtistSummary, ArtistGrouping)> {
+    let other = match preferred {
+        ArtistGrouping::TrackArtist => ArtistGrouping::AlbumArtist,
+        ArtistGrouping::AlbumArtist => ArtistGrouping::TrackArtist,
+    };
+    let open = |id, grouping| summary(id, grouping).map(|artist| (artist, grouping));
+    open(artist_id, preferred)
+        .or_else(|| {
+            listed_for_credit()
+                .filter(|&listed| listed != artist_id)
+                .and_then(|listed| open(listed, preferred))
+        })
+        .or_else(|| open(artist_id, other))
+}
+
 impl EventEmitter<LibraryViewEvent> for LibraryView {}
 
 impl Render for LibraryView {
@@ -376,5 +404,72 @@ impl Render for LibraryView {
             Some(NavEntry::PlaylistTracks(view)) => v_flex().size_full().child(view.clone()),
             None => v_flex().size_full(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    const MAIN: i64 = 1;
+    const FEATURED: i64 = 2;
+    const GUEST: i64 = 3;
+    const VARIOUS: i64 = 4;
+
+    fn summary(id: i64, grouping: ArtistGrouping) -> Option<music_library::ArtistSummary> {
+        let listed = match grouping {
+            ArtistGrouping::AlbumArtist => [MAIN, VARIOUS].contains(&id),
+            ArtistGrouping::TrackArtist => [MAIN, FEATURED, GUEST].contains(&id),
+        };
+        listed.then(|| music_library::ArtistSummary {
+            id,
+            name: id.to_string(),
+            sort_name: id.to_string(),
+            track_count: 1,
+        })
+    }
+
+    fn resolve(
+        artist_id: i64,
+        preferred: ArtistGrouping,
+        listed: Option<i64>,
+    ) -> (Option<(i64, ArtistGrouping)>, bool) {
+        let asked = Cell::new(false);
+        let found = resolve_artist_page(
+            artist_id,
+            preferred,
+            || {
+                asked.set(true);
+                listed
+            },
+            summary,
+        );
+        (
+            found.map(|(artist, grouping)| (artist.id, grouping)),
+            asked.get(),
+        )
+    }
+
+    #[rstest::rstest]
+    #[case::listed_artist_opens_directly(MAIN, ArtistGrouping::AlbumArtist, Some(MAIN), Some((MAIN, ArtistGrouping::AlbumArtist)))]
+    #[case::featured_credit_opens_its_listed_artist(FEATURED, ArtistGrouping::AlbumArtist, Some(MAIN), Some((MAIN, ArtistGrouping::AlbumArtist)))]
+    #[case::compilation_guest_keeps_their_own_page(GUEST, ArtistGrouping::AlbumArtist, None, Some((GUEST, ArtistGrouping::TrackArtist)))]
+    #[case::album_artist_link_in_track_grouping(VARIOUS, ArtistGrouping::TrackArtist, None, Some((VARIOUS, ArtistGrouping::AlbumArtist)))]
+    #[case::listed_same_as_clicked_falls_through(FEATURED, ArtistGrouping::AlbumArtist, Some(FEATURED), Some((FEATURED, ArtistGrouping::TrackArtist)))]
+    #[case::unknown_artist_goes_nowhere(99, ArtistGrouping::AlbumArtist, None, None)]
+    fn artist_navigation_picks_the_first_page_that_exists(
+        #[case] clicked: i64,
+        #[case] preferred: ArtistGrouping,
+        #[case] listed: Option<i64>,
+        #[case] expected: Option<(i64, ArtistGrouping)>,
+    ) {
+        assert_eq!(resolve(clicked, preferred, listed).0, expected);
+    }
+
+    #[test]
+    fn the_credit_lookup_runs_only_when_the_clicked_artist_is_not_listed() {
+        assert!(!resolve(MAIN, ArtistGrouping::AlbumArtist, Some(MAIN)).1);
+        assert!(resolve(FEATURED, ArtistGrouping::AlbumArtist, Some(MAIN)).1);
     }
 }

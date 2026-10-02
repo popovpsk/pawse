@@ -549,6 +549,17 @@ impl LibraryService {
             .unwrap_or_default()
     }
 
+    pub fn listed_artist_for_credit(
+        &self,
+        track_id: i64,
+        credited_artist_id: i64,
+        grouping: ArtistGrouping,
+    ) -> Option<i64> {
+        self.repo
+            .listed_artist_for_credit(track_id, credited_artist_id, grouping)
+            .unwrap_or_default()
+    }
+
     pub fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> HashMap<i64, String> {
         self.repo
             .artist_search_haystacks(grouping)

@@ -731,7 +731,10 @@ fn artist_album_header(
             .border_b(px(1.))
             .hover(|s| s.border_color(muted_fg))
             .on_click(cx.listener(move |_, _, _, cx| {
-                cx.emit(NavigateToArtistRequested { artist_id });
+                cx.emit(NavigateToArtistRequested {
+                    artist_id,
+                    track_id: None,
+                });
             }))
             .child(name)
     });

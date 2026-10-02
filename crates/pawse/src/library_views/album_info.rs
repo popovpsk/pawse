@@ -225,7 +225,10 @@ impl Render for AlbumInfo {
                                     .border_b(px(1.))
                                     .hover(|s| s.border_color(muted_fg))
                                     .on_click(cx.listener(move |_, _, _, cx| {
-                                        cx.emit(NavigateToArtistRequested { artist_id: aid });
+                                        cx.emit(NavigateToArtistRequested {
+                                            artist_id: aid,
+                                            track_id: None,
+                                        });
                                     }))
                                     .child(self.artist_name.clone()),
                             )

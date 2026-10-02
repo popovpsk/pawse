@@ -278,9 +278,12 @@ network. The listing's genre is cached raw (`remote_tracks.genre`, one string �
 a Subsonic server that does not split multi-value tags sends `Rock; Pop`) and
 goes through `normalize_genres` at projection, so a server copy lands on the same
 genres as the file would. Migration 11 is the one-time catch-up for that: it drops
-the scan fingerprint only when some cached server genre contains a separator,
-so those libraries re-project once and nobody else pays for a full rescan
-(bumping `INDEXER_FORMAT_VERSION` would have reindexed every library). Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
+the scan fingerprint only when some cached server genre would come out different
+from `normalize_genres` — a separator, stray or repeated whitespace, a junk value
+(`Unknown`, `Other`, …) or a bare number (an ID3v1 code) — so those libraries
+re-project once and nobody else pays for a full rescan (bumping
+`INDEXER_FORMAT_VERSION` would have reindexed every library). The junk list is
+copied into the SQL on purpose: the migration is a snapshot of today's rule. Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
 (`remote.rs`), for every kind of source: the source id says which one, so the
 locator carries no protocol. The suffix is there because the decoder picks a
 backend by extension.
