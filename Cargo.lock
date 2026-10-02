@@ -5539,6 +5539,7 @@ dependencies = [
  "flate2",
  "image",
  "log",
+ "rstest",
  "rusqlite",
  "serde",
  "serde_json",

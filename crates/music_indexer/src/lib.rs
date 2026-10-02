@@ -151,33 +151,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_genres_splits_dedups_and_filters() {
-        let got = crate::metadata::normalize_genres(
-            [
-                "Rock, Alternative",
-                "alternative",
-                " Indie  Rock ",
-                "Album",
-                "255",
-                "Drum & Bass",
-                "Progressive Rock/Metal",
-            ]
-            .into_iter(),
-        );
-        assert_eq!(
-            got.iter().map(String::as_str).collect::<Vec<_>>(),
-            vec![
-                "Rock",
-                "Alternative",
-                "Indie Rock",
-                "Drum & Bass",
-                "Progressive Rock",
-                "Metal",
-            ]
-        );
-    }
-
-    #[test]
     fn test_read_metadata_tagged_flac_with_embedded_cover() {
         let track = read_tagged_fixture("tagged_with_cover.flac");
         assert_eq!(track.title.as_deref(), Some("Cover Track"));

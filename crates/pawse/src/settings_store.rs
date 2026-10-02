@@ -450,6 +450,10 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub playlists_enabled: bool,
     #[serde(default)]
+    pub genres_enabled: bool,
+    #[serde(default)]
+    pub genres_sort: music_library::GenreSort,
+    #[serde(default)]
     pub tools_enabled: bool,
     #[serde(default = "default_true")]
     pub show_track_duration: bool,
@@ -543,6 +547,8 @@ impl Default for UserSettings {
             now_playing_details: NowPlayingDetails::default(),
             liked_enabled: true,
             playlists_enabled: true,
+            genres_enabled: false,
+            genres_sort: music_library::GenreSort::default(),
             tools_enabled: false,
             show_track_duration: true,
             show_queue_actions: true,
@@ -1184,6 +1190,24 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn genres_enabled(&self) -> bool {
+        self.settings.genres_enabled
+    }
+
+    pub fn set_genres_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.genres_enabled = enabled;
+        self.save()
+    }
+
+    pub fn genres_sort(&self) -> music_library::GenreSort {
+        self.settings.genres_sort
+    }
+
+    pub fn set_genres_sort(&mut self, sort: music_library::GenreSort) -> anyhow::Result<()> {
+        self.settings.genres_sort = sort;
+        self.save()
+    }
+
     pub fn sleep_timer(&self) -> SleepTimerSettings {
         self.settings.sleep_timer.sanitized()
     }
@@ -1715,6 +1739,8 @@ mod tests {
             now_playing_details: NowPlayingDetails::Album,
             liked_enabled: true,
             playlists_enabled: true,
+            genres_enabled: true,
+            genres_sort: music_library::GenreSort::Year,
             tools_enabled: true,
             show_track_duration: true,
             show_queue_actions: true,
@@ -1773,6 +1799,8 @@ mod tests {
             back.artists_grouping,
             music_library::ArtistGrouping::TrackArtist
         );
+        assert!(back.genres_enabled);
+        assert_eq!(back.genres_sort, music_library::GenreSort::Year);
         assert_eq!(back.playback.queue.len(), 1);
         assert_eq!(back.playback.queue[0], track);
         assert_eq!(back.playback.current_index, Some(0));
@@ -1945,6 +1973,8 @@ mod tests {
         fs::write(&path, "{}").unwrap();
 
         let store = SettingsStore::load_from(path.clone());
+        assert!(!store.genres_enabled());
+        assert_eq!(store.genres_sort(), music_library::GenreSort::Artist);
         assert!(store.scrobble().lastfm.enabled);
         assert!(store.scrobble().first_artist_only);
         assert!(!store.scrobble().csv_log.enabled);

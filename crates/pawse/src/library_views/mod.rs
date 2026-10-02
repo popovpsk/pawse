@@ -1,9 +1,10 @@
 pub mod album_info;
 mod albums_grid;
 pub mod albums_view;
-pub mod artist_tracks_view;
 pub mod artists_view;
 mod fuzzy;
+pub mod genres_view;
+pub mod grouped_tracks_view;
 pub mod library_view;
 pub mod liked_view;
 pub mod playlist_tracks_view;

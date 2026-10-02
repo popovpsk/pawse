@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayTally, PlaylistSummary,
-    RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
-    StoredLyrics, Track, TrackListing,
+    GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay,
+    PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource,
+    RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -94,6 +94,9 @@ pub trait LibraryRepository: Send + Sync {
     fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, String>>;
     fn artist_album_covers(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, Vec<i64>>>;
     fn tracks_by_artist(&self, artist_id: i64, grouping: ArtistGrouping) -> Result<Vec<Track>>;
+    fn genres(&self) -> Result<Vec<GenreSummary>>;
+    fn genre_album_covers(&self) -> Result<HashMap<String, Vec<i64>>>;
+    fn tracks_by_genre(&self, key: &str, sort: GenreSort) -> Result<Vec<Track>>;
     fn track(&self, id: i64) -> Result<Option<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn all_tracks(&self) -> Result<Vec<Track>>;

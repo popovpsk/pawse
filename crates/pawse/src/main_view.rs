@@ -934,6 +934,7 @@ impl Render for MainView {
         let settings = cx.global::<SettingsStore>();
         let liked_enabled = settings.liked_enabled();
         let playlists_enabled = settings.playlists_enabled();
+        let genres_enabled = settings.genres_enabled();
         let tools_enabled = settings.tools_enabled();
         let scale = settings.font_scale().ui_scale();
 
@@ -965,6 +966,17 @@ impl Render for MainView {
                     scale,
                     cx,
                 ))
+                .when(genres_enabled, |d| {
+                    d.child(tab_icon_button(
+                        "tab_genres",
+                        "icons/s1-genres.svg",
+                        active_tab == Some(LibraryRootTab::Genres),
+                        LibraryRootTab::Genres,
+                        tab_colors,
+                        scale,
+                        cx,
+                    ))
+                })
                 .when(liked_enabled, |d| {
                     d.child(tab_icon_button(
                         "tab_liked",

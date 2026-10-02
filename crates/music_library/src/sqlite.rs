@@ -14,9 +14,9 @@ use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayTally, PlaylistSummary,
-    RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary,
-    StoredLyrics, Track, TrackListing,
+    GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay,
+    PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource,
+    RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -74,6 +74,22 @@ fn display_ordered_tracks(conn: &Connection, where_clause: &str) -> Result<Vec<T
     let rows = stmt.query_map([], map_track_row)?;
     rows.collect::<std::result::Result<Vec<_>, _>>()
         .map_err(LibraryError::Database)
+}
+
+fn genre_track_order(sort: GenreSort) -> &'static str {
+    match sort {
+        GenreSort::Artist => {
+            "t.album_id IS NULL, art.id IS NULL, \
+             COALESCE(NULLIF(art.sort_name, ''), art.name) COLLATE NOCASE, art.id, \
+             al.year IS NULL, al.year, al.title COLLATE NOCASE, t.album_id, \
+             t.disc_number, t.track_number, t.title"
+        }
+        GenreSort::Year => {
+            "t.album_id IS NULL, al.year IS NULL, al.year, art.id IS NULL, \
+             COALESCE(NULLIF(art.sort_name, ''), art.name) COLLATE NOCASE, art.id, \
+             al.title COLLATE NOCASE, t.album_id, t.disc_number, t.track_number, t.title"
+        }
+    }
 }
 
 fn artist_membership_sql(grouping: ArtistGrouping) -> &'static str {
@@ -1559,6 +1575,7 @@ impl LibraryRepository for SqliteLibrary {
             FROM genres g
             JOIN track_genres tg ON tg.genre_id = g.id
             JOIN tracks t ON t.id = tg.track_id
+            WHERE t.album_id IS NOT NULL
             GROUP BY t.album_id, g.id
             ORDER BY t.album_id, COUNT(*) DESC, g.name
             "#,
@@ -1942,6 +1959,69 @@ impl LibraryRepository for SqliteLibrary {
         );
         let mut stmt = conn.prepare_cached(&sql)?;
         let rows = stmt.query_map([artist_id], map_track_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn genres(&self) -> Result<Vec<GenreSummary>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT g.key, g.name, COUNT(*) FROM genres g \
+             JOIN track_genres tg ON tg.genre_id = g.id \
+             GROUP BY g.id \
+             ORDER BY g.key",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(GenreSummary {
+                key: row.get(0)?,
+                name: row.get(1)?,
+                track_count: row.get(2)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn genre_album_covers(&self) -> Result<HashMap<String, Vec<i64>>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT g.key, al.cover_art_id FROM track_genres tg \
+             JOIN genres g ON g.id = tg.genre_id \
+             JOIN tracks t ON t.id = tg.track_id \
+             JOIN albums al ON al.id = t.album_id \
+             WHERE al.cover_art_id IS NOT NULL \
+             GROUP BY g.id, al.id \
+             ORDER BY g.id, COUNT(*) DESC, al.title COLLATE NOCASE, al.id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut map: HashMap<String, Vec<i64>> = HashMap::new();
+        for row in rows {
+            let (key, cover_art_id) = row.map_err(LibraryError::Database)?;
+            let covers = map.entry(key).or_default();
+            if covers.len() < 3 && !covers.contains(&cover_art_id) {
+                covers.push(cover_art_id);
+            }
+        }
+        Ok(map)
+    }
+
+    fn tracks_by_genre(&self, key: &str, sort: GenreSort) -> Result<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let order = genre_track_order(sort);
+        let sql = format!(
+            "SELECT {TRACK_COLUMNS_T} FROM genres g \
+             JOIN track_genres tg ON tg.genre_id = g.id \
+             JOIN tracks t ON t.id = tg.track_id \
+             LEFT JOIN albums al ON al.id = t.album_id \
+             LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0 \
+             LEFT JOIN artists art ON art.id = aa.artist_id \
+             WHERE g.key = ?1 \
+             ORDER BY {order}",
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map([key], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
@@ -3334,7 +3414,7 @@ impl ScanSession {
                         track_number: row.get(7)?,
                         disc_number: row.get(8)?,
                         year: row.get(9)?,
-                        genres: genre.into_iter().filter(|g| !g.is_empty()).collect(),
+                        genres: crate::genres::normalize_genres(genre.as_deref().into_iter()),
                         duration_ms: duration_ms.map(|d| d.max(0) as u64),
                         cover_hash: row.get(15)?,
                         start_offset_ms: row

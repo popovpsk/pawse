@@ -489,6 +489,27 @@ fn appearance_group(
         )
         .item(
             SettingItem::new(
+                tr().tab_genres.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().genres_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("genres-enabled-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_genres_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().genres_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
                 tr().liked_tracks.clone(),
                 SettingField::render(|_window, cx: &mut App| {
                     let enabled = cx.global::<SettingsStore>().liked_enabled();

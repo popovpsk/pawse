@@ -19,6 +19,11 @@ touches the database; `pawse::library_service` drives scans through
   `RETIRE_UNSEEN_LOCAL_BINDINGS`, `SWEEP_UNREFERENCED_ITEMS`,
   `REFRESH_ITEM_SNAPSHOTS`).
 - `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
+- `genres.rs` — `normalize_genres`, the one rule that turns raw genre values into
+  catalog genres (split on `,` `;` `/`, collapse whitespace, drop junk, dedup
+  case-insensitively). It lives here, not in `music_indexer`, because both sides
+  that fill `genres` need it: the indexer for file tags and
+  `project_remote_tracks` for server listings.
 - `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
 - `remote.rs` — the locator format for server tracks (`pawse-source://…`) and
   `location`, which tells a file path from a server track from a broken locator.
@@ -269,7 +274,13 @@ scan; `ScanSession::project_remote_tracks` runs at the end of each one and
 inserts a `tracks` row for every present server binding on an enabled, available
 server whose item did not get a row from a local file. So local always wins,
 a server going away hides only what it alone provided, and projecting needs no
-network. Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
+network. The listing's genre is cached raw (`remote_tracks.genre`, one string —
+a Subsonic server that does not split multi-value tags sends `Rock; Pop`) and
+goes through `normalize_genres` at projection, so a server copy lands on the same
+genres as the file would. Migration 11 is the one-time catch-up for that: it drops
+the scan fingerprint only when some cached server genre contains a separator,
+so those libraries re-project once and nobody else pays for a full rescan
+(bumping `INDEXER_FORMAT_VERSION` would have reindexed every library). Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
 (`remote.rs`), for every kind of source: the source id says which one, so the
 locator carries no protocol. The suffix is there because the decoder picks a
 backend by extension.
@@ -347,8 +358,10 @@ the next new one. The snapshot raises the marks to its own maximum before the
 clear, and every writer allocates through the same function — the scan and the
 tag editor's `upsert_album` / `get_or_insert_artist` — so a tag edit that lands
 between two scan batches can neither reuse a dead id nor take one the scan is
-about to hand back. Genres are not covered:
-nothing outside the database holds their ids.
+about to hand back. Genres are not covered: their ids are
+reissued on every scan, so the one screen that holds a genre (the app's genre
+page) holds its `key` — the Rust-lowercased name, unique and stable — and every
+genre query takes the key.
 
 Artists are keyed by the lowercased name (`artist_key`): `Glass the Harbor`
 and `Glass The Harbor`, or `NOVA` and `Nova`, are one artist, shown under the

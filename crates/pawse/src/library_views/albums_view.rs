@@ -453,12 +453,16 @@ impl AlbumsView {
 impl EventEmitter<AlbumSelectedEvent> for AlbumsView {}
 impl EventEmitter<OpenLibrarySettings> for AlbumsView {}
 
-pub fn no_music_message(nothing_found: &SharedString, cx: &App) -> SharedString {
+pub fn has_music_sources(cx: &App) -> bool {
     let store = cx.global::<SettingsStore>();
-    if store.music_folders().is_empty() && !crate::remote_settings::has_servers(store) {
-        tr().no_music_sources.clone()
-    } else {
+    !store.music_folders().is_empty() || crate::remote_settings::has_servers(store)
+}
+
+pub fn no_music_message(nothing_found: &SharedString, cx: &App) -> SharedString {
+    if has_music_sources(cx) {
         nothing_found.clone()
+    } else {
+        tr().no_music_sources.clone()
     }
 }
 

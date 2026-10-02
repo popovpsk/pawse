@@ -6,7 +6,7 @@ use lofty::file::AudioFile;
 use lofty::picture::PictureType;
 use lofty::prelude::{Accessor, TaggedFileExt};
 use lofty::tag::{ItemKey, Tag};
-use music_library::sha256_hex;
+use music_library::{normalize_genres, sha256_hex};
 
 use crate::types::{CoverArt, IndexedLyrics, LyricsSource, ScannedTrack};
 
@@ -78,40 +78,6 @@ fn year_from_str(value: &str) -> Option<i32> {
     } else {
         None
     }
-}
-
-pub(crate) fn normalize_genres<'a>(raw: impl Iterator<Item = &'a str>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for value in raw {
-        for piece in value.split([',', ';', '/']) {
-            let cleaned: String = piece.split_whitespace().collect::<Vec<_>>().join(" ");
-            if cleaned.is_empty() || is_junk_genre(&cleaned) {
-                continue;
-            }
-            let key = cleaned.to_lowercase();
-            if !out.iter().any(|g| g.to_lowercase() == key) {
-                out.push(cleaned);
-            }
-        }
-    }
-    out
-}
-
-fn is_junk_genre(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    matches!(
-        lower.as_str(),
-        "album"
-            | "unknown"
-            | "unknown genre"
-            | "other"
-            | "various"
-            | "various artists"
-            | "genre"
-            | "none"
-            | "no genre"
-            | "misc"
-    ) || lower.chars().all(|c| c.is_ascii_digit())
 }
 
 fn is_dsd_extension(path: &Path) -> bool {

@@ -1,6 +1,7 @@
 pub mod adoption;
 pub mod album_artists;
 pub mod error;
+pub mod genres;
 pub mod migrations;
 pub mod models;
 pub mod remote;
@@ -10,11 +11,12 @@ pub mod thumbnail;
 
 pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
+pub use genres::normalize_genres;
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    LocalFolder, NewTrack, PlayTally, Playlist, PlaylistSummary, RecentPlay, RemoteCover,
-    RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, SourceSummary, StoredLyrics,
-    Track, TrackListing, lyrics_source,
+    GenreSort, GenreSummary, LocalFolder, NewTrack, PlayTally, Playlist, PlaylistSummary,
+    RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack,
+    SourceSummary, StoredLyrics, Track, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, sha256_hex};
@@ -5088,5 +5090,244 @@ mod tests {
                  full-scans the history table once per deleted row"
             );
         }
+    }
+
+    fn genre_track(
+        path: &str,
+        album: Option<(&str, &str, Option<i32>)>,
+        track_number: u32,
+        genres: &[&str],
+    ) -> ScanTrack {
+        let (album_title, artist, year) = match album {
+            Some((title, artist, year)) => (Some(title.to_string()), artist, year),
+            None => (None, "Loner", None),
+        };
+        ScanTrack {
+            path: path.into(),
+            title: Some(path.into()),
+            file_size: Some(content_size(path)),
+            album_title,
+            artist_names: vec![artist.into()],
+            album_artist_names: vec![artist.into()],
+            track_number: Some(track_number),
+            disc_number: Some(1),
+            year,
+            genres: genres.iter().map(|g| g.to_string()).collect(),
+            duration_ms: Some(180_000),
+            ..Default::default()
+        }
+    }
+
+    fn genre_titles(lib: &SqliteLibrary, key: &str, sort: GenreSort) -> Vec<String> {
+        lib.tracks_by_genre(key, sort)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.title)
+            .collect()
+    }
+
+    #[test]
+    fn genres_merge_casing_and_count_each_track_once() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                genre_track("/m/a.flac", Some(("A", "Band", Some(2000))), 1, &["Rock"]),
+                genre_track(
+                    "/m/b.flac",
+                    Some(("A", "Band", Some(2000))),
+                    2,
+                    &["rock", "Jazz"],
+                ),
+                genre_track("/m/c.flac", Some(("A", "Band", Some(2000))), 3, &[]),
+                genre_track("/m/d.flac", Some(("A", "Band", Some(2000))), 4, &["Jazz"]),
+            ],
+        );
+
+        let genres = lib.genres().unwrap();
+        let listed: Vec<(&str, i64)> = genres
+            .iter()
+            .map(|g| (g.key.as_str(), g.track_count))
+            .collect();
+        assert_eq!(listed, vec![("jazz", 2), ("rock", 2)]);
+        assert_eq!(genres[1].name, "Rock", "shown under the first spelling met");
+    }
+
+    #[test]
+    fn a_genre_whose_tracks_are_gone_is_not_listed() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                genre_track("/m/a.flac", Some(("A", "Band", Some(2000))), 1, &["Rock"]),
+                genre_track("/m/b.flac", Some(("A", "Band", Some(2000))), 2, &["Jazz"]),
+            ],
+        );
+        scan(
+            &lib,
+            vec![genre_track(
+                "/m/a.flac",
+                Some(("A", "Band", Some(2000))),
+                1,
+                &["Rock"],
+            )],
+        );
+
+        let keys: Vec<String> = lib.genres().unwrap().into_iter().map(|g| g.key).collect();
+        assert_eq!(keys, vec!["rock".to_string()]);
+        assert!(
+            lib.tracks_by_genre("jazz", GenreSort::Artist)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::by_artist(
+        GenreSort::Artist,
+        &["/m/aardvark.flac", "/m/alpha.flac", "/m/beta-1990.flac", "/m/beta-2010-1.flac",
+          "/m/beta-2010-2.flac", "/m/loner.flac"]
+    )]
+    #[case::by_year(
+        GenreSort::Year,
+        &["/m/beta-1990.flac", "/m/alpha.flac", "/m/beta-2010-1.flac", "/m/beta-2010-2.flac",
+          "/m/aardvark.flac", "/m/loner.flac"]
+    )]
+    fn tracks_by_genre_keep_albums_whole_in_the_chosen_order(
+        #[case] sort: GenreSort,
+        #[case] expected: &[&str],
+    ) {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                genre_track(
+                    "/m/beta-2010-2.flac",
+                    Some(("Late", "Beta", Some(2010))),
+                    2,
+                    &["Rock"],
+                ),
+                genre_track(
+                    "/m/beta-2010-1.flac",
+                    Some(("Late", "Beta", Some(2010))),
+                    1,
+                    &["Rock"],
+                ),
+                genre_track("/m/loner.flac", None, 1, &["Rock"]),
+                genre_track(
+                    "/m/beta-1990.flac",
+                    Some(("Early", "Beta", Some(1990))),
+                    1,
+                    &["Rock"],
+                ),
+                genre_track(
+                    "/m/aardvark.flac",
+                    Some(("Undated", "Aardvark", None)),
+                    1,
+                    &["Rock"],
+                ),
+                genre_track(
+                    "/m/alpha.flac",
+                    Some(("Mid", "Alpha", Some(2000))),
+                    1,
+                    &["Rock"],
+                ),
+                genre_track(
+                    "/m/alpha-jazz.flac",
+                    Some(("Mid", "Alpha", Some(2000))),
+                    2,
+                    &["Jazz"],
+                ),
+            ],
+        );
+        lib.resolve_album_artists().unwrap();
+
+        assert_eq!(genre_titles(&lib, "rock", sort), expected);
+    }
+
+    #[test]
+    fn tracks_by_genre_resolve_by_the_lowercased_key() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                genre_track("/m/a.flac", Some(("A", "Band", Some(2000))), 1, &["ROCK"]),
+                genre_track("/m/b.flac", Some(("A", "Band", Some(2000))), 2, &["Rock"]),
+            ],
+        );
+
+        assert_eq!(
+            genre_titles(&lib, "rock", GenreSort::Artist),
+            vec!["/m/a.flac".to_string(), "/m/b.flac".to_string()]
+        );
+        assert!(genre_titles(&lib, "Rock", GenreSort::Artist).is_empty());
+        assert!(genre_titles(&lib, "polka", GenreSort::Artist).is_empty());
+    }
+
+    #[test]
+    fn genre_covers_are_capped_at_three_most_used_album_first() {
+        let (lib, _path) = create_test_db();
+        let cover = |rgb: [u8; 3]| {
+            lib.save_cover_art(&make_test_jpeg(&rgb), "/music/a.flac", true)
+                .unwrap()
+        };
+        let (c1, c2, c3, c4) = (
+            cover([255, 0, 0]),
+            cover([0, 255, 0]),
+            cover([0, 0, 255]),
+            cover([128, 128, 0]),
+        );
+        let artist = lib.upsert_artist("Band").unwrap();
+        let mut n = 0;
+        let mut add = |title: &str, cover: Option<i64>, tracks: usize, genre: &str| {
+            let album = lib.upsert_album(title, Some(2000), cover).unwrap();
+            for _ in 0..tracks {
+                n += 1;
+                let path = format!("/m/{n}.flac");
+                let id = insert_album_track(&lib, &path, Some(album), Some(n), &[(artist, 0)]);
+                lib.set_track_genres(id, &[genre.to_string()]).unwrap();
+            }
+        };
+        add("B", Some(c2), 1, "Rock");
+        add("A", Some(c1), 3, "Rock");
+        add("D", Some(c4), 1, "Rock");
+        add("C", Some(c3), 2, "Rock");
+        add("Bare", None, 2, "Jazz");
+
+        let covers = lib.genre_album_covers().unwrap();
+        assert_eq!(covers.get("rock"), Some(&vec![c1, c3, c2]));
+        assert!(!covers.contains_key("jazz"));
+    }
+
+    #[test]
+    fn a_server_genre_list_is_split_like_a_file_tag() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let mut song = remote_song("k", "Song");
+        song.genre = Some("Rock; Pop/rock, Unknown".into());
+        lib.apply_remote_listing(source, &[song], &[]).unwrap();
+        scan(&lib, vec![]);
+
+        let id = id_of_title(&lib, "Song");
+        assert_eq!(
+            lib.track_genres(id).unwrap(),
+            vec!["Rock".to_string(), "Pop".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_genre_on_a_track_without_an_album_leaves_album_genres_intact() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                genre_track("/m/a.flac", Some(("A", "Band", Some(2000))), 1, &["Rock"]),
+                genre_track("/m/loner.flac", None, 1, &["Jazz"]),
+            ],
+        );
+
+        let map = lib.album_genres_map().unwrap();
+        let album = lib.albums().unwrap().into_iter().find(|a| a.title == "A");
+        assert_eq!(map.get(&album.unwrap().id), Some(&vec!["Rock".to_string()]));
     }
 }

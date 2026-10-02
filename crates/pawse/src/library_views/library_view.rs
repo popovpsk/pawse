@@ -5,8 +5,9 @@ use gpui::{
 use gpui_component::v_flex;
 
 use crate::library_views::albums_view::{AlbumSelectedEvent, AlbumsView, OpenLibrarySettings};
-use crate::library_views::artist_tracks_view::ArtistTracksView;
 use crate::library_views::artists_view::{ArtistSelectedEvent, ArtistsView};
+use crate::library_views::genres_view::{GenreSelectedEvent, GenresView};
+use crate::library_views::grouped_tracks_view::GroupedTracksView;
 use crate::library_views::liked_view::LikedView;
 use crate::library_views::playlist_tracks_view::PlaylistTracksView;
 use crate::library_views::playlists_view::{
@@ -30,6 +31,7 @@ pub enum LibraryViewEvent {
 pub enum LibraryRootTab {
     Albums,
     Artists,
+    Genres,
     Liked,
     Playlists,
 }
@@ -41,16 +43,26 @@ enum NavEntry {
         _sub: Subscription,
     },
     ArtistTracks {
-        view: Entity<ArtistTracksView>,
-        _sub: Subscription,
+        view: Entity<GroupedTracksView>,
+        _subs: [Subscription; 2],
+    },
+    GenreTracks {
+        view: Entity<GroupedTracksView>,
+        _subs: [Subscription; 2],
     },
     PlaylistTracks(Entity<PlaylistTracksView>),
+}
+
+struct GenresRoot {
+    view: Entity<GenresView>,
+    _subs: [Subscription; 2],
 }
 
 pub struct LibraryView {
     stack: Vec<NavEntry>,
     albums_view: Entity<AlbumsView>,
     artists_view: Entity<ArtistsView>,
+    genres: Option<GenresRoot>,
     liked_view: Entity<LikedView>,
     playlists_view: Entity<PlaylistsView>,
     _album_subscription: Subscription,
@@ -108,11 +120,17 @@ impl LibraryView {
             let store = cx.global::<SettingsStore>();
             let liked = store.liked_enabled();
             let playlists = store.playlists_enabled();
+            let genres = store.genres_enabled();
+            if !genres {
+                this.genres = None;
+            }
             let before = this.stack.len();
             this.stack.retain(|entry| match entry {
                 NavEntry::Root(LibraryRootTab::Liked) => liked,
                 NavEntry::Root(LibraryRootTab::Playlists) => playlists,
                 NavEntry::PlaylistTracks(_) => playlists,
+                NavEntry::Root(LibraryRootTab::Genres) => genres,
+                NavEntry::GenreTracks { .. } => genres,
                 _ => true,
             });
             if this.stack.len() == before {
@@ -129,6 +147,7 @@ impl LibraryView {
             stack: vec![NavEntry::Root(LibraryRootTab::Albums)],
             albums_view,
             artists_view,
+            genres: None,
             liked_view,
             playlists_view,
             _album_subscription: album_subscription,
@@ -160,6 +179,9 @@ impl LibraryView {
         if same_root {
             return;
         }
+        if tab == LibraryRootTab::Genres {
+            self.ensure_genres_view(cx);
+        }
         self.stack = vec![NavEntry::Root(tab)];
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
@@ -174,6 +196,11 @@ impl LibraryView {
                 self.artists_view
                     .update(cx, |v, cx| v.set_filter(query, cx));
             }
+            Some(NavEntry::Root(LibraryRootTab::Genres)) => {
+                if let Some(genres) = &self.genres {
+                    genres.view.update(cx, |v, cx| v.set_filter(query, cx));
+                }
+            }
             Some(NavEntry::Root(LibraryRootTab::Liked)) => {
                 self.liked_view.update(cx, |v, cx| v.set_filter(query, cx));
             }
@@ -184,7 +211,7 @@ impl LibraryView {
             Some(NavEntry::AlbumTracks { view, .. }) => {
                 view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            Some(NavEntry::ArtistTracks { view, .. }) => {
+            Some(NavEntry::ArtistTracks { view, .. } | NavEntry::GenreTracks { view, .. }) => {
                 view.update(cx, |v, cx| v.set_filter(query, cx));
             }
             Some(NavEntry::PlaylistTracks(view)) => {
@@ -245,13 +272,51 @@ impl LibraryView {
         grouping: ArtistGrouping,
         cx: &mut Context<Self>,
     ) {
-        let view = cx.new(|cx| ArtistTracksView::new(&artist, grouping, cx));
-        let sub = cx.subscribe(&view, |this, _, event: &NavigateToAlbumRequested, cx| {
-            this.navigate_to_album(event.album_id, cx);
-        });
-        self.stack.push(NavEntry::ArtistTracks { view, _sub: sub });
+        let view = cx.new(|cx| GroupedTracksView::artist(&artist, grouping, cx));
+        let subs = Self::grouped_tracks_subscriptions(&view, cx);
+        self.stack
+            .push(NavEntry::ArtistTracks { view, _subs: subs });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
+    }
+
+    fn show_genre_tracks(&mut self, genre: music_library::GenreSummary, cx: &mut Context<Self>) {
+        let sort = cx.global::<SettingsStore>().genres_sort();
+        let view = cx.new(|cx| GroupedTracksView::genre(&genre, sort, cx));
+        let subs = Self::grouped_tracks_subscriptions(&view, cx);
+        self.stack.push(NavEntry::GenreTracks { view, _subs: subs });
+        cx.emit(LibraryViewEvent::StateChanged);
+        cx.notify();
+    }
+
+    fn grouped_tracks_subscriptions(
+        view: &Entity<GroupedTracksView>,
+        cx: &mut Context<Self>,
+    ) -> [Subscription; 2] {
+        [
+            cx.subscribe(view, |this, _, event: &NavigateToAlbumRequested, cx| {
+                this.navigate_to_album(event.album_id, cx);
+            }),
+            cx.subscribe(view, |this, _, event: &NavigateToArtistRequested, cx| {
+                this.navigate_to_artist(event.artist_id, cx);
+            }),
+        ]
+    }
+
+    fn ensure_genres_view(&mut self, cx: &mut Context<Self>) {
+        if self.genres.is_some() {
+            return;
+        }
+        let view = cx.new(GenresView::new);
+        let subs = [
+            cx.subscribe(&view, |this, _, event: &GenreSelectedEvent, cx| {
+                this.show_genre_tracks(event.genre.clone(), cx);
+            }),
+            cx.subscribe(&view, |_, _, _: &OpenLibrarySettings, cx| {
+                cx.emit(LibraryViewEvent::OpenLibrarySettings);
+            }),
+        ];
+        self.genres = Some(GenresRoot { view, _subs: subs });
     }
 
     fn show_playlist_tracks(
@@ -294,6 +359,10 @@ impl Render for LibraryView {
             Some(NavEntry::Root(LibraryRootTab::Artists)) => {
                 v_flex().size_full().child(self.artists_view.clone())
             }
+            Some(NavEntry::Root(LibraryRootTab::Genres)) => match &self.genres {
+                Some(genres) => v_flex().size_full().child(genres.view.clone()),
+                None => v_flex().size_full(),
+            },
             Some(NavEntry::Root(LibraryRootTab::Liked)) => {
                 v_flex().size_full().child(self.liked_view.clone())
             }
@@ -301,7 +370,9 @@ impl Render for LibraryView {
                 v_flex().size_full().child(self.playlists_view.clone())
             }
             Some(NavEntry::AlbumTracks { view, .. }) => v_flex().size_full().child(view.clone()),
-            Some(NavEntry::ArtistTracks { view, .. }) => v_flex().size_full().child(view.clone()),
+            Some(NavEntry::ArtistTracks { view, .. } | NavEntry::GenreTracks { view, .. }) => {
+                v_flex().size_full().child(view.clone())
+            }
             Some(NavEntry::PlaylistTracks(view)) => v_flex().size_full().child(view.clone()),
             None => v_flex().size_full(),
         })

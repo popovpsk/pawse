@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -11,7 +11,9 @@ use gpui::{
     anchored, deferred, div, point, px, size, svg,
 };
 use gpui_component::{
-    VirtualListScrollHandle, h_flex,
+    Selectable, Sizable, VirtualListScrollHandle,
+    button::{Button, ButtonGroup},
+    h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
     tooltip::Tooltip,
     v_flex, v_virtual_list,
@@ -26,20 +28,20 @@ use crate::track_list::{
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
-use crate::library_service::LibraryEvent;
+use crate::library_service::{LibraryEvent, LibraryService};
 use crate::library_views::fuzzy::fuzzy_scored;
 use crate::localization::{LangChanged, tr};
-use crate::now_playing::NavigateToAlbumRequested;
+use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::services::Services;
-use crate::settings_store::SettingsStore;
-use music_library::ArtistGrouping;
+use crate::settings_store::{SettingsStore, notify_save_error};
+use music_library::{ArtistGrouping, GenreSort};
 
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const ALBUM_COVER_SIZE: f32 = 60.;
 const QUEUE_BTN_SIZE: f32 = 34.;
 const QUEUE_ICON_SIZE: f32 = 20.;
 const ALBUM_MENU_WIDTH: f32 = 240.;
-const ARTIST_HEADER_HEIGHT: f32 = 48.;
+const PAGE_HEADER_HEIGHT: f32 = 48.;
 const ALBUM_HEADER_HEIGHT: f32 = 84.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
 const DISC_HEADER_GAP: f32 = 24.;
@@ -65,6 +67,7 @@ impl TrackRow {
 struct AlbumGroup {
     album_id: Option<i64>,
     album_title: SharedString,
+    artist: Option<(i64, SharedString)>,
     year_label: Option<SharedString>,
     cover: Option<Arc<Image>>,
     tracks: Vec<TrackRow>,
@@ -78,19 +81,44 @@ struct AlbumMenu {
     anchor: Point<Pixels>,
 }
 
+struct AlbumMeta {
+    title: SharedString,
+    artist: Option<(i64, SharedString)>,
+}
+
 #[derive(Clone)]
 enum ItemKind {
-    ArtistHeader,
+    PageHeader,
     AlbumHeader(usize),
     DiscHeader(SharedString, bool),
     Track(usize, usize),
 }
 
-pub struct ArtistTracksView {
-    artist_id: i64,
-    artist_name: SharedString,
-    grouping: ArtistGrouping,
+enum Scope {
+    Artist { id: i64, grouping: ArtistGrouping },
+    Genre { key: String, sort: GenreSort },
+}
+
+impl Scope {
+    fn fetch(&self, library: &LibraryService) -> Vec<Rc<music_library::Track>> {
+        let tracks = match self {
+            Scope::Artist { id, grouping } => library.tracks_by_artist(*id, *grouping),
+            Scope::Genre { key, sort } => library.tracks_by_genre(key, *sort),
+        };
+        tracks.into_iter().map(Rc::new).collect()
+    }
+
+    fn is_genre(&self) -> bool {
+        matches!(self, Scope::Genre { .. })
+    }
+}
+
+pub struct GroupedTracksView {
+    scope: Scope,
+    title: SharedString,
     tracks_all: Vec<Rc<music_library::Track>>,
+    albums: HashMap<i64, AlbumMeta>,
+    haystacks: Vec<String>,
     groups: Vec<AlbumGroup>,
     items: Vec<ItemKind>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
@@ -111,28 +139,56 @@ pub struct ArtistTracksView {
     _lang_subscription: Subscription,
 }
 
-impl ArtistTracksView {
-    pub fn new(
+impl GroupedTracksView {
+    pub fn artist(
         artist: &music_library::ArtistSummary,
         grouping: ArtistGrouping,
         cx: &mut Context<Self>,
     ) -> Self {
+        let scope = Scope::Artist {
+            id: artist.id,
+            grouping,
+        };
+        Self::new(scope, artist.name.clone().into(), cx)
+    }
+
+    pub fn genre(
+        genre: &music_library::GenreSummary,
+        sort: GenreSort,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let scope = Scope::Genre {
+            key: genre.key.clone(),
+            sort,
+        };
+        Self::new(scope, genre.name.clone().into(), cx)
+    }
+
+    fn new(scope: Scope, title: SharedString, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
         let engine_event_bus = services.engine_event_bus.clone();
         let library_event_bus = services.library_event_bus.clone();
         let lang_event_bus = services.lang_event_bus.clone();
-        let tracks_all: Vec<Rc<_>> = services
-            .library
-            .tracks_by_artist(artist.id, grouping)
-            .into_iter()
-            .map(Rc::new)
-            .collect();
+        let tracks_all = scope.fetch(&services.library);
+        let albums = album_meta(&services.library);
+        let haystacks = build_haystacks(&scope, &tracks_all, &albums);
 
         let groups = {
             let mut cache = services.cover_art_cache.borrow_mut();
-            Self::group_by_album(&tracks_all, &services.library, &mut cache)
+            group_runs(
+                &tracks_all,
+                0..tracks_all.len(),
+                &albums,
+                scope.is_genre(),
+                &services.library,
+                &mut cache,
+            )
         };
-        let partial_albums = Self::compute_partial_albums(&tracks_all, &services.library);
+        let partial_albums = if scope.is_genre() {
+            HashSet::new()
+        } else {
+            Self::compute_partial_albums(&tracks_all, &services.library)
+        };
         let (items, sizes) = Self::build_items(&groups, tr());
 
         let current_track_id = services
@@ -216,10 +272,11 @@ impl ArtistTracksView {
             }
             cx.notify();
         });
-        let missing_in_cache = crate::cache_fill::has_missing(
-            tracks_all.iter().map(|t| &**t),
-            &cx.global::<Services>().remote_media,
-        );
+        let missing_in_cache = !scope.is_genre()
+            && crate::cache_fill::has_missing(
+                tracks_all.iter().map(|t| &**t),
+                &cx.global::<Services>().remote_media,
+            );
 
         let scroll_handle = VirtualListScrollHandle::new();
         if let Some(track_id) = current_track_id
@@ -232,10 +289,11 @@ impl ArtistTracksView {
         }
 
         Self {
-            artist_id: artist.id,
-            artist_name: artist.name.clone().into(),
-            grouping,
+            scope,
+            title,
             tracks_all,
+            albums,
+            haystacks,
             groups,
             items,
             item_sizes: Rc::new(sizes),
@@ -276,43 +334,12 @@ impl ArtistTracksView {
             .collect()
     }
 
-    fn group_by_album(
-        tracks: &[Rc<music_library::Track>],
-        library: &crate::library_service::LibraryService,
-        cover_cache: &mut CoverArtCache,
-    ) -> Vec<AlbumGroup> {
-        let mut groups: Vec<AlbumGroup> = Vec::new();
-        for (ix, track) in tracks.iter().enumerate() {
-            let album_id = track.album_id;
-            if let Some(last) = groups.last_mut()
-                && last.album_id == album_id
-            {
-                last.tracks.push(TrackRow::from_track(track));
-                last.global_indices.push(ix);
-                continue;
-            }
-            let album_title = album_id
-                .and_then(|id| library.album_title(id))
-                .unwrap_or_else(|| "Unknown".to_string());
-            let cover = cover_cache.get_small(track.cover_art_id, library);
-            groups.push(AlbumGroup {
-                album_id,
-                album_title: album_title.into(),
-                year_label: track.year.map(|y| y.to_string().into()),
-                cover,
-                tracks: vec![TrackRow::from_track(track)],
-                global_indices: vec![ix],
-            });
-        }
-        groups
-    }
-
     fn build_items(
         groups: &[AlbumGroup],
         strings: &ui_resources::i18n::Strings,
     ) -> (Vec<ItemKind>, Vec<Size<Pixels>>) {
-        let mut items = vec![ItemKind::ArtistHeader];
-        let mut sizes = vec![size(px(300.), px(ARTIST_HEADER_HEIGHT))];
+        let mut items = vec![ItemKind::PageHeader];
+        let mut sizes = vec![size(px(300.), px(PAGE_HEADER_HEIGHT))];
         for (g_ix, g) in groups.iter().enumerate() {
             items.push(ItemKind::AlbumHeader(g_ix));
             sizes.push(size(px(300.), px(ALBUM_HEADER_HEIGHT + 1.)));
@@ -354,57 +381,43 @@ impl ArtistTracksView {
         let services = cx.global::<Services>();
         let library = services.library.clone();
         let mut cover_cache = services.cover_art_cache.borrow_mut();
-        if self.filter.is_empty() {
-            self.groups = Self::group_by_album(&self.tracks_all, &library, &mut cover_cache);
+        let with_artist = self.scope.is_genre();
+        self.groups = if self.filter.is_empty() {
+            group_runs(
+                &self.tracks_all,
+                0..self.tracks_all.len(),
+                &self.albums,
+                with_artist,
+                &library,
+                &mut cover_cache,
+            )
         } else {
             let matches = fuzzy_scored(
                 &mut self.matcher,
                 &self.filter,
-                self.tracks_all
-                    .iter()
-                    .enumerate()
-                    .map(|(ix, t)| (ix, t.title.as_str())),
+                self.tracks_all.iter().enumerate().map(|(ix, t)| {
+                    let hay = self.haystacks.get(ix).unwrap_or(&t.title);
+                    (ix, hay.as_str())
+                }),
             );
-
-            let mut groups: Vec<AlbumGroup> = Vec::new();
-            for (global_ix, _) in matches {
-                let track = &self.tracks_all[global_ix];
-                let album_id = track.album_id;
-                if let Some(last) = groups.last_mut()
-                    && last.album_id == album_id
-                {
-                    last.tracks.push(TrackRow::from_track(track));
-                    last.global_indices.push(global_ix);
-                    continue;
-                }
-                let album_title = album_id
-                    .and_then(|id| library.album_title(id))
-                    .unwrap_or_else(|| "Unknown".to_string());
-                let cover = cover_cache.get_small(track.cover_art_id, &library);
-                groups.push(AlbumGroup {
-                    album_id,
-                    album_title: album_title.into(),
-                    year_label: track.year.map(|y| y.to_string().into()),
-                    cover,
-                    tracks: vec![TrackRow::from_track(track)],
-                    global_indices: vec![global_ix],
-                });
-            }
-            self.groups = groups;
-        }
-        let strings = tr();
-        let (items, sizes) = Self::build_items(&self.groups, strings);
+            group_runs(
+                &self.tracks_all,
+                matches.into_iter().map(|(ix, _)| ix),
+                &self.albums,
+                with_artist,
+                &library,
+                &mut cover_cache,
+            )
+        };
+        drop(cover_cache);
+        let (items, sizes) = Self::build_items(&self.groups, tr());
         self.items = items;
         self.item_sizes = Rc::new(sizes);
     }
 
     fn rebuild_source(&mut self, cx: &mut Context<Self>) {
         let library = cx.global::<Services>().library.clone();
-        let artist_tracks: Vec<Rc<music_library::Track>> = library
-            .tracks_by_artist(self.artist_id, self.grouping)
-            .into_iter()
-            .map(Rc::new)
-            .collect();
+        let artist_tracks = self.scope.fetch(&library);
         if self.show_full_albums && !self.partial_albums.is_empty() {
             let mut combined: Vec<Rc<music_library::Track>> = Vec::new();
             let mut i = 0;
@@ -426,30 +439,139 @@ impl ArtistTracksView {
         } else {
             self.tracks_all = artist_tracks;
         }
+        self.albums = album_meta(&library);
+        self.haystacks = build_haystacks(&self.scope, &self.tracks_all, &self.albums);
         self.album_menu = None;
         self.refresh_missing_in_cache(cx);
         self.recompute_groups(cx);
     }
 
     fn refresh_missing_in_cache(&mut self, cx: &App) {
-        self.missing_in_cache = crate::cache_fill::has_missing(
-            self.tracks_all.iter().map(|t| &**t),
-            &cx.global::<Services>().remote_media,
-        );
+        self.missing_in_cache = !self.scope.is_genre()
+            && crate::cache_fill::has_missing(
+                self.tracks_all.iter().map(|t| &**t),
+                &cx.global::<Services>().remote_media,
+            );
+    }
+
+    fn set_genre_sort(&mut self, sort: GenreSort, cx: &mut Context<Self>) {
+        let Scope::Genre { sort: current, .. } = &mut self.scope else {
+            return;
+        };
+        if *current == sort {
+            return;
+        }
+        *current = sort;
+        if let Err(e) = cx.global_mut::<SettingsStore>().set_genres_sort(sort) {
+            notify_save_error(cx, e);
+        }
+        self.rebuild_source(cx);
+        self.scroll_handle
+            .scroll_to_item(0, gpui::ScrollStrategy::Top);
+        cx.notify();
     }
 
     fn header_name(&self) -> SharedString {
-        if self.artist_id == music_library::NO_METADATA_ARTIST_ID {
-            tr().no_metadata.clone()
-        } else {
-            self.artist_name.clone()
+        match self.scope {
+            Scope::Artist { id, .. } if id == music_library::NO_METADATA_ARTIST_ID => {
+                tr().no_metadata.clone()
+            }
+            _ => self.title.clone(),
+        }
+    }
+
+    fn empty_message(&self) -> SharedString {
+        match self.scope {
+            Scope::Artist { .. } => tr().no_tracks_for_artist.clone(),
+            Scope::Genre { .. } => tr().no_tracks_for_genre.clone(),
         }
     }
 }
 
-impl EventEmitter<NavigateToAlbumRequested> for ArtistTracksView {}
+fn album_meta(library: &LibraryService) -> HashMap<i64, AlbumMeta> {
+    library
+        .albums()
+        .into_iter()
+        .map(|album| {
+            let artist = album
+                .artist_id
+                .map(|id| (id, SharedString::from(album.artist_name)));
+            let meta = AlbumMeta {
+                title: album.title.into(),
+                artist,
+            };
+            (album.id, meta)
+        })
+        .collect()
+}
 
-impl Render for ArtistTracksView {
+fn build_haystacks(
+    scope: &Scope,
+    tracks: &[Rc<music_library::Track>],
+    albums: &HashMap<i64, AlbumMeta>,
+) -> Vec<String> {
+    if !scope.is_genre() {
+        return Vec::new();
+    }
+    tracks
+        .iter()
+        .map(|track| {
+            let mut hay = track.title.clone();
+            if let Some(meta) = track.album_id.and_then(|id| albums.get(&id)) {
+                hay.push(' ');
+                hay.push_str(&meta.title);
+                if let Some((_, artist)) = &meta.artist {
+                    hay.push(' ');
+                    hay.push_str(artist);
+                }
+            }
+            hay
+        })
+        .collect()
+}
+
+fn group_runs(
+    tracks: &[Rc<music_library::Track>],
+    indices: impl IntoIterator<Item = usize>,
+    albums: &HashMap<i64, AlbumMeta>,
+    with_artist: bool,
+    library: &LibraryService,
+    cover_cache: &mut CoverArtCache,
+) -> Vec<AlbumGroup> {
+    let mut groups: Vec<AlbumGroup> = Vec::new();
+    for ix in indices {
+        let track = &tracks[ix];
+        let album_id = track.album_id;
+        if let Some(last) = groups.last_mut()
+            && last.album_id == album_id
+        {
+            last.tracks.push(TrackRow::from_track(track));
+            last.global_indices.push(ix);
+            continue;
+        }
+        let meta = album_id.and_then(|id| albums.get(&id));
+        let album_title = meta
+            .map(|m| m.title.clone())
+            .unwrap_or_else(|| SharedString::new_static("Unknown"));
+        let artist = meta.filter(|_| with_artist).and_then(|m| m.artist.clone());
+        let cover = cover_cache.get_small(track.cover_art_id, library);
+        groups.push(AlbumGroup {
+            album_id,
+            album_title,
+            artist,
+            year_label: track.year.map(|y| y.to_string().into()),
+            cover,
+            tracks: vec![TrackRow::from_track(track)],
+            global_indices: vec![ix],
+        });
+    }
+    groups
+}
+
+impl EventEmitter<NavigateToAlbumRequested> for GroupedTracksView {}
+impl EventEmitter<NavigateToArtistRequested> for GroupedTracksView {}
+
+impl Render for GroupedTracksView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let border = Colors::border(cx);
         let list_hover = Colors::list_hover(cx);
@@ -466,14 +588,14 @@ impl Render for ArtistTracksView {
         if self.tracks_all.is_empty() {
             return v_flex()
                 .size_full()
-                .child(artist_header_static(self.header_name()))
-                .child(div().px_4().child(tr().no_tracks_for_artist.clone()));
+                .child(page_header_static(self.header_name()))
+                .child(div().px_4().child(self.empty_message()));
         }
 
         if self.groups.is_empty() {
             return v_flex()
                 .size_full()
-                .child(artist_header_static(self.header_name()))
+                .child(page_header_static(self.header_name()))
                 .child(div().px_4().child(tr().no_tracks_match.clone()));
         }
 
@@ -494,12 +616,12 @@ impl Render for ArtistTracksView {
             .child(
                 v_virtual_list(
                     cx.entity().clone(),
-                    "artist_tracks_list",
+                    "grouped_tracks_list",
                     item_sizes,
                     move |view, visible_range, _window, cx| {
                         visible_range
                             .map(|ix| match &view.items[ix] {
-                                ItemKind::ArtistHeader => artist_header(view, muted_fg, cx),
+                                ItemKind::PageHeader => page_header(view, muted_fg, cx),
                                 ItemKind::DiscHeader(disc, gap) => {
                                     artist_disc_header(disc.clone(), *gap, border, muted_fg)
                                 }
@@ -563,13 +685,13 @@ fn artist_disc_header(
 }
 
 fn artist_album_header(
-    view: &mut ArtistTracksView,
+    view: &mut GroupedTracksView,
     g_ix: usize,
     border: gpui::Hsla,
     fallback_bg: gpui::Hsla,
     fallback_fg: gpui::Hsla,
     muted_fg: gpui::Hsla,
-    cx: &mut Context<ArtistTracksView>,
+    cx: &mut Context<GroupedTracksView>,
 ) -> gpui::AnyElement {
     let group = &view.groups[g_ix];
     let cover_el = cover_thumb(
@@ -602,6 +724,19 @@ fn artist_album_header(
             .child(label)
             .into_any_element(),
     };
+    let artist_el = group.artist.clone().map(|(artist_id, name)| {
+        div()
+            .id(("grouped_album_artist", g_ix))
+            .cursor_pointer()
+            .border_b(px(1.))
+            .hover(|s| s.border_color(muted_fg))
+            .on_click(cx.listener(move |_, _, _, cx| {
+                cx.emit(NavigateToArtistRequested { artist_id });
+            }))
+            .child(name)
+    });
+    let has_artist = artist_el.is_some();
+    let has_year = year.is_some();
     let trigger_hover = Colors::muted(cx);
     let menu_album = if view.show_full_albums {
         None
@@ -623,8 +758,16 @@ fn artist_album_header(
                 .overflow_hidden()
                 .gap_1()
                 .child(h_flex().text_lg().child(title_el))
-                .when_some(year, |el, year| {
-                    el.child(div().text_sm().text_color(muted_fg).child(year))
+                .when(has_artist || has_year, |el| {
+                    el.child(
+                        h_flex()
+                            .gap_1()
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .when_some(artist_el, |el, artist| el.child(artist))
+                            .when(has_artist && has_year, |el| el.child("·"))
+                            .when_some(year, |el, year| el.child(year)),
+                    )
                 }),
         )
         .child(album_queue_trigger(
@@ -642,7 +785,7 @@ fn album_queue_trigger(
     menu_album: Option<i64>,
     icon_color: Hsla,
     hover_bg: Hsla,
-    cx: &mut Context<ArtistTracksView>,
+    cx: &mut Context<GroupedTracksView>,
 ) -> Stateful<Div> {
     let base = div()
         .id(("artist-album-queue", g_ix))
@@ -683,7 +826,7 @@ fn album_menu_overlay(
     border: Hsla,
     foreground: Hsla,
     hover_bg: Hsla,
-    cx: &mut Context<ArtistTracksView>,
+    cx: &mut Context<GroupedTracksView>,
 ) -> gpui::AnyElement {
     let album_id = menu.album_id;
     let backdrop = div()
@@ -759,7 +902,7 @@ fn album_menu_overlay(
         .into_any_element()
 }
 
-fn group_tracks(view: &ArtistTracksView, g_ix: usize) -> Vec<Rc<music_library::Track>> {
+fn group_tracks(view: &GroupedTracksView, g_ix: usize) -> Vec<Rc<music_library::Track>> {
     let Some(group) = view.groups.get(g_ix) else {
         return Vec::new();
     };
@@ -771,7 +914,7 @@ fn group_tracks(view: &ArtistTracksView, g_ix: usize) -> Vec<Rc<music_library::T
 }
 
 fn artist_tracks_for_album(
-    view: &ArtistTracksView,
+    view: &GroupedTracksView,
     album_id: i64,
 ) -> Vec<Rc<music_library::Track>> {
     view.tracks_all
@@ -821,11 +964,11 @@ struct ArtistTrackRowParams {
 }
 
 fn artist_track_row(
-    view: &mut ArtistTracksView,
+    view: &mut GroupedTracksView,
     g_ix: usize,
     t_ix: usize,
     p: &ArtistTrackRowParams,
-    cx: &mut Context<ArtistTracksView>,
+    cx: &mut Context<GroupedTracksView>,
 ) -> gpui::AnyElement {
     let group = &view.groups[g_ix];
     let track = &group.tracks[t_ix];
@@ -902,17 +1045,47 @@ fn artist_track_row(
         .into_any_element()
 }
 
-fn artist_header(
-    view: &ArtistTracksView,
+fn page_header(
+    view: &GroupedTracksView,
     muted_fg: Hsla,
-    cx: &mut Context<ArtistTracksView>,
+    cx: &mut Context<GroupedTracksView>,
 ) -> gpui::AnyElement {
-    let target = crate::cache_fill::FillTarget::Artist(view.artist_id);
+    let title = div()
+        .flex_1()
+        .min_w(px(0.))
+        .overflow_hidden()
+        .text_ellipsis()
+        .text_xl()
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(view.header_name());
+    let row = h_flex()
+        .w_full()
+        .h(px(PAGE_HEADER_HEIGHT))
+        .pl_4()
+        .pr_6()
+        .gap_3()
+        .items_center()
+        .child(title);
+    match &view.scope {
+        Scope::Artist { id, .. } => artist_header_controls(row, view, *id, muted_fg, cx),
+        Scope::Genre { sort, .. } => row.child(genre_sort_switch(*sort, cx)),
+    }
+    .into_any_element()
+}
+
+fn artist_header_controls(
+    row: Div,
+    view: &GroupedTracksView,
+    artist_id: i64,
+    muted_fg: Hsla,
+    cx: &mut Context<GroupedTracksView>,
+) -> Div {
+    let target = crate::cache_fill::FillTarget::Artist(artist_id);
     let progress = cx.global::<Services>().cache_fill.read(cx).progress(target);
     let save_button = (view.missing_in_cache || progress.is_some()).then(|| {
         let view_handle = cx.entity().downgrade();
         crate::track_list::save_to_cache_button(
-            gpui::ElementId::NamedInteger("save-artist-to-cache".into(), view.artist_id as u64),
+            gpui::ElementId::NamedInteger("save-artist-to-cache".into(), artist_id as u64),
             progress,
             32.,
             20.,
@@ -930,23 +1103,7 @@ fn artist_header(
             },
         )
     });
-    let title = div()
-        .flex_1()
-        .min_w(px(0.))
-        .overflow_hidden()
-        .text_ellipsis()
-        .text_xl()
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(view.header_name());
-    h_flex()
-        .w_full()
-        .h(px(ARTIST_HEADER_HEIGHT))
-        .pl_4()
-        .pr_6()
-        .gap_3()
-        .items_center()
-        .child(title)
-        .when_some(save_button, |el, button| el.child(button))
+    row.when_some(save_button, |el, button| el.child(button))
         .when(!view.partial_albums.is_empty(), |el| {
             let on = view.show_full_albums;
             let primary = Colors::primary(cx);
@@ -956,10 +1113,34 @@ fn artist_header(
                 on, primary, primary_fg, muted_fg, accent, cx,
             ))
         })
-        .into_any_element()
 }
 
-fn toggle_full_albums(this: &mut ArtistTracksView, cx: &mut Context<ArtistTracksView>) {
+fn genre_sort_label(sort: GenreSort) -> SharedString {
+    match sort {
+        GenreSort::Artist => tr().genre_sort_artist.clone(),
+        GenreSort::Year => tr().genre_sort_year.clone(),
+    }
+}
+
+fn genre_sort_switch(current: GenreSort, cx: &mut Context<GroupedTracksView>) -> ButtonGroup {
+    let view = cx.entity().downgrade();
+    let mut group = ButtonGroup::new("genre-sort").small();
+    for (ix, sort) in GenreSort::ALL.into_iter().enumerate() {
+        group = group.child(
+            Button::new(("genre-sort", ix))
+                .label(genre_sort_label(sort))
+                .selected(current == sort),
+        );
+    }
+    group.on_click(move |clicks: &Vec<usize>, _, cx| {
+        let Some(&sort) = clicks.first().and_then(|&ix| GenreSort::ALL.get(ix)) else {
+            return;
+        };
+        let _ = view.update(cx, |view, cx| view.set_genre_sort(sort, cx));
+    })
+}
+
+fn toggle_full_albums(this: &mut GroupedTracksView, cx: &mut Context<GroupedTracksView>) {
     this.show_full_albums = !this.show_full_albums;
     this.rebuild_source(cx);
     cx.notify();
@@ -976,7 +1157,7 @@ fn full_albums_icon(
     primary_fg: Hsla,
     muted_fg: Hsla,
     accent: Hsla,
-    cx: &mut Context<ArtistTracksView>,
+    cx: &mut Context<GroupedTracksView>,
 ) -> Stateful<Div> {
     let icon_color = if on { primary_fg } else { muted_fg };
     div()
@@ -1005,7 +1186,7 @@ fn full_albums_icon(
         .tooltip(full_albums_tooltip)
 }
 
-fn artist_header_static(name: SharedString) -> gpui::Div {
+fn page_header_static(name: SharedString) -> gpui::Div {
     div().px_4().pt_3().pb_2().child(
         div()
             .text_xl()

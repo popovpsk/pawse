@@ -569,6 +569,22 @@ impl LibraryService {
             .unwrap_or_default()
     }
 
+    pub fn genres(&self) -> Vec<music_library::GenreSummary> {
+        self.repo.genres().unwrap_or_default()
+    }
+
+    pub fn genre_album_covers(&self) -> HashMap<String, Vec<i64>> {
+        self.repo.genre_album_covers().unwrap_or_default()
+    }
+
+    pub fn tracks_by_genre(
+        &self,
+        key: &str,
+        sort: music_library::GenreSort,
+    ) -> Vec<music_library::Track> {
+        self.repo.tracks_by_genre(key, sort).unwrap_or_default()
+    }
+
     pub fn liked_tracks(&self) -> Vec<music_library::Track> {
         self.repo.liked_tracks().unwrap_or_default()
     }

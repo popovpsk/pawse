@@ -1,7 +1,7 @@
 # library_views
 
 The library browsing UI: the root tab container and every screen reachable from
-it (albums, artists, liked, playlists) plus the drill-down track lists. All views
+it (albums, artists, genres, liked, playlists) plus the drill-down track lists. All views
 are GPUI entities that read from `LibraryService`, subscribe to `LibraryEventsBus`
 (scan/like/playlist changes) and `EngineEventsBus` (current track / playing), and
 drive the `PlaybackQueue` on click.
@@ -9,12 +9,17 @@ drive the `PlaybackQueue` on click.
 ## Files
 
 - `mod.rs` — module declarations only.
-- `library_view.rs` — root container. Holds the four root-tab views as long-lived
-  entities. Navigation is a back-stack `Vec<NavEntry>` (not a flat state machine):
+- `library_view.rs` — root container. Holds the root-tab views as long-lived
+  entities — except Genres, which is optional (Settings → Appearance, off by
+  default) and so is built on the first `select_tab(Genres)` and dropped when the
+  setting is turned off: nobody who never opens it pays for its queries and cover
+  loads at startup. Navigation is a back-stack `Vec<NavEntry>` (not a flat state machine):
   `stack[0]` is always the current `Root(LibraryRootTab)`; drill-downs
-  (`AlbumTracks`/`ArtistTracks`/`PlaylistTracks`) push a frame on top that *owns* the
-  live drill view, and the album/artist cross-nav `Subscription` lives in the frame
-  (so it dies with its view). `go_back` pops one frame; picking a tab resets the
+  (`AlbumTracks`/`ArtistTracks`/`GenreTracks`/`PlaylistTracks`) push a frame on top that *owns* the
+  live drill view, and the album/artist cross-nav `Subscription`s live in the frame
+  (so they die with their view). `ArtistTracks` and `GenreTracks` hold the same view
+  type; they are separate variants only so the settings observer can tell genre
+  frames apart. `go_back` pops one frame; picking a tab resets the
   stack to `[Root(tab)]`; jumps from footer/now-playing/cover-mode push frames that
   unwind on back. `navigate_to_artist` (those jumps, plus the album header's artist
   link) resolves the id with `artist_summary` in the configured grouping and falls
@@ -23,7 +28,7 @@ drive the `PlaybackQueue` on click.
   buried frames stay live (their like/track-change subscriptions keep them current)
   but unmounted, so they cost nothing per frame. `is_drilled_in() = stack.len() > 1`;
   `current_tab()` is `None` while drilled in (`MainView` keeps the prior tab lit).
-  Disabling Liked/Playlists in settings purges those frames, resetting to
+  Disabling Liked/Playlists/Genres in settings purges those frames, resetting to
   `[Root(Albums)]` if that breaks the `stack[0]`-is-`Root` invariant.
 - `albums_view.rs` — Albums tab. One entity, two layouts (`albums_layout`, Settings →
   Appearance → Albums view): `List` renders here, `Grid` (default) delegates to
@@ -183,8 +188,21 @@ drive the `PlaybackQueue` on click.
   It re-fetches on every `CatalogChanged`, which a tag edit sends too: a tag edit
   re-derives every album's artist, so rows and counts here move with no scan.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
-- `artist_tracks_view.rs` — all tracks of one artist, grouped by album. It is
-  constructed with the `ArtistGrouping` it should use and keeps it for its lifetime
+- `genres_view.rs` — Genres tab: virtualized list of every genre that still has a
+  track (`LibraryService::genres`, ordered by `genres.key`, i.e. the Rust-lowercased
+  name, which sorts non-ASCII correctly where SQLite's `NOCASE` would not), with the
+  same row shape as the Artists tab: a collage of up to three album covers
+  (`genre_album_covers` — the albums with the most tracks in that genre first, through
+  the same `artist_avatar`), the name and the track count. Filter matches the name.
+  Reloads on `CatalogChanged` (tag edits included). No "No genre" pseudo-row by
+  decision: in a poorly tagged library it would be the biggest row and a copy of All
+  tracks. When the library is empty it offers the library settings like the other
+  tabs; when it has music but no genre tags it only says so — adding folders would not
+  help.
+- `grouped_tracks_view.rs` — tracks grouped by album, for one artist or one genre
+  (`Scope::Artist { id, grouping }` / `Scope::Genre { key, sort }`). Everything
+  except the source query, the header and the partial-album machinery is shared.
+  **Artist page**: constructed with the `ArtistGrouping` it should use and keeps it for its lifetime
   (`rebuild_source` re-queries with the same one); flipping the setting does not
   rebuild an already open page, the list behind it reloads instead. An album
   the artist only partly appears on (their track count < the album's total) is
@@ -193,9 +211,32 @@ drive the `PlaybackQueue` on click.
   flipping it on re-fetches the source so partial albums expand to every track
   (`tracks_for_album`) — `tracks_all` is the playback/queue source, so it stays in
   sync — and suppresses the per-album queue menu (the displayed album is already full).
-  Each album header mirrors `album_info` at list scale (60 px cover, title over a
-  muted year, no artist line — it is the page's artist); the year string is
-  precomputed in `AlbumGroup::year_label` so the virtual-list closure doesn't format.
+  The save-to-cache button is artist-only too.
+  **Genre page**: holds the genre by `genres.key`, never by id — genre ids are not
+  kept across scans (see `music_library/src/doc.md`, "Stable album and artist ids"),
+  the key is. The header carries a segmented `[Artist | Year]` sort
+  (`GenreSort`); the choice is one global preference (`genres_sort` in
+  settings.json), so a click saves it, re-queries and scrolls to the top, and every
+  genre opens with it. The order is SQL-side (`tracks_by_genre`) and always keeps an
+  album's tracks contiguous, because grouping is by consecutive `album_id` runs: both
+  sorts key on the *album's* year and its position-0 album artist — never `t.year` or
+  a track artist — so they ignore `artists_grouping`, exactly like the Albums tab
+  (a per-track artist would scatter a compilation across the page). Year is oldest
+  first; undated albums, then tracks with no album, go last in both sorts. Album
+  headers here add the album artist before the year ("Artist · 1970"), the name
+  linking to that artist's page (`NavigateToArtistRequested`). No partial albums and
+  no Full-albums toggle — expanding an album to its non-genre tracks would contradict
+  the page — so the album queue button just appends the group. No save-to-cache either:
+  `FillTarget` is keyed by stable i64 ids, and a whole-genre fill would mostly hit the
+  "too big" dialog; a `FillTarget::Genre` keyed by the genre key is the follow-up if
+  wanted. Search matches title, album and album artist (the artist page: title only),
+  from haystacks built once per source load.
+  **Shared**: album titles and artists come from an `AlbumMeta` map built once per
+  source load from `albums()`, so regrouping on a filter keystroke does no database
+  reads (it used to query `album_title` per group per keystroke). Each album header
+  mirrors `album_info` at list scale (60 px cover, title over a muted subtitle); the
+  year string and artist are precomputed in `AlbumGroup` so the virtual-list closure
+  doesn't format.
 - `liked_view.rs` — the liked-tracks screen. Rows are drag-reorderable (only with
   an empty filter) via `LibraryService::move_liked_track`.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
@@ -253,7 +294,7 @@ drive the `PlaybackQueue` on click.
 - Shared row controls (like / queue / playlist buttons, `current_row` styling) live
   in `crate::track_list`, not here.
 - **Tag editor**: the per-row pencil is wired only into `tracks_view` and
-  `artist_tracks_view` (the album and artist screens) — deliberately *not* into
+  `grouped_tracks_view` (the album, artist and genre screens) — deliberately *not* into
   `liked_view`, `playlist_tracks_view` or the queue, which are playback-ordering
   screens. `album_info` carries the album-level pencil next to the add-album-to-queue
   button. All of them are gated on `tag_editor_enabled`, read once per render into the
@@ -521,9 +562,10 @@ worse).
 It is right-aligned on macOS and left-aligned elsewhere (opposite the window
 buttons) and hidden in fullscreen.
 
-The drill-down views (`tracks_view`, `artist_tracks_view`) are built once for an
-album or artist id and do not listen to either; they show what they were opened
+The drill-down views (`tracks_view`, `grouped_tracks_view`) are built once for an
+album, artist or genre and do not listen to either; they show what they were opened
 with until the user navigates. The ids they hold stay valid across rescans:
 the scan gives an album back its previous id (same title and year) and an
 artist too (same name), so a stale view never links to a different album (see
-`music_library/src/doc.md`, "Stable album and artist ids").
+`music_library/src/doc.md`, "Stable album and artist ids"). A genre page holds the
+genre's key instead, for the same reason.

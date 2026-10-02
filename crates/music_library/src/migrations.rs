@@ -467,4 +467,14 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         END;
         "#,
     ),
+    (
+        11,
+        r#"
+        DELETE FROM scan_meta WHERE key = 'fingerprint'
+        AND EXISTS (
+            SELECT 1 FROM remote_tracks
+            WHERE genre LIKE '%;%' OR genre LIKE '%,%' OR genre LIKE '%/%'
+        );
+        "#,
+    ),
 ];

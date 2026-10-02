@@ -28,7 +28,8 @@ own *parsing rules*. Either can change without touching the other.
   sources classify files the same way)/`FINGERPRINT_IMAGE_EXTENSIONS`/
   `FINGERPRINT_LYRICS_EXTENSIONS` lists and `INDEXER_FORMAT_VERSION`.
 - `metadata.rs` — `read_metadata` (tags → `ScannedTrack` for one standalone audio
-  file), date/genre normalization (`read_year`, `normalize_genres`), lyrics
+  file), year normalization (`read_year`; genres go through
+  `music_library::normalize_genres`, shared with server listings), lyrics
   resolution (`read_sidecar_lrc` + `read_lyrics`), and external cover-art
   discovery (`find_external_cover_art` + helpers). The name ranking behind it is
   a pure function, `best_cover_name` (plus `is_cover_image_name`,

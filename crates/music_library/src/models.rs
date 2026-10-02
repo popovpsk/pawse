@@ -103,6 +103,25 @@ pub struct ArtistSummary {
     pub track_count: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenreSort {
+    #[default]
+    Artist,
+    Year,
+}
+
+impl GenreSort {
+    pub const ALL: [GenreSort; 2] = [GenreSort::Artist, GenreSort::Year];
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenreSummary {
+    pub key: String,
+    pub name: String,
+    pub track_count: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceSummary {
     pub id: i64,
