@@ -81,6 +81,8 @@ pub struct Song {
     pub artists: Vec<Named>,
     #[serde(default, deserialize_with = "lenient::list")]
     pub album_artists: Vec<Named>,
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub genres: Vec<Named>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

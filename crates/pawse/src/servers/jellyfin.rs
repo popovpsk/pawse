@@ -1,6 +1,6 @@
 use music_library::RemoteSong;
 
-use super::{RemoteError, ServerClient, real_album, real_artist, real_track_number};
+use super::{RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number};
 
 const KNOWN_CONTAINERS: [&str; 14] = [
     "flac", "mp3", "m4a", "mp4", "aac", "ogg", "opus", "wav", "aiff", "aif", "ape", "wv", "dsf",
@@ -126,7 +126,7 @@ fn song(item: jellyfin::Item) -> RemoteSong {
         track_number: real_track_number(item.index_number),
         disc_number: item.parent_index_number,
         year: item.production_year,
-        genre: item.genres.first().cloned(),
+        genre: joined_genres(&item.genres),
         duration_ms: item.duration_ms().map(|ms| ms as i64),
         size: item.size().map(|size| size as i64),
         suffix: extension(&item),
@@ -204,6 +204,19 @@ mod tests {
             ..item()
         };
         assert_eq!(song(only_album_artist).artist.as_deref(), Some("Band"));
+    }
+
+    #[test]
+    fn every_genre_is_kept_and_none_stays_none() {
+        let listed = jellyfin::Item {
+            genres: vec!["Rock".into(), "Alternative".into(), "Indie".into()],
+            ..item()
+        };
+        assert_eq!(
+            song(listed).genre.as_deref(),
+            Some("Rock; Alternative; Indie")
+        );
+        assert_eq!(song(item()).genre, None);
     }
 
     #[test]

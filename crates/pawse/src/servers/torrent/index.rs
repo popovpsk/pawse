@@ -9,7 +9,7 @@ use music_library::RemoteSong;
 use torrent::{Engine, FileEntry, Meta, Want};
 
 use super::error;
-use crate::servers::{RemoteError, real_album, real_artist, real_track_number};
+use crate::servers::{RemoteError, joined_genres, real_album, real_artist, real_track_number};
 
 const INDEX_VERSION: u32 = 2;
 const HEAD_BYTES: u64 = 1024 * 1024;
@@ -471,7 +471,7 @@ pub(super) fn song(track: PreparedTrack, file: &FileEntry) -> RemoteSong {
         track_number: real_track_number(track.track_number),
         disc_number: track.disc_number,
         year: track.year,
-        genre: track.genres.into_iter().next(),
+        genre: joined_genres(&track.genres),
         duration_ms: track.duration_ms.map(|ms| ms as i64),
         size: Some(file.len as i64),
         suffix: Some(extension(&file.path)),

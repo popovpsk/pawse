@@ -1,6 +1,9 @@
 use music_library::RemoteSong;
 
-use super::{RemoteConfig, RemoteError, ServerClient, real_album, real_artist, real_track_number};
+use super::{
+    RemoteConfig, RemoteError, ServerClient, joined_genres, real_album, real_artist,
+    real_track_number,
+};
 
 const MAX_KBPS: u64 = 20_000;
 const AUDIO_EXTENSIONS: [&str; 18] = [
@@ -90,7 +93,7 @@ fn song(item: dlna::Item) -> Option<RemoteSong> {
         track_number: real_track_number(item.track_number),
         disc_number: item.disc_number,
         year: item.date.as_deref().and_then(year),
-        genre: item.genre,
+        genre: joined_genres(&item.genres),
         duration_ms: res.duration_ms.map(|ms| ms as i64),
         size: res.size.map(|size| size as i64),
         suffix: suffix(&res.key, mime),
@@ -188,6 +191,7 @@ mod tests {
             album: Some("Record".into()),
             track_number: Some(3),
             date: Some("1997-05-01".into()),
+            genres: vec!["Rock".into(), "Pop".into()],
             album_art: Some("/AlbumArt/7-12.jpg".into()),
             res: vec![dlna::Res {
                 size: Some(30_000_000),
@@ -202,6 +206,7 @@ mod tests {
         assert_eq!(converted.artist_aliases, vec!["Guest".to_string()]);
         assert_eq!(converted.album_artist.as_deref(), Some("Band"));
         assert_eq!(converted.year, Some(1997));
+        assert_eq!(converted.genre.as_deref(), Some("Rock; Pop"));
         assert_eq!(converted.duration_ms, Some(250_000));
         assert_eq!(converted.size, Some(30_000_000));
         assert_eq!(converted.bitrate_kbps, Some(960));

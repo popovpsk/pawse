@@ -210,6 +210,7 @@ fn unsupported() -> RemoteError {
 
 const UNKNOWN_ALBUM: &str = "[unknown album]";
 const MAX_TRACK_NUMBER: u32 = 999;
+const GENRE_JOIN: &str = "; ";
 
 fn real_artist(name: Option<String>) -> Option<String> {
     name.map(|name| name.trim().to_string())
@@ -223,6 +224,15 @@ fn real_album(album: Option<String>) -> Option<String> {
 
 fn real_track_number(number: Option<u32>) -> Option<u32> {
     number.filter(|n| (1..=MAX_TRACK_NUMBER).contains(n))
+}
+
+fn joined_genres(genres: &[String]) -> Option<String> {
+    let kept: Vec<&str> = genres
+        .iter()
+        .map(String::as_str)
+        .filter(|genre| !genre.trim().is_empty())
+        .collect();
+    (!kept.is_empty()).then(|| kept.join(GENRE_JOIN))
 }
 
 #[cfg(test)]
@@ -254,5 +264,17 @@ mod tests {
         assert_eq!(real_track_number(Some(1997)), None);
         assert_eq!(real_track_number(Some(0)), None);
         assert_eq!(real_track_number(Some(12)), Some(12));
+    }
+
+    #[test]
+    fn a_genre_list_is_joined_for_the_library_to_split() {
+        let genres = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(joined_genres(&genres(&[])), None);
+        assert_eq!(joined_genres(&genres(&["", "  "])), None);
+        assert_eq!(joined_genres(&genres(&["Rock"])).as_deref(), Some("Rock"));
+        assert_eq!(
+            joined_genres(&genres(&["Rock", " ", "Pop"])).as_deref(),
+            Some("Rock; Pop")
+        );
     }
 }

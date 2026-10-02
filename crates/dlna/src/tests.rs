@@ -732,7 +732,7 @@ mod captured {
         assert_eq!(first.artists, vec!["Тестовый Исполнитель".to_string()]);
         assert_eq!(first.album.as_deref(), Some("Альбом 1997"));
         assert_eq!(first.date.as_deref(), Some("1997-01-01"));
-        assert_eq!(first.genre.as_deref(), Some("Rock"));
+        assert_eq!(first.genres, vec!["Rock".to_string()]);
         let res = first.pick().unwrap();
         assert_eq!(res.size, Some(312_140));
         assert_eq!(res.duration_ms, Some(20_000));

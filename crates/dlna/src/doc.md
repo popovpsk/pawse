@@ -58,6 +58,9 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
   new entry means the server ignores `StartingIndex` and is an error. A
   transport failure on any page fails the whole listing: a partial listing
   would retire every song past the failure.
+- **Genres.** An item may carry several `upnp:genre` elements; `Item::genres`
+  keeps them all, and the app's adapter joins them into the one genre string it
+  hands the library.
 - **Which `res`.** Only `http-get` resources; raw PCM (`audio/L16`, …) never,
   the decoder cannot read it without a container. The first one that is not a
   transcode (`DLNA.ORG_CI=1`) wins; without one, the first transcode.

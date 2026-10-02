@@ -25,7 +25,7 @@ pub struct Item {
     pub track_number: Option<u32>,
     pub disc_number: Option<u32>,
     pub date: Option<String>,
-    pub genre: Option<String>,
+    pub genres: Vec<String>,
     pub album_art: Option<String>,
     pub res: Vec<Res>,
 }
@@ -174,7 +174,7 @@ fn item(node: Node<'_, '_>, location: &str) -> Option<Item> {
             "originalTrackNumber" => item.track_number = text.parse().ok(),
             "originalDiscNumber" => item.disc_number = text.parse().ok(),
             "date" => item.date = item.date.or(Some(text)),
-            "genre" => item.genre = item.genre.or(Some(text)),
+            "genre" => item.genres.push(text),
             "albumArtURI" => {
                 item.album_art = item.album_art.or(Some(address::key(location, &text)));
             }
@@ -370,6 +370,22 @@ mod tests {
 <upnp:class>object.item.audioItem</upnp:class></item></DIDL-Lite>"#;
         let page = parse(text, LOCATION).unwrap();
         assert_eq!(page.items[0].artists, vec!["Someone".to_string()]);
+    }
+
+    #[test]
+    fn every_genre_element_is_kept() {
+        let text = r#"<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item id="1">
+<dc:title>T</dc:title><upnp:genre>Rock</upnp:genre><upnp:genre> </upnp:genre>
+<upnp:genre>Pop</upnp:genre><upnp:class>object.item.audioItem</upnp:class></item>
+<item id="2"><dc:title>U</dc:title><upnp:class>object.item.audioItem</upnp:class></item>
+</DIDL-Lite>"#;
+        let page = parse(text, LOCATION).unwrap();
+        assert_eq!(
+            page.items[0].genres,
+            vec!["Rock".to_string(), "Pop".to_string()]
+        );
+        assert!(page.items[1].genres.is_empty());
     }
 
     #[test]

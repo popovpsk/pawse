@@ -28,6 +28,10 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   is an error rather than a complete listing. Any failure mid-listing fails the
   whole listing — the caller must never apply a partial enumeration, or every
   song past the failure would be retired.
+- **Genres.** OpenSubsonic servers send the full list as `genres: [{name}]`
+  and, in `genre`, only what they pick as the primary one (Navidrome: the
+  first). `Song` keeps both; the app's adapter prefers the list and falls back
+  to the single string for servers that have no list.
 - **Lenient fields.** Numbers may come as floats or strings, lists as something
   else; an odd field becomes `None` instead of failing the page (and with it the
   whole server). A list entry that still does not parse (a song without an id)

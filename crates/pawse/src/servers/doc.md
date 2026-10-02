@@ -10,7 +10,7 @@ to `subsonic::` or `jellyfin::` directly.
   title), `RemoteConfig` (a server's saved connection, one variant per kind),
   `RemoteServer` (a configured server: uri, name, config), `RemoteError`,
   the `ServerClient` trait, and the tag cleanups every adapter shares
-  (`real_artist`, `real_album`, `real_track_number`).
+  (`real_artist`, `real_album`, `real_track_number`, `joined_genres`).
 - `subsonic.rs` — the Subsonic adapter: `subsonic::Song` → `RemoteSong`,
   `subsonic::Error` → `RemoteError`.
 - `jellyfin.rs` — the Jellyfin adapter: `jellyfin::Item` → `RemoteSong`, error
@@ -69,6 +69,13 @@ to `subsonic::` or `jellyfin::` directly.
   `artist_aliases` are other names the same recording's artist is credited
   under, used only for matching (Subsonic: the joined display name and the
   other credited artists; Jellyfin: the other entries of its split `Artists`).
+- **`genre` is one raw string.** An adapter whose source lists several genres
+  (Jellyfin, DLNA, a torrent's tags, OpenSubsonic's `genres[]`) joins them with
+  `; ` (`joined_genres`) and leaves the splitting, dedup and junk filtering to
+  `normalize_genres` at projection, so a server track lands on the same genres
+  as the file would. A Subsonic server without `genres[]` keeps sending its
+  single `genre` string, which is used as it comes. A torrent's saved index
+  keeps the genre it was built with; only a new index gets the joined list.
 - **Jellyfin's extension** comes from the file path, else from the container
   list, preferring a known audio extension (`mov,mp4,m4a,…` → `m4a`).
 - **Placeholders** (`[Unknown Artist]`, `[Unknown Album]`) become empty, and a

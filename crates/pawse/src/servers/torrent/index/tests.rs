@@ -227,7 +227,7 @@ fn a_track_becomes_a_song_keyed_by_its_file_with_cue_offsets() {
     assert_eq!(whole.track_number, None);
     assert_eq!(whole.suffix.as_deref(), Some("flac"));
     assert_eq!(whole.size, Some(1234));
-    assert_eq!(whole.genre.as_deref(), Some("Rock"));
+    assert_eq!(whole.genre.as_deref(), Some("Rock; Pop"));
     assert_eq!(whole.cover_key.as_deref(), Some("ab"));
     assert_eq!(whole.start_offset_ms, None);
     assert_eq!(song(track(true, None), &file).start_offset_ms, Some(0));

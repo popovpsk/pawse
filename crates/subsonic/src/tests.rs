@@ -426,7 +426,7 @@ fn odd_field_types_do_not_sink_the_listing() {
         }
         ok(serde_json::json!({"searchResult3": {"song": [
             {"id": "1", "title": 42, "duration": 181.6, "year": "1999", "track": -1,
-             "artists": "not a list", "size": null}
+             "artists": "not a list", "genres": "oops", "size": null}
         ]}}))
     });
     let songs = stub.client("x").songs().unwrap();
@@ -435,6 +435,30 @@ fn odd_field_types_do_not_sink_the_listing() {
     assert_eq!(songs[0].year, Some(1999));
     assert_eq!(songs[0].track, None);
     assert!(songs[0].artists.is_empty());
+    assert!(songs[0].genres.is_empty());
+}
+
+#[test]
+fn the_genre_list_is_read_beside_the_single_genre() {
+    let stub = Stub::start(|_, params| {
+        if params["songOffset"] != "0" {
+            return ok(serde_json::json!({"searchResult3": {}}));
+        }
+        ok(serde_json::json!({"searchResult3": {"song": [
+            {"id": "1", "title": "Hellwalker", "genre": "Score",
+             "genres": [{"name": "Score"}, {"name": "Heavy Metal"}, {"name": "Industrial"}]}
+        ]}}))
+    });
+    let songs = stub.client("x").songs().unwrap();
+    assert_eq!(songs[0].genre.as_deref(), Some("Score"));
+    assert_eq!(
+        songs[0]
+            .genres
+            .iter()
+            .map(|named| named.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Score", "Heavy Metal", "Industrial"]
+    );
 }
 
 #[test]

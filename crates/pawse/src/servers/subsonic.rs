@@ -1,6 +1,6 @@
 use music_library::RemoteSong;
 
-use super::{RemoteError, ServerClient, real_album, real_artist, real_track_number};
+use super::{RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number};
 
 pub struct Subsonic(subsonic::Client);
 
@@ -81,6 +81,7 @@ fn first_name(names: &[subsonic::Named]) -> Option<String> {
 }
 
 fn song(song: subsonic::Song) -> RemoteSong {
+    let listed: Vec<String> = song.genres.iter().map(|named| named.name.clone()).collect();
     RemoteSong {
         key: song.id,
         title: song.title,
@@ -97,7 +98,7 @@ fn song(song: subsonic::Song) -> RemoteSong {
         track_number: real_track_number(song.track),
         disc_number: song.disc_number,
         year: song.year,
-        genre: song.genre,
+        genre: joined_genres(&listed).or(song.genre),
         duration_ms: song.duration.map(|secs| (secs * 1000) as i64),
         size: song.size.map(|size| size as i64),
         suffix: song.suffix,
@@ -170,6 +171,46 @@ mod tests {
         assert_eq!(converted.size, Some(4_000_000));
         assert_eq!(converted.bitrate_kbps, Some(320));
         assert_eq!(converted.suffix.as_deref(), Some("flac"));
+    }
+
+    #[test]
+    fn the_genre_list_wins_over_the_single_genre_and_the_single_one_is_the_fallback() {
+        let named = |names: &[&str]| -> Vec<subsonic::Named> {
+            names
+                .iter()
+                .map(|name| subsonic::Named {
+                    name: name.to_string(),
+                })
+                .collect()
+        };
+        let listed = song(subsonic::Song {
+            id: "1".into(),
+            genre: Some("Score".into()),
+            genres: named(&["Score", " ", "Heavy Metal", "Industrial"]),
+            ..Default::default()
+        });
+        assert_eq!(
+            listed.genre.as_deref(),
+            Some("Score; Heavy Metal; Industrial")
+        );
+        let single = song(subsonic::Song {
+            id: "2".into(),
+            genre: Some("Rock; Pop".into()),
+            ..Default::default()
+        });
+        assert_eq!(single.genre.as_deref(), Some("Rock; Pop"));
+        let blank_list = song(subsonic::Song {
+            id: "3".into(),
+            genre: Some("Folk".into()),
+            genres: named(&[" "]),
+            ..Default::default()
+        });
+        assert_eq!(blank_list.genre.as_deref(), Some("Folk"));
+        let none = song(subsonic::Song {
+            id: "4".into(),
+            ..Default::default()
+        });
+        assert_eq!(none.genre, None);
     }
 
     #[test]

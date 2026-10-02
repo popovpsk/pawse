@@ -275,7 +275,9 @@ inserts a `tracks` row for every present server binding on an enabled, available
 server whose item did not get a row from a local file. So local always wins,
 a server going away hides only what it alone provided, and projecting needs no
 network. The listing's genre is cached raw (`remote_tracks.genre`, one string —
-a Subsonic server that does not split multi-value tags sends `Rock; Pop`) and
+a Subsonic server that does not split multi-value tags sends `Rock; Pop`, and the
+Subsonic (`genres[]`), Jellyfin, DLNA and torrent adapters join their genre lists
+with `; `) and
 goes through `normalize_genres` at projection, so a server copy lands on the same
 genres as the file would. Migration 11 is the one-time catch-up for that: it drops
 the scan fingerprint only when some cached server genre would come out different
