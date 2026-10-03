@@ -120,6 +120,7 @@ pub fn build_settings_pages(
             .group(crate::torrent_settings::torrent_group(
                 library_page.sources.clone(),
                 library_page.torrent_magnet,
+                cx.global::<SettingsStore>().torrents_enabled(),
             ))
             .group(crate::cache_settings::cache_group(library_page.sources)),
     );

@@ -5,10 +5,12 @@ use gpui::{
     prelude::FluentBuilder, px,
 };
 use gpui_component::{
-    Disableable, Selectable, Sizable,
-    button::{Button, ButtonGroup},
+    Disableable, Selectable, Sizable, WindowExt,
+    button::{Button, ButtonGroup, ButtonVariants},
+    dialog::{Cancel, Confirm, DialogFooter},
     h_flex,
     input::{Input, InputState},
+    switch::Switch,
     v_flex,
 };
 use ui_components::settings::{SettingField, SettingGroup, SettingItem};
@@ -168,7 +170,62 @@ fn apply_upload(upload: TorrentUpload, cx: &mut App) {
     cx.refresh_windows();
 }
 
-pub fn torrent_group(sources: Entity<LibrarySources>, magnet: Entity<InputState>) -> SettingGroup {
+fn confirm_enable(window: &mut Window, cx: &mut App) {
+    window.open_dialog(cx, |dialog, _window, _cx| {
+        dialog
+            .overlay_closable(false)
+            .close_button(false)
+            .title(tr().torrents_enable_confirm_title.clone())
+            .child(div().child(tr().torrents_enable_confirm_message.clone()))
+            .footer(
+                DialogFooter::new()
+                    .child(
+                        Button::new("cancel")
+                            .label(tr().cancel.clone())
+                            .on_click(|_, window, cx| window.dispatch_action(Box::new(Cancel), cx)),
+                    )
+                    .child(
+                        Button::new("ok")
+                            .label(tr().torrents_enable_confirm.clone())
+                            .primary()
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(Confirm { secondary: false }), cx)
+                            }),
+                    ),
+            )
+            .on_ok(|_, _, cx| {
+                if let Err(e) = cx.global_mut::<SettingsStore>().enable_torrents() {
+                    notify_save_error(cx, e);
+                }
+                true
+            })
+    });
+}
+
+fn disabled_group() -> SettingGroup {
+    SettingGroup::new().title(tr().torrents.clone()).item(
+        SettingItem::new(
+            tr().torrents_enable.clone(),
+            SettingField::render(|_window, _cx: &mut App| {
+                h_flex().items_center().justify_end().child(
+                    Switch::new("torrents-enable")
+                        .checked(false)
+                        .on_click(|_, window, cx| confirm_enable(window, cx)),
+                )
+            }),
+        )
+        .description(tr().torrents_enable_desc.clone()),
+    )
+}
+
+pub fn torrent_group(
+    sources: Entity<LibrarySources>,
+    magnet: Entity<InputState>,
+    enabled: bool,
+) -> SettingGroup {
+    if !enabled {
+        return disabled_group();
+    }
     let upload_labels: [SharedString; 3] = [
         tr().torrent_upload_while_active.clone(),
         tr().torrent_upload_limited.clone(),

@@ -176,3 +176,12 @@ the same settings rows, sync, statuses and playback path. What differs:
   so a manual sync would only re-apply the same listing. An unavailable torrent
   comes back through the offline watcher (every 60 s and on window activation),
   a failed index is retried after its 10-minute backoff; launch syncs as usual.
+- **Off until the user agrees.** Until `torrents_enabled` is set, the Torrents
+  group in Settings → Library is just an "Enable torrents" switch. The switch
+  opens a dialog warning that downloading and sharing copyrighted music over
+  torrents is illegal in some countries; "Yes, enable" saves the flag, Cancel
+  leaves it off. The flag is a one-time acknowledgement, not a feature switch,
+  so once it is on the group has no way to turn it off again. A settings file
+  that already lists torrent sources (from before the flag existed) loads as
+  enabled (`migrate_torrents`). With the flag off nothing else changes: no
+  sources means no engine is ever created.

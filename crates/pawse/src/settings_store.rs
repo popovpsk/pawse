@@ -509,6 +509,8 @@ pub struct UserSettings {
     pub torrent_sources: Vec<TorrentSource>,
     #[serde(default)]
     pub torrent_upload: TorrentUpload,
+    #[serde(default)]
+    pub torrents_enabled: bool,
     #[serde(default = "default_network_cache_gb")]
     pub network_cache_gb: u32,
     #[serde(default, rename = "lastfm_enabled", skip_serializing)]
@@ -577,6 +579,7 @@ impl Default for UserSettings {
             dlna_servers: Vec::new(),
             torrent_sources: Vec::new(),
             torrent_upload: TorrentUpload::default(),
+            torrents_enabled: false,
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
@@ -753,6 +756,12 @@ fn default_listenbrainz_root() -> String {
     scrobble::LISTENBRAINZ_ROOT.to_string()
 }
 
+fn migrate_torrents(settings: &mut UserSettings) {
+    if !settings.torrent_sources.is_empty() {
+        settings.torrents_enabled = true;
+    }
+}
+
 fn migrate_scrobble(settings: &mut UserSettings) {
     let legacy_enabled = settings.legacy_lastfm_enabled.take();
     let legacy_session = settings.legacy_lastfm_session.take();
@@ -795,6 +804,7 @@ impl SettingsStore {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         migrate_scrobble(&mut settings);
+        migrate_torrents(&mut settings);
         Self {
             settings,
             path,
@@ -1023,6 +1033,15 @@ impl SettingsStore {
         if self.settings.torrent_sources.len() == before {
             return Ok(());
         }
+        self.save()
+    }
+
+    pub fn torrents_enabled(&self) -> bool {
+        self.settings.torrents_enabled
+    }
+
+    pub fn enable_torrents(&mut self) -> anyhow::Result<()> {
+        self.settings.torrents_enabled = true;
         self.save()
     }
 
@@ -1769,6 +1788,7 @@ mod tests {
             dlna_servers: Vec::new(),
             torrent_sources: Vec::new(),
             torrent_upload: TorrentUpload::default(),
+            torrents_enabled: false,
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
