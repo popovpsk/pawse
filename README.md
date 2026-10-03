@@ -99,24 +99,7 @@ flatpak run io.github.popovpsk.pawse
 
 ## Building from source
 
-Requires a stable Rust toolchain (edition 2024).
-
-```sh
-cargo run --release
-```
-
-**macOS** — GPUI needs the Metal toolchain:
-
-```sh
-xcodebuild -downloadComponent MetalToolchain
-```
-
-**Linux** — install build dependencies first:
-
-```sh
-sudo apt-get install -y libasound2-dev libfontconfig-dev libwayland-dev \
-  libxkbcommon-x11-dev build-essential cmake clang
-```
+Platform prerequisites and step-by-step instructions: [Building](.docs/building.md).
 
 ## License
 
