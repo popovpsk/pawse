@@ -9,7 +9,9 @@ same streams to the device through the same `LibraryBackend`); behind it each so
 ## Files
 
 - `mod.rs` — `RemoteMedia`, the `SourceMedia` trait, `PendingStream`,
-  `StreamControl` (abort and failure reason of an opening stream).
+  `StreamControl` (abort and failure reason of an opening stream), and
+  `RemoteMedia::cover`, which asks a source by id for a cover picture (the
+  cover view's full-size layer; see `servers/doc.md`). Covers bypass the cache.
 - `cache.rs` — `CacheStore`: the one on-disk cache every source writes into
   (`<cache>/pawse/media/<source_id>/<key>-<digest>.<ext>`, the key sanitized
   and cut to 96 characters — a DLNA key is a URL path), LRU by mtime, the
@@ -22,7 +24,7 @@ same streams to the device through the same `LibraryBackend`); behind it each so
   and its first byte and 30 s later in the body, then it is `Unreachable` and
   retried, and the finished file lands in this
   same cache — the torrent engine keeps only its own piece data, which it
-  deletes itself.
+  deletes itself. Its `cover` is the source's `ServerClient::cover_art`.
 - `tests.rs`.
 
 ## Behaviour worth knowing

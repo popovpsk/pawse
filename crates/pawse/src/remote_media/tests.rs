@@ -228,6 +228,10 @@ impl SourceMedia for Fake {
     fn prefetch(&self, _: &RemoteRef, _: &Path) -> Result<KeepAlive, String> {
         Ok(Box::new(()))
     }
+
+    fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
+        Ok(format!("{key}@{max_size}").into_bytes())
+    }
 }
 
 #[test]
@@ -253,5 +257,10 @@ fn any_source_media_plugs_in_by_source_id_and_writes_into_the_shared_cache() {
             .open_stream(Path::new(&remote::locator(8, "x", "flac")))
             .is_err()
     );
+    assert_eq!(media.cover(9, "c-1", 2048), Ok(b"c-1@2048".to_vec()));
+    assert!(matches!(
+        media.cover(8, "c-1", 2048),
+        Err(RemoteError::NotFound(_))
+    ));
     let _ = std::fs::remove_dir_all(&dir);
 }

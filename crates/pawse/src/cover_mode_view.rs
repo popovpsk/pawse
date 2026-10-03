@@ -49,6 +49,7 @@ const CONTROLS_SLIDE_IN: Duration = Duration::from_millis(320);
 const CONTROLS_SLIDE_OUT: Duration = Duration::from_millis(200);
 const COVER_SLIDE: Duration = Duration::from_millis(300);
 const COVER_SLIDE_GAP: f32 = 40.;
+const REMOTE_COVER_MAX: u32 = 2048;
 
 pub struct CoverModeView {
     track_title: SharedString,
@@ -83,6 +84,8 @@ pub struct CoverModeView {
     cover_volume: Entity<CoverVolume>,
     progress: Entity<TrackProgressSlider>,
     _full_cover_task: Option<Task<()>>,
+    remote_cover_task: Option<Task<()>>,
+    remote_cover_wanted: bool,
     _slide_task: Option<Task<()>>,
     _engine_subscription: Subscription,
     _status_subscription: Subscription,
@@ -260,6 +263,8 @@ impl CoverModeView {
             cover_volume,
             progress,
             _full_cover_task: None,
+            remote_cover_task: None,
+            remote_cover_wanted: false,
             _slide_task: None,
             _engine_subscription: engine_subscription,
             _status_subscription: status_subscription,
@@ -714,11 +719,31 @@ impl CoverModeView {
         };
         let services = cx.global::<Services>();
         let source = services.library.get_cover_art_source(id);
+        let remote = source.as_ref().and_then(|(path, _)| {
+            music_library::remote::parse_cover_source(path)
+                .map(|(source_id, key)| (source_id, key.to_string()))
+        });
+        let is_remote = remote.is_some();
+        if is_remote && self.remote_cover_task.is_some() {
+            self.remote_cover_wanted = true;
+            return;
+        }
+        let media = services.remote_media.clone();
         let track_path = self.track_path.clone();
         let renderer = cx.svg_renderer();
         let load = cx.background_executor().spawn(async move {
-            let bytes =
-                music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?;
+            let fetched = remote.and_then(|(source_id, key)| {
+                media
+                    .cover(source_id, &key, REMOTE_COVER_MAX)
+                    .inspect_err(|e| log::warn!("cover view: server cover {key}: {e:?}"))
+                    .ok()
+            });
+            let bytes = match fetched {
+                Some(bytes) => bytes,
+                None => {
+                    music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?
+                }
+            };
             let format = sniff_image_format(&bytes)?;
             let aspect = image_aspect(&bytes);
             let image = Image::from_bytes(format, bytes)
@@ -726,19 +751,37 @@ impl CoverModeView {
                 .ok()?;
             Some((image, aspect))
         });
-        self._full_cover_task = Some(cx.spawn(async move |this, cx| {
-            let Some((image, aspect)) = load.await else {
-                return;
-            };
+        let task = cx.spawn(async move |this, cx| {
+            let loaded = load.await;
             let _ = this.update(cx, |view, cx| {
-                view._full_cover_task = None;
-                if view.active && view.cover_art_id == Some(id) {
+                if is_remote {
+                    view.remote_cover_task = None;
+                } else {
+                    view._full_cover_task = None;
+                }
+                if let Some((image, aspect)) = loaded
+                    && view.active
+                    && view.cover_art_id == Some(id)
+                    && view.full_cover.is_none()
+                {
                     view.full_cover = Some(image);
                     view.cover_aspect = aspect;
                     cx.notify();
                 }
+                if is_remote
+                    && std::mem::take(&mut view.remote_cover_wanted)
+                    && view.active
+                    && view.full_cover.is_none()
+                {
+                    view.load_full_cover(cx);
+                }
             });
-        }));
+        });
+        if is_remote {
+            self.remote_cover_task = Some(task);
+        } else {
+            self._full_cover_task = Some(task);
+        }
     }
 }
 

@@ -42,6 +42,23 @@ pub fn parse(path: &str) -> Option<RemoteRef> {
     })
 }
 
+pub fn cover_source(kind: &str, source_id: i64, key: &str) -> String {
+    format!("{kind}-cover://{source_id}/{key}")
+}
+
+pub fn parse_cover_source(source: &str) -> Option<(i64, &str)> {
+    let (scheme, rest) = source.split_once("://")?;
+    let kind = scheme.strip_suffix("-cover")?;
+    if kind.is_empty() || !kind.bytes().all(|b| b.is_ascii_lowercase()) {
+        return None;
+    }
+    let (source_id, key) = rest.split_once('/')?;
+    if key.is_empty() {
+        return None;
+    }
+    Some((source_id.parse().ok()?, key))
+}
+
 pub fn location(path: &str) -> Location<'_> {
     if !is_remote(path) {
         return Location::File(Path::new(path));
@@ -115,6 +132,27 @@ mod tests {
         ] {
             assert_eq!(location(broken), Location::Invalid, "{broken}");
             assert_eq!(local_file(broken), None, "{broken}");
+        }
+    }
+
+    #[test]
+    fn cover_sources_round_trip_and_files_are_not_taken_for_them() {
+        let source = cover_source("jellyfin", 3, "http://h/a.jpg?x=1");
+        assert_eq!(parse_cover_source(&source), Some((3, "http://h/a.jpg?x=1")));
+        assert_eq!(
+            parse_cover_source("subsonic-cover://12/mf-1_6f"),
+            Some((12, "mf-1_6f"))
+        );
+        for other in [
+            "/music/a/cover.jpg",
+            "C:\\Music\\cover.jpg",
+            "/music/x-cover://1/a",
+            "subsonic-cover://x/a",
+            "subsonic-cover://1/",
+            "-cover://1/a",
+            "pawse-source://1/k.mp3",
+        ] {
+            assert_eq!(parse_cover_source(other), None, "{other}");
         }
     }
 

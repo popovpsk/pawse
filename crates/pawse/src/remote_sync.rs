@@ -298,9 +298,10 @@ pub fn fetch_covers(
                                     hash: hash.clone(),
                                     small: thumbs.small,
                                     large: thumbs.large,
-                                    source_path: format!(
-                                        "{}-cover://{source_id}/{key}",
-                                        kind.as_str()
+                                    source_path: music_library::remote::cover_source(
+                                        kind.as_str(),
+                                        source_id,
+                                        &key,
                                     ),
                                 });
                                 Some(hash)

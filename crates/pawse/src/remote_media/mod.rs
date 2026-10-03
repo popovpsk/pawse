@@ -46,6 +46,7 @@ pub trait SourceMedia: Send + Sync {
         abandoned: &dyn Fn() -> bool,
     ) -> Result<PathBuf, String>;
     fn prefetch(&self, reference: &RemoteRef, dest: &Path) -> Result<KeepAlive, String>;
+    fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError>;
 }
 
 type Sources = HashMap<i64, Arc<dyn SourceMedia>>;
@@ -103,6 +104,13 @@ impl RemoteMedia {
     pub fn ping(&self, source_id: i64) -> Option<Result<(), RemoteError>> {
         let source = self.sources.read().unwrap().get(&source_id).cloned()?;
         Some(source.ping())
+    }
+
+    pub fn cover(&self, source_id: i64, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
+        let source = self.sources.read().unwrap().get(&source_id).cloned();
+        source
+            .ok_or_else(|| RemoteError::NotFound(format!("source {source_id} is not configured")))?
+            .cover(key, max_size)
     }
 
     pub fn resolver(&self) -> TrackResolver {

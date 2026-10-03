@@ -50,6 +50,25 @@ to `subsonic::` or `jellyfin::` directly.
   torrent's file reads are). Eight `Unreachable`/`Auth` answers in a row stop
   the sync's cover phase; any other error or an empty body is a key without a
   picture for this sync (see `library_views/doc.md`).
+- **Cover view asks for the big picture.** A server cover's
+  `cover_art.source_path` is `<kind>-cover://<source_id>/<key>`
+  (`music_library::remote::cover_source` / `parse_cover_source`).
+  `CoverModeView::load_full_cover` shows the 320 px thumbnail from the DB at
+  once and, on the background executor, asks `RemoteMedia::cover` → the
+  source's `SourceMedia::cover` → `cover_art(key, 2048)` for the full-size layer
+  on top. 2048 px covers a full-screen cover on a Retina laptop and keeps a
+  Jellyfin original of several thousand pixels from arriving whole. Nothing is
+  cached: every new cover in the view is one request, as a local cover is one
+  disk read; the DB dedupes covers by content, so an album is one request.
+  Only one server cover request runs at a time: the call blocks an executor
+  thread (up to the HTTP timeouts on a slow or unreachable server), so skipping
+  through tracks must not start one per track. A cover asked for meanwhile is
+  only remembered, and when the running request ends the view loads whatever
+  cover is current then; the covers skipped past are never fetched. If the
+  server does not answer, the usual file fallback runs (the cover inside a
+  local track whose cover row came from a server), else the thumbnail stays and
+  a warning is logged. A torrent stores only its thumbnails, so it hands back
+  the same 320 px picture.
 - **What differs between kinds is asked, not compared.** `ServerKind` answers
   `manual_sync`, `imports_favorites`, `reports_plays` / `sends_favorites` (what
   `server_scrobble` may send back: plays to Subsonic, likes to Subsonic and

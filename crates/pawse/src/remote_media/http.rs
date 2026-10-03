@@ -59,6 +59,10 @@ impl SourceMedia for HttpMedia {
     fn prefetch(&self, reference: &RemoteRef, dest: &Path) -> Result<KeepAlive, String> {
         Ok(Box::new(self.download(reference, dest)?))
     }
+
+    fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
+        self.client.cover_art(key, max_size)
+    }
 }
 
 struct ServerFetch {

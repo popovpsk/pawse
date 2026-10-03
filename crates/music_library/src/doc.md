@@ -33,6 +33,10 @@ touches the database; `pawse::library_service` drives scans through
   tags and sidecar lyrics belong to it). Parsing a bare locator string is left to
   the layers that only have strings (`pawse::remote_media`, playback's
   `playback_locators` walk).
+  It also owns the `source_path` of a server cover,
+  `<kind>-cover://<source_id>/<key>` (`cover_source` / `parse_cover_source`):
+  the sync writes it, the cover view reads it to ask the server for the big
+  picture. A local path is never taken for one.
 - `adoption.rs` — the pure matching that decides which files are the same track
   (`match_tracks`), plus `normalize_tag`, the one tag normalization shared with
   the scrobble like-import.
