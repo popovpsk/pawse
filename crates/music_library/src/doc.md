@@ -37,7 +37,10 @@ touches the database; `pawse::library_service` drives scans through
   (`match_tracks`), plus `normalize_tag`, the one tag normalization shared with
   the scrobble like-import.
 - `album_artists.rs` — deriving an album's credited artists from its tracks.
-- `thumbnail.rs` — cover thumbnail generation.
+- `thumbnail.rs` — cover thumbnail generation. A panic inside the image
+  decoder is caught and returned as an ordinary error: one broken picture (from
+  a file or from a server) costs that cover only, never the scan or sync that
+  asked for it. Every caller already treats an error as "no cover" and goes on.
 - `error.rs` — `LibraryError`.
 
 ## Two kinds of rows

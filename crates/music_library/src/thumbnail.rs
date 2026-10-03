@@ -9,6 +9,14 @@ pub struct Thumbnails {
 }
 
 pub fn generate_thumbnails(data: &[u8]) -> crate::error::Result<Thumbnails> {
+    std::panic::catch_unwind(|| render(data)).unwrap_or_else(|_| {
+        Err(crate::error::LibraryError::InvalidData(
+            "the image decoder crashed on this picture".into(),
+        ))
+    })
+}
+
+fn render(data: &[u8]) -> crate::error::Result<Thumbnails> {
     let img = image::load_from_memory(data)?;
 
     let small_img =
