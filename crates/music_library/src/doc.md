@@ -407,10 +407,13 @@ Albums still merge on the exact title.
   `clear()` removes the disk rows (`lrc` / `embedded`) so a deleted `.lrc`
   disappears; fetched rows (and LRCLIB `not_found` markers) survive.
   `lyrics_variants` returns every row; which one is shown is decided outside SQL by
-  `lyrics_source::choices` / `pick`: default order `lrc > embedded > lrclib`, or
-  `lrclib > lrc > embedded` when the user prefers LRCLIB; rows whose text equals a
-  higher-ranked one are dropped, so an exported `.lrc` hides the LRCLIB copy it came
-  from. Migration 10 drops and recreates `media_items_guard_user_data`, because
+  `lyrics_source::choices` (the usable rows) and `pick` (a source name, given
+  which sources are available and the user's choice): default order
+  `server > lrc > embedded > lrclib`, or `lrclib > server > lrc > embedded` when
+  the user prefers LRCLIB; rows whose text equals a higher-ranked one are dropped,
+  so an exported `.lrc` hides the LRCLIB copy it came from. `server` is never a
+  row: a server track's own lyrics are fetched on the fly by the app and ranked
+  where a local file's `lrc`/`embedded` would be (a server track has neither). Migration 10 drops and recreates `media_items_guard_user_data`, because
   `ALTER TABLE … RENAME` refuses while a trigger names the dropped `lyrics`.
 
 ## Unavailable tracks

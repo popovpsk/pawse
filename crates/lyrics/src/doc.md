@@ -24,6 +24,9 @@ can depend on it; networking is synchronous and must run off the UI thread.
     a plain `LyricLine { time_ms: None, .. }` and `synced=false`. `offset` is parsed
     away but intentionally not applied in v1. Out-of-range timestamps (overflowing
     `u32` ms) are dropped, never panicking.
+  - `LyricLine::background` is backing vocals sung over the line (shown under it,
+    not filled). LRC has no way to say that, so `parse_lrc` always leaves it
+    `None`; only server lyrics (`pawse::servers`, OpenSubsonic agents) set it.
 - `web.rs` — the LRCLIB client:
   - `LyricsQuery` / `RemoteLyrics` types.
   - `fetch`: **blocking** ureq calls (~10s timeouts). Tries `GET /api/get` with album,

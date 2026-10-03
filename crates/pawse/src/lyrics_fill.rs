@@ -17,6 +17,7 @@ pub enum RowKind {
 #[derive(Debug, PartialEq)]
 pub struct LyricRow {
     pub text: SharedString,
+    pub background: Option<SharedString>,
     pub time_ms: Option<u32>,
     pub label: Option<SharedString>,
     pub kind: RowKind,
@@ -56,6 +57,7 @@ pub fn build_rows(parsed: &lyrics::Lyrics, track_duration_ms: Option<u64>) -> Ve
         .iter()
         .map(|l| LyricRow {
             text: SharedString::from(l.text.clone()),
+            background: l.background.clone().map(SharedString::from),
             time_ms: l.time_ms,
             label: l.time_ms.map(format_ms),
             kind: RowKind::Lyric,
@@ -363,6 +365,7 @@ mod tests {
                 .map(|(ms, text)| lyrics::LyricLine {
                     time_ms: Some(*ms),
                     text: (*text).to_string(),
+                    background: None,
                 })
                 .collect(),
         }
@@ -529,6 +532,20 @@ mod tests {
     }
 
     #[test]
+    fn backing_vocals_ride_along_with_their_row() {
+        let mut parsed = synced(&[(0, "Hello"), (2_000, "")]);
+        parsed.lines[0].background = Some("(echo)".into());
+        let rows = build_rows(&parsed, Some(10_000));
+        assert_eq!(rows[0].text.as_ref(), "Hello");
+        assert_eq!(
+            rows[0].background.as_ref().map(|b| b.as_ref()),
+            Some("(echo)")
+        );
+        assert_eq!(rows[1].kind, RowKind::Interlude);
+        assert_eq!(rows[1].background, None);
+    }
+
+    #[test]
     fn a_lone_lyric_line_stays_one_row() {
         let rows = build_rows(&synced(&[(0, "one")]), Some(60_000));
         assert_eq!(rows.len(), 1);
@@ -542,6 +559,7 @@ mod tests {
             lines: vec![lyrics::LyricLine {
                 time_ms: None,
                 text: "plain".to_string(),
+                background: None,
             }],
         };
         let rows = build_rows(&parsed, Some(10_000));
@@ -586,6 +604,7 @@ mod tests {
     fn row(time_ms: u32, text: &str) -> LyricRow {
         LyricRow {
             text: SharedString::from(text.to_string()),
+            background: None,
             time_ms: Some(time_ms),
             label: Some(format_ms(time_ms)),
             kind: RowKind::Lyric,
@@ -638,6 +657,7 @@ mod tests {
     fn untimed_rows_are_never_active() {
         let rows = vec![LyricRow {
             text: SharedString::new_static("plain"),
+            background: None,
             time_ms: None,
             label: None,
             kind: RowKind::Lyric,

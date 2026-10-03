@@ -482,3 +482,51 @@ fn a_song_without_an_id_is_skipped_not_the_page() {
         .collect();
     assert_eq!(ids, vec!["1".to_string(), "2".to_string()]);
 }
+
+#[test]
+fn lyrics_are_asked_for_enhanced_and_keep_cue_lines_and_agents() {
+    let stub = Stub::start(|method, params| match method {
+        "getLyricsBySongId" if params["id"] == "7" => ok(serde_json::json!({"lyricsList": {
+            "structuredLyrics": [
+                {"kind": "main", "lang": "eng", "synced": true, "offset": -100,
+                 "line": [{"start": 1000, "value": "Hello echo"}, {"start": "2000", "value": "Bye"}],
+                 "agents": [{"id": "lead", "role": "main"}, {"id": "backing", "role": "bg"}],
+                 "cueLine": [
+                    {"index": 0, "agentId": "lead", "value": "Hello",
+                     "cue": [{"start": 1000, "end": 1400, "value": "He"}, {"start": 1400, "end": 1800, "value": "llo"}]},
+                    {"index": 0, "agentId": "backing", "cue": [{"start": 2000, "value": "echo"}]}
+                 ]},
+                {"kind": "translation", "synced": false, "line": [{"value": "Hallo"}]}
+            ]
+        }})),
+        _ => failed(70),
+    });
+    let entries = stub.client("x").lyrics("7").unwrap();
+    assert_eq!(entries.len(), 2);
+    let main = &entries[0];
+    assert_eq!(main.kind.as_deref(), Some("main"));
+    assert!(main.synced);
+    assert_eq!(main.offset, Some(-100));
+    assert_eq!(main.line[1].start, Some(2000));
+    assert_eq!(main.agents[1].role.as_deref(), Some("bg"));
+    assert_eq!(main.cue_line[0].index, Some(0));
+    assert_eq!(main.cue_line[0].cue[1].end, Some(1800));
+    assert_eq!(main.cue_line[1].agent_id.as_deref(), Some("backing"));
+    assert_eq!(main.cue_line[1].value, None);
+    assert_eq!(main.cue_line[1].cue[0].value, "echo");
+    assert!(!entries[1].synced);
+
+    let requests = stub.requests.lock().unwrap();
+    assert_eq!(requests[0].1["enhanced"], "true");
+}
+
+#[test]
+fn a_song_without_lyrics_has_an_empty_list_and_an_old_server_an_error() {
+    let stub = Stub::start(|_, _| ok(serde_json::json!({"lyricsList": {}})));
+    assert!(stub.client("x").lyrics("1").unwrap().is_empty());
+    let stub = Stub::start(|_, _| failed(0));
+    assert!(matches!(
+        stub.client("x").lyrics("1"),
+        Err(Error::Server(_))
+    ));
+}

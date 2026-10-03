@@ -267,6 +267,7 @@ pub static TH: Strings = lang! {
     lyrics_follow: "ติดตามบรรทัดปัจจุบัน",
     lyrics_from_internet: "ดึงเนื้อเพลงจากอินเทอร์เน็ต",
     lyrics_from_internet_desc: "ค้นหาเนื้อเพลงที่ขาดหายไปทางออนไลน์ผ่าน LRCLIB ปิดเพื่อความเป็นส่วนตัว",
+    lyrics_source_server: "จากเซิร์ฟเวอร์",
     lyrics_source_lrc: "จากไฟล์ .lrc",
     lyrics_source_tags: "จากแท็กของไฟล์",
     lyrics_source_lrclib: "จาก LRCLIB",

@@ -91,6 +91,62 @@ pub struct Named {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredLyrics {
+    #[serde(default, deserialize_with = "lenient::opt_text")]
+    pub kind: Option<String>,
+    #[serde(default, deserialize_with = "lenient::boolean")]
+    pub synced: bool,
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub offset: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub line: Vec<LyricsLine>,
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub cue_line: Vec<CueLine>,
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub agents: Vec<Agent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct LyricsLine {
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub start: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::text")]
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CueLine {
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub index: Option<usize>,
+    #[serde(default, deserialize_with = "lenient::opt_text")]
+    pub agent_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient::opt_text")]
+    pub value: Option<String>,
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub cue: Vec<Cue>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Cue {
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub start: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub end: Option<i64>,
+    #[serde(default, deserialize_with = "lenient::text")]
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Agent {
+    #[serde(default, deserialize_with = "lenient::text")]
+    pub id: String,
+    #[serde(default, deserialize_with = "lenient::opt_text")]
+    pub role: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct AlbumRef {
     #[serde(deserialize_with = "lenient::id")]
@@ -166,6 +222,14 @@ impl Client {
     pub fn set_starred(&self, song_id: &str, starred: bool) -> Result<(), Error> {
         let method = if starred { "star" } else { "unstar" };
         self.json(method, &[("id", song_id)]).map(|_| ())
+    }
+
+    pub fn lyrics(&self, song_id: &str) -> Result<Vec<StructuredLyrics>, Error> {
+        let response = self.json(
+            "getLyricsBySongId",
+            &[("id", song_id), ("enhanced", "true")],
+        )?;
+        list_at(&response, &["lyricsList", "structuredLyrics"])
     }
 
     pub fn cover_art(&self, cover_id: &str, max_size: u32) -> Result<Vec<u8>, Error> {

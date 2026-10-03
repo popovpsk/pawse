@@ -8,6 +8,7 @@ pub struct Lyrics {
 pub struct LyricLine {
     pub time_ms: Option<u32>,
     pub text: String,
+    pub background: Option<String>,
 }
 
 pub fn parse_lrc(raw: &str) -> Lyrics {
@@ -34,6 +35,7 @@ pub fn parse_lrc(raw: &str) -> Lyrics {
             lines.push(LyricLine {
                 time_ms: None,
                 text: text.to_string(),
+                background: None,
             });
         } else {
             synced = true;
@@ -41,6 +43,7 @@ pub fn parse_lrc(raw: &str) -> Lyrics {
                 lines.push(LyricLine {
                     time_ms: Some(ms),
                     text: text.to_string(),
+                    background: None,
                 });
             }
         }
@@ -117,11 +120,13 @@ mod tests {
             vec![
                 LyricLine {
                     time_ms: Some(12_000),
-                    text: "hello".to_string()
+                    text: "hello".to_string(),
+                    background: None,
                 },
                 LyricLine {
                     time_ms: Some(45_300),
-                    text: "hello".to_string()
+                    text: "hello".to_string(),
+                    background: None,
                 },
             ]
         );

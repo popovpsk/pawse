@@ -544,7 +544,15 @@ limit (`network_cache_gb`: 1, 2, 4, 8, 16 or 32 GB or Unlimited, default 8),
 oldest first; lowering the limit trims at once, on the background executor. It is one cache for every network source, so it has its own group
 under Settings → Library (`cache_settings.rs`), not a row inside a server group:
 size (recounted each time settings open), Clear, and the limit. Clearing and
-trimming leave downloads in progress (`.partial` younger than a day) alone. Tag editing (track and album) and lyrics export skip server tracks; the
+trimming leave downloads in progress (`.partial` younger than a day) alone. Tag editing (track and album) and lyrics export skip server tracks; a server
+track's own lyrics are asked from the server each time the lyrics panel shows
+it (`ServerClient::lyrics`, see `servers/doc.md`) and take the place of the
+`.lrc`/tag segments, ranked against LRCLIB by the same "Prefer LRCLIB" setting.
+The request starts with the track (alongside the `library.db` read); while it
+runs, the LRCLIB auto-search waits for it and a stored source ranked below the
+server is not shown yet, so the text does not swap under the user. A failed
+request counts as "the server has none" for that play. Backing vocals
+are a smaller, dimmer line under their row, never filled. The
 pencil is not shown on a server track's row (`TrackRowBase::local`, from
 `Track::local_file`) nor on an
 album header whose album has no local file.

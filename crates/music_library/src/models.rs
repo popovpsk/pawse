@@ -214,16 +214,17 @@ pub mod lyrics_source {
     pub const LRC: &str = "lrc";
     pub const EMBEDDED: &str = "embedded";
     pub const LRCLIB: &str = "lrclib";
+    pub const SERVER: &str = "server";
 
     pub fn is_disk_derived(source: &str) -> bool {
         matches!(source, LRC | EMBEDDED)
     }
 
-    pub fn order(prefer_lrclib: bool) -> [&'static str; 3] {
+    pub fn order(prefer_lrclib: bool) -> [&'static str; 4] {
         if prefer_lrclib {
-            [LRCLIB, LRC, EMBEDDED]
+            [LRCLIB, SERVER, LRC, EMBEDDED]
         } else {
-            [LRC, EMBEDDED, LRCLIB]
+            [SERVER, LRC, EMBEDDED, LRCLIB]
         }
     }
 
@@ -255,16 +256,16 @@ pub mod lyrics_source {
         distinct
     }
 
-    pub fn pick<'a>(
-        variants: &'a [super::StoredLyrics],
+    pub fn pick(
         prefer_lrclib: bool,
-        chosen: Option<&str>,
-    ) -> Option<&'a super::StoredLyrics> {
-        let choices = choices(variants, prefer_lrclib);
-        chosen
-            .and_then(|source| choices.iter().find(|v| v.source == source))
-            .or_else(|| choices.first())
-            .copied()
+        chosen: Option<&'static str>,
+        available: impl Fn(&str) -> bool,
+    ) -> Option<&'static str> {
+        chosen.filter(|source| available(source)).or_else(|| {
+            order(prefer_lrclib)
+                .into_iter()
+                .find(|source| available(source))
+        })
     }
 }
 

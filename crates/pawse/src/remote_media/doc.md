@@ -35,6 +35,10 @@ same streams to the device through the same `LibraryBackend`); behind it each so
 - **The cache path is decided by the facade**, not by the source: a source gets
   `dest` and must leave the finished file there. That keeps one cache, one
   limit and one lookup for every kind of source.
+- **Lyrics** of a server track go through the same map:
+  `RemoteMedia::lyrics(locator)` → `SourceMedia::lyrics` → the source's
+  `ServerClient::lyrics`. A locator that is not a server track, or whose
+  source is not configured, is `Ok(None)`.
 - **A source that is not configured** (removed server, stale locator) is an
   error on open and `None` from `ping`; a file already in the cache still plays.
 - **Retries.** `ServerFetch` retries only `RemoteError::Unreachable`; a wrong

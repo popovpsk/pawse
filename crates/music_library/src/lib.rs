@@ -1913,11 +1913,7 @@ mod tests {
 
     #[test]
     fn lyrics_pick_follows_priority_and_choice() {
-        let variants = vec![
-            stored("lrclib", "net", false),
-            stored("embedded", "tag", false),
-            stored("lrc", "file", false),
-        ];
+        let local = |source: &str| matches!(source, "lrclib" | "embedded" | "lrc");
         for (prefer_lrclib, chosen, expected) in [
             (false, None, "lrc"),
             (true, None, "lrclib"),
@@ -1925,20 +1921,20 @@ mod tests {
             (false, Some("nope"), "lrc"),
         ] {
             assert_eq!(
-                lyrics_source::pick(&variants, prefer_lrclib, chosen)
-                    .unwrap()
-                    .source,
-                expected,
+                lyrics_source::pick(prefer_lrclib, chosen, local),
+                Some(expected),
                 "prefer_lrclib={prefer_lrclib} chosen={chosen:?}"
             );
         }
-        let without_sidecar = &variants[..2];
+        let without_sidecar = |source: &str| matches!(source, "lrclib" | "embedded");
         assert_eq!(
-            lyrics_source::pick(without_sidecar, false, None)
-                .unwrap()
-                .source,
-            "embedded"
+            lyrics_source::pick(false, None, without_sidecar),
+            Some("embedded")
         );
+        let server = |source: &str| matches!(source, "lrclib" | "server");
+        assert_eq!(lyrics_source::pick(false, None, server), Some("server"));
+        assert_eq!(lyrics_source::pick(true, None, server), Some("lrclib"));
+        assert_eq!(lyrics_source::pick(false, None, |_| false), None);
     }
 
     #[test]

@@ -267,6 +267,7 @@ pub static KO: Strings = lang! {
     lyrics_follow: "현재 줄 따라가기",
     lyrics_from_internet: "인터넷에서 가사 가져오기",
     lyrics_from_internet_desc: "LRCLIB을 통해 온라인에서 누락된 가사를 검색합니다. 개인정보 보호를 위해 끄세요.",
+    lyrics_source_server: "서버에서",
     lyrics_source_lrc: ".lrc 파일에서",
     lyrics_source_tags: "파일 태그에서",
     lyrics_source_lrclib: "LRCLIB에서",

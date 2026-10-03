@@ -267,6 +267,7 @@ pub static ES: Strings = lang! {
     lyrics_follow: "Seguir la línea actual",
     lyrics_from_internet: "Buscar letra en internet",
     lyrics_from_internet_desc: "Buscar letras faltantes en línea a través de LRCLIB. Desactiva para mayor privacidad.",
+    lyrics_source_server: "Del servidor",
     lyrics_source_lrc: "Del archivo .lrc",
     lyrics_source_tags: "De las etiquetas del archivo",
     lyrics_source_lrclib: "De LRCLIB",

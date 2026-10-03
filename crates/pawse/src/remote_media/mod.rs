@@ -47,6 +47,9 @@ pub trait SourceMedia: Send + Sync {
     ) -> Result<PathBuf, String>;
     fn prefetch(&self, reference: &RemoteRef, dest: &Path) -> Result<KeepAlive, String>;
     fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError>;
+    fn lyrics(&self, _reference: &RemoteRef) -> Result<Option<lyrics::Lyrics>, RemoteError> {
+        Ok(None)
+    }
 }
 
 type Sources = HashMap<i64, Arc<dyn SourceMedia>>;
@@ -111,6 +114,22 @@ impl RemoteMedia {
         source
             .ok_or_else(|| RemoteError::NotFound(format!("source {source_id} is not configured")))?
             .cover(key, max_size)
+    }
+
+    pub fn lyrics(&self, locator: &str) -> Result<Option<lyrics::Lyrics>, RemoteError> {
+        let Some(reference) = remote::parse(locator) else {
+            return Ok(None);
+        };
+        let source = self
+            .sources
+            .read()
+            .unwrap()
+            .get(&reference.source_id)
+            .cloned();
+        match source {
+            Some(source) => source.lyrics(&reference),
+            None => Ok(None),
+        }
     }
 
     pub fn resolver(&self) -> TrackResolver {

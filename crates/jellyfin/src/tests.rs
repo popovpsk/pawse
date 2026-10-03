@@ -377,3 +377,25 @@ fn covers_are_read_whole() {
     assert_eq!(request.params["maxWidth"], "320");
     assert_eq!(request.params["maxHeight"], "320");
 }
+
+#[test]
+fn lyrics_come_from_the_audio_item_and_a_missing_file_is_none() {
+    let stub = Stub::start(|request| match request.path.as_str() {
+        "/Audio/a1/Lyrics" => json(serde_json::json!({
+            "Metadata": {"IsSynced": true},
+            "Lyrics": [{"Text": "first", "Start": 12_500_000}, {"Text": "plain"}, {"Start": "oops"}]
+        })),
+        _ => (404, "text/plain", Vec::new()),
+    });
+    let found = stub.client().lyrics("a1").unwrap().unwrap();
+    assert_eq!(found.lyrics.len(), 3);
+    assert_eq!(found.lyrics[0].text, "first");
+    assert_eq!(found.lyrics[0].start_ms(), Some(1_250));
+    assert_eq!(found.lyrics[1].start_ms(), None);
+    assert_eq!(found.lyrics[2].text, "");
+    assert!(stub.requests()[0].authorization.contains("Token=\"tok\""));
+    assert_eq!(stub.client().lyrics("none").unwrap(), None);
+
+    let revoked = Stub::start(|_| (401, "text/plain", Vec::new()));
+    assert_eq!(revoked.client().lyrics("a1"), Err(Error::Auth));
+}

@@ -267,6 +267,7 @@ pub static NL: Strings = lang! {
     lyrics_follow: "Huidige regel volgen",
     lyrics_from_internet: "Songtekst van internet ophalen",
     lyrics_from_internet_desc: "Ontbrekende songteksten online zoeken via LRCLIB. Zet uit voor privacy.",
+    lyrics_source_server: "Van de server",
     lyrics_source_lrc: "Uit het .lrc-bestand",
     lyrics_source_tags: "Uit de tags van het bestand",
     lyrics_source_lrclib: "Van LRCLIB",

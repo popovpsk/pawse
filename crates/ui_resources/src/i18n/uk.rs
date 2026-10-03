@@ -267,6 +267,7 @@ pub static UK: Strings = lang! {
     lyrics_follow: "Стежити за рядком",
     lyrics_from_internet: "Підтягувати текст з інтернету",
     lyrics_from_internet_desc: "Шукати відсутній текст онлайн через LRCLIB. Вимкніть для приватності.",
+    lyrics_source_server: "Із сервера",
     lyrics_source_lrc: "З файлу .lrc",
     lyrics_source_tags: "З тегів файлу",
     lyrics_source_lrclib: "З LRCLIB",

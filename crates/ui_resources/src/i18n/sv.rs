@@ -267,6 +267,7 @@ pub static SV: Strings = lang! {
     lyrics_follow: "Följ aktuell rad",
     lyrics_from_internet: "Hämta låttext från internet",
     lyrics_from_internet_desc: "Sök efter saknad låttext online via LRCLIB. Stäng av för integritet.",
+    lyrics_source_server: "Från servern",
     lyrics_source_lrc: "Från .lrc-filen",
     lyrics_source_tags: "Från filens taggar",
     lyrics_source_lrclib: "Från LRCLIB",

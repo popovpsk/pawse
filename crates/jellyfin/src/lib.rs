@@ -119,6 +119,28 @@ pub struct MediaSource {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct Lyrics {
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub lyrics: Vec<LyricsLine>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct LyricsLine {
+    #[serde(default, deserialize_with = "lenient::text")]
+    pub text: String,
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub start: Option<u64>,
+}
+
+impl LyricsLine {
+    pub fn start_ms(&self) -> Option<u64> {
+        self.start.map(|ticks| ticks / 10_000)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct ImageTags {
     #[serde(default, deserialize_with = "lenient::opt_text")]
     pub primary: Option<String>,
@@ -256,6 +278,18 @@ impl Client {
             .map_err(|e| Error::Transient(e.to_string()))
     }
 
+    pub fn lyrics(&self, item_id: &str) -> Result<Option<Lyrics>, Error> {
+        let path = format!("/Audio/{}/Lyrics", encode(item_id));
+        let response = self.send(&path, &[], None)?;
+        if response.status().as_u16() == 404 {
+            return Ok(None);
+        }
+        let value = read_json(check_status(response)?, "Lyrics")?;
+        serde_json::from_value(value)
+            .map(Some)
+            .map_err(|e| Error::Server(format!("Lyrics: {e}")))
+    }
+
     pub fn fetch_range(
         &self,
         item_id: &str,
@@ -370,6 +404,15 @@ impl Client {
         params: &[(&str, &str)],
         range: Option<&str>,
     ) -> Result<ureq::http::Response<ureq::Body>, Error> {
+        check_status(self.send(path, params, range)?)
+    }
+
+    fn send(
+        &self,
+        path: &str,
+        params: &[(&str, &str)],
+        range: Option<&str>,
+    ) -> Result<ureq::http::Response<ureq::Body>, Error> {
         let mut request = self
             .agent
             .get(format!("{}{path}", self.base))
@@ -380,10 +423,9 @@ impl Client {
         if let Some(range) = range {
             request = server_http::with_range(request, range);
         }
-        let response = request
+        request
             .call()
-            .map_err(|e| Error::Transient(server_http::redact(&e.to_string())))?;
-        check_status(response)
+            .map_err(|e| Error::Transient(server_http::redact(&e.to_string())))
     }
 }
 

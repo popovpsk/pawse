@@ -63,6 +63,10 @@ impl SourceMedia for HttpMedia {
     fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
         self.client.cover_art(key, max_size)
     }
+
+    fn lyrics(&self, reference: &RemoteRef) -> Result<Option<lyrics::Lyrics>, RemoteError> {
+        self.client.lyrics(&reference.key)
+    }
 }
 
 struct ServerFetch {

@@ -195,6 +195,9 @@ pub trait ServerClient: Send + Sync {
     fn set_favorite(&self, _key: &str, _favorite: bool) -> Result<(), RemoteError> {
         Err(unsupported())
     }
+    fn lyrics(&self, _key: &str) -> Result<Option<lyrics::Lyrics>, RemoteError> {
+        Ok(None)
+    }
     fn forget(&self) {}
     fn moved(&self) -> Option<RemoteConfig> {
         None
@@ -224,6 +227,36 @@ fn real_album(album: Option<String>) -> Option<String> {
 
 fn real_track_number(number: Option<u32>) -> Option<u32> {
     number.filter(|n| (1..=MAX_TRACK_NUMBER).contains(n))
+}
+
+fn one_line(text: &str) -> String {
+    text.split(['\n', '\r'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn server_lyrics(mut lines: Vec<lyrics::LyricLine>) -> Option<lyrics::Lyrics> {
+    for line in &mut lines {
+        line.text = one_line(&line.text);
+        line.background = line
+            .background
+            .as_deref()
+            .map(one_line)
+            .filter(|text| !text.is_empty());
+    }
+    let synced = lines.iter().any(|line| line.time_ms.is_some());
+    if synced {
+        lines.retain(|line| line.time_ms.is_some());
+        lines.sort_by_key(|line| line.time_ms);
+    } else {
+        lines.retain(|line| !line.text.is_empty());
+    }
+    lines
+        .iter()
+        .any(|line| !line.text.is_empty())
+        .then_some(lyrics::Lyrics { synced, lines })
 }
 
 fn joined_genres(genres: &[String]) -> Option<String> {
@@ -276,5 +309,44 @@ mod tests {
             joined_genres(&genres(&["Rock", " ", "Pop"])).as_deref(),
             Some("Rock; Pop")
         );
+    }
+    fn line(time_ms: Option<u32>, text: &str) -> lyrics::LyricLine {
+        lyrics::LyricLine {
+            time_ms,
+            text: text.into(),
+            background: None,
+        }
+    }
+
+    #[test]
+    fn server_lyrics_are_sorted_kept_on_one_line_and_none_when_blank() {
+        let mut echoed = line(Some(3_000), " two\nlines ");
+        echoed.background = Some("\n".into());
+        let synced = server_lyrics(vec![
+            echoed,
+            line(Some(1_000), "one"),
+            line(None, "untimed"),
+            line(Some(2_000), ""),
+        ])
+        .unwrap();
+        assert!(synced.synced);
+        assert_eq!(
+            synced.lines,
+            vec![
+                line(Some(1_000), "one"),
+                line(Some(2_000), ""),
+                line(Some(3_000), "two lines"),
+            ]
+        );
+
+        let plain = server_lyrics(vec![line(None, "a"), line(None, " "), line(None, "b")]).unwrap();
+        assert!(!plain.synced);
+        assert_eq!(plain.lines, vec![line(None, "a"), line(None, "b")]);
+
+        assert_eq!(
+            server_lyrics(vec![line(Some(0), " "), line(None, "")]),
+            None
+        );
+        assert_eq!(server_lyrics(Vec::new()), None);
     }
 }

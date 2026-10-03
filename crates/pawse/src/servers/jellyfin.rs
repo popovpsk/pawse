@@ -1,6 +1,9 @@
 use music_library::RemoteSong;
 
-use super::{RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number};
+use super::{
+    RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number,
+    server_lyrics,
+};
 
 const KNOWN_CONTAINERS: [&str; 14] = [
     "flac", "mp3", "m4a", "mp4", "aac", "ogg", "opus", "wav", "aiff", "aif", "ape", "wv", "dsf",
@@ -66,6 +69,14 @@ impl ServerClient for Jellyfin {
         self.0.set_favorite(key, favorite).map_err(error)
     }
 
+    fn lyrics(&self, key: &str) -> Result<Option<lyrics::Lyrics>, RemoteError> {
+        Ok(self
+            .0
+            .lyrics(key)
+            .map_err(error)?
+            .and_then(|found| server_lyrics(found.lyrics.iter().map(line).collect())))
+    }
+
     fn fetch_range(
         &self,
         key: &str,
@@ -73,6 +84,14 @@ impl ServerClient for Jellyfin {
         end: Option<u64>,
     ) -> Result<server_http::RangeBody, RemoteError> {
         self.0.fetch_range(key, start, end).map_err(error)
+    }
+}
+
+fn line(line: &jellyfin::LyricsLine) -> lyrics::LyricLine {
+    lyrics::LyricLine {
+        time_ms: line.start_ms().and_then(|ms| u32::try_from(ms).ok()),
+        text: line.text.clone(),
+        background: None,
     }
 }
 
@@ -272,5 +291,20 @@ mod tests {
             error(jellyfin::Error::Server("x".into())),
             RemoteError::Other("x".into())
         );
+    }
+
+    #[test]
+    fn lyric_lines_are_converted_from_ticks() {
+        let timed = line(&jellyfin::LyricsLine {
+            text: "words".into(),
+            start: Some(12_345_678),
+        });
+        assert_eq!(timed.time_ms, Some(1_234));
+        assert_eq!(timed.text, "words");
+        let plain = line(&jellyfin::LyricsLine {
+            text: "plain".into(),
+            start: None,
+        });
+        assert_eq!(plain.time_ms, None);
     }
 }

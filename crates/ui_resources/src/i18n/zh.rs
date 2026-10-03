@@ -267,6 +267,7 @@ pub static ZH: Strings = lang! {
     lyrics_follow: "跟随当前歌词",
     lyrics_from_internet: "从互联网获取歌词",
     lyrics_from_internet_desc: "通过 LRCLIB 在线查找缺失的歌词。关闭以保护隐私。",
+    lyrics_source_server: "来自服务器",
     lyrics_source_lrc: "来自 .lrc 文件",
     lyrics_source_tags: "来自文件标签",
     lyrics_source_lrclib: "来自 LRCLIB",

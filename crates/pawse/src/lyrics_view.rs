@@ -28,6 +28,8 @@ const SCROLL_ANIM: Duration = Duration::from_millis(360);
 const FRAME_MIN_MS: f32 = 30.;
 const CENTER_BIAS: f32 = 0.4;
 const SCROLL_EPS: Pixels = px(1.);
+const BACKGROUND_SCALE: f32 = 0.8;
+const BACKGROUND_ALPHA: f32 = 0.7;
 
 #[derive(Clone)]
 struct TrackContext {
@@ -37,6 +39,7 @@ struct TrackContext {
     album_id: Option<i64>,
     title: String,
     duration_secs: Option<u64>,
+    locator: Option<String>,
 }
 
 struct LoadOutcome {
@@ -51,13 +54,21 @@ enum Lrclib {
     Found,
 }
 
+enum Server {
+    None,
+    Unasked(String),
+    Fetching,
+    Found(lyrics::Lyrics),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SourceSegment {
     source: &'static str,
     available: bool,
 }
 
-const SEGMENT_ORDER: [&str; 3] = [
+const SEGMENT_ORDER: [&str; 4] = [
+    lyrics_source::SERVER,
     lyrics_source::LRC,
     lyrics_source::EMBEDDED,
     lyrics_source::LRCLIB,
@@ -70,6 +81,7 @@ pub struct LyricsView {
     source: String,
     variants: Vec<StoredLyrics>,
     lrclib: Lrclib,
+    server: Server,
     choice: Option<&'static str>,
     segments: Vec<SourceSegment>,
     prefer_lrclib: bool,
@@ -103,6 +115,7 @@ pub struct LyricsView {
     _frame_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
     _fetch_task: Option<Task<()>>,
+    _server_task: Option<Task<()>>,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
@@ -187,6 +200,7 @@ impl LyricsView {
             source: String::new(),
             variants: Vec::new(),
             lrclib: Lrclib::Unknown,
+            server: Server::None,
             choice: None,
             segments: Vec::new(),
             prefer_lrclib,
@@ -220,6 +234,7 @@ impl LyricsView {
             _frame_task: None,
             _load_task: None,
             _fetch_task: None,
+            _server_task: None,
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
@@ -267,6 +282,7 @@ impl LyricsView {
             .current_track()
             .cloned()?;
         let own_file = track.own_file().map(PathBuf::from);
+        let locator = track.is_remote().then(|| track.path.clone());
         Some(TrackContext {
             id: track.id,
             is_cue: own_file.is_none(),
@@ -274,6 +290,7 @@ impl LyricsView {
             album_id: track.album_id,
             title: track.title,
             duration_secs: track.duration_ms.map(|ms| (ms / 1000) as u64),
+            locator,
         })
     }
 
@@ -286,11 +303,15 @@ impl LyricsView {
         self.current_track_id = Some(ctx.id);
         if changed {
             self.reset_display();
+            if let Some(locator) = ctx.locator.clone() {
+                self.server = Server::Unasked(locator);
+            }
         }
         if self.rows.is_empty() && !self.fetching {
             self.loading = true;
         }
         self.spawn_load(ctx, cx);
+        self.maybe_fetch_server(cx);
         cx.notify();
     }
 
@@ -337,32 +358,67 @@ impl LyricsView {
     fn show_best(&mut self, cx: &mut Context<Self>) {
         let choices = lyrics_source::choices(&self.variants, self.prefer_lrclib);
         let can_search = self.online && self.lrclib == Lrclib::Unknown;
+        let from_server = matches!(self.server, Server::Found(_));
+        let available = |source: &str| {
+            if source == lyrics_source::SERVER {
+                from_server
+            } else {
+                choices.iter().any(|v| v.source == source)
+            }
+        };
         self.segments = SEGMENT_ORDER
             .iter()
             .filter_map(|&source| {
-                let available = choices.iter().any(|v| v.source == source);
+                let available = available(source);
                 let searchable = source == lyrics_source::LRCLIB && can_search;
                 (available || searchable).then_some(SourceSegment { source, available })
             })
             .collect();
-        let picked = lyrics_source::pick(&self.variants, self.prefer_lrclib, self.choice)
-            .map(|v| (v.text.clone(), v.source.clone()));
+        let waiting = self.server_pending() && self.choice.is_none();
+        let server_rank = lyrics_source::rank(lyrics_source::SERVER, self.prefer_lrclib);
+        let picked =
+            lyrics_source::pick(self.prefer_lrclib, self.choice, available).filter(|source| {
+                !waiting || lyrics_source::rank(source, self.prefer_lrclib) < server_rank
+            });
         match picked {
-            Some((text, source)) => self.apply_text(&text, &source, cx),
-            None if self.lrclib == Lrclib::NotFound && !self.fetching => self.set_not_found(cx),
+            Some(lyrics_source::SERVER) => {
+                if let Server::Found(found) = &self.server {
+                    let rows = lyrics_fill::build_rows(found, self.track_duration_ms);
+                    let synced = found.synced;
+                    self.apply_rows(rows, synced, lyrics_source::SERVER, None, cx);
+                }
+            }
+            Some(source) => {
+                if let Some(text) = choices
+                    .iter()
+                    .find(|v| v.source == source)
+                    .map(|v| v.text.clone())
+                {
+                    self.apply_text(&text, source, cx);
+                }
+            }
+            None if self.lrclib == Lrclib::NotFound && !self.fetching && !self.server_pending() => {
+                self.set_not_found(cx)
+            }
             None => self.set_empty(cx),
         }
     }
 
+    fn server_pending(&self) -> bool {
+        matches!(self.server, Server::Unasked(_) | Server::Fetching)
+    }
+
     fn maybe_fetch(&mut self, cx: &mut Context<Self>) {
-        if !self.visible || !self.online || self.fetching || self.loading {
+        if !self.visible {
             return;
         }
-        if self.lrclib != Lrclib::Unknown {
+        self.maybe_fetch_server(cx);
+        if self.loading || !self.online || self.fetching || self.lrclib != Lrclib::Unknown {
             return;
         }
-        let has_local = !lyrics_source::choices(&self.variants, self.prefer_lrclib).is_empty();
-        if has_local && !self.prefer_lrclib {
+        let has_own = !lyrics_source::choices(&self.variants, self.prefer_lrclib).is_empty()
+            || matches!(self.server, Server::Found(_));
+        if (has_own || self.server_pending()) && !self.prefer_lrclib {
             return;
         }
         if let Some(ctx) = Self::current_context(cx)
@@ -370,6 +426,40 @@ impl LyricsView {
         {
             self.kick_fetch(ctx, cx);
         }
+    }
+
+    fn maybe_fetch_server(&mut self, cx: &mut Context<Self>) {
+        if !self.visible {
+            return;
+        }
+        let (Some(id), Server::Unasked(locator)) = (self.current_track_id, &self.server) else {
+            return;
+        };
+        let locator = locator.clone();
+        self.server = Server::Fetching;
+        cx.notify();
+        let media = cx.global::<Services>().remote_media.clone();
+        self._server_task = Some(cx.spawn(async move |this, cx| {
+            let fetched = cx
+                .background_spawn(async move { media.lyrics(&locator) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.current_track_id != Some(id) {
+                    return;
+                }
+                this.server = match fetched {
+                    Ok(Some(found)) => Server::Found(found),
+                    Ok(None) => Server::None,
+                    Err(e) => {
+                        log::warn!("server lyrics for track {id} failed: {e:?}");
+                        Server::None
+                    }
+                };
+                this.show_best(cx);
+                this.maybe_fetch(cx);
+            })
+            .ok();
+        }));
     }
 
     fn select_source(&mut self, source: &'static str, cx: &mut Context<Self>) {
@@ -443,11 +533,22 @@ impl LyricsView {
     fn apply_text(&mut self, raw: &str, source: &str, cx: &mut Context<Self>) {
         let parsed = lyrics::parse_lrc(raw);
         let rows = lyrics_fill::build_rows(&parsed, self.track_duration_ms);
+        self.apply_rows(rows, parsed.synced, source, Some(raw.to_string()), cx);
+    }
+
+    fn apply_rows(
+        &mut self,
+        rows: Vec<lyrics_fill::LyricRow>,
+        synced: bool,
+        source: &str,
+        raw: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         let rows_changed = rows != self.rows;
-        self.synced = parsed.synced;
+        self.synced = synced;
         self.rows = rows;
         self.source = source.to_string();
-        self.current_raw = Some(raw.to_string());
+        self.current_raw = raw;
         let has_sidecar = self.variants.iter().any(|v| v.source == lyrics_source::LRC);
         self.can_export = !self.rows.is_empty()
             && source == lyrics_source::LRCLIB
@@ -487,6 +588,8 @@ impl LyricsView {
         self._fetch_task = None;
         self.variants.clear();
         self.lrclib = Lrclib::Unknown;
+        self.server = Server::None;
+        self._server_task = None;
         self.choice = None;
         self.segments.clear();
     }
@@ -802,6 +905,9 @@ impl Render for LyricsView {
                 |(ix, segment)| {
                     let source = segment.source;
                     let (icon, tooltip) = match source {
+                        lyrics_source::SERVER => {
+                            ("icons/lyrics-server.svg", tr().lyrics_source_server.clone())
+                        }
                         lyrics_source::LRC => {
                             ("icons/lyrics-lrc.svg", tr().lyrics_source_lrc.clone())
                         }
@@ -857,7 +963,7 @@ impl Render for LyricsView {
             });
         let header = panel_header(tr().lyrics.clone(), actions, cx);
 
-        let body = if self.fetching && self.rows.is_empty() {
+        let body = if (self.fetching || self.server_pending()) && self.rows.is_empty() {
             centered_message(tr().lyrics_fetching.clone(), muted_foreground).into_any_element()
         } else if self.loading {
             div().flex_1().into_any_element()
@@ -887,9 +993,15 @@ impl Render for LyricsView {
                         .text_size(px(lyrics_font_size))
                         .text_color(color)
                         .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
+                    let background = row
+                        .background
+                        .clone()
+                        .map(|text| background_line(text, lyrics_font_size, color));
+                    let stacked = background.is_some();
                     match (synced, row.time_ms, row.label.clone()) {
                         (true, Some(time_ms), Some(label)) => line
                             .flex()
+                            .when(stacked, |d| d.flex_col().items_start())
                             .child(
                                 div()
                                     .id(("lyrics_line", ix))
@@ -920,8 +1032,12 @@ impl Render for LyricsView {
                                         _ => Vec::new(),
                                     }),
                             )
+                            .children(background)
                             .into_any_element(),
-                        _ => line.child(row.text.clone()).into_any_element(),
+                        _ => line
+                            .child(row.text.clone())
+                            .children(background)
+                            .into_any_element(),
                     }
                 }));
 
@@ -974,6 +1090,15 @@ fn measure_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
     )
     .absolute()
     .size_full()
+}
+
+fn background_line(text: SharedString, font_size: f32, color: Hsla) -> gpui::Div {
+    div()
+        .max_w_full()
+        .text_size(px(font_size * BACKGROUND_SCALE))
+        .font_weight(FontWeight::NORMAL)
+        .text_color(color.opacity(BACKGROUND_ALPHA))
+        .child(text)
 }
 
 fn centered_message(message: SharedString, color: Hsla) -> gpui::Div {

@@ -267,6 +267,7 @@ pub static DE: Strings = lang! {
     lyrics_follow: "Aktueller Zeile folgen",
     lyrics_from_internet: "Liedtext aus dem Internet laden",
     lyrics_from_internet_desc: "Fehlende Liedtexte online über LRCLIB suchen. Für mehr Datenschutz deaktivieren.",
+    lyrics_source_server: "Vom Server",
     lyrics_source_lrc: "Aus der .lrc-Datei",
     lyrics_source_tags: "Aus den Datei-Tags",
     lyrics_source_lrclib: "Von LRCLIB",

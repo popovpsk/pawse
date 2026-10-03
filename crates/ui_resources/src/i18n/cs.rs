@@ -267,6 +267,7 @@ pub static CS: Strings = lang! {
     lyrics_follow: "Sledovat aktuální řádek",
     lyrics_from_internet: "Stáhnout text z internetu",
     lyrics_from_internet_desc: "Hledat chybějící texty online přes LRCLIB. Vypněte pro ochranu soukromí.",
+    lyrics_source_server: "Ze serveru",
     lyrics_source_lrc: "Ze souboru .lrc",
     lyrics_source_tags: "Ze štítků souboru",
     lyrics_source_lrclib: "Z LRCLIB",

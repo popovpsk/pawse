@@ -57,5 +57,8 @@ the library database; `pawse::remote_sync` turns its `Item`s into
   both is `NotFound` (the item is gone), any other refusal a `Server` error
   carrying its own status. Called by `pawse::server_scrobble` when a like is
   sent back.
+- **Lyrics.** `lyrics` reads `/Audio/{id}/Lyrics` (10.9+). A 404 — no lyrics,
+  or a server older than that route — is `Ok(None)`. `Start` is in ticks
+  (100 ns); `LyricsLine::start_ms` converts. Word cues are not read.
 - **Not done:** reporting plays back to the server, picking individual music
   libraries, Quick Connect, logging the session out when a server is removed.

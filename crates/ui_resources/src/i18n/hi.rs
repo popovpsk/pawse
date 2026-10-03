@@ -267,6 +267,7 @@ pub static HI: Strings = lang! {
     lyrics_follow: "वर्तमान पंक्ति का अनुसरण करें",
     lyrics_from_internet: "इंटरनेट से बोल लाएं",
     lyrics_from_internet_desc: "LRCLIB के माध्यम से ऑनलाइन गुम बोल खोजें। गोपनीयता के लिए बंद करें।",
+    lyrics_source_server: "सर्वर से",
     lyrics_source_lrc: ".lrc फ़ाइल से",
     lyrics_source_tags: "फ़ाइल के टैग से",
     lyrics_source_lrclib: "LRCLIB से",

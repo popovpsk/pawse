@@ -47,6 +47,15 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   `set_starred` is `star` / `unstar`. One song per request: the caller settles
   each play on its own. Streaming goes through `download`, which Navidrome does
   not count as a play, so without `scrobble` a server's play counts never move.
+- **Lyrics.** `lyrics` is OpenSubsonic `getLyricsBySongId` (the `songLyrics`
+  extension) with `enhanced=true`, returned as the server sends it: every
+  `structuredLyrics` entry with its `kind`, `offset`, `line`s, `cueLine`s and
+  `agents`. `enhanced` asks for songLyrics v2 (word timing, backing-vocal
+  agents, translations); a v1 server ignores the parameter and sends lines
+  only. No extension check first: a server without the method answers with an
+  error (`Server`), which the app reads as "no lyrics". Navidrome parses TTML,
+  Enhanced LRC, SRT and the rest itself, so the client only ever sees this
+  structure.
 - **Bodies.** JSON is read through `into_reader` (no ureq 10 MB cap). Covers are
   capped at 32 MB.
 - **Covers** are asked for with `size` (the caller's `max_size`; the sync passes its

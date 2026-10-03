@@ -267,6 +267,7 @@ pub static TR: Strings = lang! {
     lyrics_follow: "Geçerli satırı takip et",
     lyrics_from_internet: "İnternetten sözleri getir",
     lyrics_from_internet_desc: "Eksik sözleri LRCLIB aracılığıyla çevrimiçi ara. Gizlilik için kapat.",
+    lyrics_source_server: "Sunucudan",
     lyrics_source_lrc: ".lrc dosyasından",
     lyrics_source_tags: "Dosya etiketlerinden",
     lyrics_source_lrclib: "LRCLIB'den",

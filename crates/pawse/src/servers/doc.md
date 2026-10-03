@@ -77,7 +77,7 @@ to `subsonic::` or `jellyfin::` directly.
   server says is gone (shown and fetched like `Other`, but a report back to the
   server drops it quietly); `ServerClient` has `scrobble`,
   `now_playing` and `set_favorite` (an error unless the kind says it reports
-  that), `forget` (removal
+  that), `lyrics` (`Ok(None)` by default; see below), `forget` (removal
   cleanup), `peers` and `moved` (a config to save because the server was
   found elsewhere — DLNA only; a sync sends it as `LibraryEvent::RemoteMoved`
   and `remote_settings::server_moved` stores it), all no-ops by default; `RemoteConfig::web_url` is the
@@ -95,6 +95,25 @@ to `subsonic::` or `jellyfin::` directly.
   `artist_aliases` are other names the same recording's artist is credited
   under, used only for matching (Subsonic: the joined display name and the
   other credited artists; Jellyfin: the other entries of its split `Artists`).
+- **Lyrics come from the server, never cached.** `ServerClient::lyrics(key)`
+  returns `lyrics::Lyrics` for Subsonic and Jellyfin; DLNA and torrents keep
+  the default `None`. The lyrics panel asks every time a server track becomes
+  current (like the audio itself, nothing is stored in `library.db`).
+  `server_lyrics` is the shared finish: line breaks inside a line become
+  spaces, timed lyrics keep only timed lines sorted by time (blank ones stay as
+  gaps), plain lyrics drop blank lines, all-blank is `None`.
+  Subsonic: of the `structuredLyrics` entries only `kind` main (or no kind) is
+  used — synced ones first, then plain, the first that has any words;
+  `offset` is applied (positive = earlier, per the spec); translations and
+  pronunciations are ignored. `cueLine`s are grouped by `index` (= position in
+  `line`). When a line has `cueLine`s of a `bg`-role agent and of another
+  agent, every one of them carries a `value` and the non-`bg` values are not
+  blank, those values become the line's text and the `bg` ones its
+  `background`. Otherwise the server's `line` value is kept whole — never
+  glued together from word cues, whose spacing is not reliable (a v1 reply,
+  without `cueLine`s, always does this; backing vocals then stay inline). An unsupported
+  method or a missing song is `Ok(None)`; only unreachable/auth are errors.
+  Jellyfin: `Start` ticks → ms, no backing vocals.
 - **`genre` is one raw string.** An adapter whose source lists several genres
   (Jellyfin, DLNA, a torrent's tags, OpenSubsonic's `genres[]`) joins them with
   `; ` (`joined_genres`) and leaves the splitting, dedup and junk filtering to

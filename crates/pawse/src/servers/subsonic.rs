@@ -1,6 +1,12 @@
 use music_library::RemoteSong;
 
-use super::{RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number};
+use super::{
+    RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number,
+    server_lyrics,
+};
+
+const MAIN_KIND: &str = "main";
+const BACKGROUND_ROLE: &str = "bg";
 
 pub struct Subsonic(subsonic::Client);
 
@@ -62,6 +68,17 @@ impl ServerClient for Subsonic {
         self.0.set_starred(key, favorite).map_err(error)
     }
 
+    fn lyrics(&self, key: &str) -> Result<Option<lyrics::Lyrics>, RemoteError> {
+        match self.0.lyrics(key) {
+            Ok(entries) => Ok(main_lyrics(entries)),
+            Err(subsonic::Error::Server(message) | subsonic::Error::NotFound(message)) => {
+                log::debug!("subsonic: no lyrics for {key}: {message}");
+                Ok(None)
+            }
+            Err(e) => Err(error(e)),
+        }
+    }
+
     fn fetch_range(
         &self,
         key: &str,
@@ -70,6 +87,93 @@ impl ServerClient for Subsonic {
     ) -> Result<server_http::RangeBody, RemoteError> {
         self.0.fetch_range(key, start, end).map_err(error)
     }
+}
+
+fn main_lyrics(entries: Vec<subsonic::StructuredLyrics>) -> Option<lyrics::Lyrics> {
+    let (synced, plain): (Vec<_>, Vec<_>) = entries
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .kind
+                .as_deref()
+                .is_none_or(|kind| kind.is_empty() || kind.eq_ignore_ascii_case(MAIN_KIND))
+        })
+        .partition(|entry| entry.synced);
+    synced
+        .into_iter()
+        .chain(plain)
+        .find_map(|entry| server_lyrics(lines(&entry)))
+}
+
+type Voices<'a> = (Vec<&'a subsonic::CueLine>, Vec<&'a subsonic::CueLine>);
+
+fn lines(entry: &subsonic::StructuredLyrics) -> Vec<lyrics::LyricLine> {
+    let background: Vec<&str> = entry
+        .agents
+        .iter()
+        .filter(|agent| {
+            agent
+                .role
+                .as_deref()
+                .is_some_and(|role| role.eq_ignore_ascii_case(BACKGROUND_ROLE))
+        })
+        .map(|agent| agent.id.as_str())
+        .collect();
+    let mut voices: Vec<Voices> = vec![(Vec::new(), Vec::new()); entry.line.len()];
+    for cue_line in &entry.cue_line {
+        let Some((front, back)) = cue_line.index.and_then(|ix| voices.get_mut(ix)) else {
+            continue;
+        };
+        if cue_line
+            .agent_id
+            .as_deref()
+            .is_some_and(|id| background.contains(&id))
+        {
+            back.push(cue_line);
+        } else {
+            front.push(cue_line);
+        }
+    }
+    let offset = entry.offset.unwrap_or(0);
+    entry
+        .line
+        .iter()
+        .zip(voices)
+        .map(|(line, (front, back))| {
+            let split = joined(&front)
+                .zip(joined(&back))
+                .filter(|(front, _)| !front.is_empty());
+            let (text, background) = match split {
+                Some((front, back)) => (front, Some(back)),
+                None => (line.value.clone(), None),
+            };
+            lyrics::LyricLine {
+                time_ms: line
+                    .start
+                    .filter(|_| entry.synced)
+                    .and_then(|start| u32::try_from(start.saturating_sub(offset).max(0)).ok()),
+                text,
+                background,
+            }
+        })
+        .collect()
+}
+
+fn joined(cue_lines: &[&subsonic::CueLine]) -> Option<String> {
+    if cue_lines.is_empty() {
+        return None;
+    }
+    let values: Vec<&str> = cue_lines
+        .iter()
+        .map(|cue_line| cue_line.value.as_deref().map(str::trim))
+        .collect::<Option<_>>()?;
+    Some(
+        values
+            .into_iter()
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
 
 fn first_name(names: &[subsonic::Named]) -> Option<String> {
@@ -223,6 +327,169 @@ mod tests {
         assert_eq!(
             error(subsonic::Error::Server("x".into())),
             RemoteError::Other("x".into())
+        );
+    }
+
+    fn entry(
+        kind: Option<&str>,
+        synced: bool,
+        lines: &[(Option<i64>, &str)],
+    ) -> subsonic::StructuredLyrics {
+        subsonic::StructuredLyrics {
+            kind: kind.map(str::to_string),
+            synced,
+            line: lines
+                .iter()
+                .map(|(start, value)| subsonic::LyricsLine {
+                    start: *start,
+                    value: value.to_string(),
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    fn cue_line(index: usize, agent: &str, value: Option<&str>) -> subsonic::CueLine {
+        subsonic::CueLine {
+            index: Some(index),
+            agent_id: Some(agent.into()),
+            value: value.map(str::to_string),
+            cue: Vec::new(),
+        }
+    }
+
+    fn agent(id: &str, role: &str) -> subsonic::Agent {
+        subsonic::Agent {
+            id: id.into(),
+            role: Some(role.into()),
+        }
+    }
+
+    fn texts(lyrics: &lyrics::Lyrics) -> Vec<(Option<u32>, &str, Option<&str>)> {
+        lyrics
+            .lines
+            .iter()
+            .map(|line| (line.time_ms, line.text.as_str(), line.background.as_deref()))
+            .collect()
+    }
+
+    #[test]
+    fn backing_vocals_are_split_off_the_line_they_belong_to() {
+        let mut main = entry(
+            Some("main"),
+            true,
+            &[
+                (Some(1_000), "Hello (echo)"),
+                (Some(3_000), "(ooh)"),
+                (Some(5_000), "Plain line"),
+                (Some(7_000), "Out of range"),
+            ],
+        );
+        main.agents = vec![agent("lead", "main"), agent("backing", "bg")];
+        main.cue_line = vec![
+            cue_line(0, "lead", Some("Hello")),
+            cue_line(0, "backing", Some(" (echo) ")),
+            cue_line(1, "backing", Some("(ooh)")),
+            cue_line(2, "lead", Some("Plain line")),
+            cue_line(9, "backing", Some("(lost)")),
+        ];
+        let lyrics = main_lyrics(vec![main]).unwrap();
+        assert_eq!(
+            texts(&lyrics),
+            vec![
+                (Some(1_000), "Hello", Some("(echo)")),
+                (Some(3_000), "(ooh)", None),
+                (Some(5_000), "Plain line", None),
+                (Some(7_000), "Out of range", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_that_cannot_be_split_cleanly_stays_whole() {
+        let mut main = entry(
+            None,
+            true,
+            &[(Some(0), "Hello world (echo)"), (Some(2_000), "(ooh)")],
+        );
+        main.agents = vec![agent("lead", "main"), agent("backing", "bg")];
+        main.cue_line = vec![
+            cue_line(0, "lead", None),
+            cue_line(0, "backing", Some("(echo)")),
+            cue_line(1, "lead", Some("  ")),
+            cue_line(1, "backing", Some("(ooh)")),
+        ];
+        assert_eq!(
+            texts(&main_lyrics(vec![main]).unwrap()),
+            vec![
+                (Some(0), "Hello world (echo)", None),
+                (Some(2_000), "(ooh)", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_with_several_singers_keeps_them_all_in_front() {
+        let mut main = entry(None, true, &[(Some(0), "You and me (me)")]);
+        main.agents = vec![
+            agent("lead", "main"),
+            agent("guest", "voice"),
+            agent("bg", "bg"),
+        ];
+        main.cue_line = vec![
+            cue_line(0, "lead", Some("You and")),
+            cue_line(0, "guest", Some("me")),
+            cue_line(0, "bg", Some("(me)")),
+        ];
+        assert_eq!(
+            texts(&main_lyrics(vec![main]).unwrap()),
+            vec![(Some(0), "You and me", Some("(me)"))]
+        );
+    }
+
+    #[test]
+    fn the_synced_main_track_wins_and_translations_are_left_out() {
+        let lyrics = main_lyrics(vec![
+            entry(Some("translation"), true, &[(Some(0), "Hallo")]),
+            entry(Some("main"), false, &[(None, "plain words")]),
+            entry(Some(""), true, &[(Some(2_000), "timed words")]),
+        ])
+        .unwrap();
+        assert!(lyrics.synced);
+        assert_eq!(texts(&lyrics), vec![(Some(2_000), "timed words", None)]);
+
+        let plain = main_lyrics(vec![entry(None, false, &[(Some(5), "no times")])]).unwrap();
+        assert!(!plain.synced);
+        assert_eq!(texts(&plain), vec![(None, "no times", None)]);
+
+        assert_eq!(
+            main_lyrics(vec![entry(Some("pronunciation"), true, &[(Some(0), "x")])]),
+            None
+        );
+        assert_eq!(main_lyrics(vec![entry(None, true, &[])]), None);
+        assert_eq!(main_lyrics(Vec::new()), None);
+
+        let behind_a_blank_one = main_lyrics(vec![
+            entry(None, true, &[(Some(0), " "), (Some(1_000), "")]),
+            entry(None, false, &[(None, "real words")]),
+        ])
+        .unwrap();
+        assert_eq!(texts(&behind_a_blank_one), vec![(None, "real words", None)]);
+    }
+
+    #[test]
+    fn the_offset_moves_lines_earlier_when_positive() {
+        let mut sooner = entry(None, true, &[(Some(200), "a"), (Some(5_000), "b")]);
+        sooner.offset = Some(500);
+        assert_eq!(
+            texts(&main_lyrics(vec![sooner]).unwrap()),
+            vec![(Some(0), "a", None), (Some(4_500), "b", None)]
+        );
+        let mut later = entry(None, true, &[(Some(1_000), "a")]);
+        later.offset = Some(-250);
+        assert_eq!(
+            texts(&main_lyrics(vec![later]).unwrap()),
+            vec![(Some(1_250), "a", None)]
         );
     }
 }

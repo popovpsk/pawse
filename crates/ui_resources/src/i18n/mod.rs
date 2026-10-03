@@ -331,6 +331,7 @@ pub struct Strings {
     pub lyrics_follow: SharedString,
     pub lyrics_from_internet: SharedString,
     pub lyrics_from_internet_desc: SharedString,
+    pub lyrics_source_server: SharedString,
     pub lyrics_source_lrc: SharedString,
     pub lyrics_source_tags: SharedString,
     pub lyrics_source_lrclib: SharedString,
