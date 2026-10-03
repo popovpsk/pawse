@@ -118,6 +118,19 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
   `NOT_IMPLEMENTED` (unknown).
 - `GetProtocolInfo`'s `Sink` is the list of formats the renderer takes; it is
   what `cast` uses to choose between the original file and PCM.
-- gmrender-resurrect 0.3 on the Pi (GStreamer) is the renderer tested live:
-  it reports positions in whole seconds and goes STOPPED (position 0) at the
-  end of a track.
+- `mute`/`set_mute` and `volume`/`set_volume` are RenderingControl's Master
+  channel; `cast` uses them to keep a mid-track start silent. `GetMute`
+  values are `0`/`1` or `false`/`true`.
+- Renderers tested live:
+  - gmrender-resurrect 0.3 on the Pi (GStreamer): positions in whole seconds,
+    STOPPED (position 0) at the end of a track, a Seek while STOPPED is
+    accepted and ignored.
+  - HiBy R1 ("HiBy MediaRender 0.0.1", the same control URLs as gmrender):
+    whole seconds; paused with its own button it keeps answering PLAYING with
+    a frozen position and sends no event; it starts playing as soon as
+    `SetAVTransportURI` arrives, without a Play; `GetMute` faults (it asks for
+    `CurrentMute` as an input); `SetNextAVTransportURI` is accepted but the
+    next track is never fetched; its next/previous buttons change nothing a
+    controller can see; at the end of a track it answers PLAYING 0:00 for a
+    moment, then STOPPED. Events arrive only for its own transitions (STOPPED,
+    TRANSITIONING, PLAYING), never for its pause button.

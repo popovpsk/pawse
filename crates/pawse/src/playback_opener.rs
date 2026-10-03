@@ -93,6 +93,10 @@ impl PlaybackOpener {
         (self.sink)(Command::Stop);
     }
 
+    pub fn cancel(&self) {
+        self.supersede();
+    }
+
     pub fn start(&self, track: &TrackRequest, after: AfterLoad) {
         let generation = self.supersede();
         let path = PathBuf::from(&track.path);

@@ -54,6 +54,16 @@ from the start of the track is heard; renderers get the position in the load.
 resume left over from a quick earlier switch never seeks or starts playback on
 the next target.
 
+Leaving this computer fades out instead of cutting (`fade_out_local`): a track
+still being opened is cancelled (`PlaybackOpener::cancel`, so it can never
+start on the local engine), a playing engine is paused, which fades it out
+over 300 ms, and it is stopped 400 ms later unless this computer is the target
+again by then or a newer fade-out has started (`local_fades`), so a quick
+back-and-forth never stops the engine in the middle of the next fade. A paused engine is stopped at once. On the receiver side,
+AirPlay fades in like the local engine (it is the same engine); a renderer
+starts the way the device does, since a volume ramp over SOAP would be audible
+steps.
+
 Releasing an AirPlay target closes its stream on an `airplay-close` thread: the
 RTSP `TEARDOWN` can take seconds when the speaker is gone, and the switch runs
 on the UI thread. On quit (`Player::shutdown`) it is closed synchronously.
@@ -96,7 +106,10 @@ the check mark (local devices lose theirs), and the picker button shows the
 receiver's icon with "Playing on …" (`AudioSettings::casting_to`, rebuilt only
 when `CastState` changes, not in `render`). The exclusive-mode button and the
 bit-perfect indicator are hidden while casting: they describe the local
-output.
+output. Like the add-to-playlist popup, the picker's background is
+`cover_backdrop::popover_bg`, which follows the interface opacity setting over
+the blurred cover but never goes below 90 % (`POPOVER_MIN_OPACITY`): a list of
+devices or playlists has to stay readable.
 
 ## Testing
 

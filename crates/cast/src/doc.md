@@ -20,9 +20,10 @@ There are two ways a receiver gets audio, and the crate has one of each:
 
 - `lib.rs` — `connect` (a `Receiver` → `Session`), re-exports.
 - `discovery.rs` — `Discovery`: mDNS browsing for `_googlecast._tcp` and
-  `_raop._tcp` (one `mdns-sd` daemon, one thread selecting over both browses
-  and a refresh channel) and an SSDP search for renderers every 60 s or on
-  `refresh`. `Receiver`, `ReceiverKind`.
+  `_raop._tcp` (one `mdns-sd` daemon at a time, replaced on `refresh`, one
+  thread selecting over both browses and a refresh channel) and an SSDP
+  search for renderers every 60 s or on `refresh`. `Receiver`,
+  `ReceiverKind`.
 - `server.rs` — `MediaServer`: the HTTP/1.1 server devices fetch from.
 - `media.rs` — `Media` (what to play), `probe`, `plan` (original bytes or PCM),
   the per-device format tables.
@@ -109,9 +110,33 @@ header needs it); `plan` fails with a message instead.
   the device and hands it over. `Loaded` carries the duration and the source's
   sample rate and bit depth.
 - **Starting mid-track.** Chromecast takes `currentTime` in LOAD. DLNA has no
-  start position: with autoplay the session plays, waits until the renderer
-  reports PLAYING and seeks; without autoplay the seek is kept until the user
-  presses play, so nothing is heard before it.
+  start position, a Seek sent before Play is accepted and ignored (gmrender
+  plays from 0:00), and some renderers start playing the moment they get a
+  URI (the HiBy R1 does, without a Play). So `send` silences the device
+  (`Driver::silence_start`) before `SetAVTransportURI`, plays, waits until it
+  reports PLAYING (up to 15 s: the R1 can sit in TRANSITIONING for 8),
+  seeks, waits until the reported position is within 1 s of the target (at
+  most 3 s, then one more seek and wait) and 300 ms more (a device may report the new
+  position before its output follows), and restores the sound
+  (`restore_sound`), so the first moments of the track are never heard. Silencing is `SetMute` when
+  `GetMute` answers and the device is not muted already; otherwise the volume
+  is set to 0 and back (the R1 faults on `GetMute`; the driver remembers a
+  fault, not a network error, and does not ask again). A renderer without
+  RenderingControl starts audibly. If anything fails after the device got the
+  URI, it is stopped before the sound comes back, so it does not play the
+  track from 0:00. Restoring is tried three times; if that fails, the next
+  volume change from the app also unmutes. If the app dies in between, the
+  device stays silent until its volume (or mute) is touched.
+- **Loading paused.** A DLNA renderer gets nothing until play
+  (`Current::on_device` is false): a renderer like the R1 would start playing
+  as soon as it got the URI. The track is probed and published, `Loaded` and
+  `Paused` are sent, seeks only move the position, and play sends it the
+  usual way, from wherever the position is by then. Until then polls ignore
+  the device, which may still hold our previous track or play something of
+  its own. A device that still holds our previous track is stopped first, so
+  it cannot play that one (from its own buttons) while the app shows another.
+  Stop and close stop the device only if it holds something of ours
+  (`ours_on_device`). Chromecast loads paused with `autoplay: false`.
 - **Polling.** Every second the driver reports state, position and duration.
   Between polls the position is extrapolated every 200 ms. Renderers report
   whole seconds (gmrender), so a reported position from 1.3 s behind to 0.3 s
@@ -120,6 +145,26 @@ header needs it); `plan` fails with a message instead.
   positions far behind the target are ignored for 4 s while the device catches
   up. Our own state changes are trusted over the device's for 1.5 s, since
   devices report the old state for a moment.
+- **Paused on the device.** The HiBy R1 keeps answering PLAYING when it is
+  paused with its own button, and sends no event; only the position stops.
+  So a position that has not changed for 2.5 s and three polls in a row of
+  PLAYING answers while the session plays is a pause (`device_state`), unless
+  the session itself started, loaded or seeked in the last 4 s (the device may
+  still be buffering) or the track is within 5 s of its end, by the device's
+  position or within 10 s of the estimate getting there. Time spent in
+  other states does not count: the R1 sits in TRANSITIONING at 0:00 for up to
+  8 s before a track starts, and its first PLAYING 0:00 after that is not a
+  pause. A failed poll starts the count over, so a network hiccup (the device
+  playing on from its buffer, or catching up afterwards) is not taken for a
+  pause. A device that really stalls while still answering PLAYING shows as
+  paused until its position moves again. The device's frozen position is
+  shown. While the session
+  shows a pause, a PLAYING report counts only once the position moves, so the
+  same device resuming on its button is noticed within a poll and our own
+  pause is not undone by a stale PLAYING. Renderers report whole seconds, so a
+  playing device always moves within 2.5 s. Play from the app while the device
+  still says PLAYING sends Pause first: a device that believes it is playing
+  may ignore a Play (not verified on the R1).
 - **End of track.** The device is believed only after it has been seen
   PLAYING for this load (DLNA renderers report STOPPED while loading). Then
   Chromecast's IDLE/FINISHED, or a DLNA STOPPED within 5 s of the end (or
@@ -127,9 +172,19 @@ header needs it); `plan` fails with a message instead.
   stopped it on the device: the session shows it as paused, and play reloads
   the track at that position. A track that does not start within 30 s of a
   load (or of play, for a track loaded paused) fails.
+- Some renderers reset the position just before they stop: the R1 answers
+  PLAYING 0:00 for one poll, then STOPPED. Believing that 0:00 would make the
+  STOPPED look like a stop in the middle of the track, so the queue would not
+  advance. For 10 s after the estimate came within 5 s of the end
+  (`end_reached`), a reported position far behind the estimate is ignored
+  (`reset_at_end`).
 - A `Buffering(true)` is always followed by `Buffering(false)`, also when the
   track is replaced, stopped or fails.
-- **Losing the device.** Four failed polls in a row, a closed Chromecast
+- **Near the end** of a track (the last 3 s by the estimate) the session polls
+  every 250 ms instead of every second, so the next track is loaded sooner
+  after the device stops.
+- **Losing the device.** Four failed polls in a row over at least 4 s (the
+  polls are faster near the end), a closed Chromecast
   connection, the receiver app being closed or replaced by another app all end
   the session with `Lost`; the session does not try to talk to the device
   first. For DLNA only `GetTransportInfo` counts: some renderers fault on
@@ -185,15 +240,28 @@ header needs it); `plan` fails with a message instead.
   casts never sends multicast (and never sees macOS's local network prompt).
   It keeps running afterwards; mDNS adds and removes services as they come
   and go, renderers not seen by SSDP for 200 s are dropped.
-- **`refresh` browses mDNS again**, not only SSDP. `mdns-sd` repeats a browse
+- **`refresh` restarts mDNS**, not only SSDP. `mdns-sd` repeats a browse
   query at 1, 2, 4 … s up to an hour, and a speaker does not announce itself
   unless asked. After the Mac sleeps, the network interface comes back (often
   with a new DHCP address) and `mdns-sd` drops every service it had on it, or
   lets their 120 s records expire; with the query interval already at tens of
-  minutes the list stayed empty until the app was restarted. Calling `browse`
-  again replaces the listener and starts the query schedule from 1 s (the old
-  schedule stops because its listener is gone), so a live speaker is back
-  within a second of the picker opening.
+  minutes the list stayed empty until the app was restarted. A second
+  `browse` on the same daemon was not always enough, so every refresh starts
+  a new daemon (`Browsing`), the way a restart did: a fresh cache, queries
+  from 1 s and no known answers that would keep a responder quiet. A live
+  speaker is back within a second of the picker opening. mDNS receivers the
+  new daemon has not seen within 6 s are dropped
+  (`forget_mdns_unseen_since`), right away if the new daemon cannot start;
+  DLNA ones follow SSDP as before.
+- **IPv4 only.** The media server is IPv4, and an IPv6 link-local address
+  without a scope cannot be connected to. Some devices answer a browse with
+  only their AAAA record (the Xiaomi TV Stick announced only `fe80::…`, and
+  `mdns-sd` does not ask for the A record once it has an address), so a
+  record without IPv4 is not listed; its host name is looked up with the
+  system resolver on a `cast-lookup` thread (macOS, Windows and Linux with
+  nss-mdns resolve `.local` names) and the receiver is listed with that
+  address. `mdns-sd`'s own `resolve_hostname` is not used: it blocks its
+  daemon thread when the listener's channel is full.
 - Chromecasts without the audio-out capability bit are skipped. AirPlay
   speakers that need encryption, a password, a codec other than ALAC or a
   format other than 44.1/16/2 are skipped (see `airplay`).
@@ -204,16 +272,46 @@ header needs it); `plan` fails with a message instead.
 - Automated: `tests.rs` here (HTTP server, PCM ranges and conversion, whole
   Chromecast sessions against `chromecast::testing::FakeChromecast`) and the
   unit tests next to each module. The fake fetches the media URL it is given,
-  so a test sees the exact bytes a device would get.
+  so a test sees the exact bytes a device would get. `FakeRenderer` in
+  `tests.rs` is a scripted `Driver` with whole-second positions for the
+  renderer quirks: the silent mid-track start, a pause that still says
+  PLAYING, a long buffering start, and the 0:00 before STOPPED.
+- On the test Wi-Fi, multicast stops reaching hosts from time to time (the
+  router sends no IGMP queries, so it may forget who joined a group). Then
+  `mdns-sd` gets no answers at all and SSDP gets answers only from the
+  devices that still receive our search, in the app, in tests and in a bare
+  Python socket alike, with the old and the new discovery code. macOS's own
+  `dns-sd` is not a fair comparison: its first query asks for unicast
+  answers (QU). A legacy unicast query (from a port other than 5353) still
+  gets an answer straight back.
+- The Pi on Wi-Fi drops out of multicast from time to time, for every
+  client: its AirPlay (mDNS) and DLNA renderer (SSDP) vanish from macOS's own
+  `dns-sd` too, while unicast works (`dig @<pi> -p 5353 _raop._tcp.local PTR`
+  answers). Seen both ways: the Pi receiving no multicast at all, and the Pi
+  answering queries whose answers never reached the Mac. The router sends no
+  IGMP queries. Restarting avahi on the Pi helped once, not the next time;
+  Wi-Fi power saving is off there
+  (`/etc/NetworkManager/conf.d/wifi-powersave-off.conf`). A receiver missing
+  from the picker on this rig is a network problem first.
 - Manual, on real receivers: DLNA against gmrender-resurrect 0.3 (GStreamer)
-  and AirPlay against shairport-sync 4.3 (classic build), whose `-o stdout`
-  output was recorded and checked for frequency and discontinuities.
-  Chromecast has only been run against the fake so far.
+  and the HiBy R1 ("HiBy MediaRender", a gmrender derivative), and AirPlay
+  against shairport-sync 4.3 (classic build), whose `-o stdout` output was
+  recorded and checked for frequency and discontinuities. Chromecast: the
+  sessions against the fake, and a receiver status over TLS from a Xiaomi TV
+  Stick 4K (Android TV).
 
 ## Known limits
 
-- Track changes on renderers are not gapless: each track is a new load.
-  DLNA `SetNextAVTransportURI` and Chromecast queues are not used yet.
+- Track changes on renderers are not gapless: each track is a new load after
+  the device reports the end. On the R1 the gap is about a second: the end is
+  noticed within ~0.3 s, `SetAVTransportURI` takes ~0.3 s there, and the
+  device buffers before it plays.
+  DLNA `SetNextAVTransportURI` and Chromecast queues are not used yet. The R1
+  accepts `SetNextAVTransportURI` but never fetches the next track and still
+  stops at the end, so it would gain nothing there.
+- A renderer's own next/previous buttons do nothing: DLNA has no way for a
+  renderer to tell the controller about them, and the R1's buttons change
+  nothing that can be polled.
 - On AirPlay, when the next track is a server track that is not in the cache
   yet when the current one ends (the prefetch starts 60 s before the end),
   the engine's `Prepare` clears the output, and that flush cuts the last

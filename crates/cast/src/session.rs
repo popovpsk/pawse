@@ -7,14 +7,23 @@ use crate::server::{Body, Entry, MediaServer};
 
 const TICK: Duration = Duration::from_millis(200);
 const POLL_EVERY: Duration = Duration::from_millis(1000);
+const POLL_NEAR_END: Duration = Duration::from_millis(250);
+const NEAR_END_POLLING: Duration = Duration::from_secs(3);
 const FAILURES_UNTIL_LOST: u32 = 4;
+const FAILING_FOR: Duration = Duration::from_secs(4);
 const END_SLACK: Duration = Duration::from_secs(5);
-const START_WAIT: Duration = Duration::from_secs(8);
+const START_WAIT: Duration = Duration::from_secs(15);
 const NEVER_STARTED: Duration = Duration::from_secs(30);
 const SETTLE_FOR: Duration = Duration::from_secs(4);
 const JITTER: Duration = Duration::from_millis(1500);
 const AGREE_BELOW: Duration = Duration::from_millis(300);
 const AGREE_ABOVE: Duration = Duration::from_millis(1300);
+const STILL_FOR: Duration = Duration::from_millis(2500);
+const STILL_POLLS: u32 = 3;
+const END_HOLD: Duration = Duration::from_secs(10);
+const TARGET_WAIT: Duration = Duration::from_secs(3);
+const TARGET_SLACK: Duration = Duration::from_secs(1);
+const QUIET_AFTER_SEEK: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionEvent {
@@ -93,6 +102,8 @@ pub(crate) trait Driver: Send + Accepts {
     fn lost(&mut self) -> Option<String>;
     fn volume(&mut self) -> Option<f32>;
     fn seeks_on_load(&self) -> bool;
+    fn silence_start(&mut self) {}
+    fn restore_sound(&mut self) {}
     fn close(&mut self);
 }
 
@@ -119,7 +130,6 @@ impl Session {
             position: Duration::ZERO,
             position_at: Instant::now(),
             duration: None,
-            pending_seek: None,
             ended: false,
             settle: None,
             last_emitted: Duration::ZERO,
@@ -127,9 +137,14 @@ impl Session {
             loaded_at: Instant::now(),
             buffering: false,
             failures: 0,
+            failing_since: None,
             last_poll: Instant::now() - POLL_EVERY,
             last_volume: None,
             hold_state_until: None,
+            reported: None,
+            started_at: Instant::now(),
+            end_reached: None,
+            ours_on_device: false,
         };
         let spawned = std::thread::Builder::new()
             .name("cast-session".into())
@@ -186,6 +201,18 @@ impl Drop for Session {
 
 struct Current {
     load: Load,
+    sent: Sent,
+    on_device: bool,
+}
+
+#[derive(Clone)]
+struct Sent {
+    url: String,
+    mime: String,
+    features: String,
+    cover_url: Option<String>,
+    duration: Option<Duration>,
+    size: Option<u64>,
 }
 
 struct Worker {
@@ -200,7 +227,6 @@ struct Worker {
     position: Duration,
     position_at: Instant,
     duration: Option<Duration>,
-    pending_seek: Option<Duration>,
     ended: bool,
     settle: Option<(Duration, Instant)>,
     last_emitted: Duration,
@@ -208,9 +234,14 @@ struct Worker {
     loaded_at: Instant,
     buffering: bool,
     failures: u32,
+    failing_since: Option<Instant>,
     last_poll: Instant,
     last_volume: Option<f32>,
     hold_state_until: Option<Instant>,
+    reported: Option<(Duration, Instant, u32, bool)>,
+    started_at: Instant,
+    end_reached: Option<Instant>,
+    ours_on_device: bool,
 }
 
 impl Worker {
@@ -241,7 +272,7 @@ impl Worker {
                     return;
                 }
             }
-            if self.last_poll.elapsed() >= POLL_EVERY {
+            if self.last_poll.elapsed() >= self.poll_every() {
                 self.last_poll = Instant::now();
                 if let Err(reason) = self.poll() {
                     self.lose(reason);
@@ -251,6 +282,28 @@ impl Worker {
                 self.tick_position();
             }
         }
+    }
+
+    fn on_device(&self) -> bool {
+        self.current
+            .as_ref()
+            .is_some_and(|current| current.on_device)
+    }
+
+    fn poll_every(&self) -> Duration {
+        let ending = self.on_device()
+            && self.state == State::Playing
+            && self
+                .duration
+                .is_some_and(|duration| self.estimated_position() + NEAR_END_POLLING >= duration);
+        if ending { POLL_NEAR_END } else { POLL_EVERY }
+    }
+
+    fn stop_ours(&mut self) -> Result<(), String> {
+        if !std::mem::take(&mut self.ours_on_device) {
+            return Ok(());
+        }
+        self.driver.stop()
     }
 
     fn lose(&mut self, reason: String) {
@@ -274,23 +327,26 @@ impl Worker {
                 self.state = State::Paused;
                 self.hold_state();
                 self.emit(SessionEvent::Paused);
-                self.driver.pause()
+                if self.on_device() {
+                    self.driver.pause()
+                } else {
+                    Ok(())
+                }
             }
             Command::Seek(position) => self.seek(position),
             Command::Stop => {
                 self.current = None;
                 self.state = State::Idle;
-                self.pending_seek = None;
                 self.clear_buffering();
                 self.unpublish();
-                self.driver.stop()
+                self.stop_ours()
             }
             Command::Volume(volume) => {
                 self.last_volume = Some(volume);
                 self.driver.set_volume(volume)
             }
             Command::Close => {
-                let _ = self.driver.stop();
+                let _ = self.stop_ours();
                 self.unpublish();
                 return false;
             }
@@ -356,6 +412,9 @@ impl Worker {
         self.position_at = Instant::now();
         self.last_emitted = position;
         self.settle = (!position.is_zero()).then(|| (position, Instant::now() + SETTLE_FOR));
+        self.reported = None;
+        self.started_at = Instant::now();
+        self.end_reached = None;
         self.emit(SessionEvent::Position(position));
     }
 
@@ -367,6 +426,49 @@ impl Worker {
     fn settling_below(&self, reported: Duration) -> bool {
         self.settle
             .is_some_and(|(target, until)| Instant::now() < until && reported + JITTER < target)
+    }
+
+    fn near_end(&self, position: Duration) -> bool {
+        self.duration
+            .is_some_and(|duration| position + END_SLACK >= duration)
+    }
+
+    fn reset_at_end(&self, reported: Duration) -> bool {
+        self.end_reached.is_some_and(|at| at.elapsed() < END_HOLD)
+            && reported + JITTER < self.estimated_position()
+    }
+
+    fn device_state(&mut self, reported: State, position: Option<Duration>) -> State {
+        let Some(position) = position else {
+            self.reported = None;
+            return reported;
+        };
+        let now = Instant::now();
+        let playing = reported == State::Playing;
+        let (moved, still_since, still_polls) = match self.reported {
+            Some((last, since, polls, true)) if last == position && playing => {
+                (false, since, polls + 1)
+            }
+            Some((last, ..)) => (last != position, now, 0),
+            None => (false, now, 0),
+        };
+        self.reported = Some((position, still_since, still_polls, playing));
+        if reported != State::Playing {
+            return reported;
+        }
+        match self.state {
+            State::Paused if !moved => State::Paused,
+            State::Playing
+                if still_polls >= STILL_POLLS
+                    && now.duration_since(still_since) >= STILL_FOR
+                    && self.started_at.elapsed() >= SETTLE_FOR
+                    && !self.near_end(position)
+                    && !self.end_reached.is_some_and(|at| at.elapsed() < END_HOLD) =>
+            {
+                State::Paused
+            }
+            _ => State::Playing,
+        }
     }
 
     fn play(&mut self) -> Result<(), String> {
@@ -382,19 +484,106 @@ impl Worker {
             self.load(reload);
             return Ok(());
         }
+        let deferred =
+            (!current.on_device).then(|| (current.sent.clone(), current.load.media.info.clone()));
+        let says_playing = self.state == State::Paused && matches!(self.reported, Some((.., true)));
+        let start = self.estimated_position();
         self.position_at = Instant::now();
+        self.started_at = Instant::now();
         if !self.seen_playing {
             self.loaded_at = Instant::now();
         }
         self.state = State::Playing;
         self.hold_state();
         self.emit(SessionEvent::Playing);
-        self.driver.play()?;
-        if let Some(position) = self.pending_seek.take() {
-            self.wait_until_started();
-            self.driver.seek(position)?;
+        let Some((sent, info)) = deferred else {
+            if says_playing && let Err(e) = self.driver.pause() {
+                log::debug!("cast: pausing before play failed: {e}");
+            }
+            return self.driver.play();
+        };
+        match self.send(&sent, &info, start, true) {
+            Ok(()) => {
+                if let Some(current) = &mut self.current {
+                    current.on_device = true;
+                }
+                self.jump_to(start);
+            }
+            Err(e) => {
+                log::warn!("cast: starting a track failed: {e}");
+                self.state = State::Failed;
+                self.emit(SessionEvent::Failed(e));
+            }
         }
         Ok(())
+    }
+
+    fn send(
+        &mut self,
+        sent: &Sent,
+        info: &TrackInfo,
+        start: Duration,
+        autoplay: bool,
+    ) -> Result<(), String> {
+        let seek_later = !start.is_zero() && !self.driver.seeks_on_load();
+        let loading = Loading {
+            url: &sent.url,
+            mime: &sent.mime,
+            features: &sent.features,
+            info,
+            cover_url: sent.cover_url.as_deref(),
+            duration: sent.duration,
+            size: sent.size,
+            start,
+            autoplay: autoplay && !seek_later,
+        };
+        if !(seek_later && autoplay) {
+            self.driver.load(&loading)?;
+            self.ours_on_device = true;
+            return Ok(());
+        }
+        self.driver.silence_start();
+        let loaded = self.driver.load(&loading);
+        if loaded.is_ok() {
+            self.ours_on_device = true;
+        }
+        let started = loaded.and_then(|()| self.play_and_seek(start));
+        match &started {
+            Ok(()) => std::thread::sleep(QUIET_AFTER_SEEK),
+            Err(_) => {
+                let _ = self.stop_ours();
+            }
+        }
+        self.driver.restore_sound();
+        started
+    }
+
+    fn play_and_seek(&mut self, position: Duration) -> Result<(), String> {
+        self.driver.play()?;
+        self.wait_until_started();
+        self.driver.seek(position)?;
+        if !self.wait_until_at(position) {
+            log::debug!("cast: the device did not reach {position:?}, seeking again");
+            self.driver.seek(position)?;
+            self.wait_until_at(position);
+        }
+        Ok(())
+    }
+
+    fn wait_until_at(&mut self, target: Duration) -> bool {
+        let deadline = Instant::now() + TARGET_WAIT;
+        while Instant::now() < deadline {
+            match self.driver.status() {
+                Ok(status) => match status.position {
+                    Some(position) if position + TARGET_SLACK >= target => return true,
+                    Some(_) => {}
+                    None => return true,
+                },
+                Err(e) => log::debug!("cast: waiting for the seek: {e}"),
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        false
     }
 
     fn wait_until_started(&mut self) {
@@ -405,10 +594,7 @@ impl Worker {
                     return;
                 }
                 Ok(_) => {}
-                Err(e) => {
-                    log::debug!("cast: waiting for playback: {e}");
-                    return;
-                }
+                Err(e) => log::debug!("cast: waiting for playback: {e}"),
             }
             std::thread::sleep(Duration::from_millis(250));
         }
@@ -420,12 +606,8 @@ impl Worker {
         }
         self.ended = false;
         self.jump_to(position);
-        if self.state == State::Paused && self.pending_seek.is_some() {
-            self.pending_seek = Some(position);
-            return Ok(());
-        }
-        if matches!(self.state, State::Idle | State::Finished | State::Failed) {
-            self.pending_seek = None;
+        if !self.on_device() || matches!(self.state, State::Idle | State::Finished | State::Failed)
+        {
             return Ok(());
         }
         self.hold_state();
@@ -437,15 +619,31 @@ impl Worker {
         self.ended = false;
         self.seen_playing = false;
         self.loaded_at = Instant::now();
-        self.pending_seek = None;
         self.clear_buffering();
         self.state = State::Loading;
         self.jump_to(load.start);
-        match self.publish_and_load(&load) {
-            Ok((duration, sample_rate, bit_depth)) => {
+        let defer = !load.autoplay && !self.driver.seeks_on_load();
+        if defer && let Err(e) = self.stop_ours() {
+            log::warn!("cast: stopping the previous track failed: {e}");
+        }
+        let loaded = self
+            .publish(&load)
+            .and_then(|(sent, sample_rate, bit_depth)| {
+                if !defer {
+                    self.send(&sent, &load.media.info, load.start, load.autoplay)?;
+                }
+                Ok((sent, sample_rate, bit_depth))
+            });
+        match loaded {
+            Ok((sent, sample_rate, bit_depth)) => {
+                let duration = sent.duration;
                 self.duration = duration;
-                self.current = Some(Current { load });
-                let autoplay = self.current.as_ref().is_some_and(|c| c.load.autoplay);
+                let autoplay = load.autoplay;
+                self.current = Some(Current {
+                    load,
+                    sent,
+                    on_device: !defer,
+                });
                 self.state = if autoplay {
                     State::Playing
                 } else {
@@ -474,7 +672,7 @@ impl Worker {
         }
     }
 
-    fn publish_and_load(&mut self, load: &Load) -> Result<(Option<Duration>, u32, u8), String> {
+    fn publish(&mut self, load: &Load) -> Result<(Sent, u32, u8), String> {
         let media = &load.media;
         let probed = probe(&media.source, &media.extension)?;
         let accepts: &dyn Accepts = self.driver.as_ref();
@@ -542,39 +740,33 @@ impl Worker {
             None => None,
         };
         log::info!("cast: loading {url} as {mime}");
-        let seek_later = !load.start.is_zero() && !self.driver.seeks_on_load();
-        self.driver.load(&Loading {
-            url: &url,
-            mime: &mime,
-            features: &features,
-            info: &media.info,
-            cover_url: cover_url.as_deref(),
-            duration,
-            size,
-            start: load.start,
-            autoplay: load.autoplay,
-        })?;
-        if seek_later {
-            if load.autoplay {
-                self.wait_until_started();
-                self.driver.seek(load.start)?;
-            } else {
-                self.pending_seek = Some(load.start);
-            }
-        }
-        Ok((duration, probed.sample_rate, probed.bit_depth))
+        Ok((
+            Sent {
+                url,
+                mime,
+                features,
+                cover_url,
+                duration,
+                size,
+            },
+            probed.sample_rate,
+            probed.bit_depth,
+        ))
     }
 
     fn poll(&mut self) -> Result<(), String> {
         let status = match self.driver.status() {
             Ok(status) => {
                 self.failures = 0;
+                self.failing_since = None;
                 status
             }
             Err(e) => {
                 self.failures += 1;
+                let since = *self.failing_since.get_or_insert_with(Instant::now);
+                self.reported = None;
                 log::debug!("cast: status poll failed ({}): {e}", self.failures);
-                if self.failures >= FAILURES_UNTIL_LOST {
+                if self.failures >= FAILURES_UNTIL_LOST && since.elapsed() >= FAILING_FOR {
                     return Err(e);
                 }
                 return Ok(());
@@ -588,7 +780,7 @@ impl Worker {
             self.last_volume = Some(volume);
             self.emit(SessionEvent::Volume(volume));
         }
-        if self.current.is_none() {
+        if !self.on_device() {
             return Ok(());
         }
         if let Some(duration) = status.duration.filter(|d| !d.is_zero())
@@ -599,12 +791,19 @@ impl Worker {
         let held = self
             .hold_state_until
             .is_some_and(|until| Instant::now() < until);
-        let Some(state) = status.state else {
+        let Some(reported) = status.state else {
             return Ok(());
         };
-        if state == State::Playing {
+        if reported == State::Playing {
             self.seen_playing = true;
         }
+        if self.state == State::Playing
+            && self.end_reached.is_none()
+            && self.near_end(self.estimated_position())
+        {
+            self.end_reached = Some(Instant::now());
+        }
+        let state = self.device_state(reported, status.position);
         if !self.seen_playing && matches!(state, State::Idle | State::Finished) {
             if !held && self.state == State::Playing && self.loaded_at.elapsed() > NEVER_STARTED {
                 self.state = State::Failed;
@@ -617,9 +816,9 @@ impl Worker {
         match state {
             State::Playing | State::Paused => {
                 if let Some(position) = status.position
-                    && self.pending_seek.is_none()
                     && !held
                     && !self.settling_below(position)
+                    && !self.reset_at_end(position)
                     && !self.agrees_with(position)
                 {
                     self.position = position;
@@ -630,7 +829,15 @@ impl Worker {
                     self.emit(SessionEvent::Buffering(false));
                 }
                 if !held && state != self.state {
+                    self.freeze_position();
                     self.state = state;
+                    if state == State::Paused
+                        && let Some(position) = status.position
+                        && !self.settling_below(position)
+                    {
+                        self.position = position;
+                        self.emit_position(position);
+                    }
                     self.emit(if state == State::Playing {
                         SessionEvent::Playing
                     } else {

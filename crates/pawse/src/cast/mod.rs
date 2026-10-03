@@ -23,6 +23,7 @@ use media::CastTrack;
 const LOCAL: u64 = 0;
 const AIRPLAY_START_VOLUME: f32 = 0.5;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+const LOCAL_FADE_OUT: Duration = Duration::from_millis(400);
 
 #[derive(Default)]
 pub struct CastState {
@@ -116,6 +117,7 @@ pub struct Player {
     target: RefCell<Target>,
     active: Arc<AtomicU64>,
     next_id: Cell<u64>,
+    local_fades: Cell<u64>,
     events_tx: flume::Sender<EngineEvent>,
     events_rx: flume::Receiver<EngineEvent>,
     server: RefCell<Option<Arc<cast::MediaServer>>>,
@@ -157,6 +159,7 @@ impl Player {
             target: RefCell::new(Target::Local),
             active,
             next_id: Cell::new(LOCAL + 1),
+            local_fades: Cell::new(0),
             events_tx,
             events_rx,
             server: RefCell::new(None),
@@ -506,9 +509,8 @@ fn switch(target: Target, receiver: Option<cast::Receiver>, volume: Option<f32>,
     services.resume_playing.set(false);
     player.active.store(target.id(), Ordering::Release);
     let old = player.target.replace(target);
-    let old_was_local = matches!(old, Target::Local);
-    if old_was_local {
-        player.local_opener.stop();
+    if matches!(old, Target::Local) {
+        fade_out_local(&player, playing, cx);
     }
     old.release(false);
     services
@@ -522,6 +524,25 @@ fn switch(target: Target, receiver: Option<cast::Receiver>, volume: Option<f32>,
         resume_on_target(&services, &track, position_ms, playing);
     }
     crate::services::publish_remote_state(cx);
+}
+
+fn fade_out_local(player: &Rc<Player>, playing: bool, cx: &mut App) {
+    player.local_opener.cancel();
+    if !playing {
+        player.local.stop();
+        return;
+    }
+    player.local.pause();
+    let fade = player.local_fades.get() + 1;
+    player.local_fades.set(fade);
+    let player = player.clone();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(LOCAL_FADE_OUT).await;
+        if player.local_fades.get() == fade && player.active.load(Ordering::Acquire) != LOCAL {
+            player.local.stop();
+        }
+    })
+    .detach();
 }
 
 fn resume_on_target(services: &Services, track: &Track, position_ms: u64, playing: bool) {

@@ -124,6 +124,14 @@ fn parse_time(text: Option<&String>) -> Option<Duration> {
     didl::parse_duration(text).map(Duration::from_millis)
 }
 
+fn parse_bool(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
 pub fn track_didl(uri: &str, protocol_info: &str, metadata: &TrackMetadata) -> String {
     let mut item = String::new();
     item.push_str(&format!(
@@ -281,6 +289,34 @@ impl Renderer {
             .map(|volume| volume.min(100) as u8))
     }
 
+    pub fn mute(&self) -> Result<Option<bool>, Error> {
+        let Some(service) = &self.description.rendering_control else {
+            return Ok(None);
+        };
+        let args = self.call(
+            service,
+            "GetMute",
+            &[("InstanceID", "0"), ("Channel", "Master")],
+        )?;
+        Ok(args.get("CurrentMute").and_then(|mute| parse_bool(mute)))
+    }
+
+    pub fn set_mute(&self, mute: bool) -> Result<(), Error> {
+        let Some(service) = &self.description.rendering_control else {
+            return Ok(());
+        };
+        self.call(
+            service,
+            "SetMute",
+            &[
+                ("InstanceID", "0"),
+                ("Channel", "Master"),
+                ("DesiredMute", if mute { "1" } else { "0" }),
+            ],
+        )
+        .map(|_| ())
+    }
+
     pub fn set_volume(&self, percent: u8) -> Result<(), Error> {
         let Some(service) = &self.description.rendering_control else {
             return Ok(());
@@ -318,6 +354,13 @@ mod tests {
             parse_time(Some(&"0:03:05.5".into())),
             Some(Duration::from_millis(185_500))
         );
+    }
+
+    #[test]
+    fn mute_values_take_both_upnp_spellings() {
+        assert_eq!(parse_bool("1"), Some(true));
+        assert_eq!(parse_bool(" False "), Some(false));
+        assert_eq!(parse_bool("maybe"), None);
     }
 
     #[test]

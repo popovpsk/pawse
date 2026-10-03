@@ -24,6 +24,7 @@ const CHROME_VEIL: f32 = 0.45;
 const INSET_VEIL: f32 = 0.5;
 const FIELD_VEIL: f32 = 0.2;
 const POPOVER_VEIL: f32 = 0.85;
+const POPOVER_MIN_OPACITY: f32 = 0.9;
 
 fn blur_enabled(cx: &App) -> bool {
     cx.global::<SettingsStore>().blur_background() != BlurBackground::Off
@@ -313,9 +314,13 @@ pub fn layers(backdrop: Backdrop, background: Hsla) -> Div {
         )))
 }
 
+fn veil_opacity(veil: Veil, share: f32) -> f32 {
+    (1. - veil.weight * (1. - share * veil.factor)).clamp(0., 1.)
+}
+
 fn veiled(color: Hsla, veil: Option<Veil>, share: f32) -> Hsla {
     match veil {
-        Some(veil) => color.opacity((1. - veil.weight * (1. - share * veil.factor)).clamp(0., 1.)),
+        Some(veil) => color.opacity(veil_opacity(veil, share)),
         None => color,
     }
 }
@@ -337,7 +342,10 @@ pub fn field_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
 }
 
 pub fn popover_bg(color: Hsla, veil: Option<Veil>) -> Hsla {
-    veiled(color, veil, POPOVER_VEIL)
+    match veil {
+        Some(veil) => color.opacity(veil_opacity(veil, POPOVER_VEIL).max(POPOVER_MIN_OPACITY)),
+        None => color,
+    }
 }
 
 #[cfg(test)]

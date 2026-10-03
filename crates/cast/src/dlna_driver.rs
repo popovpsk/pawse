@@ -9,12 +9,21 @@ use crate::pcm::Container;
 use crate::session::{Driver, Loading, State, Status};
 
 const VOLUME_EVERY: u32 = 5;
+const RESTORE_ATTEMPTS: u32 = 3;
+
+enum Silenced {
+    Muted,
+    Volume(u8),
+}
 
 pub(crate) struct DlnaDriver {
     renderer: Renderer,
     peer: IpAddr,
     sinks: Vec<String>,
     polls: u32,
+    silenced: Option<Silenced>,
+    left_silenced: Option<Silenced>,
+    mute_works: bool,
 }
 
 fn mime_of(protocol_info: &str) -> Option<String> {
@@ -49,7 +58,34 @@ impl DlnaDriver {
             peer,
             sinks,
             polls: 0,
+            silenced: None,
+            left_silenced: None,
+            mute_works: true,
         })
+    }
+
+    fn silence(&mut self) -> Option<Silenced> {
+        if !self.renderer.has_volume() {
+            return None;
+        }
+        if self.mute_works {
+            match self.renderer.mute() {
+                Ok(Some(false)) => {
+                    return self.renderer.set_mute(true).ok().map(|()| Silenced::Muted);
+                }
+                Ok(Some(true)) => return None,
+                Err(dlna::Error::Transient(_)) => {}
+                Ok(None) | Err(_) => self.mute_works = false,
+            }
+        }
+        match self.renderer.volume() {
+            Ok(Some(volume)) if volume > 0 => self
+                .renderer
+                .set_volume(0)
+                .ok()
+                .map(|()| Silenced::Volume(volume)),
+            _ => None,
+        }
     }
 
     fn sink_mimes(&self) -> impl Iterator<Item = String> + '_ {
@@ -165,6 +201,9 @@ impl Driver for DlnaDriver {
     }
 
     fn set_volume(&mut self, volume: f32) -> Result<(), String> {
+        if let Some(Silenced::Muted) = self.left_silenced.take() {
+            let _ = self.renderer.set_mute(false);
+        }
         self.renderer
             .set_volume((volume.clamp(0.0, 1.0) * 100.0).round() as u8)
             .map_err(|e| e.to_string())
@@ -212,6 +251,31 @@ impl Driver for DlnaDriver {
 
     fn seeks_on_load(&self) -> bool {
         false
+    }
+
+    fn silence_start(&mut self) {
+        self.silenced = self.silence();
+    }
+
+    fn restore_sound(&mut self) {
+        let Some(silenced) = self.silenced.take() else {
+            return;
+        };
+        for attempt in 1..=RESTORE_ATTEMPTS {
+            let restored = match silenced {
+                Silenced::Muted => self.renderer.set_mute(false),
+                Silenced::Volume(volume) => self.renderer.set_volume(volume),
+            };
+            match restored {
+                Ok(()) => return,
+                Err(e) if attempt == RESTORE_ATTEMPTS => {
+                    log::warn!("DLNA: restoring the sound after a start failed: {e}");
+                    self.left_silenced = Some(silenced);
+                    return;
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(200)),
+            }
+        }
     }
 
     fn close(&mut self) {}
