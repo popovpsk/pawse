@@ -157,6 +157,7 @@ pub struct Strings {
     pub server_online: SharedString,
     pub server_offline: SharedString,
     pub source_syncing: SharedString,
+    pub source_syncing_covers_t: SharedString,
     pub remove_server_confirm_title: SharedString,
     pub source_online: SharedString,
     pub source_offline: SharedString,
@@ -621,6 +622,13 @@ impl Strings {
         fill(
             &self.torrent_peers_t,
             &[&connected.to_string(), &known.to_string()],
+        )
+    }
+
+    pub fn source_syncing_covers(&self, done: usize, total: usize) -> String {
+        fill(
+            &self.source_syncing_covers_t,
+            &[&done.to_string(), &total.to_string()],
         )
     }
 

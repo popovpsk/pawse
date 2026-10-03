@@ -106,6 +106,7 @@ pub static EN: Strings = lang! {
     server_online: "Online",
     server_offline: "Unavailable",
     source_syncing: "Syncing…",
+    source_syncing_covers_t: "Covers {}/{}",
     remove_server_confirm_title: "Remove server?",
     source_online: "Online",
     source_offline: "Unavailable",

@@ -44,8 +44,8 @@ impl ServerClient for Subsonic {
             .collect())
     }
 
-    fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
-        self.0.cover_art(key).map_err(error)
+    fn cover_art(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
+        self.0.cover_art(key, max_size).map_err(error)
     }
 
     fn scrobble(&self, key: &str, played_at: u64) -> Result<(), RemoteError> {

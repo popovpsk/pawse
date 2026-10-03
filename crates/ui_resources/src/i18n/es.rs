@@ -106,6 +106,7 @@ pub static ES: Strings = lang! {
     server_online: "Disponible",
     server_offline: "No disponible",
     source_syncing: "Sincronizando…",
+    source_syncing_covers_t: "Portadas {}/{}",
     remove_server_confirm_title: "¿Quitar el servidor?",
     source_online: "Disponible",
     source_offline: "No disponible",

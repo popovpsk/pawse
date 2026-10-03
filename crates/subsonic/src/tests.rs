@@ -384,14 +384,14 @@ fn a_ranged_download_with_an_error_reply_is_an_error() {
 
 #[test]
 fn starred_songs_and_cover_art() {
-    let stub = Stub::start(|method, _| match method {
+    let stub = Stub::start(|method, params| match method {
         "getStarred2" => ok(serde_json::json!({"starred2": {"song": [song(3)]}})),
-        "getCoverArt" => (200, "image/jpeg", vec![1, 2, 3]),
+        "getCoverArt" if params["size"] == "320" => (200, "image/jpeg", vec![1, 2, 3]),
         _ => failed(70),
     });
     let client = stub.client("x");
     assert_eq!(client.starred_songs().unwrap()[0].id, "3");
-    assert_eq!(client.cover_art("c").unwrap(), vec![1, 2, 3]);
+    assert_eq!(client.cover_art("c", 320).unwrap(), vec![1, 2, 3]);
 }
 
 #[test]

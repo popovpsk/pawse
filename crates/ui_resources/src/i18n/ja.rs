@@ -106,6 +106,7 @@ pub static JA: Strings = lang! {
     server_online: "利用可能",
     server_offline: "利用不可",
     source_syncing: "同期中…",
+    source_syncing_covers_t: "カバー {}/{}",
     remove_server_confirm_title: "サーバーを削除しますか?",
     source_online: "利用可能",
     source_offline: "利用不可",

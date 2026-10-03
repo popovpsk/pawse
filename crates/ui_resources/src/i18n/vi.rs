@@ -106,6 +106,7 @@ pub static VI: Strings = lang! {
     server_online: "Khả dụng",
     server_offline: "Không khả dụng",
     source_syncing: "Đang đồng bộ…",
+    source_syncing_covers_t: "Bìa {}/{}",
     remove_server_confirm_title: "Xóa máy chủ?",
     source_online: "Khả dụng",
     source_offline: "Không khả dụng",

@@ -371,7 +371,9 @@ fn ranges_come_from_the_static_stream_and_a_full_reply_is_not_ranged() {
 #[test]
 fn covers_are_read_whole() {
     let stub = Stub::start(|_| (200, "image/png;norange", vec![7u8; 10]));
-    assert_eq!(stub.client().cover_art("al").unwrap(), vec![7u8; 10]);
+    assert_eq!(stub.client().cover_art("al", 320).unwrap(), vec![7u8; 10]);
     let request = &stub.requests()[0];
     assert_eq!(request.path, "/Items/al/Images/Primary");
+    assert_eq!(request.params["maxWidth"], "320");
+    assert_eq!(request.params["maxHeight"], "320");
 }

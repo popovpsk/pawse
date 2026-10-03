@@ -49,6 +49,11 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   not count as a play, so without `scrobble` a server's play counts never move.
 - **Bodies.** JSON is read through `into_reader` (no ureq 10 MB cap). Covers are
   capped at 32 MB.
+- **Covers** are asked for with `size` (the caller's `max_size`; the sync passes its
+  largest thumbnail, 320), so the server scales them: Navidrome otherwise sends the
+  original embedded picture for every track — ~470 MB for a 1.7k-song test library
+  against ~31 MB scaled. Navidrome ignores the `_<timestamp>` suffix of a cover id
+  when looking it up, so an older id still returns the current picture.
 - **Audio.** `fetch_range` asks `download` (the original file, never a
   transcode) for a byte range and reports where the body starts and the file's
   total size from `Content-Range`. A `200` reply means the server ignored the

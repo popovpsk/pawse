@@ -2650,6 +2650,19 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn remote_song_cover_hashes(&self, source_id: i64) -> Result<HashMap<String, String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT b.source_key, rt.cover_hash FROM remote_tracks rt \
+             JOIN media_bindings b ON b.id = rt.binding_id \
+             JOIN cover_art c ON c.hash = rt.cover_hash \
+             WHERE b.source_id = ?1",
+        )?;
+        let rows = stmt.query_map([source_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn apply_remote_listing(
         &self,
         source_id: i64,

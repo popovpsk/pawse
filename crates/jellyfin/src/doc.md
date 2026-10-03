@@ -40,7 +40,9 @@ the library database; `pawse::remote_sync` turns its `Item`s into
   something else; an odd field becomes `None`/empty instead of failing the page.
 - **Covers.** `Item::cover_key` is the album id when the album has a primary
   image, otherwise the item's own id — so an album's tracks share one download.
-  Fetched from `/Items/{id}/Images/Primary?maxWidth=1200`, capped at 32 MB.
+  Fetched from `/Items/{id}/Images/Primary` with `maxWidth`/`maxHeight` set to the
+  caller's `max_size` (the sync asks for its largest thumbnail, 320), so the server
+  scales the picture instead of sending the original; capped at 32 MB.
 - **Audio.** `fetch_range` reads `/Audio/{id}/stream?static=true`: the original
   file, never a transcode, and unlike `/Items/{id}/Download` it does not need the
   download permission. A byte range is asked for and `Content-Range` gives where

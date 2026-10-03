@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
 const SMALL_SIZE: u32 = 128;
-const LARGE_SIZE: u32 = 320;
+pub const LARGE_SIZE: u32 = 320;
 
 pub struct Thumbnails {
     pub small: Vec<u8>,

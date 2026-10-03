@@ -67,6 +67,11 @@ pub enum LibraryEvent {
     RemoteSyncStarted {
         key: String,
     },
+    RemoteSyncProgress {
+        key: String,
+        done: usize,
+        total: usize,
+    },
     RemoteMoved {
         config: crate::servers::RemoteConfig,
     },
@@ -978,8 +983,7 @@ impl LibraryService {
         }
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
-        let executor = self.executor.clone();
-        let scan_state = self.scan_state.clone();
+        let rescan = self.rescanner();
         let remote_sync = self.remote_sync.clone();
         std::thread::spawn(move || {
             let mut changed = false;
@@ -994,11 +998,12 @@ impl LibraryService {
                     break;
                 }
                 for (server, probe) in batch {
-                    changed |= Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe);
+                    changed |=
+                        Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe, &rescan);
                 }
             }
             if changed {
-                Self::rescan_after_sync(repo, event_tx, executor, scan_state);
+                rescan();
             }
         });
     }
@@ -1016,15 +1021,14 @@ impl LibraryService {
         }
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
-        let executor = self.executor.clone();
-        let scan_state = self.scan_state.clone();
+        let rescan = self.rescanner();
         let remote_sync = self.remote_sync.clone();
         std::thread::spawn(move || {
             let claim = Claim(&remote_sync.torrents, key);
-            let changed = Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe);
+            let changed = Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe, &rescan);
             drop(claim);
             if changed {
-                Self::rescan_after_sync(repo, event_tx, executor, scan_state);
+                rescan();
             }
         });
     }
@@ -1035,6 +1039,7 @@ impl LibraryService {
         remote_sync: &RemoteSyncState,
         server: &crate::servers::RemoteServer,
         probe: bool,
+        rescan: &dyn Fn(),
     ) -> bool {
         let key = server.key();
         let Some(&source_id) = crate::remote_sync::source_ids(repo).get(&key) else {
@@ -1046,7 +1051,7 @@ impl LibraryService {
         remote_sync.active.lock().unwrap().insert(key.clone());
         let claim = Claim(&remote_sync.active, key.clone());
         let _ = event_tx.send(LibraryEvent::RemoteSyncStarted { key: key.clone() });
-        let outcome = crate::remote_sync::sync_server(repo, source_id, &server.config);
+        let mut outcome = crate::remote_sync::sync_server(repo, source_id, &server.config);
         match &outcome.result {
             Ok(report) => log::info!(
                 "{} {}: {} songs, {} new, {} matched, {} gone, {} updated",
@@ -1066,6 +1071,20 @@ impl LibraryService {
                 )
             }
         }
+        let mut changed = outcome.changed;
+        if let Some(covers) = outcome.covers.take() {
+            if changed {
+                rescan();
+            }
+            let progress = |done, total| {
+                let _ = event_tx.send(LibraryEvent::RemoteSyncProgress {
+                    key: key.clone(),
+                    done,
+                    total,
+                });
+            };
+            changed = crate::remote_sync::fetch_covers(repo, covers, &progress);
+        }
         drop(claim);
         if let Some(config) = outcome.moved {
             let _ = event_tx.send(LibraryEvent::RemoteMoved { config });
@@ -1074,7 +1093,22 @@ impl LibraryService {
             key,
             outcome: outcome.result,
         });
-        outcome.changed
+        changed
+    }
+
+    fn rescanner(&self) -> impl Fn() + Send + 'static {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let executor = self.executor.clone();
+        let scan_state = self.scan_state.clone();
+        move || {
+            Self::rescan_after_sync(
+                repo.clone(),
+                event_tx.clone(),
+                executor.clone(),
+                scan_state.clone(),
+            )
+        }
     }
 
     fn rescan_after_sync(

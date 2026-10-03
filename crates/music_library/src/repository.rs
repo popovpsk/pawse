@@ -149,6 +149,7 @@ pub trait LibraryRepository: Send + Sync {
     fn reconcile_remote_sources(&self, kind: &str, sources: &[RemoteSource]) -> Result<bool>;
     fn set_source_available(&self, source_id: i64, available: bool) -> Result<bool>;
     fn remote_cover_hashes(&self, source_id: i64) -> Result<HashMap<String, String>>;
+    fn remote_song_cover_hashes(&self, source_id: i64) -> Result<HashMap<String, String>>;
     fn apply_remote_listing(
         &self,
         source_id: i64,

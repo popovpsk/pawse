@@ -216,7 +216,7 @@ impl ServerClient for Nas {
         Ok(Vec::new())
     }
 
-    fn cover_art(&self, _key: &str) -> Result<Vec<u8>, RemoteError> {
+    fn cover_art(&self, _key: &str, _max_size: u32) -> Result<Vec<u8>, RemoteError> {
         Ok(Vec::new())
     }
 

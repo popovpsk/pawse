@@ -179,7 +179,7 @@ pub trait ServerClient: Send + Sync {
     fn ping(&self) -> Result<(), RemoteError>;
     fn songs(&self) -> Result<Vec<RemoteSong>, RemoteError>;
     fn favorite_keys(&self) -> Result<Vec<String>, RemoteError>;
-    fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError>;
+    fn cover_art(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError>;
     fn fetch_range(
         &self,
         key: &str,

@@ -173,7 +173,7 @@ impl ServerClient for Torrent {
         Ok(Vec::new())
     }
 
-    fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
+    fn cover_art(&self, key: &str, _max_size: u32) -> Result<Vec<u8>, RemoteError> {
         index::cover(self.engine()?, &self.info_hash, key)
     }
 

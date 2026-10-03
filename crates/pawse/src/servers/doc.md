@@ -43,6 +43,13 @@ to `subsonic::` or `jellyfin::` directly.
 
 ## Behaviour worth knowing
 
+- **`cover_art(key, max_size)`** returns a picture for the sync's thumbnails;
+  servers that can scale get `max_size` (Subsonic `size`, Jellyfin
+  `maxWidth`/`maxHeight`), DLNA and torrents ignore it. A sync calls it from 4
+  threads at once, so a client must be safe to share (the `ureq` agents and the
+  torrent's file reads are). Eight `Unreachable`/`Auth` answers in a row stop
+  the sync's cover phase; any other error or an empty body is a key without a
+  picture for this sync (see `library_views/doc.md`).
 - **What differs between kinds is asked, not compared.** `ServerKind` answers
   `manual_sync`, `imports_favorites`, `reports_plays` / `sends_favorites` (what
   `server_scrobble` may send back: plays to Subsonic, likes to Subsonic and

@@ -174,6 +174,7 @@ pub struct LibrarySources {
     local: Vec<LocalFolderRow>,
     remote: Vec<ServerRow>,
     syncing: HashSet<String>,
+    cover_progress: HashMap<String, (usize, usize)>,
     messages: HashMap<String, SharedString>,
     connect: HashMap<ServerKind, ConnectState>,
     cache_bytes: Option<u64>,
@@ -195,12 +196,19 @@ impl LibrarySources {
                 LibraryEvent::CatalogChanged | LibraryEvent::ScanFailed => this.load(cx),
                 LibraryEvent::RemoteSyncStarted { key } => {
                     this.syncing.insert(key.clone());
+                    this.cover_progress.remove(key);
                     this.messages.remove(key);
+                    this.refresh_rows(cx);
+                    cx.notify();
+                }
+                LibraryEvent::RemoteSyncProgress { key, done, total } => {
+                    this.cover_progress.insert(key.clone(), (*done, *total));
                     this.refresh_rows(cx);
                     cx.notify();
                 }
                 LibraryEvent::RemoteSyncFinished { key, outcome } => {
                     this.syncing.remove(key);
+                    this.cover_progress.remove(key);
                     if let Err(error) = outcome {
                         this.messages.insert(key.clone(), describe_error(error));
                     }
@@ -245,6 +253,7 @@ impl LibrarySources {
             local: Vec::new(),
             remote: Vec::new(),
             syncing: HashSet::new(),
+            cover_progress: HashMap::new(),
             messages: HashMap::new(),
             connect: HashMap::new(),
             cache_bytes: None,
@@ -424,7 +433,10 @@ impl LibrarySources {
                 let status_label = match status {
                     ServerStatus::Online => tr().server_online.clone(),
                     ServerStatus::Offline => tr().server_offline.clone(),
-                    ServerStatus::Syncing => tr().source_syncing.clone(),
+                    ServerStatus::Syncing => match self.cover_progress.get(&key) {
+                        Some(&(done, total)) => tr().source_syncing_covers(done, total).into(),
+                        None => tr().source_syncing.clone(),
+                    },
                 };
                 let title = if server.kind().titled_by_name() {
                     server.name.clone()

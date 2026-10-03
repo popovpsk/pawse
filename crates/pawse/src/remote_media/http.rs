@@ -130,7 +130,7 @@ mod tests {
         fn favorite_keys(&self) -> Result<Vec<String>, RemoteError> {
             Ok(Vec::new())
         }
-        fn cover_art(&self, _: &str) -> Result<Vec<u8>, RemoteError> {
+        fn cover_art(&self, _: &str, _: u32) -> Result<Vec<u8>, RemoteError> {
             Ok(Vec::new())
         }
         fn fetch_range(

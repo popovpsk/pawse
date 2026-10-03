@@ -106,6 +106,7 @@ pub static SV: Strings = lang! {
     server_online: "Tillgänglig",
     server_offline: "Inte tillgänglig",
     source_syncing: "Synkroniserar…",
+    source_syncing_covers_t: "Omslag {}/{}",
     remove_server_confirm_title: "Ta bort servern?",
     source_online: "Tillgänglig",
     source_offline: "Inte tillgänglig",

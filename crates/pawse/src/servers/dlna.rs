@@ -50,7 +50,7 @@ impl ServerClient for Dlna {
         Ok(Vec::new())
     }
 
-    fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
+    fn cover_art(&self, key: &str, _max_size: u32) -> Result<Vec<u8>, RemoteError> {
         self.0.cover(key).map_err(error)
     }
 

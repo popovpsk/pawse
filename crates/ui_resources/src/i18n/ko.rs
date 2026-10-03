@@ -106,6 +106,7 @@ pub static KO: Strings = lang! {
     server_online: "사용 가능",
     server_offline: "사용 불가",
     source_syncing: "동기화 중…",
+    source_syncing_covers_t: "커버 {}/{}",
     remove_server_confirm_title: "서버를 제거할까요?",
     source_online: "사용 가능",
     source_offline: "사용 불가",

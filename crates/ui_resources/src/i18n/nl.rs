@@ -106,6 +106,7 @@ pub static NL: Strings = lang! {
     server_online: "Online",
     server_offline: "Niet beschikbaar",
     source_syncing: "Synchroniseren…",
+    source_syncing_covers_t: "Hoezen {}/{}",
     remove_server_confirm_title: "Server verwijderen?",
     source_online: "Online",
     source_offline: "Niet beschikbaar",

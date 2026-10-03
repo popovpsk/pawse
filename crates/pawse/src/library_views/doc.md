@@ -453,8 +453,25 @@ result under that server's row.
 
 Sync (`remote_sync.rs`, run on its own thread by `LibraryService::sync_remote`,
 one at a time — requests arriving mid-sync are queued): ping → full listing →
-covers not seen before (fetched and thumbnailed on the sync thread) →
-`apply_remote_listing`. The adapters in `servers/` clean the listing on the way in: server
+`apply_remote_listing` with the covers already known → covers not seen before →
+`apply_remote_listing` again, with them. The listing goes in first so a big
+first sync shows its songs right away (a listing that changed something is
+rescanned before the covers start) instead of after every picture has come in.
+A song whose key has no picture yet is written with `cover_key = NULL` and the
+cover its row already shows (`remote_song_cover_hashes`): an album the server
+re-keyed keeps its art for the length of the sync, and a sync cut short (quit,
+server gone) leaves the key unknown, so the next one simply asks again — nothing
+about an unfinished cover phase is kept between sessions, and a key that gave no
+usable picture is asked again on every sync, as before. `fetch_covers` runs 4
+`cover-fetch` threads that only wait on the network (`ServerClient::cover_art`
+with the large thumbnail's size, so the server scales the picture); hashing and
+thumbnailing stay on the sync thread, which reports
+`LibraryEvent::RemoteSyncProgress { done, total }` about once a second — the
+server row shows it instead of "Syncing…" ("Covers 340/1358"). The new covers
+stay in memory and go into the second `apply_remote_listing`, in its
+transaction, as they always did. Eight transport or auth failures in a row end
+the cover phase (the rest waits for the next sync instead of a timeout per
+cover). A sync with new songs and new covers therefore rescans twice. The adapters in `servers/` clean the listing on the way in: server
 placeholders (`[Unknown Artist]`, `[Unknown Album]`) become empty, and a track
 number above 999 is dropped — Navidrome takes one from a leading number in an
 untagged file's name, so a whole-disc image `1997 - Around The Fur.flac` arrives

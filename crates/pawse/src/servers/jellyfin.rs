@@ -58,8 +58,8 @@ impl ServerClient for Jellyfin {
             .collect())
     }
 
-    fn cover_art(&self, key: &str) -> Result<Vec<u8>, RemoteError> {
-        self.0.cover_art(key).map_err(error)
+    fn cover_art(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
+        self.0.cover_art(key, max_size).map_err(error)
     }
 
     fn set_favorite(&self, key: &str, favorite: bool) -> Result<(), RemoteError> {

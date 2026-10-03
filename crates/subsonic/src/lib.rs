@@ -168,8 +168,9 @@ impl Client {
         self.json(method, &[("id", song_id)]).map(|_| ())
     }
 
-    pub fn cover_art(&self, cover_id: &str) -> Result<Vec<u8>, Error> {
-        let body = self.binary("getCoverArt", &[("id", cover_id)])?;
+    pub fn cover_art(&self, cover_id: &str, max_size: u32) -> Result<Vec<u8>, Error> {
+        let size = max_size.to_string();
+        let body = self.binary("getCoverArt", &[("id", cover_id), ("size", &size)])?;
         server_http::read_capped(body, MAX_COVER_BYTES).map_err(|e| Error::Transient(e.to_string()))
     }
 

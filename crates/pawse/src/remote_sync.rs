@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use music_library::{LibraryRepository, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport};
 
@@ -57,12 +59,6 @@ fn is_enabled(repo: &dyn LibraryRepository, source_id: i64) -> bool {
     }
 }
 
-pub struct SyncOutcome {
-    pub result: Result<RemoteSyncReport, RemoteError>,
-    pub changed: bool,
-    pub moved: Option<RemoteConfig>,
-}
-
 pub fn offline_servers(
     summaries: &[music_library::SourceSummary],
     servers: Vec<RemoteServer>,
@@ -79,6 +75,9 @@ pub fn offline_servers(
 
 const APPLY_ATTEMPTS: usize = 4;
 const APPLY_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+const COVER_FETCHERS: usize = 4;
+const COVER_PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_secs(1);
+const COVER_UNREACHABLE_LIMIT: usize = 8;
 
 enum Failure {
     Source(RemoteError),
@@ -110,6 +109,45 @@ fn apply_listing(
     Err(Failure::Local(RemoteError::Other(last)))
 }
 
+pub struct CoverWork {
+    client: Arc<dyn ServerClient>,
+    kind: ServerKind,
+    source_id: i64,
+    songs: Vec<RemoteSong>,
+    resolved: HashMap<String, Option<String>>,
+    shown: HashMap<String, String>,
+    wanted: Vec<String>,
+}
+
+pub struct SyncOutcome {
+    pub result: Result<RemoteSyncReport, RemoteError>,
+    pub changed: bool,
+    pub moved: Option<RemoteConfig>,
+    pub covers: Option<CoverWork>,
+}
+
+fn with_covers(
+    songs: &[RemoteSong],
+    resolved: &HashMap<String, Option<String>>,
+    shown: &HashMap<String, String>,
+) -> Vec<RemoteSong> {
+    songs
+        .iter()
+        .map(|song| {
+            let mut song = song.clone();
+            match song.cover_key.as_ref().map(|key| resolved.get(key)) {
+                None => song.cover_hash = None,
+                Some(Some(hash)) => song.cover_hash = hash.clone(),
+                Some(None) => {
+                    song.cover_hash = shown.get(&song.key).cloned();
+                    song.cover_key = None;
+                }
+            }
+            song
+        })
+        .collect()
+}
+
 pub fn sync_server(
     repo: &dyn LibraryRepository,
     source_id: i64,
@@ -120,21 +158,55 @@ pub fn sync_server(
         .ping()
         .and_then(|()| client.songs())
         .map_err(Failure::Source)
-        .and_then(|mut songs| {
-            let covers = fetch_covers(repo, &*client, config.kind(), source_id, &mut songs);
-            apply_listing(repo, source_id, &songs, &covers)
+        .and_then(|songs| {
+            let resolved: HashMap<String, Option<String>> = repo
+                .remote_cover_hashes(source_id)
+                .map_err(|e| Failure::Local(e.into()))?
+                .into_iter()
+                .map(|(key, hash)| (key, Some(hash)))
+                .collect();
+            let mut seen = HashSet::new();
+            let wanted: Vec<String> = songs
+                .iter()
+                .filter_map(|song| song.cover_key.as_deref())
+                .filter(|key| !resolved.contains_key(*key) && seen.insert(*key))
+                .map(str::to_string)
+                .collect();
+            let shown = if wanted.is_empty() {
+                HashMap::new()
+            } else {
+                repo.remote_song_cover_hashes(source_id)
+                    .map_err(|e| Failure::Local(e.into()))?
+            };
+            apply_listing(
+                repo,
+                source_id,
+                &with_covers(&songs, &resolved, &shown),
+                &[],
+            )
+            .map(|report| (report, songs, resolved, shown, wanted))
         });
     let moved = client.moved();
     match listed {
-        Ok(report) => SyncOutcome {
+        Ok((report, songs, resolved, shown, wanted)) => SyncOutcome {
             changed: report.changed(),
             result: Ok(report),
             moved,
+            covers: (!wanted.is_empty()).then(|| CoverWork {
+                kind: config.kind(),
+                client,
+                source_id,
+                songs,
+                resolved,
+                shown,
+                wanted,
+            }),
         },
         Err(Failure::Local(error)) => SyncOutcome {
             result: Err(error),
             changed: false,
             moved,
+            covers: None,
         },
         Err(Failure::Source(error)) => {
             let changed = is_enabled(repo, source_id)
@@ -148,6 +220,7 @@ pub fn sync_server(
                 result: Err(error),
                 changed,
                 moved,
+                covers: None,
             }
         }
     }
@@ -163,54 +236,131 @@ pub fn import_stars(
     Ok((items, keys.len()))
 }
 
-fn fetch_covers(
+pub fn fetch_covers(
     repo: &dyn LibraryRepository,
-    client: &dyn ServerClient,
-    kind: ServerKind,
-    source_id: i64,
-    songs: &mut [RemoteSong],
-) -> Vec<RemoteCover> {
-    let mut hashes = repo.remote_cover_hashes(source_id).unwrap_or_default();
-    let wanted: HashSet<String> = songs
-        .iter()
-        .filter_map(|song| song.cover_key.clone())
-        .filter(|key| !hashes.contains_key(key))
-        .collect();
+    work: CoverWork,
+    progress: &dyn Fn(usize, usize),
+) -> bool {
+    let CoverWork {
+        client,
+        kind,
+        source_id,
+        songs,
+        mut resolved,
+        shown,
+        wanted,
+    } = work;
+    let total = wanted.len();
+    progress(0, total);
+    let next = AtomicUsize::new(0);
+    let stop = AtomicBool::new(false);
+    let (tx, rx) = flume::bounded::<(String, Result<Vec<u8>, RemoteError>)>(COVER_FETCHERS * 2);
     let mut covers: Vec<RemoteCover> = Vec::new();
-    let mut stored: HashSet<String> = HashSet::new();
-    for key in wanted {
-        let bytes = match client.cover_art(&key) {
-            Ok(bytes) if !bytes.is_empty() => bytes,
-            Ok(_) => continue,
-            Err(e) => {
-                log::warn!("{} cover {key} not fetched: {e:?}", kind.title());
-                continue;
-            }
-        };
-        let hash = music_library::sha256_hex(&bytes);
-        if stored.insert(hash.clone()) {
-            match music_library::thumbnail::generate_thumbnails(&bytes) {
-                Ok(thumbs) => covers.push(RemoteCover {
-                    hash: hash.clone(),
-                    small: thumbs.small,
-                    large: thumbs.large,
-                    source_path: format!("{}-cover://{source_id}/{key}", kind.as_str()),
-                }),
-                Err(e) => {
-                    log::warn!("{} cover {key} not decoded: {e}", kind.title());
-                    continue;
-                }
+    let mut fetched = 0usize;
+    std::thread::scope(|scope| {
+        for _ in 0..COVER_FETCHERS.min(total) {
+            let (tx, next, stop, wanted, client) = (tx.clone(), &next, &stop, &wanted, &*client);
+            let spawned = std::thread::Builder::new()
+                .name("cover-fetch".into())
+                .spawn_scoped(scope, move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        let Some(key) = wanted.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                            break;
+                        };
+                        let result = client.cover_art(key, music_library::thumbnail::LARGE_SIZE);
+                        if tx.send((key.clone(), result)).is_err() {
+                            break;
+                        }
+                    }
+                });
+            if let Err(e) = spawned {
+                log::warn!("{} covers: a fetch thread did not start: {e}", kind.title());
             }
         }
-        hashes.insert(key, hash);
+        drop(tx);
+        let mut thumbnailed: HashSet<String> = HashSet::new();
+        let mut done = 0usize;
+        let mut unreachable = 0usize;
+        let mut reported = std::time::Instant::now();
+        for (key, result) in rx.iter() {
+            done += 1;
+            let hash = match result {
+                Ok(bytes) if !bytes.is_empty() => {
+                    unreachable = 0;
+                    let hash = music_library::sha256_hex(&bytes);
+                    if thumbnailed.contains(&hash) {
+                        Some(hash)
+                    } else {
+                        match music_library::thumbnail::generate_thumbnails(&bytes) {
+                            Ok(thumbs) => {
+                                thumbnailed.insert(hash.clone());
+                                covers.push(RemoteCover {
+                                    hash: hash.clone(),
+                                    small: thumbs.small,
+                                    large: thumbs.large,
+                                    source_path: format!(
+                                        "{}-cover://{source_id}/{key}",
+                                        kind.as_str()
+                                    ),
+                                });
+                                Some(hash)
+                            }
+                            Err(e) => {
+                                log::warn!("{} cover {key} not decoded: {e}", kind.title());
+                                None
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {
+                    unreachable = 0;
+                    None
+                }
+                Err(e @ (RemoteError::Unreachable(_) | RemoteError::Auth)) => {
+                    unreachable += 1;
+                    log::warn!("{} cover {key} not fetched: {e:?}", kind.title());
+                    if unreachable >= COVER_UNREACHABLE_LIMIT {
+                        log::warn!(
+                            "{} source {source_id}: the server stopped answering, {} covers left for the next sync",
+                            kind.title(),
+                            total - done
+                        );
+                        break;
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    unreachable = 0;
+                    log::warn!("{} cover {key} not fetched: {e:?}", kind.title());
+                    None
+                }
+            };
+            resolved.insert(key, hash);
+            fetched += 1;
+            if reported.elapsed() >= COVER_PROGRESS_EVERY {
+                reported = std::time::Instant::now();
+                progress(done, total);
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        drop(rx);
+        progress(done, total);
+    });
+    if fetched == 0 || !is_enabled(repo, source_id) {
+        return false;
     }
-    for song in songs.iter_mut() {
-        song.cover_hash = song
-            .cover_key
-            .as_ref()
-            .and_then(|key| hashes.get(key).cloned());
+    match apply_listing(
+        repo,
+        source_id,
+        &with_covers(&songs, &resolved, &shown),
+        &covers,
+    ) {
+        Ok(report) => report.changed(),
+        Err(Failure::Source(error) | Failure::Local(error)) => {
+            log::warn!("Server source {source_id}: storing fetched covers failed: {error:?}");
+            false
+        }
     }
-    covers
 }
 
 #[cfg(test)]
@@ -233,10 +383,29 @@ mod tests {
         bytes
     }
 
+    type CoverReply = (&'static str, &'static str, Vec<u8>);
+
     fn stub_server() -> String {
+        let cover = png();
+        subsonic_stub(
+            || {
+                serde_json::json!([
+                    {"id": "s1", "title": "Local Too", "artist": "Artist", "album": "Album",
+                     "duration": 180, "suffix": "flac", "path": "x/a.flac", "coverArt": "c1"},
+                    {"id": "s2", "title": "Only Remote", "artist": "Artist", "album": "Album",
+                     "duration": 200, "suffix": "mp3", "path": "x/b.mp3", "coverArt": "c1"}
+                ])
+            },
+            move |_| ("200 OK", "image/png", cover.clone()),
+        )
+    }
+
+    fn subsonic_stub(
+        songs: impl Fn() -> serde_json::Value + Send + 'static,
+        cover: impl Fn(&str) -> CoverReply + Send + 'static,
+    ) -> String {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
-        let cover = png();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
@@ -268,6 +437,12 @@ mod tests {
                     }
                     serde_json::to_vec(&serde_json::json!({"subsonic-response": inner})).unwrap()
                 };
+                let id = target
+                    .split(['?', '&'])
+                    .find_map(|pair| pair.strip_prefix("id="))
+                    .unwrap_or("")
+                    .replace("%3A", ":");
+                let mut status = "200 OK";
                 let (content_type, body) = match method.as_str() {
                     "ping" => ("application/json", json(serde_json::json!({}))),
                     "search3" if !target.contains("songOffset=0") => (
@@ -276,14 +451,13 @@ mod tests {
                     ),
                     "search3" => (
                         "application/json",
-                        json(serde_json::json!({"searchResult3": {"song": [
-                            {"id": "s1", "title": "Local Too", "artist": "Artist", "album": "Album",
-                             "duration": 180, "suffix": "flac", "path": "x/a.flac", "coverArt": "c1"},
-                            {"id": "s2", "title": "Only Remote", "artist": "Artist", "album": "Album",
-                             "duration": 200, "suffix": "mp3", "path": "x/b.mp3", "coverArt": "c1"}
-                        ]}})),
+                        json(serde_json::json!({"searchResult3": {"song": songs()}})),
                     ),
-                    "getCoverArt" => ("image/png", cover.clone()),
+                    "getCoverArt" => {
+                        let (code, content_type, body) = cover(&id);
+                        status = code;
+                        (content_type, body)
+                    }
                     "getStarred2" => (
                         "application/json",
                         json(serde_json::json!({"starred2": {"song": [
@@ -294,7 +468,7 @@ mod tests {
                     _ => ("application/json", json(serde_json::json!({}))),
                 };
                 let head = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()
                 );
                 let _ = stream.write_all(head.as_bytes());
@@ -302,6 +476,14 @@ mod tests {
             }
         });
         url
+    }
+
+    fn sync(repo: &SqliteLibrary, source_id: i64, config: &RemoteConfig) -> SyncOutcome {
+        let mut outcome = sync_server(repo, source_id, config);
+        if let Some(covers) = outcome.covers.take() {
+            outcome.changed |= fetch_covers(repo, covers, &|_, _| {});
+        }
+        outcome
     }
 
     fn temp_db(name: &str) -> SqliteLibrary {
@@ -359,7 +541,7 @@ mod tests {
         let (configs, _) = reconcile(&repo, &servers);
         let (&source_id, _) = configs.iter().next().unwrap();
 
-        let outcome = sync_server(&repo, source_id, &servers[0].config);
+        let outcome = sync(&repo, source_id, &servers[0].config);
         let changed = outcome.changed;
         let report = outcome.result.unwrap();
         assert!(changed);
@@ -368,6 +550,7 @@ mod tests {
 
         let again = sync_server(&repo, source_id, &servers[0].config);
         assert!(!again.changed);
+        assert!(again.covers.is_none());
         let tracks = repo.all_tracks().unwrap();
         let mut paths: Vec<&str> = tracks.iter().map(|t| t.path.as_str()).collect();
         paths.sort();
@@ -381,6 +564,168 @@ mod tests {
         assert_eq!((items, total), (vec![remote_track.id], 2));
     }
 
+    fn song_json(id: &str, cover: &str) -> serde_json::Value {
+        serde_json::json!({"id": id, "title": format!("Song {id}"), "artist": "Artist",
+            "album": "Album", "duration": 180, "suffix": "mp3", "coverArt": cover})
+    }
+
+    fn jpeg(seed: u8) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([seed, 10, 10]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        bytes
+    }
+
+    fn subsonic_source(repo: &SqliteLibrary, url: &str) -> (i64, RemoteConfig) {
+        let servers = vec![server(url)];
+        let (configs, _) = reconcile(repo, &servers);
+        let (&source_id, _) = configs.iter().next().unwrap();
+        (source_id, servers[0].config.clone())
+    }
+
+    fn cover_of(repo: &SqliteLibrary, key: &str, source_id: i64) -> Option<i64> {
+        let path = music_library::remote::locator(source_id, key, "mp3");
+        repo.all_tracks()
+            .unwrap()
+            .into_iter()
+            .find(|track| track.path == path)
+            .and_then(|track| track.cover_art_id)
+    }
+
+    #[test]
+    fn the_listing_lands_before_the_covers_and_every_cover_comes_through_the_fetch_threads() {
+        let repo = temp_db("listing-first");
+        let url = subsonic_stub(
+            || {
+                (0..40)
+                    .map(|n| song_json(&format!("s{n}"), &format!("mf-{n}")))
+                    .collect()
+            },
+            |id| {
+                let seed: u8 = id.trim_start_matches("mf-").parse().unwrap();
+                ("200 OK", "image/jpeg", jpeg(seed))
+            },
+        );
+        let (source_id, config) = subsonic_source(&repo, &url);
+
+        let mut outcome = sync_server(&repo, source_id, &config);
+        assert!(outcome.changed);
+        scan_local(&repo, vec![]);
+        assert_eq!(repo.all_tracks().unwrap().len(), 40);
+        assert_eq!(cover_of(&repo, "s7", source_id), None);
+
+        let covers = outcome.covers.take().unwrap();
+        let seen = std::sync::Mutex::new(Vec::new());
+        assert!(fetch_covers(&repo, covers, &|done, total| seen
+            .lock()
+            .unwrap()
+            .push((done, total))));
+        let seen = seen.into_inner().unwrap();
+        assert_eq!(seen.first(), Some(&(0, 40)));
+        assert_eq!(seen.last(), Some(&(40, 40)));
+        scan_local(&repo, vec![]);
+        let tracks = repo.all_tracks().unwrap();
+        assert!(tracks.iter().all(|track| track.cover_art_id.is_some()));
+        assert_eq!(repo.remote_cover_hashes(source_id).unwrap().len(), 40);
+        assert!(sync_server(&repo, source_id, &config).covers.is_none());
+    }
+
+    #[test]
+    fn a_cover_without_a_picture_is_asked_for_again_and_does_not_hold_the_others_back() {
+        let repo = temp_db("no-picture");
+        let url = subsonic_stub(
+            || serde_json::json!([song_json("s1", "dc-1:1"), song_json("s2", "al-2")]),
+            |id| match id {
+                "dc-1:1" => ("200 OK", "image/jpeg", b"not a picture".to_vec()),
+                _ => ("200 OK", "image/jpeg", jpeg(1)),
+            },
+        );
+        let (source_id, config) = subsonic_source(&repo, &url);
+        sync(&repo, source_id, &config);
+        scan_local(&repo, vec![]);
+        assert_eq!(cover_of(&repo, "s1", source_id), None);
+        assert!(cover_of(&repo, "s2", source_id).is_some());
+        let again = sync_server(&repo, source_id, &config);
+        assert_eq!(again.covers.unwrap().wanted, vec!["dc-1:1".to_string()]);
+    }
+
+    #[test]
+    fn a_new_cover_key_keeps_the_old_cover_until_its_picture_arrives_even_across_a_restart() {
+        let repo = temp_db("rekey");
+        let key = std::sync::Arc::new(std::sync::Mutex::new("al-1_old".to_string()));
+        let listed = key.clone();
+        let url = subsonic_stub(
+            move || serde_json::json!([song_json("s1", &listed.lock().unwrap())]),
+            |id| match id {
+                "al-1_old" => ("200 OK", "image/jpeg", jpeg(1)),
+                _ => ("200 OK", "image/jpeg", jpeg(200)),
+            },
+        );
+        let (source_id, config) = subsonic_source(&repo, &url);
+        sync(&repo, source_id, &config);
+        scan_local(&repo, vec![]);
+        let old = cover_of(&repo, "s1", source_id).unwrap();
+
+        *key.lock().unwrap() = "al-1_new".to_string();
+        let interrupted = sync_server(&repo, source_id, &config);
+        assert!(!interrupted.changed);
+        scan_local(&repo, vec![]);
+        assert_eq!(cover_of(&repo, "s1", source_id), Some(old));
+
+        let mut outcome = sync_server(&repo, source_id, &config);
+        assert_eq!(
+            outcome.covers.as_ref().unwrap().wanted,
+            vec!["al-1_new".to_string()]
+        );
+        assert!(fetch_covers(
+            &repo,
+            outcome.covers.take().unwrap(),
+            &|_, _| {}
+        ));
+        scan_local(&repo, vec![]);
+        let new = cover_of(&repo, "s1", source_id).unwrap();
+        assert_ne!(new, old);
+        assert!(sync_server(&repo, source_id, &config).covers.is_none());
+    }
+
+    #[test]
+    fn covers_stop_after_the_server_keeps_failing() {
+        let repo = temp_db("cover-outage");
+        let requests = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = requests.clone();
+        let url = subsonic_stub(
+            || {
+                (0..200)
+                    .map(|n| song_json(&format!("s{n}"), &format!("mf-{n}")))
+                    .collect()
+            },
+            move |_| {
+                counted.fetch_add(1, Ordering::Relaxed);
+                ("503 Service Unavailable", "text/plain", Vec::new())
+            },
+        );
+        let (source_id, config) = subsonic_source(&repo, &url);
+        let mut outcome = sync_server(&repo, source_id, &config);
+        assert!(!fetch_covers(
+            &repo,
+            outcome.covers.take().unwrap(),
+            &|_, _| {}
+        ));
+        assert!(requests.load(Ordering::Relaxed) < 50);
+        assert_eq!(
+            sync_server(&repo, source_id, &config)
+                .covers
+                .unwrap()
+                .wanted
+                .len(),
+            200
+        );
+    }
+
     #[test]
     fn a_failed_sync_of_a_removed_source_changes_nothing() {
         let repo = temp_db("removed-failed");
@@ -392,13 +737,13 @@ mod tests {
         let (configs, _) = reconcile(&repo, &servers);
         let (&source_id, _) = configs.iter().next().unwrap();
 
-        let live = sync_server(&repo, source_id, &servers[0].config);
+        let live = sync(&repo, source_id, &servers[0].config);
         assert!(live.result.is_err());
         assert!(live.changed);
 
         repo.set_source_available(source_id, true).unwrap();
         reconcile(&repo, &[]);
-        let removed = sync_server(&repo, source_id, &servers[0].config);
+        let removed = sync(&repo, source_id, &servers[0].config);
         assert!(removed.result.is_err());
         assert!(!removed.changed);
     }
@@ -505,7 +850,7 @@ mod tests {
             .find(|(_, config)| config.kind() == ServerKind::Jellyfin)
             .unwrap();
 
-        let outcome = sync_server(&repo, source_id, config);
+        let outcome = sync(&repo, source_id, config);
         let report = outcome.result.unwrap();
         assert_eq!((report.total, report.added, report.adopted), (2, 1, 1));
         scan_local(&repo, vec![local_track()]);
@@ -581,7 +926,7 @@ mod tests {
         let servers = vec![server(&url)];
         let (&source_id, _) = reconcile(&repo, &servers).0.iter().next().unwrap();
 
-        let outcome = sync_server(&repo, source_id, &servers[0].config);
+        let outcome = sync(&repo, source_id, &servers[0].config);
         assert!(matches!(outcome.result, Err(RemoteError::Unreachable(_))));
         assert!(outcome.changed);
         let source = repo

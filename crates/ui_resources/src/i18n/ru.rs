@@ -106,6 +106,7 @@ pub static RU: Strings = lang! {
     server_online: "Доступен",
     server_offline: "Недоступен",
     source_syncing: "Синхронизация…",
+    source_syncing_covers_t: "Обложки {}/{}",
     remove_server_confirm_title: "Удалить сервер?",
     source_online: "Доступна",
     source_offline: "Недоступна",

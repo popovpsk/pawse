@@ -106,6 +106,7 @@ pub static TR: Strings = lang! {
     server_online: "Erişilebilir",
     server_offline: "Kullanılamıyor",
     source_syncing: "Eşitleniyor…",
+    source_syncing_covers_t: "Kapaklar {}/{}",
     remove_server_confirm_title: "Sunucu kaldırılsın mı?",
     source_online: "Erişilebilir",
     source_offline: "Kullanılamıyor",

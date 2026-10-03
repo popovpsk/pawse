@@ -106,6 +106,7 @@ pub static HI: Strings = lang! {
     server_online: "उपलब्ध",
     server_offline: "अनुपलब्ध",
     source_syncing: "सिंक हो रहा है…",
+    source_syncing_covers_t: "कवर {}/{}",
     remove_server_confirm_title: "सर्वर हटाएँ?",
     source_online: "उपलब्ध",
     source_offline: "अनुपलब्ध",

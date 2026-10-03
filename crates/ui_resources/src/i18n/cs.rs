@@ -106,6 +106,7 @@ pub static CS: Strings = lang! {
     server_online: "Dostupný",
     server_offline: "Nedostupný",
     source_syncing: "Synchronizace…",
+    source_syncing_covers_t: "Obaly {}/{}",
     remove_server_confirm_title: "Odebrat server?",
     source_online: "Dostupná",
     source_offline: "Nedostupná",

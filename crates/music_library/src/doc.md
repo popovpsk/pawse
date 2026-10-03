@@ -260,7 +260,9 @@ rescan is needed; `cover_key` is left out of that check and written by a
 separate uncounted `UPDATE`, because it never reaches the catalog but must stay
 current — Navidrome's cover ids carry the album's timestamp, and a stale key
 would make `remote_cover_hashes` miss and re-download the same image on every
-sync); songs no longer listed get `present = 0`; new songs are born
+sync — and a `NULL` key is how the app marks a song whose new picture it has not
+fetched yet, so the next sync asks for it; `remote_song_cover_hashes` is the
+cover each song's row has now, which the app keeps on such a song meanwhile); songs no longer listed get `present = 0`; new songs are born
 against every item that has no binding this listing accounts for — so a song
 the server renamed (new id) finds its old item. An empty listing while the server still had present songs is refused, not
 applied: a server whose library is unmounted must not retire everything.

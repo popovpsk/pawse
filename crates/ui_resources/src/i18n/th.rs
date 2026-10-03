@@ -106,6 +106,7 @@ pub static TH: Strings = lang! {
     server_online: "พร้อมใช้งาน",
     server_offline: "ไม่พร้อมใช้งาน",
     source_syncing: "กำลังซิงค์…",
+    source_syncing_covers_t: "ปก {}/{}",
     remove_server_confirm_title: "ลบเซิร์ฟเวอร์ไหม",
     source_online: "พร้อมใช้งาน",
     source_offline: "ไม่พร้อมใช้งาน",

@@ -9,7 +9,6 @@ const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const PAGE_SIZE: usize = 500;
 const MAX_PAGES: usize = 10_000;
 const MAX_COVER_BYTES: u64 = 32 * 1024 * 1024;
-const COVER_WIDTH: &str = "1200";
 const ITEM_FIELDS: &str = "MediaSources,Genres,Path";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,10 +245,11 @@ impl Client {
         check_status(response).map(|_| None)
     }
 
-    pub fn cover_art(&self, item_id: &str) -> Result<Vec<u8>, Error> {
+    pub fn cover_art(&self, item_id: &str, max_size: u32) -> Result<Vec<u8>, Error> {
+        let size = max_size.to_string();
         let response = self.get(
             &format!("/Items/{}/Images/Primary", encode(item_id)),
-            &[("maxWidth", COVER_WIDTH)],
+            &[("maxWidth", &size), ("maxHeight", &size)],
             None,
         )?;
         server_http::read_capped(response.into_body(), MAX_COVER_BYTES)

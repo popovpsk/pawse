@@ -106,6 +106,7 @@ pub static ZH: Strings = lang! {
     server_online: "可用",
     server_offline: "不可用",
     source_syncing: "正在同步…",
+    source_syncing_covers_t: "封面 {}/{}",
     remove_server_confirm_title: "移除服务器？",
     source_online: "可用",
     source_offline: "不可用",

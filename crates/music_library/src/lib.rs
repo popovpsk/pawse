@@ -3498,7 +3498,11 @@ mod tests {
         assert!(!report.changed());
         assert_eq!(
             lib.remote_cover_hashes(source).unwrap(),
-            HashMap::from([("al-1_new".to_string(), hash)])
+            HashMap::from([("al-1_new".to_string(), hash.clone())])
+        );
+        assert_eq!(
+            lib.remote_song_cover_hashes(source).unwrap(),
+            HashMap::from([("s1".to_string(), hash)])
         );
     }
 

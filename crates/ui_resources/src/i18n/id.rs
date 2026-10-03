@@ -106,6 +106,7 @@ pub static ID: Strings = lang! {
     server_online: "Tersedia",
     server_offline: "Tidak tersedia",
     source_syncing: "Menyinkronkan…",
+    source_syncing_covers_t: "Sampul {}/{}",
     remove_server_confirm_title: "Hapus server?",
     source_online: "Tersedia",
     source_offline: "Tidak tersedia",
