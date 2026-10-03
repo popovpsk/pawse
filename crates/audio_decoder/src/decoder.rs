@@ -7,7 +7,11 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 use symphonia::core::audio::{Audio, GenericAudioBufferRef};
-use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::well_known::{
+    CODEC_ID_AAC, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_OPUS, CODEC_ID_PCM_F32LE,
+    CODEC_ID_PCM_S16BE, CODEC_ID_PCM_S16LE, CODEC_ID_PCM_S24BE, CODEC_ID_PCM_S24LE,
+    CODEC_ID_PCM_S32LE, CODEC_ID_VORBIS,
+};
 use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
 use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::formats::probe::Hint;
@@ -537,6 +541,20 @@ pub fn can_stream(extension: &str) -> bool {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Codec {
+    Mp3,
+    Aac,
+    Alac,
+    Flac,
+    Vorbis,
+    Opus,
+    Pcm,
+    Ape,
+    Dsd,
+    Other,
+}
+
 #[allow(private_interfaces)]
 pub enum Decoder {
     Symphonia(Box<SymphoniaDecoder>),
@@ -573,6 +591,26 @@ impl Decoder {
             Box::new(StreamSource(stream)),
             extension,
         )?)))
+    }
+}
+
+impl Decoder {
+    pub fn codec(&self) -> Codec {
+        match self {
+            Decoder::Symphonia(d) => match d.codec_params.codec {
+                CODEC_ID_MP3 => Codec::Mp3,
+                CODEC_ID_AAC => Codec::Aac,
+                CODEC_ID_ALAC => Codec::Alac,
+                CODEC_ID_FLAC => Codec::Flac,
+                CODEC_ID_VORBIS => Codec::Vorbis,
+                CODEC_ID_OPUS => Codec::Opus,
+                CODEC_ID_PCM_S16LE | CODEC_ID_PCM_S24LE | CODEC_ID_PCM_S32LE
+                | CODEC_ID_PCM_F32LE | CODEC_ID_PCM_S16BE | CODEC_ID_PCM_S24BE => Codec::Pcm,
+                _ => Codec::Other,
+            },
+            Decoder::Ape(_) => Codec::Ape,
+            Decoder::Dsd(_) => Codec::Dsd,
+        }
     }
 }
 

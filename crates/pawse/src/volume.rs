@@ -39,7 +39,7 @@ pub struct Volume {
 impl Render for Volume {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let services = cx.global::<Services>();
-        let is_exclusive = services.output.is_exclusive();
+        let is_exclusive = services.volume_locked();
 
         let icon_path = volume_icon(is_exclusive, self.is_muted, self.volume);
 
@@ -100,21 +100,10 @@ impl Volume {
         })
         .detach();
 
-        cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
-            let volume = cx.global::<SettingsStore>().volume();
-            if volume == this.volume {
-                return;
-            }
-            this.volume = volume;
-            this.is_muted = volume <= 0.0;
-            if volume > 0.0 {
-                this.volume_before_mute = volume;
-            }
-            this.slider
-                .update(cx, |slider, cx| slider.set_value_silent(volume, cx));
-            cx.notify();
-        })
-        .detach();
+        cx.observe_global::<SettingsStore>(Self::sync_volume)
+            .detach();
+        cx.observe_global::<crate::cast::CastState>(Self::sync_volume)
+            .detach();
 
         Self {
             slider,
@@ -123,6 +112,21 @@ impl Volume {
             volume_before_mute: if initial > 0.0 { initial } else { 1.0 },
             slider_pinned_to_unity: false,
         }
+    }
+
+    fn sync_volume(&mut self, cx: &mut Context<Self>) {
+        let volume = crate::services::effective_volume(cx);
+        if volume == self.volume {
+            return;
+        }
+        self.volume = volume;
+        self.is_muted = volume <= 0.0;
+        if volume > 0.0 {
+            self.volume_before_mute = volume;
+        }
+        self.slider
+            .update(cx, |slider, cx| slider.set_value_silent(volume, cx));
+        cx.notify();
     }
 
     fn tooltip_text(&self, is_exclusive: bool) -> gpui::SharedString {
@@ -137,7 +141,7 @@ impl Volume {
     }
 
     fn on_icon_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if cx.global::<Services>().output.is_exclusive() {
+        if cx.global::<Services>().volume_locked() {
             return;
         }
 
@@ -163,7 +167,7 @@ impl Volume {
     }
 
     pub fn set(&mut self, value: f32, cx: &mut Context<Self>) {
-        if cx.global::<Services>().output.is_exclusive() {
+        if cx.global::<Services>().volume_locked() {
             return;
         }
         let new = value.clamp(0.0, 1.0);

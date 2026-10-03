@@ -1,0 +1,29 @@
+[package]
+name = "cast"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = { workspace = true }
+flume = "0.12"
+getrandom = "0.3"
+mdns-sd = "0.21"
+rubato = "0.16"
+atomic_float = "1.1.0"
+audio_common = { path = "../audio_common" }
+audio_decoder = { path = "../audio_decoder" }
+audio_output = { path = "../audio_output" }
+dlna = { path = "../dlna" }
+chromecast = { path = "../chromecast" }
+airplay = { path = "../airplay" }
+
+[dev-dependencies]
+rstest = "0.26"
+chromecast = { path = "../chromecast", features = ["test-support"] }
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

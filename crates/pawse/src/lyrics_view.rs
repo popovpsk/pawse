@@ -524,7 +524,7 @@ impl LyricsView {
         self.pos_base_at = Instant::now();
         cx.notify();
         let frac = (time_ms as f64 / total as f64).clamp(0.0, 1.0) as f32;
-        cx.global::<Services>().engine_manager.seek(frac);
+        cx.global::<Services>().player.seek(frac);
     }
 
     fn set_hovered(&mut self, ix: usize, hovered: bool, cx: &mut Context<Self>) {

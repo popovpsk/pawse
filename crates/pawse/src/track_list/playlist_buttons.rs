@@ -95,7 +95,7 @@ pub fn remove_from_playlist_button(
             if let Some(next) = next {
                 services.play_track(&next);
             } else {
-                services.engine_manager.pause();
+                services.player.pause();
             }
         }
 

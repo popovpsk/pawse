@@ -15,7 +15,8 @@ use audio_common::{AudioBatch, AudioError, AudioSamples, Metadata};
 pub use bit_perfect::{BitPerfectIssue, BitPerfectStatus, UNITY_VOLUME_TOLERANCE};
 use cpal::traits::HostTrait;
 pub use cpal_stream::{
-    AudioOutput, CpalOutputStream, OutputConfig, PlaybackState, SelectedOutputDevice,
+    AudioOutput, CpalOutputStream, FadeState, OutputConfig, PlaybackState, SelectedOutputDevice,
+    apply_fade_gain,
 };
 use device::DeviceManager;
 use parking_lot::{Mutex, RwLock};
@@ -33,6 +34,13 @@ enum OutputMode {
 pub enum FadeEvent {
     FadedIn,
     FadedOut,
+}
+
+pub trait EngineOutput: AudioOutput {
+    fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32);
+    fn take_fade_event(&self) -> Option<FadeEvent>;
+    fn reset_fade(&self);
+    fn release_paused(&self);
 }
 
 /// User-visible audio events. UI consumes via `drain_events`. Each variant is a
@@ -979,6 +987,24 @@ impl AudioOutput for Output {
     fn set_volume(&self, volume: f32) {
         self.app_volume.store(volume, Ordering::Relaxed);
         self.apply_current_volume();
+    }
+}
+
+impl EngineOutput for Output {
+    fn begin_fade(&self, start: Option<f32>, target: f32, duration_ms: u32) {
+        Output::begin_fade(self, start, target, duration_ms)
+    }
+
+    fn take_fade_event(&self) -> Option<FadeEvent> {
+        Output::take_fade_event(self)
+    }
+
+    fn reset_fade(&self) {
+        Output::reset_fade(self)
+    }
+
+    fn release_paused(&self) {
+        Output::release_paused(self)
     }
 }
 

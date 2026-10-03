@@ -37,6 +37,8 @@ files.
 - `i18n/<code>.rs` — one `pub static <CODE>: Strings = lang!{ ... };` per
   language (`en`, `es`, `zh`, `pt`, `ru`, `ja`, `de`, `fr`, `ko`, `it`, `tr`,
   `pl`, `nl`, `uk`, `vi`, `id`, `th`, `cs`, `sv`, `hi`).
+- `i18n/cast.rs` — `CastStrings`, the streaming section of the output picker
+  and its notifications (`cast_strings()`), kept separate the same way.
 - `i18n/tools.rs` — `ToolsStrings`, a separate table for the Tools screen
   (`tools_strings()` picks the active language). Kept out of `Strings` so long,
   feature-specific texts don't bloat the main per-language files; all 20

@@ -2,7 +2,8 @@
 
 Getting the bytes of a track that is not a local file. `RemoteMedia` is the
 facade the app uses (`crate::playback_opener` through its `LibraryBackend`, the engine's resolver, gapless
-prefetch, the cache settings); behind it each source id maps to a
+prefetch, the cache settings, and `crate::cast` for renderers, which serves the
+same streams to the device through the same `LibraryBackend`); behind it each source id maps to a
 `SourceMedia`.
 
 ## Files

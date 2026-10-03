@@ -14,6 +14,7 @@ pub mod app_menu;
 pub mod audio_settings;
 pub mod cache_fill;
 pub mod cache_settings;
+pub mod cast;
 pub mod cover_art_cache;
 pub mod cover_backdrop;
 pub mod cover_mode_view;
@@ -111,7 +112,8 @@ fn restore_engine_state(cx: &mut App) {
         .duration_ms
         .map(|ms| std::time::Duration::from_millis(ms as u64));
     services
-        .engine_manager
+        .player
+        .local()
         .set_track_with_offset(path, start_offset, duration);
     if stored_position_ms > 0
         && let Some(dur_ms) = track.duration_ms
@@ -121,7 +123,7 @@ fn restore_engine_state(cx: &mut App) {
         services
             .current_position_ms
             .store(stored_position_ms, std::sync::atomic::Ordering::Relaxed);
-        services.engine_manager.seek(ratio);
+        services.player.seek(ratio);
     }
 }
 
@@ -265,7 +267,7 @@ fn main() {
 
         let services = Services::initialize(cx);
 
-        let engine_manager = services.engine_manager.clone();
+        let engine_events = services.player.events();
         let engine_event_bus = services.engine_event_bus.clone();
         let current_position_ms = services.current_position_ms.clone();
         let current_duration_ms = services.current_duration_ms.clone();
@@ -379,7 +381,7 @@ fn main() {
         cx.spawn(async move |cx| {
             run_engine_events_bus(
                 cx,
-                engine_manager,
+                engine_events,
                 engine_event_bus,
                 current_position_ms,
                 current_duration_ms,

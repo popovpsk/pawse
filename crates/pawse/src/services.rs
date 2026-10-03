@@ -12,7 +12,7 @@ use std::{
 use crate::playback_opener::AfterLoad;
 use audio_engine::{AudioEngine, EngineEvent, EngineManager};
 use audio_output::{AudioOutput, Output};
-use gpui::{App, AppContext, AsyncApp, Entity, EventEmitter, Global};
+use gpui::{App, AppContext, AsyncApp, BorrowAppContext, Entity, EventEmitter, Global};
 use gpui_component::WindowExt;
 use gpui_component::notification::Notification;
 use music_library::Track;
@@ -22,7 +22,7 @@ use crate::library_service::{LibraryEvent, LibraryService};
 
 #[derive(Clone)]
 pub struct Services {
-    pub engine_manager: Rc<EngineManager>,
+    pub player: Rc<crate::cast::Player>,
     pub output: Arc<Output>,
     pub engine_event_bus: Entity<EngineEventsBus>,
     pub playback_status: Entity<crate::playback_status::PlaybackStatus>,
@@ -31,9 +31,9 @@ pub struct Services {
     pub cache_fill: Entity<crate::cache_fill::CacheFill>,
     pub torrents: Arc<crate::servers::torrent::TorrentHost>,
     pub album_export: Entity<crate::album_export::AlbumExport>,
-    opener: crate::playback_opener::PlaybackOpener,
     pub is_buffering: Arc<AtomicBool>,
     pub resume_at: Rc<std::cell::Cell<Option<(i64, u64)>>>,
+    pub resume_playing: Rc<std::cell::Cell<bool>>,
     pub library_event_bus: Entity<LibraryEventsBus>,
     pub playback_queue: Rc<RefCell<crate::playback_queue::PlaybackQueue>>,
     pub cover_art_cache: Rc<RefCell<CoverArtCache>>,
@@ -154,13 +154,15 @@ impl Services {
         })
         .detach();
 
-        let commander = engine_manager.commander();
-        let opener = crate::playback_opener::PlaybackOpener::new(
+        let player = crate::cast::Player::new(
+            engine_manager,
             Arc::new(crate::playback_opener::LibraryBackend {
                 media: remote_media.clone(),
                 library: library.clone(),
             }),
-            Arc::new(move |command| commander.send(command)),
+            library.clone(),
+            remote_media.resolver(),
+            cx,
         );
 
         let playlist_popup_bus = cx.new(|_| crate::playlist_popup::PlaylistPopupBus);
@@ -178,7 +180,7 @@ impl Services {
 
         Services {
             output,
-            engine_manager,
+            player,
             engine_event_bus,
             playback_status,
             library,
@@ -203,9 +205,9 @@ impl Services {
             cache_fill: cx.new(|_| crate::cache_fill::CacheFill::default()),
             album_export,
             torrents,
-            opener,
             is_buffering: Arc::new(AtomicBool::new(false)),
             resume_at: Rc::new(std::cell::Cell::new(None)),
+            resume_playing: Rc::new(std::cell::Cell::new(false)),
         }
     }
 
@@ -226,19 +228,23 @@ impl Services {
     }
 
     pub fn stop_playback(&self) {
-        self.opener.stop();
+        self.player.stop();
     }
 
     fn start_track(&self, track: &Track, after: AfterLoad) {
         self.current_position_ms.store(0, Ordering::Relaxed);
-        self.opener.start(&track.into(), after);
+        self.player.start(track, after);
+    }
+
+    pub fn volume_locked(&self) -> bool {
+        !self.player.is_casting() && self.output.is_exclusive()
     }
 }
 
 impl Services {
     pub fn shutdown(&self) {
         self.output.shutdown();
-        self.engine_manager.shutdown();
+        self.player.shutdown();
     }
 
     pub fn snapshot_playback(&self) -> crate::settings_store::PlaybackState {
@@ -422,7 +428,7 @@ pub fn toggle_play_pause(cx: &mut App) -> Option<bool> {
     let current = services.playback_queue.borrow().current_track().cloned()?;
     let was_playing = services.is_playing.fetch_xor(true, Ordering::Relaxed);
     if was_playing {
-        services.engine_manager.pause();
+        services.player.pause();
     } else {
         resume_or_load(services, &current);
     }
@@ -442,14 +448,14 @@ fn resume_or_load(services: &Services, current: &Track) {
     if services.current_duration_ms.load(Ordering::Relaxed) == 0 {
         services.play_track(current);
     } else {
-        services.engine_manager.play();
+        services.player.play();
     }
 }
 
 pub fn pause(cx: &mut App) {
     let services = cx.global::<Services>();
     services.is_playing.store(false, Ordering::Relaxed);
-    services.engine_manager.pause();
+    services.player.pause();
 }
 
 pub fn play_next(cx: &mut App) {
@@ -473,8 +479,8 @@ pub fn play_previous(cx: &mut App) {
     };
     match previous {
         None => {
-            services.engine_manager.seek(0.0);
-            services.engine_manager.play();
+            services.player.seek(0.0);
+            services.player.play();
         }
         Some(track) => {
             services.play_track(&track);
@@ -497,7 +503,7 @@ pub fn seek_to_ms(cx: &mut App, position_ms: u64) {
     services
         .current_position_ms
         .store(clamped, Ordering::Relaxed);
-    services.engine_manager.seek(ratio);
+    services.player.seek(ratio);
 }
 
 pub fn play_queue_index(cx: &mut App, index: usize) {
@@ -742,10 +748,15 @@ pub fn set_volume(cx: &mut App, volume: f32) {
         return;
     }
     let services = cx.global::<Services>();
+    let volume = volume.clamp(0.0, 1.0);
+    if services.player.set_cast_volume(volume) {
+        cx.update_global::<crate::cast::CastState, _>(|state, _| state.volume = Some(volume));
+        publish_remote_state(cx);
+        return;
+    }
     if services.output.is_exclusive() {
         return;
     }
-    let volume = volume.clamp(0.0, 1.0);
     services.output.set_volume(volume);
     if let Err(e) = cx
         .global_mut::<crate::settings_store::SettingsStore>()
@@ -754,6 +765,13 @@ pub fn set_volume(cx: &mut App, volume: f32) {
         crate::settings_store::notify_save_error(cx, e);
     }
     publish_remote_state(cx);
+}
+
+pub fn effective_volume(cx: &App) -> f32 {
+    cx.global::<crate::cast::CastState>()
+        .volume
+        .filter(|_| cx.global::<Services>().player.is_casting())
+        .unwrap_or_else(|| cx.global::<crate::settings_store::SettingsStore>().volume())
 }
 
 fn playback_mode_changed(cx: &mut App) {
@@ -815,7 +833,7 @@ impl Global for LibraryEventsBus {}
 #[allow(clippy::too_many_arguments)]
 pub async fn run_engine_events_bus(
     cx: &mut AsyncApp,
-    engine_manager: Rc<EngineManager>,
+    events: flume::Receiver<EngineEvent>,
     engine_event_bus: Entity<EngineEventsBus>,
     current_position_ms: Arc<AtomicU64>,
     current_duration_ms: Arc<AtomicU64>,
@@ -825,8 +843,7 @@ pub async fn run_engine_events_bus(
 ) {
     let mut current_duration: Option<Duration> = None;
     let mut prefetched = false;
-    let rx = engine_manager.events();
-    while let Ok(event) = rx.recv_async().await {
+    while let Ok(event) = events.recv_async().await {
         match &event {
             EngineEvent::Preparing { duration } => {
                 current_duration = None;
@@ -911,6 +928,7 @@ pub async fn run_engine_events_bus(
 
 fn resume_restored_position(cx: &mut App, duration_ms: u64) {
     let services = cx.global::<Services>();
+    let play = services.resume_playing.take();
     let Some((track_id, position_ms)) = services.resume_at.take() else {
         return;
     };
@@ -926,8 +944,12 @@ fn resume_restored_position(cx: &mut App, duration_ms: u64) {
         .current_position_ms
         .store(position_ms, Ordering::Relaxed);
     services
-        .engine_manager
+        .player
         .seek(position_ms as f32 / duration_ms as f32);
+    if play {
+        services.is_playing.store(true, Ordering::Relaxed);
+        services.player.play();
+    }
 }
 
 fn publish_now_playing(cx: &mut AsyncApp) {
@@ -953,8 +975,8 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         )
     });
     drop(queue);
-    let volume = cx.global::<crate::settings_store::SettingsStore>().volume();
-    let volume_locked = services.output.is_exclusive();
+    let volume = effective_volume(cx);
+    let volume_locked = services.volume_locked();
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for t in tracks.iter() {

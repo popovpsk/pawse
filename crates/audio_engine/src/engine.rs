@@ -9,7 +9,7 @@ use crate::stream::{Poll, Source};
 use crate::{Command, EngineEvent, StreamTrack};
 use audio_common::AudioBatch;
 use audio_decoder::Decoder;
-use audio_output::{AudioOutput, FadeEvent, Output};
+use audio_output::{EngineOutput, FadeEvent};
 use flume::TryRecvError;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -65,11 +65,11 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub fn new(out: Arc<Output>) -> Self {
+    pub fn new(out: Arc<dyn EngineOutput>) -> Self {
         Self::with_resolver(out, Arc::new(|path| Ok(path.to_path_buf())))
     }
 
-    pub fn with_resolver(out: Arc<Output>, resolver: TrackResolver) -> Self {
+    pub fn with_resolver(out: Arc<dyn EngineOutput>, resolver: TrackResolver) -> Self {
         let (event_sender, event_receiver) = flume::bounded(64);
         let (command_sender, command_receiver) = flume::bounded(64);
 
@@ -165,7 +165,7 @@ impl AudioEngine {
 }
 
 struct AudioEngineLoop {
-    output: Arc<Output>,
+    output: Arc<dyn EngineOutput>,
     source: Option<Source>,
     state: AudioEngineState,
     command_receiver: flume::Receiver<Command>,

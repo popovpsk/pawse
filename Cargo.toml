@@ -26,7 +26,10 @@ members = [
     "crates/lyrics",
     "crates/tag_writer",
     "crates/dsd",
-    "crates/cover_search"
+    "crates/cover_search",
+    "crates/cast",
+    "crates/chromecast",
+    "crates/airplay"
 ]
 
 default-members = ["crates/pawse"]

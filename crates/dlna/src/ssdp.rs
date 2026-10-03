@@ -9,6 +9,10 @@ pub(crate) const TARGETS: [&str; 2] = [
     "urn:schemas-upnp-org:service:ContentDirectory:1",
     "urn:schemas-upnp-org:device:MediaServer:1",
 ];
+pub(crate) const RENDERER_TARGETS: [&str; 2] = [
+    "urn:schemas-upnp-org:service:AVTransport:1",
+    "urn:schemas-upnp-org:device:MediaRenderer:1",
+];
 const POLL: Duration = Duration::from_millis(50);
 const TTL: u32 = 4;
 const SENDS: usize = 2;

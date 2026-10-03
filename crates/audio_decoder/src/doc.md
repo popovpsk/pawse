@@ -10,6 +10,9 @@ Turns a file or a network stream into `AudioBatch`es for the engine. The lib roo
 - `Decoder::open_stream` decodes from a `MediaStream` (`Read + Seek`) instead of a
   `File`. `can_stream` lists the formats that must stay file-backed (ape, dsf, dff).
 - Planar → interleaved conversion and mapping to `AudioSamples` (S16/S24/S32/F32).
+- `Decoder::codec` names the codec (from Symphonia's codec id, or APE/DSD by
+  backend). `cast` uses it to decide what a network receiver can play as it
+  is: an `.m4a` may be AAC or ALAC.
 
 ## Symphonia backend
 

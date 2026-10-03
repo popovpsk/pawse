@@ -253,7 +253,7 @@ impl SleepTimer {
             }
             return;
         }
-        if services.output.is_exclusive() {
+        if services.volume_locked() || services.player.is_casting() {
             return;
         }
         services.output.set_volume(volume * gain);

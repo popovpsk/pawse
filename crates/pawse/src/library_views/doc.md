@@ -488,7 +488,8 @@ Opening a track lives in `crate::playback_opener` — no GPUI, unit-tested
 against a fake backend (`OpenerBackend`: copies from the library, the cache,
 download, open a stream, "is the server down?") with the engine commands
 collected from a `Sink`. `Services::start_track` only resets the position and
-calls `PlaybackOpener::start`. A local file or a cached track is set at once;
+calls `Player::start` (`crate::cast`), which hands the track to the active
+target's `PlaybackOpener` (or to a cast session when a renderer is selected). A local file or a cached track is set at once;
 anything else gets `Command::Prepare` and is opened on a `track-opener`
 thread: `RemoteMedia::open_stream` joins or starts a `media_stream` download of
 the file into `<cache>/pawse/media/<source>/…`, and the engine gets a

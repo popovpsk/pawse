@@ -1,0 +1,17 @@
+[package]
+name = "airplay"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = { workspace = true }
+thiserror = "2.0"
+getrandom = "0.3"
+flume = "0.12"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

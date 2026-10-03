@@ -4,6 +4,9 @@ use crate::xml::LocalName;
 use crate::{Device, address, xml};
 
 const CONTENT_DIRECTORY: &str = "urn:schemas-upnp-org:service:ContentDirectory:";
+const AV_TRANSPORT: &str = "urn:schemas-upnp-org:service:AVTransport:";
+const RENDERING_CONTROL: &str = "urn:schemas-upnp-org:service:RenderingControl:";
+const CONNECTION_MANAGER: &str = "urn:schemas-upnp-org:service:ConnectionManager:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Description {
@@ -12,64 +15,117 @@ pub(crate) struct Description {
     pub service_type: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Service {
+    pub control: String,
+    pub service_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RendererDescription {
+    pub device: Device,
+    pub av_transport: Service,
+    pub rendering_control: Option<Service>,
+    pub connection_manager: Option<Service>,
+}
+
 pub(crate) fn parse(location: &str, text: &str) -> Result<Description, String> {
     let document = xml::parse(text)?;
     let root = document.root_element();
-    let base = xml::child_text(root, "URLBase")
-        .filter(|base| base.contains("://"))
-        .unwrap_or(location)
-        .to_string();
+    let base = url_base(root, location);
     for device in root
         .descendants()
         .filter(|node| node.has_tag_name_local("device"))
     {
-        let Some(service) = content_directory(device) else {
+        let Some(service) = service(device, &base, CONTENT_DIRECTORY)? else {
             continue;
         };
-        let service_type = xml::child_text(service, "serviceType")
-            .unwrap_or_default()
-            .to_string();
-        let control = xml::child_text(service, "controlURL")
-            .and_then(|control| address::join(&base, control))
-            .ok_or("the ContentDirectory service has no controlURL")?;
-        let udn = xml::child_text(device, "UDN")
-            .map(str::trim)
-            .filter(|udn| !udn.is_empty())
-            .ok_or("the media server has no UDN")?
-            .to_string();
-        let name = xml::child_text(device, "friendlyName")
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .unwrap_or(&udn)
-            .to_string();
-        let model = xml::child_text(device, "modelName")
-            .map(str::trim)
-            .filter(|model| !model.is_empty())
-            .map(str::to_string);
         return Ok(Description {
-            device: Device {
-                udn,
-                name,
-                model,
-                location: location.to_string(),
-            },
-            control,
-            service_type,
+            device: identity(device, location, "the media server has no UDN")?,
+            control: service.control,
+            service_type: service.service_type,
         });
     }
     Err("not a DLNA media server".into())
 }
 
-fn content_directory<'a, 'i>(device: Node<'a, 'i>) -> Option<Node<'a, 'i>> {
-    device
+pub(crate) fn parse_renderer(location: &str, text: &str) -> Result<RendererDescription, String> {
+    let document = xml::parse(text)?;
+    let root = document.root_element();
+    let base = url_base(root, location);
+    for device in root
+        .descendants()
+        .filter(|node| node.has_tag_name_local("device"))
+    {
+        let Some(av_transport) = service(device, &base, AV_TRANSPORT)? else {
+            continue;
+        };
+        return Ok(RendererDescription {
+            device: identity(device, location, "the renderer has no UDN")?,
+            av_transport,
+            rendering_control: service(device, &base, RENDERING_CONTROL)?,
+            connection_manager: service(device, &base, CONNECTION_MANAGER)?,
+        });
+    }
+    Err("not a DLNA renderer".into())
+}
+
+fn url_base(root: Node<'_, '_>, location: &str) -> String {
+    xml::child_text(root, "URLBase")
+        .filter(|base| base.contains("://"))
+        .unwrap_or(location)
+        .to_string()
+}
+
+fn identity(device: Node<'_, '_>, location: &str, missing_udn: &str) -> Result<Device, String> {
+    let udn = xml::child_text(device, "UDN")
+        .map(str::trim)
+        .filter(|udn| !udn.is_empty())
+        .ok_or(missing_udn)?
+        .to_string();
+    let name = xml::child_text(device, "friendlyName")
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&udn)
+        .to_string();
+    let model = xml::child_text(device, "modelName")
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_string);
+    Ok(Device {
+        udn,
+        name,
+        model,
+        location: location.to_string(),
+    })
+}
+
+fn service(device: Node<'_, '_>, base: &str, prefix: &str) -> Result<Option<Service>, String> {
+    let Some(node) = device
         .children()
-        .find(|node| node.has_tag_name_local("serviceList"))?
-        .children()
-        .filter(|node| node.has_tag_name_local("service"))
-        .find(|service| {
-            xml::child_text(*service, "serviceType")
-                .is_some_and(|kind| kind.trim().starts_with(CONTENT_DIRECTORY))
+        .find(|node| node.has_tag_name_local("serviceList"))
+        .and_then(|list| {
+            list.children()
+                .filter(|node| node.has_tag_name_local("service"))
+                .find(|service| {
+                    xml::child_text(*service, "serviceType")
+                        .is_some_and(|kind| kind.trim().starts_with(prefix))
+                })
         })
+    else {
+        return Ok(None);
+    };
+    let service_type = xml::child_text(node, "serviceType")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let control = xml::child_text(node, "controlURL")
+        .and_then(|control| address::join(base, control))
+        .ok_or_else(|| format!("the {service_type} service has no controlURL"))?;
+    Ok(Some(Service {
+        control,
+        service_type,
+    }))
 }
 
 #[cfg(test)]

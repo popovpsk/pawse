@@ -1,0 +1,21 @@
+[package]
+name = "chromecast"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = { workspace = true }
+thiserror = "2.0"
+serde_json = "1"
+flume = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[features]
+test-support = []
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

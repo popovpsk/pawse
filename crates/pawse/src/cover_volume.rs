@@ -76,7 +76,7 @@ impl CoverVolume {
     }
 
     fn on_icon_click(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if cx.global::<Services>().output.is_exclusive() {
+        if cx.global::<Services>().volume_locked() {
             return;
         }
         self.expanded = !self.expanded;
@@ -98,7 +98,7 @@ impl CoverVolume {
 
 impl Render for CoverVolume {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let is_exclusive = cx.global::<Services>().output.is_exclusive();
+        let is_exclusive = cx.global::<Services>().volume_locked();
         let (value, muted) = {
             let vol = self.volume.read(cx);
             (vol.value(), vol.is_muted())

@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::SharedString;
 
+mod cast;
 mod cs;
 mod de;
 mod en;
@@ -42,6 +43,7 @@ mod uk;
 mod vi;
 mod zh;
 
+pub use cast::{CastStrings, cast_strings};
 pub use tools::{ToolsStrings, tools_strings};
 
 /// One immutable string per UI label. See the module docs.

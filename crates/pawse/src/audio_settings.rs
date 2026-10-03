@@ -13,15 +13,19 @@ use gpui_component::{
     v_flex,
 };
 
+use crate::cast::CastState;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::{SettingsStore, ui_scale};
 use crate::theme_colors::Colors;
+use ui_resources::i18n::cast_strings;
 
 pub struct AudioSettings {
     is_exclusive: bool,
     pending_notification: Option<String>,
     _settings_store_subscription: gpui::Subscription,
+    _cast_subscription: gpui::Subscription,
+    casting_to: Option<(&'static str, gpui::SharedString)>,
 }
 
 struct DeviceErrorNotif;
@@ -85,15 +89,111 @@ fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
     lines.join("\n")
 }
 
+fn receiver_icon(kind: cast::ReceiverKind) -> &'static str {
+    match kind {
+        cast::ReceiverKind::Chromecast => "icons/cast.svg",
+        cast::ReceiverKind::AirPlay => "icons/airplay.svg",
+        cast::ReceiverKind::Dlna => "icons/network-speaker.svg",
+    }
+}
+
+fn cast_rows(muted_color: gpui::Hsla, cx: &App) -> Vec<AnyElement> {
+    let state = cx.global::<CastState>();
+    let strings = cast_strings();
+    let muted_text = Colors::muted_foreground(cx);
+    let mut rows: Vec<AnyElement> = vec![
+        div()
+            .mt_1()
+            .pt_2()
+            .px_1()
+            .border_t_1()
+            .border_color(Colors::border(cx))
+            .text_xs()
+            .text_color(muted_text)
+            .child(strings.streaming.clone())
+            .into_any_element(),
+    ];
+    if state.receivers.is_empty() {
+        let note = if state.searching {
+            strings.searching.clone()
+        } else {
+            strings.none_found.clone()
+        };
+        rows.push(
+            div()
+                .px_1()
+                .py_1()
+                .text_sm()
+                .text_color(muted_text)
+                .child(note)
+                .into_any_element(),
+        );
+        return rows;
+    }
+    for (i, receiver) in state.receivers.iter().enumerate() {
+        let active = state
+            .active
+            .as_ref()
+            .is_some_and(|active| active.id == receiver.id);
+        let connecting = state
+            .connecting
+            .as_ref()
+            .is_some_and(|connecting| connecting.id == receiver.id);
+        let clicked = receiver.clone();
+        rows.push(
+            h_flex()
+                .id(("cast-row", i))
+                .cursor_pointer()
+                .px_1()
+                .py_1()
+                .rounded(px(4.))
+                .hover(move |style| style.bg(muted_color))
+                .gap_1()
+                .when(active, |el| {
+                    el.child(Icon::default().path("icons/check.svg").size(px(14.)))
+                })
+                .child(
+                    Icon::default()
+                        .path(receiver_icon(receiver.kind))
+                        .size(px(14.))
+                        .text_color(muted_text),
+                )
+                .child(div().text_sm().child(receiver.name.clone()))
+                .when(connecting, |el| {
+                    el.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted_text)
+                            .child(strings.connecting.clone()),
+                    )
+                })
+                .on_click(move |_, _, app_cx| crate::cast::connect(clicked.clone(), app_cx))
+                .into_any_element(),
+        );
+    }
+    rows
+}
+
 impl AudioSettings {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let services = cx.global::<Services>();
         let is_exclusive = services.output.is_exclusive();
         let settings_store_subscription = cx.observe_global::<SettingsStore>(|_, cx| cx.notify());
+        let cast_subscription = cx.observe_global::<CastState>(|this: &mut Self, cx| {
+            this.casting_to = cx.global::<CastState>().active.as_ref().map(|receiver| {
+                (
+                    receiver_icon(receiver.kind),
+                    gpui::SharedString::from(cast_strings().playing_on(&receiver.name)),
+                )
+            });
+            cx.notify();
+        });
         Self {
             is_exclusive,
             pending_notification: None,
             _settings_store_subscription: settings_store_subscription,
+            _cast_subscription: cast_subscription,
+            casting_to: None,
         }
     }
 }
@@ -115,8 +215,15 @@ impl Render for AudioSettings {
             let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
             (output.drain_events(), is_exclusive, bit_perfect)
         };
-        let show_hog = native_mode_available() && cx.global::<SettingsStore>().show_hog_button();
+        let casting = self.casting_to.is_some();
+        let bit_perfect = bit_perfect.filter(|_| !casting);
+        let show_hog =
+            !casting && native_mode_available() && cx.global::<SettingsStore>().show_hog_button();
         let show_device_picker = cx.global::<SettingsStore>().show_device_picker();
+        let (trigger_icon, trigger_tooltip) = match &self.casting_to {
+            Some((icon, tooltip)) => (*icon, tooltip.clone()),
+            None => ("icons/devices.svg", tr().select_audio_device.clone()),
+        };
         let scale = ui_scale(cx);
         for evt in events {
             match evt {
@@ -220,14 +327,16 @@ impl Render for AudioSettings {
                                 .rounded_full()
                                 .w(px(40. * scale))
                                 .h(px(40. * scale))
-                                .icon(
-                                    Icon::default()
-                                        .path("icons/devices.svg")
-                                        .size(px(20. * scale)),
-                                )
-                                .tooltip(tr().select_audio_device.clone()),
+                                .icon(Icon::default().path(trigger_icon).size(px(20. * scale)))
+                                .tooltip(trigger_tooltip),
                         )
+                        .on_open_change(|open, _, cx| {
+                            if *open {
+                                crate::cast::start_discovery(cx);
+                            }
+                        })
                         .content(move |_state, _window, pop_cx| {
+                            let casting = pop_cx.global::<CastState>().is_casting();
                             let services = pop_cx.global::<Services>();
                             // Enumerate devices once (this may shell out to `pactl`
                             // on Linux) and derive the selected row from the pinned
@@ -239,10 +348,11 @@ impl Render for AudioSettings {
                             let mut children: Vec<AnyElement> = Vec::new();
                             for (i, d) in devices.into_iter().enumerate() {
                                 let view_row = view.clone();
-                                let is_selected = match &selected_uid {
-                                    Some(uid) => *uid == d.uid,
-                                    None => d.is_default,
-                                };
+                                let is_selected = !casting
+                                    && match &selected_uid {
+                                        Some(uid) => *uid == d.uid,
+                                        None => d.is_default,
+                                    };
                                 let device_label = format!(
                                     "{}{}",
                                     d.name,
@@ -270,6 +380,7 @@ impl Render for AudioSettings {
                                         })
                                         .child(div().text_sm().child(device_label))
                                         .on_click(move |_, _, app_cx| {
+                                            crate::cast::disconnect(app_cx);
                                             view_row.update(app_cx, |this, cx| {
                                                 let services = cx.global::<Services>();
                                                 if let Err(e) = services.output.select_device(i) {
@@ -283,6 +394,7 @@ impl Render for AudioSettings {
                                         .into_any_element(),
                                 );
                             }
+                            children.extend(cast_rows(muted_color, pop_cx));
                             v_flex()
                                 .id("audio-device-popup")
                                 .bg(crate::cover_backdrop::popover_bg(

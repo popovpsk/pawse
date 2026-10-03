@@ -8,11 +8,15 @@ use server_http::Status;
 mod address;
 mod device;
 mod didl;
+mod renderer;
 mod soap;
 mod ssdp;
 mod xml;
 
 pub use didl::{Item, Res};
+pub use renderer::{
+    PositionInfo, Renderer, TrackMetadata, TransportState, discover_renderers, track_didl,
+};
 pub use server_http::RangeBody;
 
 use device::Description;

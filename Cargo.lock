@@ -132,6 +132,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "airplay"
+version = "1.0.0"
+dependencies = [
+ "flume",
+ "getrandom 0.3.4",
+ "log",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "aligned"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1169,6 +1179,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cast"
+version = "1.0.0"
+dependencies = [
+ "airplay",
+ "atomic_float",
+ "audio_common",
+ "audio_decoder",
+ "audio_output",
+ "chromecast",
+ "dlna",
+ "flume",
+ "getrandom 0.3.4",
+ "log",
+ "mdns-sd",
+ "rstest",
+ "rubato",
+]
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1263,6 +1292,17 @@ dependencies = [
  "cfg-if",
  "encoding_rs",
  "memchr",
+]
+
+[[package]]
+name = "chromecast"
+version = "1.0.0"
+dependencies = [
+ "flume",
+ "log",
+ "rustls",
+ "serde_json",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -4174,6 +4214,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "if-addrs"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5383,6 +5433,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mdns-sd"
+version = "0.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1067efe2aadc6967f84c95977dca910e98f3edfd6403efc8fa8508d289ce012d"
+dependencies = [
+ "fastrand 2.5.0",
+ "flume",
+ "if-addrs",
+ "log",
+ "mio",
+ "socket-pktinfo",
+ "socket2 0.6.5",
+]
+
+[[package]]
 name = "media_integration"
 version = "1.0.0"
 dependencies = [
@@ -6572,8 +6637,10 @@ name = "pawse"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "audio_common",
  "audio_engine",
  "audio_output",
+ "cast",
  "chrono",
  "cover_search",
  "diagnostics",
@@ -7378,6 +7445,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "realfft"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f821338fddb99d089116342c46e9f1fbf3828dba077674613e734e01d6ea8677"
+dependencies = [
+ "rustfft",
+]
+
+[[package]]
 name = "reborrow"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7692,6 +7768,18 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-ident",
+]
+
+[[package]]
+name = "rubato"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5258099699851cfd0082aeb645feb9c084d9a5e1f1b8d5372086b989fc5e56a1"
+dependencies = [
+ "num-complex 0.4.6",
+ "num-integer",
+ "num-traits",
+ "realfft",
 ]
 
 [[package]]
@@ -8542,6 +8630,17 @@ checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 dependencies = [
  "borsh",
  "serde_core",
+]
+
+[[package]]
+name = "socket-pktinfo"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "612942246d0cc239cfd83af1dfd39be47f649208a3524e5e9da651910128e0ac"
+dependencies = [
+ "libc",
+ "socket2 0.6.5",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

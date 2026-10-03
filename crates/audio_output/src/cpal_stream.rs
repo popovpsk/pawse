@@ -66,15 +66,21 @@ pub struct CpalOutputStream {
 /// Lock-free fade envelope shared between the control side (`begin_fade`) and
 /// the real-time callback. The callback ramps `gain` toward `target` by `step`
 /// (once per frame) and posts an `event` when it lands on the target.
-pub(crate) struct FadeState {
+pub struct FadeState {
     gain: AtomicF32,
     step: AtomicF32,
     target: AtomicF32,
     event: AtomicU8,
 }
 
+impl Default for FadeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FadeState {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             gain: AtomicF32::new(1.0),
             step: AtomicF32::new(0.0),
@@ -85,13 +91,7 @@ impl FadeState {
 
     /// Starts a ramp toward `target` over `duration_ms`. If `start` is given,
     /// the gain jumps there first (used to fade in from silence on resume).
-    pub(crate) fn begin(
-        &self,
-        sample_rate: u32,
-        start: Option<f32>,
-        target: f32,
-        duration_ms: u32,
-    ) {
+    pub fn begin(&self, sample_rate: u32, start: Option<f32>, target: f32, duration_ms: u32) {
         if let Some(s) = start {
             self.gain.store(s, Ordering::SeqCst);
         }
@@ -105,7 +105,7 @@ impl FadeState {
         self.step.store(step, Ordering::SeqCst);
     }
 
-    pub(crate) fn take_event(&self) -> Option<FadeEvent> {
+    pub fn take_event(&self) -> Option<FadeEvent> {
         match self.event.swap(0, Ordering::SeqCst) {
             1 => Some(FadeEvent::FadedIn),
             2 => Some(FadeEvent::FadedOut),
@@ -115,7 +115,7 @@ impl FadeState {
 
     /// Cancels any ramp and pins the gain at unity. Used when (re)loading or
     /// stopping a track so fresh content never inherits a stale/frozen gain.
-    pub(crate) fn reset(&self) {
+    pub fn reset(&self) {
         self.step.store(0.0, Ordering::SeqCst);
         self.target.store(1.0, Ordering::SeqCst);
         self.gain.store(1.0, Ordering::SeqCst);
@@ -125,19 +125,14 @@ impl FadeState {
     /// A completed fade-out (gain pinned at 0 with no active ramp) means the
     /// callback should emit silence WITHOUT draining the ring buffer, so the
     /// un-played samples survive for a seamless fade-in on resume.
-    pub(crate) fn is_frozen(&self) -> bool {
+    pub fn is_frozen(&self) -> bool {
         self.gain.load(Ordering::Relaxed) == 0.0 && self.step.load(Ordering::Relaxed) == 0.0
     }
 }
 
 /// Applies `base_volume` and any active fade ramp to an interleaved buffer,
 /// stepping the fade gain once per frame and signalling completion.
-pub(crate) fn apply_fade_gain(
-    fade: &FadeState,
-    base_volume: f32,
-    channels: usize,
-    buf: &mut [f32],
-) {
+pub fn apply_fade_gain(fade: &FadeState, base_volume: f32, channels: usize, buf: &mut [f32]) {
     let mut gain = fade.gain.load(Ordering::Relaxed);
     let step = fade.step.load(Ordering::Relaxed);
 

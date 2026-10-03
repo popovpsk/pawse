@@ -114,7 +114,7 @@ impl TrackProgressSlider {
                     let pos = *value * this.duration_secs;
                     this.set_position(pos);
                     let services = cx.global::<Services>();
-                    services.engine_manager.seek(*value);
+                    services.player.seek(*value);
                     cx.notify();
                 }
             });
@@ -320,7 +320,7 @@ impl TrackProgressSlider {
         let frac = (target / self.duration_secs).clamp(0.0, 1.0);
         self.set_position(target);
         self.slider.update(cx, |s, cx| s.set_value_silent(frac, cx));
-        cx.global::<Services>().engine_manager.seek(frac);
+        cx.global::<Services>().player.seek(frac);
         cx.notify();
     }
 }

@@ -8,8 +8,15 @@ The playback engine: one `audio-engine` thread that owns the decoder and feeds
 - `engine.rs` — the run loop, commands, fades, seeking.
 - `stream.rs` — `StreamingSource` (a decoder on its own thread for network
   sources) and the `Source` enum the loop plays from.
-- `engine_manager.rs` — the GPUI-side handle.
+- `engine_manager.rs` — the GPUI-side handle. The app reaches it through
+  `pawse::cast::Player`, which also routes to an AirPlay engine or a cast
+  session.
 - `types.rs` — `Command`, `EngineEvent`, `StreamTrack`.
+
+The engine writes to an `Arc<dyn audio_output::EngineOutput>`: the app's
+`Output` (sound cards), or `cast::AirPlayOutput` for an AirPlay speaker, where
+a second engine runs next to the local one. `EngineOutput` is `AudioOutput`
+plus the fade and release calls the loop makes.
 
 ## Streaming
 

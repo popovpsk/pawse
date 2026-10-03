@@ -20,7 +20,9 @@ self-update = ["updater/self-update"]
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
+audio_common = { path = "../audio_common" }
 audio_engine = { path = "../audio_engine" }
+cast = { path = "../cast" }
 audio_output = { path = "../audio_output" }
 music_library = { path = "../music_library" }
 music_indexer = { path = "../music_indexer" }

@@ -2,8 +2,10 @@
 
 A blocking client for UPnP/DLNA media servers (MiniDLNA/ReadyMedia, NAS and
 router media servers, Plex and Jellyfin in DLNA mode, Serviio, Gerbera, the
-Windows media-streaming service). It knows nothing about the library database;
-`pawse::servers::dlna` turns its `Item`s into `music_library::RemoteSong`s.
+Windows media-streaming service) and for media renderers (TVs, receivers,
+gmrender). It knows nothing about the library database;
+`pawse::servers::dlna` turns its `Item`s into `music_library::RemoteSong`s, and
+`cast` drives renderers through `Renderer`.
 Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtime.
 
 ## Files
@@ -13,7 +15,12 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
   browse, paging, de-duplication), ranges and covers.
 - `ssdp.rs` — M-SEARCH over every IPv4 interface and reply parsing.
 - `device.rs` — the device description: the device that carries a
-  ContentDirectory service, its UDN, name, model and control URL.
+  ContentDirectory service (or, for a renderer, an AVTransport service with
+  RenderingControl and ConnectionManager next to it), its UDN, name, model and
+  control URLs.
+- `renderer.rs` — `Renderer` (AVTransport, RenderingControl,
+  ConnectionManager actions), `discover_renderers`, `track_didl` (the
+  DIDL-Lite metadata sent with `SetAVTransportURI`).
 - `soap.rs` — the SOAP envelope, out-arguments and UPnP faults.
 - `didl.rs` — DIDL-Lite → `Item`/`Res`, `Item::pick`, `parse_duration`.
 - `address.rs` — keys relative to the server's address, and back to URLs.
@@ -97,3 +104,20 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
   item titled after the file, without artist or album. Nothing on the DLNA side
   can split it; only a cuesheet embedded in the FLAC could be read from its
   head, and the images seen so far keep theirs outside.
+
+## Renderers
+
+- `discover_renderers` searches for `AVTransport:1` and `MediaRenderer:1` and
+  keeps devices whose description has an AVTransport service. A renderer is
+  addressed by its description URL only; it is found again by discovery, not
+  by UDN like a server.
+- SOAP calls to a renderer time out after 5 s (descriptions after 3 s); the
+  server agent's 60 s would freeze a session on a TV that went to sleep.
+- `Seek` uses `REL_TIME` with whole seconds (`H:MM:SS`), the form every
+  renderer accepts. `GetPositionInfo` times may carry fractions or be
+  `NOT_IMPLEMENTED` (unknown).
+- `GetProtocolInfo`'s `Sink` is the list of formats the renderer takes; it is
+  what `cast` uses to choose between the original file and PCM.
+- gmrender-resurrect 0.3 on the Pi (GStreamer) is the renderer tested live:
+  it reports positions in whole seconds and goes STOPPED (position 0) at the
+  end of a track.
