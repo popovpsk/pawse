@@ -4,6 +4,7 @@ pub const ACTIVE_TOLERANCE_MS: u32 = 50;
 const FILL_LEAD: f32 = 0.92;
 pub const INTERLUDE_MIN_MS: u32 = 3_000;
 pub const INTERLUDE_TEXT: &str = "♪ ♪ ♪";
+const OPEN_WORD_MS: u32 = 600;
 
 const FEATHER_PX: f32 = 12.;
 const FEATHER_ALPHA: [f32; 4] = [0.85, 0.6, 0.35, 0.12];
@@ -17,16 +18,38 @@ pub enum RowKind {
 #[derive(Debug, PartialEq)]
 pub struct LyricRow {
     pub text: SharedString,
-    pub background: Option<SharedString>,
+    pub words: Vec<lyrics::Word>,
+    pub background: Option<BackingRow>,
     pub time_ms: Option<u32>,
     pub label: Option<SharedString>,
     pub kind: RowKind,
 }
 
 #[derive(Debug, PartialEq)]
+pub struct BackingRow {
+    pub text: SharedString,
+    pub words: Vec<lyrics::Word>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct LineShape {
     pub rows: Vec<Pixels>,
     pub total: Pixels,
+    pub words: Vec<WordSpan>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WordSpan {
+    pub start_ms: u32,
+    pub end_ms: u32,
+    pub left: Pixels,
+    pub right: Pixels,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WordFill {
+    pub filled: Pixels,
+    pub wake_ms: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,7 +80,11 @@ pub fn build_rows(parsed: &lyrics::Lyrics, track_duration_ms: Option<u64>) -> Ve
         .iter()
         .map(|l| LyricRow {
             text: SharedString::from(l.text.clone()),
-            background: l.background.clone().map(SharedString::from),
+            words: l.words.clone(),
+            background: l.background.as_ref().map(|backing| BackingRow {
+                text: SharedString::from(backing.text.clone()),
+                words: backing.words.clone(),
+            }),
             time_ms: l.time_ms,
             label: l.time_ms.map(format_ms),
             kind: RowKind::Lyric,
@@ -104,10 +131,7 @@ pub fn fill_span(
 ) -> Option<(u32, u32)> {
     let row = rows.get(ix)?;
     let start = row.time_ms?;
-    let end = rows
-        .get(ix + 1)
-        .and_then(|r| r.time_ms)
-        .or_else(|| track_duration_ms.map(|ms| ms.min(u32::MAX as u64) as u32))?;
+    let end = row_end(rows, ix, track_duration_ms)?;
     let span = end.saturating_sub(start);
     if span == 0 {
         return None;
@@ -117,6 +141,91 @@ pub fn fill_span(
         RowKind::Lyric => ((span as f32 * FILL_LEAD) as u32).max(1),
     };
     Some((start, span))
+}
+
+pub fn row_end(rows: &[LyricRow], ix: usize, track_duration_ms: Option<u64>) -> Option<u32> {
+    rows.get(ix + 1)
+        .and_then(|r| r.time_ms)
+        .or_else(|| track_duration_ms.map(|ms| ms.min(u32::MAX as u64) as u32))
+}
+
+pub fn sung_until(row: &LyricRow, line_end_ms: Option<u32>) -> Option<u32> {
+    let backing = row
+        .background
+        .as_ref()
+        .map_or(&[][..], |backing| &backing.words);
+    [&row.words[..], backing]
+        .into_iter()
+        .flat_map(|words| {
+            words
+                .iter()
+                .map(move |word| word_end(words, word, line_end_ms))
+        })
+        .max()
+}
+
+fn word_end(words: &[lyrics::Word], word: &lyrics::Word, line_end_ms: Option<u32>) -> u32 {
+    let next_start = words
+        .iter()
+        .map(|other| other.start_ms)
+        .filter(|start| *start > word.start_ms)
+        .min();
+    word.end_ms
+        .or(next_start)
+        .or(line_end_ms.filter(|end| *end > word.start_ms))
+        .unwrap_or(word.start_ms.saturating_add(OPEN_WORD_MS))
+        .max(word.start_ms)
+}
+
+pub fn word_spans(
+    words: &[lyrics::Word],
+    line_end_ms: Option<u32>,
+    x_for: impl Fn(usize) -> Pixels,
+) -> Vec<WordSpan> {
+    let mut spans: Vec<WordSpan> = Vec::with_capacity(words.len());
+    for word in words {
+        let end_ms = word_end(words, word, line_end_ms);
+        let left = spans.last().map_or(px(0.), |prev| prev.right);
+        spans.push(WordSpan {
+            start_ms: word.start_ms,
+            end_ms,
+            left,
+            right: x_for(word.range.end).max(left),
+        });
+    }
+    spans
+}
+
+pub fn word_fill(spans: &[WordSpan], total: Pixels, now_ms: u64) -> WordFill {
+    let mut filled = px(0.);
+    let mut wake_ms: Option<f32> = None;
+    let mut done = true;
+    for span in spans {
+        let (start, end) = (span.start_ms as u64, span.end_ms as u64);
+        if now_ms >= end {
+            filled = filled.max(span.right);
+            continue;
+        }
+        done = false;
+        let wait = if now_ms >= start {
+            let t = (now_ms - start) as f32 / (end - start) as f32;
+            filled = filled.max(span.left + (span.right - span.left) * t);
+            (end - start) as f32 / f32::from(span.right - span.left).max(1.)
+        } else {
+            (start - now_ms) as f32
+        };
+        wake_ms = Some(wake_ms.map_or(wait, |current| current.min(wait)));
+    }
+    if done {
+        return WordFill {
+            filled: total,
+            wake_ms: None,
+        };
+    }
+    WordFill {
+        filled: filled.min(total),
+        wake_ms,
+    }
 }
 
 pub fn active_row(rows: &[LyricRow], pos_ms: u64) -> Option<usize> {
@@ -153,6 +262,9 @@ pub fn shape_line(
     text: &SharedString,
     width: Pixels,
     font_size: Pixels,
+    weight: FontWeight,
+    words: &[lyrics::Word],
+    line_end_ms: Option<u32>,
 ) -> Option<LineShape> {
     if text.is_empty() || width <= px(0.) {
         return None;
@@ -160,7 +272,7 @@ pub fn shape_line(
 
     let mut style = window.text_style();
     style.font_size = font_size.into();
-    style.font_weight = FontWeight::SEMIBOLD;
+    style.font_weight = weight;
     let run = style.to_run(text.len());
 
     let lines = window
@@ -193,12 +305,26 @@ pub fn shape_line(
         return None;
     }
 
-    Some(LineShape { rows, total })
+    let origin = layout.x_for_index(0);
+    let words = word_spans(words, line_end_ms, |index| {
+        (layout.x_for_index(index) - origin).clamp(px(0.), total)
+    });
+
+    Some(LineShape { rows, total, words })
 }
 
 pub fn fill_plan(shape: &LineShape, width: Pixels, pitch: Pixels, t: f32) -> FillPlan {
-    let t = t.clamp(0., 1.);
-    let mut remaining = shape.total * t;
+    fill_plan_at(shape, width, pitch, shape.total * t.clamp(0., 1.))
+}
+
+pub fn fill_plan_at(shape: &LineShape, width: Pixels, pitch: Pixels, filled: Pixels) -> FillPlan {
+    let filled = filled.clamp(px(0.), shape.total);
+    let t = if shape.total > px(0.) {
+        f32::from(filled) / f32::from(shape.total)
+    } else {
+        1.
+    };
+    let mut remaining = filled;
     let last = shape.rows.len().saturating_sub(1);
     let mut edge_row = last;
     let mut edge_x = shape.rows.get(last).copied().unwrap_or(px(0.));
@@ -286,50 +412,40 @@ pub fn fill_children(
     plan: &FillPlan,
     text: &SharedString,
     font_size: Pixels,
+    weight: FontWeight,
     color: Hsla,
 ) -> Vec<Div> {
     fill_rects(plan)
         .into_iter()
-        .map(|rect| {
-            layer(
-                plan,
-                rect.row,
-                rect.left,
-                rect.right,
-                text,
-                font_size,
-                color.opacity(rect.alpha),
-            )
-        })
+        .map(|rect| layer(plan, rect, text, font_size, weight, color))
         .collect()
 }
 
 fn layer(
     plan: &FillPlan,
-    row: usize,
-    left: Pixels,
-    right: Pixels,
+    rect: FillRect,
     text: &SharedString,
     font_size: Pixels,
+    weight: FontWeight,
     color: Hsla,
 ) -> Div {
-    let top = plan.pitch * row as f32;
+    let top = plan.pitch * rect.row as f32;
     div()
         .absolute()
-        .left(left)
+        .left(rect.left)
         .top(top)
-        .w(right - left)
+        .w(rect.right - rect.left)
         .h(plan.pitch)
         .overflow_hidden()
         .child(
             div()
                 .absolute()
-                .left(-left)
+                .left(-rect.left)
                 .top(-top)
                 .w(plan.width)
                 .text_size(font_size)
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color)
+                .font_weight(weight)
+                .text_color(color.opacity(rect.alpha))
                 .child(text.clone()),
         )
 }
@@ -365,7 +481,7 @@ mod tests {
                 .map(|(ms, text)| lyrics::LyricLine {
                     time_ms: Some(*ms),
                     text: (*text).to_string(),
-                    background: None,
+                    ..Default::default()
                 })
                 .collect(),
         }
@@ -534,13 +650,20 @@ mod tests {
     #[test]
     fn backing_vocals_ride_along_with_their_row() {
         let mut parsed = synced(&[(0, "Hello"), (2_000, "")]);
-        parsed.lines[0].background = Some("(echo)".into());
+        let echo = lyrics::Word {
+            start_ms: 500,
+            end_ms: None,
+            range: 1..5,
+        };
+        parsed.lines[0].background = Some(lyrics::Backing {
+            text: "(echo)".into(),
+            words: vec![echo.clone()],
+        });
         let rows = build_rows(&parsed, Some(10_000));
         assert_eq!(rows[0].text.as_ref(), "Hello");
-        assert_eq!(
-            rows[0].background.as_ref().map(|b| b.as_ref()),
-            Some("(echo)")
-        );
+        let backing = rows[0].background.as_ref().unwrap();
+        assert_eq!(backing.text.as_ref(), "(echo)");
+        assert_eq!(backing.words, vec![echo]);
         assert_eq!(rows[1].kind, RowKind::Interlude);
         assert_eq!(rows[1].background, None);
     }
@@ -559,7 +682,7 @@ mod tests {
             lines: vec![lyrics::LyricLine {
                 time_ms: None,
                 text: "plain".to_string(),
-                background: None,
+                ..Default::default()
             }],
         };
         let rows = build_rows(&parsed, Some(10_000));
@@ -604,6 +727,7 @@ mod tests {
     fn row(time_ms: u32, text: &str) -> LyricRow {
         LyricRow {
             text: SharedString::from(text.to_string()),
+            words: Vec::new(),
             background: None,
             time_ms: Some(time_ms),
             label: Some(format_ms(time_ms)),
@@ -613,7 +737,16 @@ mod tests {
 
     fn plan_of(rows: Vec<Pixels>, t: f32) -> FillPlan {
         let total = rows.iter().fold(px(0.), |acc, w| acc + *w);
-        fill_plan(&LineShape { rows, total }, px(300.), px(20.), t)
+        fill_plan(
+            &LineShape {
+                rows,
+                total,
+                words: Vec::new(),
+            },
+            px(300.),
+            px(20.),
+            t,
+        )
     }
 
     #[test]
@@ -657,6 +790,7 @@ mod tests {
     fn untimed_rows_are_never_active() {
         let rows = vec![LyricRow {
             text: SharedString::new_static("plain"),
+            words: Vec::new(),
             background: None,
             time_ms: None,
             label: None,
@@ -775,6 +909,7 @@ mod tests {
         let shape = LineShape {
             rows: vec![px(100.), px(60.)],
             total: px(160.),
+            words: Vec::new(),
         };
         let start = fill_plan(&shape, px(100.), px(20.), 0.);
         assert_eq!(start.edge_row, 0);
@@ -787,5 +922,129 @@ mod tests {
         let end = fill_plan(&shape, px(100.), px(20.), 1.);
         assert_eq!(end.edge_row, 1);
         assert_eq!(end.edge_x, px(60.));
+    }
+
+    fn timed(start_ms: u32, end_ms: Option<u32>, range: std::ops::Range<usize>) -> lyrics::Word {
+        lyrics::Word {
+            start_ms,
+            end_ms,
+            range,
+        }
+    }
+
+    fn ten_px_per_byte(index: usize) -> Pixels {
+        px(index as f32 * 10.)
+    }
+
+    #[test]
+    fn word_spans_sweep_from_the_previous_word_and_borrow_missing_ends() {
+        let words = [
+            timed(1_000, None, 1..4),
+            timed(2_000, Some(2_500), 5..8),
+            timed(3_000, None, 9..12),
+        ];
+        let spans = word_spans(&words, Some(4_000), ten_px_per_byte);
+        assert_eq!(
+            spans,
+            vec![
+                WordSpan {
+                    start_ms: 1_000,
+                    end_ms: 2_000,
+                    left: px(0.),
+                    right: px(40.)
+                },
+                WordSpan {
+                    start_ms: 2_000,
+                    end_ms: 2_500,
+                    left: px(40.),
+                    right: px(80.)
+                },
+                WordSpan {
+                    start_ms: 3_000,
+                    end_ms: 4_000,
+                    left: px(80.),
+                    right: px(120.)
+                },
+            ]
+        );
+        let open = word_spans(&[timed(5_000, None, 0..2)], None, ten_px_per_byte);
+        assert_eq!(open[0].end_ms, 5_000 + OPEN_WORD_MS);
+        let late = word_spans(&[timed(5_000, None, 0..2)], Some(4_000), ten_px_per_byte);
+        assert_eq!(late[0].end_ms, 5_000 + OPEN_WORD_MS);
+        let backwards = word_spans(&[timed(9, Some(3), 0..2)], None, ten_px_per_byte);
+        assert_eq!(backwards[0].end_ms, 9);
+    }
+
+    #[test]
+    fn the_fill_moves_inside_a_word_and_holds_between_words() {
+        let spans = word_spans(
+            &[
+                timed(1_000, Some(2_000), 0..10),
+                timed(3_000, Some(3_500), 11..15),
+            ],
+            None,
+            ten_px_per_byte,
+        );
+        let total = px(160.);
+        assert_eq!(word_fill(&spans, total, 0).filled, px(0.));
+        assert_eq!(word_fill(&spans, total, 0).wake_ms, Some(1_000.));
+        let mid = word_fill(&spans, total, 1_500);
+        assert_eq!(mid.filled, px(50.));
+        assert_eq!(mid.wake_ms, Some(10.));
+        let gap = word_fill(&spans, total, 2_400);
+        assert_eq!(gap.filled, px(100.));
+        assert_eq!(gap.wake_ms, Some(600.));
+        assert_eq!(word_fill(&spans, total, 3_250).filled, px(125.));
+        assert_eq!(
+            word_fill(&spans, total, 3_500),
+            WordFill {
+                filled: total,
+                wake_ms: None
+            }
+        );
+    }
+
+    #[test]
+    fn overlapping_singers_never_pull_the_fill_back() {
+        let spans = word_spans(
+            &[
+                timed(2_000, Some(4_000), 0..5),
+                timed(1_000, Some(3_000), 6..10),
+            ],
+            None,
+            ten_px_per_byte,
+        );
+        let fill = word_fill(&spans, px(100.), 2_500);
+        assert_eq!(fill.filled, px(87.5));
+        assert!(fill.wake_ms.is_some());
+        let instant = word_spans(&[timed(1_000, Some(1_000), 0..4)], None, ten_px_per_byte);
+        assert_eq!(word_fill(&instant, px(40.), 1_000).filled, px(40.));
+    }
+
+    #[test]
+    fn a_row_is_sung_until_its_last_main_or_backing_word_ends() {
+        let mut line = row(1_000, "one two");
+        assert_eq!(sung_until(&line, Some(2_000)), None);
+        line.words = vec![timed(1_000, Some(1_500), 0..3), timed(1_600, None, 4..7)];
+        assert_eq!(sung_until(&line, Some(2_000)), Some(2_000));
+        line.background = Some(BackingRow {
+            text: SharedString::new_static("(oh oh)"),
+            words: vec![timed(1_200, Some(2_400), 0..3), timed(2_500, None, 4..6)],
+        });
+        assert_eq!(sung_until(&line, Some(2_000)), Some(2_500 + OPEN_WORD_MS));
+    }
+
+    #[test]
+    fn a_word_fill_plan_lands_on_the_wrapped_row() {
+        let shape = LineShape {
+            rows: vec![px(100.), px(60.)],
+            total: px(160.),
+            words: Vec::new(),
+        };
+        let plan = fill_plan_at(&shape, px(100.), px(20.), px(130.));
+        assert_eq!(plan.edge_row, 1);
+        assert_eq!(plan.edge_x, px(30.));
+        assert_eq!(plan.t, 130. / 160.);
+        assert_eq!(fill_plan_at(&shape, px(100.), px(20.), px(900.)).t, 1.);
     }
 }

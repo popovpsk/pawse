@@ -548,14 +548,60 @@ trimming leave downloads in progress (`.partial` younger than a day) alone. Tag 
 track's own lyrics are asked from the server each time the lyrics panel shows
 it (`ServerClient::lyrics`, see `servers/doc.md`) and take the place of the
 `.lrc`/tag segments, ranked against LRCLIB by the same "Prefer LRCLIB" setting.
-The request starts with the track (alongside the `library.db` read); while it
-runs, the LRCLIB auto-search waits for it and a stored source ranked below the
-server is not shown yet, so the text does not swap under the user. A failed
-request counts as "the server has none" for that play. Backing vocals
-are a smaller, dimmer line under their row, never filled. The
+The request starts with the track (alongside the `library.db` read); for up to
+`SERVER_GRACE` (1.5 s) the LRCLIB auto-search waits for it and a stored source
+ranked below the server is not shown yet, so the text does not swap under the
+user. A slower server (unreachable while the track plays from the cache waits
+out a 10 s connect timeout) stops being waited for: what is stored shows, the
+search may start, and a late server answer still takes over. A failed request
+counts as "the server has none" for that play. Backing vocals
+are a smaller, dimmer line under their row (see "Lyrics karaoke fill"). The
 pencil is not shown on a server track's row (`TrackRowBase::local`, from
 `Track::local_file`) nor on an
 album header whose album has no local file.
+
+## Lyrics karaoke fill
+
+`lyrics_fill.rs` (pure, unit-tested) + `lyrics_view.rs`. The active row is
+filled, by drawing the text again in the primary color, clipped to the filled
+part (4 alpha bands make the soft edge; gpui has no text masks). A line is
+shaped once (`shape_line`, cached by text/width/size/line end) into its wrapped
+rows; "filled" is a distance along those rows laid end to end, which equals the
+x of a byte index in the unwrapped layout — that is how word ranges map to
+pixels.
+
+- **Line fill** (no word timing): the whole interval to the next line (less
+  `FILL_LEAD`) sweeps the line evenly.
+- **Word fill** (`Word`s from Enhanced LRC, OpenSubsonic cues, Jellyfin cues):
+  each word sweeps from the end of the word before it (or the line start) to
+  its own end, from its start to its end time; a word without an end runs to
+  the next word's start, or to the line's end for the last one. Between words
+  the fill holds. The fill is the furthest point any started word has reached,
+  so overlapping singers never pull it back; once every word is over, the whole
+  line is filled (trailing untimed punctuation included).
+- **Backing line**: filled the same way, by its own words, in its own smaller
+  normal-weight shape (`FillSlot::Backing`, measured by its own canvas); without
+  words it stays unfilled.
+- **Lingering row.** Word timings may outlast the next line's start: a held
+  note, a duet partner coming in early, or a backing line still answering
+  (`Viva La Vida`'s "oh"s run ~2 s into the next line). So the row before the
+  active one stays lit and keeps filling while any of its main or backing words
+  is unfinished (`sung_until`, same word ends as the fill), then dims. Only that
+  one row: real files never overrun two lines. Fill state is kept per lit row
+  (`LitRow`, keyed by row index), so when the active row moves on, the old one
+  keeps its shapes and measurements and lingers without a blank frame. Rows
+  with no word timing on either line never linger: their fill ends before the
+  next line starts. Dimming drops the semibold weight, which can change how a
+  long line wraps, so the frame after a row stops lingering re-runs autoscroll
+  (`resettle`) against the new layout; a no-op when nothing moved.
+- **Open words.** A word with no end runs to the next word's start, else to the
+  line's end; when the line ends before it even starts (a backing word sung
+  over the next line) or the end is unknown, it gets `OPEN_WORD_MS` so it still
+  shows filling instead of popping at its start.
+- **Frames.** A repaint is scheduled only while something moves: during a word
+  at its pixel rate (never faster than `FRAME_MIN_MS`), in a gap exactly when
+  the next word starts, and not at all once every lit line is done. The repaint
+  after a lingering row's last word is the one that dims it.
 
 ## Playback status: what is playing now
 

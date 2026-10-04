@@ -59,6 +59,8 @@ the library database; `pawse::remote_sync` turns its `Item`s into
   sent back.
 - **Lyrics.** `lyrics` reads `/Audio/{id}/Lyrics` (10.9+). A 404 — no lyrics,
   or a server older than that route — is `Ok(None)`. `Start` is in ticks
-  (100 ns); `LyricsLine::start_ms` converts. Word cues are not read.
+  (100 ns); `LyricsLine::start_ms` converts. `Cues` (word timing, from Enhanced
+  LRC) carry `Position`/`EndPosition` as UTF-16 indexes into `Text` (C# string
+  indexes), `Start`/`End` in ticks; the app converts the indexes to byte ranges.
 - **Not done:** reporting plays back to the server, picking individual music
   libraries, Quick Connect, logging the session out when a server is removed.

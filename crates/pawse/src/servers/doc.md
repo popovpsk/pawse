@@ -101,7 +101,9 @@ to `subsonic::` or `jellyfin::` directly.
   current (like the audio itself, nothing is stored in `library.db`).
   `server_lyrics` is the shared finish: line breaks inside a line become
   spaces, timed lyrics keep only timed lines sorted by time (blank ones stay as
-  gaps), plain lyrics drop blank lines, all-blank is `None`.
+  gaps), plain lyrics drop blank lines, all-blank is `None`. Word ranges point
+  into the text, so a text that this flattening changes (or a range outside it)
+  loses its words — adapters flatten with `one_line` *before* placing words.
   Subsonic: of the `structuredLyrics` entries only `kind` main (or no kind) is
   used — synced ones first, then plain, the first that has any words;
   `offset` is applied (positive = earlier, per the spec); translations and
@@ -111,9 +113,17 @@ to `subsonic::` or `jellyfin::` directly.
   blank, those values become the line's text and the `bg` ones its
   `background`. Otherwise the server's `line` value is kept whole — never
   glued together from word cues, whose spacing is not reliable (a v1 reply,
-  without `cueLine`s, always does this; backing vocals then stay inline). An unsupported
+  without `cueLine`s, always does this; backing vocals then stay inline).
+  Words: each `cue` (time minus `offset`) is placed in the text it belongs to
+  with `lyrics::locate_words` — the front cues in the line's text, the `bg` ones
+  in the backing text; an unsplit line places all its cues, front then `bg`, in
+  the whole `line` value. Unsynced entries get no words. An unsupported
   method or a missing song is `Ok(None)`; only unreachable/auth are errors.
-  Jellyfin: `Start` ticks → ms, no backing vocals.
+  Jellyfin: `Start` ticks → ms; `Cues` become words: each cue's slice of
+  `Text` (UTF-16 positions) is placed in the flattened text with
+  `locate_words`, so blank cues are skipped and line breaks don't matter; a
+  cue outside the text drops the line's words. No backing vocals (Jellyfin
+  drops `[bg:]` lines), and no offset (its LRC parser does not report one).
 - **`genre` is one raw string.** An adapter whose source lists several genres
   (Jellyfin, DLNA, a torrent's tags, OpenSubsonic's `genres[]`) joins them with
   `; ` (`joined_genres`) and leaves the splitting, dedup and junk filtering to

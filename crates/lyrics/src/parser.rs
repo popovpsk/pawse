@@ -1,3 +1,5 @@
+use crate::words::{Backing, Word, split_enhanced};
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Lyrics {
     pub synced: bool,
@@ -8,41 +10,66 @@ pub struct Lyrics {
 pub struct LyricLine {
     pub time_ms: Option<u32>,
     pub text: String,
-    pub background: Option<String>,
+    pub words: Vec<Word>,
+    pub background: Option<Backing>,
 }
+
+const BACKING_TAG: &str = "bg:";
 
 pub fn parse_lrc(raw: &str) -> Lyrics {
     let mut lines: Vec<LyricLine> = Vec::new();
     let mut synced = false;
+    let mut last_group = 0..0;
 
     for raw_line in raw.split(['\n', '\r']) {
         let mut rest = raw_line;
         let mut times: Vec<u32> = Vec::new();
+        let mut backing: Option<&str> = None;
 
         while let Some((inner, after)) = take_bracket(rest) {
             if let Some(ms) = parse_time_tag(inner) {
                 times.push(ms);
+            } else if let Some(sung) = inner.trim_start().strip_prefix(BACKING_TAG) {
+                backing = Some(sung);
             }
             rest = after;
         }
 
-        let text = rest.trim();
+        if let Some(sung) = backing.filter(|_| times.is_empty()) {
+            let (text, words) = split_enhanced(sung);
+            let words = if last_group.len() == 1 {
+                words
+            } else {
+                Vec::new()
+            };
+            for line in &mut lines[last_group.clone()] {
+                add_backing(line, &text, &words);
+            }
+            continue;
+        }
+
+        let (text, words) = split_enhanced(rest);
 
         if times.is_empty() {
             if text.is_empty() {
                 continue;
             }
+            last_group = lines.len()..lines.len() + 1;
             lines.push(LyricLine {
                 time_ms: None,
-                text: text.to_string(),
+                text,
+                words: Vec::new(),
                 background: None,
             });
         } else {
             synced = true;
+            let words = if times.len() == 1 { words } else { Vec::new() };
+            last_group = lines.len()..lines.len() + times.len();
             for ms in times {
                 lines.push(LyricLine {
                     time_ms: Some(ms),
-                    text: text.to_string(),
+                    text: text.clone(),
+                    words: words.clone(),
                     background: None,
                 });
             }
@@ -57,6 +84,29 @@ pub fn parse_lrc(raw: &str) -> Lyrics {
     Lyrics { synced, lines }
 }
 
+fn add_backing(line: &mut LyricLine, text: &str, words: &[Word]) {
+    if text.is_empty() {
+        return;
+    }
+    if line.text.is_empty() && line.background.is_none() {
+        line.text = text.to_string();
+        line.words = words.to_vec();
+        return;
+    }
+    let backing = line.background.get_or_insert_with(Backing::default);
+    let shift = if backing.text.is_empty() {
+        0
+    } else {
+        backing.text.push(' ');
+        backing.text.len()
+    };
+    backing.text.push_str(text);
+    backing.words.extend(words.iter().map(|word| Word {
+        range: word.range.start + shift..word.range.end + shift,
+        ..word.clone()
+    }));
+}
+
 fn take_bracket(s: &str) -> Option<(&str, &str)> {
     let start = s.find('[')?;
     let end_rel = s[start..].find(']')?;
@@ -69,7 +119,7 @@ fn take_bracket(s: &str) -> Option<(&str, &str)> {
     Some((inner, after))
 }
 
-fn parse_time_tag(inner: &str) -> Option<u32> {
+pub(crate) fn parse_time_tag(inner: &str) -> Option<u32> {
     let (min_str, rest) = inner.split_once(':')?;
     if min_str.is_empty() || !min_str.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -121,12 +171,12 @@ mod tests {
                 LyricLine {
                     time_ms: Some(12_000),
                     text: "hello".to_string(),
-                    background: None,
+                    ..Default::default()
                 },
                 LyricLine {
                     time_ms: Some(45_300),
                     text: "hello".to_string(),
-                    background: None,
+                    ..Default::default()
                 },
             ]
         );
@@ -208,5 +258,85 @@ mod tests {
         let parsed = parse_lrc("[99999:00.00]x\n[00:01.00]ok");
         assert_eq!(parsed.lines.len(), 1);
         assert_eq!(parsed.lines[0].time_ms, Some(1_000));
+    }
+
+    #[test]
+    fn enhanced_lines_keep_their_words() {
+        let parsed =
+            parse_lrc("[00:01.00]<00:01.00>Hello <00:01.60>world<00:02.20>\n[00:03.00]plain");
+        assert!(parsed.synced);
+        assert_eq!(parsed.lines[0].text, "Hello world");
+        assert_eq!(
+            parsed.lines[0].words,
+            vec![
+                Word {
+                    start_ms: 1_000,
+                    end_ms: None,
+                    range: 0..5
+                },
+                Word {
+                    start_ms: 1_600,
+                    end_ms: Some(2_200),
+                    range: 6..11
+                },
+            ]
+        );
+        assert!(parsed.lines[1].words.is_empty());
+    }
+
+    #[test]
+    fn words_are_dropped_where_they_cannot_belong_to_one_line() {
+        let repeated = parse_lrc("[00:01.00][00:09.00]<00:01.00>chorus");
+        assert_eq!(repeated.lines.len(), 2);
+        assert!(
+            repeated
+                .lines
+                .iter()
+                .all(|l| l.words.is_empty() && l.text == "chorus")
+        );
+        let plain = parse_lrc("<00:01.00>no line stamp");
+        assert!(!plain.synced);
+        assert_eq!(plain.lines[0].text, "no line stamp");
+        assert!(plain.lines[0].words.is_empty());
+    }
+
+    #[test]
+    fn a_bg_line_is_backing_vocals_of_the_line_before() {
+        let raw = "[00:01.00]<00:01.00>Hello\n[bg: <00:01.50>(hello <00:02.00>there)]\n[bg:(again)]\n[00:03.00]Next";
+        let parsed = parse_lrc(raw);
+        assert_eq!(parsed.lines.len(), 2);
+        let backing = parsed.lines[0].background.as_ref().unwrap();
+        assert_eq!(backing.text, "(hello there) (again)");
+        let spelled: Vec<&str> = backing
+            .words
+            .iter()
+            .map(|w| &backing.text[w.range.clone()])
+            .collect();
+        assert_eq!(spelled, vec!["(hello", "there)"]);
+        assert_eq!(parsed.lines[1].background, None);
+        assert_eq!(parse_lrc("[bg: orphan]\n[00:01.00]a").lines.len(), 1);
+    }
+
+    #[test]
+    fn a_repeated_line_gets_its_backing_on_every_copy_without_words() {
+        let parsed = parse_lrc("[00:10.00][01:10.00]Chorus\n[bg: <00:10.50>(ooh)]");
+        assert_eq!(parsed.lines.len(), 2);
+        for line in &parsed.lines {
+            let backing = line.background.as_ref().unwrap();
+            assert_eq!(backing.text, "(ooh)");
+            assert!(backing.words.is_empty());
+        }
+    }
+
+    #[test]
+    fn backing_vocals_after_a_blank_line_become_its_text() {
+        let parsed = parse_lrc("[00:20.00]\n[bg: <00:20.10>(ahh)]\n[bg: (oh)]");
+        let line = &parsed.lines[0];
+        assert_eq!(line.text, "(ahh)");
+        assert_eq!(line.words.len(), 1);
+        assert_eq!(
+            line.background.as_ref().map(|b| b.text.as_str()),
+            Some("(oh)")
+        );
     }
 }

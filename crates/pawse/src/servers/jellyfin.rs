@@ -1,7 +1,7 @@
 use music_library::RemoteSong;
 
 use super::{
-    RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number,
+    RemoteError, ServerClient, joined_genres, one_line, real_album, real_artist, real_track_number,
     server_lyrics,
 };
 
@@ -88,11 +88,48 @@ impl ServerClient for Jellyfin {
 }
 
 fn line(line: &jellyfin::LyricsLine) -> lyrics::LyricLine {
+    let text = one_line(&line.text);
+    let cues: Option<Vec<(u32, Option<u32>, &str)>> = line
+        .cues
+        .iter()
+        .map(|cue| cue_text(&line.text, cue))
+        .collect();
     lyrics::LyricLine {
-        time_ms: line.start_ms().and_then(|ms| u32::try_from(ms).ok()),
-        text: line.text.clone(),
+        time_ms: line.start_ms().and_then(ms),
+        words: cues
+            .map(|cues| lyrics::locate_words(&text, cues))
+            .unwrap_or_default(),
+        text,
         background: None,
     }
+}
+
+fn ms(ms: u64) -> Option<u32> {
+    u32::try_from(ms).ok()
+}
+
+fn cue_text<'a>(text: &'a str, cue: &jellyfin::LyricsCue) -> Option<(u32, Option<u32>, &'a str)> {
+    let from = byte_index(text, cue.position?)?;
+    let to = byte_index(text, cue.end_position?)?;
+    Some((
+        cue.start_ms().and_then(ms)?,
+        cue.end_ms().and_then(ms),
+        text.get(from..to)?,
+    ))
+}
+
+fn byte_index(text: &str, utf16: usize) -> Option<usize> {
+    let mut units = 0;
+    for (byte, ch) in text.char_indices() {
+        if units == utf16 {
+            return Some(byte);
+        }
+        if units > utf16 {
+            return None;
+        }
+        units += ch.len_utf16();
+    }
+    (units == utf16).then_some(text.len())
 }
 
 fn extension(item: &jellyfin::Item) -> Option<String> {
@@ -298,13 +335,61 @@ mod tests {
         let timed = line(&jellyfin::LyricsLine {
             text: "words".into(),
             start: Some(12_345_678),
+            cues: Vec::new(),
         });
         assert_eq!(timed.time_ms, Some(1_234));
         assert_eq!(timed.text, "words");
+        assert!(timed.words.is_empty());
         let plain = line(&jellyfin::LyricsLine {
             text: "plain".into(),
             start: None,
+            cues: Vec::new(),
         });
         assert_eq!(plain.time_ms, None);
+    }
+
+    fn cue(position: usize, end_position: usize, start_ms: u64) -> jellyfin::LyricsCue {
+        jellyfin::LyricsCue {
+            position: Some(position),
+            end_position: Some(end_position),
+            start: Some(start_ms * 10_000),
+            end: None,
+        }
+    }
+
+    #[test]
+    fn cue_positions_count_utf16_units_and_skip_spaces() {
+        let converted = line(&jellyfin::LyricsLine {
+            text: "Мир 🎵 ok".into(),
+            start: Some(0),
+            cues: vec![cue(0, 4, 100), cue(4, 7, 200), cue(7, 9, 300)],
+        });
+        let spelled: Vec<&str> = converted
+            .words
+            .iter()
+            .map(|word| &converted.text[word.range.clone()])
+            .collect();
+        assert_eq!(spelled, vec!["Мир", "🎵", "ok"]);
+        assert_eq!(converted.words[1].start_ms, 200);
+
+        let broken = line(&jellyfin::LyricsLine {
+            text: "short".into(),
+            start: Some(0),
+            cues: vec![cue(0, 2, 0), cue(2, 40, 1)],
+        });
+        assert!(broken.words.is_empty());
+
+        let loose = line(&jellyfin::LyricsLine {
+            text: " one\ntwo ".into(),
+            start: Some(0),
+            cues: vec![cue(0, 4, 10), cue(4, 5, 15), cue(5, 8, 20), cue(9, 9, 30)],
+        });
+        assert_eq!(loose.text, "one two");
+        let spelled: Vec<(u32, &str)> = loose
+            .words
+            .iter()
+            .map(|word| (word.start_ms, &loose.text[word.range.clone()]))
+            .collect();
+        assert_eq!(spelled, vec![(10, "one"), (20, "two")]);
     }
 }

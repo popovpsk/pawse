@@ -237,14 +237,28 @@ fn one_line(text: &str) -> String {
         .join(" ")
 }
 
+fn one_line_words(text: &mut String, words: &mut Vec<lyrics::Word>) {
+    let flat = one_line(text);
+    if flat != *text {
+        *text = flat;
+        words.clear();
+    }
+    let len = text.len();
+    if words
+        .iter()
+        .any(|word| word.range.is_empty() || word.range.end > len)
+    {
+        words.clear();
+    }
+}
+
 fn server_lyrics(mut lines: Vec<lyrics::LyricLine>) -> Option<lyrics::Lyrics> {
     for line in &mut lines {
-        line.text = one_line(&line.text);
-        line.background = line
-            .background
-            .as_deref()
-            .map(one_line)
-            .filter(|text| !text.is_empty());
+        one_line_words(&mut line.text, &mut line.words);
+        if let Some(backing) = &mut line.background {
+            one_line_words(&mut backing.text, &mut backing.words);
+        }
+        line.background.take_if(|backing| backing.text.is_empty());
     }
     let synced = lines.iter().any(|line| line.time_ms.is_some());
     if synced {
@@ -314,14 +328,50 @@ mod tests {
         lyrics::LyricLine {
             time_ms,
             text: text.into(),
-            background: None,
+            ..Default::default()
         }
+    }
+
+    fn word(start_ms: u32, range: std::ops::Range<usize>) -> lyrics::Word {
+        lyrics::Word {
+            start_ms,
+            end_ms: None,
+            range,
+        }
+    }
+
+    #[test]
+    fn words_survive_only_when_the_text_was_already_one_clean_line() {
+        let mut kept = line(Some(0), "ab cd");
+        kept.words = vec![word(0, 0..2), word(1, 3..5)];
+        let mut wrapped = line(Some(1), " ab\ncd");
+        wrapped.words = vec![word(0, 1..3)];
+        let mut broken = line(Some(2), "ab");
+        broken.words = vec![word(0, 1..9)];
+        let mut backing = line(Some(3), "x");
+        backing.background = Some(lyrics::Backing {
+            text: "(y\nz)".into(),
+            words: vec![word(0, 0..2)],
+        });
+        let lines = server_lyrics(vec![kept, wrapped, broken, backing])
+            .unwrap()
+            .lines;
+        assert_eq!(lines[0].words.len(), 2);
+        assert_eq!(lines[1].text, "ab cd");
+        assert!(lines[1].words.is_empty());
+        assert!(lines[2].words.is_empty());
+        let backing = lines[3].background.as_ref().unwrap();
+        assert_eq!(backing.text, "(y z)");
+        assert!(backing.words.is_empty());
     }
 
     #[test]
     fn server_lyrics_are_sorted_kept_on_one_line_and_none_when_blank() {
         let mut echoed = line(Some(3_000), " two\nlines ");
-        echoed.background = Some("\n".into());
+        echoed.background = Some(lyrics::Backing {
+            text: "\n".into(),
+            words: Vec::new(),
+        });
         let synced = server_lyrics(vec![
             echoed,
             line(Some(1_000), "one"),

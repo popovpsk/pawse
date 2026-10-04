@@ -383,7 +383,12 @@ fn lyrics_come_from_the_audio_item_and_a_missing_file_is_none() {
     let stub = Stub::start(|request| match request.path.as_str() {
         "/Audio/a1/Lyrics" => json(serde_json::json!({
             "Metadata": {"IsSynced": true},
-            "Lyrics": [{"Text": "first", "Start": 12_500_000}, {"Text": "plain"}, {"Start": "oops"}]
+            "Lyrics": [
+                {"Text": "first", "Start": 12_500_000,
+                 "Cues": [{"Position": 0, "EndPosition": 5, "Start": 12_500_000, "End": 15_000_000}]},
+                {"Text": "plain"},
+                {"Start": "oops", "Cues": "nope"}
+            ]
         })),
         _ => (404, "text/plain", Vec::new()),
     });
@@ -393,6 +398,10 @@ fn lyrics_come_from_the_audio_item_and_a_missing_file_is_none() {
     assert_eq!(found.lyrics[0].start_ms(), Some(1_250));
     assert_eq!(found.lyrics[1].start_ms(), None);
     assert_eq!(found.lyrics[2].text, "");
+    assert_eq!(found.lyrics[0].cues[0].end_position, Some(5));
+    assert_eq!(found.lyrics[0].cues[0].start_ms(), Some(1_250));
+    assert_eq!(found.lyrics[0].cues[0].end_ms(), Some(1_500));
+    assert!(found.lyrics[2].cues.is_empty());
     assert!(stub.requests()[0].authorization.contains("Token=\"tok\""));
     assert_eq!(stub.client().lyrics("none").unwrap(), None);
 

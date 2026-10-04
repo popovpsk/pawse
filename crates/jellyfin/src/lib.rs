@@ -131,12 +131,41 @@ pub struct LyricsLine {
     pub text: String,
     #[serde(default, deserialize_with = "lenient::number")]
     pub start: Option<u64>,
+    #[serde(default, deserialize_with = "lenient::list")]
+    pub cues: Vec<LyricsCue>,
 }
 
 impl LyricsLine {
     pub fn start_ms(&self) -> Option<u64> {
-        self.start.map(|ticks| ticks / 10_000)
+        self.start.map(ticks_to_ms)
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct LyricsCue {
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub position: Option<usize>,
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub end_position: Option<usize>,
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub start: Option<u64>,
+    #[serde(default, deserialize_with = "lenient::number")]
+    pub end: Option<u64>,
+}
+
+impl LyricsCue {
+    pub fn start_ms(&self) -> Option<u64> {
+        self.start.map(ticks_to_ms)
+    }
+
+    pub fn end_ms(&self) -> Option<u64> {
+        self.end.map(ticks_to_ms)
+    }
+}
+
+fn ticks_to_ms(ticks: u64) -> u64 {
+    ticks / 10_000
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

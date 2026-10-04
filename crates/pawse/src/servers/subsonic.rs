@@ -1,7 +1,7 @@
 use music_library::RemoteSong;
 
 use super::{
-    RemoteError, ServerClient, joined_genres, real_album, real_artist, real_track_number,
+    RemoteError, ServerClient, joined_genres, one_line, real_album, real_artist, real_track_number,
     server_lyrics,
 };
 
@@ -135,6 +135,21 @@ fn lines(entry: &subsonic::StructuredLyrics) -> Vec<lyrics::LyricLine> {
         }
     }
     let offset = entry.offset.unwrap_or(0);
+    let at = |ms: i64| u32::try_from(ms.saturating_sub(offset).max(0)).ok();
+    let words = |text: &str, cue_lines: &[&subsonic::CueLine]| {
+        if !entry.synced {
+            return Vec::new();
+        }
+        lyrics::locate_words(
+            text,
+            cue_lines
+                .iter()
+                .flat_map(|cue_line| &cue_line.cue)
+                .filter_map(|cue| {
+                    Some((at(cue.start?)?, cue.end.and_then(at), cue.value.as_str()))
+                }),
+        )
+    };
     entry
         .line
         .iter()
@@ -143,15 +158,23 @@ fn lines(entry: &subsonic::StructuredLyrics) -> Vec<lyrics::LyricLine> {
             let split = joined(&front)
                 .zip(joined(&back))
                 .filter(|(front, _)| !front.is_empty());
-            let (text, background) = match split {
-                Some((front, back)) => (front, Some(back)),
-                None => (line.value.clone(), None),
+            let (text, sung, background) = match split {
+                Some((front_text, back_text)) => {
+                    let back_text = one_line(&back_text);
+                    let backing = lyrics::Backing {
+                        words: words(&back_text, &back),
+                        text: back_text,
+                    };
+                    (one_line(&front_text), front, Some(backing))
+                }
+                None => {
+                    let both = front.iter().chain(&back).copied().collect();
+                    (one_line(&line.value), both, None)
+                }
             };
             lyrics::LyricLine {
-                time_ms: line
-                    .start
-                    .filter(|_| entry.synced)
-                    .and_then(|start| u32::try_from(start.saturating_sub(offset).max(0)).ok()),
+                time_ms: line.start.filter(|_| entry.synced).and_then(at),
+                words: words(&text, &sung),
                 text,
                 background,
             }
@@ -369,7 +392,15 @@ mod tests {
         lyrics
             .lines
             .iter()
-            .map(|line| (line.time_ms, line.text.as_str(), line.background.as_deref()))
+            .map(|line| {
+                (
+                    line.time_ms,
+                    line.text.as_str(),
+                    line.background
+                        .as_ref()
+                        .map(|backing| backing.text.as_str()),
+                )
+            })
             .collect()
     }
 
@@ -491,5 +522,94 @@ mod tests {
             texts(&main_lyrics(vec![later]).unwrap()),
             vec![(Some(1_250), "a", None)]
         );
+    }
+
+    fn cued(
+        index: usize,
+        agent: &str,
+        value: Option<&str>,
+        cues: &[(i64, &str)],
+    ) -> subsonic::CueLine {
+        subsonic::CueLine {
+            cue: cues
+                .iter()
+                .map(|(start, value)| subsonic::Cue {
+                    start: Some(*start),
+                    end: None,
+                    value: value.to_string(),
+                })
+                .collect(),
+            ..cue_line(index, agent, value)
+        }
+    }
+
+    fn spelled(text: &str, words: &[lyrics::Word]) -> Vec<(u32, String)> {
+        words
+            .iter()
+            .map(|word| (word.start_ms, text[word.range.clone()].to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn cues_become_words_of_the_text_and_of_the_backing_line() {
+        let mut main = entry(
+            None,
+            true,
+            &[
+                (Some(1_000), "Hello there (hello)"),
+                (Some(5_000), "Solo  line"),
+            ],
+        );
+        main.offset = Some(100);
+        main.agents = vec![agent("lead", "main"), agent("backing", "bg")];
+        main.cue_line = vec![
+            cued(
+                0,
+                "lead",
+                Some("Hello there"),
+                &[(1_000, "Hello"), (1_500, " "), (1_600, "there")],
+            ),
+            cued(0, "backing", Some("(hello)"), &[(2_000, "(hello)")]),
+            cued(
+                1,
+                "lead",
+                Some("Solo  line"),
+                &[(5_000, "Solo "), (5_400, "line")],
+            ),
+        ];
+        let lines = main_lyrics(vec![main]).unwrap().lines;
+        assert_eq!(
+            spelled(&lines[0].text, &lines[0].words),
+            vec![(900, "Hello".into()), (1_500, "there".into())]
+        );
+        let backing = lines[0].background.as_ref().unwrap();
+        assert_eq!(
+            spelled(&backing.text, &backing.words),
+            vec![(1_900, "(hello)".into())]
+        );
+        assert_eq!(
+            spelled(&lines[1].text, &lines[1].words),
+            vec![(4_900, "Solo".into()), (5_300, "line".into())]
+        );
+    }
+
+    #[test]
+    fn an_unsplit_line_takes_every_cue_in_text_order() {
+        let mut main = entry(None, true, &[(Some(0), "Hi (hi)")]);
+        main.agents = vec![agent("lead", "main"), agent("backing", "bg")];
+        main.cue_line = vec![
+            cued(0, "lead", None, &[(0, "Hi")]),
+            cued(0, "backing", Some("(hi)"), &[(400, "(hi)")]),
+        ];
+        let lines = main_lyrics(vec![main]).unwrap().lines;
+        assert_eq!(lines[0].background, None);
+        assert_eq!(
+            spelled(&lines[0].text, &lines[0].words),
+            vec![(0, "Hi".into()), (400, "(hi)".into())]
+        );
+
+        let mut plain = entry(None, false, &[(None, "no timing")]);
+        plain.cue_line = vec![cued(0, "lead", Some("no timing"), &[(0, "no")])];
+        assert!(main_lyrics(vec![plain]).unwrap().lines[0].words.is_empty());
     }
 }

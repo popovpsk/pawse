@@ -28,6 +28,7 @@ const SCROLL_ANIM: Duration = Duration::from_millis(360);
 const FRAME_MIN_MS: f32 = 30.;
 const CENTER_BIAS: f32 = 0.4;
 const SCROLL_EPS: Pixels = px(1.);
+const SERVER_GRACE: Duration = Duration::from_millis(1_500);
 const BACKGROUND_SCALE: f32 = 0.8;
 const BACKGROUND_ALPHA: f32 = 0.7;
 
@@ -61,6 +62,74 @@ enum Server {
     Found(lyrics::Lyrics),
 }
 
+#[derive(Clone, Copy)]
+enum FillSlot {
+    Main = 0,
+    Backing = 1,
+}
+
+#[derive(Default)]
+struct FillTarget {
+    measured: Size<Pixels>,
+    shape: Option<LineShape>,
+    shape_key: Option<(SharedString, Pixels, f32, Option<u32>)>,
+}
+
+impl FillTarget {
+    fn shaped(
+        &mut self,
+        window: &mut Window,
+        text: &SharedString,
+        words: &[lyrics::Word],
+        font_size: f32,
+        weight: FontWeight,
+        line_end_ms: Option<u32>,
+    ) -> Option<(&LineShape, Pixels, Pixels)> {
+        if text.is_empty() {
+            return None;
+        }
+        let Size { width, height } = self.measured;
+        if width <= px(0.) || height <= px(0.) {
+            return None;
+        }
+        let key = (text.clone(), width, font_size, line_end_ms);
+        if self.shape_key.as_ref() != Some(&key) {
+            self.shape = lyrics_fill::shape_line(
+                window,
+                text,
+                width,
+                px(font_size),
+                weight,
+                words,
+                line_end_ms,
+            );
+            self.shape_key = Some(key);
+        }
+        let shape = self.shape.as_ref()?;
+        if shape.rows.is_empty() {
+            return None;
+        }
+        let pitch = height / shape.rows.len() as f32;
+        if pitch < px(font_size * 0.9) || pitch > px(font_size * 2.2) {
+            return None;
+        }
+        Some((shape, width, pitch))
+    }
+}
+
+#[derive(Default)]
+struct LitRow {
+    ix: Option<usize>,
+    targets: [FillTarget; 2],
+}
+
+#[derive(Default)]
+struct LitPlans {
+    ix: Option<usize>,
+    main: Option<FillPlan>,
+    backing: Option<FillPlan>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SourceSegment {
     source: &'static str,
@@ -82,6 +151,7 @@ pub struct LyricsView {
     variants: Vec<StoredLyrics>,
     lrclib: Lrclib,
     server: Server,
+    server_slow: bool,
     choice: Option<&'static str>,
     segments: Vec<SourceSegment>,
     prefer_lrclib: bool,
@@ -103,11 +173,9 @@ pub struct LyricsView {
     pos_base_ms: u64,
     pos_base_at: Instant,
     playing: bool,
-    measured: Size<Pixels>,
-    measured_ix: Option<usize>,
-    shape: Option<LineShape>,
-    shape_key: Option<(SharedString, Pixels, f32)>,
-    fill_step_ms: f32,
+    lit: [LitRow; 2],
+    resettle: bool,
+    fill_wake_ms: Option<f32>,
     viewport: Size<Pixels>,
     recenter: bool,
     access: LyricsAccess,
@@ -116,6 +184,7 @@ pub struct LyricsView {
     _load_task: Option<Task<()>>,
     _fetch_task: Option<Task<()>>,
     _server_task: Option<Task<()>>,
+    _grace_task: Option<Task<()>>,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
@@ -201,6 +270,7 @@ impl LyricsView {
             variants: Vec::new(),
             lrclib: Lrclib::Unknown,
             server: Server::None,
+            server_slow: false,
             choice: None,
             segments: Vec::new(),
             prefer_lrclib,
@@ -222,11 +292,9 @@ impl LyricsView {
             pos_base_ms,
             pos_base_at: Instant::now(),
             playing,
-            measured: Size::default(),
-            measured_ix: None,
-            shape: None,
-            shape_key: None,
-            fill_step_ms: 0.,
+            lit: Default::default(),
+            resettle: false,
+            fill_wake_ms: None,
             viewport: Size::default(),
             recenter: false,
             access,
@@ -235,6 +303,7 @@ impl LyricsView {
             _load_task: None,
             _fetch_task: None,
             _server_task: None,
+            _grace_task: None,
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
@@ -374,7 +443,7 @@ impl LyricsView {
                 (available || searchable).then_some(SourceSegment { source, available })
             })
             .collect();
-        let waiting = self.server_pending() && self.choice.is_none();
+        let waiting = self.server_waiting() && self.choice.is_none();
         let server_rank = lyrics_source::rank(lyrics_source::SERVER, self.prefer_lrclib);
         let picked =
             lyrics_source::pick(self.prefer_lrclib, self.choice, available).filter(|source| {
@@ -408,6 +477,10 @@ impl LyricsView {
         matches!(self.server, Server::Unasked(_) | Server::Fetching)
     }
 
+    fn server_waiting(&self) -> bool {
+        self.server_pending() && !self.server_slow
+    }
+
     fn maybe_fetch(&mut self, cx: &mut Context<Self>) {
         if !self.visible {
             return;
@@ -418,7 +491,7 @@ impl LyricsView {
         }
         let has_own = !lyrics_source::choices(&self.variants, self.prefer_lrclib).is_empty()
             || matches!(self.server, Server::Found(_));
-        if (has_own || self.server_pending()) && !self.prefer_lrclib {
+        if (has_own || self.server_waiting()) && !self.prefer_lrclib {
             return;
         }
         if let Some(ctx) = Self::current_context(cx)
@@ -438,6 +511,17 @@ impl LyricsView {
         let locator = locator.clone();
         self.server = Server::Fetching;
         cx.notify();
+        self._grace_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SERVER_GRACE).await;
+            this.update(cx, |this, cx| {
+                if this.current_track_id == Some(id) && matches!(this.server, Server::Fetching) {
+                    this.server_slow = true;
+                    this.show_best(cx);
+                    this.maybe_fetch(cx);
+                }
+            })
+            .ok();
+        }));
         let media = cx.global::<Services>().remote_media.clone();
         self._server_task = Some(cx.spawn(async move |this, cx| {
             let fetched = cx
@@ -447,6 +531,7 @@ impl LyricsView {
                 if this.current_track_id != Some(id) {
                     return;
                 }
+                this._grace_task = None;
                 this.server = match fetched {
                     Ok(Some(found)) => Server::Found(found),
                     Ok(None) => Server::None,
@@ -589,7 +674,9 @@ impl LyricsView {
         self.variants.clear();
         self.lrclib = Lrclib::Unknown;
         self.server = Server::None;
+        self.server_slow = false;
         self._server_task = None;
+        self._grace_task = None;
         self.choice = None;
         self.segments.clear();
     }
@@ -646,10 +733,7 @@ impl LyricsView {
     }
 
     fn invalidate_fill(&mut self) {
-        self.measured = Size::default();
-        self.measured_ix = None;
-        self.shape = None;
-        self.shape_key = None;
+        self.lit = Default::default();
     }
 
     fn now_ms(&self) -> u64 {
@@ -706,56 +790,58 @@ impl LyricsView {
         }
     }
 
-    fn active_plan(
-        &mut self,
-        window: &mut Window,
-        karaoke: bool,
-        font_size: f32,
-    ) -> Option<FillPlan> {
-        let ix = self.active_ix;
-        if self.measured_ix != ix {
-            self.measured_ix = ix;
-            self.measured = Size::default();
-            self.shape = None;
-            self.shape_key = None;
+    fn lit_plans(&mut self, window: &mut Window, karaoke: bool, font_size: f32) -> [LitPlans; 2] {
+        self.fill_wake_ms = None;
+        let now = self.display_ms();
+        let active = self.active_ix.filter(|_| karaoke && self.synced);
+        let lingering = active.and_then(|ix| ix.checked_sub(1)).filter(|&ix| {
+            self.rows
+                .get(ix)
+                .and_then(|row| {
+                    let line_end = lyrics_fill::row_end(&self.rows, ix, self.track_duration_ms);
+                    lyrics_fill::sung_until(row, line_end)
+                })
+                .is_some_and(|end| end as u64 > now)
+        });
+        if self.lit[1].ix.is_some() && lingering.is_none() {
+            self.resettle = true;
         }
-        if !karaoke || !self.synced {
-            return None;
-        }
-        let ix = ix?;
-        let text = self.rows.get(ix)?.text.clone();
-        if text.is_empty() {
-            return None;
-        }
-        let Size { width, height } = self.measured;
-        if width <= px(0.) || height <= px(0.) {
-            return None;
-        }
-        let key = (text.clone(), width, font_size);
-        if self.shape_key.as_ref() != Some(&key) {
-            self.shape = lyrics_fill::shape_line(window, &text, width, px(font_size));
-            self.shape_key = Some(key);
-        }
-        let (start, span) = lyrics_fill::fill_span(&self.rows, ix, self.track_duration_ms)?;
-        let t = lyrics_fill::progress(self.display_ms(), start, span);
-        let shape = self.shape.as_ref()?;
-        if shape.rows.is_empty() {
-            return None;
-        }
-        let pitch = height / shape.rows.len() as f32;
-        if pitch < px(font_size * 0.9) || pitch > px(font_size * 2.2) {
-            return None;
-        }
-        self.fill_step_ms = span as f32 / f32::from(shape.total).max(1.);
-        Some(lyrics_fill::fill_plan(shape, width, pitch, t))
+        let mut kept = std::mem::take(&mut self.lit);
+        self.lit = [active, lingering].map(|ix| {
+            kept.iter_mut()
+                .find(|lit| ix.is_some() && lit.ix == ix)
+                .map(std::mem::take)
+                .unwrap_or(LitRow {
+                    ix,
+                    ..Default::default()
+                })
+        });
+        let mut wake: Option<f32> = None;
+        let plans = self.lit.each_mut().map(|lit| {
+            let (plans, row_wake) = plan_row(
+                lit,
+                &self.rows,
+                self.track_duration_ms,
+                window,
+                font_size,
+                now,
+            );
+            wake = [wake, row_wake].into_iter().flatten().reduce(f32::min);
+            plans
+        });
+        self.fill_wake_ms = wake;
+        plans
     }
 
     fn active_fills(&self) -> bool {
         let Some(ix) = self.active_ix else {
             return false;
         };
-        self.rows.get(ix).is_some_and(|row| !row.text.is_empty())
-            && lyrics_fill::fill_span(&self.rows, ix, self.track_duration_ms).is_some()
+        self.rows.get(ix).is_some_and(|row| {
+            !row.text.is_empty()
+                && (!row.words.is_empty()
+                    || lyrics_fill::fill_span(&self.rows, ix, self.track_duration_ms).is_some())
+        })
     }
 
     fn centered_offset(&self, ix: usize) -> Option<Pixels> {
@@ -881,11 +967,24 @@ impl Render for LyricsView {
             }
         }
 
+        if std::mem::take(&mut self.resettle)
+            && self.autoscroll
+            && let Some(ix) = self.active_ix
+        {
+            self.start_autoscroll(ix, cx);
+        }
+
         let entity = cx.entity();
-        let plan = self.active_plan(window, karaoke, lyrics_font_size);
+        let lit_plans = self.lit_plans(window, karaoke, lyrics_font_size);
+        if self.resettle {
+            let entity = entity.clone();
+            window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
+        }
         let karaoke_active = karaoke && self.active_fills();
-        if self.playing && plan.as_ref().is_some_and(|p| p.t < 1.) {
-            let wait = Duration::from_millis(self.fill_step_ms.max(FRAME_MIN_MS) as u64);
+        if self.playing
+            && let Some(wake) = self.fill_wake_ms
+        {
+            let wait = Duration::from_millis(wake.max(FRAME_MIN_MS) as u64);
             self._frame_task = Some(cx.spawn(async move |this, cx| {
                 cx.background_executor().timer(wait).await;
                 this.update(cx, |_, cx| cx.notify()).ok();
@@ -976,11 +1075,18 @@ impl Render for LyricsView {
                 .on_scroll_wheel(cx.listener(|this, _, _, cx| this.disengage(cx)))
                 .py_2()
                 .children(self.rows.iter().enumerate().map(|(ix, row)| {
+                    let lit = lit_plans.iter().find(|plans| plans.ix == Some(ix));
                     let is_active = Some(ix) == active_ix;
+                    let lingering = lit.is_some() && !is_active;
+                    let is_lit = is_active || lingering;
                     let color = if !synced {
                         foreground
-                    } else if is_active {
-                        if karaoke_active { foreground } else { primary }
+                    } else if is_lit {
+                        if karaoke_active || lingering {
+                            foreground
+                        } else {
+                            primary
+                        }
                     } else if dim_inactive {
                         muted_foreground
                     } else {
@@ -992,11 +1098,33 @@ impl Render for LyricsView {
                         .py_1()
                         .text_size(px(lyrics_font_size))
                         .text_color(color)
-                        .when(is_active, |d| d.font_weight(FontWeight::SEMIBOLD));
-                    let background = row
-                        .background
-                        .clone()
-                        .map(|text| background_line(text, lyrics_font_size, color));
+                        .when(is_lit, |d| d.font_weight(FontWeight::SEMIBOLD));
+                    let background = row.background.as_ref().map(|backing| {
+                        let size = px(lyrics_font_size * BACKGROUND_SCALE);
+                        let fills = is_lit && karaoke && !backing.words.is_empty();
+                        div()
+                            .max_w_full()
+                            .relative()
+                            .text_size(size)
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(color.opacity(BACKGROUND_ALPHA))
+                            .child(backing.text.clone())
+                            .when(fills, |d| {
+                                d.child(measure_canvas(entity.clone(), ix, FillSlot::Backing))
+                            })
+                            .children(
+                                match (fills, lit.and_then(|plans| plans.backing.as_ref())) {
+                                    (true, Some(plan)) => lyrics_fill::fill_children(
+                                        plan,
+                                        &backing.text,
+                                        size,
+                                        FontWeight::NORMAL,
+                                        primary.opacity(BACKGROUND_ALPHA),
+                                    ),
+                                    _ => Vec::new(),
+                                },
+                            )
+                    });
                     let stacked = background.is_some();
                     match (synced, row.time_ms, row.label.clone()) {
                         (true, Some(time_ms), Some(label)) => line
@@ -1019,17 +1147,18 @@ impl Render for LyricsView {
                                         this.seek_to_line(ix, time_ms, cx)
                                     }))
                                     .child(row.text.clone())
-                                    .when(is_active && karaoke, |d| {
-                                        d.child(measure_canvas(entity.clone()))
+                                    .when(is_lit && karaoke, |d| {
+                                        d.child(measure_canvas(entity.clone(), ix, FillSlot::Main))
                                     })
-                                    .children(match (is_active, plan.as_ref()) {
-                                        (true, Some(plan)) => lyrics_fill::fill_children(
+                                    .children(match lit.and_then(|plans| plans.main.as_ref()) {
+                                        Some(plan) => lyrics_fill::fill_children(
                                             plan,
                                             &row.text,
                                             px(lyrics_font_size),
+                                            FontWeight::SEMIBOLD,
                                             primary,
                                         ),
-                                        _ => Vec::new(),
+                                        None => Vec::new(),
                                     }),
                             )
                             .children(background)
@@ -1076,11 +1205,18 @@ impl Render for LyricsView {
     }
 }
 
-fn measure_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
+fn measure_canvas(entity: Entity<LyricsView>, ix: usize, slot: FillSlot) -> impl IntoElement {
     canvas(
         move |bounds, window, cx| {
-            if entity.read(cx).measured != bounds.size {
-                entity.update(cx, |this, _| this.measured = bounds.size);
+            let stale = entity.read(cx).lit.iter().any(|lit| {
+                lit.ix == Some(ix) && lit.targets[slot as usize].measured != bounds.size
+            });
+            if stale {
+                entity.update(cx, |this, _| {
+                    if let Some(lit) = this.lit.iter_mut().find(|lit| lit.ix == Some(ix)) {
+                        lit.targets[slot as usize].measured = bounds.size;
+                    }
+                });
                 window.on_next_frame(move |_, cx| {
                     entity.update(cx, |_, cx| cx.notify());
                 });
@@ -1092,13 +1228,68 @@ fn measure_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
     .size_full()
 }
 
-fn background_line(text: SharedString, font_size: f32, color: Hsla) -> gpui::Div {
-    div()
-        .max_w_full()
-        .text_size(px(font_size * BACKGROUND_SCALE))
-        .font_weight(FontWeight::NORMAL)
-        .text_color(color.opacity(BACKGROUND_ALPHA))
-        .child(text)
+fn plan_row(
+    lit: &mut LitRow,
+    rows: &[lyrics_fill::LyricRow],
+    track_duration_ms: Option<u64>,
+    window: &mut Window,
+    font_size: f32,
+    now: u64,
+) -> (LitPlans, Option<f32>) {
+    let Some((ix, row)) = lit.ix.and_then(|ix| Some((ix, rows.get(ix)?))) else {
+        return (LitPlans::default(), None);
+    };
+    let line_end = lyrics_fill::row_end(rows, ix, track_duration_ms);
+    let span = lyrics_fill::fill_span(rows, ix, track_duration_ms);
+    let mut wakes: [Option<f32>; 2] = [None, None];
+
+    let [main_fill, backing_fill] = &mut lit.targets;
+    let main = main_fill
+        .shaped(
+            window,
+            &row.text,
+            &row.words,
+            font_size,
+            FontWeight::SEMIBOLD,
+            line_end,
+        )
+        .and_then(|(shape, width, pitch)| {
+            if shape.words.is_empty() {
+                let (start, span) = span?;
+                let t = lyrics_fill::progress(now, start, span);
+                wakes[0] = (t < 1.).then(|| span as f32 / f32::from(shape.total).max(1.));
+                Some(lyrics_fill::fill_plan(shape, width, pitch, t))
+            } else {
+                let fill = lyrics_fill::word_fill(&shape.words, shape.total, now);
+                wakes[0] = fill.wake_ms;
+                Some(lyrics_fill::fill_plan_at(shape, width, pitch, fill.filled))
+            }
+        });
+
+    let backing = row
+        .background
+        .as_ref()
+        .filter(|backing| !backing.words.is_empty())
+        .and_then(|backing| {
+            let (shape, width, pitch) = backing_fill.shaped(
+                window,
+                &backing.text,
+                &backing.words,
+                font_size * BACKGROUND_SCALE,
+                FontWeight::NORMAL,
+                line_end,
+            )?;
+            let fill = lyrics_fill::word_fill(&shape.words, shape.total, now);
+            wakes[1] = fill.wake_ms;
+            Some(lyrics_fill::fill_plan_at(shape, width, pitch, fill.filled))
+        });
+
+    let plans = LitPlans {
+        ix: Some(ix),
+        main,
+        backing,
+    };
+    (plans, wakes.into_iter().flatten().reduce(f32::min))
 }
 
 fn centered_message(message: SharedString, color: Hsla) -> gpui::Div {
