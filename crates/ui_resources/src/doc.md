@@ -39,6 +39,9 @@ files.
   `pl`, `nl`, `uk`, `vi`, `id`, `th`, `cs`, `sv`, `hi`).
 - `i18n/cast.rs` — `CastStrings`, the streaming section of the output picker
   and its notifications (`cast_strings()`), kept separate the same way.
+- `i18n/bit_perfect.rs` — `BitPerfectStrings` (`bit_perfect_strings()`): the
+  bit-perfect indicator's tooltip lines and the explanation dialog it opens on
+  click, kept separate the same way.
 - `i18n/tools.rs` — `ToolsStrings`, a separate table for the Tools screen
   (`tools_strings()` picks the active language). Kept out of `Strings` so long,
   feature-specific texts don't bloat the main per-language files; all 20
@@ -52,7 +55,8 @@ files.
   variant and the clone is allocation-free (safe on the render hot path). Strings
   that interpolate runtime values are stored as `*_t` fields holding `{}`
   placeholders and are read through the methods on `impl Strings`
-  (`disc`, `n_tracks`, `bp_*`, `failed_*`); those
+  (`disc`, `n_tracks`, `failed_*`, and the same pattern on the separate
+  tables); those
   allocate a `String`, so call them off the hot path / cache the result.
 - **Completeness is enforced by the compiler.** `lang!` expands to a full
   `Strings { .. }` struct literal, so a language missing or misspelling a key

@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::SharedString;
 
+mod bit_perfect;
 mod cast;
 mod cs;
 mod de;
@@ -43,6 +44,7 @@ mod uk;
 mod vi;
 mod zh;
 
+pub use bit_perfect::{BitPerfectStrings, bit_perfect_strings};
 pub use cast::{CastStrings, cast_strings};
 pub use tools::{ToolsStrings, tools_strings};
 
@@ -280,18 +282,12 @@ pub struct Strings {
     // --- Audio settings ---
     pub audio_device: SharedString,
     pub exclusive_mode_title: SharedString,
-    pub bit_perfect_playback: SharedString,
-    pub not_bit_perfect: SharedString,
-    pub bp_not_exclusive: SharedString,
-    pub bp_system_muted: SharedString,
-    pub bp_no_source: SharedString,
     pub select_audio_device: SharedString,
     pub exclusive_click_disable: SharedString,
     pub shared_click_enable: SharedString,
     pub native_rate_title: SharedString,
     pub native_rate_click_disable: SharedString,
     pub native_rate_click_enable: SharedString,
-    pub bp_native_rate_off: SharedString,
     pub default_suffix: SharedString,
 
     pub onboarding_title: SharedString,
@@ -471,9 +467,6 @@ pub struct Strings {
     pub n_tracks_one: SharedString,
     pub n_tracks_few: SharedString,
     pub n_tracks_other: SharedString,
-    pub bp_system_volume_t: SharedString,
-    pub bp_sample_rate_t: SharedString,
-    pub bp_bit_depth_t: SharedString,
     pub failed_exclusive_t: SharedString,
     pub native_rate_failed_t: SharedString,
     pub failed_switch_device_t: SharedString,
@@ -574,21 +567,6 @@ impl Strings {
             PluralForm::Other => &self.n_tracks_other,
         };
         fill(template, &[&n.to_string()])
-    }
-
-    pub fn bp_system_volume(&self, value: &str) -> String {
-        fill(&self.bp_system_volume_t, &[value])
-    }
-
-    pub fn bp_sample_rate(&self, source_hz: u32, device_hz: u32) -> String {
-        fill(
-            &self.bp_sample_rate_t,
-            &[&source_hz.to_string(), &device_hz.to_string()],
-        )
-    }
-
-    pub fn bp_bit_depth(&self, source: u32) -> String {
-        fill(&self.bp_bit_depth_t, &[&source.to_string()])
     }
 
     pub fn failed_exclusive(&self, err: &str) -> String {

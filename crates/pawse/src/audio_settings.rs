@@ -1,4 +1,4 @@
-use audio_output::{BitPerfectIssue, BitPerfectStatus, OutputEvent, native_mode_available};
+use audio_output::{BitPerfectStatus, OutputEvent, native_mode_available};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Anchor, AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Render,
@@ -14,7 +14,7 @@ use gpui_component::{
 };
 
 use crate::cast::CastState;
-use crate::localization::tr;
+use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::{SettingsStore, ui_scale};
 use crate::theme_colors::Colors;
@@ -23,8 +23,10 @@ use ui_resources::i18n::cast_strings;
 pub struct AudioSettings {
     is_exclusive: bool,
     pending_notification: Option<String>,
+    bit_perfect_tooltip: Option<(BitPerfectStatus, gpui::SharedString)>,
     _settings_store_subscription: gpui::Subscription,
     _cast_subscription: gpui::Subscription,
+    _lang_subscription: gpui::Subscription,
     casting_to: Option<(&'static str, gpui::SharedString)>,
 }
 
@@ -35,7 +37,7 @@ struct StreamFailureNotif;
 /// On Linux the untouched-signal-path mode is "native sample rate" (we hand the
 /// output rate to PipeWire) rather than an exclusive grab of the device, so the
 /// same toggle speaks a different language there.
-const NATIVE_RATE_WORDING: bool = cfg!(target_os = "linux");
+pub(crate) const NATIVE_RATE_WORDING: bool = cfg!(target_os = "linux");
 
 fn mode_title() -> gpui::SharedString {
     if NATIVE_RATE_WORDING {
@@ -60,33 +62,6 @@ fn mode_failed(err: &str) -> String {
     } else {
         tr().failed_exclusive(err)
     }
-}
-
-fn format_bit_perfect_tooltip(status: &BitPerfectStatus) -> String {
-    let s = tr();
-    if status.is_bit_perfect() {
-        return s.bit_perfect_playback.to_string();
-    }
-    let mut lines = vec![s.not_bit_perfect.to_string()];
-    for issue in &status.issues {
-        let line = match issue {
-            BitPerfectIssue::NotExclusive if NATIVE_RATE_WORDING => {
-                s.bp_native_rate_off.to_string()
-            }
-            BitPerfectIssue::NotExclusive => s.bp_not_exclusive.to_string(),
-            BitPerfectIssue::SystemVolumeNotUnity { current } => {
-                s.bp_system_volume(&format!("{:.2}", current))
-            }
-            BitPerfectIssue::SystemMuted => s.bp_system_muted.to_string(),
-            BitPerfectIssue::SampleRateMismatch { source, device } => {
-                s.bp_sample_rate(*source, *device)
-            }
-            BitPerfectIssue::BitDepthExceedsContainer { source } => s.bp_bit_depth(*source as u32),
-            BitPerfectIssue::NoSource => s.bp_no_source.to_string(),
-        };
-        lines.push(line);
-    }
-    lines.join("\n")
 }
 
 fn receiver_icon(kind: cast::ReceiverKind) -> &'static str {
@@ -188,13 +163,31 @@ impl AudioSettings {
             });
             cx.notify();
         });
+        let lang_event_bus = cx.global::<Services>().lang_event_bus.clone();
+        let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
+            this.bit_perfect_tooltip = None;
+            cx.notify();
+        });
         Self {
             is_exclusive,
             pending_notification: None,
+            bit_perfect_tooltip: None,
             _settings_store_subscription: settings_store_subscription,
             _cast_subscription: cast_subscription,
+            _lang_subscription: lang_subscription,
             casting_to: None,
         }
+    }
+
+    fn bit_perfect_tooltip(&mut self, status: BitPerfectStatus) -> gpui::SharedString {
+        if let Some((cached, tooltip)) = &self.bit_perfect_tooltip
+            && *cached == status
+        {
+            return tooltip.clone();
+        }
+        let tooltip = crate::bit_perfect_info::tooltip(&status);
+        self.bit_perfect_tooltip = Some((status, tooltip.clone()));
+        tooltip
     }
 }
 
@@ -216,7 +209,10 @@ impl Render for AudioSettings {
             (output.drain_events(), is_exclusive, bit_perfect)
         };
         let casting = self.casting_to.is_some();
-        let bit_perfect = bit_perfect.filter(|_| !casting);
+        let bit_perfect = bit_perfect.filter(|_| !casting).map(|status| {
+            let is_perfect = status.is_bit_perfect();
+            (is_perfect, self.bit_perfect_tooltip(status))
+        });
         let show_hog =
             !casting && native_mode_available() && cx.global::<SettingsStore>().show_hog_button();
         let show_device_picker = cx.global::<SettingsStore>().show_device_picker();
@@ -251,9 +247,7 @@ impl Render for AudioSettings {
         h_flex()
             .gap_2()
             .items_center()
-            .when_some(bit_perfect, |el, bit_perfect| {
-                let is_perfect = bit_perfect.is_bit_perfect();
-                let tooltip_text = format_bit_perfect_tooltip(&bit_perfect);
+            .when_some(bit_perfect, |el, (is_perfect, tooltip_text)| {
                 let icon_name = if is_perfect {
                     IconName::Check
                 } else {
@@ -267,7 +261,8 @@ impl Render for AudioSettings {
                         .w(px(40. * scale))
                         .h(px(40. * scale))
                         .icon(Icon::new(icon_name).size(px(20. * scale)))
-                        .tooltip(tooltip_text),
+                        .tooltip(tooltip_text)
+                        .on_click(|_, window, cx| crate::bit_perfect_info::open(window, cx)),
                 )
             })
             .when(show_hog, |el| {

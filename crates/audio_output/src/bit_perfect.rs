@@ -4,7 +4,7 @@
 /// signal-path behaviour cannot disagree at boundary volumes.
 pub const UNITY_VOLUME_TOLERANCE: f32 = 0.02;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BitPerfectStatus {
     pub issues: Vec<BitPerfectIssue>,
 }

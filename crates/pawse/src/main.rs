@@ -12,6 +12,7 @@ use crate::{
 pub mod album_export;
 pub mod app_menu;
 pub mod audio_settings;
+pub mod bit_perfect_info;
 pub mod cache_fill;
 pub mod cache_settings;
 pub mod cast;
