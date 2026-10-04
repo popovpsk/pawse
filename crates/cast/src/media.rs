@@ -79,6 +79,9 @@ pub trait Accepts {
     fn original(&self, codec: Codec, extension: &str, probe: &Probe) -> Option<String>;
     fn pcm(&self) -> Container;
     fn pcm_limits(&self) -> (u32, u16);
+    fn wants_seek_table(&self) -> bool {
+        false
+    }
 }
 
 fn reduced_rate(rate: u32, max: u32) -> u32 {
@@ -90,7 +93,7 @@ fn reduced_rate(rate: u32, max: u32) -> u32 {
 }
 
 pub fn plan(media: &Media, probe: &Probe, accepts: &dyn Accepts) -> Result<Delivery, String> {
-    let segment = !media.start.is_zero();
+    let segment = !media.start.is_zero() || media.length.is_some();
     if !segment && let Some(mime) = accepts.original(probe.codec, &media.extension, probe) {
         return Ok(Delivery::Original { mime });
     }
@@ -232,6 +235,20 @@ mod tests {
         assert_eq!(spec.start, Duration::from_secs(30));
         assert_eq!(spec.frames, 480_000);
         assert_eq!(spec.bits, 24);
+    }
+
+    #[test]
+    fn the_first_cue_track_is_cut_too() {
+        let delivery = plan(
+            &media(Duration::ZERO, Some(Duration::from_secs(10))),
+            &probe(16, Codec::Flac),
+            &Fixed(Some("audio/flac"), Container::Wav),
+        )
+        .unwrap();
+        let Delivery::Pcm(spec) = delivery else {
+            panic!("expected PCM");
+        };
+        assert_eq!(spec.frames, 480_000);
     }
 
     #[test]

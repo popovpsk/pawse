@@ -42,6 +42,48 @@ fn get(server: &MediaServer, path: &str, extra: &str) -> (String, Vec<u8>) {
 }
 
 #[test]
+fn a_new_flac_head_is_served_in_front_of_the_original_frames() {
+    let path = fixture("tagged_with_cover.flac");
+    let bytes = std::fs::read(&path).unwrap();
+    let indexed = crate::flac::indexed(&path).unwrap().unwrap();
+    let mut expected = indexed.head.clone();
+    expected.extend_from_slice(&bytes[indexed.audio_start as usize..]);
+    let server = MediaServer::start().unwrap();
+    let published = server.publish(
+        Entry {
+            body: Body::Prefixed {
+                head: Arc::new(indexed.head.clone()),
+                path,
+                from: indexed.audio_start,
+            },
+            mime: "audio/flac".into(),
+        },
+        "flac",
+    );
+    let (head, body) = get(&server, &published, "");
+    assert!(
+        head.contains(&format!("Content-Length: {}", expected.len())),
+        "{head}"
+    );
+    assert_eq!(body, expected);
+    let split = indexed.head.len();
+    for (start, end) in [
+        (0, 9),
+        (split - 5, split + 5),
+        (split, split + 99),
+        (expected.len() - 10, expected.len() - 1),
+    ] {
+        let (head, body) = get(
+            &server,
+            &published,
+            &format!("Range: bytes={start}-{end}\r\n"),
+        );
+        assert!(head.starts_with("HTTP/1.1 206"), "{head}");
+        assert_eq!(body, expected[start..=end]);
+    }
+}
+
+#[test]
 fn files_are_served_whole_and_by_range() {
     let path = fixture("tagged_basic.flac");
     let bytes = std::fs::read(&path).unwrap();
@@ -320,7 +362,10 @@ fn a_chromecast_plays_a_file_through_the_media_server() {
     assert_eq!(loaded.content_type, "audio/flac");
     assert_eq!(loaded.title.as_deref(), Some("Basic"));
     assert!(loaded.image.unwrap().ends_with(".jpg"));
-    assert_eq!(state.fetched.unwrap(), std::fs::read(&path).unwrap());
+    let indexed = crate::flac::indexed(&path).unwrap().unwrap();
+    let mut expected = indexed.head;
+    expected.extend_from_slice(&std::fs::read(&path).unwrap()[indexed.audio_start as usize..]);
+    assert_eq!(state.fetched.unwrap(), expected);
 
     session.pause();
     expect_event(&events, &mut seen, |e| *e == SessionEvent::Paused);

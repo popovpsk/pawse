@@ -4,6 +4,7 @@ mod airplay_output;
 mod chromecast_driver;
 mod discovery;
 mod dlna_driver;
+mod flac;
 mod media;
 mod net;
 mod pcm;

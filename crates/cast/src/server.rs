@@ -23,6 +23,11 @@ pub enum Body {
     Stream(StreamOpener),
     Pcm(PcmSpec),
     Bytes(Arc<Vec<u8>>),
+    Prefixed {
+        head: Arc<Vec<u8>>,
+        path: PathBuf,
+        from: u64,
+    },
 }
 
 #[derive(Clone)]
@@ -36,12 +41,15 @@ impl Entry {
         matches!(self.body, Body::Pcm(_))
     }
 
-    fn len(&self) -> io::Result<Option<u64>> {
+    pub(crate) fn len(&self) -> io::Result<Option<u64>> {
         match &self.body {
             Body::File(path) => Ok(Some(std::fs::metadata(path)?.len())),
             Body::Stream(open) => Ok(open()?.byte_len()),
             Body::Pcm(spec) => Ok(Some(spec.len())),
             Body::Bytes(bytes) => Ok(Some(bytes.len() as u64)),
+            Body::Prefixed { head, path, from } => Ok(Some(
+                head.len() as u64 + std::fs::metadata(path)?.len().saturating_sub(*from),
+            )),
         }
     }
 
@@ -61,6 +69,18 @@ impl Entry {
             Body::Bytes(bytes) => {
                 let start = (offset as usize).min(bytes.len());
                 Ok(Box::new(io::Cursor::new(bytes[start..].to_vec())))
+            }
+            Body::Prefixed { head, path, from } => {
+                let mut file = File::open(path)?;
+                let head_len = head.len() as u64;
+                if offset >= head_len {
+                    file.seek(SeekFrom::Start(from + (offset - head_len)))?;
+                    return Ok(Box::new(file));
+                }
+                file.seek(SeekFrom::Start(*from))?;
+                Ok(Box::new(
+                    io::Cursor::new(head[offset as usize..].to_vec()).chain(file),
+                ))
             }
         }
     }

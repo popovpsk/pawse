@@ -28,6 +28,8 @@ There are two ways a receiver gets audio, and the crate has one of each:
 - `media.rs` — `Media` (what to play), `probe`, `plan` (original bytes or PCM),
   the per-device format tables.
 - `pcm.rs` — `PcmSpec`/`PcmReader`: decoding to WAV or raw L16 with byte ranges.
+- `flac.rs` — a seek table for a FLAC file that has none (`indexed`): the
+  metadata blocks, frame headers, the new head.
 - `session.rs` — `Session` and its worker thread: load, commands, polling,
   position, end-of-track detection. `Driver` is what a protocol implements.
 - `dlna_driver.rs`, `chromecast_driver.rs` — the two `Driver`s.
@@ -73,6 +75,9 @@ There are two ways a receiver gets audio, and the crate has one of each:
   header) for a renderer that lists L16 but no WAV. 16-bit when the source is
   16-bit or lossy (and always for L16), 24-bit otherwise. The frame count comes from the cue
   length or the decoder's duration, so the length is exact and known up front.
+- A cue track is always cut, also the first one of an image, which starts at
+  0:00 (`plan` takes a set length as a segment too); sent whole, the device
+  would play on into the next tracks.
 - PCM is kept within what the device plays (`Accepts::pcm_limits`):
   Chromecast 96 kHz and two channels, DLNA 192 kHz and eight. Over the limit
   the rate is halved until it fits (192 → 96, 352.8 → 88.2 kHz for DSD), with
@@ -81,6 +86,34 @@ There are two ways a receiver gets audio, and the crate has one of each:
   device, so there is no OS resampler to defer to.
 - The codec comes from the decoder (`audio_decoder::Decoder::codec`), not the
   extension: an `.m4a` is AAC or ALAC.
+- **A Chromecast gets FLAC with a seek table.** A local FLAC file without a
+  SEEKTABLE block (363 of 1609 in the user's library) is served with a new
+  head: `fLaC`, the original STREAMINFO and a SEEKTABLE, followed by the
+  file's frames byte for byte (`Body::Prefixed`; the other metadata, covers
+  included, is left out: the cover goes in the LOAD). Points are about 10 s
+  apart (at most 8192, wider apart beyond that): from a byte estimate (the
+  position's share of the audio bytes) the next frame header is looked for
+  within the maximum frame size plus 32 bytes (16 KB to 1 MB; 64 KB when
+  STREAMINFO does not say). A sync code counts only if the header's CRC-8
+  matches, its reserved values are not used, its rate, bit depth and
+  channels agree with STREAMINFO, its blocking strategy is the first
+  frame's, a fixed-size frame has the stream's block size (or ends the
+  stream) and its sample number is inside the stream; each point is that
+  frame's sample number and offset. All 363 such files of the user's
+  library got valid points (9626, each checked against the frame at its
+  offset), the slowest in 30 ms (13 minutes of 24/96).
+  Measured on the Xiaomi TV Stick (2026-10-04): without a table the receiver
+  first reads the end of the file on a seek (to bisect the stream) and then
+  sometimes stays there: it buffers for seconds or jumps to the end and
+  reports the track finished. Loaded paused in the middle of the track (a
+  switch to the Chromecast during a pause), it reported the track finished
+  3 s later, or its app closed itself 12 s later. With a table, the same
+  files (Tarantula 24/44.1, Pneuma 24/96) seek at once and stay paused.
+  WAV would avoid it too but is 1.5–2 times the bytes; DLNA renderers get
+  the file as it is (no trouble seen there). Server streams that are not
+  cached yet are sent as they are: `media_stream` fetches 4 MB at every
+  jump, so building the table would download the whole file before the
+  first note.
 - Server tracks are served from `RemoteMedia` streams (`Source::Stream`); each
   request opens its own reader on the same download, which doubles as the
   cache. The app keeps the first stream open for the track's lifetime so the
@@ -366,8 +399,10 @@ header needs it); `plan` fails with a message instead.
   and the HiBy R1 ("HiBy MediaRender", a gmrender derivative), and AirPlay
   against shairport-sync 4.3 (classic build), whose `-o stdout` output was
   recorded and checked for frequency and discontinuities. Chromecast: the
-  sessions against the fake, and a receiver status over TLS from a Xiaomi TV
-  Stick 4K (Android TV).
+  sessions against the fake, and the Xiaomi TV Stick 4K (Android TV) through
+  a temporary test that loaded a track paused or playing, paused it and
+  seeked eight times while printing every receiver and media status, with
+  the device volume at 0 and restored after.
 
 ## Known limits
 
@@ -387,5 +422,7 @@ header needs it); `plan` fails with a message instead.
   ~2.5 s the speaker still holds. A cached next track keeps the tail (the
   engine's natural-end path), as locally.
 - AirPlay 2 only devices (pairing, encryption) are not supported.
+- A server FLAC without a seek table that is not cached yet seeks badly on a
+  Chromecast (see "What a device gets").
 - The sleep timer's volume fade does not reach a cast device; the timer still
   pauses on time.

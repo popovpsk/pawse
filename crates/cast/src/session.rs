@@ -1,7 +1,11 @@
 use std::net::IpAddr;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use audio_decoder::Codec;
+
+use crate::flac;
 use crate::media::{Accepts, Delivery, Media, TrackInfo, plan, probe};
 use crate::server::{Body, Entry, MediaServer};
 
@@ -678,21 +682,22 @@ impl Worker {
         let accepts: &dyn Accepts = self.driver.as_ref();
         let delivery = plan(media, &probed, accepts)?;
         let peer = self.driver.peer();
+        let wants_seek_table = accepts.wants_seek_table();
         let (entry, size, duration) = match delivery {
             Delivery::Original { mime } => {
-                let size = media.source.byte_len().ok().flatten();
                 let duration = media.length.or(probed.duration);
-                (
-                    Entry {
-                        body: match &media.source {
-                            crate::media::Source::File(path) => Body::File(path.clone()),
-                            crate::media::Source::Stream(open) => Body::Stream(open.clone()),
-                        },
-                        mime,
-                    },
-                    size,
-                    duration,
-                )
+                let body = match &media.source {
+                    crate::media::Source::File(path)
+                        if wants_seek_table && probed.codec == Codec::Flac =>
+                    {
+                        indexed_flac(path)
+                    }
+                    crate::media::Source::File(path) => Body::File(path.clone()),
+                    crate::media::Source::Stream(open) => Body::Stream(open.clone()),
+                };
+                let entry = Entry { body, mime };
+                let size = entry.len().ok().flatten();
+                (entry, size, duration)
             }
             Delivery::Pcm(spec) => {
                 let size = Some(spec.len());
@@ -895,6 +900,28 @@ impl Worker {
             self.emit(SessionEvent::Position(duration));
         }
         self.emit(SessionEvent::Ended);
+    }
+}
+
+fn indexed_flac(path: &Path) -> Body {
+    match flac::indexed(path) {
+        Ok(Some(indexed)) => {
+            log::info!(
+                "cast: {} has no seek table; sending it with {} seek points",
+                path.display(),
+                indexed.points
+            );
+            Body::Prefixed {
+                head: Arc::new(indexed.head),
+                path: path.to_path_buf(),
+                from: indexed.audio_start,
+            }
+        }
+        Ok(None) => Body::File(path.to_path_buf()),
+        Err(e) => {
+            log::warn!("cast: indexing {} failed: {e}", path.display());
+            Body::File(path.to_path_buf())
+        }
     }
 }
 

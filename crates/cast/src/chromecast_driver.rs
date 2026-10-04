@@ -104,6 +104,10 @@ impl Accepts for ChromecastDriver {
     fn pcm_limits(&self) -> (u32, u16) {
         (96_000, 2)
     }
+
+    fn wants_seek_table(&self) -> bool {
+        true
+    }
 }
 
 impl Driver for ChromecastDriver {
