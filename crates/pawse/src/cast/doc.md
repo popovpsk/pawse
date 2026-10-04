@@ -28,7 +28,21 @@ There is always one target:
 - **Local** — the app's engine and its `PlaybackOpener`, as before.
 - **AirPlay** — a second `AudioEngine` running on `cast::AirPlayOutput`, with
   its own `PlaybackOpener`. Its positions are shifted back by what the speaker
-  has not played yet (`AirPlayOutput::pending`).
+  has not played yet (`AirPlayOutput::pending`). The device gets now playing
+  too: on every `Loaded` on the engine event bus (by then the queue's current
+  track is the loaded one, as for `media_bridge`) the title, artists, album
+  and large cover are looked up on a background task and handed to
+  `set_now_playing` (`publish_now_playing`; the subscription lives in the
+  target). Each lookup carries a generation and only the newest one is
+  handed over, so after a quick skip a slower lookup of the previous track
+  cannot win. Progress is sent from the engine's own positions in
+  `forward_airplay` (`Progress`): on `Loaded`, play, pause and stop, and when
+  a position is more than 1.5 s off where the last one should have moved
+  (a seek), as the engine position minus `pending()`, which is negative while
+  the previous track's tail still plays. Remote buttons from the device
+  (`AirPlayOutput::commands`) run `services::play`, `pause`,
+  `toggle_play_pause`, `play_next` and `play_previous`, like the media keys,
+  while the target is active.
 - **Renderer** — a `cast::Session`. Starting a track emits `Preparing` right
   away and resolves the media on a `cast-open` thread (the same locator order
   and fallbacks as the opener: local file, cached copy, server stream, or a

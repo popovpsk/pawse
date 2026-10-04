@@ -13,25 +13,18 @@ pub(crate) fn ntp_now() -> u64 {
     (seconds << 32) | fraction
 }
 
-pub(crate) fn audio_packet(
-    first: bool,
-    seq: u16,
-    timestamp: u32,
-    ssrc: u32,
-    payload: &[u8],
-) -> Vec<u8> {
-    let mut packet = Vec::with_capacity(12 + payload.len());
-    packet.push(0x80);
-    packet.push(if first {
+pub(crate) fn audio_header(first: bool, seq: u16, timestamp: u32, ssrc: u32) -> [u8; 12] {
+    let mut header = [0u8; 12];
+    header[0] = 0x80;
+    header[1] = if first {
         PAYLOAD_ALAC | MARKER
     } else {
         PAYLOAD_ALAC
-    });
-    packet.extend_from_slice(&seq.to_be_bytes());
-    packet.extend_from_slice(&timestamp.to_be_bytes());
-    packet.extend_from_slice(&ssrc.to_be_bytes());
-    packet.extend_from_slice(payload);
-    packet
+    };
+    header[2..4].copy_from_slice(&seq.to_be_bytes());
+    header[4..8].copy_from_slice(&timestamp.to_be_bytes());
+    header[8..12].copy_from_slice(&ssrc.to_be_bytes());
+    header
 }
 
 pub(crate) fn sync_packet(first: bool, playing: u32, ntp: u64, next: u32) -> [u8; 20] {
@@ -81,13 +74,11 @@ mod tests {
 
     #[test]
     fn audio_packets_carry_the_marker_only_when_first() {
-        let first = audio_packet(true, 0x0102, 0x0a0b0c0d, 7, &[9]);
         assert_eq!(
-            &first[..12],
-            &[0x80, 0xe0, 1, 2, 0x0a, 0x0b, 0x0c, 0x0d, 0, 0, 0, 7]
+            audio_header(true, 0x0102, 0x0a0b0c0d, 7),
+            [0x80, 0xe0, 1, 2, 0x0a, 0x0b, 0x0c, 0x0d, 0, 0, 0, 7]
         );
-        assert_eq!(first[12], 9);
-        assert_eq!(audio_packet(false, 1, 1, 1, &[])[1], 0x60);
+        assert_eq!(audio_header(false, 1, 1, 1)[1], 0x60);
     }
 
     #[test]

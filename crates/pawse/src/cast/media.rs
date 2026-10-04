@@ -57,6 +57,13 @@ fn cover_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
+pub(crate) fn cover(bytes: Vec<u8>) -> cast::Cover {
+    cast::Cover {
+        mime: cover_mime(&bytes).to_string(),
+        bytes: Arc::new(bytes),
+    }
+}
+
 fn stream_source(backend: &Arc<dyn OpenerBackend>, locator: &str) -> Result<cast::Source, String> {
     let first: PendingStream = backend.open_stream(Path::new(locator))?;
     let keep = Arc::new(Mutex::new(Some(first)));
@@ -125,10 +132,7 @@ pub(crate) fn resolve(
     let cover = track
         .cover_art_id
         .and_then(|id| library.get_cover_art_large(id))
-        .map(|bytes| cast::Cover {
-            mime: cover_mime(&bytes).to_string(),
-            bytes: Arc::new(bytes),
-        });
+        .map(cover);
     Ok(cast::Media {
         source,
         extension,

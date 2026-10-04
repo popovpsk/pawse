@@ -1,12 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, PoisonError};
+use std::time::{Duration, Instant};
 
 use audio_common::{ChannelCount, StreamParams};
 use audio_engine::{AudioEngine, EngineEvent, EngineManager, TrackResolver};
-use gpui::{App, AppContext, BorrowAppContext, Global};
+use gpui::{App, AppContext, BorrowAppContext, Global, Subscription};
 use gpui_component::WindowExt;
 use gpui_component::notification::Notification;
 use music_library::Track;
@@ -24,6 +24,7 @@ const LOCAL: u64 = 0;
 const AIRPLAY_START_VOLUME: f32 = 0.5;
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 const LOCAL_FADE_OUT: Duration = Duration::from_millis(400);
+const PROGRESS_JUMP: Duration = Duration::from_millis(1500);
 
 #[derive(Default)]
 pub struct CastState {
@@ -62,6 +63,7 @@ struct AirPlayTarget {
     engine: Rc<AudioEngine>,
     opener: PlaybackOpener,
     output: Arc<cast::AirPlayOutput>,
+    _now_playing: Subscription,
 }
 
 struct RendererTarget {
@@ -495,12 +497,14 @@ fn activate(receiver: cast::Receiver, connected: Connected, volume: f32, cx: &mu
             ));
             let opener = PlaybackOpener::new(player.backend.clone(), engine_sink(&engine));
             forward_airplay(id, &engine, &output, &player, cx);
+            let now_playing = publish_now_playing(id, &output, cx);
             (
                 Target::AirPlay(AirPlayTarget {
                     id,
                     engine,
                     opener,
                     output,
+                    _now_playing: now_playing,
                 }),
                 Some(volume),
             )
@@ -609,9 +613,14 @@ fn forward_airplay(
     let active = player.active.clone();
     let pending = output.clone();
     cx.spawn(async move |_| {
+        let mut progress = Progress::default();
         while let Ok(event) = events.recv_async().await {
             if active.load(Ordering::Acquire) != id {
                 continue;
+            }
+            if let Some((position, duration)) = progress.follow(&event, Instant::now()) {
+                let heard = position.as_millis() as i64 - pending.pending().as_millis() as i64;
+                pending.set_progress(heard, duration.as_millis() as u64);
             }
             let event = match event {
                 EngineEvent::PositionChanged(position) => {
@@ -633,6 +642,114 @@ fn forward_airplay(
         }
     })
     .detach();
+    let commands = output.commands();
+    let active = player.active.clone();
+    cx.spawn(async move |cx| {
+        while let Ok(command) = commands.recv_async().await {
+            if active.load(Ordering::Acquire) != id {
+                continue;
+            }
+            cx.update(|cx| match command {
+                cast::RemoteCommand::Play => crate::services::play(cx),
+                cast::RemoteCommand::Pause => crate::services::pause(cx),
+                cast::RemoteCommand::PlayPause => {
+                    crate::services::toggle_play_pause(cx);
+                }
+                cast::RemoteCommand::Next => crate::services::play_next(cx),
+                cast::RemoteCommand::Previous => crate::services::play_previous(cx),
+            });
+        }
+    })
+    .detach();
+}
+
+#[derive(Default)]
+struct Progress {
+    duration: Duration,
+    position: Option<(Duration, Instant)>,
+    playing: bool,
+}
+
+impl Progress {
+    fn follow(&mut self, event: &EngineEvent, now: Instant) -> Option<(Duration, Duration)> {
+        let jumped = match event {
+            EngineEvent::Loaded { duration, .. } => {
+                self.duration = *duration;
+                self.position = Some((Duration::ZERO, now));
+                true
+            }
+            EngineEvent::Playing => {
+                self.position = self.expected(now).map(|position| (position, now));
+                self.playing = true;
+                true
+            }
+            EngineEvent::Paused | EngineEvent::Stopped => {
+                self.position = self.expected(now).map(|position| (position, now));
+                self.playing = false;
+                true
+            }
+            EngineEvent::PositionChanged(position) => {
+                let expected = self.expected(now);
+                self.position = Some((*position, now));
+                expected.is_none_or(|expected| expected.abs_diff(*position) > PROGRESS_JUMP)
+            }
+            _ => false,
+        };
+        let (position, _) = self.position.filter(|_| jumped)?;
+        Some((position, self.duration))
+    }
+
+    fn expected(&self, now: Instant) -> Option<Duration> {
+        let (position, at) = self.position?;
+        Some(if self.playing {
+            position + now.saturating_duration_since(at)
+        } else {
+            position
+        })
+    }
+}
+
+fn publish_now_playing(id: u64, output: &Arc<cast::AirPlayOutput>, cx: &mut App) -> Subscription {
+    let output = output.clone();
+    let latest = Arc::new(std::sync::Mutex::new(0u64));
+    let bus = cx.global::<Services>().engine_event_bus.clone();
+    cx.subscribe(&bus, move |_, event: &EngineEvent, cx| {
+        if !matches!(event, EngineEvent::Loaded { .. }) {
+            return;
+        }
+        let services = cx.global::<Services>();
+        if services.player.active.load(Ordering::Acquire) != id {
+            return;
+        }
+        let Some(track) = services.playback_queue.borrow().current_track().cloned() else {
+            return;
+        };
+        let library = services.library.clone();
+        let output = output.clone();
+        let generation = {
+            let mut latest = latest.lock().unwrap_or_else(PoisonError::into_inner);
+            *latest += 1;
+            *latest
+        };
+        let latest = latest.clone();
+        cx.background_spawn(async move {
+            let info = cast::TrackInfo {
+                title: track.title.clone(),
+                artist: Some(library.track_artists(track.id).join(", "))
+                    .filter(|artist| !artist.is_empty()),
+                album: track.album_id.and_then(|id| library.album_title(id)),
+            };
+            let cover = track
+                .cover_art_id
+                .and_then(|id| library.get_cover_art_large(id))
+                .map(media::cover);
+            let current = latest.lock().unwrap_or_else(PoisonError::into_inner);
+            if *current == generation {
+                output.set_now_playing(info, cover);
+            }
+        })
+        .detach();
+    })
 }
 
 fn forward_session(id: u64, target: &RendererTarget, player: &Player, cx: &mut App) {
@@ -708,4 +825,48 @@ fn lose(id: u64, name: &str, reason: &str, cx: &mut App) {
         Notification::warning(cast_strings().connection_lost(name))
             .title(cast_strings().streaming.clone()),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn loaded(seconds: u64) -> EngineEvent {
+        EngineEvent::Loaded {
+            params: StreamParams::new(44_100, ChannelCount::Stereo, 16),
+            duration: Duration::from_secs(seconds),
+        }
+    }
+
+    #[test]
+    fn progress_goes_out_on_a_new_track_a_state_change_and_a_jump_only() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let position = |ms: u64| EngineEvent::PositionChanged(Duration::from_millis(ms));
+        let mut progress = Progress::default();
+        assert_eq!(
+            progress.follow(&loaded(200), at(0)),
+            Some((Duration::ZERO, Duration::from_secs(200)))
+        );
+        assert!(progress.follow(&EngineEvent::Playing, at(0)).is_some());
+        assert_eq!(progress.follow(&position(1_000), at(1_000)), None);
+        assert_eq!(progress.follow(&position(2_100), at(2_000)), None);
+        assert_eq!(
+            progress.follow(&position(60_000), at(2_100)),
+            Some((Duration::from_secs(60), Duration::from_secs(200)))
+        );
+        assert_eq!(
+            progress.follow(&EngineEvent::Paused, at(3_100)),
+            Some((Duration::from_secs(61), Duration::from_secs(200)))
+        );
+        assert_eq!(progress.follow(&position(61_000), at(9_000)), None);
+        assert_eq!(
+            progress.follow(&position(30_000), at(9_100)),
+            Some((Duration::from_secs(30), Duration::from_secs(200)))
+        );
+        assert_eq!(
+            progress.follow(&EngineEvent::Buffering(true), at(9_200)),
+            None
+        );
+    }
 }

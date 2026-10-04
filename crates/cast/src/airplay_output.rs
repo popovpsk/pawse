@@ -8,7 +8,9 @@ use audio_common::{AudioBatch, AudioSamples};
 use audio_output::{AudioOutput, EngineOutput, FadeEvent, FadeState, apply_fade_gain};
 use rubato::{FftFixedIn, Resampler};
 
-use airplay::{CHANNELS, LATENCY_FRAMES, SAMPLE_RATE};
+use airplay::{CHANNELS, LATENCY_FRAMES, NowPlaying, RemoteCommand, SAMPLE_RATE};
+
+use crate::media::{Cover, TrackInfo};
 
 const QUEUE_SECONDS: f32 = 0.5;
 const WRITE_WAIT: Duration = Duration::from_millis(200);
@@ -199,13 +201,19 @@ pub struct AirPlayOutput {
     intent: AtomicBool,
     closed: AtomicBool,
     volume: AtomicF32,
+    now_playing: Mutex<Option<NowPlaying>>,
+    progress: Mutex<Option<(i64, u64)>>,
+    route: Mutex<Option<crate::dacp::Route>>,
     lost: flume::Sender<String>,
     lost_events: flume::Receiver<String>,
+    remote: flume::Sender<RemoteCommand>,
+    remote_commands: flume::Receiver<RemoteCommand>,
 }
 
 impl AirPlayOutput {
     pub fn connect(device: airplay::Device, volume: f32) -> Result<Arc<Self>, String> {
         let (lost, lost_events) = flume::unbounded();
+        let (remote, remote_commands) = flume::unbounded();
         let output = Arc::new(Self {
             device,
             stream: Mutex::new(None),
@@ -219,8 +227,13 @@ impl AirPlayOutput {
             intent: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             volume: AtomicF32::new(volume),
+            now_playing: Mutex::new(None),
+            progress: Mutex::new(None),
+            route: Mutex::new(None),
             lost,
             lost_events,
+            remote,
+            remote_commands,
         });
         output.ensure_stream()?;
         Ok(output)
@@ -232,6 +245,33 @@ impl AirPlayOutput {
 
     pub fn lost(&self) -> flume::Receiver<String> {
         self.lost_events.clone()
+    }
+
+    pub fn commands(&self) -> flume::Receiver<RemoteCommand> {
+        self.remote_commands.clone()
+    }
+
+    pub fn set_now_playing(&self, info: TrackInfo, cover: Option<Cover>) {
+        let now = NowPlaying {
+            title: info.title,
+            artist: info.artist,
+            album: info.album,
+            cover: cover.map(|cover| airplay::Cover {
+                mime: cover.mime,
+                bytes: cover.bytes,
+            }),
+        };
+        *lock(&self.now_playing) = Some(now.clone());
+        if let Some(stream) = lock(&self.stream).as_ref() {
+            stream.set_now_playing(now);
+        }
+    }
+
+    pub fn set_progress(&self, heard_ms: i64, duration_ms: u64) {
+        *lock(&self.progress) = Some((heard_ms, duration_ms));
+        if let Some(stream) = lock(&self.stream).as_ref() {
+            stream.set_progress(heard_ms, duration_ms);
+        }
     }
 
     pub fn pending(&self) -> Duration {
@@ -274,13 +314,19 @@ impl AirPlayOutput {
         )
         .map_err(|e| e.to_string())?;
         let events = stream.events();
-        let lost = self.lost.clone();
+        let (lost, remote) = (self.lost.clone(), self.remote.clone());
         let _ = std::thread::Builder::new()
-            .name("airplay-events".into())
+            .name("airplay-forward".into())
             .spawn(move || {
                 while let Ok(event) = events.recv() {
-                    let airplay::StreamEvent::Lost(reason) = event;
-                    let _ = lost.send(reason);
+                    match event {
+                        airplay::StreamEvent::Lost(reason) => {
+                            let _ = lost.send(reason);
+                        }
+                        airplay::StreamEvent::Remote(command) => {
+                            let _ = remote.send(command);
+                        }
+                    }
                 }
             });
         let replaced = lock(&self.stream).replace(stream);
@@ -289,6 +335,17 @@ impl AirPlayOutput {
             let stream = lock(&self.stream).take();
             drop(stream);
             return Err("the AirPlay output is closed".into());
+        }
+        if let Some(stream) = lock(&self.stream).as_ref() {
+            let old = lock(&self.route).take();
+            drop(old);
+            *lock(&self.route) = crate::dacp::route(stream.active_remote(), self.remote.clone());
+            if let Some(now) = lock(&self.now_playing).clone() {
+                stream.set_now_playing(now);
+            }
+            if let Some((heard_ms, duration_ms)) = *lock(&self.progress) {
+                stream.set_progress(heard_ms, duration_ms);
+            }
         }
         Ok(())
     }
@@ -300,6 +357,7 @@ impl AirPlayOutput {
         self.buffer.space.notify_all();
         let stream = lock(&self.stream).take();
         drop(stream);
+        lock(&self.route).take();
     }
 }
 

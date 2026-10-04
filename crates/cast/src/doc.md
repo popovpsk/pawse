@@ -1,7 +1,7 @@
 # cast
 
 Playing the library on network receivers: Chromecast, DLNA/UPnP renderers and
-AirPlay 1 (RAOP) speakers. GPUI-free; `pawse::cast` wires it into the player.
+AirPlay speakers (AirPlay 1 and AirPlay 2). GPUI-free; `pawse::cast` wires it into the player.
 The protocol clients live in their own crates (`chromecast`, `airplay`, and the
 renderer half of `dlna`); this crate is what is common to them.
 
@@ -34,6 +34,8 @@ There are two ways a receiver gets audio, and the crate has one of each:
   position, end-of-track detection. `Driver` is what a protocol implements.
 - `dlna_driver.rs`, `chromecast_driver.rs` — the two `Driver`s.
 - `airplay_output.rs` — `AirPlayOutput`.
+- `dacp.rs` — the DACP server for AirPlay remote buttons and its mDNS
+  announcement.
 - `net.rs` — `local_ip_for`: the address of the interface that routes to a
   device, which is the host put into media URLs; the IPv4 interfaces and a
   socket that sends multicast out of one of them.
@@ -247,7 +249,7 @@ header needs it); `plan` fails with a message instead.
 
 ## AirPlay output
 
-- RAOP takes 44.1 kHz 16-bit stereo only. `write` maps channels (mono is
+- The `airplay` sender takes 44.1 kHz 16-bit stereo only (both protocols). `write` maps channels (mono is
   doubled, 5.1 is downmixed), resamples with `rubato` (`FftFixedIn`, 1024-frame
   chunks) when the source rate differs, and queues up to 0.5 s; a full queue
   makes `write` wait up to 200 ms and then report nothing written, before
@@ -273,6 +275,27 @@ header needs it); `plan` fails with a message instead.
   instead of jumping back); the app subtracts it from the engine's
   positions. The title of the next track still
   switches when the engine moves on, about 2 s before it is heard.
+- **Now playing and the remote.** The last `set_now_playing` (title,
+  artist, album, cover) and `set_progress` are kept and sent again to a
+  reconnected stream, after it is installed: the engine reports `Playing`
+  before it resumes the output, so the progress for a resume that reconnects
+  arrives while there is no stream yet. Remote buttons from the device arrive
+  on `commands()`, beside `lost()`, from two places: the stream's own events
+  (the AirPlay 2 event connection; the `airplay-forward` thread sorts them
+  from `Lost`) and DACP.
+- **DACP** (`dacp.rs`): one HTTP server for the app run, on an ephemeral
+  port, started with the first AirPlay stream (so nothing is announced for a
+  user who never casts), announced by its own `mdns-sd` daemon as
+  `iTunes_Ctrl_<airplay::dacp_id()>._dacp._tcp` with the TXT keys iTunes and
+  Music Assistant use (`txtvers`, `Ver`, `DbId`, `OSsi`) and the IPv4
+  addresses of all interfaces (the server listens on IPv4 only, so IPv6 is
+  switched off in that daemon). Each stream registers a route under its
+  `Active-Remote`; a request is answered `204` and its command goes to the
+  route it names. One connection at a time, its head read within 2 s in
+  all. Commands are logged (info); an ignored request (a volume report, an
+  unknown path or remote) is logged at info the first time its path (up to
+  `=`) is seen and at debug after that, so a device's requests show up
+  without a line per poll.
 - A stream that died while paused (a speaker may drop an idle session) is
   reconnected on resume; only a failure there, or losing the speaker while
   playing, is reported on `lost()`. The handshake runs without holding the
@@ -294,7 +317,8 @@ header needs it); `plan` fails with a message instead.
 - **Four threads feed one list** (`Inner`), keyed `chromecast:<id>`,
   `airplay:<mac>`, `dlna:<udn>`; a receiver that comes back at another address
   is updated in place:
-  - `cast-mdns`: `mdns-sd` browsing `_googlecast._tcp` and `_raop._tcp`.
+  - `cast-mdns`: `mdns-sd` browsing `_googlecast._tcp`, `_raop._tcp` and
+    `_airplay._tcp`.
   - `cast-ssdp`: an SSDP search for renderers every 60 s and on `refresh`,
     to the multicast group and to every known host (`dlna::discover_renderers`
     with hosts).
@@ -315,7 +339,7 @@ header needs it); `plan` fails with a message instead.
   They get the unicast M-SEARCH and the unicast mDNS queries: the Pi's
   AirPlay speaker is found through the NOTIFY of the renderer on the same
   Pi when no mDNS multicast gets through.
-- **Legacy unicast mDNS** (`unicast_mdns`): PTR queries for both service types
+- **Legacy unicast mDNS** (`unicast_mdns`): PTR queries for the three service types
   are sent from an ephemeral port, to 224.0.0.251 out of every IPv4
   interface and to `<host>:5353` of every known host. A query from a port
   other than 5353 must be answered by unicast to that port (RFC 6762 §6.7),
@@ -373,9 +397,27 @@ header needs it); `plan` fails with a message instead.
   before and after a leave and join of each group and after joining another
   one. On macOS mDNSResponder holds 224.0.0.251 anyway, so a leave and join
   of ours sends no IGMP report.
-- Chromecasts without the audio-out capability bit are skipped. AirPlay
-  speakers that need encryption, a password, a codec other than ALAC or a
-  format other than 44.1/16/2 are skipped (see `airplay`).
+- Chromecasts without the audio-out capability bit are skipped. A RAOP
+  record that needs encryption, a password, a codec other than ALAC or a
+  format other than 44.1/16/2 is skipped, and so is an AirPlay 2 record that
+  needs a code shown on the device, a password or a home membership (see
+  `airplay`).
+- **One AirPlay device, two records.** Many speakers announce both
+  `_raop._tcp` and `_airplay._tcp`; both give the id `airplay:<mac>` (the RAOP
+  instance prefix, the AirPlay 2 `deviceid`). A supported RAOP record wins:
+  an AirPlay 2 record for an id listed over RAOP at the same address only
+  counts as hearing from it, and a RAOP record replaces an AirPlay 2 one. An
+  AirPlay 2 record at another address, or while the RAOP entry is up for a
+  check (its record said goodbye), replaces the entry: a stale RAOP address
+  is not kept alive by the other record, and RAOP takes the entry back when
+  it is heard again. RAOP is what was tested on
+  most speakers, so a speaker that played before keeps playing the same way;
+  AirPlay 2 is for devices without a usable RAOP record (TVs from Hisense,
+  LG, Samsung, Sony and Roku announce only `_airplay._tcp`). A receiver is
+  checked by the record it is listed with.
+- Services announced from one of the computer's own addresses are skipped
+  (in `mdns-sd` answers, unicast ones and host names resolved to IPv4): a Mac
+  with AirPlay Receiver on would otherwise offer itself.
 
 ## Testing
 
@@ -432,7 +474,10 @@ header needs it); `plan` fails with a message instead.
   the engine's `Prepare` clears the output, and that flush cuts the last
   ~2.5 s the speaker still holds. A cached next track keeps the tail (the
   engine's natural-end path), as locally.
-- AirPlay 2 only devices (pairing, encryption) are not supported.
+- AirPlay 2 works with transient pairing and NTP timing only: devices that
+  pair with a code shown on them (Apple TVs set that way), passwords, PTP-only
+  receivers (shairport-sync's AirPlay 2 build) and buffered audio are not
+  supported (see `airplay`).
 - A server FLAC without a seek table that is not cached yet seeks badly on a
   Chromecast (see "What a device gets").
 - The sleep timer's volume fade does not reach a cast device; the timer still

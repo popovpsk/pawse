@@ -21,7 +21,11 @@ const DESCRIBE_AGAIN_AFTER: Duration = Duration::from_secs(30);
 const FORGET_HOST_AFTER: Duration = Duration::from_secs(30 * 60);
 const MAX_HOSTS: usize = 64;
 const NOTIFY_POLL: Duration = Duration::from_secs(1);
-const SERVICE_TYPES: [&str; 2] = [chromecast::SERVICE_TYPE, airplay::SERVICE_TYPE];
+const SERVICE_TYPES: [&str; 3] = [
+    chromecast::SERVICE_TYPE,
+    airplay::RAOP_SERVICE_TYPE,
+    airplay::AIRPLAY_SERVICE_TYPE,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ReceiverKind {
@@ -96,6 +100,10 @@ impl Receiver {
         }
     }
 
+    fn airplay_protocol(&self) -> Option<airplay::Protocol> {
+        self.airplay_device().map(|device| device.protocol)
+    }
+
     fn has_ipv4(&self) -> bool {
         match &self.endpoint {
             Endpoint::Chromecast(address) => address.is_ipv4(),
@@ -126,7 +134,13 @@ impl Receiver {
 fn reachable(receiver: &Receiver) -> bool {
     match &receiver.endpoint {
         Endpoint::Chromecast(address) => announces(receiver, chromecast::SERVICE_TYPE, *address),
-        Endpoint::AirPlay(device) => announces(receiver, airplay::SERVICE_TYPE, device.address),
+        Endpoint::AirPlay(device) => {
+            let service_type = match device.protocol {
+                airplay::Protocol::Raop => airplay::RAOP_SERVICE_TYPE,
+                airplay::Protocol::AirPlay2 => airplay::AIRPLAY_SERVICE_TYPE,
+            };
+            announces(receiver, service_type, device.address)
+        }
         Endpoint::Dlna(location) => dlna::describe_renderer(location)
             .is_ok_and(|device| dlna_id(&device.udn) == receiver.id),
     }
@@ -195,6 +209,16 @@ impl Inner {
     fn upsert(&self, receiver: Receiver, service: Option<String>) {
         let mut seen = lock(&self.seen);
         let changed = match seen.iter_mut().find(|s| s.receiver.id == receiver.id) {
+            Some(existing)
+                if existing.receiver.airplay_protocol() == Some(airplay::Protocol::Raop)
+                    && receiver.airplay_protocol() == Some(airplay::Protocol::AirPlay2)
+                    && existing.receiver.host() == receiver.host()
+                    && !existing.doubted =>
+            {
+                existing.heard = Instant::now();
+                existing.doubted = false;
+                false
+            }
             Some(existing) => {
                 let changed = existing.receiver != receiver;
                 existing.receiver = receiver;
@@ -484,14 +508,16 @@ fn check(inner: &Inner, now: Instant, reachable: impl Fn(&Receiver) -> bool) {
     }
 }
 
+fn is_own(addresses: &[IpAddr], own: &[Ipv4Addr]) -> bool {
+    addresses
+        .iter()
+        .any(|address| matches!(address, IpAddr::V4(v4) if own.contains(v4)))
+}
+
 fn ask_directly(inner: &Inner) {
     let own = net::ipv4_interfaces();
     for found in unicast_mdns::browse(&SERVICE_TYPES, &inner.hosts(), UNICAST_WAIT) {
-        if found
-            .addresses
-            .iter()
-            .any(|address| matches!(address, IpAddr::V4(v4) if own.contains(v4)))
-        {
+        if is_own(&found.addresses, &own) {
             continue;
         }
         for address in &found.addresses {
@@ -601,7 +627,7 @@ enum Wake {
 
 struct Browsing {
     daemon: ServiceDaemon,
-    browsers: [mdns_sd::Receiver<ServiceEvent>; 2],
+    browsers: [mdns_sd::Receiver<ServiceEvent>; 3],
 }
 
 impl Browsing {
@@ -616,9 +642,9 @@ impl Browsing {
                 .ok()
         });
         match browsers {
-            [Some(chromecasts), Some(speakers)] => Some(Self {
+            [Some(chromecasts), Some(raop), Some(airplay)] => Some(Self {
                 daemon,
-                browsers: [chromecasts, speakers],
+                browsers: [chromecasts, raop, airplay],
             }),
             _ => {
                 let _ = daemon.shutdown();
@@ -653,6 +679,7 @@ impl Lookups {
         let spawned = std::thread::Builder::new()
             .name("cast-lookup".into())
             .spawn(move || match ipv4_of(&host, port) {
+                Some(ip) if is_own(&[ip], &net::ipv4_interfaces()) => {}
                 Some(ip) => inner.upsert(receiver.with_ip(ip), Some(service)),
                 None => log::info!(
                     "cast: {} announced no IPv4 address and {host} does not resolve to one",
@@ -687,6 +714,9 @@ fn browse(inner: Arc<Inner>, rebrowses: flume::Receiver<()>) {
                     event.map_or(Wake::DaemonGone, Wake::Event)
                 })
                 .recv(&current.browsers[1], |event| {
+                    event.map_or(Wake::DaemonGone, Wake::Event)
+                })
+                .recv(&current.browsers[2], |event| {
                     event.map_or(Wake::DaemonGone, Wake::Event)
                 })
                 .recv(&rebrowses, |asked| {
@@ -731,9 +761,17 @@ fn receiver_of<'a>(
     if service_type == chromecast::SERVICE_TYPE {
         chromecast::Device::from_service(addresses, port, txt)
             .map(|device| Receiver::from_chromecast(&device))
-    } else if service_type == airplay::SERVICE_TYPE {
+    } else if service_type == airplay::RAOP_SERVICE_TYPE {
         airplay::Device::from_service(
-            instance_name(fullname, airplay::SERVICE_TYPE),
+            instance_name(fullname, airplay::RAOP_SERVICE_TYPE),
+            addresses,
+            port,
+            txt,
+        )
+        .map(|device| Receiver::from_airplay(&device))
+    } else if service_type == airplay::AIRPLAY_SERVICE_TYPE {
+        airplay::Device::from_airplay_service(
+            instance_name(fullname, airplay::AIRPLAY_SERVICE_TYPE),
             addresses,
             port,
             txt,
@@ -752,6 +790,9 @@ fn handle(inner: &Inner, lookups: &mut Lookups, event: ServiceEvent) {
                 .iter()
                 .map(|address| address.to_ip_addr())
                 .collect();
+            if is_own(&addresses, &net::ipv4_interfaces()) {
+                return;
+            }
             for address in &addresses {
                 inner.note_host(*address);
             }
@@ -1053,10 +1094,71 @@ mod tests {
         assert_eq!(
             instance_name(
                 "2863813C4503@Pi AirPlay._raop._tcp.local.",
-                airplay::SERVICE_TYPE
+                airplay::RAOP_SERVICE_TYPE
             ),
             "2863813C4503@Pi AirPlay"
         );
-        assert_eq!(instance_name("odd", airplay::SERVICE_TYPE), "odd");
+        assert_eq!(instance_name("odd", airplay::RAOP_SERVICE_TYPE), "odd");
+    }
+
+    fn speaker(protocol: airplay::Protocol, ip: &str) -> Receiver {
+        Receiver::from_airplay(&airplay::Device {
+            id: "2863813C4503".into(),
+            name: "Pi AirPlay".into(),
+            model: None,
+            address: SocketAddr::new(ip.parse().unwrap(), 7000),
+            protocol,
+        })
+    }
+
+    #[test]
+    fn a_speaker_announcing_both_protocols_is_listed_once_over_airplay_1() {
+        let (inner, _changes) = inner();
+        inner.upsert(speaker(airplay::Protocol::AirPlay2, "192.168.3.22"), None);
+        inner.upsert(speaker(airplay::Protocol::Raop, "192.168.3.22"), None);
+        let listed = || -> Vec<Receiver> {
+            lock(&inner.seen)
+                .iter()
+                .map(|s| s.receiver.clone())
+                .collect()
+        };
+        assert_eq!(listed(), [speaker(airplay::Protocol::Raop, "192.168.3.22")]);
+        assert_eq!(listed()[0].id, "airplay:2863813c4503");
+        inner.doubt("airplay:2863813c4503");
+        inner.upsert(speaker(airplay::Protocol::AirPlay2, "192.168.3.22"), None);
+        assert_eq!(
+            listed(),
+            [speaker(airplay::Protocol::AirPlay2, "192.168.3.22")]
+        );
+        inner.upsert(speaker(airplay::Protocol::Raop, "192.168.3.22"), None);
+        inner.upsert(speaker(airplay::Protocol::AirPlay2, "192.168.3.23"), None);
+        assert_eq!(
+            listed(),
+            [speaker(airplay::Protocol::AirPlay2, "192.168.3.23")]
+        );
+    }
+
+    #[test]
+    fn an_airplay_2_record_lists_a_tv_that_has_no_raop_service() {
+        let txt: HashMap<&str, &str> = [
+            ("deviceid", "4F:CB:77:B2:06:25"),
+            ("features", "0x7F8AD0,0x38BCF46"),
+            ("flags", "0x244"),
+            ("model", "55U7SE"),
+        ]
+        .into_iter()
+        .collect();
+        let tv = receiver_of(
+            airplay::AIRPLAY_SERVICE_TYPE,
+            "Guest Room TV._airplay._tcp.local.",
+            vec!["192.168.3.7".parse().unwrap()],
+            7000,
+            |key| txt.get(key).copied(),
+        )
+        .unwrap();
+        assert_eq!(tv.id, "airplay:4fcb77b20625");
+        assert_eq!(tv.name, "Guest Room TV");
+        assert_eq!(tv.kind, ReceiverKind::AirPlay);
+        assert_eq!(tv.airplay_protocol(), Some(airplay::Protocol::AirPlay2));
     }
 }

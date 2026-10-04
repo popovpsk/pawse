@@ -6,14 +6,19 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::rtsp::{Rtsp, transport_ports};
+use crate::handshake::TimingServer;
+use crate::metadata::{self, NowPlaying, RemoteCommand};
+use crate::rtsp::Rtsp;
+use crate::secure::AudioCipher;
 use crate::{
-    CHANNELS, Device, Error, FRAMES_PER_PACKET, LATENCY_FRAMES, SAMPLE_RATE, alac, rtp, volume_db,
+    CHANNELS, Device, Error, FRAMES_PER_PACKET, LATENCY_FRAMES, Protocol, SAMPLE_RATE, alac,
+    handshake, rtp, volume_db,
 };
 
 const HISTORY: usize = 1024;
 const SYNC_EVERY: Duration = Duration::from_secs(1);
 const KEEPALIVE_EVERY: Duration = Duration::from_secs(15);
+const FEEDBACK_EVERY: Duration = Duration::from_secs(2);
 const UDP_POLL: Duration = Duration::from_millis(100);
 const MAX_LAG: i64 = SAMPLE_RATE as i64;
 const SEND_FAILURES_LIMIT: u32 = 200;
@@ -26,6 +31,7 @@ pub trait Render: Send + 'static {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StreamEvent {
     Lost(String),
+    Remote(RemoteCommand),
 }
 
 enum Control {
@@ -33,7 +39,15 @@ enum Control {
     Pause { flush: bool },
     Flush,
     Volume,
+    NowPlaying,
+    Progress,
     Close,
+}
+
+#[derive(Clone, Copy)]
+struct Progress {
+    heard_ms: i64,
+    duration_ms: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -71,6 +85,8 @@ struct Shared {
     device_latency: u32,
     volume: AtomicU32,
     volume_pending: AtomicBool,
+    now_playing: Mutex<Option<NowPlaying>>,
+    progress: Mutex<Option<Progress>>,
     alive: AtomicBool,
     closed: AtomicBool,
     history: Mutex<VecDeque<(u16, Vec<u8>)>>,
@@ -85,115 +101,17 @@ pub struct Stream {
     shared: Arc<Shared>,
     events: flume::Receiver<StreamEvent>,
     threads: Vec<JoinHandle<()>>,
-}
-
-fn random<const N: usize>() -> [u8; N] {
-    let mut bytes = [0u8; N];
-    if getrandom::fill(&mut bytes).is_err() {
-        let seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_nanos())
-            .unwrap_or_default();
-        for (i, byte) in bytes.iter_mut().enumerate() {
-            *byte = (seed >> ((i % 16) * 8)) as u8;
-        }
-    }
-    bytes
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02X}")).collect()
-}
-
-fn bind_near(local: std::net::IpAddr) -> Result<UdpSocket, Error> {
-    UdpSocket::bind(SocketAddr::new(local, 0)).map_err(|e| Error::Io(e.to_string()))
-}
-
-fn port(socket: &UdpSocket) -> Result<u16, Error> {
-    socket
-        .local_addr()
-        .map(|address| address.port())
-        .map_err(|e| Error::Io(e.to_string()))
+    active_remote: u32,
+    _timing: TimingServer,
 }
 
 impl Stream {
     pub fn start(device: &Device, volume: f32, render: Box<dyn Render>) -> Result<Self, Error> {
-        let session_id = u32::from_be_bytes(random::<4>()) & 0x7fff_ffff;
-        let mut rtsp = Rtsp::connect(device.address, session_id, hex(&random::<8>()))?;
-        let local = rtsp.local_ip()?;
-        let peer = rtsp.peer_ip()?;
-        let control = bind_near(local)?;
-        let timing = bind_near(local)?;
-        let audio = bind_near(local)?;
-
-        rtsp.request("OPTIONS", Some("*"), &[], None)?;
-        let sdp = format!(
-            "v=0\r\no=iTunes {session_id} 0 IN IP4 {local}\r\ns=iTunes\r\nc=IN IP4 {peer}\r\nt=0 0\r\n\
-m=audio 0 RTP/AVP 96\r\na=rtpmap:96 AppleLossless\r\n\
-a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n"
-        );
-        rtsp.request(
-            "ANNOUNCE",
-            None,
-            &[],
-            Some(("application/sdp", sdp.as_bytes())),
-        )?;
-        let transport = format!(
-            "RTP/AVP/UDP;unicast;interleaved=0-1;mode=record;control_port={};timing_port={}",
-            port(&control)?,
-            port(&timing)?
-        );
-        let setup = rtsp.request("SETUP", None, &[("Transport", transport)], None)?;
-        let ports = transport_ports(setup.header("Transport").unwrap_or_default());
-        let server_port = *ports
-            .get("server_port")
-            .ok_or_else(|| Error::Refused("SETUP did not name an audio port".into()))?;
-        let remote_control = ports
-            .get("control_port")
-            .copied()
-            .unwrap_or(server_port + 1);
-        let session = setup
-            .header("Session")
-            .map(|session| {
-                session
-                    .split(';')
-                    .next()
-                    .unwrap_or(session)
-                    .trim()
-                    .to_string()
-            })
-            .unwrap_or_else(|| "1".to_string());
-        rtsp.set_session(session);
-
-        let base_seq = u16::from_be_bytes(random::<2>());
-        let base_ts = u32::from_be_bytes(random::<4>());
-        let record = rtsp.request(
-            "RECORD",
-            None,
-            &[
-                ("Range", "npt=0-".to_string()),
-                ("RTP-Info", format!("seq={base_seq};rtptime={base_ts}")),
-            ],
-            None,
-        )?;
-        let device_latency = record
-            .header("Audio-Latency")
-            .and_then(|latency| latency.trim().parse::<u32>().ok())
-            .unwrap_or(0)
-            .min(SAMPLE_RATE * 2);
-        let volume_body = format!("volume: {:.6}\r\n", volume_db(volume));
-        rtsp.request(
-            "SET_PARAMETER",
-            None,
-            &[],
-            Some(("text/parameters", volume_body.as_bytes())),
-        )?;
-
-        audio
-            .connect(SocketAddr::new(peer, server_port))
-            .map_err(|e| Error::Io(e.to_string()))?;
-        control.set_read_timeout(Some(UDP_POLL)).ok();
-        timing.set_read_timeout(Some(UDP_POLL)).ok();
+        let link = match device.protocol {
+            Protocol::Raop => handshake::raop(device, volume)?,
+            Protocol::AirPlay2 => handshake::airplay2(device, volume)?,
+        };
+        link.control.set_read_timeout(Some(UDP_POLL)).ok();
 
         let shared = Arc::new(Shared {
             timing: Mutex::new(Timing {
@@ -202,23 +120,33 @@ a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n
             }),
             alive: AtomicBool::new(true),
             closed: AtomicBool::new(false),
-            device_latency,
+            device_latency: link.device_latency,
             volume: AtomicU32::new(volume.to_bits()),
             volume_pending: AtomicBool::new(false),
+            now_playing: Mutex::new(None),
+            progress: Mutex::new(None),
             history: Mutex::new(VecDeque::with_capacity(HISTORY)),
         });
         let (events_tx, events) = flume::unbounded();
+        let remote = events_tx.clone();
+        let timing_stop = link.timing.stopper();
         let (control_tx, control_rx) = flume::unbounded();
-        let control_target = SocketAddr::new(peer, remote_control);
-        let resends = control.try_clone().map_err(|e| Error::Io(e.to_string()))?;
+        let resends = link
+            .control
+            .try_clone()
+            .map_err(|e| Error::Io(e.to_string()))?;
         let sender = Sender {
-            rtsp,
-            audio,
-            control,
-            control_target,
-            ssrc: u32::from_be_bytes(random::<4>()),
-            base_seq,
-            base_ts,
+            rtsp: link.rtsp,
+            audio: link.audio,
+            control: link.control,
+            control_target: link.control_target,
+            cipher: link.cipher,
+            timing_stop,
+            last_progress: None,
+            feedback: device.protocol == Protocol::AirPlay2,
+            ssrc: link.ssrc,
+            base_seq: link.base_seq,
+            base_ts: link.base_ts,
             packets: 0,
             render,
             shared: shared.clone(),
@@ -231,13 +159,25 @@ a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n
             payload: vec![0; FRAMES_PER_PACKET * CHANNELS],
         };
         let mut threads = Vec::new();
-        let timing_shared = shared.clone();
-        threads.push(
-            std::thread::Builder::new()
-                .name("airplay-timing".into())
-                .spawn(move || serve_timing(timing, timing_shared))
-                .map_err(|e| Error::Io(e.to_string()))?,
-        );
+        if let Some(channel) = link.events {
+            let watched = shared.clone();
+            threads.push(
+                std::thread::Builder::new()
+                    .name("airplay-events".into())
+                    .spawn(move || {
+                        channel.serve(
+                            || {
+                                watched.closed.load(Ordering::Acquire)
+                                    || !watched.alive.load(Ordering::Acquire)
+                            },
+                            |command| {
+                                let _ = remote.send(StreamEvent::Remote(command));
+                            },
+                        );
+                    })
+                    .map_err(|e| Error::Io(e.to_string()))?,
+            );
+        }
         let resend_shared = shared.clone();
         threads.push(
             std::thread::Builder::new()
@@ -252,15 +192,18 @@ a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n
                 .map_err(|e| Error::Io(e.to_string()))?,
         );
         log::info!(
-            "AirPlay: streaming to {} at {}",
+            "AirPlay: streaming to {} at {} ({:?})",
             device.name,
-            device.address
+            device.address,
+            device.protocol
         );
         Ok(Self {
             control: control_tx,
             shared,
             events,
             threads,
+            active_remote: link.active_remote,
+            _timing: link.timing,
         })
     }
 
@@ -283,6 +226,26 @@ a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n
         if !self.shared.volume_pending.swap(true, Ordering::AcqRel) {
             let _ = self.control.send(Control::Volume);
         }
+    }
+
+    pub fn set_now_playing(&self, now: NowPlaying) {
+        if lock(&self.shared.now_playing).replace(now).is_none() {
+            let _ = self.control.send(Control::NowPlaying);
+        }
+    }
+
+    pub fn set_progress(&self, heard_ms: i64, duration_ms: u64) {
+        let progress = Progress {
+            heard_ms,
+            duration_ms,
+        };
+        if lock(&self.shared.progress).replace(progress).is_none() {
+            let _ = self.control.send(Control::Progress);
+        }
+    }
+
+    pub fn active_remote(&self) -> u32 {
+        self.active_remote
     }
 
     pub fn is_alive(&self) -> bool {
@@ -313,6 +276,10 @@ struct Sender {
     audio: UdpSocket,
     control: UdpSocket,
     control_target: SocketAddr,
+    cipher: Option<AudioCipher>,
+    timing_stop: Arc<AtomicBool>,
+    last_progress: Option<(i64, i64)>,
+    feedback: bool,
     ssrc: u32,
     base_seq: u16,
     base_ts: u32,
@@ -360,11 +327,10 @@ impl Sender {
                     Ok(next) => wait = next,
                     Err(e) => break e,
                 }
-            } else if self.last_keepalive.elapsed() >= KEEPALIVE_EVERY {
-                self.last_keepalive = Instant::now();
-                if let Err(e) = self.rtsp.request("OPTIONS", Some("*"), &[], None) {
-                    break e.to_string();
-                }
+            }
+            match self.keep_alive(playing) {
+                Ok(next) => wait = wait.min(next),
+                Err(e) => break e.to_string(),
             }
             let command = match self.commands.recv_timeout(wait) {
                 Ok(command) => command,
@@ -427,10 +393,25 @@ impl Sender {
                         )
                         .map(|_| ())
                 }
+                Control::NowPlaying => {
+                    let now = lock(&self.shared.now_playing).take();
+                    match now {
+                        Some(now) => self.send_now_playing(&now),
+                        None => Ok(()),
+                    }
+                }
+                Control::Progress => {
+                    let progress = lock(&self.shared.progress).take();
+                    match progress {
+                        Some(progress) => self.send_progress(progress),
+                        None => Ok(()),
+                    }
+                }
                 Control::Close => {
                     let _ = self.rtsp.request("TEARDOWN", None, &[], None);
                     self.rtsp.shutdown();
                     self.shared.alive.store(false, Ordering::Release);
+                    self.timing_stop.store(true, Ordering::Release);
                     return;
                 }
             };
@@ -440,6 +421,7 @@ impl Sender {
         };
         self.rtsp.shutdown();
         self.shared.alive.store(false, Ordering::Release);
+        self.timing_stop.store(true, Ordering::Release);
         if playing {
             log::warn!("AirPlay: stream lost: {reason}");
             let _ = self.events.send(StreamEvent::Lost(reason));
@@ -448,7 +430,114 @@ impl Sender {
         }
     }
 
+    fn keep_alive(&mut self, playing: bool) -> Result<Duration, Error> {
+        let (every, method, target) = match (self.feedback, playing) {
+            (true, _) => (FEEDBACK_EVERY, "POST", "/feedback"),
+            (false, false) => (KEEPALIVE_EVERY, "OPTIONS", "*"),
+            (false, true) => return Ok(KEEPALIVE_EVERY),
+        };
+        let elapsed = self.last_keepalive.elapsed();
+        if elapsed < every {
+            return Ok(every - elapsed);
+        }
+        self.last_keepalive = Instant::now();
+        let answered = self
+            .rtsp
+            .request(method, Some(target), &[], None)
+            .map(|_| ());
+        self.optional("the keep-alive", answered)?;
+        Ok(every)
+    }
+
+    fn optional(&mut self, what: &str, outcome: Result<(), Error>) -> Result<(), Error> {
+        match outcome {
+            Err(Error::Io(e)) => Err(Error::Io(e)),
+            Err(e) => {
+                log::debug!("AirPlay: the device did not take {what}: {e}");
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        }
+    }
+
+    fn rtp_info(&self) -> (&'static str, String) {
+        (
+            "RTP-Info",
+            format!("rtptime={}", self.timestamp(self.next_frame())),
+        )
+    }
+
+    fn send_now_playing(&mut self, now: &NowPlaying) -> Result<(), Error> {
+        let info = [self.rtp_info()];
+        let items = metadata::dmap(now);
+        let sent = self
+            .rtsp
+            .request(
+                "SET_PARAMETER",
+                None,
+                &info,
+                Some(("application/x-dmap-tagged", &items)),
+            )
+            .map(|_| ());
+        self.optional("the track's metadata", sent)?;
+        if let Some(cover) = &now.cover {
+            let sent = self
+                .rtsp
+                .request(
+                    "SET_PARAMETER",
+                    None,
+                    &info,
+                    Some((&cover.mime, cover.bytes.as_slice())),
+                )
+                .map(|_| ());
+            self.optional("the cover", sent)?;
+        }
+        match self.last_progress {
+            Some((start, end)) => self.send_progress_line(start, end),
+            None => Ok(()),
+        }
+    }
+
+    fn send_progress(&mut self, progress: Progress) -> Result<(), Error> {
+        if progress.duration_ms == 0 {
+            return Ok(());
+        }
+        let to_frames = |ms: i64| ms.saturating_mul(i64::from(SAMPLE_RATE)) / 1000;
+        let start = self.heard_frame() - to_frames(progress.heard_ms);
+        let end = start + to_frames(progress.duration_ms.min(i64::MAX as u64) as i64);
+        self.last_progress = Some((start, end));
+        self.send_progress_line(start, end)
+    }
+
+    fn heard_frame(&self) -> i64 {
+        let unheard = {
+            let mut timing = lock(&self.shared.timing);
+            timing.next_frame = self.next_frame();
+            timing.unheard(Instant::now(), self.shared.device_latency)
+        };
+        self.next_frame() - unheard as i64
+    }
+
+    fn send_progress_line(&mut self, start: i64, end: i64) -> Result<(), Error> {
+        let line = metadata::progress(
+            self.timestamp(start),
+            self.timestamp(self.heard_frame().max(start)),
+            self.timestamp(end),
+        );
+        let sent = self
+            .rtsp
+            .request(
+                "SET_PARAMETER",
+                None,
+                &[],
+                Some(("text/parameters", line.as_bytes())),
+            )
+            .map(|_| ());
+        self.optional("the progress", sent)
+    }
+
     fn send_flush(&mut self) -> Result<(), Error> {
+        self.last_progress = None;
         lock(&self.shared.history).clear();
         self.first = true;
         let info = format!(
@@ -506,13 +595,16 @@ impl Sender {
         self.render.render(&mut self.payload);
         let frame = alac::encode_uncompressed(&self.payload);
         let seq = self.seq();
-        let packet = rtp::audio_packet(
+        let header = rtp::audio_header(
             self.first,
             seq,
             self.timestamp(self.next_frame()),
             self.ssrc,
-            &frame,
         );
+        let packet = match &self.cipher {
+            Some(cipher) => cipher.seal_packet(&header, seq, &frame),
+            None => [&header[..], &frame].concat(),
+        };
         self.first = false;
         self.packets += 1;
         match self.audio.send(&packet) {
@@ -531,18 +623,6 @@ impl Sender {
         }
         history.push_back((seq, packet));
         Ok(())
-    }
-}
-
-fn serve_timing(socket: UdpSocket, shared: Arc<Shared>) {
-    let mut buffer = [0u8; 128];
-    while !shared.closed.load(Ordering::Acquire) && shared.alive.load(Ordering::Acquire) {
-        if let Ok((len, from)) = socket.recv_from(&mut buffer) {
-            let received = rtp::ntp_now();
-            if let Some(reply) = rtp::timing_reply(&buffer[..len], received) {
-                let _ = socket.send_to(&reply, from);
-            }
-        }
     }
 }
 
@@ -568,6 +648,162 @@ fn serve_resends(socket: UdpSocket, shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake::FakeReceiver;
+
+    struct Ramp(i16);
+
+    impl Render for Ramp {
+        fn render(&mut self, out: &mut [i16]) {
+            for sample in out {
+                *sample = self.0;
+                self.0 = self.0.wrapping_add(1);
+            }
+        }
+
+        fn rewind(&mut self, _frames: usize) {}
+    }
+
+    fn fake_device(address: SocketAddr) -> Device {
+        Device {
+            id: "FA4E00000001".into(),
+            name: "Fake".into(),
+            model: None,
+            address,
+            protocol: Protocol::AirPlay2,
+        }
+    }
+
+    #[test]
+    fn an_airplay_2_session_pairs_sets_up_and_streams_encrypted_audio() {
+        let fake = FakeReceiver::start("3939");
+        let stream = Stream::start(&fake_device(fake.address), 0.5, Box::new(Ramp(0))).unwrap();
+        stream.play();
+        assert!(fake.wait_for(|heard| heard.payloads.len() >= 20 && heard.syncs >= 1));
+        assert!(fake.wait_for(|heard| heard.requests.iter().any(|r| r == "POST /feedback")));
+        stream.set_volume(0.25);
+        assert!(fake.wait_for(|heard| heard.parameters.len() == 2));
+        drop(stream);
+        assert!(fake.wait_for(|heard| {
+            heard
+                .requests
+                .last()
+                .is_some_and(|request| request.starts_with("TEARDOWN"))
+        }));
+        let heard = fake.heard();
+        let methods: Vec<&str> = heard
+            .requests
+            .iter()
+            .filter_map(|request| request.split(' ').next())
+            .collect();
+        assert_eq!(
+            methods[..7],
+            [
+                "GET",
+                "POST",
+                "POST",
+                "SETUP",
+                "RECORD",
+                "SETUP",
+                "SET_PARAMETER"
+            ]
+        );
+        assert!(heard.events_connected);
+        assert_eq!(
+            heard.parameters,
+            ["volume: -15.000000", "volume: -22.500000"]
+        );
+        let first: Vec<i16> = (0..(FRAMES_PER_PACKET * CHANNELS) as i16).collect();
+        assert_eq!(heard.payloads[0].1, alac::encode_uncompressed(&first));
+        let (seq, _) = heard.payloads[0];
+        assert_eq!(heard.payloads[1].0, seq.wrapping_add(1));
+    }
+
+    #[test]
+    fn now_playing_progress_and_remote_buttons_travel_over_the_session() {
+        let fake = FakeReceiver::start("3939");
+        let stream = Stream::start(&fake_device(fake.address), 0.5, Box::new(Ramp(0))).unwrap();
+        let events = stream.events();
+        stream.set_now_playing(NowPlaying {
+            title: "Tarantula".into(),
+            artist: Some("Gorillaz".into()),
+            album: None,
+            cover: Some(metadata::Cover {
+                mime: "image/png".into(),
+                bytes: std::sync::Arc::new(vec![0x89, b'P', b'N', b'G']),
+            }),
+        });
+        stream.set_progress(1_000, 5_000);
+        assert!(fake.wait_for(|heard| heard.parameters.len() == 2));
+        assert!(stream.is_alive(), "a refused cover ends nothing");
+        let heard = fake.heard();
+        assert_eq!(
+            heard.metadata,
+            [
+                ("application/x-dmap-tagged".to_string(), true),
+                ("image/png".to_string(), true)
+            ]
+        );
+        let progress: Vec<u32> = heard.parameters[1]
+            .trim_start_matches("progress: ")
+            .split('/')
+            .map(|number| number.parse().unwrap())
+            .collect();
+        drop(heard);
+        assert_eq!(progress[1].wrapping_sub(progress[0]), 44_100);
+        assert_eq!(progress[2].wrapping_sub(progress[0]), 220_500);
+        stream.set_progress(-2_000, 5_000);
+        assert!(fake.wait_for(|heard| heard.parameters.len() == 3));
+        let numbers = |line: &str| -> Vec<u32> {
+            line.trim_start_matches("progress: ")
+                .split('/')
+                .map(|number| number.parse().unwrap())
+                .collect()
+        };
+        let early = numbers(&fake.heard().parameters[2]);
+        assert_eq!(
+            early[1], early[0],
+            "the position never comes before the start"
+        );
+        assert_eq!(early[2].wrapping_sub(early[0]), 220_500);
+        assert_eq!(early[0].wrapping_sub(progress[1]), 88_200);
+        stream.set_now_playing(NowPlaying {
+            title: "Pneuma".into(),
+            ..NowPlaying::default()
+        });
+        assert!(fake.wait_for(|heard| heard.parameters.len() == 4));
+        assert_eq!(numbers(&fake.heard().parameters[3]), early);
+        assert!(fake.wait_for(|heard| heard.events_connected));
+        assert_eq!(fake.press("nitm").as_deref(), Some("RTSP/1.0 200 OK"));
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(2)),
+            Ok(StreamEvent::Remote(RemoteCommand::Next))
+        );
+        assert_eq!(fake.press("skpf").as_deref(), Some("RTSP/1.0 200 OK"));
+        assert_eq!(fake.press("paus").as_deref(), Some("RTSP/1.0 200 OK"));
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(2)),
+            Ok(StreamEvent::Remote(RemoteCommand::Pause))
+        );
+    }
+
+    #[test]
+    fn a_device_that_does_not_take_the_transient_code_is_refused_before_any_setup() {
+        let fake = FakeReceiver::start("1234");
+        let refused = Stream::start(&fake_device(fake.address), 0.5, Box::new(Ramp(0)));
+        assert!(
+            matches!(refused, Err(Error::Refused(_))),
+            "{:?}",
+            refused.err()
+        );
+        assert!(fake.wait_for(|heard| heard.requests.len() == 3));
+        assert!(
+            !fake
+                .heard()
+                .requests
+                .iter()
+                .any(|request| request.starts_with("SETUP"))
+        );
+    }
 
     fn timing(anchor_frame: i64, next_frame: i64, anchored: Duration) -> (Timing, Instant) {
         let now = Instant::now();

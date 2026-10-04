@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 mod airplay_output;
 mod chromecast_driver;
+mod dacp;
 mod discovery;
 mod dlna_driver;
 mod flac;
@@ -12,6 +13,7 @@ mod server;
 mod session;
 mod unicast_mdns;
 
+pub use airplay::RemoteCommand;
 pub use airplay_output::AirPlayOutput;
 pub use discovery::{Discovery, Receiver, ReceiverKind};
 pub use media::{Cover, Media, Source, StreamOpener, TrackInfo};
