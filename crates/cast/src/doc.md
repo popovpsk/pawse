@@ -64,7 +64,7 @@ There are two ways a receiver gets audio, and the crate has one of each:
 
 - A whole file in a format the device takes is sent as it is
   (`Delivery::Original`), with its real length. Chromecast takes MP3, AAC
-  (`.aac`, `.m4a`/`.mp4`), FLAC, Vorbis/Opus in Ogg, Opus in WebM and WAV, up
+  (`.aac`, `.m4a`/`.mp4`), FLAC, Opus in WebM and WAV, up
   to 96 kHz and two channels. A DLNA renderer takes what its
   `GetProtocolInfo` sink list names (`dlna_mimes` maps codec + extension to
   the MIME types renderers use); a renderer without a ConnectionManager, or
@@ -75,6 +75,17 @@ There are two ways a receiver gets audio, and the crate has one of each:
   header) for a renderer that lists L16 but no WAV. 16-bit when the source is
   16-bit or lossy (and always for L16), 24-bit otherwise. The frame count comes from the cue
   length or the decoder's duration, so the length is exact and known up front.
+- **A Chromecast gets Ogg (Opus, Vorbis) as PCM.** Ogg has no index, and the
+  receiver cannot seek in it. Measured on the Xiaomi TV Stick (2026-10-04)
+  with an Ogg Opus track: the first SEEK while playing buffered for over
+  4 s, the third ended the media session (`IDLE` with `ERROR`) half a second
+  later, so every later command got `INVALID_MEDIA_SESSION_ID`; seeking by
+  a new LOAD at the position failed the same way about half the time while
+  playing. Loads at a position while paused were fine. The same packets
+  remuxed into WebM with Cues seeked cleanly, but PCM needs no muxer, works
+  for server streams too, and is about 1.5 Mbit/s for 48 kHz 16-bit stereo,
+  less than a 24/96 FLAC. The sound is the same: the receiver would decode
+  the same Opus.
 - A cue track is always cut, also the first one of an image, which starts at
   0:00 (`plan` takes a set length as a segment too); sent whole, the device
   would play on into the next tracks.

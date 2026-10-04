@@ -164,7 +164,6 @@ pub fn chromecast_mime(codec: Codec, extension: &str, probe: &Probe) -> Option<&
         (Codec::Aac, "aac") => Some("audio/aac"),
         (Codec::Aac, "m4a" | "mp4" | "m4b") => Some("audio/mp4"),
         (Codec::Flac, "flac") if probe.bit_depth <= 24 => Some("audio/flac"),
-        (Codec::Vorbis | Codec::Opus, "ogg" | "oga" | "opus") => Some("audio/ogg"),
         (Codec::Opus, "webm") => Some("audio/webm"),
         (Codec::Pcm, "wav") => Some("audio/wav"),
         _ => None,
@@ -301,5 +300,28 @@ mod tests {
         );
         stereo.sample_rate = 192_000;
         assert_eq!(chromecast_mime(Codec::Flac, "flac", &stereo), None);
+    }
+
+    #[test]
+    fn chromecast_gets_ogg_as_pcm_and_opus_in_webm_as_it_is() {
+        let opus = Probe {
+            sample_rate: 48_000,
+            ..probe(16, Codec::Opus)
+        };
+        assert_eq!(chromecast_mime(Codec::Opus, "opus", &opus), None);
+        assert_eq!(chromecast_mime(Codec::Vorbis, "ogg", &opus), None);
+        assert_eq!(
+            chromecast_mime(Codec::Opus, "webm", &opus),
+            Some("audio/webm")
+        );
+        let Delivery::Pcm(spec) = plan(
+            &media(Duration::ZERO, None),
+            &opus,
+            &Fixed(chromecast_mime(Codec::Opus, "opus", &opus), Container::Wav),
+        )
+        .unwrap() else {
+            panic!("expected PCM");
+        };
+        assert_eq!((spec.sample_rate, spec.bits), (48_000, 16));
     }
 }
