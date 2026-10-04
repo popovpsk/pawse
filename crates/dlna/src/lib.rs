@@ -15,9 +15,11 @@ mod xml;
 
 pub use didl::{Item, Res};
 pub use renderer::{
-    PositionInfo, Renderer, TrackMetadata, TransportState, discover_renderers, track_didl,
+    PositionInfo, Renderer, TrackMetadata, TransportState, describe_renderer, discover_renderers,
+    track_didl,
 };
 pub use server_http::RangeBody;
+pub use ssdp::{Notification, NotifyListener};
 
 use device::Description;
 use soap::Failure;
@@ -122,7 +124,7 @@ pub fn discover(timeout: Duration) -> Vec<Device> {
             .build(),
     );
     let mut devices: Vec<Device> = Vec::new();
-    for reply in ssdp::search(&ssdp::TARGETS, timeout, None) {
+    for reply in ssdp::search(&ssdp::TARGETS, &[], timeout, None) {
         if devices
             .iter()
             .any(|device| device.udn.eq_ignore_ascii_case(&reply.udn))
@@ -218,7 +220,7 @@ impl Client {
             return None;
         }
         let targets = [self.udn.as_str(), ssdp::TARGETS[0], ssdp::TARGETS[1]];
-        let found = ssdp::search(&targets, FIND_TIMEOUT, Some(&self.udn))
+        let found = ssdp::search(&targets, &[], FIND_TIMEOUT, Some(&self.udn))
             .into_iter()
             .find(|reply| reply.udn.eq_ignore_ascii_case(&self.udn))
             .map(|reply| reply.location);

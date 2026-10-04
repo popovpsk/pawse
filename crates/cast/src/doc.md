@@ -19,11 +19,11 @@ There are two ways a receiver gets audio, and the crate has one of each:
 ## Files
 
 - `lib.rs` — `connect` (a `Receiver` → `Session`), re-exports.
-- `discovery.rs` — `Discovery`: mDNS browsing for `_googlecast._tcp` and
-  `_raop._tcp` (one `mdns-sd` daemon at a time, replaced on `refresh`, one
-  thread selecting over both browses and a refresh channel) and an SSDP
-  search for renderers every 60 s or on `refresh`. `Receiver`,
-  `ReceiverKind`.
+- `discovery.rs` — `Discovery`, `Receiver`, `ReceiverKind`: the list of
+  receivers and the four threads that keep it (see Discovery below).
+- `unicast_mdns.rs` — legacy unicast mDNS queries: the query, a DNS reply
+  parser (PTR, SRV, TXT, A, compressed names) and follow-ups for whatever a
+  reply left out.
 - `server.rs` — `MediaServer`: the HTTP/1.1 server devices fetch from.
 - `media.rs` — `Media` (what to play), `probe`, `plan` (original bytes or PCM),
   the per-device format tables.
@@ -33,7 +33,8 @@ There are two ways a receiver gets audio, and the crate has one of each:
 - `dlna_driver.rs`, `chromecast_driver.rs` — the two `Driver`s.
 - `airplay_output.rs` — `AirPlayOutput`.
 - `net.rs` — `local_ip_for`: the address of the interface that routes to a
-  device, which is the host put into media URLs.
+  device, which is the host put into media URLs; the IPv4 interfaces and a
+  socket that sends multicast out of one of them.
 - `tests.rs` — the HTTP server, PCM ranges against a straight decode, and whole
   Chromecast sessions against `chromecast::testing::FakeChromecast`.
 
@@ -238,21 +239,80 @@ header needs it); `plan` fails with a message instead.
 
 - Started by the app only when the output picker opens, so a user who never
   casts never sends multicast (and never sees macOS's local network prompt).
-  It keeps running afterwards; mDNS adds and removes services as they come
-  and go, renderers not seen by SSDP for 200 s are dropped.
-- **`refresh` restarts mDNS**, not only SSDP. `mdns-sd` repeats a browse
-  query at 1, 2, 4 … s up to an hour, and a speaker does not announce itself
-  unless asked. After the Mac sleeps, the network interface comes back (often
-  with a new DHCP address) and `mdns-sd` drops every service it had on it, or
-  lets their 120 s records expire; with the query interval already at tens of
-  minutes the list stayed empty until the app was restarted. A second
-  `browse` on the same daemon was not always enough, so every refresh starts
-  a new daemon (`Browsing`), the way a restart did: a fresh cache, queries
-  from 1 s and no known answers that would keep a responder quiet. A live
-  speaker is back within a second of the picker opening. mDNS receivers the
-  new daemon has not seen within 6 s are dropped
-  (`forget_mdns_unseen_since`), right away if the new daemon cannot start;
-  DLNA ones follow SSDP as before.
+  It keeps running afterwards, until the app quits.
+- Multicast is not trusted to say whether a device is there. On the test
+  Wi-Fi the router drops 224.0.0.251 (mDNS) between hosts in both
+  directions for hours, while 239.255.255.250 (SSDP) mostly gets through and
+  unicast always does (see Testing). Everything below is built so a receiver
+  is found and kept by unicast when multicast is gone, the way the LMS bridges
+  (ping before removing), pychromecast (polling known hosts) and Home
+  Assistant (`poll_availability`) ended up doing it.
+- **Four threads feed one list** (`Inner`), keyed `chromecast:<id>`,
+  `airplay:<mac>`, `dlna:<udn>`; a receiver that comes back at another address
+  is updated in place:
+  - `cast-mdns`: `mdns-sd` browsing `_googlecast._tcp` and `_raop._tcp`.
+  - `cast-ssdp`: an SSDP search for renderers every 60 s and on `refresh`,
+    to the multicast group and to every known host (`dlna::discover_renderers`
+    with hosts).
+  - `cast-notify`: `dlna::NotifyListener`, SSDP announcements on port 1900.
+    An `ssdp:alive` from a known renderer counts as hearing from it (a new
+    `LOCATION` is described again); one from an unknown UDN whose NT is a
+    MediaRenderer or AVTransport is described and added, at most once per
+    30 s per UDN. The socket is reopened on every `refresh`, since the
+    interfaces may have changed during a sleep.
+  - `cast-check`: legacy unicast mDNS queries every 60 s and on `refresh`,
+    and the checks below.
+- **Known hosts** are the IPv4 addresses of the listed receivers, of
+  renderers that announced themselves (an SSDP NOTIFY whose NT is a renderer,
+  or from a listed one) and of mDNS answers; never the computer's own
+  addresses, at most 64 (the oldest goes first), each forgotten after 30
+  minutes of silence. Not every NOTIFY sender: on a large network the
+  unicast queries every minute would look like a scan.
+  They get the unicast M-SEARCH and the unicast mDNS queries: the Pi's
+  AirPlay speaker is found through the NOTIFY of the renderer on the same
+  Pi when no mDNS multicast gets through.
+- **Legacy unicast mDNS** (`unicast_mdns`): PTR queries for both service types
+  are sent from an ephemeral port, to 224.0.0.251 out of every IPv4
+  interface and to `<host>:5353` of every known host. A query from a port
+  other than 5353 must be answered by unicast to that port (RFC 6762 §6.7),
+  so the answers do not depend on multicast getting back to us. When an
+  answer lacks the SRV, TXT or A record, the responder is asked for it; a
+  service that still has no A record gets the responder's address. The TTLs
+  of these answers (at most 10 s for legacy queries) are ignored: a receiver
+  lives by the checks, not by the records (the LMS bridges went back to
+  plain multicast after taking those TTLs for the device's lifetime).
+- **Checks instead of expiry.** Each receiver remembers when it was last
+  heard of (an `mdns-sd` resolve, a unicast mDNS answer, an SSDP reply or
+  NOTIFY, a passed check). A receiver is checked directly when:
+  - nothing was heard for 150 s;
+  - it said goodbye: `mdns-sd`'s `ServiceRemoved` (a goodbye or an expired
+    record) or an `ssdp:byebye`, since some stacks send byebye when they
+    restart;
+  - 6 s after a `refresh` it has not been heard from again, so a device that
+    was switched off leaves the list soon after the picker is opened (about
+    10 s, measured with gmrender stopped: it sends no byebye).
+
+  A DLNA renderer must hand out its description with the same UDN. A
+  Chromecast or AirPlay speaker is asked by unicast mDNS (1 s) and must
+  answer with a service that is still the same receiver (same id, still
+  supported: a speaker that started asking for a password goes, and so does
+  another device that got its address); only a host that does not answer
+  mDNS at all is checked with a TCP connection (2 s). Each receiver is
+  looked up again right before its check, so one heard of (or moved) while
+  an earlier check ran is not checked at its old address, and a receiver
+  that fails is removed only if nothing was heard of it since its check
+  began. **The receivers in use are never checked nor removed**
+  (`Discovery::set_in_use`: the active one and the one being connected to):
+  their session talks to them anyway, and a stray connection to a speaker
+  that is playing is not worth the risk.
+- **`refresh` restarts mDNS**, not only the searches. `mdns-sd` repeats a
+  browse query at 1, 2, 4 … s up to an hour, and a speaker does not announce
+  itself unless asked. After the Mac sleeps, the network interface comes
+  back (often with a new DHCP address) and `mdns-sd` drops every service it
+  had on it, or lets their 120 s records expire; a second `browse` on the
+  same daemon was not always enough, so every refresh starts a new daemon
+  (`Browsing`): a fresh cache, queries from 1 s and no known answers that
+  would keep a responder quiet.
 - **IPv4 only.** The media server is IPv4, and an IPv6 link-local address
   without a scope cannot be connected to. Some devices answer a browse with
   only their AAAA record (the Xiaomi TV Stick announced only `fe80::…`, and
@@ -261,11 +321,17 @@ header needs it); `plan` fails with a message instead.
   system resolver on a `cast-lookup` thread (macOS, Windows and Linux with
   nss-mdns resolve `.local` names) and the receiver is listed with that
   address. `mdns-sd`'s own `resolve_hostname` is not used: it blocks its
-  daemon thread when the listener's channel is full.
+  daemon thread when the listener's channel is full. The unicast queries
+  ask the device for its A record themselves.
+- Rejoining the multicast groups from our side was tried and does nothing
+  on the test Wi-Fi: with the Pi sending to 224.0.0.251, 239.255.255.250 and
+  a fresh 239.77.0.1, the Mac got none of the first and all of the others,
+  before and after a leave and join of each group and after joining another
+  one. On macOS mDNSResponder holds 224.0.0.251 anyway, so a leave and join
+  of ours sends no IGMP report.
 - Chromecasts without the audio-out capability bit are skipped. AirPlay
   speakers that need encryption, a password, a codec other than ALAC or a
   format other than 44.1/16/2 are skipped (see `airplay`).
-- Receivers are keyed `chromecast:<id>`, `airplay:<mac>`, `dlna:<udn>`.
 
 ## Testing
 
@@ -277,13 +343,16 @@ header needs it); `plan` fails with a message instead.
   renderer quirks: the silent mid-track start, a pause that still says
   PLAYING, a long buffering start, and the 0:00 before STOPPED.
 - On the test Wi-Fi, multicast stops reaching hosts from time to time (the
-  router sends no IGMP queries, so it may forget who joined a group). Then
-  `mdns-sd` gets no answers at all and SSDP gets answers only from the
-  devices that still receive our search, in the app, in tests and in a bare
-  Python socket alike, with the old and the new discovery code. macOS's own
-  `dns-sd` is not a fair comparison: its first query asks for unicast
-  answers (QU). A legacy unicast query (from a port other than 5353) still
-  gets an answer straight back.
+  router sends no IGMP queries). Measured on 2026-10-04 between the Mac and
+  the Pi: 224.0.0.251 dropped both ways, 239.255.255.250 and a fresh
+  239.77.0.1 delivered both ways, unicast always delivered. Then `mdns-sd`
+  gets no answers at all, in the app, in tests and in a bare Python socket
+  alike, while a legacy unicast query to the device's address and an
+  M-SEARCH to `<device>:1900` are answered. macOS's own `dns-sd` is not a
+  fair comparison: its first query asks for unicast answers (QU).
+- Discovery was checked live against the Pi (2026-10-04): both receivers
+  found and kept across a refresh; gmrender stopped and a refresh made gone
+  in 11.6 s; started again and back in 0.3 s (its NOTIFY on start).
 - The Pi on Wi-Fi drops out of multicast from time to time, for every
   client: its AirPlay (mDNS) and DLNA renderer (SSDP) vanish from macOS's own
   `dns-sd` too, while unicast works (`dig @<pi> -p 5353 _raop._tcp.local PTR`

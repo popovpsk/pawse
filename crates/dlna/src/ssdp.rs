@@ -1,10 +1,13 @@
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::time::{Duration, Instant};
 
 use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
 use socket2::{Domain, Protocol, Socket, Type};
 
-const MULTICAST: SocketAddrV4 = SocketAddrV4::new(Ipv4Addr::new(239, 255, 255, 250), 1900);
+const PORT: u16 = 1900;
+const GROUP: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
+const MULTICAST: SocketAddrV4 = SocketAddrV4::new(GROUP, PORT);
 pub(crate) const TARGETS: [&str; 2] = [
     "urn:schemas-upnp-org:service:ContentDirectory:1",
     "urn:schemas-upnp-org:device:MediaServer:1",
@@ -23,8 +26,70 @@ pub(crate) struct Reply {
     pub udn: String,
 }
 
-pub(crate) fn search(targets: &[&str], timeout: Duration, wanted: Option<&str>) -> Vec<Reply> {
-    let sockets = sockets();
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notification {
+    pub alive: bool,
+    pub udn: String,
+    pub kind: String,
+    pub location: Option<String>,
+    pub source: IpAddr,
+}
+
+pub struct NotifyListener {
+    socket: UdpSocket,
+}
+
+impl NotifyListener {
+    pub fn open() -> io::Result<Self> {
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_reuse_address(true)?;
+        #[cfg(unix)]
+        socket.set_reuse_port(true)?;
+        socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT).into())?;
+        let mut interfaces = interfaces();
+        if interfaces.is_empty() {
+            interfaces.push(Ipv4Addr::UNSPECIFIED);
+        }
+        let mut joined = 0;
+        for interface in interfaces {
+            match socket.join_multicast_v4(&GROUP, &interface) {
+                Ok(()) => joined += 1,
+                Err(e) => log::debug!("SSDP: listening on {interface} failed: {e}"),
+            }
+        }
+        if joined == 0 {
+            return Err(io::Error::other("no interface joined the SSDP group"));
+        }
+        Ok(Self {
+            socket: socket.into(),
+        })
+    }
+
+    pub fn next(&self, timeout: Duration) -> Option<Notification> {
+        let deadline = Instant::now() + timeout;
+        let mut buffer = [0u8; 4096];
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() || self.socket.set_read_timeout(Some(left)).is_err() {
+                return None;
+            }
+            let (len, from) = self.socket.recv_from(&mut buffer).ok()?;
+            if let Some(notification) =
+                parse_notify(&String::from_utf8_lossy(&buffer[..len]), from.ip())
+            {
+                return Some(notification);
+            }
+        }
+    }
+}
+
+pub(crate) fn search(
+    targets: &[&str],
+    hosts: &[Ipv4Addr],
+    timeout: Duration,
+    wanted: Option<&str>,
+) -> Vec<Reply> {
+    let mut sockets = sockets();
     if sockets.is_empty() {
         log::warn!("SSDP: no IPv4 interface to search on");
         return Vec::new();
@@ -36,6 +101,23 @@ pub(crate) fn search(targets: &[&str], timeout: Duration, wanted: Option<&str>) 
                     log::debug!("SSDP: M-SEARCH on {:?} failed: {e}", socket.local_addr());
                 }
             }
+        }
+    }
+    if !hosts.is_empty() {
+        match open(Ipv4Addr::UNSPECIFIED) {
+            Ok(unicast) => {
+                for host in hosts {
+                    for target in targets {
+                        if let Err(e) = unicast
+                            .send_to(request(target).as_bytes(), SocketAddrV4::new(*host, PORT))
+                        {
+                            log::debug!("SSDP: M-SEARCH to {host} failed: {e}");
+                        }
+                    }
+                }
+                sockets.push(unicast);
+            }
+            Err(e) => log::debug!("SSDP: no socket for searching known hosts: {e}"),
         }
     }
     let deadline = Instant::now() + timeout;
@@ -71,7 +153,7 @@ fn request(target: &str) -> String {
     )
 }
 
-fn sockets() -> Vec<UdpSocket> {
+fn interfaces() -> Vec<Ipv4Addr> {
     let mut addresses: Vec<Ipv4Addr> = NetworkInterface::show()
         .unwrap_or_else(|e| {
             log::warn!("SSDP: listing network interfaces failed: {e}");
@@ -87,6 +169,11 @@ fn sockets() -> Vec<UdpSocket> {
         .collect();
     addresses.sort();
     addresses.dedup();
+    addresses
+}
+
+fn sockets() -> Vec<UdpSocket> {
+    let mut addresses = interfaces();
     if addresses.is_empty() {
         addresses.push(Ipv4Addr::UNSPECIFIED);
     }
@@ -111,36 +198,60 @@ fn open(interface: Ipv4Addr) -> std::io::Result<UdpSocket> {
     Ok(socket.into())
 }
 
+fn header<'a>(text: &'a str, wanted: &str) -> Option<&'a str> {
+    text.lines().skip(1).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim()
+            .eq_ignore_ascii_case(wanted)
+            .then_some(value.trim())
+    })
+}
+
+fn location_of(text: &str) -> Option<&str> {
+    header(text, "location").filter(|location| location.contains("://"))
+}
+
+fn udn_of(text: &str) -> Option<&str> {
+    let udn = header(text, "usn")?.split("::").next()?.trim();
+    udn.get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("uuid:"))
+        .then_some(udn)
+}
+
 pub(crate) fn parse_reply(text: &str) -> Option<Reply> {
-    let mut lines = text.lines();
-    let status = lines.next()?;
+    let status = text.lines().next()?;
     if !status.starts_with("HTTP/") || status.split_whitespace().nth(1) != Some("200") {
         return None;
     }
-    let mut location = None;
-    let mut usn = None;
-    for line in lines {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        let name = name.trim();
-        if name.eq_ignore_ascii_case("location") {
-            location = Some(value.trim());
-        } else if name.eq_ignore_ascii_case("usn") {
-            usn = Some(value.trim());
-        }
-    }
-    let location = location.filter(|location| location.contains("://"))?;
-    let udn = usn?.split("::").next()?.trim();
-    if !udn
-        .get(..5)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("uuid:"))
+    Some(Reply {
+        location: location_of(text)?.to_string(),
+        udn: udn_of(text)?.to_string(),
+    })
+}
+
+pub(crate) fn parse_notify(text: &str, source: IpAddr) -> Option<Notification> {
+    let start = text.lines().next()?;
+    if !start
+        .get(..7)
+        .is_some_and(|method| method.eq_ignore_ascii_case("NOTIFY "))
     {
         return None;
     }
-    Some(Reply {
-        location: location.to_string(),
-        udn: udn.to_string(),
+    let alive = match header(text, "nts")?.to_ascii_lowercase().as_str() {
+        "ssdp:alive" | "ssdp:update" => true,
+        "ssdp:byebye" => false,
+        _ => return None,
+    };
+    let location = location_of(text).map(str::to_string);
+    if alive && location.is_none() {
+        return None;
+    }
+    Some(Notification {
+        alive,
+        udn: udn_of(text)?.to_string(),
+        kind: header(text, "nt").unwrap_or_default().to_string(),
+        location,
+        source,
     })
 }
 
@@ -195,6 +306,79 @@ USN: uuid:4d696e69-444c-164e-9d41-000000000001::urn:schemas-upnp-org:service:Con
         );
         assert_eq!(
             parse_reply("HTTP/1.1 200 OK\r\nUSN: uuid:x::upnp:rootdevice\r\n\r\n"),
+            None
+        );
+    }
+
+    fn source() -> IpAddr {
+        "192.168.3.22".parse().unwrap()
+    }
+
+    #[test]
+    fn an_alive_notification_names_the_device_and_where_it_is() {
+        let text = "NOTIFY * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nCACHE-CONTROL: max-age=1800\r\n\
+LOCATION: http://192.168.3.22:49494/description.xml\r\nNT: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\
+NTS: ssdp:alive\r\nSERVER: Linux, UPnP/1.0, Portable SDK for UPnP devices/17.2.0\r\n\
+USN: uuid:5ab1d1bb-ed20-6c05-a9c5-cac2d1b3f8a1::urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n";
+        assert_eq!(
+            parse_notify(text, source()),
+            Some(Notification {
+                alive: true,
+                udn: "uuid:5ab1d1bb-ed20-6c05-a9c5-cac2d1b3f8a1".into(),
+                kind: "urn:schemas-upnp-org:device:MediaRenderer:1".into(),
+                location: Some("http://192.168.3.22:49494/description.xml".into()),
+                source: source(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_byebye_needs_no_location_but_an_alive_does() {
+        let byebye = parse_notify(
+            "notify * HTTP/1.1\nNT: upnp:rootdevice\nNTS: ssdp:byebye\nUSN: uuid:abc::upnp:rootdevice\n\n",
+            source(),
+        )
+        .unwrap();
+        assert!(!byebye.alive);
+        assert_eq!(byebye.udn, "uuid:abc");
+        assert_eq!(byebye.location, None);
+        assert_eq!(
+            parse_notify(
+                "NOTIFY * HTTP/1.1\r\nNTS: ssdp:alive\r\nUSN: uuid:abc\r\n\r\n",
+                source()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn searches_replies_and_odd_notifications_are_not_notifications() {
+        assert_eq!(
+            parse_notify(
+                "M-SEARCH * HTTP/1.1\r\nST: ssdp:all\r\nMAN: \"ssdp:discover\"\r\n\r\n",
+                source()
+            ),
+            None
+        );
+        assert_eq!(
+            parse_notify(
+                "HTTP/1.1 200 OK\r\nLOCATION: http://a/d.xml\r\nUSN: uuid:x\r\n\r\n",
+                source()
+            ),
+            None
+        );
+        assert_eq!(
+            parse_notify(
+                "NOTIFY * HTTP/1.1\r\nNTS: upnp:propchange\r\nLOCATION: http://a/d.xml\r\nUSN: uuid:x\r\n\r\n",
+                source()
+            ),
+            None
+        );
+        assert_eq!(
+            parse_notify(
+                "NOTIFY * HTTP/1.1\r\nNTS: ssdp:alive\r\nLOCATION: http://a/d.xml\r\nUSN: upnp:rootdevice\r\n\r\n",
+                source()
+            ),
             None
         );
     }

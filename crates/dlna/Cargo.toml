@@ -10,7 +10,7 @@ ureq = "3"
 thiserror = "2.0"
 roxmltree = "0.21"
 url = "2"
-socket2 = "0.6"
+socket2 = { version = "0.6", features = ["all"] }
 network-interface = "2"
 server_http = { path = "../server_http" }
 

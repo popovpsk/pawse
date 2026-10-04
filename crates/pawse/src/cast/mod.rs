@@ -43,6 +43,18 @@ impl CastState {
     pub fn is_casting(&self) -> bool {
         self.active.is_some()
     }
+
+    fn mark_in_use(&self) {
+        if let Some(discovery) = &self.discovery {
+            discovery.set_in_use(
+                self.active
+                    .iter()
+                    .chain(&self.connecting)
+                    .map(|receiver| receiver.id.clone())
+                    .collect(),
+            );
+        }
+    }
 }
 
 struct AirPlayTarget {
@@ -415,7 +427,10 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
         .global::<crate::settings_store::SettingsStore>()
         .volume()
         .min(AIRPLAY_START_VOLUME);
-    cx.update_global::<CastState, _>(|state, _| state.connecting = Some(receiver.clone()));
+    cx.update_global::<CastState, _>(|state, _| {
+        state.connecting = Some(receiver.clone());
+        state.mark_in_use();
+    });
     let wanted = receiver.clone();
     let task = cx.background_spawn(async move {
         match (wanted.airplay_device(), server) {
@@ -437,7 +452,10 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
             if !still_wanted {
                 return;
             }
-            cx.update_global::<CastState, _>(|state, _| state.connecting = None);
+            cx.update_global::<CastState, _>(|state, _| {
+                state.connecting = None;
+                state.mark_in_use();
+            });
             match result {
                 Ok(connected) => activate(receiver, connected, volume, cx),
                 Err(e) => {
@@ -455,7 +473,10 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
 }
 
 pub fn disconnect(cx: &mut App) {
-    cx.update_global::<CastState, _>(|state, _| state.connecting = None);
+    cx.update_global::<CastState, _>(|state, _| {
+        state.connecting = None;
+        state.mark_in_use();
+    });
     if !cx.global::<Services>().player.is_casting() {
         return;
     }
@@ -519,6 +540,7 @@ fn switch(target: Target, receiver: Option<cast::Receiver>, volume: Option<f32>,
     cx.update_global::<CastState, _>(|state, _| {
         state.active = receiver;
         state.volume = volume;
+        state.mark_in_use();
     });
     if let Some(track) = track {
         resume_on_target(&services, &track, position_ms, playing);

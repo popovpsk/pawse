@@ -9,6 +9,7 @@ mod net;
 mod pcm;
 mod server;
 mod session;
+mod unicast_mdns;
 
 pub use airplay_output::AirPlayOutput;
 pub use discovery::{Discovery, Receiver, ReceiverKind};

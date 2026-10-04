@@ -93,8 +93,11 @@ The sleep timer's fade only touches the local output.
 
 `start_discovery` runs when the output picker opens (`on_open_change`), not at
 launch: no multicast until the user looks for a device. Later openings ask for
-a fresh SSDP search and mDNS browse at most every 20 s (after a sleep the list
-may have been emptied). "Looking for devices…" shows for the first 6 s and for
+a fresh search (SSDP, mDNS, unicast queries and a check of every receiver not
+heard from within 6 s) at most every 20 s. Discovery is told which receivers
+are in use, the active one and the one being connected to
+(`CastState::mark_in_use` → `Discovery::set_in_use`, on every switch and
+connect), so they are never checked nor dropped meanwhile. "Looking for devices…" shows for the first 6 s and for
 4 s after each refresh (`mark_searching`, the newest round wins), then "No
 devices found" if the list is still empty.
 

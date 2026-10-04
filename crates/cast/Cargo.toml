@@ -9,6 +9,8 @@ log = { workspace = true }
 flume = "0.12"
 getrandom = "0.3"
 mdns-sd = "0.21"
+network-interface = "2"
+socket2 = "0.6"
 rubato = "0.16"
 atomic_float = "1.1.0"
 audio_common = { path = "../audio_common" }

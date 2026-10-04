@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use crate::device::{RendererDescription, Service};
@@ -61,7 +62,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
     )
 }
 
-fn describe_renderer(agent: &ureq::Agent, location: &str) -> Result<RendererDescription, Error> {
+fn fetch_renderer(agent: &ureq::Agent, location: &str) -> Result<RendererDescription, Error> {
     let response = agent
         .get(location)
         .call()
@@ -74,17 +75,21 @@ fn describe_renderer(agent: &ureq::Agent, location: &str) -> Result<RendererDesc
     crate::device::parse_renderer(location, &text).map_err(Error::Server)
 }
 
-pub fn discover_renderers(timeout: Duration) -> Vec<Device> {
+pub fn describe_renderer(location: &str) -> Result<Device, Error> {
+    fetch_renderer(&agent(DESCRIBE_TIMEOUT), location).map(|description| description.device)
+}
+
+pub fn discover_renderers(hosts: &[Ipv4Addr], timeout: Duration) -> Vec<Device> {
     let agent = agent(DESCRIBE_TIMEOUT);
     let mut devices: Vec<Device> = Vec::new();
-    for reply in ssdp::search(&ssdp::RENDERER_TARGETS, timeout, None) {
+    for reply in ssdp::search(&ssdp::RENDERER_TARGETS, hosts, timeout, None) {
         if devices
             .iter()
             .any(|device| device.udn.eq_ignore_ascii_case(&reply.udn))
         {
             continue;
         }
-        match describe_renderer(&agent, &reply.location) {
+        match fetch_renderer(&agent, &reply.location) {
             Ok(description)
                 if !devices
                     .iter()
@@ -173,7 +178,7 @@ xmlns:dlna=\"urn:schemas-dlna-org:metadata-1-0/\">\
 
 impl Renderer {
     pub fn connect(location: &str) -> Result<Self, Error> {
-        let description = describe_renderer(&agent(DESCRIBE_TIMEOUT), location)?;
+        let description = fetch_renderer(&agent(DESCRIBE_TIMEOUT), location)?;
         Ok(Self {
             agent: agent(CONTROL_TIMEOUT),
             description,

@@ -1193,8 +1193,10 @@ dependencies = [
  "getrandom 0.3.4",
  "log",
  "mdns-sd",
+ "network-interface",
  "rstest",
  "rubato",
+ "socket2 0.6.5",
 ]
 
 [[package]]

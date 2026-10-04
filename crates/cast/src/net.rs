@@ -1,5 +1,10 @@
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, UdpSocket};
+
+use network_interface::{Addr, NetworkInterface, NetworkInterfaceConfig};
+use socket2::{Domain, Protocol, Socket, Type};
+
+const MULTICAST_TTL: u32 = 255;
 
 pub fn local_ip_for(peer: IpAddr) -> io::Result<IpAddr> {
     let unspecified = match peer {
@@ -13,6 +18,34 @@ pub fn local_ip_for(peer: IpAddr) -> io::Result<IpAddr> {
         return Err(io::Error::other(format!("no route to {peer}")));
     }
     Ok(local)
+}
+
+pub fn ipv4_interfaces() -> Vec<Ipv4Addr> {
+    let mut addresses: Vec<Ipv4Addr> = NetworkInterface::show()
+        .unwrap_or_else(|e| {
+            log::warn!("cast: listing network interfaces failed: {e}");
+            Vec::new()
+        })
+        .into_iter()
+        .filter(|interface| !interface.internal)
+        .flat_map(|interface| interface.addr)
+        .filter_map(|addr| match addr {
+            Addr::V4(v4) if !v4.ip.is_loopback() && !v4.ip.is_unspecified() => Some(v4.ip),
+            _ => None,
+        })
+        .collect();
+    addresses.sort();
+    addresses.dedup();
+    addresses
+}
+
+pub fn multicast_socket(interface: Ipv4Addr) -> io::Result<UdpSocket> {
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_multicast_if_v4(&interface)?;
+    socket.set_multicast_ttl_v4(MULTICAST_TTL)?;
+    socket.bind(&SocketAddrV4::new(interface, 0).into())?;
+    socket.set_nonblocking(true)?;
+    Ok(socket.into())
 }
 
 #[cfg(test)]

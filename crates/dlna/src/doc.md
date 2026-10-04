@@ -13,7 +13,8 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
 - `lib.rs` — `Client`, `Config`, `Device`, `Error`, `describe` (an address typed
   by the user → `Device`), `discover` (SSDP → `Device`s), the listing (search,
   browse, paging, de-duplication), ranges and covers.
-- `ssdp.rs` — M-SEARCH over every IPv4 interface and reply parsing.
+- `ssdp.rs` — M-SEARCH over every IPv4 interface (and to given hosts),
+  reply parsing, `NotifyListener` (announcements on port 1900).
 - `device.rs` — the device description: the device that carries a
   ContentDirectory service (or, for a renderer, an AVTransport service with
   RenderingControl and ConnectionManager next to it), its UDN, name, model and
@@ -78,6 +79,15 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
   every non-loopback IPv4 interface (`IP_MULTICAST_IF` per socket, so a VPN or a
   second network card does not swallow them) and describes each replying
   location with a 3 s timeout. Devices without a ContentDirectory are dropped.
+  `search` can also send the same requests to `<host>:1900` of given hosts
+  (with `HOST: 239.255.255.250:1900` and `MX`, which Platinum-based devices
+  require); gmrender answers those, MiniDLNA does not.
+- **Announcements.** `NotifyListener` binds `0.0.0.0:1900` with
+  `SO_REUSEADDR` (and `SO_REUSEPORT` on unix) and joins 239.255.255.250 on
+  every IPv4 interface, skipping one that fails; it fails only when none
+  joined. `next` returns `ssdp:alive` (and `ssdp:update`), which must carry a
+  `LOCATION`, and `ssdp:byebye`, with the UDN from `USN`, the NT and the
+  sender's address.
 - **Addresses typed by hand** may be a full description URL or just
   `host:port`; the latter tries `/rootDesc.xml`, `/description.xml` and
   `/DeviceDescription.xml`.
@@ -107,10 +117,12 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
 
 ## Renderers
 
-- `discover_renderers` searches for `AVTransport:1` and `MediaRenderer:1` and
-  keeps devices whose description has an AVTransport service. A renderer is
-  addressed by its description URL only; it is found again by discovery, not
-  by UDN like a server.
+- `discover_renderers` searches for `AVTransport:1` and `MediaRenderer:1`
+  (also unicast to the hosts it is given) and keeps devices whose
+  description has an AVTransport service. `describe_renderer` reads one
+  description URL (`cast` checks a renderer is still there with it). A
+  renderer is addressed by its description URL only; `cast` keeps the list
+  by UDN and follows a renderer that moved.
 - SOAP calls to a renderer time out after 5 s (descriptions after 3 s); the
   server agent's 60 s would freeze a session on a TV that went to sleep.
 - `Seek` uses `REL_TIME` with whole seconds (`H:MM:SS`), the form every
