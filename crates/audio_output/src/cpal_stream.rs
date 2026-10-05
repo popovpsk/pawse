@@ -489,7 +489,7 @@ impl AudioOutput for CpalOutputStream {
     }
 }
 
-fn calculate_volume_scaled(volume: f32) -> f32 {
+pub fn calculate_volume_scaled(volume: f32) -> f32 {
     let volume = volume as f64;
 
     let result = {

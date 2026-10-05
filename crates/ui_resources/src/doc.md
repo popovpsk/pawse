@@ -37,8 +37,9 @@ files.
 - `i18n/<code>.rs` — one `pub static <CODE>: Strings = lang!{ ... };` per
   language (`en`, `es`, `zh`, `pt`, `ru`, `ja`, `de`, `fr`, `ko`, `it`, `tr`,
   `pl`, `nl`, `uk`, `vi`, `id`, `th`, `cs`, `sv`, `hi`).
-- `i18n/cast.rs` — `CastStrings`, the streaming section of the output picker
-  and its notifications (`cast_strings()`), kept separate the same way.
+- `i18n/cast.rs` — `CastStrings`, the streaming section of the output picker,
+  its notifications and the Streaming group of Settings → General
+  (`cast_strings()`), kept separate the same way.
 - `i18n/bit_perfect.rs` — `BitPerfectStrings` (`bit_perfect_strings()`): the
   bit-perfect indicator's tooltip lines and the explanation dialog it opens on
   click, kept separate the same way.

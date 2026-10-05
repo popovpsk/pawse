@@ -237,7 +237,11 @@ impl Services {
     }
 
     pub fn volume_locked(&self) -> bool {
-        !self.player.is_casting() && self.output.is_exclusive()
+        if self.player.is_casting() {
+            self.player.leaves_volume_to_device()
+        } else {
+            self.output.is_exclusive()
+        }
     }
 }
 
@@ -749,15 +753,16 @@ pub fn set_volume(cx: &mut App, volume: f32) {
     }
     let services = cx.global::<Services>();
     let volume = volume.clamp(0.0, 1.0);
-    if services.player.set_cast_volume(volume) {
+    if services.volume_locked() {
+        return;
+    }
+    if services.player.set_device_volume(volume) {
         cx.update_global::<crate::cast::CastState, _>(|state, _| state.volume = Some(volume));
         publish_remote_state(cx);
         return;
     }
-    if services.output.is_exclusive() {
-        return;
-    }
     services.output.set_volume(volume);
+    services.player.set_app_volume(volume);
     if let Err(e) = cx
         .global_mut::<crate::settings_store::SettingsStore>()
         .set_volume(volume)
@@ -768,9 +773,10 @@ pub fn set_volume(cx: &mut App, volume: f32) {
 }
 
 pub fn effective_volume(cx: &App) -> f32 {
+    let player = &cx.global::<Services>().player;
     cx.global::<crate::cast::CastState>()
         .volume
-        .filter(|_| cx.global::<Services>().player.is_casting())
+        .filter(|_| player.is_casting() && player.device_volume())
         .unwrap_or_else(|| cx.global::<crate::settings_store::SettingsStore>().volume())
 }
 

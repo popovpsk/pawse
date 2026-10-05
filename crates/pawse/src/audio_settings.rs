@@ -68,7 +68,7 @@ fn receiver_icon(kind: cast::ReceiverKind) -> &'static str {
     match kind {
         cast::ReceiverKind::Chromecast => "icons/cast.svg",
         cast::ReceiverKind::AirPlay => "icons/airplay.svg",
-        cast::ReceiverKind::Dlna => "icons/network-speaker.svg",
+        cast::ReceiverKind::Dlna => "icons/dlna.svg",
     }
 }
 
@@ -389,7 +389,9 @@ impl Render for AudioSettings {
                                         .into_any_element(),
                                 );
                             }
-                            children.extend(cast_rows(muted_color, pop_cx));
+                            if pop_cx.global::<SettingsStore>().cast_enabled() {
+                                children.extend(cast_rows(muted_color, pop_cx));
+                            }
                             v_flex()
                                 .id("audio-device-popup")
                                 .bg(crate::cover_backdrop::popover_bg(

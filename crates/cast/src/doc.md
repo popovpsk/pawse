@@ -44,8 +44,9 @@ There are two ways a receiver gets audio, and the crate has one of each:
 
 ## Media server
 
-- One server per app run, bound to `0.0.0.0` on an ephemeral port, started the
-  first time a renderer is connected. A thread per connection (at most 32),
+- One server at a time, bound to `0.0.0.0` on an ephemeral port, started the
+  first time a renderer is connected; the app drops it (which stops it once
+  the sessions holding it are gone) when casting is turned off. A thread per connection (at most 32),
   HTTP/1.1 keep-alive, `GET` and `HEAD`, single byte ranges (`bytes=a-b`,
   `a-`, `-n`), `416` past the end.
 - Nothing is browsable: a path is `/<128-bit random token>/<n>.<ext>` and only
@@ -72,8 +73,9 @@ There are two ways a receiver gets audio, and the crate has one of each:
   the MIME types renderers use); a renderer without a ConnectionManager, or
   whose `GetProtocolInfo` fails, is assumed to take MP3, FLAC and WAV.
 - Everything else becomes PCM (`Delivery::Pcm`): ALAC, APE, WavPack, DSD,
-  formats over the limits, and **every cue track**, since a device can only
-  play a whole file. The container is WAV, or `audio/L16` (big-endian, no
+  formats over the limits, **every cue track**, since a device can only
+  play a whole file, and the rest of a track a DLNA renderer is started on
+  mid-way (Sessions, "Starting mid-track"). The container is WAV, or `audio/L16` (big-endian, no
   header) for a renderer that lists L16 but no WAV. 16-bit when the source is
   16-bit or lossy (and always for L16), 24-bit otherwise. The frame count comes from the cue
   length or the decoder's duration, so the length is exact and known up front.
@@ -157,28 +159,42 @@ header needs it); `plan` fails with a message instead.
   the device and hands it over. `Loaded` carries the duration and the source's
   sample rate and bit depth.
 - **Starting mid-track.** Chromecast takes `currentTime` in LOAD. DLNA has no
-  start position, a Seek sent before Play is accepted and ignored (gmrender
-  plays from 0:00), and some renderers start playing the moment they get a
-  URI (the HiBy R1 does, without a Play). So `send` silences the device
-  (`Driver::silence_start`) before `SetAVTransportURI`, plays, waits until it
-  reports PLAYING (up to 15 s: the R1 can sit in TRANSITIONING for 8),
-  seeks, waits until the reported position is within 1 s of the target (at
-  most 3 s, then one more seek and wait) and 300 ms more (a device may report the new
-  position before its output follows), and restores the sound
-  (`restore_sound`), so the first moments of the track are never heard. Silencing is `SetMute` when
-  `GetMute` answers and the device is not muted already; otherwise the volume
-  is set to 0 and back (the R1 faults on `GetMute`; the driver remembers a
-  fault, not a network error, and does not ask again). A renderer without
-  RenderingControl starts audibly. If anything fails after the device got the
-  URI, it is stopped before the sound comes back, so it does not play the
-  track from 0:00. Restoring is tried three times; if that fails, the next
-  volume change from the app also unmutes. If the app dies in between, the
-  device stays silent until its volume (or mute) is touched.
+  start position, so a DLNA renderer is sent the track from where it is to
+  start: the rest of it as PCM, cut from the position (`publish` with a cut,
+  the way a cue track is cut; lossless sources give the same samples, at the
+  source's bit depth). There is no start of the track on the device to be
+  heard. The session keeps where that stream starts (`Current::offset`) and
+  adds it to every position and duration the device reports (`poll`); a seek
+  to a point after it is a Seek on the device (less the offset), a seek before
+  it sends the track again from there (`start_on_device`; to the original
+  file when that is 0:00), or, while paused, stops the device and leaves the
+  track to be sent on play. `Loaded` carries the whole track's duration. A
+  0:00 report is "the start of what the device has", so `restart_unconfirmed`
+  compares against the offset. The next track is sent whole, as the original
+  file when the device takes it. A start under 1 s (`CUT_FROM`) is not worth
+  a converted track: the whole file is sent and played from 0:00. Play on a
+  finished track starts it over rather than from its end. If sending the
+  track again fails, the device is stopped and the session no longer counts
+  it as holding the track.
+
+  Before (until 2026-10-05) the whole file was sent, the device muted (or its
+  volume set to 0 on the R1, which faults on `GetMute`), played, seeked and
+  unmuted once it reported the position plus 300 ms; on the R1 the first
+  200–300 ms of the track were still heard after a switch (whether its
+  volume 0 came late or its output lagged the position it reported was not
+  found out).
+
+  A track whose length is unknown cannot be cut (the WAV header needs it),
+  and a renderer that lists neither WAV nor L16 is not sent PCM for it
+  (`Accepts::takes_pcm`): it is sent whole, played, and seeked once the device
+  reports PLAYING (up to 15 s: the R1 can sit in TRANSITIONING for 8), with a
+  second Seek if it is not within 1 s of the target 3 s later, so its start is
+  heard; if that fails the device is stopped (`play_and_seek`).
 - **Loading paused.** A DLNA renderer gets nothing until play
   (`Current::on_device` is false): a renderer like the R1 would start playing
   as soon as it got the URI. The track is probed and published, `Loaded` and
-  `Paused` are sent, seeks only move the position, and play sends it the
-  usual way, from wherever the position is by then. Until then polls ignore
+  `Paused` are sent, seeks only move the position, and play sends it cut
+  from wherever the position is by then. Until then polls ignore
   the device, which may still hold our previous track or play something of
   its own. A device that still holds our previous track is stopped first, so
   it cannot play that one (from its own buttons) while the app shows another.
@@ -189,8 +205,10 @@ header needs it); `plan` fails with a message instead.
   whole seconds (gmrender), so a reported position from 1.3 s behind to 0.3 s
   ahead of the estimate is taken as agreement and does not move it
   (`agrees_with`); a step back smaller than 1.5 s is never shown (`JITTER`). After a seek or a mid-track load,
-  positions far behind the target are ignored for 4 s while the device catches
-  up. Our own state changes are trusted over the device's for 1.5 s, since
+  positions far behind the target, or further ahead of it than the time since
+  then, are ignored for 4 s while the device catches up (`settling_away`): a
+  device that was just sent a stream starting elsewhere may still report the
+  old one, which the new offset would turn into a jump. Our own state changes are trusted over the device's for 1.5 s, since
   devices report the old state for a moment.
 - **Paused on the device.** The HiBy R1 keeps answering PLAYING when it is
   paused with its own button, and sends no event; only the position stops.
@@ -225,6 +243,13 @@ header needs it); `plan` fails with a message instead.
   advance. For 10 s after the estimate came within 5 s of the end
   (`end_reached`), a reported position far behind the estimate is ignored
   (`reset_at_end`).
+- **A passing 0:00.** Seeking on the HiBy R1 itself made the app's progress
+  bar go to 0:00 and then to the new position (2026-10-05), so the device
+  answers 0:00 at least once on the way. A reported position under 1 s while
+  the estimate is more than 1.5 s past it is believed only once the next
+  report has moved on from it (`restart_unconfirmed`): a jump to the start
+  made on the device shows a poll later, a passing 0:00 never. A device
+  pause seen at such a position (three equal polls) is shown as it is.
 - A `Buffering(true)` is always followed by `Buffering(false)`, also when the
   track is replaced, stopped or fails.
 - **Near the end** of a track (the last 3 s by the estimate) the session polls
@@ -260,6 +285,17 @@ header needs it); `plan` fails with a message instead.
   way a sound card pulls a callback: fades are applied there with the shared
   `audio_output::FadeState`, and a finished fade-out renders silence without
   draining the queue, exactly like `cpal_stream`.
+- **Two volumes.** `set_device_volume` is the speaker's own (`SET_PARAMETER
+  volume`); `connect` takes it as an `Option`, and `None` starts the stream
+  without one, so the speaker keeps its volume (also on a reconnect, until a
+  volume is set; `leave_device_volume` goes back to none). `set_gain` (also what `AudioOutput::set_volume` does here)
+  scales the samples in `Render` with the local output's curve
+  (`audio_output::calculate_volume_scaled`), in the same multiply as the
+  fade. The app uses one or the other (the app's cast doc, Volume). A
+  receiver without a volume of its own plays at its default: shairport-sync
+  on the Pi, sent no volume, played at its `default_airplay_volume` of −24,
+  which its software attenuation makes −55 dB (2026-10-05, `-o stdout`
+  recorded); not muted, but very quiet.
 - **Pause is immediate.** A pause after the engine's fade-out flushes the
   speaker's buffer. Frames that were sent but not heard yet are put back in
   front of the queue (`Render::rewind`, from a history of rendered frames),
@@ -442,8 +478,10 @@ header needs it); `plan` fails with a message instead.
   unit tests next to each module. The fake fetches the media URL it is given,
   so a test sees the exact bytes a device would get. `FakeRenderer` in
   `tests.rs` is a scripted `Driver` with whole-second positions for the
-  renderer quirks: the silent mid-track start, a pause that still says
-  PLAYING, a long buffering start, and the 0:00 before STOPPED.
+  renderer quirks: the mid-track start from a cut stream (and the seeks
+  around it), a pause that still says PLAYING, a long buffering start, a
+  passing 0:00 and the 0:00 before STOPPED. `Device::sent` keeps the length of
+  every track sent, which tells where it was cut.
 - On the test Wi-Fi, multicast stops reaching hosts from time to time (the
   router sends no IGMP queries). Measured on 2026-10-04 between the Mac and
   the Pi: 224.0.0.251 dropped both ways, 239.255.255.250 and a fresh
@@ -475,6 +513,14 @@ header needs it); `plan` fails with a message instead.
 
 ## Known limits
 
+- The Hisense TV ("Guest Room TV", `His/1.0`) closes its player when a track
+  ends and does not report a stop: the session stays on the last second, as
+  playing, and the queue does not move on (2026-10-05; minutes later it
+  answered NO_MEDIA_PRESENT with the position left at 3:38 of 3:40). A rule
+  that took a frozen position near the end for the end was tried and
+  dropped; sending the queue as one continuous stream (planned, for gapless)
+  will not depend on the device reporting the end.
+
 - Track changes on renderers are not gapless: each track is a new load after
   the device reports the end. On the R1 the gap is about a second: the end is
   noticed within ~0.3 s, `SetAVTransportURI` takes ~0.3 s there, and the
@@ -498,3 +544,6 @@ header needs it); `plan` fails with a message instead.
   Chromecast (see "What a device gets").
 - The sleep timer's volume fade does not reach a cast device; the timer still
   pauses on time.
+- When the volume slider is not to touch the device, a renderer's volume can
+  be changed on the device only: it fetches the file itself, so the app has
+  nothing to scale.

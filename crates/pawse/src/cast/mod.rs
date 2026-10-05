@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, Instant};
@@ -15,6 +15,7 @@ use ui_resources::i18n::cast_strings;
 use crate::library_service::LibraryService;
 use crate::playback_opener::{AfterLoad, OpenerBackend, PlaybackOpener, TrackRequest};
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 
 mod media;
 
@@ -132,6 +133,7 @@ pub struct Player {
     active: Arc<AtomicU64>,
     next_id: Cell<u64>,
     local_fades: Cell<u64>,
+    device_volume: Cell<bool>,
     events_tx: flume::Sender<EngineEvent>,
     events_rx: flume::Receiver<EngineEvent>,
     server: RefCell<Option<Arc<cast::MediaServer>>>,
@@ -164,6 +166,7 @@ impl Player {
         })
         .detach();
         cx.set_global(CastState::default());
+        let device_volume = cx.global::<SettingsStore>().cast_device_volume();
         Rc::new(Self {
             local,
             local_opener,
@@ -174,6 +177,7 @@ impl Player {
             active,
             next_id: Cell::new(LOCAL + 1),
             local_fades: Cell::new(0),
+            device_volume: Cell::new(device_volume),
             events_tx,
             events_rx,
             server: RefCell::new(None),
@@ -245,7 +249,18 @@ impl Player {
         }
     }
 
-    pub fn set_cast_volume(&self, volume: f32) -> bool {
+    pub fn device_volume(&self) -> bool {
+        self.device_volume.get()
+    }
+
+    pub fn leaves_volume_to_device(&self) -> bool {
+        !self.device_volume.get() && matches!(*self.target.borrow(), Target::Renderer(_))
+    }
+
+    pub fn set_device_volume(&self, volume: f32) -> bool {
+        if !self.device_volume.get() {
+            return false;
+        }
         match &*self.target.borrow() {
             Target::Local => false,
             Target::AirPlay(target) => {
@@ -259,6 +274,28 @@ impl Player {
         }
     }
 
+    pub fn set_app_volume(&self, volume: f32) {
+        if let Target::AirPlay(target) = &*self.target.borrow() {
+            target.output.set_gain(volume);
+        }
+    }
+
+    fn set_volume_mode(&self, device_volume: bool, app_volume: f32) -> Option<Option<f32>> {
+        self.device_volume.set(device_volume);
+        let Target::AirPlay(target) = &*self.target.borrow() else {
+            return None;
+        };
+        if !device_volume {
+            target.output.leave_device_volume();
+            target.output.set_gain(app_volume);
+            return Some(None);
+        }
+        let volume = app_volume.min(AIRPLAY_START_VOLUME);
+        target.output.set_gain(1.0);
+        target.output.set_device_volume(volume);
+        Some(Some(volume))
+    }
+
     pub fn shutdown(&self) {
         self.active.store(LOCAL, Ordering::Release);
         let target = self.target.replace(Target::Local);
@@ -267,6 +304,10 @@ impl Player {
         }
         target.release(true);
         self.local.shutdown();
+    }
+
+    fn drop_server(&self) {
+        self.server.borrow_mut().take();
     }
 
     fn server(&self) -> Result<Arc<cast::MediaServer>, String> {
@@ -355,6 +396,9 @@ fn mark_searching(lasts: Duration, cx: &mut App) {
 }
 
 pub fn start_discovery(cx: &mut App) {
+    if !cx.global::<SettingsStore>().cast_enabled() {
+        return;
+    }
     let state = cx.global::<CastState>();
     if let Some(discovery) = &state.discovery {
         if state
@@ -371,13 +415,17 @@ pub fn start_discovery(cx: &mut App) {
     }
     let discovery = Rc::new(cast::Discovery::start());
     let changes = discovery.changes();
+    let weak = Rc::downgrade(&discovery);
     cx.update_global::<CastState, _>(|state, _| {
-        state.discovery = Some(discovery.clone());
+        state.discovery = Some(discovery);
         state.refreshed = Some(std::time::Instant::now());
     });
     mark_searching(FIRST_SEARCH, cx);
     cx.spawn(async move |cx| {
         while changes.recv_async().await.is_ok() {
+            let Some(discovery) = Weak::upgrade(&weak) else {
+                break;
+            };
             cx.update(|cx| {
                 let receivers = discovery.receivers();
                 cx.update_global::<CastState, _>(|state, _| state.receivers = receivers);
@@ -385,6 +433,31 @@ pub fn start_discovery(cx: &mut App) {
         }
     })
     .detach();
+}
+
+pub fn set_enabled(enabled: bool, cx: &mut App) {
+    if enabled {
+        return;
+    }
+    disconnect(cx);
+    cx.global::<Services>().player.drop_server();
+    cx.update_global::<CastState, _>(|state, _| {
+        state.discovery = None;
+        state.receivers.clear();
+        state.searching = false;
+        state.search_round += 1;
+        state.refreshed = None;
+    });
+}
+
+pub fn volume_mode_changed(cx: &mut App) {
+    let settings = cx.global::<SettingsStore>();
+    let (device_volume, app_volume) = (settings.cast_device_volume(), settings.volume());
+    let player = cx.global::<Services>().player.clone();
+    if let Some(volume) = player.set_volume_mode(device_volume, app_volume) {
+        cx.update_global::<CastState, _>(|state, _| state.volume = volume);
+    }
+    crate::services::publish_remote_state(cx);
 }
 
 fn notify(cx: &mut App, notification: Notification) {
@@ -397,6 +470,9 @@ fn notify(cx: &mut App, notification: Notification) {
 }
 
 pub fn connect(receiver: cast::Receiver, cx: &mut App) {
+    if !cx.global::<SettingsStore>().cast_enabled() {
+        return;
+    }
     let state = cx.global::<CastState>();
     if state
         .active
@@ -425,10 +501,12 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
             }
         }
     };
-    let volume = cx
-        .global::<crate::settings_store::SettingsStore>()
-        .volume()
-        .min(AIRPLAY_START_VOLUME);
+    let settings = cx.global::<SettingsStore>();
+    let app_volume = settings.volume();
+    let volume = settings
+        .cast_device_volume()
+        .then(|| app_volume.min(AIRPLAY_START_VOLUME));
+    let gain = if volume.is_some() { 1.0 } else { app_volume };
     cx.update_global::<CastState, _>(|state, _| {
         state.connecting = Some(receiver.clone());
         state.mark_in_use();
@@ -437,7 +515,7 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
     let task = cx.background_spawn(async move {
         match (wanted.airplay_device(), server) {
             (Some(device), _) => {
-                cast::AirPlayOutput::connect(device.clone(), volume).map(Connected::AirPlay)
+                cast::AirPlayOutput::connect(device.clone(), volume, gain).map(Connected::AirPlay)
             }
             (None, Some(server)) => cast::connect(&wanted, server).map(Connected::Renderer),
             (None, None) => Err("no media server".to_string()),
@@ -485,7 +563,7 @@ pub fn disconnect(cx: &mut App) {
     switch(Target::Local, None, None, cx);
 }
 
-fn activate(receiver: cast::Receiver, connected: Connected, volume: f32, cx: &mut App) {
+fn activate(receiver: cast::Receiver, connected: Connected, volume: Option<f32>, cx: &mut App) {
     let services = cx.global::<Services>().clone();
     let player = services.player.clone();
     let id = player.take_id();
@@ -506,7 +584,7 @@ fn activate(receiver: cast::Receiver, connected: Connected, volume: f32, cx: &mu
                     output,
                     _now_playing: now_playing,
                 }),
-                Some(volume),
+                volume,
             )
         }
         Connected::Renderer(session) => {
@@ -520,8 +598,12 @@ fn activate(receiver: cast::Receiver, connected: Connected, volume: f32, cx: &mu
             (Target::Renderer(target), None)
         }
     };
+    let airplay = matches!(target, Target::AirPlay(_));
     log::info!("cast: playing on {} ({:?})", receiver.name, receiver.kind);
     switch(target, Some(receiver), volume, cx);
+    if airplay {
+        volume_mode_changed(cx);
+    }
 }
 
 fn switch(target: Target, receiver: Option<cast::Receiver>, volume: Option<f32>, cx: &mut App) {

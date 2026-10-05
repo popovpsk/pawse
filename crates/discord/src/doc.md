@@ -57,8 +57,9 @@ GPUI/event wiring lives in `pawse::discord_bridge`.
   budget, so resuming after a long pause can leave the profile blank for up to
   `MIN_INTERVAL` before the track reappears. Inherent to hide-on-pause — both
   the clear and the re-publish are `set_activity` calls.
-- **Unavailable ⇒ no UI.** `pawse::settings_view` omits the whole Discord group
-  when `is_available()` is false, rather than showing a dead toggle. Release
+- **Unavailable ⇒ no UI.** `pawse::settings_view` omits the Discord row (in
+  Settings → General, under the remote control rows) when `is_available()` is
+  false, rather than showing a dead toggle. Release
   builds bake the id in, so this only affects local builds without a `.env`;
   there is no user-facing "not configured" string to translate.
 - **Album required for art.** Art lookup needs a non-empty album; without one (or

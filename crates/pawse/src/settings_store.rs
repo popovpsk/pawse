@@ -519,6 +519,10 @@ pub struct UserSettings {
     legacy_lastfm_session: Option<scrobble::Session>,
     #[serde(default)]
     pub discord_enabled: bool,
+    #[serde(default = "default_true")]
+    pub cast_enabled: bool,
+    #[serde(default = "default_true")]
+    pub cast_device_volume: bool,
     #[serde(default)]
     pub font_scale: FontScale,
     #[serde(default = "default_lyrics_font_size")]
@@ -583,6 +587,8 @@ impl Default for UserSettings {
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
+            cast_enabled: true,
+            cast_device_volume: true,
             font_scale: FontScale::default(),
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             lyrics_karaoke_fill: true,
@@ -1170,6 +1176,24 @@ impl SettingsStore {
 
     pub fn set_discord_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.discord_enabled = enabled;
+        self.save()
+    }
+
+    pub fn cast_enabled(&self) -> bool {
+        self.settings.cast_enabled
+    }
+
+    pub fn set_cast_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.cast_enabled = enabled;
+        self.save()
+    }
+
+    pub fn cast_device_volume(&self) -> bool {
+        self.settings.cast_device_volume
+    }
+
+    pub fn set_cast_device_volume(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.cast_device_volume = enabled;
         self.save()
     }
 
@@ -1792,6 +1816,8 @@ mod tests {
             legacy_lastfm_enabled: None,
             legacy_lastfm_session: None,
             discord_enabled: false,
+            cast_enabled: true,
+            cast_device_volume: true,
             font_scale: FontScale::Large,
             lyrics_font_size: 20.,
             lyrics_karaoke_fill: true,
@@ -1903,6 +1929,8 @@ mod tests {
         assert_eq!(settings.playback.current_index, None);
         assert_eq!(settings.playback.position_ms, 0);
         assert_eq!(settings.font_scale, FontScale::Small);
+        assert!(settings.cast_enabled);
+        assert!(settings.cast_device_volume);
     }
 
     #[test]

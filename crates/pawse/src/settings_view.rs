@@ -27,6 +27,7 @@ use crate::settings_store::{
 };
 use crate::theme_colors::Colors;
 use music_library::ArtistGrouping;
+use ui_resources::i18n::cast_strings;
 
 actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
 
@@ -86,14 +87,12 @@ pub fn build_settings_pages(
             .group(lyrics_group(sliders.lyrics))
             .group(now_playing_group()),
     ];
-    let mut general = SettingPage::new(tr().settings_general.clone())
+    let general = SettingPage::new(tr().settings_general.clone())
         .group(general_group(remote_port_input))
+        .group(streaming_group())
         .group(crate::sleep_timer::settings::settings_group(
             sleep_timer_controls,
         ));
-    if discord::is_available() {
-        general = general.group(discord_group());
-    }
     let general_ix = pages.len();
     pages.push(general.group(feedback_group()));
     let scrobbling = pages.len();
@@ -720,6 +719,10 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
         .description(tr().remote_port_desc.clone()),
     );
 
+    if discord::is_available() {
+        group = group.item(discord_item());
+    }
+
     group.item(SettingItem::new(
         tr().version.clone(),
         SettingField::render(|_window, cx: &mut App| {
@@ -821,30 +824,77 @@ fn feedback_group() -> SettingGroup {
         ))
 }
 
-fn discord_group() -> SettingGroup {
+fn discord_item() -> SettingItem {
+    SettingItem::new(
+        tr().discord_share.clone(),
+        SettingField::render(|_window, cx: &mut App| {
+            let enabled = cx.global::<SettingsStore>().discord_enabled();
+            h_flex().items_center().justify_end().child(
+                Switch::new("discord-enabled-toggle")
+                    .checked(enabled)
+                    .on_click(|new_val, _, cx| {
+                        if let Err(e) = cx
+                            .global_mut::<SettingsStore>()
+                            .set_discord_enabled(*new_val)
+                        {
+                            notify_save_error(cx, e);
+                        }
+                        crate::discord_bridge::set_enabled(cx, *new_val);
+                    }),
+            )
+        }),
+    )
+    .description(tr().discord_share_desc.clone())
+}
+
+fn streaming_group() -> SettingGroup {
+    let strings = cast_strings();
     SettingGroup::new()
-        .title(SharedString::from("Discord"))
+        .title(strings.streaming.clone())
         .item(
             SettingItem::new(
-                tr().discord_share.clone(),
+                strings.cast_enabled.clone(),
                 SettingField::render(|_window, cx: &mut App| {
-                    let enabled = cx.global::<SettingsStore>().discord_enabled();
+                    let enabled = cx.global::<SettingsStore>().cast_enabled();
                     h_flex().items_center().justify_end().child(
-                        Switch::new("discord-enabled-toggle")
+                        Switch::new("cast-enabled-toggle")
                             .checked(enabled)
                             .on_click(|new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_discord_enabled(*new_val)
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_cast_enabled(*new_val)
                                 {
                                     notify_save_error(cx, e);
                                 }
-                                crate::discord_bridge::set_enabled(cx, *new_val);
+                                crate::cast::set_enabled(*new_val, cx);
                             }),
                     )
                 }),
             )
-            .description(tr().discord_share_desc.clone()),
+            .description(strings.cast_enabled_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                strings.device_volume.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let settings = cx.global::<SettingsStore>();
+                    let enabled = settings.cast_enabled();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("cast-device-volume-toggle")
+                            .checked(enabled && settings.cast_device_volume())
+                            .disabled(!enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_cast_device_volume(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                                crate::cast::volume_mode_changed(cx);
+                            }),
+                    )
+                }),
+            )
+            .description(strings.device_volume_desc.clone()),
         )
 }
 

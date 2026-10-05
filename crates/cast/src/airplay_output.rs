@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioSamples};
-use audio_output::{AudioOutput, EngineOutput, FadeEvent, FadeState, apply_fade_gain};
+use audio_output::{
+    AudioOutput, EngineOutput, FadeEvent, FadeState, apply_fade_gain, calculate_volume_scaled,
+};
 use rubato::{FftFixedIn, Resampler};
 
 use airplay::{CHANNELS, LATENCY_FRAMES, NowPlaying, RemoteCommand, SAMPLE_RATE};
@@ -33,6 +35,7 @@ struct Buffer {
     history: Mutex<VecDeque<f32>>,
     space: Condvar,
     fade: FadeState,
+    gain: AtomicF32,
 }
 
 struct Renderer {
@@ -61,7 +64,12 @@ impl airplay::Render for Renderer {
             let excess = history.len().saturating_sub(history_capacity());
             history.drain(..excess);
         }
-        apply_fade_gain(&self.buffer.fade, 1.0, CHANNELS, &mut self.scratch);
+        apply_fade_gain(
+            &self.buffer.fade,
+            self.buffer.gain.load(Ordering::Relaxed),
+            CHANNELS,
+            &mut self.scratch,
+        );
         for (slot, sample) in out.iter_mut().zip(self.scratch.iter()) {
             *slot = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16;
         }
@@ -200,7 +208,7 @@ pub struct AirPlayOutput {
     converter: Mutex<Converter>,
     intent: AtomicBool,
     closed: AtomicBool,
-    volume: AtomicF32,
+    volume: Mutex<Option<f32>>,
     now_playing: Mutex<Option<NowPlaying>>,
     progress: Mutex<Option<(i64, u64)>>,
     route: Mutex<Option<crate::dacp::Route>>,
@@ -211,7 +219,11 @@ pub struct AirPlayOutput {
 }
 
 impl AirPlayOutput {
-    pub fn connect(device: airplay::Device, volume: f32) -> Result<Arc<Self>, String> {
+    pub fn connect(
+        device: airplay::Device,
+        volume: Option<f32>,
+        gain: f32,
+    ) -> Result<Arc<Self>, String> {
         let (lost, lost_events) = flume::unbounded();
         let (remote, remote_commands) = flume::unbounded();
         let output = Arc::new(Self {
@@ -222,11 +234,12 @@ impl AirPlayOutput {
                 history: Mutex::new(VecDeque::with_capacity(history_capacity())),
                 space: Condvar::new(),
                 fade: FadeState::new(),
+                gain: AtomicF32::new(calculate_volume_scaled(gain)),
             }),
             converter: Mutex::new(Converter::new()),
             intent: AtomicBool::new(false),
             closed: AtomicBool::new(false),
-            volume: AtomicF32::new(volume),
+            volume: Mutex::new(volume),
             now_playing: Mutex::new(None),
             progress: Mutex::new(None),
             route: Mutex::new(None),
@@ -284,10 +297,21 @@ impl AirPlayOutput {
     }
 
     pub fn set_device_volume(&self, volume: f32) {
-        self.volume.store(volume, Ordering::Relaxed);
+        *lock(&self.volume) = Some(volume);
         if let Some(stream) = lock(&self.stream).as_ref() {
             stream.set_volume(volume);
         }
+    }
+
+    pub fn leave_device_volume(&self) {
+        *lock(&self.volume) = None;
+    }
+
+    pub fn set_gain(&self, volume: f32) {
+        self.buffer.gain.store(
+            calculate_volume_scaled(volume.clamp(0.0, 1.0)),
+            Ordering::Relaxed,
+        );
     }
 
     fn ensure_stream(&self) -> Result<(), String> {
@@ -307,12 +331,9 @@ impl AirPlayOutput {
             scratch: Vec::with_capacity(airplay::FRAMES_PER_PACKET * CHANNELS),
             silent_tail: 0,
         };
-        let stream = airplay::Stream::start(
-            &self.device,
-            self.volume.load(Ordering::Relaxed),
-            Box::new(renderer),
-        )
-        .map_err(|e| e.to_string())?;
+        let volume = *lock(&self.volume);
+        let stream = airplay::Stream::start(&self.device, volume, Box::new(renderer))
+            .map_err(|e| e.to_string())?;
         let events = stream.events();
         let (lost, remote) = (self.lost.clone(), self.remote.clone());
         let _ = std::thread::Builder::new()
@@ -427,7 +448,7 @@ impl AudioOutput for AirPlayOutput {
     }
 
     fn set_volume(&self, volume: f32) {
-        self.set_device_volume(volume);
+        self.set_gain(volume);
     }
 }
 
@@ -461,6 +482,7 @@ mod tests {
             history: Mutex::new(VecDeque::new()),
             space: Condvar::new(),
             fade: FadeState::new(),
+            gain: AtomicF32::new(1.0),
         })
     }
 
@@ -501,6 +523,25 @@ mod tests {
         renderer.render(&mut out);
         assert_eq!(out, [0; 4]);
         assert_eq!(lock(&buffer.queue).len(), 4);
+    }
+
+    #[test]
+    fn the_gain_scales_what_is_rendered() {
+        let buffer = buffer();
+        buffer
+            .gain
+            .store(calculate_volume_scaled(0.5), Ordering::Relaxed);
+        lock(&buffer.queue).extend([0.5f32; 4]);
+        let mut renderer = Renderer {
+            buffer: buffer.clone(),
+            scratch: Vec::new(),
+            silent_tail: 0,
+        };
+        let mut out = [0i16; 4];
+        renderer.render(&mut out);
+        let expected = (0.5 * calculate_volume_scaled(0.5) * f32::from(i16::MAX)).round() as i16;
+        assert_eq!(out, [expected; 4]);
+        assert!(expected < i16::MAX / 4);
     }
 
     #[test]

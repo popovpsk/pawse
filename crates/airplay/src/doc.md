@@ -265,7 +265,11 @@ Nothing is compressed; at 44.1 kHz that is about 1.4 Mbit/s.
   "pairing required", does not exclude a device: the Hisense TV sets it
   (`flags=0x244`) and takes transient pairing.
 
-Volume is AirPlay's −30…0 dB scale, linear in dB; 0 is −144 (mute).
+Volume is AirPlay's −30…0 dB scale, linear in dB; 0 is −144 (mute). A
+stream started without a volume (`Stream::start(.., None, ..)`) sends no
+`SET_PARAMETER volume` in either handshake, so the device keeps its own
+volume; a later `set_volume` is sent as usual. The app does that when the
+volume slider is not to touch the device (`cast`'s doc).
 
 ## Testing
 

@@ -82,6 +82,9 @@ pub trait Accepts {
     fn wants_seek_table(&self) -> bool {
         false
     }
+    fn takes_pcm(&self) -> bool {
+        true
+    }
 }
 
 fn reduced_rate(rate: u32, max: u32) -> u32 {

@@ -412,11 +412,13 @@ fn a_cue_segment_reaches_a_chromecast_as_wav() {
 
 struct Device {
     calls: Vec<&'static str>,
+    sent: Vec<Option<Duration>>,
     state: crate::session::State,
     base: Duration,
     since: Option<Instant>,
     queued: std::collections::VecDeque<(crate::session::State, Duration)>,
     fail_seek: bool,
+    no_pcm: bool,
 }
 
 impl Device {
@@ -443,11 +445,13 @@ impl FakeRenderer {
     fn new() -> Self {
         Self(Arc::new(std::sync::Mutex::new(Device {
             calls: Vec::new(),
+            sent: Vec::new(),
             state: crate::session::State::Idle,
             base: Duration::ZERO,
             since: None,
             queued: Default::default(),
             fail_seek: false,
+            no_pcm: false,
         })))
     }
 
@@ -468,6 +472,10 @@ impl Accepts for FakeRenderer {
     fn pcm_limits(&self) -> (u32, u16) {
         (192_000, 8)
     }
+
+    fn takes_pcm(&self) -> bool {
+        !self.device().no_pcm
+    }
 }
 
 impl crate::session::Driver for FakeRenderer {
@@ -482,6 +490,7 @@ impl crate::session::Driver for FakeRenderer {
         } else {
             "load"
         });
+        device.sent.push(loading.duration);
         device.base = Duration::ZERO;
         device.since = loading.autoplay.then(Instant::now);
         device.state = if loading.autoplay {
@@ -559,14 +568,6 @@ impl crate::session::Driver for FakeRenderer {
         false
     }
 
-    fn silence_start(&mut self) {
-        self.device().calls.push("silence");
-    }
-
-    fn restore_sound(&mut self) {
-        self.device().calls.push("restore");
-    }
-
     fn close(&mut self) {}
 }
 
@@ -592,16 +593,85 @@ fn minute_long(start: Duration, autoplay: bool) -> Load {
     }
 }
 
+fn wait_for_calls(fake: &FakeRenderer, done: impl Fn(&[&'static str]) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !done(&fake.device().calls) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let calls = fake.device().calls.clone();
+    assert!(done(&calls), "{calls:?}");
+}
+
+fn last_position(seen: &[SessionEvent]) -> Option<Duration> {
+    seen.iter().rev().find_map(|e| match e {
+        SessionEvent::Position(position) => Some(*position),
+        _ => None,
+    })
+}
+
 #[test]
-fn a_renderer_started_mid_track_is_silent_from_before_it_gets_the_track() {
+fn a_renderer_started_mid_track_gets_the_track_from_there() {
     let (fake, session, events) = renderer_session();
     let mut seen = Vec::new();
     session.load(minute_long(Duration::from_secs(30), true));
     expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
-    assert_eq!(
-        fake.device().calls,
-        ["silence", "load", "play", "seek", "restore"]
+    assert!(seen.contains(&SessionEvent::Loaded {
+        duration: Some(Duration::from_secs(60)),
+        sample_rate: 44_100,
+        bit_depth: 16,
+    }));
+    assert_eq!(fake.device().calls, ["load and play"]);
+    assert_eq!(fake.device().sent, [Some(Duration::from_secs(30))]);
+    std::thread::sleep(Duration::from_millis(2500));
+    while let Ok(event) = events.try_recv() {
+        seen.push(event);
+    }
+    let position = last_position(&seen).unwrap();
+    assert!(
+        position >= Duration::from_secs(31) && position < Duration::from_secs(40),
+        "{seen:?}"
     );
+    drop(session);
+}
+
+#[test]
+fn seeking_back_past_where_the_device_was_started_sends_the_track_again_from_there() {
+    let (fake, session, events) = renderer_session();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    session.seek(Duration::from_secs(45));
+    wait_for_calls(&fake, |calls| calls == ["load and play", "seek"]);
+    assert_eq!(fake.device().base, Duration::from_secs(15));
+    session.seek(Duration::from_secs(10));
+    wait_for_calls(&fake, |calls| {
+        calls == ["load and play", "seek", "load and play"]
+    });
+    assert_eq!(
+        fake.device().sent,
+        [Some(Duration::from_secs(30)), Some(Duration::from_secs(50))]
+    );
+    std::thread::sleep(Duration::from_millis(2000));
+    seen.clear();
+    while let Ok(event) = events.try_recv() {
+        seen.push(event);
+    }
+    let position = last_position(&seen).unwrap();
+    assert!(
+        position >= Duration::from_secs(10) && position < Duration::from_secs(20),
+        "{seen:?}"
+    );
+
+    session.pause();
+    session.seek(Duration::from_secs(5));
+    wait_for_calls(&fake, |calls| calls.last() == Some(&"stop"));
+    session.play();
+    wait_for_calls(&fake, |calls| calls.last() == Some(&"load and play"));
+    assert_eq!(
+        fake.device().sent.last(),
+        Some(&Some(Duration::from_secs(55)))
+    );
+    drop(session);
 }
 
 #[test]
@@ -628,13 +698,17 @@ fn a_renderer_loaded_paused_gets_nothing_until_play() {
 
     session.play();
     expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
-    std::thread::sleep(Duration::from_millis(800));
-    assert_eq!(
-        fake.device().calls,
-        ["silence", "load", "play", "seek", "restore"]
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(fake.device().calls, ["load and play"]);
+    assert_eq!(fake.device().sent, [Some(Duration::from_secs(30))]);
+    while let Ok(event) = events.try_recv() {
+        seen.push(event);
+    }
+    let position = last_position(&seen).unwrap();
+    assert!(
+        position >= Duration::from_secs(30) && position < Duration::from_secs(40),
+        "{seen:?}"
     );
-    assert!(fake.device().position() >= Duration::from_secs(30));
-    assert!(fake.device().position() < Duration::from_secs(40));
 }
 
 #[test]
@@ -685,16 +759,49 @@ fn a_renderer_loaded_paused_after_playing_is_stopped_first() {
 }
 
 #[test]
-fn a_renderer_that_fails_the_start_is_stopped_before_the_sound_returns() {
+fn a_renderer_without_pcm_is_started_and_seeked_and_stopped_if_the_seek_fails() {
     let (fake, session, events) = renderer_session();
-    fake.device().fail_seek = true;
     let mut seen = Vec::new();
+    fake.device().no_pcm = true;
     session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    assert_eq!(fake.device().calls, ["load", "play", "seek"]);
+    assert_eq!(fake.device().sent, [Some(Duration::from_secs(60))]);
+
+    fake.device().fail_seek = true;
+    fake.device().calls.clear();
+    seen.clear();
+    session.load(minute_long(Duration::from_secs(20), true));
     expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
-    assert_eq!(
-        fake.device().calls,
-        ["silence", "load", "play", "seek", "stop", "restore"]
+    assert_eq!(fake.device().calls, ["load", "play", "seek", "stop"]);
+}
+
+#[test]
+fn play_after_the_end_starts_the_track_over() {
+    let (fake, session, events) = renderer_session();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    fake.device().run_from(Duration::from_secs(58));
+    expect_event(
+        &events,
+        &mut seen,
+        |e| matches!(e, SessionEvent::Position(p) if *p >= Duration::from_secs(58)),
     );
+    {
+        let mut device = fake.device();
+        device.state = crate::session::State::Idle;
+        device.since = None;
+    }
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Ended);
+    fake.device().calls.clear();
+    session.play();
+    wait_for_calls(&fake, |calls| calls == ["load and play"]);
+    assert_eq!(
+        fake.device().sent.last(),
+        Some(&Some(Duration::from_secs(60)))
+    );
+    drop(session);
 }
 
 #[test]
@@ -752,5 +859,81 @@ fn a_renderer_that_buffers_long_at_the_start_is_not_taken_for_paused() {
         seen.push(event);
     }
     assert!(!seen.contains(&SessionEvent::Paused), "{seen:?}");
+    drop(session);
+}
+
+#[test]
+fn a_renderer_seeked_on_its_own_shows_no_zero_on_the_way_but_a_restart_counts() {
+    let (fake, session, events) = renderer_session();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    fake.device().run_from(Duration::from_secs(20));
+    expect_event(
+        &events,
+        &mut seen,
+        |e| matches!(e, SessionEvent::Position(p) if *p >= Duration::from_secs(20)),
+    );
+    seen.clear();
+    {
+        let mut device = fake.device();
+        device
+            .queued
+            .push_back((crate::session::State::Playing, Duration::ZERO));
+        device.run_from(Duration::from_secs(40));
+    }
+    expect_event(
+        &events,
+        &mut seen,
+        |e| matches!(e, SessionEvent::Position(p) if *p >= Duration::from_secs(40)),
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Position(p) if *p < Duration::from_secs(20))),
+        "{seen:?}"
+    );
+    assert!(!seen.contains(&SessionEvent::Paused), "{seen:?}");
+
+    fake.device().run_from(Duration::ZERO);
+    expect_event(
+        &events,
+        &mut seen,
+        |e| matches!(e, SessionEvent::Position(p) if *p < Duration::from_secs(5)),
+    );
+    drop(session);
+}
+
+#[test]
+fn a_passing_zero_from_a_renderer_started_mid_track_is_not_shown_either() {
+    let (fake, session, events) = renderer_session();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    fake.device().run_from(Duration::from_secs(10));
+    expect_event(
+        &events,
+        &mut seen,
+        |e| matches!(e, SessionEvent::Position(p) if *p >= Duration::from_secs(40)),
+    );
+    seen.clear();
+    {
+        let mut device = fake.device();
+        device
+            .queued
+            .push_back((crate::session::State::Playing, Duration::ZERO));
+        device.run_from(Duration::from_secs(20));
+    }
+    expect_event(
+        &events,
+        &mut seen,
+        |e| matches!(e, SessionEvent::Position(p) if *p >= Duration::from_secs(50)),
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Position(p) if *p < Duration::from_secs(40))),
+        "{seen:?}"
+    );
     drop(session);
 }

@@ -16,7 +16,7 @@ pub use bit_perfect::{BitPerfectIssue, BitPerfectStatus, UNITY_VOLUME_TOLERANCE}
 use cpal::traits::HostTrait;
 pub use cpal_stream::{
     AudioOutput, CpalOutputStream, FadeState, OutputConfig, PlaybackState, SelectedOutputDevice,
-    apply_fade_gain,
+    apply_fade_gain, calculate_volume_scaled,
 };
 use device::DeviceManager;
 use parking_lot::{Mutex, RwLock};

@@ -96,14 +96,53 @@ computer, paused at the last position, with a notification.
 
 ## Volume
 
-While casting, the volume slider (and the web remote's) is the device's volume:
-renderers report it on connect and when it changes on the device
-(`CastState::volume`); AirPlay cannot be asked, so it starts at the app volume
-capped at 50 %. None of it is saved; leaving the device brings back the app
-volume. `Services::volume_locked` is exclusive mode only when not casting.
-The sleep timer's fade only touches the local output.
+Settings → General → Streaming → "Change the device's volume"
+(`cast_device_volume`, on by default). The player keeps it in a `Cell`
+(`Player::device_volume`, set at launch and by `volume_mode_changed`), so
+`Services::volume_locked` needs no settings lookup.
+
+- **On.** While casting, the volume slider (and the web remote's) is the
+  device's volume: renderers report it on connect and when it changes on the
+  device (`CastState::volume`); AirPlay cannot be asked, so it starts at the
+  app volume capped at 50 %. None of it is saved; leaving the device brings
+  back the app volume.
+- **Off.** The device keeps its own volume. AirPlay is connected without a
+  volume (no `SET_PARAMETER volume` at all) and the slider stays the app
+  volume: it is applied to the samples before they are sent
+  (`AirPlayOutput::set_gain`, through `Player::set_app_volume`), set on the
+  local output too and saved as usual. A change is heard after what the
+  speaker already holds (about 2.5 s: the queue and the AirPlay latency), as
+  a step. A renderer fetches the file itself, so there is nothing to scale:
+  the slider is locked and parked at full, as in exclusive mode
+  (`Player::leaves_volume_to_device`). Scaling would mean converting every
+  track to PCM (no original file any more), and a renderer reads far ahead of
+  what it plays, often the whole file, so a change could come much later
+  still.
+- Switching it while casting to AirPlay takes effect at once: off sets the
+  gain to the app volume and leaves the speaker where it was (and forgets its
+  volume, so a reconnect sends none); on sets the gain back to full and sends
+  the app volume capped at 50 %. `activate` applies the current mode and app
+  volume once more to a speaker that just connected, so a mode or slider
+  change made during the handshake is not lost. Renderers report
+  their volume in both modes (`CastState::volume` follows it either way), so
+  it is current when the mode comes back on; `effective_volume` shows it only
+  while the mode is on.
+
+`Services::volume_locked` is exclusive mode when not casting and
+`leaves_volume_to_device` when casting. The sleep timer's fade only touches
+the local output.
 
 ## Discovery
+
+Casting can be turned off (Settings → General → Streaming → "Stream to network
+devices", `cast_enabled`, on by default): the picker then has no Streaming
+section, and `start_discovery` and `connect` do nothing. Turning it off while
+casting moves playback back to this computer (`disconnect`), drops the media
+server (`drop_server`; the next renderer starts a new one) and drops the
+`Discovery` from `CastState`, which stops its threads (`set_enabled`); the task
+that copies its receivers into `CastState` holds it weakly, so that drop is
+the last one. The DACP server and its announcement stay until quit: the
+`cast` crate starts them once per run.
 
 `start_discovery` runs when the output picker opens (`on_open_change`), not at
 launch: no multicast until the user looks for a device. Later openings ask for
@@ -118,7 +157,7 @@ devices found" if the list is still empty.
 ## Picker
 
 Below the local devices, a "Streaming" section lists receivers with an icon
-per kind (`cast.svg`, `airplay.svg`, `network-speaker.svg`). The active one has
+per kind (`cast.svg`, `airplay.svg`, `dlna.svg`, the DLNA mark drawn in a circle). The active one has
 the check mark (local devices lose theirs), and the picker button shows the
 receiver's icon with "Playing on …" (`AudioSettings::casting_to`, rebuilt only
 when `CastState` changes, not in `render`). The exclusive-mode button and the

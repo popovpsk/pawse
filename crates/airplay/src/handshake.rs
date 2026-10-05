@@ -152,7 +152,10 @@ fn audio_latency(answer: &crate::rtsp::Response) -> u32 {
         .min(SAMPLE_RATE * 2)
 }
 
-fn send_volume(rtsp: &mut Rtsp, volume: f32) -> Result<(), Error> {
+fn send_volume(rtsp: &mut Rtsp, volume: Option<f32>) -> Result<(), Error> {
+    let Some(volume) = volume else {
+        return Ok(());
+    };
     let body = format!("volume: {:.6}\r\n", volume_db(volume));
     rtsp.request(
         "SET_PARAMETER",
@@ -175,7 +178,7 @@ fn raop_user_agent(model: Option<&str>) -> &'static str {
     }
 }
 
-pub(crate) fn raop(device: &Device, volume: f32) -> Result<Link, Error> {
+pub(crate) fn raop(device: &Device, volume: Option<f32>) -> Result<Link, Error> {
     let session_id = session_id();
     let mut rtsp = Rtsp::connect(
         device.address,
@@ -331,7 +334,7 @@ pub(crate) fn stream_setup(
     dictionary(vec![("streams", Value::Array(vec![stream]))])
 }
 
-pub(crate) fn airplay2(device: &Device, volume: f32) -> Result<Link, Error> {
+pub(crate) fn airplay2(device: &Device, volume: Option<f32>) -> Result<Link, Error> {
     let session_id = session_id();
     let instance = instance();
     let mut rtsp = Rtsp::connect(
