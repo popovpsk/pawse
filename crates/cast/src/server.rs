@@ -122,7 +122,7 @@ fn token() -> String {
 
 impl MediaServer {
     pub fn start() -> io::Result<Arc<Self>> {
-        let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
+        let listener = crate::net::listen("the media server")?;
         let port = listener.local_addr()?.port();
         let shared = Arc::new(Shared {
             token: token(),

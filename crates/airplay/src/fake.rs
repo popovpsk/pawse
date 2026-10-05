@@ -23,7 +23,14 @@ pub(crate) struct Heard {
     pub syncs: usize,
     pub events_connected: bool,
     pub futile: Vec<u16>,
+    pub timing_port: Option<u16>,
     control: Option<(UdpSocket, SocketAddr)>,
+}
+
+impl Heard {
+    pub fn control_port(&self) -> Option<u16> {
+        self.control.as_ref().map(|(_, sender)| sender.port())
+    }
 }
 
 struct EventSide {
@@ -345,6 +352,7 @@ fn serve(
                             .get("timingPort")
                             .and_then(Value::as_unsigned_integer)
                             .and_then(|port| u16::try_from(port).ok());
+                        lock(&heard).timing_port = timing_port;
                         let events = TcpListener::bind("127.0.0.1:0").unwrap();
                         let events_port = events.local_addr().unwrap().port();
                         let connected = heard.clone();

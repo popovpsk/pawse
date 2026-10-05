@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
+use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
@@ -49,8 +50,8 @@ pub(crate) struct TimingServer {
 }
 
 impl TimingServer {
-    fn start(local: IpAddr) -> Result<Self, Error> {
-        let socket = bind_near(local)?;
+    fn start(local: IpAddr, ports: &RangeInclusive<u16>) -> Result<Self, Error> {
+        let socket = bind_in(local, ports)?;
         socket.set_read_timeout(Some(TIMING_POLL)).ok();
         let port = port(&socket)?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -137,6 +138,21 @@ fn bind_near(local: IpAddr) -> Result<UdpSocket, Error> {
     UdpSocket::bind(SocketAddr::new(local, 0)).map_err(|e| Error::Io(e.to_string()))
 }
 
+fn bind_in(local: IpAddr, ports: &RangeInclusive<u16>) -> Result<UdpSocket, Error> {
+    if let Some(socket) = ports
+        .clone()
+        .find_map(|port| UdpSocket::bind(SocketAddr::new(local, port)).ok())
+    {
+        return Ok(socket);
+    }
+    log::warn!(
+        "AirPlay: UDP ports {}-{} are taken, the speaker is answered on a random port",
+        ports.start(),
+        ports.end()
+    );
+    bind_near(local)
+}
+
 fn port(socket: &UdpSocket) -> Result<u16, Error> {
     socket
         .local_addr()
@@ -178,7 +194,11 @@ fn raop_user_agent(model: Option<&str>) -> &'static str {
     }
 }
 
-pub(crate) fn raop(device: &Device, volume: Option<f32>) -> Result<Link, Error> {
+pub(crate) fn raop(
+    device: &Device,
+    volume: Option<f32>,
+    ports: &RangeInclusive<u16>,
+) -> Result<Link, Error> {
     let session_id = session_id();
     let mut rtsp = Rtsp::connect(
         device.address,
@@ -188,8 +208,8 @@ pub(crate) fn raop(device: &Device, volume: Option<f32>) -> Result<Link, Error> 
     )?;
     let local = rtsp.local_ip()?;
     let peer = rtsp.peer_ip()?;
-    let control = bind_near(local)?;
-    let timing = TimingServer::start(local)?;
+    let control = bind_in(local, ports)?;
+    let timing = TimingServer::start(local, ports)?;
     let audio = bind_near(local)?;
 
     rtsp.request("OPTIONS", Some("*"), &[], None)?;
@@ -334,7 +354,11 @@ pub(crate) fn stream_setup(
     dictionary(vec![("streams", Value::Array(vec![stream]))])
 }
 
-pub(crate) fn airplay2(device: &Device, volume: Option<f32>) -> Result<Link, Error> {
+pub(crate) fn airplay2(
+    device: &Device,
+    volume: Option<f32>,
+    ports: &RangeInclusive<u16>,
+) -> Result<Link, Error> {
     let session_id = session_id();
     let instance = instance();
     let mut rtsp = Rtsp::connect(
@@ -348,8 +372,8 @@ pub(crate) fn airplay2(device: &Device, volume: Option<f32>) -> Result<Link, Err
     rtsp.request("GET", Some("/info"), &[], None)?;
     let keys = pairing::transient(&mut rtsp)?;
     rtsp.encrypt(&keys.write, &keys.read);
-    let control = bind_near(local)?;
-    let timing = TimingServer::start(local)?;
+    let control = bind_in(local, ports)?;
+    let timing = TimingServer::start(local, ports)?;
     let audio = bind_near(local)?;
 
     rtsp.set_timeout(SETUP_TIMEOUT);

@@ -84,8 +84,9 @@ on the UI thread. On quit (`Player::shutdown`) it is closed synchronously.
 
 `connect` opens the receiver on the background executor (a Chromecast app
 launch or an AirPlay RTSP handshake takes a moment). The media server is
-started only for renderers, so AirPlay alone never opens a listening socket
-(nor a firewall prompt); the picker shows
+started only for renderers (AirPlay needs only the DACP server, which
+discovery starts, and two UDP ports per stream; the ports are fixed, see the
+`cast` crate's doc, Ports); the picker shows
 "Connecting…" meanwhile, and a second click on another receiver wins. A failed
 connect is a notification and nothing changes. Choosing a local device in the
 picker disconnects first. On quit `Player::shutdown` stops a renderer and waits

@@ -221,6 +221,11 @@ the newest value is sent once the previous `SET_PARAMETER` is done.
 - The speaker asks for our clock on the timing port; the answer carries its
   send time back plus our receive and send times. Timing and retransmits have
   a thread each, so a reply is never delayed behind the other socket.
+- The control and timing sockets are the ones the speaker sends to, so they
+  take the first free ports of the range given to `Stream::start` (the `cast`
+  crate's fixed range, which a firewall can allow; `0..=0` in the tests means
+  any port) and fall back to a random port with a warning when the range is
+  taken. The audio socket only sends and stays on a random port.
 - Retransmit requests are answered from the last 1024 packets: over RAOP
   inside the control port's `0xd6` reply, over AirPlay 2 by sending the
   stored packet again to the audio port, as OwnTone does. An encrypted

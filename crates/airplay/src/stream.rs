@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
+use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -110,10 +111,11 @@ impl Stream {
         device: &Device,
         volume: Option<f32>,
         render: Box<dyn Render>,
+        ports: RangeInclusive<u16>,
     ) -> Result<Self, Error> {
         let link = match device.protocol {
-            Protocol::Raop => handshake::raop(device, volume)?,
-            Protocol::AirPlay2 => handshake::airplay2(device, volume)?,
+            Protocol::Raop => handshake::raop(device, volume, &ports)?,
+            Protocol::AirPlay2 => handshake::airplay2(device, volume, &ports)?,
         };
         link.control.set_read_timeout(Some(UDP_POLL)).ok();
 
@@ -709,6 +711,8 @@ mod tests {
     use super::*;
     use crate::fake::FakeReceiver;
 
+    const ANY_PORT: RangeInclusive<u16> = 0..=0;
+
     struct Ramp(i16);
 
     impl Render for Ramp {
@@ -736,8 +740,13 @@ mod tests {
     #[test]
     fn an_airplay_2_session_pairs_sets_up_and_streams_encrypted_audio() {
         let fake = FakeReceiver::start("3939");
-        let stream =
-            Stream::start(&fake_device(fake.address), Some(0.5), Box::new(Ramp(0))).unwrap();
+        let stream = Stream::start(
+            &fake_device(fake.address),
+            Some(0.5),
+            Box::new(Ramp(0)),
+            ANY_PORT,
+        )
+        .unwrap();
         stream.play();
         assert!(fake.wait_for(|heard| heard.payloads.len() >= 20 && heard.syncs >= 1));
         assert!(fake.wait_for(|heard| heard.requests.iter().any(|r| r == "POST /feedback")));
@@ -782,8 +791,13 @@ mod tests {
     #[test]
     fn now_playing_progress_and_remote_buttons_travel_over_the_session() {
         let fake = FakeReceiver::start("3939");
-        let stream =
-            Stream::start(&fake_device(fake.address), Some(0.5), Box::new(Ramp(0))).unwrap();
+        let stream = Stream::start(
+            &fake_device(fake.address),
+            Some(0.5),
+            Box::new(Ramp(0)),
+            ANY_PORT,
+        )
+        .unwrap();
         let events = stream.events();
         stream.set_now_playing(NowPlaying {
             title: "Tarantula".into(),
@@ -859,7 +873,13 @@ mod tests {
     #[test]
     fn a_session_without_a_volume_leaves_the_device_volume_alone_until_one_is_set() {
         let fake = FakeReceiver::start("3939");
-        let stream = Stream::start(&fake_device(fake.address), None, Box::new(Ramp(0))).unwrap();
+        let stream = Stream::start(
+            &fake_device(fake.address),
+            None,
+            Box::new(Ramp(0)),
+            ANY_PORT,
+        )
+        .unwrap();
         stream.play();
         assert!(fake.wait_for(|heard| heard.payloads.len() >= 20));
         assert!(fake.heard().parameters.is_empty());
@@ -870,8 +890,13 @@ mod tests {
     #[test]
     fn a_title_held_for_the_next_track_survives_a_pause_before_it_is_heard() {
         let fake = FakeReceiver::start("3939");
-        let stream =
-            Stream::start(&fake_device(fake.address), Some(0.5), Box::new(Ramp(0))).unwrap();
+        let stream = Stream::start(
+            &fake_device(fake.address),
+            Some(0.5),
+            Box::new(Ramp(0)),
+            ANY_PORT,
+        )
+        .unwrap();
         stream.play();
         stream.set_now_playing(NowPlaying {
             title: "Tarantula".into(),
@@ -894,8 +919,13 @@ mod tests {
     #[test]
     fn a_lost_packet_is_sent_again_on_the_audio_port_and_a_forgotten_one_is_named_futile() {
         let fake = FakeReceiver::start("3939");
-        let stream =
-            Stream::start(&fake_device(fake.address), Some(0.5), Box::new(Ramp(0))).unwrap();
+        let stream = Stream::start(
+            &fake_device(fake.address),
+            Some(0.5),
+            Box::new(Ramp(0)),
+            ANY_PORT,
+        )
+        .unwrap();
         stream.play();
         assert!(fake.wait_for(|heard| heard.payloads.len() >= 20 && heard.syncs >= 1));
         let (seq, payload) = fake.heard().payloads[5].clone();
@@ -913,10 +943,51 @@ mod tests {
         assert!(fake.wait_for(|heard| heard.futile == [gone]));
     }
 
+    fn free_udp_ports(count: u16) -> RangeInclusive<u16> {
+        loop {
+            let first = UdpSocket::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            let Some(last) = first.checked_add(count - 1) else {
+                continue;
+            };
+            if (first..=last).all(|port| UdpSocket::bind(("127.0.0.1", port)).is_ok()) {
+                return first..=last;
+            }
+        }
+    }
+
+    #[test]
+    fn the_speaker_is_answered_on_the_ports_it_was_given() {
+        let fake = FakeReceiver::start("3939");
+        let ports = free_udp_ports(4);
+        let stream = Stream::start(
+            &fake_device(fake.address),
+            Some(0.5),
+            Box::new(Ramp(0)),
+            ports.clone(),
+        )
+        .unwrap();
+        stream.play();
+        assert!(fake.wait_for(|heard| heard.syncs >= 1));
+        let heard = fake.heard();
+        let (control, timing) = (heard.control_port().unwrap(), heard.timing_port.unwrap());
+        assert!(ports.contains(&control), "control {control} in {ports:?}");
+        assert!(ports.contains(&timing), "timing {timing} in {ports:?}");
+        assert_ne!(control, timing);
+    }
+
     #[test]
     fn a_device_that_does_not_take_the_transient_code_is_refused_before_any_setup() {
         let fake = FakeReceiver::start("1234");
-        let refused = Stream::start(&fake_device(fake.address), Some(0.5), Box::new(Ramp(0)));
+        let refused = Stream::start(
+            &fake_device(fake.address),
+            Some(0.5),
+            Box::new(Ramp(0)),
+            ANY_PORT,
+        );
         assert!(
             matches!(refused, Err(Error::Refused(_))),
             "{:?}",

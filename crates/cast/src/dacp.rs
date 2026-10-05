@@ -1,18 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use airplay::RemoteCommand;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
-use socket2::{Domain, Protocol, Socket, Type};
 
 const SERVICE_TYPE: &str = "_dacp._tcp.local.";
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_REQUEST: usize = 8 * 1024;
 const ACCEPT_RETRY: Duration = Duration::from_millis(100);
-const PORTS: std::ops::Range<u16> = 39_831..39_931;
 
 type Routes = Arc<Mutex<HashMap<String, flume::Sender<RemoteCommand>>>>;
 
@@ -34,34 +32,10 @@ pub(crate) fn warm_up() {
     server();
 }
 
-fn listen_both(port: u16) -> Option<TcpListener> {
-    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)).ok()?;
-    socket.set_only_v6(false).ok()?;
-    #[cfg(not(windows))]
-    socket.set_reuse_address(true).ok()?;
-    socket
-        .bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)).into())
-        .ok()?;
-    socket.listen(16).ok()?;
-    Some(socket.into())
-}
-
-fn listen_v4(port: u16) -> Option<TcpListener> {
-    TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).ok()
-}
-
 fn start() -> Option<Server> {
-    let listener = PORTS
-        .chain([0])
-        .find_map(listen_both)
-        .or_else(|| {
-            log::warn!("AirPlay remote: the DACP server takes IPv4 only");
-            PORTS.chain([0]).find_map(listen_v4)
-        })
-        .or_else(|| {
-            log::warn!("AirPlay remote: no DACP server: no port to listen on");
-            None
-        })?;
+    let listener = crate::net::listen("the AirPlay remote (DACP) server")
+        .inspect_err(|e| log::warn!("AirPlay remote: no DACP server: {e}"))
+        .ok()?;
     let port = listener.local_addr().ok()?.port();
     let routes = Routes::default();
     let serving = routes.clone();
@@ -212,7 +186,7 @@ fn handle(mut stream: TcpStream, routes: &Routes, logged: &mut HashSet<String>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::IpAddr;
+    use std::net::TcpListener;
 
     fn ask(routes: &Routes, request: &str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -223,20 +197,6 @@ mod tests {
         let mut answer = String::new();
         client.read_to_string(&mut answer).unwrap();
         answer
-    }
-
-    #[test]
-    fn the_server_takes_ipv4_and_ipv6_connections() {
-        let listener = listen_both(0).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let mut addresses = vec![IpAddr::from(Ipv4Addr::LOCALHOST)];
-        if TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).is_ok() {
-            addresses.push(IpAddr::from(Ipv6Addr::LOCALHOST));
-        }
-        for address in addresses {
-            TcpStream::connect((address, port)).unwrap();
-            listener.accept().unwrap();
-        }
     }
 
     #[test]

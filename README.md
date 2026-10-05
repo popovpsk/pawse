@@ -97,6 +97,24 @@ flatpak run io.github.popovpsk.pawse
 
 `am -i pawse`, or `appman -i pawse` without root.
 
+**Firewall**
+
+AirPlay speakers, Chromecasts and DLNA renderers connect back to Pawse while it streams to them, on ports 39831–39840, TCP and UDP. If your distro turns a firewall on (CachyOS enables ufw out of the box), the devices show up in the list but never play until you allow those ports:
+
+```sh
+sudo ufw allow 39831:39840/tcp
+sudo ufw allow 39831:39840/udp
+```
+
+With firewalld (Fedora, openSUSE), which also needs device discovery let in:
+
+```sh
+sudo firewall-cmd --permanent --add-port=39831-39840/tcp --add-port=39831-39840/udp --add-service=mdns --add-service=ssdp
+sudo firewall-cmd --reload
+```
+
+The remote control listens on port 8770 (or the one you set in Settings); allow it the same way to reach it from your phone.
+
 ## Building from source
 
 Platform prerequisites and step-by-step instructions: [Building](.docs/building.md).

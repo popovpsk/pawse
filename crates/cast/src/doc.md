@@ -36,15 +36,42 @@ There are two ways a receiver gets audio, and the crate has one of each:
 - `airplay_output.rs` — `AirPlayOutput`.
 - `dacp.rs` — the DACP server for AirPlay remote buttons and its mDNS
   announcement.
-- `net.rs` — `local_ip_for`: the address of the interface that routes to a
-  device, which is the host put into media URLs; the IPv4 interfaces and a
-  socket that sends multicast out of one of them.
+- `net.rs` — `PORTS` and `listen` (see Ports); `local_ip_for`: the address
+  of the interface that routes to a device, which is the host put into media
+  URLs; the IPv4 interfaces and a socket that sends multicast out of one of
+  them.
 - `tests.rs` — the HTTP server, PCM ranges against a straight decode, and whole
   Chromecast sessions against `chromecast::testing::FakeChromecast`.
 
+## Ports
+
+Devices connect back to us: renderers fetch the track from the media server
+(TCP), AirPlay speakers ask for our clock and for lost packets on the control
+and timing ports (UDP), and remote buttons arrive at the DACP server (TCP). A
+firewall that drops incoming connections (ufw does, and CachyOS enables it out
+of the box) cuts all of that while discovery still works, so the device shows
+up in the list and then never plays. So everything a device connects to takes
+the first free port of `PORTS`, 39831–39840, which the README tells users to
+allow: TCP for the media server and DACP (`net::listen`, usually 39831 for
+DACP, which starts first, and 39832 for the media server), UDP for AirPlay's
+control and timing sockets (passed to `airplay::Stream::start`; two per
+stream, and a reconnect or a switch between speakers can hold two streams for
+a moment). PipeWire's RAOP sink does the same (UDP 6001 and 6002, the next
+port when one is taken), VLC casts from TCP 8010. A listener that finds the
+whole range taken falls back to a random port with a warning. The range is
+the same on every platform: the macOS and Windows firewalls allow an app, not
+a port.
+
+Discovery replies are not covered: SSDP M-SEARCH answers and legacy unicast
+mDNS answers come back to random ports. Behind a firewall that drops them,
+discovery lives on multicast mDNS (5353) and SSDP NOTIFY (1900), which ufw
+lets in by default, and on the unicast queries to known hosts, whose answers
+connection tracking lets in.
+
 ## Media server
 
-- One server at a time, bound to `0.0.0.0` on an ephemeral port, started the
+- One server at a time, on a port from `PORTS` (see Ports), listening on IPv6
+  and IPv4 at once like DACP, started the
   first time a renderer is connected; the app drops it (which stops it once
   the sessions holding it are gone) when casting is turned off. A thread per connection (at most 32),
   HTTP/1.1 keep-alive, `GET` and `HEAD`, single byte ranges (`bytes=a-b`,
@@ -55,8 +82,8 @@ There are two ways a receiver gets audio, and the crate has one of each:
   so a session that is being torn down never takes files from the next one.
   The LAN is otherwise trusted, like the web remote.
 - Request heads are capped at 16 KiB; anything but `GET`/`HEAD` gets `405`
-  and the connection is closed. Media URLs are IPv4: the server listens on
-  `0.0.0.0` only, and a device reachable only over IPv6 is an error.
+  and the connection is closed. Media URLs are IPv4: a device reachable only
+  over IPv6 is an error.
 - DLNA headers are always sent: `transferMode.dlna.org: Streaming` and
   `contentFeatures.dlna.org` with `DLNA.ORG_OP=01` (byte seek) and `CI=1` for
   converted media. Some TVs refuse media without them.
@@ -308,11 +335,11 @@ header needs it); `plan` fails with a message instead.
   HTTP server for the app run, started with discovery (when the output
   picker first opens, so the announcement is out before a speaker is
   picked, and nothing is announced for a user who never casts), on the
-  first free port from 39831 (Music Assistant's range), listening on IPv6
-  and IPv4 at once (one socket with `IPV6_V6ONLY` off and, off Windows,
-  `SO_REUSEADDR`, so a restart inside the old connections' TIME_WAIT still
-  gets it; only when no port takes that does it fall back to IPv4 alone,
-  with a warning; port 0 when the whole range is taken), announced by its
+  first free port of `PORTS` (see Ports; it starts at 39831, where Music
+  Assistant's range starts), listening on IPv6 and IPv4 at once (one socket
+  with `IPV6_V6ONLY` off and, off Windows, `SO_REUSEADDR`, so a restart
+  inside the old connections' TIME_WAIT still gets it; only when no port
+  takes that does it fall back to IPv4 alone, with a warning), announced by its
   own `mdns-sd` daemon as `iTunes_Ctrl_<airplay::dacp_id()>._dacp._tcp` with
   OwnTone's TXT (`txtvers=1`, `Ver=131077`, `DbId=1`, `OSsi=0x2012E`) on the
   host `pawse-<id>.local.` with all interface addresses, IPv6 included. The

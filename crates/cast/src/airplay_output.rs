@@ -332,8 +332,9 @@ impl AirPlayOutput {
             silent_tail: 0,
         };
         let volume = *lock(&self.volume);
-        let stream = airplay::Stream::start(&self.device, volume, Box::new(renderer))
-            .map_err(|e| e.to_string())?;
+        let stream =
+            airplay::Stream::start(&self.device, volume, Box::new(renderer), crate::net::PORTS)
+                .map_err(|e| e.to_string())?;
         let events = stream.events();
         let (lost, remote) = (self.lost.clone(), self.remote.clone());
         let _ = std::thread::Builder::new()
