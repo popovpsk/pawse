@@ -57,10 +57,10 @@ impl PipewireAlsaGate {
     }
 }
 
-fn command_row(
+pub(crate) fn command_row(
     ix: usize,
-    distro: &'static str,
-    command: &'static str,
+    distro: SharedString,
+    command: SharedString,
     cx: &App,
 ) -> impl IntoElement {
     v_flex()
@@ -70,7 +70,7 @@ fn command_row(
             div()
                 .text_xs()
                 .text_color(Colors::muted_foreground(cx))
-                .child(SharedString::new_static(distro)),
+                .child(distro),
         )
         .child(
             h_flex()
@@ -88,7 +88,7 @@ fn command_row(
                         .text_sm()
                         .font_family(cx.theme().mono_font_family.clone())
                         .text_color(Colors::foreground(cx))
-                        .child(SharedString::new_static(command)),
+                        .child(command.clone()),
                 )
                 .child(
                     Button::new(("pw-alsa-copy", ix))
@@ -106,7 +106,12 @@ impl Render for PipewireAlsaGate {
         let s = tr();
         let mut commands = v_flex().gap_3().w_full();
         for (ix, (distro, command)) in INSTALL_COMMANDS.iter().enumerate() {
-            commands = commands.child(command_row(ix, distro, command, cx));
+            commands = commands.child(command_row(
+                ix,
+                SharedString::new_static(distro),
+                SharedString::new_static(command),
+                cx,
+            ));
         }
 
         div()

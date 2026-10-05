@@ -42,6 +42,10 @@ There are two ways a receiver gets audio, and the crate has one of each:
   them.
 - `tests.rs` — the HTTP server, PCM ranges against a straight decode, and whole
   Chromecast sessions against `chromecast::testing::FakeChromecast`.
+- `fake_dlna.rs` — test only: a DLNA renderer on loopback with real SOAP
+  (description, `AVTransport`, `RenderingControl`, `ConnectionManager`) in four
+  moods: plays (fetches the URL it is given), stuck loading and stopped (never
+  fetch), fetches then stays loading. Sessions run on the real `DlnaDriver`.
 
 ## Ports
 
@@ -245,8 +249,39 @@ header needs it); `plan` fails with a message instead.
   Chromecast's IDLE/FINISHED, or a DLNA STOPPED within 5 s of the end (or
   without a known duration), is `Ended`. A STOPPED earlier means someone
   stopped it on the device: the session shows it as paused, and play reloads
-  the track at that position. A track that does not start within 30 s of a
-  load (or of play, for a track loaded paused) fails.
+  the track at that position. A track that does not start within 30 s of the
+  moment the device was told (`loaded_at`, stamped in `send`, and again by play
+  for a track loaded paused) fails, and the reason is told apart by whether the
+  device ever asked the media server for the track. That is
+  `MediaServer::was_requested`, kept per published path (the track and its
+  cover), set by any `GET` or `HEAD` that finds the entry and cleared when the
+  path is unpublished; a request for any of the paths proves the device can
+  reach us.
+  - It did, and still never played: `Failed("the device did not start
+    playing")`; a long buffering stays buffering, as before.
+  - It never did, although it answers every poll: `NeverFetched`. A device that
+    cannot connect back to us does not necessarily sit idle: the HiBy R1 behind
+    a macOS firewall reports TRANSITIONING (our `Buffering`) indefinitely
+    (2026-10-05). So after the wait a device that is idle, stopped, buffering
+    or loading counts as `NeverFetched`. So does one that reports a failed
+    load, but only after the wait: a Chromecast that rejects the media at
+    once, without having asked for it, is an ordinary `Failed` with its own
+    text plus "(it never asked for the track)", since it may simply dislike
+    the format.
+  - `NeverFetched` is the firewall case (see Ports; a VPN or a guest network
+    isolating clients does the same), and it is not `Lost`: a device that is
+    off, or unplugged but still in the list, stops answering the polls and
+    ends in `Lost` (or fails the connect) without ever reaching this check.
+  - Starting mid-track (the usual first cast) on a device that cannot seek
+    on load is `play`, wait for PLAYING or PAUSED, then `seek`. If the wait
+    runs out and the device never asked for the track, the seek is skipped
+    (a device stuck loading refuses it with a UPnP fault, which would turn the
+    case into a plain `Failed`) and the poll gives the verdict. The start wait
+    is `START_WAIT` (15 s), at most the patience.
+  - The wait is a `Worker` field (`patience`, `Session::start_with`) so tests
+    do not wait 30 s. AirPlay has no such check yet (its media is not fetched:
+    the speaker's silence would have to be read from the timing requests that
+    never come).
 - Some renderers reset the position just before they stop: the R1 answers
   PLAYING 0:00 for one poll, then STOPPED. Believing that 0:00 would make the
   STOPPED look like a stop in the middle of the track, so the queue would not
@@ -491,6 +526,14 @@ header needs it); `plan` fails with a message instead.
   renderer quirks: the silent mid-track start, a pause that still says
   PLAYING, a long buffering start, a passing 0:00 and the 0:00 before
   STOPPED.
+- The unreached-device cases run end to end on the real drivers: `fake_dlna`
+  in the HiBy R1's mood (TRANSITIONING forever, never fetching) and
+  `FakeChromecast::cannot_reach_media`, with a 300 ms patience
+  (`Session::start_with`) instead of 30 s. A firewall drop is indistinguishable
+  from the device simply never connecting, so no packet filter is involved. The
+  neighbours are covered too: a device that fetched and keeps loading or
+  failing is left alone, a healthy one plays quietly, and one switched off
+  mid-wait ends in `Lost`, not `NeverFetched`.
 - On the test Wi-Fi, multicast stops reaching hosts from time to time (the
   router sends no IGMP queries). Measured on 2026-10-04 between the Mac and
   the Pi: 224.0.0.251 dropped both ways, 239.255.255.250 and a fresh

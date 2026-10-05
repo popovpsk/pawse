@@ -17,6 +17,7 @@ pub use airplay::RemoteCommand;
 pub use airplay_output::AirPlayOutput;
 pub use discovery::{Discovery, Receiver, ReceiverKind};
 pub use media::{Cover, Media, Source, StreamOpener, TrackInfo};
+pub use net::PORTS;
 pub use server::MediaServer;
 pub use session::{Load, Session, SessionEvent};
 
@@ -35,5 +36,7 @@ pub fn connect(receiver: &Receiver, server: Arc<MediaServer>) -> Result<Session,
     Ok(Session::start(driver, server))
 }
 
+#[cfg(test)]
+mod fake_dlna;
 #[cfg(test)]
 mod tests;

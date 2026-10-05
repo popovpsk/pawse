@@ -16,6 +16,10 @@ knows nothing about tracks or files; `cast::chromecast_driver` drives it.
 - `testing.rs` — `FakeChromecast` (feature `test-support`): a TLS receiver on
   loopback that answers the receiver and media namespaces and fetches the
   media URL it is given, so tests see what a device would download.
+  `cannot_reach_media(player, idle_reason)` makes it skip that fetch and sit in
+  the given player state instead (BUFFERING, or IDLE with an idle reason), the
+  way a device behind a firewall that drops its connection to the media server
+  looks to the session.
 - `tests.rs` — the client against the fake.
 - `../testdata/fake.{crt,key}` — the fake's self-signed P-256 certificate
   (X.509 v3: webpki rejects the v1 certificates LibreSSL makes by default;

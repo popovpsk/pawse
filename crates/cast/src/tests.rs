@@ -8,6 +8,9 @@ use audio_decoder::Codec;
 use chromecast::testing::FakeChromecast;
 use rstest::rstest;
 
+use crate::chromecast_driver::ChromecastDriver;
+use crate::dlna_driver::DlnaDriver;
+use crate::fake_dlna::{FakeDlna, Mood};
 use crate::media::{Accepts, Delivery, Probe, plan, probe};
 use crate::pcm::{Container, PcmReader, PcmSpec};
 use crate::server::{Body, Entry};
@@ -417,6 +420,9 @@ struct Device {
     since: Option<Instant>,
     queued: std::collections::VecDeque<(crate::session::State, Duration)>,
     fail_seek: bool,
+    stuck: Option<crate::session::State>,
+    url: Option<String>,
+    cover_url: Option<String>,
 }
 
 impl Device {
@@ -448,6 +454,9 @@ impl FakeRenderer {
             since: None,
             queued: Default::default(),
             fail_seek: false,
+            stuck: None,
+            url: None,
+            cover_url: None,
         })))
     }
 
@@ -483,12 +492,15 @@ impl crate::session::Driver for FakeRenderer {
             "load"
         });
         device.base = Duration::ZERO;
-        device.since = loading.autoplay.then(Instant::now);
-        device.state = if loading.autoplay {
-            crate::session::State::Playing
-        } else {
-            crate::session::State::Idle
+        let stuck = device.stuck.filter(|_| loading.autoplay);
+        device.since = (loading.autoplay && stuck.is_none()).then(Instant::now);
+        device.state = match (loading.autoplay, stuck) {
+            (true, None) => crate::session::State::Playing,
+            (true, Some(stuck)) => stuck,
+            (false, _) => crate::session::State::Idle,
         };
+        device.url = Some(loading.url.to_string());
+        device.cover_url = loading.cover_url.map(str::to_string);
         Ok(())
     }
 
@@ -575,6 +587,26 @@ fn renderer_session() -> (FakeRenderer, Session, flume::Receiver<SessionEvent>) 
     let session = Session::start(Box::new(fake.clone()), MediaServer::start().unwrap());
     let events = session.events();
     (fake, session, events)
+}
+
+fn stuck_renderer_session(
+    stuck: crate::session::State,
+) -> (
+    FakeRenderer,
+    Arc<MediaServer>,
+    Session,
+    flume::Receiver<SessionEvent>,
+) {
+    let fake = FakeRenderer::new();
+    fake.device().stuck = Some(stuck);
+    let server = MediaServer::start().unwrap();
+    let session = Session::start_with(
+        Box::new(fake.clone()),
+        server.clone(),
+        Duration::from_millis(300),
+    );
+    let events = session.events();
+    (fake, server, session, events)
 }
 
 fn minute_long(start: Duration, autoplay: bool) -> Load {
@@ -795,4 +827,264 @@ fn a_renderer_seeked_on_its_own_shows_no_zero_on_the_way_but_a_restart_counts() 
         |e| matches!(e, SessionEvent::Position(p) if *p < Duration::from_secs(5)),
     );
     drop(session);
+}
+
+fn fetch_url(server: &MediaServer, url: &str) {
+    let path = url.split_once("//").unwrap().1;
+    let path = &path[path.find('/').unwrap()..];
+    let (head, _) = get(server, path, "");
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+}
+
+fn fetch_loaded_url(fake: &FakeRenderer, server: &MediaServer) {
+    let url = fake.device().url.clone().unwrap();
+    fetch_url(server, &url);
+}
+
+#[rstest]
+#[case::stopped(crate::session::State::Idle)]
+#[case::loading_forever(crate::session::State::Buffering)]
+#[case::reporting_a_load_error(crate::session::State::Failed)]
+fn a_renderer_that_answers_but_never_fetches_the_track_is_not_taken_for_a_lost_one(
+    #[case] stuck: crate::session::State,
+) {
+    let (_fake, _server, session, events) = stuck_renderer_session(stuck);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Lost(_) | SessionEvent::Failed(_))),
+        "{seen:?}"
+    );
+}
+
+#[rstest]
+#[case::stopped(crate::session::State::Idle, true)]
+#[case::reporting_a_load_error(crate::session::State::Failed, true)]
+#[case::still_buffering(crate::session::State::Buffering, false)]
+fn a_renderer_that_fetched_the_track_but_never_played_it_is_not_blamed_on_the_network(
+    #[case] stuck: crate::session::State,
+    #[case] fails: bool,
+) {
+    let (fake, server, session, events) = stuck_renderer_session(stuck);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    fetch_loaded_url(&fake, &server);
+    if fails {
+        expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    } else {
+        std::thread::sleep(Duration::from_millis(2500));
+        while let Ok(event) = events.try_recv() {
+            seen.push(event);
+        }
+        assert!(
+            !seen.iter().any(|e| matches!(e, SessionEvent::Failed(_))),
+            "{seen:?}"
+        );
+    }
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+const PATIENCE: Duration = Duration::from_millis(300);
+
+fn quiet_for(events: &flume::Receiver<SessionEvent>, seen: &mut Vec<SessionEvent>, wait: Duration) {
+    std::thread::sleep(wait);
+    while let Ok(event) = events.try_recv() {
+        seen.push(event);
+    }
+}
+
+fn complaints(seen: &[SessionEvent]) -> Vec<&SessionEvent> {
+    seen.iter()
+        .filter(|e| {
+            matches!(
+                e,
+                SessionEvent::NeverFetched | SessionEvent::Failed(_) | SessionEvent::Lost(_)
+            )
+        })
+        .collect()
+}
+
+fn dlna_session(
+    mood: Mood,
+) -> (
+    FakeDlna,
+    Arc<MediaServer>,
+    Session,
+    flume::Receiver<SessionEvent>,
+) {
+    let fake = FakeDlna::start(mood);
+    let server = MediaServer::start().unwrap();
+    let driver = DlnaDriver::connect(&fake.location()).unwrap();
+    let session = Session::start_with(Box::new(driver), server.clone(), PATIENCE);
+    let events = session.events();
+    (fake, server, session, events)
+}
+
+#[rstest]
+#[case::hiby_r1_loading_forever(Mood::StuckLoading)]
+#[case::renderer_that_just_stops(Mood::Stopped)]
+fn a_dlna_renderer_that_answers_but_never_comes_for_the_track_is_unreached(#[case] mood: Mood) {
+    let (fake, _server, session, events) = dlna_session(mood);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
+    assert!(!fake.fetched());
+    let actions = fake.actions();
+    assert!(
+        actions.iter().any(|a| a == "SetAVTransportURI"),
+        "{actions:?}"
+    );
+    assert!(actions.iter().any(|a| a == "Play"), "{actions:?}");
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Failed(_) | SessionEvent::Lost(_))),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn a_dlna_renderer_that_fetched_the_track_and_is_still_loading_is_left_alone() {
+    let (fake, _server, session, events) = dlna_session(Mood::FetchesThenStuck);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    quiet_for(&events, &mut seen, Duration::from_millis(3000));
+    assert!(fake.fetched());
+    assert!(complaints(&seen).is_empty(), "{seen:?}");
+}
+
+#[test]
+fn a_healthy_dlna_renderer_plays_without_any_complaint() {
+    let (fake, _server, session, events) = dlna_session(Mood::Plays);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    quiet_for(&events, &mut seen, Duration::from_millis(3000));
+    assert!(fake.fetched());
+    assert!(complaints(&seen).is_empty(), "{seen:?}");
+}
+
+#[test]
+fn a_dlna_renderer_that_goes_off_is_lost_and_not_blamed_on_the_firewall() {
+    let (fake, _server, session, events) = dlna_session(Mood::StuckLoading);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    fake.power_off();
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Lost(_)));
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+fn chromecast_that_cannot_reach_media(
+    player: &'static str,
+    idle_reason: Option<&'static str>,
+) -> (
+    FakeChromecast,
+    Arc<MediaServer>,
+    Session,
+    flume::Receiver<SessionEvent>,
+) {
+    let fake = FakeChromecast::start();
+    fake.cannot_reach_media(player, idle_reason);
+    let server = MediaServer::start().unwrap();
+    let driver = ChromecastDriver::connect(fake.address).unwrap();
+    let session = Session::start_with(Box::new(driver), server.clone(), PATIENCE);
+    let events = session.events();
+    (fake, server, session, events)
+}
+
+#[rstest]
+#[case::buffering_forever("BUFFERING", None)]
+#[case::idle("IDLE", None)]
+#[case::load_failed("IDLE", Some("ERROR"))]
+fn a_chromecast_that_never_comes_for_the_track_is_unreached(
+    #[case] player: &'static str,
+    #[case] idle_reason: Option<&'static str>,
+) {
+    let (fake, _server, session, events) = chromecast_that_cannot_reach_media(player, idle_reason);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
+    assert!(fake.state().fetched.is_none());
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Failed(_) | SessionEvent::Lost(_))),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn a_chromecast_that_fetched_the_track_and_still_fails_keeps_its_own_error() {
+    let (fake, server, session, events) = chromecast_that_cannot_reach_media("IDLE", Some("ERROR"));
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    fetch_url(&server, &fake.state().loaded.unwrap().url);
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+#[test]
+fn a_renderer_that_fetched_only_the_cover_is_not_blamed_on_the_network() {
+    let (fake, server, session, events) = stuck_renderer_session(crate::session::State::Idle);
+    let mut seen = Vec::new();
+    let mut load = minute_long(Duration::ZERO, true);
+    load.media.cover = Some(Cover {
+        bytes: Arc::new(vec![0xff, 0xd8, 0xff]),
+        mime: "image/jpeg".into(),
+    });
+    session.load(load);
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    let cover = fake.device().cover_url.clone().unwrap();
+    fetch_url(&server, &cover);
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+#[test]
+fn a_dlna_renderer_asked_to_start_mid_track_that_never_comes_for_it_is_unreached() {
+    let (fake, _server, session, events) = dlna_session(Mood::StuckLoading);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
+    assert!(!fake.fetched());
+    assert!(
+        !fake.actions().iter().any(|a| a == "Seek"),
+        "{:?}",
+        fake.actions()
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|e| matches!(e, SessionEvent::Failed(_) | SessionEvent::Lost(_))),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn a_healthy_dlna_renderer_started_mid_track_is_seeked_and_plays_quietly() {
+    let (fake, _server, session, events) = dlna_session(Mood::Plays);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::Playing);
+    quiet_for(&events, &mut seen, Duration::from_millis(3000));
+    assert!(fake.fetched());
+    assert!(fake.actions().iter().any(|a| a == "Seek"));
+    assert!(complaints(&seen).is_empty(), "{seen:?}");
 }

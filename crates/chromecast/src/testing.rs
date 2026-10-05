@@ -38,6 +38,7 @@ pub struct State {
     pub idle_reason: Option<&'static str>,
     pub position: f64,
     pub commands: Vec<String>,
+    pub unreachable_media: Option<(&'static str, Option<&'static str>)>,
     playing_since: Option<Instant>,
 }
 
@@ -52,6 +53,7 @@ impl Default for State {
             idle_reason: None,
             position: 0.0,
             commands: Vec::new(),
+            unreachable_media: None,
             playing_since: None,
         }
     }
@@ -141,6 +143,10 @@ impl FakeChromecast {
         state.settle();
         state.player = "IDLE";
         state.idle_reason = Some("FINISHED");
+    }
+
+    pub fn cannot_reach_media(&self, player: &'static str, idle_reason: Option<&'static str>) {
+        lock(&self.state).unreachable_media = Some((player, idle_reason));
     }
 
     pub fn disconnect_everyone(&self) {
@@ -294,11 +300,18 @@ fn answer(message: &CastMessage, payload: &Value, state: &Mutex<State>) -> Vec<(
                         autoplay: payload["autoplay"].as_bool().unwrap_or(true),
                         start: payload["currentTime"].as_f64().unwrap_or(0.0),
                     };
-                    state.fetched = fetch(&loaded.url).ok();
                     state.position = loaded.start;
-                    state.idle_reason = None;
-                    state.player = if loaded.autoplay { "PLAYING" } else { "PAUSED" };
-                    state.playing_since = loaded.autoplay.then(Instant::now);
+                    if let Some((player, idle_reason)) = state.unreachable_media {
+                        state.fetched = None;
+                        state.idle_reason = idle_reason;
+                        state.player = player;
+                        state.playing_since = None;
+                    } else {
+                        state.fetched = fetch(&loaded.url).ok();
+                        state.idle_reason = None;
+                        state.player = if loaded.autoplay { "PLAYING" } else { "PAUSED" };
+                        state.playing_since = loaded.autoplay.then(Instant::now);
+                    }
                     state.loaded = Some(loaded);
                 }
                 "PLAY" => {

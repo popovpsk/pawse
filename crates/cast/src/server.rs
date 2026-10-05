@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -94,6 +94,7 @@ impl Entry {
 struct Shared {
     token: String,
     entries: Mutex<HashMap<String, Entry>>,
+    requested: Mutex<HashSet<String>>,
     next: AtomicUsize,
     stopped: AtomicBool,
     connections: AtomicUsize,
@@ -127,6 +128,7 @@ impl MediaServer {
         let shared = Arc::new(Shared {
             token: token(),
             entries: Mutex::new(HashMap::new()),
+            requested: Mutex::new(HashSet::new()),
             next: AtomicUsize::new(1),
             stopped: AtomicBool::new(false),
             connections: AtomicUsize::new(0),
@@ -152,11 +154,23 @@ impl MediaServer {
 
     pub fn remove(&self, paths: &[String]) {
         let mut entries = lock(&self.shared.entries);
+        let mut requested = lock(&self.shared.requested);
         for path in paths {
-            if let Some(name) = path.rsplit('/').next() {
+            if let Some(name) = entry_name(path) {
                 entries.remove(name);
+                requested.remove(name);
             }
         }
+    }
+
+    pub fn was_requested(&self, path: &str) -> bool {
+        let split = path
+            .split('?')
+            .next()
+            .and_then(|path| path.strip_prefix('/')?.split_once('/'));
+        split.is_some_and(|(token, name)| {
+            token == self.shared.token && lock(&self.shared.requested).contains(name)
+        })
     }
 
     pub fn url(&self, peer: IpAddr, path: &str) -> io::Result<String> {
@@ -182,6 +196,10 @@ impl Drop for MediaServer {
             Duration::from_millis(200),
         );
     }
+}
+
+fn entry_name(path: &str) -> Option<&str> {
+    path.split('?').next()?.rsplit('/').next()
 }
 
 fn lookup(shared: &Shared, path: &str) -> Option<Entry> {
@@ -395,6 +413,9 @@ fn respond(stream: &mut TcpStream, request: &Request, shared: &Shared) -> io::Re
         write_head(stream, 404, &[("Content-Length", "0".into())], false)?;
         return Ok(true);
     };
+    if let Some(name) = entry_name(&request.path) {
+        lock(&shared.requested).insert(name.to_string());
+    }
     let len = match entry.len() {
         Ok(len) => len,
         Err(e) => {
@@ -512,5 +533,34 @@ mod tests {
         assert!(server.entry("/wrong/1.flac").is_none());
         server.remove(std::slice::from_ref(&path));
         assert!(server.entry(&path).is_none());
+    }
+
+    #[test]
+    fn a_path_counts_as_requested_once_a_device_asks_for_it() {
+        let server = MediaServer::start().unwrap();
+        let entry = || Entry {
+            body: Body::Bytes(Arc::new(vec![1, 2, 3])),
+            mime: "audio/flac".into(),
+        };
+        let asked = server.publish(entry(), "flac");
+        let untouched = server.publish(entry(), "flac");
+        assert!(!server.was_requested(&asked));
+
+        let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        write!(
+            stream,
+            "HEAD {asked} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+
+        assert!(server.was_requested(&asked));
+        assert!(server.was_requested(&format!("{asked}?x=1")));
+        assert!(!server.was_requested(&untouched));
+        assert!(!server.was_requested("/wrong/1.flac"));
+        server.remove(std::slice::from_ref(&asked));
+        assert!(!server.was_requested(&asked));
     }
 }

@@ -7,7 +7,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 const MULTICAST_TTL: u32 = 255;
 
-pub(crate) const PORTS: RangeInclusive<u16> = 39_831..=39_840;
+pub const PORTS: RangeInclusive<u16> = 39_831..=39_840;
 
 pub(crate) fn listen(what: &str) -> io::Result<TcpListener> {
     listen_in(PORTS, what)

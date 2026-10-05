@@ -6,13 +6,17 @@ use std::time::{Duration, Instant};
 
 use audio_common::{ChannelCount, StreamParams};
 use audio_engine::{AudioEngine, EngineEvent, EngineManager, TrackResolver};
-use gpui::{App, AppContext, BorrowAppContext, Global, Subscription};
-use gpui_component::WindowExt;
+use gpui::{
+    App, AppContext, BorrowAppContext, Global, ParentElement, SharedString, Styled, Subscription,
+    div, px,
+};
 use gpui_component::notification::Notification;
+use gpui_component::{WindowExt, v_flex};
 use music_library::Track;
 use ui_resources::i18n::cast_strings;
 
 use crate::library_service::LibraryService;
+use crate::pipewire_alsa_gate::command_row;
 use crate::playback_opener::{AfterLoad, OpenerBackend, PlaybackOpener, TrackRequest};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -871,6 +875,18 @@ fn forward_session(id: u64, target: &RendererTarget, player: &Player, cx: &mut A
                     });
                     continue;
                 }
+                cast::SessionEvent::NeverFetched => {
+                    cx.update(|cx| {
+                        let name = cx
+                            .global::<CastState>()
+                            .active
+                            .as_ref()
+                            .map(|receiver| receiver.name.clone())
+                            .unwrap_or_default();
+                        unreached(id, &name, cx);
+                    });
+                    break;
+                }
                 cast::SessionEvent::Lost(reason) => {
                     cx.update(|cx| {
                         let name = cx
@@ -892,21 +908,84 @@ fn forward_session(id: u64, target: &RendererTarget, player: &Player, cx: &mut A
     .detach();
 }
 
-fn lose(id: u64, name: &str, reason: &str, cx: &mut App) {
-    let player = cx.global::<Services>().player.clone();
-    if player.active.load(Ordering::Acquire) != id {
-        return;
-    }
-    log::warn!("cast: lost {name}: {reason}");
+fn is_active(id: u64, cx: &App) -> bool {
+    cx.global::<Services>()
+        .player
+        .active
+        .load(Ordering::Acquire)
+        == id
+}
+
+fn back_to_this_computer(cx: &mut App) {
     cx.global::<Services>()
         .is_playing
         .store(false, Ordering::Relaxed);
     switch(Target::Local, None, None, cx);
+}
+
+fn lose(id: u64, name: &str, reason: &str, cx: &mut App) {
+    if !is_active(id, cx) {
+        return;
+    }
+    log::warn!("cast: lost {name}: {reason}");
+    back_to_this_computer(cx);
     notify(
         cx,
         Notification::warning(cast_strings().connection_lost(name))
             .title(cast_strings().streaming.clone()),
     );
+}
+
+fn unreached(id: u64, name: &str, cx: &mut App) {
+    if !is_active(id, cx) {
+        return;
+    }
+    log::warn!(
+        "cast: {name} answers commands but never fetched the track; \
+         something blocks its connection to this computer"
+    );
+    back_to_this_computer(cx);
+    explain_unreached(name, cx);
+}
+
+fn explain_unreached(name: &str, cx: &mut App) {
+    let Some(handle) = cx.windows().into_iter().next() else {
+        return;
+    };
+    let strings = cast_strings();
+    let title = strings.unreached_title.clone();
+    let intro = SharedString::from(strings.unreached(name));
+    let hint = strings.unreached_hint().clone();
+    let ports = cast::PORTS;
+    let (first, last) = (*ports.start(), *ports.end());
+    let commands = [
+        (
+            SharedString::new_static("ufw"),
+            SharedString::from(format!(
+                "sudo ufw allow {first}:{last}/tcp && sudo ufw allow {first}:{last}/udp"
+            )),
+        ),
+        (
+            SharedString::new_static("firewalld"),
+            SharedString::from(format!(
+                "sudo firewall-cmd --permanent --add-port={first}-{last}/tcp --add-port={first}-{last}/udp && sudo firewall-cmd --reload"
+            )),
+        ),
+    ];
+    let _ = handle.update(cx, move |_, window, cx| {
+        window.open_alert_dialog(cx, move |alert, _, cx| {
+            let mut body = v_flex()
+                .gap_3()
+                .child(div().child(intro.clone()))
+                .child(div().child(hint.clone()));
+            if cfg!(not(any(target_os = "windows", target_os = "macos"))) {
+                for (ix, (label, command)) in commands.iter().enumerate() {
+                    body = body.child(command_row(ix, label.clone(), command.clone(), cx));
+                }
+            }
+            alert.title(title.clone()).description(body).width(px(540.))
+        });
+    });
 }
 
 #[cfg(test)]

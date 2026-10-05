@@ -43,6 +43,7 @@ pub enum SessionEvent {
     Position(Duration),
     Ended,
     Failed(String),
+    NeverFetched,
     Lost(String),
     Volume(f32),
 }
@@ -120,6 +121,14 @@ pub struct Session {
 
 impl Session {
     pub(crate) fn start(driver: Box<dyn Driver>, server: Arc<MediaServer>) -> Self {
+        Self::start_with(driver, server, NEVER_STARTED)
+    }
+
+    pub(crate) fn start_with(
+        driver: Box<dyn Driver>,
+        server: Arc<MediaServer>,
+        patience: Duration,
+    ) -> Self {
         let (commands, receiver) = flume::unbounded();
         let (sender, events) = flume::unbounded();
         let (running, finished) = flume::bounded::<()>(1);
@@ -140,6 +149,7 @@ impl Session {
             last_emitted: Duration::ZERO,
             seen_playing: false,
             loaded_at: Instant::now(),
+            patience,
             buffering: false,
             failures: 0,
             failing_since: None,
@@ -237,6 +247,7 @@ struct Worker {
     last_emitted: Duration,
     seen_playing: bool,
     loaded_at: Instant,
+    patience: Duration,
     buffering: bool,
     failures: u32,
     failing_since: Option<Instant>,
@@ -360,6 +371,14 @@ impl Worker {
             log::warn!("cast: device command failed: {e}");
         }
         true
+    }
+
+    fn never_fetched(&self) -> bool {
+        !self.published.is_empty()
+            && !self
+                .published
+                .iter()
+                .any(|path| self.server.was_requested(path))
     }
 
     fn unpublish(&mut self) {
@@ -536,6 +555,7 @@ impl Worker {
         start: Duration,
         autoplay: bool,
     ) -> Result<(), String> {
+        self.loaded_at = Instant::now();
         let seek_later = !start.is_zero() && !self.driver.seeks_on_load();
         let loading = Loading {
             url: &sent.url,
@@ -571,7 +591,9 @@ impl Worker {
 
     fn play_and_seek(&mut self, position: Duration) -> Result<(), String> {
         self.driver.play()?;
-        self.wait_until_started();
+        if !self.wait_until_started() && self.never_fetched() {
+            return Ok(());
+        }
         self.driver.seek(position)?;
         if !self.wait_until_at(position) {
             log::debug!("cast: the device did not reach {position:?}, seeking again");
@@ -597,18 +619,19 @@ impl Worker {
         false
     }
 
-    fn wait_until_started(&mut self) {
-        let deadline = Instant::now() + START_WAIT;
+    fn wait_until_started(&mut self) -> bool {
+        let deadline = Instant::now() + START_WAIT.min(self.patience);
         while Instant::now() < deadline {
             match self.driver.status() {
                 Ok(status) if matches!(status.state, Some(State::Playing | State::Paused)) => {
-                    return;
+                    return true;
                 }
                 Ok(_) => {}
                 Err(e) => log::debug!("cast: waiting for playback: {e}"),
             }
             std::thread::sleep(Duration::from_millis(250));
         }
+        false
     }
 
     fn seek(&mut self, position: Duration) -> Result<(), String> {
@@ -817,14 +840,30 @@ impl Worker {
         }
         let previous = self.reported.map(|(position, ..)| position);
         let state = self.device_state(reported, status.position);
-        if !self.seen_playing && matches!(state, State::Idle | State::Finished) {
-            if !held && self.state == State::Playing && self.loaded_at.elapsed() > NEVER_STARTED {
-                self.state = State::Failed;
-                self.emit(SessionEvent::Failed(
-                    "the device did not start playing".into(),
-                ));
+        if !self.seen_playing {
+            let out_of_patience =
+                !held && self.state == State::Playing && self.loaded_at.elapsed() > self.patience;
+            match state {
+                State::Idle | State::Finished => {
+                    if out_of_patience {
+                        self.state = State::Failed;
+                        self.clear_buffering();
+                        self.emit(if self.never_fetched() {
+                            SessionEvent::NeverFetched
+                        } else {
+                            SessionEvent::Failed("the device did not start playing".into())
+                        });
+                    }
+                    return Ok(());
+                }
+                State::Buffering | State::Loading if out_of_patience && self.never_fetched() => {
+                    self.state = State::Failed;
+                    self.clear_buffering();
+                    self.emit(SessionEvent::NeverFetched);
+                    return Ok(());
+                }
+                _ => {}
             }
-            return Ok(());
         }
         match state {
             State::Playing | State::Paused => {
@@ -894,7 +933,18 @@ impl Worker {
                     let reason = status
                         .error
                         .unwrap_or_else(|| "the device could not play this track".into());
-                    self.emit(SessionEvent::Failed(reason));
+                    if self.seen_playing || !self.never_fetched() {
+                        self.emit(SessionEvent::Failed(reason));
+                    } else if self.loaded_at.elapsed() > self.patience {
+                        log::warn!(
+                            "cast: the device failed without ever fetching the track: {reason}"
+                        );
+                        self.emit(SessionEvent::NeverFetched);
+                    } else {
+                        self.emit(SessionEvent::Failed(format!(
+                            "{reason} (it never asked for the track)"
+                        )));
+                    }
                 }
             }
         }

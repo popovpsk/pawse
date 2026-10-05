@@ -95,6 +95,19 @@ up to 2 s for it.
 When a receiver is lost (see the `cast` crate), playback moves back to this
 computer, paused at the last position, with a notification.
 
+A renderer that answers every poll but never came for the track
+(`SessionEvent::NeverFetched`) takes the same way back (`back_to_this_computer`,
+shared with `lose`), so the user only has to go one way once the cause is
+fixed, but is told with a message box, not a toast: a toast would read as the
+device dropping, and the cause is on this side, the firewall most of the
+time. The box (`explain_unreached`, an `AlertDialog`) says what happened and
+gives the fix for the OS it runs on: Windows Security's "allow an app", the
+macOS Firewall options, or on Linux the `ufw` / `firewalld` commands for
+`cast::PORTS`, as copyable rows (`pipewire_alsa_gate::command_row`). The
+texts are `CastStrings::unreached*` in all 20 languages, with the Linux
+sentence and the commands naming the port range; if `cast::PORTS` changes,
+the strings and the README's Firewall section change with it.
+
 ## Volume
 
 Settings → General → Streaming → "Change the device's volume"
