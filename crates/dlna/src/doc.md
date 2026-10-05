@@ -130,7 +130,9 @@ Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtim
   `NOT_IMPLEMENTED` (unknown).
 - `GetProtocolInfo`'s `Sink` is the list of formats the renderer takes; it is
   what `cast` uses to choose between the original file and PCM.
-- `volume`/`set_volume` are RenderingControl's Master channel (0–100).
+- `mute`/`set_mute` and `volume`/`set_volume` are RenderingControl's Master
+  channel; `cast` uses them to keep a mid-track start silent. `GetMute`
+  values are `0`/`1` or `false`/`true`.
 - Renderers tested live:
   - gmrender-resurrect 0.3 on the Pi (GStreamer): positions in whole seconds,
     STOPPED (position 0) at the end of a track, a Seek while STOPPED is

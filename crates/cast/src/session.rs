@@ -25,10 +25,10 @@ const AGREE_ABOVE: Duration = Duration::from_millis(1300);
 const STILL_FOR: Duration = Duration::from_millis(2500);
 const STILL_POLLS: u32 = 3;
 const END_HOLD: Duration = Duration::from_secs(10);
-const RESTART_BELOW: Duration = Duration::from_secs(1);
-const CUT_FROM: Duration = Duration::from_secs(1);
 const TARGET_WAIT: Duration = Duration::from_secs(3);
 const TARGET_SLACK: Duration = Duration::from_secs(1);
+const QUIET_AFTER_SEEK: Duration = Duration::from_millis(300);
+const RESTART_BELOW: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionEvent {
@@ -107,6 +107,8 @@ pub(crate) trait Driver: Send + Accepts {
     fn lost(&mut self) -> Option<String>;
     fn volume(&mut self) -> Option<f32>;
     fn seeks_on_load(&self) -> bool;
+    fn silence_start(&mut self) {}
+    fn restore_sound(&mut self) {}
     fn close(&mut self);
 }
 
@@ -206,14 +208,6 @@ struct Current {
     load: Load,
     sent: Sent,
     on_device: bool,
-    offset: Duration,
-}
-
-struct Published {
-    sent: Sent,
-    offset: Duration,
-    sample_rate: u32,
-    bit_depth: u8,
 }
 
 #[derive(Clone)]
@@ -299,19 +293,6 @@ impl Worker {
         self.current
             .as_ref()
             .is_some_and(|current| current.on_device)
-    }
-
-    fn device_offset(&self) -> Duration {
-        self.current
-            .as_ref()
-            .filter(|current| current.on_device)
-            .map_or(Duration::ZERO, |current| current.offset)
-    }
-
-    fn fail(&mut self, reason: String) {
-        log::warn!("cast: starting a track failed: {reason}");
-        self.state = State::Failed;
-        self.emit(SessionEvent::Failed(reason));
     }
 
     fn poll_every(&self) -> Duration {
@@ -447,12 +428,9 @@ impl Worker {
         estimate + AGREE_BELOW >= reported && estimate <= reported + AGREE_ABOVE
     }
 
-    fn settling_away(&self, reported: Duration) -> bool {
-        self.settle.is_some_and(|(target, until)| {
-            let now = Instant::now();
-            let since = SETTLE_FOR.saturating_sub(until.saturating_duration_since(now));
-            now < until && (reported + JITTER < target || reported > target + since + JITTER)
-        })
+    fn settling_below(&self, reported: Duration) -> bool {
+        self.settle
+            .is_some_and(|(target, until)| Instant::now() < until && reported + JITTER < target)
     }
 
     fn near_end(&self, position: Duration) -> bool {
@@ -466,10 +444,9 @@ impl Worker {
     }
 
     fn restart_unconfirmed(&self, previous: Option<Duration>, reported: Duration) -> bool {
-        let start = self.device_offset() + RESTART_BELOW;
-        reported < start
+        reported < RESTART_BELOW
             && reported + JITTER < self.estimated_position()
-            && previous.is_none_or(|previous| previous >= start || reported <= previous)
+            && previous.is_none_or(|previous| previous >= RESTART_BELOW || reported <= previous)
     }
 
     fn device_state(&mut self, reported: State, position: Option<Duration>) -> State {
@@ -510,20 +487,16 @@ impl Worker {
             return Ok(());
         };
         if matches!(self.state, State::Idle | State::Finished | State::Failed) {
-            let start = if self.state == State::Finished {
-                Duration::ZERO
-            } else {
-                self.estimated_position()
-            };
             let reload = Load {
                 media: current.load.media.clone(),
-                start,
+                start: self.estimated_position(),
                 autoplay: true,
             };
             self.load(reload);
             return Ok(());
         }
-        let deferred = !current.on_device;
+        let deferred =
+            (!current.on_device).then(|| (current.sent.clone(), current.load.media.info.clone()));
         let says_playing = self.state == State::Paused && matches!(self.reported, Some((.., true)));
         let start = self.estimated_position();
         self.position_at = Instant::now();
@@ -534,51 +507,26 @@ impl Worker {
         self.state = State::Playing;
         self.hold_state();
         self.emit(SessionEvent::Playing);
-        if !deferred {
+        let Some((sent, info)) = deferred else {
             if says_playing && let Err(e) = self.driver.pause() {
                 log::debug!("cast: pausing before play failed: {e}");
             }
             return self.driver.play();
-        }
-        match self.start_on_device(start) {
-            Ok(()) => self.jump_to(start),
-            Err(e) => self.fail(e),
-        }
-        Ok(())
-    }
-
-    fn start_on_device(&mut self, start: Duration) -> Result<(), String> {
-        let Some(current) = &self.current else {
-            return Ok(());
         };
-        let media = current.load.media.clone();
-        let whole = (start < CUT_FROM && current.offset.is_zero()).then(|| current.sent.clone());
-        let sent = match whole {
-            Some(sent) => Ok((sent, Duration::ZERO)),
-            None => self
-                .publish(&media, start)
-                .map(|published| (published.sent, published.offset)),
-        };
-        let started = sent.and_then(|(sent, offset)| {
-            self.send(&sent, &media.info, start.saturating_sub(offset), true)?;
-            Ok((sent, offset))
-        });
-        let Some(current) = &mut self.current else {
-            return Ok(());
-        };
-        match started {
-            Ok((sent, offset)) => {
-                current.sent = sent;
-                current.offset = offset;
-                current.on_device = true;
-                Ok(())
+        match self.send(&sent, &info, start, true) {
+            Ok(()) => {
+                if let Some(current) = &mut self.current {
+                    current.on_device = true;
+                }
+                self.jump_to(start);
             }
             Err(e) => {
-                current.on_device = false;
-                let _ = self.stop_ours();
-                Err(e)
+                log::warn!("cast: starting a track failed: {e}");
+                self.state = State::Failed;
+                self.emit(SessionEvent::Failed(e));
             }
         }
+        Ok(())
     }
 
     fn send(
@@ -588,7 +536,7 @@ impl Worker {
         start: Duration,
         autoplay: bool,
     ) -> Result<(), String> {
-        let seek_later = start >= CUT_FROM && !self.driver.seeks_on_load();
+        let seek_later = !start.is_zero() && !self.driver.seeks_on_load();
         let loading = Loading {
             url: &sent.url,
             mime: &sent.mime,
@@ -600,15 +548,24 @@ impl Worker {
             start,
             autoplay: autoplay && !seek_later,
         };
-        self.driver.load(&loading)?;
-        self.ours_on_device = true;
         if !(seek_later && autoplay) {
+            self.driver.load(&loading)?;
+            self.ours_on_device = true;
             return Ok(());
         }
-        let started = self.play_and_seek(start);
-        if started.is_err() {
-            let _ = self.stop_ours();
+        self.driver.silence_start();
+        let loaded = self.driver.load(&loading);
+        if loaded.is_ok() {
+            self.ours_on_device = true;
         }
+        let started = loaded.and_then(|()| self.play_and_seek(start));
+        match &started {
+            Ok(()) => std::thread::sleep(QUIET_AFTER_SEEK),
+            Err(_) => {
+                let _ = self.stop_ours();
+            }
+        }
+        self.driver.restore_sound();
         started
     }
 
@@ -619,6 +576,7 @@ impl Worker {
         if !self.wait_until_at(position) {
             log::debug!("cast: the device did not reach {position:?}, seeking again");
             self.driver.seek(position)?;
+            self.wait_until_at(position);
         }
         Ok(())
     }
@@ -664,20 +622,7 @@ impl Worker {
             return Ok(());
         }
         self.hold_state();
-        let offset = self.device_offset();
-        if position >= offset {
-            return self.driver.seek(position - offset);
-        }
-        if self.state == State::Playing {
-            if let Err(e) = self.start_on_device(position) {
-                self.fail(e);
-            }
-            return Ok(());
-        }
-        if let Some(current) = &mut self.current {
-            current.on_device = false;
-        }
-        self.stop_ours()
+        self.driver.seek(position)
     }
 
     fn load(&mut self, load: Load) {
@@ -692,36 +637,23 @@ impl Worker {
         if defer && let Err(e) = self.stop_ours() {
             log::warn!("cast: stopping the previous track failed: {e}");
         }
-        let cut = if defer || self.driver.seeks_on_load() {
-            Duration::ZERO
-        } else {
-            load.start
-        };
-        let loaded = self.publish(&load.media, cut).and_then(|published| {
-            if !defer {
-                self.send(
-                    &published.sent,
-                    &load.media.info,
-                    load.start.saturating_sub(published.offset),
-                    load.autoplay,
-                )?;
-            }
-            Ok(published)
-        });
+        let loaded = self
+            .publish(&load)
+            .and_then(|(sent, sample_rate, bit_depth)| {
+                if !defer {
+                    self.send(&sent, &load.media.info, load.start, load.autoplay)?;
+                }
+                Ok((sent, sample_rate, bit_depth))
+            });
         match loaded {
-            Ok(published) => {
-                let duration = published
-                    .sent
-                    .duration
-                    .map(|duration| duration + published.offset);
+            Ok((sent, sample_rate, bit_depth)) => {
+                let duration = sent.duration;
                 self.duration = duration;
                 let autoplay = load.autoplay;
-                let (sample_rate, bit_depth) = (published.sample_rate, published.bit_depth);
                 self.current = Some(Current {
                     load,
-                    sent: published.sent,
+                    sent,
                     on_device: !defer,
-                    offset: published.offset,
                 });
                 self.state = if autoplay {
                     State::Playing
@@ -751,29 +683,9 @@ impl Worker {
         }
     }
 
-    fn publish(&mut self, whole: &Media, cut: Duration) -> Result<Published, String> {
-        let probed = probe(&whole.source, &whole.extension)?;
-        let cuttable = cut >= CUT_FROM && self.driver.takes_pcm();
-        let length = whole.length.or_else(|| {
-            probed
-                .duration
-                .map(|duration| duration.saturating_sub(whole.start))
-        });
-        let offset = match length {
-            Some(length) if cuttable && cut < length => cut,
-            _ => Duration::ZERO,
-        };
-        let from_cut;
-        let media = if offset.is_zero() {
-            whole
-        } else {
-            from_cut = Media {
-                start: whole.start + offset,
-                length: length.map(|length| length - offset),
-                ..whole.clone()
-            };
-            &from_cut
-        };
+    fn publish(&mut self, load: &Load) -> Result<(Sent, u32, u8), String> {
+        let media = &load.media;
+        let probed = probe(&media.source, &media.extension)?;
         let accepts: &dyn Accepts = self.driver.as_ref();
         let delivery = plan(media, &probed, accepts)?;
         let peer = self.driver.peer();
@@ -839,13 +751,9 @@ impl Worker {
             Some(path) => self.server.url(peer, path).ok(),
             None => None,
         };
-        if offset.is_zero() {
-            log::info!("cast: loading {url} as {mime}");
-        } else {
-            log::info!("cast: loading {url} as {mime}, from {offset:?}");
-        }
-        Ok(Published {
-            sent: Sent {
+        log::info!("cast: loading {url} as {mime}");
+        Ok((
+            Sent {
                 url,
                 mime,
                 features,
@@ -853,10 +761,9 @@ impl Worker {
                 duration,
                 size,
             },
-            offset,
-            sample_rate: probed.sample_rate,
-            bit_depth: probed.bit_depth,
-        })
+            probed.sample_rate,
+            probed.bit_depth,
+        ))
     }
 
     fn poll(&mut self) -> Result<(), String> {
@@ -888,16 +795,7 @@ impl Worker {
         if !self.on_device() {
             return Ok(());
         }
-        let offset = self.device_offset();
-        let status = Status {
-            position: status.position.map(|position| position + offset),
-            duration: status
-                .duration
-                .filter(|duration| !duration.is_zero())
-                .map(|duration| duration + offset),
-            ..status
-        };
-        if let Some(duration) = status.duration
+        if let Some(duration) = status.duration.filter(|d| !d.is_zero())
             && self.duration.is_none()
         {
             self.duration = Some(duration);
@@ -932,7 +830,7 @@ impl Worker {
             State::Playing | State::Paused => {
                 if let Some(position) = status.position
                     && !held
-                    && !self.settling_away(position)
+                    && !self.settling_below(position)
                     && !self.reset_at_end(position)
                     && !self.restart_unconfirmed(previous, position)
                     && !self.agrees_with(position)
@@ -949,7 +847,7 @@ impl Worker {
                     self.state = state;
                     if state == State::Paused
                         && let Some(position) = status.position
-                        && !self.settling_away(position)
+                        && !self.settling_below(position)
                     {
                         self.position = position;
                         self.emit_position(position);
