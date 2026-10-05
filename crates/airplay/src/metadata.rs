@@ -84,7 +84,8 @@ pub(crate) fn remote_command(body: &[u8]) -> Result<RemoteCommand, String> {
     }
     match text("value") {
         "play" => Ok(RemoteCommand::Play),
-        "paus" => Ok(RemoteCommand::Pause),
+        "paus" | "stop" => Ok(RemoteCommand::Pause),
+        "plps" => Ok(RemoteCommand::PlayPause),
         "nitm" => Ok(RemoteCommand::Next),
         "pitm" => Ok(RemoteCommand::Previous),
         other => Err(format!("command {other:?}")),
@@ -170,6 +171,7 @@ mod tests {
         assert_eq!(command("paus"), Ok(RemoteCommand::Pause));
         assert_eq!(command("nitm"), Ok(RemoteCommand::Next));
         assert_eq!(command("pitm"), Ok(RemoteCommand::Previous));
+        assert_eq!(command("plps"), Ok(RemoteCommand::PlayPause));
         assert!(command("skpf").is_err());
         assert!(remote_command(&event("updateInfo", "play")).is_err());
         assert!(remote_command(b"garbage").is_err());

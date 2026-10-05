@@ -25,6 +25,9 @@ pub const FRAMES_PER_PACKET: usize = 352;
 pub const LATENCY_FRAMES: u32 = 88_200;
 
 const FEATURE_AUDIO: u32 = 9;
+const FEATURE_METADATA_ARTWORK: u32 = 15;
+const FEATURE_METADATA_PROGRESS: u32 = 16;
+const FEATURE_METADATA_TEXT: u32 = 17;
 const FEATURE_UNIFIED_MEDIA_CONTROL: u32 = 38;
 const FEATURE_HOMEKIT_PAIRING: u32 = 46;
 const FEATURE_COREUTILS_PAIRING: u32 = 48;
@@ -47,6 +50,21 @@ pub enum Protocol {
     AirPlay2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Shows {
+    pub text: bool,
+    pub artwork: bool,
+    pub progress: bool,
+}
+
+impl Shows {
+    pub const ALL: Self = Self {
+        text: true,
+        artwork: true,
+        progress: true,
+    };
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub id: String,
@@ -54,6 +72,7 @@ pub struct Device {
     pub model: Option<String>,
     pub address: SocketAddr,
     pub protocol: Protocol,
+    pub shows: Shows,
 }
 
 pub(crate) fn random<const N: usize>() -> [u8; N] {
@@ -133,10 +152,16 @@ impl Device {
             .map(str::trim)
             .filter(|model| !model.is_empty())
             .map(str::to_string);
+        let shows = |kind| txt("md").is_some_and(|kinds| listed(Some(kinds), kind));
         Some(Device {
             id: id.to_string(),
             name: name.to_string(),
             model,
+            shows: Shows {
+                text: shows("0"),
+                artwork: shows("1"),
+                progress: shows("2"),
+            },
             address: SocketAddr::new(address, port),
             protocol: Protocol::Raop,
         })
@@ -194,6 +219,11 @@ impl Device {
             model,
             address: SocketAddr::new(address, port),
             protocol: Protocol::AirPlay2,
+            shows: Shows {
+                text: has(FEATURE_METADATA_TEXT),
+                artwork: has(FEATURE_METADATA_ARTWORK),
+                progress: has(FEATURE_METADATA_PROGRESS),
+            },
         })
     }
 }
@@ -240,6 +270,7 @@ mod tests {
                 ("ss", "16"),
                 ("ch", "2"),
                 ("am", "ShairportSync"),
+                ("md", "0,1,2"),
             ],
         )
         .unwrap();
@@ -247,6 +278,25 @@ mod tests {
         assert_eq!(found.name, "Pi AirPlay");
         assert_eq!(found.model.as_deref(), Some("ShairportSync"));
         assert_eq!(found.address, "192.168.3.22:7000".parse().unwrap());
+        assert_eq!(found.shows, Shows::ALL);
+    }
+
+    #[test]
+    fn a_raop_speaker_shows_only_the_metadata_its_md_lists() {
+        let shows = |md: Option<&str>| {
+            let mut txt = vec![("et", "0")];
+            txt.extend(md.map(|md| ("md", md)));
+            device("AA@Speaker", &txt).unwrap().shows
+        };
+        assert_eq!(shows(None), Shows::default());
+        assert_eq!(
+            shows(Some("0,2")),
+            Shows {
+                text: true,
+                artwork: false,
+                progress: true,
+            }
+        );
     }
 
     #[test]
@@ -288,6 +338,10 @@ mod tests {
         assert_eq!(tv.model.as_deref(), Some("55U7SE"));
         assert_eq!(tv.protocol, Protocol::AirPlay2);
         assert_eq!(tv.address, "192.168.3.7:7000".parse().unwrap());
+        assert_eq!(tv.shows, Shows::ALL);
+        let mut quiet = TV;
+        quiet[1] = ("features", "0x7C0AD0,0x38BCF46");
+        assert_eq!(airplay(&quiet).unwrap().shows, Shows::default());
     }
 
     #[test]

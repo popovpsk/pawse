@@ -273,8 +273,10 @@ header needs it); `plan` fails with a message instead.
   the receiver's `Audio-Latency`, 0.25 s for shairport-sync, but never more
   than was sent since the last start or flush, so a seek shows its target
   instead of jumping back); the app subtracts it from the engine's
-  positions. The title of the next track still
-  switches when the engine moves on, about 2 s before it is heard.
+  positions. In the app the title of the next track still switches when the
+  engine moves on, about 2 s before it is heard; the device is told only
+  once the track is heard (`airplay`'s doc, "the next track is named when
+  it is heard").
 - **Now playing and the remote.** The last `set_now_playing` (title,
   artist, album, cover) and `set_progress` are kept and sent again to a
   reconnected stream, after it is installed: the engine reports `Playing`
@@ -283,19 +285,33 @@ header needs it); `plan` fails with a message instead.
   on `commands()`, beside `lost()`, from two places: the stream's own events
   (the AirPlay 2 event connection; the `airplay-forward` thread sorts them
   from `Lost`) and DACP.
-- **DACP** (`dacp.rs`): one HTTP server for the app run, on an ephemeral
-  port, started with the first AirPlay stream (so nothing is announced for a
-  user who never casts), announced by its own `mdns-sd` daemon as
-  `iTunes_Ctrl_<airplay::dacp_id()>._dacp._tcp` with the TXT keys iTunes and
-  Music Assistant use (`txtvers`, `Ver`, `DbId`, `OSsi`) and the IPv4
-  addresses of all interfaces (the server listens on IPv4 only, so IPv6 is
-  switched off in that daemon). Each stream registers a route under its
-  `Active-Remote`; a request is answered `204` and its command goes to the
-  route it names. One connection at a time, its head read within 2 s in
-  all. Commands are logged (info); an ignored request (a volume report, an
-  unknown path or remote) is logged at info the first time its path (up to
-  `=`) is seen and at debug after that, so a device's requests show up
-  without a line per poll.
+- **DACP** (`dacp.rs`), set up as OwnTone and Music Assistant do it: one
+  HTTP server for the app run, started with discovery (when the output
+  picker first opens, so the announcement is out before a speaker is
+  picked, and nothing is announced for a user who never casts), on the
+  first free port from 39831 (Music Assistant's range), listening on IPv6
+  and IPv4 at once (one socket with `IPV6_V6ONLY` off and, off Windows,
+  `SO_REUSEADDR`, so a restart inside the old connections' TIME_WAIT still
+  gets it; only when no port takes that does it fall back to IPv4 alone,
+  with a warning; port 0 when the whole range is taken), announced by its
+  own `mdns-sd` daemon as `iTunes_Ctrl_<airplay::dacp_id()>._dacp._tcp` with
+  OwnTone's TXT (`txtvers=1`, `Ver=131077`, `DbId=1`, `OSsi=0x2012E`) on the
+  host `pawse-<id>.local.` with all interface addresses, IPv6 included. The
+  Hisense TV resolves that host and connects over IPv6 link-local when it
+  has one: with a service the Mac's own mDNS responder announced it pressed
+  every button through to us at once, while our IPv4-only server and
+  announcement got its buttons only now and then (2026-10-04). Each stream
+  registers a route under its `Active-Remote`; a known command goes to the
+  route it names. Every request is answered `204` except `getproperty`,
+  which gets `400`:
+  shairport-sync polls `getproperty?properties=dmcp.volume` every second and
+  shows its remote as available only on `200` (a server with properties,
+  as OwnTone's) or `400` (one without), counting `204` as a failure
+  (`dacp.c`); its commands reached us either way (tested on the Pi). One
+  connection at a time, its head read within 2 s in all. Commands are logged
+  (info); an ignored request (a volume report, an unknown path or remote) is
+  logged at info the first time its path (up to `=`) is seen and at debug
+  after that.
 - A stream that died while paused (a speaker may drop an idle session) is
   reconnected on resume; only a failure there, or losing the speaker while
   playing, is reported on `lost()`. The handshake runs without holding the

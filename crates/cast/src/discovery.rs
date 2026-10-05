@@ -380,6 +380,7 @@ fn spawn(name: &str, work: impl FnOnce() + Send + 'static) {
 
 impl Discovery {
     pub fn start() -> Self {
+        crate::dacp::warm_up();
         let (changed, changes) = flume::bounded(1);
         let inner = Arc::new(Inner::new(changed));
         let mut wakers = Vec::new();
@@ -1108,6 +1109,7 @@ mod tests {
             model: None,
             address: SocketAddr::new(ip.parse().unwrap(), 7000),
             protocol,
+            shows: airplay::Shows::ALL,
         })
     }
 

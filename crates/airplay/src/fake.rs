@@ -22,6 +22,8 @@ pub(crate) struct Heard {
     pub payloads: Vec<(u16, Vec<u8>)>,
     pub syncs: usize,
     pub events_connected: bool,
+    pub futile: Vec<u16>,
+    control: Option<(UdpSocket, SocketAddr)>,
 }
 
 struct EventSide {
@@ -89,6 +91,19 @@ impl FakeReceiver {
         let plain = side.read.open(length, &answer)?;
         let text = String::from_utf8_lossy(&plain).into_owned();
         text.lines().next().map(str::to_string)
+    }
+
+    pub fn ask_resend(&self, first: u16, count: u16) -> bool {
+        let heard = self.heard();
+        let Some((socket, sender)) = heard.control.as_ref() else {
+            return false;
+        };
+        let [first_high, first_low] = first.to_be_bytes();
+        let [count_high, count_low] = count.to_be_bytes();
+        let request = [
+            0x80, 0xd5, 0, 1, first_high, first_low, count_high, count_low,
+        ];
+        socket.send_to(&request, sender).is_ok()
     }
 
     pub fn heard(&self) -> MutexGuard<'_, Heard> {
@@ -444,11 +459,19 @@ fn count_syncs(socket: UdpSocket, heard: Arc<Mutex<Heard>>, stop: Arc<AtomicBool
     socket.set_read_timeout(Some(POLL)).unwrap();
     let mut buffer = [0u8; 128];
     while !stop.load(Ordering::Acquire) {
-        if let Ok(len) = socket.recv(&mut buffer)
-            && len == 20
-            && buffer[1] == 0xd4
-        {
-            lock(&heard).syncs += 1;
+        let Ok((len, from)) = socket.recv_from(&mut buffer) else {
+            continue;
+        };
+        let mut heard = lock(&heard);
+        if heard.control.is_none() {
+            heard.control = socket.try_clone().ok().map(|socket| (socket, from));
+        }
+        if len == 20 && buffer[1] == 0xd4 {
+            heard.syncs += 1;
+        } else if len == 8 && buffer[1] == 0xd6 {
+            heard
+                .futile
+                .push(u16::from_be_bytes([buffer[4], buffer[5]]));
         }
     }
 }

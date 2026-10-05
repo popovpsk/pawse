@@ -1,17 +1,18 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use airplay::RemoteCommand;
-use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo};
+use mdns_sd::{ServiceDaemon, ServiceInfo};
+use socket2::{Domain, Protocol, Socket, Type};
 
 const SERVICE_TYPE: &str = "_dacp._tcp.local.";
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_REQUEST: usize = 8 * 1024;
-const DATABASE_ID: &str = "63B5E5C0C201542E";
 const ACCEPT_RETRY: Duration = Duration::from_millis(100);
+const PORTS: std::ops::Range<u16> = 39_831..39_931;
 
 type Routes = Arc<Mutex<HashMap<String, flume::Sender<RemoteCommand>>>>;
 
@@ -29,10 +30,38 @@ fn server() -> Option<&'static Server> {
     SERVER.get_or_init(start).as_ref()
 }
 
-fn start() -> Option<Server> {
-    let listener = TcpListener::bind("0.0.0.0:0")
-        .inspect_err(|e| log::warn!("AirPlay remote: no DACP server: {e}"))
+pub(crate) fn warm_up() {
+    server();
+}
+
+fn listen_both(port: u16) -> Option<TcpListener> {
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)).ok()?;
+    socket.set_only_v6(false).ok()?;
+    #[cfg(not(windows))]
+    socket.set_reuse_address(true).ok()?;
+    socket
+        .bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)).into())
         .ok()?;
+    socket.listen(16).ok()?;
+    Some(socket.into())
+}
+
+fn listen_v4(port: u16) -> Option<TcpListener> {
+    TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).ok()
+}
+
+fn start() -> Option<Server> {
+    let listener = PORTS
+        .chain([0])
+        .find_map(listen_both)
+        .or_else(|| {
+            log::warn!("AirPlay remote: the DACP server takes IPv4 only");
+            PORTS.chain([0]).find_map(listen_v4)
+        })
+        .or_else(|| {
+            log::warn!("AirPlay remote: no DACP server: no port to listen on");
+            None
+        })?;
     let port = listener.local_addr().ok()?.port();
     let routes = Routes::default();
     let serving = routes.clone();
@@ -52,31 +81,37 @@ fn start() -> Option<Server> {
         })
         .inspect_err(|e| log::warn!("AirPlay remote: the DACP server did not start: {e}"))
         .ok()?;
-    log::info!("AirPlay remote: DACP on port {port}");
+    let host = format!("pawse-{}.local.", airplay::dacp_id().to_ascii_lowercase());
+    let daemon = announce(&host, port);
+    log::info!(
+        "AirPlay remote: DACP iTunes_Ctrl_{} on {}:{port}",
+        airplay::dacp_id(),
+        if daemon.is_some() {
+            host.as_str()
+        } else {
+            "nothing"
+        }
+    );
     Some(Server {
         routes,
-        _daemon: announce(port),
+        _daemon: daemon,
     })
 }
 
-fn announce(port: u16) -> Option<ServiceDaemon> {
-    let id = airplay::dacp_id();
+fn announce(host: &str, port: u16) -> Option<ServiceDaemon> {
     let daemon = ServiceDaemon::new()
         .inspect_err(|e| log::warn!("AirPlay remote: DACP is not announced: {e}"))
         .ok()?;
-    if let Err(e) = daemon.disable_interface(IfKind::IPv6) {
-        log::debug!("AirPlay remote: IPv6 stays announced: {e}");
-    }
     let properties = [
         ("txtvers", "1"),
-        ("Ver", DATABASE_ID),
-        ("DbId", DATABASE_ID),
-        ("OSsi", "0x1F5"),
+        ("Ver", "131077"),
+        ("DbId", "1"),
+        ("OSsi", "0x2012E"),
     ];
     let info = ServiceInfo::new(
         SERVICE_TYPE,
-        &format!("iTunes_Ctrl_{id}"),
-        &format!("pawse-{}.local.", id.to_ascii_lowercase()),
+        &format!("iTunes_Ctrl_{}", airplay::dacp_id()),
+        host,
         (),
         port,
         &properties[..],
@@ -143,8 +178,13 @@ fn handle(mut stream: TcpStream, routes: &Routes, logged: &mut HashSet<String>) 
         .find(|(name, _)| name.trim().eq_ignore_ascii_case("Active-Remote"))
         .map(|(_, value)| value.trim().to_string())
         .unwrap_or_default();
+    let status = if path.starts_with("/ctrl-int/1/getproperty") {
+        "400 Bad Request"
+    } else {
+        "204 No Content"
+    };
     let _ = stream.write_all(
-        b"HTTP/1.0 204 No Content\r\nDAAP-Server: Pawse\r\nContent-Type: application/x-dmap-tagged\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        format!("HTTP/1.0 {status}\r\nDAAP-Server: Pawse\r\nContent-Type: application/x-dmap-tagged\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
     );
     let sender = lock(routes).get(&active_remote).cloned();
     match (airplay::dacp_command(&path), sender) {
@@ -172,6 +212,7 @@ fn handle(mut stream: TcpStream, routes: &Routes, logged: &mut HashSet<String>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::IpAddr;
 
     fn ask(routes: &Routes, request: &str) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -182,6 +223,20 @@ mod tests {
         let mut answer = String::new();
         client.read_to_string(&mut answer).unwrap();
         answer
+    }
+
+    #[test]
+    fn the_server_takes_ipv4_and_ipv6_connections() {
+        let listener = listen_both(0).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut addresses = vec![IpAddr::from(Ipv4Addr::LOCALHOST)];
+        if TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).is_ok() {
+            addresses.push(IpAddr::from(Ipv6Addr::LOCALHOST));
+        }
+        for address in addresses {
+            TcpStream::connect((address, port)).unwrap();
+            listener.accept().unwrap();
+        }
     }
 
     #[test]
@@ -203,6 +258,11 @@ mod tests {
             &routes,
             "GET /ctrl-int/1/setproperty?dmcp.device-volume=-20.0 HTTP/1.1\r\nActive-Remote: 1234\r\n\r\n",
         );
+        let polled = ask(
+            &routes,
+            "GET /ctrl-int/1/getproperty?properties=dmcp.volume HTTP/1.1\r\nActive-Remote: 1234\r\n\r\n",
+        );
+        assert!(polled.starts_with("HTTP/1.0 400"), "{polled}");
         assert!(commands.try_recv().is_err());
     }
 }

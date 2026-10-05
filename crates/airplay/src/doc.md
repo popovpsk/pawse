@@ -24,7 +24,7 @@ timing, groups.
   ChaCha20-Poly1305.
 - `tlv.rs` — TLV8 (pairing bodies), with 255-byte fragments.
 - `metadata.rs` — `NowPlaying`, `Cover`, `RemoteCommand`: the DMAP item list,
-  the progress line, reading a remote command from an event.
+  the progress line, reading a remote command from an event or a DACP path.
 - `events.rs` — `EventChannel`: the AirPlay 2 event connection (the device's
   requests to us), decrypted and answered.
 - `rtsp.rs` — a minimal RTSP client (one request at a time, bodies up to
@@ -40,8 +40,10 @@ timing, groups.
 `OPTIONS *`, `ANNOUNCE` with an SDP for AppleLossless (`fmtp` 352 frames,
 16 bit, 2 channels, 44100), `SETUP` with our control and timing ports (the
 answer names the server's audio, control and timing ports), `RECORD` with the
-first sequence number and RTP time, `SET_PARAMETER volume`. While paused an
-`OPTIONS` every 15 s keeps the connection.
+first sequence number and RTP time, `SET_PARAMETER volume`. An `OPTIONS`
+every 15 s, playing or not, keeps the connection (libraop sends one every
+25 s in both states; OwnTone notes that Apple TV 4 and HomePod drop RAOP
+sessions that stay quiet on RTSP while playing).
 
 ## AirPlay 2 session
 
@@ -81,8 +83,13 @@ OwnTone, which play on third-party AirPlay 2 receivers:
 a broken connection) ends the stream like any failed request, an answer that
 is not 2xx is only logged. The SETUPs wait up to 10 s.
 User-Agent is `AirPlay/670.6.2` like Music Assistant's (HomePods on OS 27
-check it); RAOP keeps `Pawse/1.0`. The sender id (DACP-ID, `deviceID`) is
-random but kept for the whole app run.
+check it). RAOP sends `AirPlay/999.0.0` to Apple speakers (`am` with
+`AudioAccessory` or `AppleTV`) and `iTunes/7.6.2 (Windows; N;)` to the rest,
+as libraop does (OwnTone sends `AirPlay/999.0.0` to all). The sender id
+(DACP-ID, `deviceID`) is random but kept for the whole app run, and its first
+hex digit is never 0: shairport-sync strips leading zeros from the
+`iTunes_Ctrl_` name before comparing it with the `DACP-ID` header
+(`mdns_avahi.c`), so such an id would never be matched.
 
 **The timing responder runs before the SETUPs.** The Hisense TV sends three
 NTP requests to our `timingPort` right after RECORD and does not answer the
@@ -109,9 +116,17 @@ Not yet seen on the TV: `FLUSH` (pause), a reconnect, `SET_PARAMETER volume`
   receivers that are not Apple TVs: `SET_PARAMETER` with
   `application/x-dmap-tagged` (an `mlit` with `mikd` 2, `minm` title, `asar`
   artist, `asal` album), then the cover with its own type (`image/jpeg` or
-  `image/png`), both with `RTP-Info: rtptime=` the next frame to be sent.
+  `image/png`, or `image/none` with no body for a track without one, which
+  Apple's receiver SDK takes as "no artwork", so the previous cover does
+  not stay), both with `RTP-Info: rtptime=` the frame heard when they go
+  (a receiver that applies metadata at that frame applies it at once).
   Apple TVs draw now playing only from MediaRemote (`POST /command` with
   protobufs, after pair-verify), which is not done.
+- What a device shows gates each part (`Device::shows`): a RAOP speaker gets
+  the kinds its `md` lists (`0` text, `1` artwork, `2` progress; none without
+  `md`, as OwnTone, libraop and pyatv do), an AirPlay 2 one those of its
+  feature bits 17, 15 and 16 (`kAirPlayFeature_AudioMetaData*` in Apple's
+  SDK).
 - `Stream::set_progress(heard_ms, duration_ms)` sends `progress:
   start/current/end` in RTP time. `heard_ms` is the track position the
   listener hears now, as the owner computes it (engine position minus
@@ -119,18 +134,32 @@ Not yet seen on the TV: `FLUSH` (pause), a reconnect, `SET_PARAMETER volume`
   tail still plays). The sender maps it on its own timeline: the frame heard
   now is the next frame to send minus `unheard_frames`, `start` is that
   minus `heard_ms`, and `current` is the heard frame but never before
-  `start` (OwnTone sends `max(position, start)` too). Before that rule the
-  Hisense TV showed the bar on the first track only: every next track's
-  progress went out while the previous tail played, with `current` 2.5 s
-  before `start`, and the TV dropped it (2026-10-04). The last `start`/`end`
+  `start` (OwnTone sends `max(position, start)` too). The last `start`/`end`
   are kept until a flush; new metadata sends them again with a fresh
-  `current`, in case a receiver resets its bar on a new title. Paused (no clock) nothing
-  is unheard, so the next frame to send is the one heard at the position:
-  a progress sent while paused holds after the resume. The owner sends it
-  again after anything that moves the mapping: a new track, a seek, a pause
-  or resume (a flush hands frames back and they go out again with new
-  timestamps). Without a duration (0) nothing is sent: the line would end
-  before the position.
+  `current`. Paused (no clock) nothing is unheard, so the next frame to send
+  is the one heard at the position: a progress sent while paused holds after
+  the resume. The owner sends it again after anything that moves the
+  mapping: a new track, a seek, a pause or resume (a flush hands frames back
+  and they go out again with new timestamps). Without a duration (0) no line
+  is sent (it would end before the position), but the start still counts
+  for the hold below.
+- **The next track is named when it is heard.** The owner's engine moves on
+  to the next track as soon as the previous one is decoded, about 2.25 s
+  before its end is heard (that lead is what keeps gapless playback seamless),
+  and sends the new progress then (its `start` still ahead) and the new title
+  right after. A progress whose `start` is still ahead is held, and so is a
+  title that comes while it is held (the newest one); both go out once that
+  frame is heard, playing or paused without a flush, so the device switches
+  title and bar with the sound instead of 2 s early. A flush (a pause or a
+  seek inside those 2 s) drops the wait but keeps the title, which then goes
+  with the next progress. A title that comes before its progress goes at
+  once; `pawse` sends the progress first.
+- The Hisense TV keeps the progress bar for the first track of a session
+  only and loses it after a seek or a track change. Every form tried (OwnTone's
+  bundle, iTunes' order with the title's `rtptime` as the middle number,
+  `mper`/`astm`/`caps`, a progress re-sent after a seek) and Music
+  Assistant's cliairplay behaved the same on it (2026-10-04); three other
+  macOS AirPlay senders show the same, so it is left as it is.
 - Both are coalesced like the volume (only the newest is sent) and go over
   both protocols. A device that answers them with an error status is only
   logged; a broken connection ends the stream as usual.
@@ -147,13 +176,27 @@ Not yet seen on the TV: `FLUSH` (pause), a reconnect, `SET_PARAMETER volume`
     their own (HKDF over `K`, salt `Events-Salt`; the device encrypts with
     `Events-Write-Encryption-Key`, we with `Events-Read-Encryption-Key`, the
     reverse of the control channel, as in OwnTone's `pair_ap`). A binary
-    plist `{type: sendMediaRemoteCommand, value: play | paus | nitm | pitm}`
-    becomes `StreamEvent::Remote(Play | Pause | Next | Previous)`; every
-    request gets a `200`, anything else is logged (info) so a device's own
-    form shows up. The `airplay-events` thread reads it until the stream
-    closes or dies.
-  - Which one the Hisense TV uses is not known yet: with neither in place it
-    ignored the buttons, while Apple Music controls it fine.
+    plist `{type: sendMediaRemoteCommand, value: play | paus | plps | nitm |
+    pitm | stop}` becomes `StreamEvent::Remote(Play | Pause | PlayPause |
+    Next | Previous | Pause)`; every request gets a `200` (with the request's
+    version, `Audio-Latency: 0`, its `Server` and `CSeq`, as Music Assistant
+    answers), anything else is logged (info) so a device's own form shows
+    up, and so is the device closing the connection. The `airplay-events`
+    thread reads it until the stream closes or dies.
+  - Which of the two a receiver built on Apple's SDK uses is its choice
+    (`AirPlayReceiverServerSendMediaCommandWithOptions` in the 366 sources):
+    the event connection when the session `SETUP`'s `sourceVersion` is at
+    least `kAirPlaySourceVersion_MediaRemoteCommads_Min` (its value is not
+    in the sources), DACP otherwise. We send no `sourceVersion`, so DACP;
+    Apple Music (`AirPlay/960.13.1`) gets the event connection, which is why
+    it saw no DACP request from the TV.
+  - The Hisense TV sends its buttons over DACP (`playpause`, `nextitem`,
+    `previtem`, and `setproperty?dmcp.device-prevent-playback=`), measured
+    2026-10-04. It resolves the service's host and connects over IPv6
+    link-local whenever the host has an IPv6 address, so the server and its
+    announcement in `cast` take IPv6 (see `cast`'s doc). Apple Music on the
+    Mac talks to it over IPv6 link-local too and streams buffered audio over
+    TCP port 6000.
 
 ## Both protocols
 
@@ -178,11 +221,21 @@ the newest value is sent once the previous `SET_PARAMETER` is done.
 - The speaker asks for our clock on the timing port; the answer carries its
   send time back plus our receive and send times. Timing and retransmits have
   a thread each, so a reply is never delayed behind the other socket.
-- Retransmit requests are answered from the last 1024 packets.
+- Retransmit requests are answered from the last 1024 packets: over RAOP
+  inside the control port's `0xd6` reply, over AirPlay 2 by sending the
+  stored packet again to the audio port, as OwnTone does. An encrypted
+  packet in the `0xd6` reply is 1452 bytes, and Apple's receiver SDK reads
+  the control port into a 1444-byte `RTCPPacket`, so the packet's nonce
+  would be cut off. A packet no longer kept gets Apple's 8-byte "futile"
+  reply (`80 d6 00 01 <seq> 00 00`, as iOS sends it) on AirPlay 2, so the
+  receiver stops asking.
 - `unheard_frames` is how much was sent but not played yet, plus the latency
-  the speaker adds itself (`Audio-Latency` from the RECORD answer, 11025
+  the speaker adds itself: `Audio-Latency` from the RECORD answer (11025
   frames on shairport-sync, none from the Hisense TV, whose `/info` lists
-  zero latencies), but never more than was sent since the last start or
+  zero latencies), and over AirPlay 2 also the `latencyMin` we ask for in
+  the stream `SETUP` (11025), which Apple's receiver SDK adds to every
+  packet's play time (`audioLatencyOffset`); never more than was sent since
+  the last start or
   flush: right after a seek nothing old is waiting, so a position shown as
   "engine position minus unheard" holds at the seek target instead of
   jumping back 2 s.
@@ -220,7 +273,9 @@ Volume is AirPlay's −30…0 dB scale, linear in dB; 0 is −144 (mute).
   the request order, the event connection, decrypted audio that matches what
   was rendered, `/feedback`, volume, TEARDOWN, a refused pairing when the
   code differs, metadata and progress (a cover the fake refuses ends
-  nothing) and remote buttons sent over the encrypted event connection. Like the TV, the fake answers the stream SETUP only after our
+  nothing; the next track's progress and title wait until it is heard),
+  retransmits (again on the audio port, "futile" for a forgotten packet)
+  and remote buttons sent over the encrypted event connection. Like the TV, the fake answers the stream SETUP only after our
   timing port answered a clock request.
 - `srp.rs` and `secure.rs` check against vectors made with other
   implementations (`srptools`, Python `cryptography`).

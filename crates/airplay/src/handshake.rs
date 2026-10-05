@@ -15,7 +15,8 @@ use crate::{
     volume_db,
 };
 
-const RAOP_USER_AGENT: &str = "Pawse/1.0";
+const RAOP_USER_AGENT: &str = "iTunes/7.6.2 (Windows; N;)";
+const APPLE_RAOP_USER_AGENT: &str = "AirPlay/999.0.0";
 const AIRPLAY2_USER_AGENT: &str = "AirPlay/670.6.2";
 const EVENTS_TIMEOUT: Duration = Duration::from_secs(3);
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -93,7 +94,11 @@ impl Drop for TimingServer {
 
 fn instance() -> [u8; 8] {
     static INSTANCE: OnceLock<[u8; 8]> = OnceLock::new();
-    *INSTANCE.get_or_init(random::<8>)
+    *INSTANCE.get_or_init(|| {
+        let mut id = random::<8>();
+        id[0] |= 0x10;
+        id
+    })
 }
 
 pub(crate) fn dacp_id() -> String {
@@ -158,13 +163,25 @@ fn send_volume(rtsp: &mut Rtsp, volume: f32) -> Result<(), Error> {
     .map(|_| ())
 }
 
+fn raop_user_agent(model: Option<&str>) -> &'static str {
+    let apple = model.is_some_and(|model| {
+        let model = model.to_ascii_lowercase();
+        model.contains("audioaccessory") || model.contains("appletv")
+    });
+    if apple {
+        APPLE_RAOP_USER_AGENT
+    } else {
+        RAOP_USER_AGENT
+    }
+}
+
 pub(crate) fn raop(device: &Device, volume: f32) -> Result<Link, Error> {
     let session_id = session_id();
     let mut rtsp = Rtsp::connect(
         device.address,
         session_id,
         hex(&instance()),
-        RAOP_USER_AGENT,
+        raop_user_agent(device.model.as_deref()),
     )?;
     let local = rtsp.local_ip()?;
     let peer = rtsp.peer_ip()?;
@@ -375,7 +392,7 @@ pub(crate) fn airplay2(device: &Device, volume: f32) -> Result<Link, Error> {
         ssrc: session_id,
         base_seq: u16::from_be_bytes(random::<2>()),
         base_ts: u32::from_be_bytes(random::<4>()),
-        device_latency: audio_latency(&record),
+        device_latency: LATENCY_MIN as u32 + audio_latency(&record),
         cipher: Some(AudioCipher::new(&keys.audio)),
         events,
     })
@@ -393,6 +410,27 @@ mod tests {
             .unwrap()
             .into_dictionary()
             .unwrap()
+    }
+
+    #[test]
+    fn the_sender_id_never_starts_with_a_zero() {
+        let id = dacp_id();
+        assert_eq!(id.len(), 16);
+        assert!(!id.starts_with('0'), "{id}");
+    }
+
+    #[test]
+    fn apple_speakers_get_the_user_agent_they_check_and_others_get_itunes() {
+        assert_eq!(
+            raop_user_agent(Some("AudioAccessory5,1")),
+            "AirPlay/999.0.0"
+        );
+        assert_eq!(raop_user_agent(Some("AppleTV11,1")), "AirPlay/999.0.0");
+        assert_eq!(
+            raop_user_agent(Some("ShairportSync")),
+            "iTunes/7.6.2 (Windows; N;)"
+        );
+        assert_eq!(raop_user_agent(None), "iTunes/7.6.2 (Windows; N;)");
     }
 
     #[test]

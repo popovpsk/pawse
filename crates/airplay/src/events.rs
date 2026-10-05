@@ -25,7 +25,7 @@ impl EventChannel {
         while !stop() {
             match self.stream.read(&mut buffer) {
                 Ok(0) => {
-                    log::debug!("AirPlay: the device closed its event channel");
+                    log::info!("AirPlay: the device closed its event channel");
                     return;
                 }
                 Ok(read) => raw.extend_from_slice(&buffer[..read]),
@@ -38,7 +38,7 @@ impl EventChannel {
                     continue;
                 }
                 Err(e) => {
-                    log::debug!("AirPlay: the event channel failed: {e}");
+                    log::info!("AirPlay: the event channel failed: {e}");
                     return;
                 }
             }
@@ -92,12 +92,23 @@ impl EventChannel {
     }
 
     fn answer(&mut self, message: &Message) -> bool {
-        let cseq = message
-            .headers
-            .get("cseq")
-            .map(|cseq| format!("CSeq: {cseq}\r\n"))
-            .unwrap_or_default();
-        let reply = format!("RTSP/1.0 200 OK\r\n{cseq}Content-Length: 0\r\n\r\n");
+        let header = |name: &str| {
+            message
+                .headers
+                .get(&name.to_ascii_lowercase())
+                .map(|value| format!("{name}: {value}\r\n"))
+                .unwrap_or_default()
+        };
+        let version = message
+            .first_line
+            .split_whitespace()
+            .nth(2)
+            .unwrap_or("RTSP/1.0");
+        let reply = format!(
+            "{version} 200 OK\r\nContent-Length: 0\r\nAudio-Latency: 0\r\n{}{}\r\n",
+            header("Server"),
+            header("CSeq")
+        );
         let sealed = self.write.seal(reply.as_bytes());
         self.stream.write_all(&sealed).is_ok()
     }

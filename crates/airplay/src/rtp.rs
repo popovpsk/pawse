@@ -61,6 +61,11 @@ pub(crate) fn resend_request(packet: &[u8]) -> Option<(u16, u16)> {
     Some((first, count))
 }
 
+pub(crate) fn futile_resend(seq: u16) -> [u8; 8] {
+    let [high, low] = seq.to_be_bytes();
+    [0x80, 0xd6, 0x00, 0x01, high, low, 0, 0]
+}
+
 pub(crate) fn resend_packet(original: &[u8]) -> Vec<u8> {
     let mut packet = Vec::with_capacity(4 + original.len());
     packet.extend_from_slice(&[0x80, 0xd6, 0x00, 0x01]);
@@ -120,6 +125,7 @@ mod tests {
         );
         assert_eq!(resend_request(&[0x80, 0xd4, 0, 1, 0, 0, 0, 0]), None);
         assert_eq!(&resend_packet(&[5, 6])[..], &[0x80, 0xd6, 0, 1, 5, 6]);
+        assert_eq!(futile_resend(0xbd0d), [0x80, 0xd6, 0, 1, 0xbd, 0x0d, 0, 0]);
     }
 
     #[test]

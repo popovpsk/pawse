@@ -135,6 +135,10 @@ impl Stream {
             .control
             .try_clone()
             .map_err(|e| Error::Io(e.to_string()))?;
+        let resends_as_audio = (device.protocol == Protocol::AirPlay2)
+            .then(|| link.audio.try_clone())
+            .transpose()
+            .map_err(|e| Error::Io(e.to_string()))?;
         let sender = Sender {
             rtsp: link.rtsp,
             audio: link.audio,
@@ -143,6 +147,9 @@ impl Stream {
             cipher: link.cipher,
             timing_stop,
             last_progress: None,
+            ahead: None,
+            held: None,
+            shows: device.shows,
             feedback: device.protocol == Protocol::AirPlay2,
             ssrc: link.ssrc,
             base_seq: link.base_seq,
@@ -182,7 +189,7 @@ impl Stream {
         threads.push(
             std::thread::Builder::new()
                 .name("airplay-control".into())
-                .spawn(move || serve_resends(resends, resend_shared))
+                .spawn(move || serve_resends(resends, resends_as_audio, resend_shared))
                 .map_err(|e| Error::Io(e.to_string()))?,
         );
         threads.push(
@@ -279,6 +286,9 @@ struct Sender {
     cipher: Option<AudioCipher>,
     timing_stop: Arc<AtomicBool>,
     last_progress: Option<(i64, i64)>,
+    ahead: Option<i64>,
+    held: Option<NowPlaying>,
+    shows: crate::Shows,
     feedback: bool,
     ssrc: u32,
     base_seq: u16,
@@ -328,9 +338,12 @@ impl Sender {
                     Err(e) => break e,
                 }
             }
-            match self.keep_alive(playing) {
+            match self.keep_alive() {
                 Ok(next) => wait = wait.min(next),
                 Err(e) => break e.to_string(),
+            }
+            if let Err(e) = self.release_when_heard() {
+                break e.to_string();
             }
             let command = match self.commands.recv_timeout(wait) {
                 Ok(command) => command,
@@ -396,6 +409,10 @@ impl Sender {
                 Control::NowPlaying => {
                     let now = lock(&self.shared.now_playing).take();
                     match now {
+                        Some(now) if self.ahead.is_some() => {
+                            self.held = Some(now);
+                            Ok(())
+                        }
                         Some(now) => self.send_now_playing(&now),
                         None => Ok(()),
                     }
@@ -430,11 +447,11 @@ impl Sender {
         }
     }
 
-    fn keep_alive(&mut self, playing: bool) -> Result<Duration, Error> {
-        let (every, method, target) = match (self.feedback, playing) {
-            (true, _) => (FEEDBACK_EVERY, "POST", "/feedback"),
-            (false, false) => (KEEPALIVE_EVERY, "OPTIONS", "*"),
-            (false, true) => return Ok(KEEPALIVE_EVERY),
+    fn keep_alive(&mut self) -> Result<Duration, Error> {
+        let (every, method, target) = if self.feedback {
+            (FEEDBACK_EVERY, "POST", "/feedback")
+        } else {
+            (KEEPALIVE_EVERY, "OPTIONS", "*")
         };
         let elapsed = self.last_keepalive.elapsed();
         if elapsed < every {
@@ -463,32 +480,33 @@ impl Sender {
     fn rtp_info(&self) -> (&'static str, String) {
         (
             "RTP-Info",
-            format!("rtptime={}", self.timestamp(self.next_frame())),
+            format!("rtptime={}", self.timestamp(self.heard_frame())),
         )
     }
 
     fn send_now_playing(&mut self, now: &NowPlaying) -> Result<(), Error> {
         let info = [self.rtp_info()];
-        let items = metadata::dmap(now);
-        let sent = self
-            .rtsp
-            .request(
-                "SET_PARAMETER",
-                None,
-                &info,
-                Some(("application/x-dmap-tagged", &items)),
-            )
-            .map(|_| ());
-        self.optional("the track's metadata", sent)?;
-        if let Some(cover) = &now.cover {
+        if self.shows.text {
+            let items = metadata::dmap(now);
             let sent = self
                 .rtsp
                 .request(
                     "SET_PARAMETER",
                     None,
                     &info,
-                    Some((&cover.mime, cover.bytes.as_slice())),
+                    Some(("application/x-dmap-tagged", &items)),
                 )
+                .map(|_| ());
+            self.optional("the track's metadata", sent)?;
+        }
+        if self.shows.artwork {
+            let (kind, bytes) = match &now.cover {
+                Some(cover) => (cover.mime.as_str(), cover.bytes.as_slice()),
+                None => ("image/none", &[][..]),
+            };
+            let sent = self
+                .rtsp
+                .request("SET_PARAMETER", None, &info, Some((kind, bytes)))
                 .map(|_| ());
             self.optional("the cover", sent)?;
         }
@@ -499,14 +517,36 @@ impl Sender {
     }
 
     fn send_progress(&mut self, progress: Progress) -> Result<(), Error> {
-        if progress.duration_ms == 0 {
+        let to_frames = |ms: i64| ms.saturating_mul(i64::from(SAMPLE_RATE)) / 1000;
+        let heard = self.heard_frame();
+        let start = heard - to_frames(progress.heard_ms);
+        let end = start + to_frames(progress.duration_ms.min(i64::MAX as u64) as i64);
+        self.last_progress = (progress.duration_ms > 0).then_some((start, end));
+        if start > heard {
+            self.ahead = Some(start);
             return Ok(());
         }
-        let to_frames = |ms: i64| ms.saturating_mul(i64::from(SAMPLE_RATE)) / 1000;
-        let start = self.heard_frame() - to_frames(progress.heard_ms);
-        let end = start + to_frames(progress.duration_ms.min(i64::MAX as u64) as i64);
-        self.last_progress = Some((start, end));
-        self.send_progress_line(start, end)
+        self.ahead = None;
+        match (self.held.take(), self.last_progress) {
+            (Some(now), _) => self.send_now_playing(&now),
+            (None, Some((start, end))) => self.send_progress_line(start, end),
+            (None, None) => Ok(()),
+        }
+    }
+
+    fn release_when_heard(&mut self) -> Result<(), Error> {
+        let Some(start) = self.ahead else {
+            return Ok(());
+        };
+        if self.heard_frame() < start {
+            return Ok(());
+        }
+        self.ahead = None;
+        match (self.held.take(), self.last_progress) {
+            (Some(now), _) => self.send_now_playing(&now),
+            (None, Some((start, end))) => self.send_progress_line(start, end),
+            (None, None) => Ok(()),
+        }
     }
 
     fn heard_frame(&self) -> i64 {
@@ -519,6 +559,9 @@ impl Sender {
     }
 
     fn send_progress_line(&mut self, start: i64, end: i64) -> Result<(), Error> {
+        if !self.shows.progress {
+            return Ok(());
+        }
         let line = metadata::progress(
             self.timestamp(start),
             self.timestamp(self.heard_frame().max(start)),
@@ -538,6 +581,7 @@ impl Sender {
 
     fn send_flush(&mut self) -> Result<(), Error> {
         self.last_progress = None;
+        self.ahead = None;
         lock(&self.shared.history).clear();
         self.first = true;
         let info = format!(
@@ -626,7 +670,7 @@ impl Sender {
     }
 }
 
-fn serve_resends(socket: UdpSocket, shared: Arc<Shared>) {
+fn serve_resends(socket: UdpSocket, audio: Option<UdpSocket>, shared: Arc<Shared>) {
     let mut buffer = [0u8; 128];
     while !shared.closed.load(Ordering::Acquire) && shared.alive.load(Ordering::Acquire) {
         let Ok((len, from)) = socket.recv_from(&mut buffer) else {
@@ -635,12 +679,23 @@ fn serve_resends(socket: UdpSocket, shared: Arc<Shared>) {
         let Some((first, count)) = rtp::resend_request(&buffer[..len]) else {
             continue;
         };
-        let history = lock(&shared.history);
-        for offset in 0..count {
-            let seq = first.wrapping_add(offset);
-            if let Some((_, packet)) = history.iter().find(|(stored, _)| *stored == seq) {
-                let _ = socket.send_to(&rtp::resend_packet(packet), from);
-            }
+        let wanted: Vec<(u16, Option<Vec<u8>>)> = {
+            let history = lock(&shared.history);
+            (0..count.min(HISTORY as u16))
+                .map(|offset| {
+                    let seq = first.wrapping_add(offset);
+                    let stored = history.iter().find(|(stored, _)| *stored == seq);
+                    (seq, stored.map(|(_, packet)| packet.clone()))
+                })
+                .collect()
+        };
+        for (seq, stored) in wanted {
+            let _ = match (stored, &audio) {
+                (Some(packet), Some(audio)) => audio.send(&packet),
+                (Some(packet), None) => socket.send_to(&rtp::resend_packet(&packet), from),
+                (None, Some(_)) => socket.send_to(&rtp::futile_resend(seq), from),
+                (None, None) => Ok(0),
+            };
         }
     }
 }
@@ -670,6 +725,7 @@ mod tests {
             model: None,
             address,
             protocol: Protocol::AirPlay2,
+            shows: crate::Shows::ALL,
         }
     }
 
@@ -751,27 +807,35 @@ mod tests {
         drop(heard);
         assert_eq!(progress[1].wrapping_sub(progress[0]), 44_100);
         assert_eq!(progress[2].wrapping_sub(progress[0]), 220_500);
-        stream.set_progress(-2_000, 5_000);
-        assert!(fake.wait_for(|heard| heard.parameters.len() == 3));
-        let numbers = |line: &str| -> Vec<u32> {
-            line.trim_start_matches("progress: ")
-                .split('/')
-                .map(|number| number.parse().unwrap())
-                .collect()
-        };
-        let early = numbers(&fake.heard().parameters[2]);
-        assert_eq!(
-            early[1], early[0],
-            "the position never comes before the start"
-        );
-        assert_eq!(early[2].wrapping_sub(early[0]), 220_500);
-        assert_eq!(early[0].wrapping_sub(progress[1]), 88_200);
+        stream.set_progress(-1_000, 5_000);
         stream.set_now_playing(NowPlaying {
             title: "Pneuma".into(),
             ..NowPlaying::default()
         });
-        assert!(fake.wait_for(|heard| heard.parameters.len() == 4));
-        assert_eq!(numbers(&fake.heard().parameters[3]), early);
+        stream.play();
+        std::thread::sleep(Duration::from_millis(1_000));
+        assert_eq!(
+            fake.heard().parameters.len(),
+            2,
+            "the next track is named only once it is heard"
+        );
+        assert!(fake.wait_for(|heard| heard.parameters.len() == 3));
+        let next: Vec<u32> = fake.heard().parameters[2]
+            .trim_start_matches("progress: ")
+            .split('/')
+            .map(|number| number.parse().unwrap())
+            .collect();
+        assert!(next[1].wrapping_sub(next[0]) < 4_410, "{next:?}");
+        assert_eq!(next[2].wrapping_sub(next[0]), 220_500);
+        assert_eq!(next[0].wrapping_sub(progress[1]), 44_100);
+        assert_eq!(
+            fake.heard().metadata[2..],
+            [
+                ("application/x-dmap-tagged".to_string(), true),
+                ("image/none".to_string(), true)
+            ],
+            "the held title goes with it, and a track without a cover clears the old one"
+        );
         assert!(fake.wait_for(|heard| heard.events_connected));
         assert_eq!(fake.press("nitm").as_deref(), Some("RTSP/1.0 200 OK"));
         assert_eq!(
@@ -784,6 +848,50 @@ mod tests {
             events.recv_timeout(Duration::from_secs(2)),
             Ok(StreamEvent::Remote(RemoteCommand::Pause))
         );
+    }
+
+    #[test]
+    fn a_title_held_for_the_next_track_survives_a_pause_before_it_is_heard() {
+        let fake = FakeReceiver::start("3939");
+        let stream = Stream::start(&fake_device(fake.address), 0.5, Box::new(Ramp(0))).unwrap();
+        stream.play();
+        stream.set_now_playing(NowPlaying {
+            title: "Tarantula".into(),
+            ..NowPlaying::default()
+        });
+        stream.set_progress(1_000, 5_000);
+        assert!(fake.wait_for(|heard| heard.metadata.len() == 2));
+        stream.set_progress(-1_000, 5_000);
+        stream.set_now_playing(NowPlaying {
+            title: "Pneuma".into(),
+            ..NowPlaying::default()
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        stream.pause(true);
+        stream.set_progress(0, 5_000);
+        stream.play();
+        assert!(fake.wait_for(|heard| heard.metadata.len() == 4));
+    }
+
+    #[test]
+    fn a_lost_packet_is_sent_again_on_the_audio_port_and_a_forgotten_one_is_named_futile() {
+        let fake = FakeReceiver::start("3939");
+        let stream = Stream::start(&fake_device(fake.address), 0.5, Box::new(Ramp(0))).unwrap();
+        stream.play();
+        assert!(fake.wait_for(|heard| heard.payloads.len() >= 20 && heard.syncs >= 1));
+        let (seq, payload) = fake.heard().payloads[5].clone();
+        assert!(fake.ask_resend(seq, 1));
+        assert!(fake.wait_for(|heard| {
+            heard
+                .payloads
+                .iter()
+                .filter(|(again, data)| *again == seq && *data == payload)
+                .count()
+                == 2
+        }));
+        let gone = seq.wrapping_sub(5_000);
+        assert!(fake.ask_resend(gone, 1));
+        assert!(fake.wait_for(|heard| heard.futile == [gone]));
     }
 
     #[test]
