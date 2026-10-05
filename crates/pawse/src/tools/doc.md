@@ -21,7 +21,7 @@ page in `build_pages`.
   - `mod.rs` — `AiPromptState` (mode, period, count, detail, busy flag, the
     finished prompt, its preview and size line, the answer-import status), the
     page and its fields, and the `generate` / `copy` / `import_answer` actions.
-  - `options.rs` — `Mode` (with `counts()` and `builds_playlist()`), `Period`,
+  - `options.rs` — `Mode` (with `counts()` and `builds_playlist()`), `Period`, `RELEASE_PERIODS`,
     `Detail`, `ALBUM_COUNTS` / `PLAYLIST_COUNTS`, `PromptOptions`,
     `language_name` (UI language code → English name for the prompt).
   - `taste.rs` — `TasteSnapshot` and `gather`: every read the prompt needs, done
@@ -45,11 +45,37 @@ page in `build_pages`.
 
 ## AI prompt
 
-- **Counts** depend on the mode: New music offers 5 / 10 / 20 (a longer album
-  list stops being useful), playlist modes add 50. Switching to a mode that
+- **Counts** depend on the mode: New music and New releases offer 5 / 10 / 20
+  (a longer album list stops being useful), playlist modes add 50. Switching to a mode that
   lacks the current count drops it to the largest one that fits.
 - **The answer-import group** ("paste the answer → playlist") is not on the page
-  in New music — that answer is albums to go find, not tracks from the library.
+  in New music and New releases — that answer is albums to go find, not tracks
+  from the library.
+- **New releases** is the one mode that needs the model to browse. It carries
+  the same data as New music (taste, "Albums in my library", the full history)
+  and a different task: releases of the chosen window by the artists the user
+  listens to most, then by close ones. The window is its own selector,
+  "Release period" (Week / Month / 6 months, `RELEASE_PERIODS`, state
+  `release_window`), shown on the page only in this mode and independent of
+  "Current taste": the taste period may be All time while the window is a week.
+  The task states the window as dates
+  (`{from}`–`{to}`, today included) because a model without a clock cannot
+  resolve "the last 6 months"; it tells the model to search instead of
+  recalling (its training data ends before the window), to check every release
+  and its date against a source but keep links and citations out of the answer,
+  never to invent a release, to return fewer than asked rather than pad, and,
+  if it has no web access, to say so in its first line and stop — otherwise a
+  model without search answers from memory with plausible fake releases. Reissues, remasters
+  and deluxe editions of old albums are allowed but go after the genuinely new
+  releases and are typed `reissue`: some users want them, but unmarked they
+  crowd out the new releases within a window of a few months.
+  The mode description in the UI tells the user to pick a chat with web search
+  on. The answer is `Artist — Title (type, release date)` plus the explanation,
+  most relevant first, reissues last. The task's window dates are ISO because
+  they only inform the model, but the answer's date has no fixed format: the
+  prompt asks for it "the way it is usually written in the language of your
+  answer", so the model picks the local convention itself (no per-locale
+  date formatting in code).
 
 Pawse has no recommender of its own. Instead it writes a prompt describing the
 library and the listening history; the user pastes it into any LLM chat.
@@ -76,7 +102,9 @@ Nothing is sent anywhere: the only output is the clipboard.
 - **Period** only shapes "My taste right now" (top artists / tracks). The
   exclusion lists are always all-time. In Forgotten mode the period is also the
   gap: a track is a candidate if it was never played or last played before the
-  cutoff; All time means never played.
+  cutoff; All time means never played. It does not set the New releases window
+  (that is `release_window`). Today's date is in the New releases task as
+  `today is {to}`, once before and once after the data.
 - **Forgotten ranking**: artist affinity = all-time plays of the artist (by
   name, from `plays`) + `LIKED_AFFINITY` per liked track. Ranking happens here,
   the model only picks and orders.

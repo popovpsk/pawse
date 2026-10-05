@@ -15,7 +15,7 @@ const FORGOTTEN_CANDIDATES: usize = 1500;
 const LIKED_AFFINITY: u64 = 3;
 const MONTH_SECS: u64 = 30 * 86_400;
 pub fn build_prompt(snapshot: &TasteSnapshot, options: &PromptOptions, now: u64) -> String {
-    let task = task(options);
+    let task = task(options, now);
     let mut out = String::new();
     out.push_str(t::INTRO);
     out.push_str("\n\n");
@@ -36,7 +36,7 @@ pub fn build_prompt(snapshot: &TasteSnapshot, options: &PromptOptions, now: u64)
     taste(&mut out, snapshot, options);
 
     match options.mode {
-        Mode::NewMusic => {
+        Mode::NewMusic | Mode::NewReleases => {
             heading(&mut out, t::SECTION_LIBRARY_ALBUMS);
             library_albums(&mut out, snapshot);
             heading(&mut out, t::SECTION_HISTORY);
@@ -59,6 +59,9 @@ pub fn build_prompt(snapshot: &TasteSnapshot, options: &PromptOptions, now: u64)
         (Mode::NewMusic, Detail::Low) => t::ANSWER_NEW_MUSIC_LOW,
         (Mode::NewMusic, Detail::Medium) => t::ANSWER_NEW_MUSIC_MEDIUM,
         (Mode::NewMusic, Detail::High) => t::ANSWER_NEW_MUSIC_HIGH,
+        (Mode::NewReleases, Detail::Low) => t::ANSWER_NEW_RELEASES_LOW,
+        (Mode::NewReleases, Detail::Medium) => t::ANSWER_NEW_RELEASES_MEDIUM,
+        (Mode::NewReleases, Detail::High) => t::ANSWER_NEW_RELEASES_HIGH,
         (Mode::FromLibrary | Mode::Forgotten, Detail::Low) => t::ANSWER_PLAYLIST_LOW,
         (Mode::FromLibrary | Mode::Forgotten, Detail::Medium) => t::ANSWER_PLAYLIST_MEDIUM,
         (Mode::FromLibrary | Mode::Forgotten, Detail::High) => t::ANSWER_PLAYLIST_HIGH,
@@ -69,9 +72,10 @@ pub fn build_prompt(snapshot: &TasteSnapshot, options: &PromptOptions, now: u64)
     out
 }
 
-fn task(options: &PromptOptions) -> String {
+fn task(options: &PromptOptions, now: u64) -> String {
     let template = match options.mode {
         Mode::NewMusic => t::TASK_NEW_MUSIC,
+        Mode::NewReleases => t::TASK_NEW_RELEASES,
         Mode::FromLibrary => t::TASK_FROM_LIBRARY,
         Mode::Forgotten => t::TASK_FORGOTTEN,
     };
@@ -82,6 +86,19 @@ fn task(options: &PromptOptions) -> String {
     template
         .replace("{count}", &options.count.to_string())
         .replace("{gap}", &gap)
+        .replace(
+            "{from}",
+            &date(options.release_window.cutoff(now).unwrap_or(now)),
+        )
+        .replace("{to}", &date(now))
+        .replace("{window}", options.release_window.describe())
+}
+
+fn date(secs: u64) -> String {
+    i64::try_from(secs)
+        .ok()
+        .and_then(|secs| chrono::DateTime::from_timestamp(secs, 0))
+        .map_or_else(String::new, |at| at.format("%Y-%m-%d").to_string())
 }
 
 fn heading(out: &mut String, title: &str) {
@@ -494,6 +511,7 @@ mod tests {
         PromptOptions {
             mode,
             period,
+            release_window: Period::HalfYear,
             count: 10,
             detail: Detail::Low,
             wishes: String::new(),
@@ -510,6 +528,61 @@ mod tests {
         assert!(prompt.contains("Massive Attack: [Mezzanine] Teardrop"));
         assert!(prompt.contains("[OK Computer] Airbag ×7"));
         assert!(prompt.contains("recommend 10 artists or albums"));
+    }
+
+    #[test]
+    fn new_releases_states_the_window_and_demands_sources() {
+        let prompt = build_prompt(&snapshot(), &options(Mode::NewReleases, Period::Week), NOW);
+        assert!(prompt.contains(
+            "find up to 10 music releases that came out between 2026-07-17 and 2027-01-15 (the last 6 months; today is 2027-01-15)"
+        ));
+        assert!(prompt.contains("Search the web"));
+        assert!(prompt.contains("Never invent a release;"));
+        assert!(prompt.contains("do not put links or citations in the answer"));
+        assert!(prompt.contains("mark each one with the type `reissue`"));
+        assert!(prompt.contains(t::ANSWER_NEW_RELEASES_LOW));
+        let mut opts = options(Mode::NewReleases, Period::AllTime);
+        opts.release_window = Period::Week;
+        let week = build_prompt(&snapshot(), &opts, NOW);
+        assert!(week.contains("between 2027-01-08 and 2027-01-15 (the last 7 days;"));
+    }
+
+    #[test]
+    fn new_releases_answer_has_no_links_and_a_localized_date() {
+        for detail in Detail::ALL {
+            let mut opts = options(Mode::NewReleases, Period::HalfYear);
+            opts.detail = detail;
+            let prompt = build_prompt(&snapshot(), &opts, NOW);
+            let answer = prompt.split("Answer format:").nth(1).unwrap();
+            assert!(!answer.contains("URL"));
+            assert!(!answer.contains("Source"));
+            assert!(!answer.contains("YYYY"));
+            assert!(
+                answer.contains("the way it is usually written in the language of your answer")
+            );
+        }
+    }
+
+    #[test]
+    fn new_releases_share_the_exclusion_lists_with_new_music() {
+        let prompt = build_prompt(
+            &snapshot(),
+            &options(Mode::NewReleases, Period::HalfYear),
+            NOW,
+        );
+        assert!(prompt.contains(&format!("## {}", t::SECTION_LIBRARY_ALBUMS)));
+        assert!(prompt.contains(&format!("## {}", t::SECTION_HISTORY)));
+        assert!(prompt.contains("Radiohead: OK Computer (1997) {Alternative}"));
+        assert!(prompt.contains("[OK Computer] Airbag ×7"));
+    }
+
+    #[test]
+    fn only_new_releases_mention_dates_and_the_web() {
+        for mode in [Mode::NewMusic, Mode::FromLibrary, Mode::Forgotten] {
+            let prompt = build_prompt(&snapshot(), &options(mode, Period::HalfYear), NOW);
+            assert!(!prompt.contains("Search the web"));
+            assert!(!prompt.contains("2027-01-15"));
+        }
     }
 
     #[test]
@@ -610,6 +683,10 @@ mod tests {
         opts.detail = Detail::Medium;
         let medium = build_prompt(&snapshot(), &opts, NOW);
         assert!(medium.contains(t::ANSWER_PLAYLIST_MEDIUM));
+        opts.mode = Mode::NewReleases;
+        opts.detail = Detail::High;
+        let releases = build_prompt(&snapshot(), &opts, NOW);
+        assert!(releases.contains(t::ANSWER_NEW_RELEASES_HIGH));
     }
 
     #[test]

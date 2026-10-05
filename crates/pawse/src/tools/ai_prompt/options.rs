@@ -3,22 +3,28 @@ const DAY_SECS: u64 = 86_400;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     NewMusic,
+    NewReleases,
     FromLibrary,
     Forgotten,
 }
 
 impl Mode {
-    pub const ALL: [Mode; 3] = [Mode::NewMusic, Mode::FromLibrary, Mode::Forgotten];
+    pub const ALL: [Mode; 4] = [
+        Mode::NewMusic,
+        Mode::NewReleases,
+        Mode::FromLibrary,
+        Mode::Forgotten,
+    ];
 
     pub fn counts(self) -> &'static [u32] {
         match self {
-            Mode::NewMusic => &ALBUM_COUNTS,
+            Mode::NewMusic | Mode::NewReleases => &ALBUM_COUNTS,
             Mode::FromLibrary | Mode::Forgotten => &PLAYLIST_COUNTS,
         }
     }
 
     pub fn builds_playlist(self) -> bool {
-        self != Mode::NewMusic
+        matches!(self, Mode::FromLibrary | Mode::Forgotten)
     }
 }
 
@@ -72,6 +78,7 @@ impl Detail {
     pub const ALL: [Detail; 3] = [Detail::Low, Detail::Medium, Detail::High];
 }
 
+pub const RELEASE_PERIODS: [Period; 3] = [Period::Week, Period::Month, Period::HalfYear];
 pub const ALBUM_COUNTS: [u32; 3] = [5, 10, 20];
 pub const PLAYLIST_COUNTS: [u32; 4] = [5, 10, 20, 50];
 pub const DEFAULT_COUNT: u32 = 10;
@@ -80,6 +87,7 @@ pub const DEFAULT_COUNT: u32 = 10;
 pub struct PromptOptions {
     pub mode: Mode,
     pub period: Period,
+    pub release_window: Period,
     pub count: u32,
     pub detail: Detail,
     pub wishes: String,

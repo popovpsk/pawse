@@ -11,11 +11,15 @@ pub struct ToolsStrings {
     pub ai_prompt_mode_new: SharedString,
     pub ai_prompt_mode_library: SharedString,
     pub ai_prompt_mode_forgotten: SharedString,
+    pub ai_prompt_mode_releases: SharedString,
     pub ai_prompt_mode_new_desc: SharedString,
     pub ai_prompt_mode_library_desc: SharedString,
     pub ai_prompt_mode_forgotten_desc: SharedString,
+    pub ai_prompt_mode_releases_desc: SharedString,
     pub ai_prompt_period: SharedString,
     pub ai_prompt_period_desc: SharedString,
+    pub ai_prompt_window: SharedString,
+    pub ai_prompt_window_desc: SharedString,
     pub ai_prompt_period_week: SharedString,
     pub ai_prompt_period_month: SharedString,
     pub ai_prompt_period_half_year: SharedString,
@@ -211,6 +215,7 @@ static EN: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("New music"),
     ai_prompt_mode_library: SharedString::new_static("From my library"),
     ai_prompt_mode_forgotten: SharedString::new_static("Forgotten"),
+    ai_prompt_mode_releases: SharedString::new_static("New releases"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artists and albums you don't have yet. Your albums and everything you've played are listed so the AI skips them.",
     ),
@@ -220,10 +225,15 @@ static EN: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Tracks from your library you haven't played in a while, close to what you like now.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Releases from the chosen period by artists you listen to and similar ones. The AI has to search the web, so use a chat with web search turned on.",
+    ),
     ai_prompt_period: SharedString::new_static("Current taste"),
     ai_prompt_period_desc: SharedString::new_static(
         "Plays from this period describe what you like now. For Forgotten it is also how long ago a track counts as forgotten.",
     ),
+    ai_prompt_window: SharedString::new_static("Release period"),
+    ai_prompt_window_desc: SharedString::new_static("How far back to look for new releases."),
     ai_prompt_period_week: SharedString::new_static("Week"),
     ai_prompt_period_month: SharedString::new_static("Month"),
     ai_prompt_period_half_year: SharedString::new_static("6 months"),
@@ -327,6 +337,7 @@ static ZH: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("新音乐"),
     ai_prompt_mode_library: SharedString::new_static("来自我的音乐库"),
     ai_prompt_mode_forgotten: SharedString::new_static("被遗忘的"),
+    ai_prompt_mode_releases: SharedString::new_static("新发行"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "你还没有的艺人和专辑。会列出你的专辑和所有听过的内容，让 AI 跳过它们。",
     ),
@@ -334,10 +345,15 @@ static ZH: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "音乐库中很久没听、又接近你当前口味的曲目。",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "所选时间段内你常听的艺人及相近艺人的新发行。AI 需要联网搜索，请使用已开启联网搜索的聊天。",
+    ),
     ai_prompt_period: SharedString::new_static("当前口味"),
     ai_prompt_period_desc: SharedString::new_static(
         "这段时间的播放代表你现在的喜好。对“被遗忘的”来说，也是曲目被视为遗忘所需的时间。",
     ),
+    ai_prompt_window: SharedString::new_static("发行时间"),
+    ai_prompt_window_desc: SharedString::new_static("向前回溯多久查找新发行。"),
     ai_prompt_period_week: SharedString::new_static("一周"),
     ai_prompt_period_month: SharedString::new_static("一个月"),
     ai_prompt_period_half_year: SharedString::new_static("6 个月"),
@@ -433,6 +449,7 @@ static PT: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Música nova"),
     ai_prompt_mode_library: SharedString::new_static("Da minha biblioteca"),
     ai_prompt_mode_forgotten: SharedString::new_static("Esquecidas"),
+    ai_prompt_mode_releases: SharedString::new_static("Lançamentos"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artistas e álbuns que você ainda não tem. Seus álbuns e tudo o que você ouviu são listados para a IA ignorá-los.",
     ),
@@ -442,10 +459,15 @@ static PT: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Faixas da sua biblioteca que você não ouve há tempo, próximas do que você gosta agora.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Lançamentos do período escolhido de artistas que você ouve e de artistas parecidos. A IA precisa pesquisar na web, então use um chat com a busca na web ativada.",
+    ),
     ai_prompt_period: SharedString::new_static("Gosto atual"),
     ai_prompt_period_desc: SharedString::new_static(
         "As reproduções deste período descrevem o que você gosta agora. Em “Esquecidas”, também é o tempo após o qual uma faixa conta como esquecida.",
     ),
+    ai_prompt_window: SharedString::new_static("Período dos lançamentos"),
+    ai_prompt_window_desc: SharedString::new_static("Até quanto tempo atrás procurar lançamentos."),
     ai_prompt_period_week: SharedString::new_static("Semana"),
     ai_prompt_period_month: SharedString::new_static("Mês"),
     ai_prompt_period_half_year: SharedString::new_static("6 meses"),
@@ -551,6 +573,7 @@ static RU: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Новая музыка"),
     ai_prompt_mode_library: SharedString::new_static("Из моей библиотеки"),
     ai_prompt_mode_forgotten: SharedString::new_static("Забытое"),
+    ai_prompt_mode_releases: SharedString::new_static("Новые релизы"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Исполнители и альбомы, которых у вас ещё нет. Ваши альбомы и всё прослушанное перечислены, чтобы ИИ их пропустил.",
     ),
@@ -560,10 +583,15 @@ static RU: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Треки из библиотеки, которые вы давно не слушали, близкие к тому, что нравится сейчас.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Релизы за выбранный период от исполнителей, которых вы слушаете, и похожих. ИИ должен искать в интернете, так что используйте чат с включённым веб-поиском.",
+    ),
     ai_prompt_period: SharedString::new_static("Вкус сейчас"),
     ai_prompt_period_desc: SharedString::new_static(
         "Прослушивания за этот период описывают, что вам нравится сейчас. Для «Забытого» это ещё и срок, после которого трек считается забытым.",
     ),
+    ai_prompt_window: SharedString::new_static("Период релизов"),
+    ai_prompt_window_desc: SharedString::new_static("За какой срок искать релизы."),
     ai_prompt_period_week: SharedString::new_static("Неделя"),
     ai_prompt_period_month: SharedString::new_static("Месяц"),
     ai_prompt_period_half_year: SharedString::new_static("Полгода"),
@@ -669,6 +697,7 @@ static JA: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("新しい音楽"),
     ai_prompt_mode_library: SharedString::new_static("ライブラリから"),
     ai_prompt_mode_forgotten: SharedString::new_static("忘れていた曲"),
+    ai_prompt_mode_releases: SharedString::new_static("新作リリース"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "まだ持っていないアーティストやアルバム。AI が除外できるよう、所持アルバムと再生済みの曲をすべて列挙します。",
     ),
@@ -678,10 +707,15 @@ static JA: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "しばらく聴いていない、今の好みに近いライブラリの曲。",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "選んだ期間に出た、よく聴くアーティストや近いアーティストの新作を探します。AI がウェブ検索をする必要があるので、ウェブ検索をオンにしたチャットで使ってください。",
+    ),
     ai_prompt_period: SharedString::new_static("今の好み"),
     ai_prompt_period_desc: SharedString::new_static(
         "この期間の再生が今の好みを表します。「忘れていた曲」では、この期間より前の曲を忘れていたものとみなします。",
     ),
+    ai_prompt_window: SharedString::new_static("リリース期間"),
+    ai_prompt_window_desc: SharedString::new_static("どこまで遡ってリリースを探すか。"),
     ai_prompt_period_week: SharedString::new_static("1週間"),
     ai_prompt_period_month: SharedString::new_static("1か月"),
     ai_prompt_period_half_year: SharedString::new_static("6か月"),
@@ -787,6 +821,7 @@ static DE: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Neue Musik"),
     ai_prompt_mode_library: SharedString::new_static("Aus meiner Bibliothek"),
     ai_prompt_mode_forgotten: SharedString::new_static("Vergessen"),
+    ai_prompt_mode_releases: SharedString::new_static("Neuerscheinungen"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Künstler und Alben, die du noch nicht hast. Deine Alben und alles Gehörte werden aufgelistet, damit die KI sie auslässt.",
     ),
@@ -796,9 +831,16 @@ static DE: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Titel aus deiner Bibliothek, die du länger nicht gehört hast und die zu deinem aktuellen Geschmack passen.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Veröffentlichungen aus dem gewählten Zeitraum von Künstlern, die du hörst, und ähnlichen. Die KI muss im Web suchen, nutze also einen Chat mit aktivierter Websuche.",
+    ),
     ai_prompt_period: SharedString::new_static("Aktueller Geschmack"),
     ai_prompt_period_desc: SharedString::new_static(
         "Wiedergaben aus diesem Zeitraum beschreiben, was dir gerade gefällt. Bei „Vergessen“ gilt ein Titel nach dieser Zeit als vergessen.",
+    ),
+    ai_prompt_window: SharedString::new_static("Erscheinungszeitraum"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Wie weit zurück nach Neuerscheinungen gesucht wird.",
     ),
     ai_prompt_period_week: SharedString::new_static("Woche"),
     ai_prompt_period_month: SharedString::new_static("Monat"),
@@ -907,6 +949,7 @@ static FR: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Nouvelle musique"),
     ai_prompt_mode_library: SharedString::new_static("Depuis ma bibliothèque"),
     ai_prompt_mode_forgotten: SharedString::new_static("Oublié"),
+    ai_prompt_mode_releases: SharedString::new_static("Nouvelles sorties"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Des artistes et albums que vous n’avez pas encore. Vos albums et tout ce que vous avez écouté sont listés pour que l’IA les évite.",
     ),
@@ -916,9 +959,16 @@ static FR: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Des titres de votre bibliothèque pas écoutés depuis longtemps, proches de vos goûts actuels.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Les sorties de la période choisie d’artistes que vous écoutez et d’artistes proches. L’IA doit chercher sur le web : utilisez un chat avec la recherche web activée.",
+    ),
     ai_prompt_period: SharedString::new_static("Goûts actuels"),
     ai_prompt_period_desc: SharedString::new_static(
         "Les écoutes de cette période décrivent ce que vous aimez maintenant. Pour « Oublié », c’est aussi le délai après lequel un titre est considéré comme oublié.",
+    ),
+    ai_prompt_window: SharedString::new_static("Période des sorties"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Sur quelle durée chercher les nouvelles sorties.",
     ),
     ai_prompt_period_week: SharedString::new_static("Semaine"),
     ai_prompt_period_month: SharedString::new_static("Mois"),
@@ -1029,6 +1079,7 @@ static KO: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("새 음악"),
     ai_prompt_mode_library: SharedString::new_static("내 보관함에서"),
     ai_prompt_mode_forgotten: SharedString::new_static("잊힌 곡"),
+    ai_prompt_mode_releases: SharedString::new_static("신규 발매"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "아직 없는 아티스트와 앨범. AI가 건너뛰도록 보유 앨범과 들은 곡을 모두 나열합니다.",
     ),
@@ -1036,10 +1087,15 @@ static KO: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "오랫동안 듣지 않은, 지금 취향에 가까운 보관함의 곡.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "선택한 기간에 나온, 즐겨 듣는 아티스트와 비슷한 아티스트의 새 음반을 찾습니다. AI가 웹을 검색해야 하므로 웹 검색을 켠 채팅에서 사용하세요.",
+    ),
     ai_prompt_period: SharedString::new_static("현재 취향"),
     ai_prompt_period_desc: SharedString::new_static(
         "이 기간의 재생이 지금의 취향을 나타냅니다. ‘잊힌 곡’에서는 이 기간이 지나면 잊힌 곡으로 봅니다.",
     ),
+    ai_prompt_window: SharedString::new_static("발매 기간"),
+    ai_prompt_window_desc: SharedString::new_static("얼마나 이전까지의 발매작을 찾을지 정합니다."),
     ai_prompt_period_week: SharedString::new_static("1주"),
     ai_prompt_period_month: SharedString::new_static("1개월"),
     ai_prompt_period_half_year: SharedString::new_static("6개월"),
@@ -1145,6 +1201,7 @@ static IT: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Musica nuova"),
     ai_prompt_mode_library: SharedString::new_static("Dalla mia libreria"),
     ai_prompt_mode_forgotten: SharedString::new_static("Dimenticati"),
+    ai_prompt_mode_releases: SharedString::new_static("Nuove uscite"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artisti e album che non hai ancora. I tuoi album e tutto ciò che hai ascoltato sono elencati perché l’IA li salti.",
     ),
@@ -1154,10 +1211,15 @@ static IT: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Brani della tua libreria che non ascolti da tempo, vicini ai tuoi gusti attuali.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Uscite del periodo scelto di artisti che ascolti e di artisti simili. L’IA deve cercare sul web, quindi usa una chat con la ricerca web attiva.",
+    ),
     ai_prompt_period: SharedString::new_static("Gusti attuali"),
     ai_prompt_period_desc: SharedString::new_static(
         "Gli ascolti di questo periodo descrivono cosa ti piace ora. Per «Dimenticati» è anche il tempo dopo cui un brano conta come dimenticato.",
     ),
+    ai_prompt_window: SharedString::new_static("Periodo delle uscite"),
+    ai_prompt_window_desc: SharedString::new_static("Quanto indietro cercare le nuove uscite."),
     ai_prompt_period_week: SharedString::new_static("Settimana"),
     ai_prompt_period_month: SharedString::new_static("Mese"),
     ai_prompt_period_half_year: SharedString::new_static("6 mesi"),
@@ -1265,6 +1327,7 @@ static TR: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Yeni müzik"),
     ai_prompt_mode_library: SharedString::new_static("Kitaplığımdan"),
     ai_prompt_mode_forgotten: SharedString::new_static("Unutulanlar"),
+    ai_prompt_mode_releases: SharedString::new_static("Yeni çıkanlar"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Henüz sahip olmadığınız sanatçılar ve albümler. Albümleriniz ve dinlediğiniz her şey, yapay zekâ atlasın diye listelenir.",
     ),
@@ -1274,9 +1337,16 @@ static TR: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Kitaplığınızda uzun süredir dinlemediğiniz, şu anki zevkinize yakın parçalar.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Seçilen dönemde çıkan, dinlediğiniz ve benzer sanatçıların yeni çıkışları. Yapay zekânın web’de arama yapması gerekir; web aramasının açık olduğu bir sohbet kullanın.",
+    ),
     ai_prompt_period: SharedString::new_static("Şu anki zevk"),
     ai_prompt_period_desc: SharedString::new_static(
         "Bu dönemdeki dinlemeler şu an neyi sevdiğinizi anlatır. “Unutulanlar” için bir parçanın ne kadar sonra unutulmuş sayılacağını da belirler.",
+    ),
+    ai_prompt_window: SharedString::new_static("Çıkış dönemi"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Yeni çıkanların ne kadar geriye doğru aranacağı.",
     ),
     ai_prompt_period_week: SharedString::new_static("Hafta"),
     ai_prompt_period_month: SharedString::new_static("Ay"),
@@ -1385,6 +1455,7 @@ static PL: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Nowa muzyka"),
     ai_prompt_mode_library: SharedString::new_static("Z mojej biblioteki"),
     ai_prompt_mode_forgotten: SharedString::new_static("Zapomniane"),
+    ai_prompt_mode_releases: SharedString::new_static("Nowe wydania"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Wykonawcy i albumy, których jeszcze nie masz. Twoje albumy i wszystko, czego słuchałeś, są wypisane, żeby AI je pominęła.",
     ),
@@ -1394,10 +1465,15 @@ static PL: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Utwory z biblioteki, których dawno nie słuchałeś, bliskie temu, co lubisz teraz.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Wydania z wybranego okresu od wykonawców, których słuchasz, i podobnych. AI musi szukać w internecie, więc użyj czatu z włączonym wyszukiwaniem w sieci.",
+    ),
     ai_prompt_period: SharedString::new_static("Obecny gust"),
     ai_prompt_period_desc: SharedString::new_static(
         "Odtworzenia z tego okresu opisują, co lubisz teraz. W „Zapomnianych” to też czas, po którym utwór uznaje się za zapomniany.",
     ),
+    ai_prompt_window: SharedString::new_static("Okres wydań"),
+    ai_prompt_window_desc: SharedString::new_static("Jak daleko wstecz szukać nowych wydań."),
     ai_prompt_period_week: SharedString::new_static("Tydzień"),
     ai_prompt_period_month: SharedString::new_static("Miesiąc"),
     ai_prompt_period_half_year: SharedString::new_static("6 miesięcy"),
@@ -1501,6 +1577,7 @@ static NL: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Nieuwe muziek"),
     ai_prompt_mode_library: SharedString::new_static("Uit mijn bibliotheek"),
     ai_prompt_mode_forgotten: SharedString::new_static("Vergeten"),
+    ai_prompt_mode_releases: SharedString::new_static("Nieuwe releases"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artiesten en albums die je nog niet hebt. Je albums en alles wat je hebt beluisterd worden vermeld zodat de AI ze overslaat.",
     ),
@@ -1510,9 +1587,16 @@ static NL: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Nummers uit je bibliotheek die je lang niet hebt gehoord en passen bij wat je nu mooi vindt.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Uitgaven uit de gekozen periode van artiesten naar wie je luistert en vergelijkbare artiesten. De AI moet op het web zoeken, dus gebruik een chat met websearch ingeschakeld.",
+    ),
     ai_prompt_period: SharedString::new_static("Huidige smaak"),
     ai_prompt_period_desc: SharedString::new_static(
         "Afspelingen uit deze periode beschrijven wat je nu mooi vindt. Bij ‘Vergeten’ is het ook hoe lang geleden een nummer als vergeten telt.",
+    ),
+    ai_prompt_window: SharedString::new_static("Releaseperiode"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Hoe ver terug er naar nieuwe releases wordt gezocht.",
     ),
     ai_prompt_period_week: SharedString::new_static("Week"),
     ai_prompt_period_month: SharedString::new_static("Maand"),
@@ -1625,6 +1709,7 @@ static UK: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Нова музика"),
     ai_prompt_mode_library: SharedString::new_static("З моєї бібліотеки"),
     ai_prompt_mode_forgotten: SharedString::new_static("Забуте"),
+    ai_prompt_mode_releases: SharedString::new_static("Нові релізи"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Виконавці та альбоми, яких у вас ще немає. Ваші альбоми й усе прослухане перелічено, щоб ШІ їх оминув.",
     ),
@@ -1634,10 +1719,15 @@ static UK: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Треки з бібліотеки, які ви давно не слухали, близькі до того, що подобається зараз.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Релізи за обраний період від виконавців, яких ви слухаєте, і подібних. ШІ має шукати в інтернеті, тож використовуйте чат зі ввімкненим вебпошуком.",
+    ),
     ai_prompt_period: SharedString::new_static("Смак зараз"),
     ai_prompt_period_desc: SharedString::new_static(
         "Прослуховування за цей період описують, що вам подобається зараз. Для «Забутого» це ще й термін, після якого трек вважається забутим.",
     ),
+    ai_prompt_window: SharedString::new_static("Період релізів"),
+    ai_prompt_window_desc: SharedString::new_static("За який термін шукати релізи."),
     ai_prompt_period_week: SharedString::new_static("Тиждень"),
     ai_prompt_period_month: SharedString::new_static("Місяць"),
     ai_prompt_period_half_year: SharedString::new_static("Пів року"),
@@ -1741,6 +1831,7 @@ static VI: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Nhạc mới"),
     ai_prompt_mode_library: SharedString::new_static("Từ thư viện của tôi"),
     ai_prompt_mode_forgotten: SharedString::new_static("Bị lãng quên"),
+    ai_prompt_mode_releases: SharedString::new_static("Bản phát hành mới"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Nghệ sĩ và album bạn chưa có. Album của bạn và mọi thứ bạn đã nghe được liệt kê để AI bỏ qua.",
     ),
@@ -1750,9 +1841,16 @@ static VI: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Các bài trong thư viện lâu rồi bạn chưa nghe, gần với gu hiện tại.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Các bản phát hành trong khoảng thời gian đã chọn của nghệ sĩ bạn nghe và nghệ sĩ tương tự. AI phải tìm kiếm trên web, nên hãy dùng cuộc trò chuyện đã bật tìm kiếm web.",
+    ),
     ai_prompt_period: SharedString::new_static("Gu hiện tại"),
     ai_prompt_period_desc: SharedString::new_static(
         "Lượt nghe trong khoảng này mô tả điều bạn thích lúc này. Với “Bị lãng quên”, đây cũng là khoảng thời gian để một bài bị coi là lãng quên.",
+    ),
+    ai_prompt_window: SharedString::new_static("Khoảng thời gian phát hành"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Tìm các bản phát hành mới trong khoảng thời gian bao xa.",
     ),
     ai_prompt_period_week: SharedString::new_static("Tuần"),
     ai_prompt_period_month: SharedString::new_static("Tháng"),
@@ -1859,6 +1957,7 @@ static ID: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Musik baru"),
     ai_prompt_mode_library: SharedString::new_static("Dari pustaka saya"),
     ai_prompt_mode_forgotten: SharedString::new_static("Terlupakan"),
+    ai_prompt_mode_releases: SharedString::new_static("Rilisan baru"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artis dan album yang belum Anda miliki. Album Anda dan semua yang pernah didengar dicantumkan agar AI melewatinya.",
     ),
@@ -1868,9 +1967,16 @@ static ID: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Lagu di pustaka yang lama tidak diputar, dekat dengan selera Anda sekarang.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Rilisan pada periode yang dipilih dari artis yang Anda dengarkan dan artis serupa. AI harus mencari di web, jadi gunakan obrolan dengan pencarian web aktif.",
+    ),
     ai_prompt_period: SharedString::new_static("Selera saat ini"),
     ai_prompt_period_desc: SharedString::new_static(
         "Pemutaran pada periode ini menggambarkan selera Anda sekarang. Untuk “Terlupakan”, ini juga batas waktu sebuah lagu dianggap terlupakan.",
+    ),
+    ai_prompt_window: SharedString::new_static("Periode rilis"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Seberapa jauh ke belakang mencari rilisan baru.",
     ),
     ai_prompt_period_week: SharedString::new_static("Minggu"),
     ai_prompt_period_month: SharedString::new_static("Bulan"),
@@ -1977,6 +2083,7 @@ static TH: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("เพลงใหม่"),
     ai_prompt_mode_library: SharedString::new_static("จากคลังของฉัน"),
     ai_prompt_mode_forgotten: SharedString::new_static("ที่ถูกลืม"),
+    ai_prompt_mode_releases: SharedString::new_static("เพลงออกใหม่"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "ศิลปินและอัลบั้มที่คุณยังไม่มี อัลบั้มของคุณและทุกอย่างที่เคยฟังจะถูกระบุไว้ให้ AI ข้าม",
     ),
@@ -1984,10 +2091,15 @@ static TH: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "เพลงในคลังที่ไม่ได้ฟังมานาน ใกล้เคียงกับที่ชอบตอนนี้",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "ผลงานที่ออกในช่วงเวลาที่เลือกจากศิลปินที่คุณฟังและศิลปินที่คล้ายกัน AI ต้องค้นหาบนเว็บ จึงควรใช้แชตที่เปิดการค้นหาเว็บไว้",
+    ),
     ai_prompt_period: SharedString::new_static("รสนิยมตอนนี้"),
     ai_prompt_period_desc: SharedString::new_static(
         "การฟังในช่วงนี้บอกว่าตอนนี้คุณชอบอะไร สำหรับ “ที่ถูกลืม” ยังเป็นระยะเวลาที่เพลงจะนับว่าถูกลืมด้วย",
     ),
+    ai_prompt_window: SharedString::new_static("ช่วงเวลาที่ออก"),
+    ai_prompt_window_desc: SharedString::new_static("ค้นหาผลงานที่ออกย้อนหลังไปนานแค่ไหน"),
     ai_prompt_period_week: SharedString::new_static("สัปดาห์"),
     ai_prompt_period_month: SharedString::new_static("เดือน"),
     ai_prompt_period_half_year: SharedString::new_static("6 เดือน"),
@@ -2085,6 +2197,7 @@ static CS: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Nová hudba"),
     ai_prompt_mode_library: SharedString::new_static("Z mé knihovny"),
     ai_prompt_mode_forgotten: SharedString::new_static("Zapomenuté"),
+    ai_prompt_mode_releases: SharedString::new_static("Nová vydání"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Interpreti a alba, která ještě nemáte. Vaše alba a vše, co jste poslouchali, jsou vypsána, aby je AI vynechala.",
     ),
@@ -2094,10 +2207,15 @@ static CS: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Skladby z knihovny, které jste dlouho neposlouchali, blízké tomu, co máte rádi teď.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Vydání z vybraného období od interpretů, které posloucháte, a podobných. AI musí hledat na webu, proto použijte chat se zapnutým vyhledáváním na webu.",
+    ),
     ai_prompt_period: SharedString::new_static("Současný vkus"),
     ai_prompt_period_desc: SharedString::new_static(
         "Přehrání z tohoto období popisují, co máte rádi teď. U „Zapomenutých“ je to i doba, po které se skladba počítá jako zapomenutá.",
     ),
+    ai_prompt_window: SharedString::new_static("Období vydání"),
+    ai_prompt_window_desc: SharedString::new_static("Jak daleko do minulosti hledat nová vydání."),
     ai_prompt_period_week: SharedString::new_static("Týden"),
     ai_prompt_period_month: SharedString::new_static("Měsíc"),
     ai_prompt_period_half_year: SharedString::new_static("6 měsíců"),
@@ -2203,6 +2321,7 @@ static SV: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Ny musik"),
     ai_prompt_mode_library: SharedString::new_static("Från mitt bibliotek"),
     ai_prompt_mode_forgotten: SharedString::new_static("Bortglömt"),
+    ai_prompt_mode_releases: SharedString::new_static("Nyutgivet"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artister och album du inte har än. Dina album och allt du har lyssnat på listas så att AI:n hoppar över dem.",
     ),
@@ -2212,9 +2331,16 @@ static SV: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Låtar i ditt bibliotek som du inte spelat på länge, nära det du gillar nu.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Utgåvor från vald period av artister du lyssnar på och liknande. AI:n måste söka på webben, så använd en chatt med webbsökning aktiverad.",
+    ),
     ai_prompt_period: SharedString::new_static("Nuvarande smak"),
     ai_prompt_period_desc: SharedString::new_static(
         "Spelningar från den här perioden beskriver vad du gillar nu. För ”Bortglömt” är det också hur länge sedan en låt räknas som bortglömd.",
+    ),
+    ai_prompt_window: SharedString::new_static("Utgivningsperiod"),
+    ai_prompt_window_desc: SharedString::new_static(
+        "Hur långt tillbaka man letar efter nya utgåvor.",
     ),
     ai_prompt_period_week: SharedString::new_static("Vecka"),
     ai_prompt_period_month: SharedString::new_static("Månad"),
@@ -2321,6 +2447,7 @@ static HI: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("नया संगीत"),
     ai_prompt_mode_library: SharedString::new_static("मेरी लाइब्रेरी से"),
     ai_prompt_mode_forgotten: SharedString::new_static("भूले हुए"),
+    ai_prompt_mode_releases: SharedString::new_static("नई रिलीज़"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "ऐसे कलाकार और एल्बम जो अभी आपके पास नहीं हैं। आपके एल्बम और जो कुछ आपने सुना है, सूचीबद्ध है ताकि AI उन्हें छोड़ दे।",
     ),
@@ -2330,10 +2457,15 @@ static HI: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "लाइब्रेरी के वे ट्रैक जो लंबे समय से नहीं सुने, अभी की पसंद के करीब।",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "चुनी गई अवधि में आपके सुने कलाकारों और उनसे मिलते-जुलते कलाकारों की रिलीज़। AI को वेब पर खोजना होगा, इसलिए वेब सर्च चालू वाली चैट इस्तेमाल करें।",
+    ),
     ai_prompt_period: SharedString::new_static("अभी की पसंद"),
     ai_prompt_period_desc: SharedString::new_static(
         "इस अवधि के प्ले बताते हैं कि अभी आपको क्या पसंद है। “भूले हुए” के लिए यही वह समय है जिसके बाद ट्रैक भूला हुआ माना जाता है।",
     ),
+    ai_prompt_window: SharedString::new_static("रिलीज़ की अवधि"),
+    ai_prompt_window_desc: SharedString::new_static("नई रिलीज़ कितने समय पहले तक खोजी जाएँ।"),
     ai_prompt_period_week: SharedString::new_static("सप्ताह"),
     ai_prompt_period_month: SharedString::new_static("महीना"),
     ai_prompt_period_half_year: SharedString::new_static("6 महीने"),
@@ -2435,6 +2567,7 @@ static ES: ToolsStrings = ToolsStrings {
     ai_prompt_mode_new: SharedString::new_static("Música nueva"),
     ai_prompt_mode_library: SharedString::new_static("De mi biblioteca"),
     ai_prompt_mode_forgotten: SharedString::new_static("Olvidado"),
+    ai_prompt_mode_releases: SharedString::new_static("Novedades"),
     ai_prompt_mode_new_desc: SharedString::new_static(
         "Artistas y álbumes que aún no tienes. Tus álbumes y todo lo que has escuchado se enumeran para que la IA los omita.",
     ),
@@ -2444,10 +2577,15 @@ static ES: ToolsStrings = ToolsStrings {
     ai_prompt_mode_forgotten_desc: SharedString::new_static(
         "Canciones de tu biblioteca que hace tiempo no escuchas, cercanas a lo que te gusta ahora.",
     ),
+    ai_prompt_mode_releases_desc: SharedString::new_static(
+        "Lanzamientos del periodo elegido de artistas que escuchas y de artistas parecidos. La IA tiene que buscar en la web, así que usa un chat con la búsqueda web activada.",
+    ),
     ai_prompt_period: SharedString::new_static("Gusto actual"),
     ai_prompt_period_desc: SharedString::new_static(
         "Las reproducciones de este periodo describen lo que te gusta ahora. En «Olvidado» también es el tiempo tras el cual una canción se considera olvidada.",
     ),
+    ai_prompt_window: SharedString::new_static("Periodo de lanzamientos"),
+    ai_prompt_window_desc: SharedString::new_static("Cuánto tiempo atrás buscar lanzamientos."),
     ai_prompt_period_week: SharedString::new_static("Semana"),
     ai_prompt_period_month: SharedString::new_static("Mes"),
     ai_prompt_period_half_year: SharedString::new_static("6 meses"),

@@ -24,7 +24,9 @@ use crate::services::Services;
 use crate::theme_colors::Colors;
 
 pub use builder::build_prompt;
-pub use options::{DEFAULT_COUNT, Detail, Mode, Period, PromptOptions, language_name};
+pub use options::{
+    DEFAULT_COUNT, Detail, Mode, Period, PromptOptions, RELEASE_PERIODS, language_name,
+};
 
 const PREVIEW_CHARS: usize = 4000;
 const PREVIEW_HEIGHT: f32 = 320.;
@@ -40,6 +42,7 @@ pub struct AiPromptInputs {
 pub struct AiPromptState {
     mode: Mode,
     period: Period,
+    release_window: Period,
     count: u32,
     detail: Detail,
     busy: bool,
@@ -59,6 +62,7 @@ impl Default for AiPromptState {
         Self {
             mode: Mode::NewMusic,
             period: Period::HalfYear,
+            release_window: Period::HalfYear,
             count: DEFAULT_COUNT,
             detail: Detail::Low,
             busy: false,
@@ -103,6 +107,13 @@ impl AiPromptState {
         }
     }
 
+    fn set_release_window(&mut self, window: Period) {
+        if self.release_window != window {
+            self.release_window = window;
+            self.clear_result();
+        }
+    }
+
     fn set_count(&mut self, count: u32) {
         if self.count != count {
             self.count = count;
@@ -129,6 +140,7 @@ impl AiPromptState {
         PromptOptions {
             mode: self.mode,
             period: self.period,
+            release_window: self.release_window,
             count: self.count,
             detail: self.detail,
             wishes,
@@ -286,6 +298,7 @@ fn import_answer(state: Entity<AiPromptState>, inputs: AiPromptInputs, cx: &mut 
 fn mode_label(s: &ToolsStrings, mode: Mode) -> SharedString {
     match mode {
         Mode::NewMusic => s.ai_prompt_mode_new.clone(),
+        Mode::NewReleases => s.ai_prompt_mode_releases.clone(),
         Mode::FromLibrary => s.ai_prompt_mode_library.clone(),
         Mode::Forgotten => s.ai_prompt_mode_forgotten.clone(),
     }
@@ -294,6 +307,7 @@ fn mode_label(s: &ToolsStrings, mode: Mode) -> SharedString {
 fn mode_description(s: &ToolsStrings, mode: Mode) -> SharedString {
     match mode {
         Mode::NewMusic => s.ai_prompt_mode_new_desc.clone(),
+        Mode::NewReleases => s.ai_prompt_mode_releases_desc.clone(),
         Mode::FromLibrary => s.ai_prompt_mode_library_desc.clone(),
         Mode::Forgotten => s.ai_prompt_mode_forgotten_desc.clone(),
     }
@@ -343,13 +357,17 @@ fn mode_field(state: Entity<AiPromptState>, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-fn period_field(state: Entity<AiPromptState>, cx: &mut App) -> AnyElement {
+fn period_group(
+    id: &'static str,
+    current: Period,
+    periods: &'static [Period],
+    on_pick: impl Fn(Period, &mut App) + 'static,
+) -> AnyElement {
     let s = tools_strings();
-    let current = state.read(cx).period;
-    let mut group = ButtonGroup::new("ai-prompt-period").small();
-    for (ix, period) in Period::ALL.into_iter().enumerate() {
+    let mut group = ButtonGroup::new(id).small();
+    for (ix, &period) in periods.iter().enumerate() {
         group = group.child(
-            Button::new(("ai-prompt-period", ix))
+            Button::new((id, ix))
                 .label(period_label(s, period))
                 .selected(current == period),
         );
@@ -357,15 +375,42 @@ fn period_field(state: Entity<AiPromptState>, cx: &mut App) -> AnyElement {
     h_flex()
         .justify_end()
         .child(group.on_click(move |clicks: &Vec<usize>, _, cx| {
-            let Some(period) = clicks.first().and_then(|&ix| Period::ALL.get(ix)) else {
+            let Some(&period) = clicks.first().and_then(|&ix| periods.get(ix)) else {
                 return;
             };
-            state.update(cx, |s, cx| {
-                s.set_period(*period);
-                cx.notify();
-            });
+            on_pick(period, cx);
         }))
         .into_any_element()
+}
+
+fn period_field(state: Entity<AiPromptState>, cx: &mut App) -> AnyElement {
+    let current = state.read(cx).period;
+    period_group(
+        "ai-prompt-period",
+        current,
+        &Period::ALL,
+        move |period, cx| {
+            state.update(cx, |s, cx| {
+                s.set_period(period);
+                cx.notify();
+            });
+        },
+    )
+}
+
+fn release_window_field(state: Entity<AiPromptState>, cx: &mut App) -> AnyElement {
+    let current = state.read(cx).release_window;
+    period_group(
+        "ai-prompt-window",
+        current,
+        &RELEASE_PERIODS,
+        move |window, cx| {
+            state.update(cx, |s, cx| {
+                s.set_release_window(window);
+                cx.notify();
+            });
+        },
+    )
 }
 
 fn count_field(state: Entity<AiPromptState>, cx: &mut App) -> AnyElement {
@@ -535,68 +580,76 @@ pub fn page(state: Entity<AiPromptState>, inputs: AiPromptInputs, mode: Mode) ->
     let s = tools_strings();
     let mode_state = state.clone();
     let period_state = state.clone();
+    let window_state = state.clone();
     let count_state = state.clone();
     let detail_state = state.clone();
     let wishes = inputs.wishes.clone();
     let wishes_input = inputs.wishes.clone();
     let answer_input = inputs.answer.clone();
     let import_state = state.clone();
-    let page = SettingPage::new(s.tools_ai_prompt.clone()).group(
-        SettingGroup::new()
-            .title(s.tools_ai_prompt.clone())
-            .description(s.ai_prompt_intro.clone())
-            .item(
-                SettingItem::new(
-                    s.ai_prompt_mode.clone(),
-                    SettingField::render(move |_window, cx: &mut App| {
-                        mode_field(mode_state.clone(), cx)
-                    }),
-                )
-                .layout(Axis::Vertical),
-            )
-            .item(
-                SettingItem::new(
-                    s.ai_prompt_period.clone(),
-                    SettingField::render(move |_window, cx: &mut App| {
-                        period_field(period_state.clone(), cx)
-                    }),
-                )
-                .description(s.ai_prompt_period_desc.clone()),
-            )
-            .item(SettingItem::new(
-                s.ai_prompt_count.clone(),
+    let mut group = SettingGroup::new()
+        .title(s.tools_ai_prompt.clone())
+        .description(s.ai_prompt_intro.clone())
+        .item(
+            SettingItem::new(
+                s.ai_prompt_mode.clone(),
                 SettingField::render(move |_window, cx: &mut App| {
-                    count_field(count_state.clone(), cx)
+                    mode_field(mode_state.clone(), cx)
                 }),
-            ))
-            .item(
-                SettingItem::new(
-                    s.ai_prompt_detail.clone(),
-                    SettingField::render(move |_window, cx: &mut App| {
-                        detail_field(detail_state.clone(), cx)
-                    }),
-                )
-                .description(s.ai_prompt_detail_desc.clone()),
             )
-            .item(
-                SettingItem::new(
-                    s.ai_prompt_wishes.clone(),
-                    SettingField::render(move |_window, _cx: &mut App| {
-                        Textarea::new(&wishes_input)
-                    }),
-                )
-                .layout(Axis::Vertical),
+            .layout(Axis::Vertical),
+        )
+        .item(
+            SettingItem::new(
+                s.ai_prompt_period.clone(),
+                SettingField::render(move |_window, cx: &mut App| {
+                    period_field(period_state.clone(), cx)
+                }),
             )
-            .item(
-                SettingItem::new(
-                    s.ai_prompt_result.clone(),
-                    SettingField::render(move |_window, cx: &mut App| {
-                        result_field(state.clone(), wishes.clone(), cx)
-                    }),
-                )
-                .layout(Axis::Vertical),
-            ),
-    );
+            .description(s.ai_prompt_period_desc.clone()),
+        );
+    if mode == Mode::NewReleases {
+        group = group.item(
+            SettingItem::new(
+                s.ai_prompt_window.clone(),
+                SettingField::render(move |_window, cx: &mut App| {
+                    release_window_field(window_state.clone(), cx)
+                }),
+            )
+            .description(s.ai_prompt_window_desc.clone()),
+        );
+    }
+    let group = group
+        .item(SettingItem::new(
+            s.ai_prompt_count.clone(),
+            SettingField::render(move |_window, cx: &mut App| count_field(count_state.clone(), cx)),
+        ))
+        .item(
+            SettingItem::new(
+                s.ai_prompt_detail.clone(),
+                SettingField::render(move |_window, cx: &mut App| {
+                    detail_field(detail_state.clone(), cx)
+                }),
+            )
+            .description(s.ai_prompt_detail_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                s.ai_prompt_wishes.clone(),
+                SettingField::render(move |_window, _cx: &mut App| Textarea::new(&wishes_input)),
+            )
+            .layout(Axis::Vertical),
+        )
+        .item(
+            SettingItem::new(
+                s.ai_prompt_result.clone(),
+                SettingField::render(move |_window, cx: &mut App| {
+                    result_field(state.clone(), wishes.clone(), cx)
+                }),
+            )
+            .layout(Axis::Vertical),
+        );
+    let page = SettingPage::new(s.tools_ai_prompt.clone()).group(group);
     if !mode.builds_playlist() {
         return page;
     }
@@ -634,6 +687,38 @@ mod tests {
         assert!(!Mode::NewMusic.counts().contains(&50));
         assert!(Mode::FromLibrary.counts().contains(&50));
         assert!(Mode::Forgotten.counts().contains(&50));
+    }
+
+    #[test]
+    fn only_playlist_modes_build_playlists() {
+        assert!(!Mode::NewMusic.builds_playlist());
+        assert!(!Mode::NewReleases.builds_playlist());
+        assert!(Mode::FromLibrary.builds_playlist());
+        assert!(Mode::Forgotten.builds_playlist());
+    }
+
+    #[test]
+    fn release_window_is_independent_of_the_taste_period() {
+        let mut state = AiPromptState::default();
+        state.set_period(Period::AllTime);
+        assert_eq!(state.release_window, Period::HalfYear);
+        state.set_release_window(Period::Week);
+        state.set_mode(Mode::NewReleases);
+        assert_eq!(state.period, Period::AllTime);
+        assert_eq!(state.release_window, Period::Week);
+        let options = state.options(String::new());
+        assert_eq!(options.period, Period::AllTime);
+        assert_eq!(options.release_window, Period::Week);
+    }
+
+    #[test]
+    fn changing_the_release_window_drops_the_prompt() {
+        let mut state = AiPromptState {
+            prompt: Some(SharedString::from("old")),
+            ..Default::default()
+        };
+        state.set_release_window(Period::Month);
+        assert!(state.prompt.is_none());
     }
 
     #[test]
