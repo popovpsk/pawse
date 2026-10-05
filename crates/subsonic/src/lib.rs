@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use md5::{Digest, Md5};
 use serde::Deserialize;
-use server_http::{Status, lenient};
+use server_http::{Status, Transport, lenient};
 
 pub use server_http::RangeBody;
 
@@ -157,7 +157,7 @@ pub struct Client {
     base: String,
     username: String,
     password: String,
-    agent: ureq::Agent,
+    transport: Transport,
     legacy_auth: AtomicBool,
     page_size: usize,
 }
@@ -173,7 +173,7 @@ impl Client {
             base: config.url.trim().trim_end_matches('/').to_string(),
             username: config.username.clone(),
             password: config.password.clone(),
-            agent: server_http::agent(),
+            transport: Transport::new(),
             legacy_auth: AtomicBool::new(false),
             page_size: PAGE_SIZE,
         }
@@ -368,29 +368,37 @@ impl Client {
         params: &[(&str, &str)],
         range: Option<&str>,
     ) -> Result<Payload, ServerFailure> {
-        let mut request = self
-            .agent
-            .get(format!("{}/rest/{method}", self.base))
-            .query("u", &self.username)
-            .query("v", API_VERSION)
-            .query("c", CLIENT_NAME)
-            .query("f", "json");
-        if self.legacy_auth.load(Ordering::Relaxed) {
-            request = request.query("p", format!("enc:{}", hex(self.password.as_bytes())));
+        let credentials = if self.legacy_auth.load(Ordering::Relaxed) {
+            vec![("p", format!("enc:{}", hex(self.password.as_bytes())))]
         } else {
             let salt = salt();
             let token = hex(&Md5::digest(format!("{}{salt}", self.password).as_bytes()));
-            request = request.query("t", token).query("s", salt);
-        }
-        for (key, value) in params {
-            request = request.query(*key, *value);
-        }
-        if let Some(range) = range {
-            request = server_http::with_range(request, range);
-        }
-        let response = request.call().map_err(|e| {
-            ServerFailure::Error(Error::Transient(server_http::redact(&e.to_string())))
-        })?;
+            vec![("t", token), ("s", salt)]
+        };
+        let url = format!("{}/rest/{method}", self.base);
+        let response = self
+            .transport
+            .call(|agent| {
+                let mut request = agent
+                    .get(url.as_str())
+                    .query("u", &self.username)
+                    .query("v", API_VERSION)
+                    .query("c", CLIENT_NAME)
+                    .query("f", "json");
+                for (key, value) in &credentials {
+                    request = request.query(*key, value);
+                }
+                for (key, value) in params {
+                    request = request.query(*key, *value);
+                }
+                if let Some(range) = range {
+                    request = server_http::with_range(request, range);
+                }
+                request.call()
+            })
+            .map_err(|e| {
+                ServerFailure::Error(Error::Transient(server_http::redact(&e.to_string())))
+            })?;
         let status = response.status().as_u16();
         match server_http::classify(status) {
             Status::Success => {}

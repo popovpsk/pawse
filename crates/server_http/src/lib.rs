@@ -2,10 +2,14 @@ use std::io::Read;
 use std::time::Duration;
 
 use ureq::http::Response;
+use ureq::tls::TlsConfig;
 use ureq::typestate::WithoutBody;
 use ureq::{Body, RequestBuilder};
 
 pub mod lenient;
+mod transport;
+
+pub use transport::Transport;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -38,12 +42,17 @@ pub fn classify(status: u16) -> Status {
 }
 
 pub fn agent() -> ureq::Agent {
+    agent_with(TlsConfig::default())
+}
+
+fn agent_with(tls: TlsConfig) -> ureq::Agent {
     ureq::Agent::new_with_config(
         ureq::Agent::config_builder()
             .timeout_connect(Some(CONNECT_TIMEOUT))
             .timeout_recv_response(Some(RESPONSE_TIMEOUT))
             .timeout_recv_body(Some(BODY_TIMEOUT))
             .http_status_as_error(false)
+            .tls_config(tls)
             .build(),
     )
 }

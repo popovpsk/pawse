@@ -90,3 +90,104 @@ fn a_missing_or_empty_id_fails_the_record() {
     assert!(sample(r#"{"id": ""}"#).is_err());
     assert!(sample(r#"{"id": null}"#).is_err());
 }
+
+fn verification_failure(error: rustls::CertificateError) -> ureq::Error {
+    ureq::Error::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        rustls::Error::InvalidCertificate(error),
+    ))
+}
+
+fn untrusted() -> ureq::Error {
+    verification_failure(rustls::CertificateError::UnknownIssuer)
+}
+
+#[test]
+fn an_unknown_issuer_is_retried_on_the_system_roots_and_sticks() {
+    let transport = Transport::new();
+    let calls = std::cell::Cell::new(0);
+    let first = transport.call(|_| {
+        calls.set(calls.get() + 1);
+        match calls.get() {
+            1 => Err(untrusted()),
+            n => Ok(n),
+        }
+    });
+    assert_eq!(first.unwrap(), 2);
+    assert_eq!(calls.get(), 2);
+
+    let next: Result<(), _> = transport.call(|_| {
+        calls.set(calls.get() + 1);
+        Err(untrusted())
+    });
+    assert!(next.is_err());
+    assert_eq!(calls.get(), 3);
+}
+
+#[test]
+fn a_clean_first_attempt_never_touches_the_fallback() {
+    let transport = Transport::new();
+    let calls = std::cell::Cell::new(0);
+    for _ in 0..3 {
+        let result = transport.call(|_| {
+            calls.set(calls.get() + 1);
+            Ok::<_, ureq::Error>(())
+        });
+        assert!(result.is_ok());
+    }
+    assert_eq!(calls.get(), 3);
+}
+
+#[test]
+fn other_failures_are_not_retried() {
+    let failures: [fn() -> ureq::Error; 3] = [
+        || verification_failure(rustls::CertificateError::Expired),
+        || verification_failure(rustls::CertificateError::NotValidForName),
+        || ureq::Error::Timeout(ureq::Timeout::Global),
+    ];
+    for failure in failures {
+        let transport = Transport::new();
+        let calls = std::cell::Cell::new(0);
+        let result: Result<(), _> = transport.call(|_| {
+            calls.set(calls.get() + 1);
+            Err(failure())
+        });
+        assert!(result.is_err());
+        assert_eq!(calls.get(), 1);
+    }
+}
+
+#[test]
+fn a_fallback_that_fails_verification_too_reports_both_reasons() {
+    let transport = Transport::new();
+    let calls = std::cell::Cell::new(0);
+    let result: Result<(), _> = transport.call(|_| {
+        calls.set(calls.get() + 1);
+        match calls.get() {
+            1 => Err(untrusted()),
+            _ => Err(ureq::Error::Io(std::io::Error::other(
+                rustls::Error::General("no roots".into()),
+            ))),
+        }
+    });
+    assert_eq!(calls.get(), 2);
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "io: invalid peer certificate: UnknownIssuer \
+         (system store: unexpected error: no roots)"
+    );
+}
+
+#[test]
+fn a_fallback_that_fails_for_another_reason_reports_that_reason() {
+    let transport = Transport::new();
+    let calls = std::cell::Cell::new(0);
+    let result: Result<(), _> = transport.call(|_| {
+        calls.set(calls.get() + 1);
+        match calls.get() {
+            1 => Err(untrusted()),
+            _ => Err(ureq::Error::Timeout(ureq::Timeout::Global)),
+        }
+    });
+    assert!(matches!(result, Err(ureq::Error::Timeout(_))));
+}

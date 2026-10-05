@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use server_http::{Status, lenient};
+use server_http::{Status, Transport, lenient};
 use std::collections::HashSet;
 
 pub use server_http::RangeBody;
@@ -183,11 +183,16 @@ pub fn authenticate(
 ) -> Result<Config, Error> {
     let base = normalize(url);
     let body = serde_json::json!({ "Username": username, "Pw": password }).to_string();
-    let response = server_http::agent()
-        .post(format!("{base}/Users/AuthenticateByName"))
-        .header("Authorization", authorization(device_id, None))
-        .header("Content-Type", "application/json")
-        .send(body)
+    let url = format!("{base}/Users/AuthenticateByName");
+    let authorization = authorization(device_id, None);
+    let response = Transport::new()
+        .call(|agent| {
+            agent
+                .post(url.as_str())
+                .header("Authorization", &authorization)
+                .header("Content-Type", "application/json")
+                .send(body.as_str())
+        })
         .map_err(|e| Error::Transient(server_http::redact(&e.to_string())))?;
     let value = read_json(check_status(response)?, "AuthenticateByName")?;
     let token = value
@@ -213,7 +218,7 @@ pub struct Client {
     base: String,
     user_id: String,
     authorization: String,
-    agent: ureq::Agent,
+    transport: Transport,
     page_size: usize,
 }
 
@@ -223,7 +228,7 @@ impl Client {
             base: normalize(&config.url),
             user_id: config.user_id.clone(),
             authorization: authorization(&config.device_id, Some(&config.token)),
-            agent: server_http::agent(),
+            transport: Transport::new(),
             page_size: PAGE_SIZE,
         }
     }
@@ -269,25 +274,25 @@ impl Client {
         favorite: bool,
     ) -> Result<Option<u16>, Error> {
         let url = format!("{}{path}", self.base);
-        let sent = if favorite {
-            let mut request = self
-                .agent
-                .post(url)
-                .header("Authorization", &self.authorization);
-            for (key, value) in params {
-                request = request.query(*key, *value);
+        let sent = self.transport.call(|agent| {
+            if favorite {
+                let mut request = agent
+                    .post(url.as_str())
+                    .header("Authorization", &self.authorization);
+                for (key, value) in params {
+                    request = request.query(*key, *value);
+                }
+                request.send_empty()
+            } else {
+                let mut request = agent
+                    .delete(url.as_str())
+                    .header("Authorization", &self.authorization);
+                for (key, value) in params {
+                    request = request.query(*key, *value);
+                }
+                request.call()
             }
-            request.send_empty()
-        } else {
-            let mut request = self
-                .agent
-                .delete(url)
-                .header("Authorization", &self.authorization);
-            for (key, value) in params {
-                request = request.query(*key, *value);
-            }
-            request.call()
-        };
+        });
         let response = sent.map_err(|e| Error::Transient(server_http::redact(&e.to_string())))?;
         let status = response.status().as_u16();
         if matches!(status, 404 | 405) {
@@ -442,18 +447,20 @@ impl Client {
         params: &[(&str, &str)],
         range: Option<&str>,
     ) -> Result<ureq::http::Response<ureq::Body>, Error> {
-        let mut request = self
-            .agent
-            .get(format!("{}{path}", self.base))
-            .header("Authorization", &self.authorization);
-        for (key, value) in params {
-            request = request.query(*key, *value);
-        }
-        if let Some(range) = range {
-            request = server_http::with_range(request, range);
-        }
-        request
-            .call()
+        let url = format!("{}{path}", self.base);
+        self.transport
+            .call(|agent| {
+                let mut request = agent
+                    .get(url.as_str())
+                    .header("Authorization", &self.authorization);
+                for (key, value) in params {
+                    request = request.query(*key, *value);
+                }
+                if let Some(range) = range {
+                    request = server_http::with_range(request, range);
+                }
+                request.call()
+            })
             .map_err(|e| Error::Transient(server_http::redact(&e.to_string())))
     }
 }
