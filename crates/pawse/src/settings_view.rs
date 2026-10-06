@@ -19,7 +19,7 @@ use gpui_component::{
 use ui_components::settings::{SettingField, SettingGroup, SettingItem, SettingPage, Settings};
 
 use crate::localization::tr;
-use crate::remote_settings::{COUNT_COLUMN, ICON_SIZE};
+use crate::remote_settings::{COUNT_COLUMN, ICON_SIZE, row_colors};
 use crate::services::Services;
 use crate::settings_store::{
     BlurBackground, FontScale, NowPlayingDetails, SettingsStore, apply_font_scale,
@@ -1224,6 +1224,7 @@ fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) 
                 let is_scanning = cx.global::<Services>().library.is_scanning();
                 let muted_fg = Colors::muted_foreground(cx);
 
+                let (row_bg, row_border) = row_colors(cx);
                 let mut list = v_flex().gap_2().w_full();
 
                 for folder in state.local() {
@@ -1244,7 +1245,9 @@ fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) 
                             .px_3()
                             .py_2()
                             .rounded(px(6.))
-                            .bg(Colors::muted(cx))
+                            .bg(row_bg)
+                            .border_1()
+                            .border_color(row_border)
                             .child(
                                 h_flex()
                                     .gap_2()

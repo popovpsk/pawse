@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, App, AppContext, Entity, IntoElement, ParentElement, SharedString, Styled, Window,
-    div, prelude::FluentBuilder, px, svg,
+    AnyElement, App, AppContext, Entity, Hsla, IntoElement, ParentElement, SharedString, Styled,
+    Window, div, prelude::FluentBuilder, px, svg,
 };
 use gpui_component::{
     Disableable, Icon, Sizable, WindowExt,
@@ -294,15 +294,19 @@ fn row_merges_with_buttons(cx: &App) -> bool {
     Colors::distance(row, Colors::secondary(cx)) < ROW_BUTTON_MATCH
 }
 
-pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option<AnyElement> {
-    let ids = ids(kind);
-    let muted_fg = Colors::muted_foreground(cx);
-    let row_bg = if row_merges_with_buttons(cx) {
+pub(crate) fn row_colors(cx: &App) -> (Hsla, Hsla) {
+    let background = if row_merges_with_buttons(cx) {
         Colors::muted(cx).opacity(ROW_BG_ALPHA)
     } else {
         Colors::muted(cx)
     };
-    let row_border = Colors::border(cx);
+    (background, Colors::border(cx))
+}
+
+pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option<AnyElement> {
+    let ids = ids(kind);
+    let muted_fg = Colors::muted_foreground(cx);
+    let (row_bg, row_border) = row_colors(cx);
     let mut list = v_flex().gap_2().w_full();
     let mut empty = true;
     for (ix, row) in state.remote(kind).enumerate() {
