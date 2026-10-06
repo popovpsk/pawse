@@ -1447,6 +1447,16 @@ fn tab_icon_button(
         .rounded_full()
         .when(active, move |d| d.bg(active_bg))
         .hover(move |s| s.bg(hover_bg))
+        .tooltip(move |window, cx| {
+            let label = match tab {
+                LibraryRootTab::Albums => tr().tab_albums.clone(),
+                LibraryRootTab::Artists => tr().tab_artists.clone(),
+                LibraryRootTab::Genres => tr().tab_genres.clone(),
+                LibraryRootTab::Liked => tr().tab_liked.clone(),
+                LibraryRootTab::Playlists => tr().tab_playlists.clone(),
+            };
+            Tooltip::new(label).build(window, cx)
+        })
         .on_click(cx.listener(move |this, _, window, cx| {
             this.leave_overlays(window, cx);
             this.library_view
