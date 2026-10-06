@@ -5,7 +5,7 @@ use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Animation, AnimationExt, AppContext, Context, Entity, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString, Size,
+    IntoElement, ParentElement, Pixels, Render, Rgba, ScrollHandle, SharedString, Size,
     StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div, ease_out_quint,
     px,
 };
@@ -31,6 +31,7 @@ const SCROLL_EPS: Pixels = px(1.);
 const SERVER_GRACE: Duration = Duration::from_millis(1_500);
 const BACKGROUND_SCALE: f32 = 0.8;
 const BACKGROUND_ALPHA: f32 = 0.7;
+const FILL_CONTRAST_MIN: f32 = 0.2;
 
 #[derive(Clone)]
 struct TrackContext {
@@ -942,6 +943,7 @@ impl Render for LyricsView {
         let foreground = Colors::foreground(cx);
         let muted_foreground = Colors::muted_foreground(cx);
         let primary = Colors::primary(cx);
+        let unsung = unsung_color(foreground, muted_foreground, primary);
         let settings = cx.global::<SettingsStore>();
         let lyrics_font_size = settings.lyrics_font_size();
         let karaoke = settings.lyrics_karaoke_fill();
@@ -1083,7 +1085,7 @@ impl Render for LyricsView {
                         foreground
                     } else if is_lit {
                         if karaoke_active || lingering {
-                            foreground
+                            unsung
                         } else {
                             primary
                         }
@@ -1290,6 +1292,17 @@ fn plan_row(
         backing,
     };
     (plans, wakes.into_iter().flatten().reduce(f32::min))
+}
+
+fn unsung_color(foreground: Hsla, muted_foreground: Hsla, primary: Hsla) -> Hsla {
+    let text = Rgba::from(foreground);
+    let fill = Rgba::from(primary);
+    let distance = (text.r - fill.r).abs() + (text.g - fill.g).abs() + (text.b - fill.b).abs();
+    if distance >= FILL_CONTRAST_MIN {
+        foreground
+    } else {
+        muted_foreground
+    }
 }
 
 fn centered_message(message: SharedString, color: Hsla) -> gpui::Div {
