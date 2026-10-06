@@ -408,7 +408,9 @@ Albums still merge on the exact title.
   10): a `.lrc` sidecar, the embedded tag and an LRCLIB result live side by side, so
   a scan never overwrites fetched words and the user can switch between them.
   `clear()` removes the disk rows (`lrc` / `embedded`) so a deleted `.lrc`
-  disappears; fetched rows (and LRCLIB `not_found` markers) survive.
+  disappears; fetched rows (and LRCLIB `not_found` markers) survive. They go
+  only through `delete_lyrics_source`, when the user turns LRCLIB off; an item
+  kept only by them is swept by the next scan.
   `lyrics_variants` returns every row; which one is shown is decided outside SQL by
   `lyrics_source::choices` (the usable rows) and `pick` (a source name, given
   which sources are available and the user's choice): default order

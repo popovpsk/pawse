@@ -135,6 +135,7 @@ pub trait LibraryRepository: Send + Sync {
     fn lyrics_variants(&self, track_id: i64) -> Result<Vec<StoredLyrics>>;
     fn upsert_lyrics(&self, track_id: i64, text: &str, source: &str, not_found: bool)
     -> Result<()>;
+    fn delete_lyrics_source(&self, source: &str) -> Result<usize>;
 
     fn tracks_by_keys(&self, keys: &[(String, i32)]) -> Result<Vec<Track>>;
 

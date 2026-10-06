@@ -1864,6 +1864,40 @@ mod tests {
     }
 
     #[test]
+    fn deleting_fetched_lyrics_keeps_disk_ones_and_frees_the_items_they_held() {
+        let (lib, path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/music/a.flac", "A"),
+                scan_track("/music/b.flac", "B"),
+            ],
+        );
+        let a = id_of(&lib, "/music/a.flac");
+        let b = id_of(&lib, "/music/b.flac");
+        lib.upsert_lyrics(a, "from disk", "lrc", false).unwrap();
+        lib.upsert_lyrics(a, "from the net", "lrclib", false)
+            .unwrap();
+        lib.upsert_lyrics(b, "", "lrclib", true).unwrap();
+
+        assert_eq!(lib.delete_lyrics_source("lrclib").unwrap(), 2);
+
+        assert!(lyric(&lib, a, "lrclib").is_none());
+        assert!(lyric(&lib, b, "lrclib").is_none());
+        assert_eq!(lyric(&lib, a, "lrc").unwrap().text, "from disk");
+
+        scan(&lib, vec![scan_track("/music/b.flac", "B")]);
+        assert_eq!(
+            count_rows(
+                &path,
+                &format!("SELECT COUNT(*) FROM media_items WHERE id = {a}")
+            ),
+            0
+        );
+    }
+
+    #[test]
     fn disk_and_fetched_lyrics_live_side_by_side_across_rescans() {
         let (lib, _path) = create_test_db();
         scan(&lib, vec![scan_track("/m/song.flac", "Song")]);

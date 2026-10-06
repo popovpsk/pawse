@@ -143,6 +143,7 @@ pub struct LibraryService {
     remote_sync: Arc<RemoteSyncState>,
     repo: Arc<dyn LibraryRepository>,
     event_tx: flume::Sender<LibraryEvent>,
+    lyrics_fetch_gate: Arc<FetchGate>,
     executor: gpui::BackgroundExecutor,
     scan_state: Arc<ScanState>,
     artists_grouping: Arc<AtomicU8>,
@@ -168,6 +169,13 @@ fn load_grouping(cell: &AtomicU8) -> ArtistGrouping {
 pub struct LyricsAccess {
     repo: Arc<dyn LibraryRepository>,
     event_tx: flume::Sender<LibraryEvent>,
+    fetch_gate: Arc<FetchGate>,
+}
+
+#[derive(Default)]
+struct FetchGate {
+    epoch: AtomicU64,
+    writes: Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -431,10 +439,45 @@ impl LyricsAccess {
         self.repo.album_title(album_id).ok().flatten()
     }
 
+    pub fn fetch_epoch(&self) -> u64 {
+        self.fetch_gate.epoch.load(Ordering::SeqCst)
+    }
+
+    pub fn forget_fetched(&self, executor: &gpui::BackgroundExecutor) {
+        self.void_fetches();
+        let access = self.clone();
+        executor
+            .spawn(async move { access.delete_fetched() })
+            .detach();
+    }
+
+    fn void_fetches(&self) {
+        self.fetch_gate.epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn delete_fetched(&self) {
+        let _writes = self.fetch_gate.writes.lock().unwrap();
+        match self
+            .repo
+            .delete_lyrics_source(music_library::lyrics_source::LRCLIB)
+        {
+            Ok(0) => {}
+            Ok(n) => log::info!("Forgot {n} LRCLIB lyrics rows"),
+            Err(e) => log::error!("Failed to forget LRCLIB lyrics: {e}"),
+        }
+    }
+
     /// Returns whether the row was written and a `LyricsChanged` emitted, so the
     /// caller knows a reload will render (vs. a write failure it must handle).
-    pub fn save(&self, track_id: i64, text: &str, source: &str) -> bool {
-        if let Err(e) = self.repo.upsert_lyrics(track_id, text, source, false) {
+    pub fn save_fetched(&self, track_id: i64, text: &str, epoch: u64) -> bool {
+        let _writes = self.fetch_gate.writes.lock().unwrap();
+        if self.fetch_epoch() != epoch {
+            return false;
+        }
+        if let Err(e) =
+            self.repo
+                .upsert_lyrics(track_id, text, music_library::lyrics_source::LRCLIB, false)
+        {
             log::error!("Failed to save lyrics for track {}: {}", track_id, e);
             return false;
         }
@@ -442,7 +485,11 @@ impl LyricsAccess {
         true
     }
 
-    pub fn mark_not_found(&self, track_id: i64) -> bool {
+    pub fn mark_not_found(&self, track_id: i64, epoch: u64) -> bool {
+        let _writes = self.fetch_gate.writes.lock().unwrap();
+        if self.fetch_epoch() != epoch {
+            return false;
+        }
         if let Err(e) =
             self.repo
                 .upsert_lyrics(track_id, "", music_library::lyrics_source::LRCLIB, true)
@@ -470,6 +517,7 @@ impl LibraryService {
             remote_sync: Arc::new(RemoteSyncState::default()),
             repo,
             event_tx,
+            lyrics_fetch_gate: Arc::default(),
             executor,
             scan_state: Arc::new(ScanState::default()),
             artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(artists_grouping))),
@@ -653,6 +701,7 @@ impl LibraryService {
         LyricsAccess {
             repo: self.repo.clone(),
             event_tx: self.event_tx.clone(),
+            fetch_gate: self.lyrics_fetch_gate.clone(),
         }
     }
 
@@ -3269,5 +3318,52 @@ mod tests {
         state.active.lock().unwrap().insert(server.key());
         assert_eq!(import(), Err(crate::servers::RemoteError::Syncing));
         assert!(ws.repo.playlists().unwrap().is_empty());
+    }
+
+    #[test]
+    fn forgetting_fetched_lyrics_voids_the_fetches_already_running() {
+        let ws = Workspace::new();
+        let repo: Arc<dyn LibraryRepository> =
+            Arc::new(SqliteLibrary::open_at(ws.folder.join("lyrics.db")).unwrap());
+        let track = |path: &str| {
+            repo.upsert_track(
+                &NewTrack {
+                    path: path.into(),
+                    title: Some(path.into()),
+                    ..Default::default()
+                },
+                None,
+                &[],
+            )
+            .unwrap()
+        };
+        let (a, b) = (track("/m/a.flac"), track("/m/b.flac"));
+        let (event_tx, _event_rx) = flume::unbounded();
+        let access = LyricsAccess {
+            repo: repo.clone(),
+            event_tx,
+            fetch_gate: Arc::default(),
+        };
+        let fetched = |id: i64| {
+            repo.lyrics_variants(id)
+                .unwrap()
+                .into_iter()
+                .filter(|v| v.source == music_library::lyrics_source::LRCLIB)
+                .count()
+        };
+
+        let before = access.fetch_epoch();
+        assert!(access.save_fetched(a, "la la", before));
+        assert!(access.mark_not_found(b, before));
+        access.void_fetches();
+        access.delete_fetched();
+        assert_eq!((fetched(a), fetched(b)), (0, 0));
+
+        assert!(!access.save_fetched(a, "la la", before));
+        assert!(!access.mark_not_found(b, before));
+        assert_eq!((fetched(a), fetched(b)), (0, 0));
+
+        assert!(access.save_fetched(a, "la la", access.fetch_epoch()));
+        assert_eq!(fetched(a), 1);
     }
 }

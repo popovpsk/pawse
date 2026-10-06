@@ -310,6 +310,9 @@ impl LyricsView {
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
         };
+        if !online {
+            result.forget_fetched(cx);
+        }
         result.load(cx);
         result
     }
@@ -336,12 +339,24 @@ impl LyricsView {
         if prefer_lrclib == self.prefer_lrclib && online == self.online {
             return;
         }
+        let went_offline = self.online && !online;
         self.prefer_lrclib = prefer_lrclib;
         self.online = online;
+        if went_offline {
+            self.forget_fetched(cx);
+        }
         if self.current_track_id.is_some() && !self.loading {
             self.show_best(cx);
             self.maybe_fetch(cx);
         }
+    }
+
+    fn forget_fetched(&mut self, cx: &mut Context<Self>) {
+        self.access.forget_fetched(cx.background_executor());
+        self.fetching = false;
+        self._fetch_task = None;
+        let variants = std::mem::take(&mut self.variants);
+        self.set_variants(variants);
     }
 
     fn current_context(cx: &mut Context<Self>) -> Option<TrackContext> {
@@ -411,7 +426,10 @@ impl LyricsView {
         self.maybe_fetch(cx);
     }
 
-    fn set_variants(&mut self, variants: Vec<StoredLyrics>) {
+    fn set_variants(&mut self, mut variants: Vec<StoredLyrics>) {
+        if !self.online {
+            variants.retain(|v| v.source != lyrics_source::LRCLIB);
+        }
         self.lrclib = match variants.iter().find(|v| v.source == lyrics_source::LRCLIB) {
             Some(v) if v.not_found => Lrclib::NotFound,
             Some(_) => Lrclib::Found,
@@ -419,7 +437,7 @@ impl LyricsView {
         };
         self.variants = variants;
         if self.choice.is_some_and(|choice| {
-            choice == lyrics_source::LRCLIB && self.lrclib == Lrclib::NotFound
+            choice == lyrics_source::LRCLIB && (!self.online || self.lrclib == Lrclib::NotFound)
         }) {
             self.choice = None;
         }
@@ -571,6 +589,7 @@ impl LyricsView {
         self.fetching = true;
         cx.notify();
         let access = self.access.clone();
+        let epoch = access.fetch_epoch();
         self._fetch_task = Some(cx.spawn(async move |this, cx| {
             let id = ctx.id;
             let refreshed = cx
@@ -585,10 +604,10 @@ impl LyricsView {
                     };
                     let written = match lyrics::fetch(&query) {
                         Ok(Some(remote)) => match pick_remote(remote) {
-                            Some(raw) => access.save(id, &raw, lyrics_source::LRCLIB),
-                            None => access.mark_not_found(id),
+                            Some(raw) => access.save_fetched(id, &raw, epoch),
+                            None => access.mark_not_found(id, epoch),
                         },
-                        Ok(None) => access.mark_not_found(id),
+                        Ok(None) => access.mark_not_found(id, epoch),
                         Err(e) => {
                             log::warn!("lyrics fetch failed for track {}: {}", id, e);
                             false

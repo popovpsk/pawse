@@ -740,7 +740,15 @@ ranked below the server is not shown yet, so the text does not swap under the
 user. A slower server (unreachable while the track plays from the cache waits
 out a 10 s connect timeout) stops being waited for: what is stored shows, the
 search may start, and a late server answer still takes over. A failed request
-counts as "the server has none" for that play. Backing vocals
+counts as "the server has none" for that play. Turning "Fetch lyrics from the
+internet" off forgets everything LRCLIB gave (`LyricsAccess::forget_fetched`:
+the words and the "not found" markers, so a later search starts over), and so
+does every launch while it stays off; until then the view drops LRCLIB variants
+itself. A search already in flight cannot write after that: it carries the
+`fetch_epoch` it started under, the forget bumps it at once on the UI thread
+(the `DELETE` follows on the background executor), and a write checks the epoch
+under the same lock the `DELETE` takes. The request itself is not cancelled; only
+its result is dropped. Backing vocals
 are a smaller, dimmer line under their row (see "Lyrics karaoke fill"). The
 pencil is not shown on a server track's row (`TrackRowBase::local`, from
 `Track::local_file`) nor on an

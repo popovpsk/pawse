@@ -2496,6 +2496,11 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
+    fn delete_lyrics_source(&self, source: &str) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.execute("DELETE FROM lyrics WHERE source = ?1", [source])?)
+    }
+
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>> {
         if track_ids.is_empty() {
             return Ok(HashMap::new());
