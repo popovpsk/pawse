@@ -57,6 +57,7 @@ pub trait LibraryRepository: Send + Sync {
     fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>>;
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
     fn album_title(&self, album_id: i64) -> Result<Option<String>>;
+    fn track_albums_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, String>>;
     fn album_genres(&self, album_id: i64) -> Result<Vec<String>>;
     /// The album's credited artists in `album_artists.position` order. Mirrors
     /// [`album_genres`](LibraryRepository::album_genres); needed where an album's
@@ -102,7 +103,7 @@ pub trait LibraryRepository: Send + Sync {
     fn tracks_by_artist(&self, artist_id: i64, grouping: ArtistGrouping) -> Result<Vec<Track>>;
     fn genres(&self) -> Result<Vec<GenreSummary>>;
     fn genre_album_covers(&self) -> Result<HashMap<String, Vec<i64>>>;
-    fn tracks_by_genre(&self, key: &str, sort: GenreSort) -> Result<Vec<Track>>;
+    fn tracks_by_genre(&self, key: &str, sort: GenreSort, desc: bool) -> Result<Vec<Track>>;
     fn track(&self, id: i64) -> Result<Option<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn all_tracks(&self) -> Result<Vec<Track>>;

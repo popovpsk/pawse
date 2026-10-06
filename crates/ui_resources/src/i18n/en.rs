@@ -186,8 +186,6 @@ pub static EN: Strings = lang! {
     liked_tracks_desc: "Shows everything for liking tracks: the heart on track rows and the Liked tab.",
     playlists_desc: "Shows the Playlists tab and the add-to-playlist button on track rows.",
     genres_desc: "Shows the Genres tab, which groups your tracks by their genre tag.",
-    genre_sort_artist: "Artist",
-    genre_sort_year: "Year",
     track_duration: "Track duration",
     track_duration_desc: "Show or hide the track duration in the queue",
     action_buttons: "Action buttons",

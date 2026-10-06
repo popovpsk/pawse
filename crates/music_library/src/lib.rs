@@ -2023,6 +2023,29 @@ mod tests {
     }
 
     #[test]
+    fn track_albums_map_names_unavailable_tracks_from_the_item_snapshot() {
+        let (lib, _path) = create_test_db();
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/kept.flac", "Kept"),
+                scan_track("/m/gone.flac", "Gone"),
+            ],
+        );
+        let kept = id_of(&lib, "/m/kept.flac");
+        let gone = id_of(&lib, "/m/gone.flac");
+        lib.set_liked(gone, true).unwrap();
+        scan(&lib, vec![scan_track("/m/kept.flac", "Kept")]);
+
+        let map = lib.track_albums_map(&[kept, gone, 9_999_999]).unwrap();
+
+        assert_eq!(map.get(&kept).map(String::as_str), Some("Album"));
+        assert_eq!(map.get(&gone).map(String::as_str), Some("Album"));
+        assert_eq!(map.len(), 2);
+        assert!(lib.track_albums_map(&[]).unwrap().is_empty());
+    }
+
+    #[test]
     fn the_guard_refuses_to_delete_an_item_that_carries_user_data() {
         let (lib, path) = create_test_db();
         scan(&lib, vec![scan_track("/m/liked.flac", "Liked")]);
@@ -5118,8 +5141,8 @@ mod tests {
         }
     }
 
-    fn genre_titles(lib: &SqliteLibrary, key: &str, sort: GenreSort) -> Vec<String> {
-        lib.tracks_by_genre(key, sort)
+    fn genre_titles(lib: &SqliteLibrary, key: &str, sort: GenreSort, desc: bool) -> Vec<String> {
+        lib.tracks_by_genre(key, sort, desc)
             .unwrap()
             .into_iter()
             .map(|t| t.title)
@@ -5176,7 +5199,7 @@ mod tests {
         let keys: Vec<String> = lib.genres().unwrap().into_iter().map(|g| g.key).collect();
         assert_eq!(keys, vec!["rock".to_string()]);
         assert!(
-            lib.tracks_by_genre("jazz", GenreSort::Artist)
+            lib.tracks_by_genre("jazz", GenreSort::Artist, false)
                 .unwrap()
                 .is_empty()
         );
@@ -5185,16 +5208,31 @@ mod tests {
     #[rstest::rstest]
     #[case::by_artist(
         GenreSort::Artist,
+        false,
         &["/m/aardvark.flac", "/m/alpha.flac", "/m/beta-1990.flac", "/m/beta-2010-1.flac",
           "/m/beta-2010-2.flac", "/m/loner.flac"]
     )]
+    #[case::by_artist_desc(
+        GenreSort::Artist,
+        true,
+        &["/m/beta-1990.flac", "/m/beta-2010-1.flac", "/m/beta-2010-2.flac", "/m/alpha.flac",
+          "/m/aardvark.flac", "/m/loner.flac"]
+    )]
     #[case::by_year(
         GenreSort::Year,
+        false,
         &["/m/beta-1990.flac", "/m/alpha.flac", "/m/beta-2010-1.flac", "/m/beta-2010-2.flac",
+          "/m/aardvark.flac", "/m/loner.flac"]
+    )]
+    #[case::by_year_desc(
+        GenreSort::Year,
+        true,
+        &["/m/beta-2010-1.flac", "/m/beta-2010-2.flac", "/m/alpha.flac", "/m/beta-1990.flac",
           "/m/aardvark.flac", "/m/loner.flac"]
     )]
     fn tracks_by_genre_keep_albums_whole_in_the_chosen_order(
         #[case] sort: GenreSort,
+        #[case] desc: bool,
         #[case] expected: &[&str],
     ) {
         let (lib, _path) = create_test_db();
@@ -5242,7 +5280,7 @@ mod tests {
         );
         lib.resolve_album_artists().unwrap();
 
-        assert_eq!(genre_titles(&lib, "rock", sort), expected);
+        assert_eq!(genre_titles(&lib, "rock", sort, desc), expected);
     }
 
     #[test]
@@ -5257,11 +5295,11 @@ mod tests {
         );
 
         assert_eq!(
-            genre_titles(&lib, "rock", GenreSort::Artist),
+            genre_titles(&lib, "rock", GenreSort::Artist, false),
             vec!["/m/a.flac".to_string(), "/m/b.flac".to_string()]
         );
-        assert!(genre_titles(&lib, "Rock", GenreSort::Artist).is_empty());
-        assert!(genre_titles(&lib, "polka", GenreSort::Artist).is_empty());
+        assert!(genre_titles(&lib, "Rock", GenreSort::Artist, false).is_empty());
+        assert!(genre_titles(&lib, "polka", GenreSort::Artist, false).is_empty());
     }
 
     #[test]

@@ -186,8 +186,6 @@ pub static KO: Strings = lang! {
     liked_tracks_desc: "좋아요 기능 전체를 표시합니다: 트랙 행의 하트와 좋아요 탭.",
     playlists_desc: "재생목록 탭과 트랙 행의 재생목록 추가 버튼을 표시합니다.",
     genres_desc: "트랙을 장르 태그별로 묶어 보여 주는 장르 탭을 표시합니다.",
-    genre_sort_artist: "아티스트",
-    genre_sort_year: "연도",
     track_duration: "트랙 길이",
     track_duration_desc: "대기열에서 트랙 길이를 표시하거나 숨깁니다",
     action_buttons: "동작 버튼",

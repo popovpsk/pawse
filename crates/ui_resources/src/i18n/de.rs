@@ -186,8 +186,6 @@ pub static DE: Strings = lang! {
     liked_tracks_desc: "Zeigt alles rund ums Liken: das Herz in den Titelzeilen und den Favoriten-Tab.",
     playlists_desc: "Zeigt den Playlists-Tab und den Button zum Hinzufügen zur Playlist in den Titelzeilen.",
     genres_desc: "Zeigt den Genres-Tab, der deine Titel nach ihrem Genre-Tag gruppiert.",
-    genre_sort_artist: "Künstler",
-    genre_sort_year: "Jahr",
     track_duration: "Titeldauer",
     track_duration_desc: "Titeldauer in der Warteschlange anzeigen oder ausblenden",
     action_buttons: "Aktionsbuttons",

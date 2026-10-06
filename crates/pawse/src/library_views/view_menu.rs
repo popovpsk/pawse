@@ -1,6 +1,7 @@
 use gpui::{
     Anchor, App, Div, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, svg,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
+    svg,
 };
 use gpui_component::{
     FocusableExt, Icon, Selectable, Sizable,
@@ -10,6 +11,7 @@ use gpui_component::{
     switch::Switch,
     v_flex,
 };
+use music_library::GenreSort;
 use ui_resources::i18n::view_menu_strings;
 
 use crate::cover_backdrop::{popover_bg, veil_factor};
@@ -22,6 +24,8 @@ use crate::theme_colors::Colors;
 pub enum ViewMenuTab {
     Albums,
     Artists,
+    Genre,
+    Tracks,
 }
 
 pub const TRIGGER_SIZE: f32 = 36.;
@@ -65,7 +69,6 @@ struct MenuColors {
 }
 
 fn menu(tab: ViewMenuTab, scale: f32, cx: &App) -> impl IntoElement + use<> {
-    let s = view_menu_strings();
     let settings = cx.global::<SettingsStore>();
     let colors = MenuColors {
         foreground: Colors::foreground(cx),
@@ -74,22 +77,7 @@ fn menu(tab: ViewMenuTab, scale: f32, cx: &App) -> impl IntoElement + use<> {
         border: Colors::border(cx),
         chip_on: Colors::secondary(cx),
     };
-
-    let layout = settings.albums_layout();
-    let grouping = match tab {
-        ViewMenuTab::Albums => {
-            let label = if settings.albums_sort().0 == AlbumsSort::Year {
-                s.group_by_decade.clone()
-            } else {
-                s.group_by_letter.clone()
-            };
-            Some((label, settings.albums_grouped()))
-        }
-        ViewMenuTab::Artists => (settings.artists_sort().0 == ArtistsSort::Name)
-            .then(|| (s.group_by_letter.clone(), settings.artists_grouped())),
-    };
-
-    v_flex()
+    let content = v_flex()
         .id("library-view-menu-content")
         .w(px(MENU_WIDTH * scale))
         .p_1p5()
@@ -99,42 +87,138 @@ fn menu(tab: ViewMenuTab, scale: f32, cx: &App) -> impl IntoElement + use<> {
         .border_color(colors.border)
         .rounded(px(8.))
         .shadow_md()
-        .occlude()
-        .when(tab == ViewMenuTab::Albums, |menu| {
-            menu.child(layout_switch(layout))
-        })
+        .occlude();
+    match tab {
+        ViewMenuTab::Albums => albums_menu(content, settings, colors),
+        ViewMenuTab::Artists => artists_menu(content, settings, colors),
+        ViewMenuTab::Genre => genre_menu(content, settings, colors),
+        ViewMenuTab::Tracks => tracks_menu(content, settings, colors),
+    }
+}
+
+fn albums_menu(
+    content: Stateful<Div>,
+    settings: &SettingsStore,
+    colors: MenuColors,
+) -> Stateful<Div> {
+    let s = view_menu_strings();
+    let layout = settings.albums_layout();
+    let (current, desc) = settings.albums_sort();
+    let group_label = if current == AlbumsSort::Year {
+        s.group_by_decade.clone()
+    } else {
+        s.group_by_letter.clone()
+    };
+    content
+        .child(layout_switch(layout))
         .child(section_label(s.sort_by.clone(), colors))
-        .map(|menu| match tab {
-            ViewMenuTab::Albums => {
-                let (current, desc) = settings.albums_sort();
-                menu.children(
-                    AlbumsSort::ALL
-                        .into_iter()
-                        .map(|sort| album_sort_row(sort, current, desc, colors)),
-                )
-            }
-            ViewMenuTab::Artists => {
-                let (current, desc) = settings.artists_sort();
-                menu.children(
-                    ArtistsSort::ALL
-                        .into_iter()
-                        .map(|sort| artist_sort_row(sort, current, desc, colors)),
-                )
-            }
+        .children(
+            AlbumsSort::ALL
+                .into_iter()
+                .map(|sort| album_sort_row(sort, current, desc, colors)),
+        )
+        .child(separator(colors))
+        .child(switch_row(
+            "library-view-group",
+            group_label,
+            settings.albums_grouped(),
+            colors,
+            SettingsStore::set_albums_grouped,
+        ))
+        .child(separator(colors))
+        .child(section_label(s.show.clone(), colors))
+        .child(album_chips(settings, layout, colors))
+        .when(
+            layout == LibraryLayout::List && settings.albums_show_artist(),
+            |menu| menu.child(artist_placement(settings, colors)),
+        )
+}
+
+fn artists_menu(
+    content: Stateful<Div>,
+    settings: &SettingsStore,
+    colors: MenuColors,
+) -> Stateful<Div> {
+    let s = view_menu_strings();
+    let (current, desc) = settings.artists_sort();
+    content
+        .child(section_label(s.sort_by.clone(), colors))
+        .children(
+            ArtistsSort::ALL
+                .into_iter()
+                .map(|sort| artist_sort_row(sort, current, desc, colors)),
+        )
+        .when(current == ArtistsSort::Name, |menu| {
+            menu.child(separator(colors)).child(switch_row(
+                "library-view-group",
+                s.group_by_letter.clone(),
+                settings.artists_grouped(),
+                colors,
+                SettingsStore::set_artists_grouped,
+            ))
         })
-        .when_some(grouping, |menu, (label, grouped)| {
-            menu.child(separator(colors))
-                .child(group_row(tab, label, grouped, colors))
-        })
-        .when(tab == ViewMenuTab::Albums, |menu| {
-            menu.child(separator(colors))
-                .child(section_label(s.show.clone(), colors))
-                .child(album_chips(settings, layout, colors))
-                .when(
-                    layout == LibraryLayout::List && settings.albums_show_artist(),
-                    |menu| menu.child(artist_placement(settings, colors)),
-                )
-        })
+}
+
+fn genre_menu(
+    content: Stateful<Div>,
+    settings: &SettingsStore,
+    colors: MenuColors,
+) -> Stateful<Div> {
+    let (current, desc) = settings.genres_sort();
+    content
+        .child(section_label(view_menu_strings().sort_by.clone(), colors))
+        .children(
+            GenreSort::ALL
+                .into_iter()
+                .map(|sort| genre_sort_row(sort, current, desc, colors)),
+        )
+}
+
+fn tracks_menu(
+    content: Stateful<Div>,
+    settings: &SettingsStore,
+    colors: MenuColors,
+) -> Stateful<Div> {
+    let s = view_menu_strings();
+    content
+        .child(section_label(s.show.clone(), colors))
+        .child(
+            h_flex()
+                .flex_wrap()
+                .gap_1p5()
+                .px_2()
+                .pt_0p5()
+                .pb_2()
+                .child(chip(
+                    "playlists-show-artist",
+                    s.artist.clone(),
+                    settings.playlists_show_artist(),
+                    colors,
+                    SettingsStore::set_playlists_show_artist,
+                ))
+                .child(chip(
+                    "playlists-show-album",
+                    s.album.clone(),
+                    settings.playlists_show_album(),
+                    colors,
+                    SettingsStore::set_playlists_show_album,
+                ))
+                .child(chip(
+                    "playlists-show-year",
+                    s.year.clone(),
+                    settings.playlists_show_year(),
+                    colors,
+                    SettingsStore::set_playlists_show_year,
+                )),
+        )
+        .child(separator(colors))
+        .child(switch_row(
+            "playlists-show-unavailable",
+            s.show_unavailable.clone(),
+            settings.playlists_show_unavailable(),
+            colors,
+            SettingsStore::set_playlists_show_unavailable,
+        ))
 }
 
 fn layout_switch(layout: LibraryLayout) -> impl IntoElement {
@@ -217,6 +301,28 @@ fn artist_sort_row(
     })
 }
 
+fn genre_sort_row(
+    sort: GenreSort,
+    current: GenreSort,
+    desc: bool,
+    colors: MenuColors,
+) -> impl IntoElement {
+    let s = view_menu_strings();
+    let (id, label, hints) = match sort {
+        GenreSort::Artist => ("genre-sort-artist", &s.artist, (&s.a_to_z, &s.z_to_a)),
+        GenreSort::Year => (
+            "genre-sort-year",
+            &s.year,
+            (&s.oldest_first, &s.newest_first),
+        ),
+    };
+    let active = sort == current;
+    let hint = if desc { hints.1 } else { hints.0 };
+    sort_row(id, label.clone(), hint.clone(), active, colors, move |cx| {
+        save(cx, |s| s.set_genres_sort(sort, active && !desc));
+    })
+}
+
 fn section_label(label: SharedString, colors: MenuColors) -> impl IntoElement {
     div()
         .px_2p5()
@@ -278,22 +384,16 @@ fn sort_row(
         .on_click(move |_, _, cx| pick(cx))
 }
 
-fn set_grouped(tab: ViewMenuTab, grouped: bool, cx: &mut App) {
-    save(cx, |s| match tab {
-        ViewMenuTab::Albums => s.set_albums_grouped(grouped),
-        ViewMenuTab::Artists => s.set_artists_grouped(grouped),
-    });
-}
-
-fn group_row(
-    tab: ViewMenuTab,
+fn switch_row(
+    id: &'static str,
     label: SharedString,
-    grouped: bool,
+    on: bool,
     colors: MenuColors,
+    set: fn(&mut SettingsStore, bool) -> anyhow::Result<()>,
 ) -> impl IntoElement {
     let hover = colors.hover;
     h_flex()
-        .id("library-view-group")
+        .id(id)
         .min_h(px(ROW_HEIGHT))
         .px_2p5()
         .py_1()
@@ -310,14 +410,14 @@ fn group_row(
                 .child(label),
         )
         .child(
-            Switch::new("library-view-group-switch")
+            Switch::new((id, 0usize))
                 .small()
                 .flex_shrink_0()
-                .checked(grouped)
+                .checked(on)
                 .tab_stop(false)
                 .focus_ring(false),
         )
-        .on_click(move |_, _, cx| set_grouped(tab, !grouped, cx))
+        .on_click(move |_, _, cx| save(cx, |s| set(s, !on)))
 }
 
 fn chip(

@@ -186,8 +186,6 @@ pub static TH: Strings = lang! {
     liked_tracks_desc: "แสดงทุกอย่างสำหรับการกดถูกใจ: ไอคอนหัวใจในแถวเพลงและแท็บที่ถูกใจ",
     playlists_desc: "แสดงแท็บเพลย์ลิสต์และปุ่มเพิ่มลงเพลย์ลิสต์ในแถวเพลง",
     genres_desc: "แสดงแท็บแนวเพลง ซึ่งจัดกลุ่มเพลงตามแท็กแนวเพลง",
-    genre_sort_artist: "ศิลปิน",
-    genre_sort_year: "ปี",
     track_duration: "ความยาวเพลง",
     track_duration_desc: "แสดงหรือซ่อนความยาวเพลงในคิว",
     action_buttons: "ปุ่มการกระทำ",

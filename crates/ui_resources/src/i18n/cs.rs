@@ -186,8 +186,6 @@ pub static CS: Strings = lang! {
     liked_tracks_desc: "Zobrazuje vše pro oblíbené: srdce v řádcích skladeb a kartu Oblíbené.",
     playlists_desc: "Zobrazuje kartu Playlisty a tlačítko pro přidání do playlistu v řádcích skladeb.",
     genres_desc: "Zobrazuje kartu Žánry, která seskupuje skladby podle štítku žánru.",
-    genre_sort_artist: "Interpret",
-    genre_sort_year: "Rok",
     track_duration: "Délka skladby",
     track_duration_desc: "Zobrazit nebo skrýt délku skladby ve frontě",
     action_buttons: "Tlačítka akcí",

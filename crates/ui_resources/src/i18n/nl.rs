@@ -186,8 +186,6 @@ pub static NL: Strings = lang! {
     liked_tracks_desc: "Toont alles voor favorieten: het hartje in de nummerrijen en het tabblad Favorieten.",
     playlists_desc: "Toont het tabblad Afspeellijsten en de knop om aan een afspeellijst toe te voegen in de nummerrijen.",
     genres_desc: "Toont het tabblad Genres, dat je nummers groepeert op hun genretag.",
-    genre_sort_artist: "Artiest",
-    genre_sort_year: "Jaar",
     track_duration: "Duur",
     track_duration_desc: "Toon of verberg de duur in de wachtrij",
     action_buttons: "Actieknoppen",

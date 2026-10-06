@@ -186,8 +186,6 @@ pub static SV: Strings = lang! {
     liked_tracks_desc: "Visar allt för att gilla låtar: hjärtat på låtraderna och fliken Gillade.",
     playlists_desc: "Visar fliken Spellistor och knappen för att lägga till i en spellista på låtraderna.",
     genres_desc: "Visar fliken Genrer, som grupperar dina låtar efter genretaggen.",
-    genre_sort_artist: "Artist",
-    genre_sort_year: "År",
     track_duration: "Längd",
     track_duration_desc: "Visa eller dölj längden i kön",
     action_buttons: "Åtgärdsknappar",

@@ -94,6 +94,7 @@ pub struct MainView {
     playlist_popup: Entity<PlaylistPopup>,
     is_drilled_in: bool,
     current_tab: LibraryRootTab,
+    view_menu_tab: Option<ViewMenuTab>,
     show_settings: bool,
     show_tools: bool,
     tools_view: Entity<crate::tools::ToolsView>,
@@ -169,6 +170,7 @@ pub struct MainView {
 impl MainView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let library_view = cx.new(|cx| LibraryView::new(window, cx));
+        let view_menu_tab = library_view.read(cx).view_menu_tab();
 
         let library_subscription = cx.subscribe_in(
             &library_view,
@@ -177,6 +179,7 @@ impl MainView {
                 LibraryViewEvent::StateChanged => {
                     let view = this.library_view.read(cx);
                     this.is_drilled_in = view.is_drilled_in();
+                    this.view_menu_tab = view.view_menu_tab();
                     if let Some(tab) = view.current_tab() {
                         this.current_tab = tab;
                     }
@@ -606,6 +609,7 @@ impl MainView {
             playlist_popup,
             is_drilled_in: false,
             current_tab: LibraryRootTab::Albums,
+            view_menu_tab,
             show_settings: false,
             show_tools: false,
             tools_view: cx
@@ -940,12 +944,10 @@ impl Render for MainView {
         let genres_enabled = settings.genres_enabled();
         let tools_enabled = settings.tools_enabled();
         let scale = settings.font_scale().ui_scale();
-        let view_menu = match self.current_tab {
-            _ if show_screen || cover_mode || self.is_drilled_in => None,
-            LibraryRootTab::Albums => Some(view_menu(ViewMenuTab::Albums, scale)),
-            LibraryRootTab::Artists => Some(view_menu(ViewMenuTab::Artists, scale)),
-            _ => None,
-        };
+        let view_menu = self
+            .view_menu_tab
+            .filter(|_| !show_screen && !cover_mode)
+            .map(|tab| view_menu(tab, scale));
 
         let left_group = div()
             .flex_1()

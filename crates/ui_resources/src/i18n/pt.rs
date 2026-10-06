@@ -186,8 +186,6 @@ pub static PT: Strings = lang! {
     liked_tracks_desc: "Mostra tudo para curtir faixas: o coração nas linhas das faixas e a aba Curtidas.",
     playlists_desc: "Mostra a aba Playlists e o botão de adicionar à playlist nas linhas das faixas.",
     genres_desc: "Mostra a aba Géneros, que agrupa suas faixas pela tag de género.",
-    genre_sort_artist: "Artista",
-    genre_sort_year: "Ano",
     track_duration: "Duração",
     track_duration_desc: "Mostrar ou ocultar a duração na fila",
     action_buttons: "Botões de ação",

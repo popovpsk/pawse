@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use audio_engine::EngineEvent;
@@ -6,7 +5,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
     Pixels, Render, SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, px, size, svg,
+    div, px, rems, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -25,7 +24,8 @@ use ui_components::cover_thumb::cover_thumb;
 use crate::library_service::{LibraryEvent, LibraryService};
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::track_row::{
-    CoverTrackRow, build_artist_map, build_haystacks, unavailable_label,
+    CoverTrackRow, TITLE_MIN_WIDTH, TrackListPrefs, TrackNames, build_haystacks, track_columns,
+    unavailable_label,
 };
 use crate::localization::{LangChanged, tr};
 use crate::playback_queue::QueueSource;
@@ -71,8 +71,9 @@ pub struct PlaylistTracksView {
     source: QueueSource,
     tracks_all: Vec<Rc<music_library::Track>>,
     row_data: Vec<CoverTrackRow>,
-    artist_by_track: HashMap<i64, SharedString>,
+    names: TrackNames,
     haystacks: Vec<String>,
+    prefs: TrackListPrefs,
     unavailable: Option<SharedString>,
     items: Vec<Item>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
@@ -85,6 +86,7 @@ pub struct PlaylistTracksView {
     _engine_subscription: Subscription,
     _status_subscription: Subscription,
     _lang_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl PlaylistTracksView {
@@ -100,19 +102,9 @@ impl PlaylistTracksView {
         let engine_event_bus = services.engine_event_bus.clone();
 
         let tracks_all = load_tracks(source, &library);
-        let artist_by_track = build_artist_map(&library, &tracks_all);
-        let haystacks = build_haystacks(&tracks_all, &artist_by_track);
-        let (items, sizes) = Self::build_items(tracks_all.len());
-        let row_data = {
-            let mut cover_cache = services.cover_art_cache.borrow_mut();
-            tracks_all
-                .iter()
-                .enumerate()
-                .map(|(ix, t)| {
-                    CoverTrackRow::from_track(t, ix, &artist_by_track, &mut cover_cache, &library)
-                })
-                .collect()
-        };
+        let names = TrackNames::load(&library, &tracks_all);
+        let haystacks = build_haystacks(&tracks_all, &names);
+        let prefs = TrackListPrefs::read(cx.global::<SettingsStore>());
 
         let current_track_id = services
             .playback_queue
@@ -160,7 +152,21 @@ impl PlaylistTracksView {
 
         let lang_event_bus = cx.global::<Services>().lang_event_bus.clone();
         let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
-            this.unavailable = unavailable_label(&this.tracks_all);
+            this.unavailable = unavailable_label(&this.tracks_all, this.prefs.unavailable);
+            cx.notify();
+        });
+
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            let prefs = TrackListPrefs::read(cx.global::<SettingsStore>());
+            if prefs == this.prefs {
+                return;
+            }
+            let rows_changed = prefs.unavailable != this.prefs.unavailable;
+            this.prefs = prefs;
+            if rows_changed {
+                this.unavailable = unavailable_label(&this.tracks_all, prefs.unavailable);
+                this.recompute_visible(cx);
+            }
             cx.notify();
         });
 
@@ -195,16 +201,17 @@ impl PlaylistTracksView {
             },
         );
 
-        Self {
+        let mut this = Self {
             name,
             source,
-            unavailable: unavailable_label(&tracks_all),
+            unavailable: unavailable_label(&tracks_all, prefs.unavailable),
             tracks_all,
-            row_data,
-            artist_by_track,
+            row_data: Vec::new(),
+            names,
             haystacks,
-            items,
-            item_sizes: Rc::new(sizes),
+            prefs,
+            items: Vec::new(),
+            item_sizes: Rc::new(Vec::new()),
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
             current_track_id,
@@ -214,15 +221,18 @@ impl PlaylistTracksView {
             _engine_subscription: engine_subscription,
             _status_subscription: status_subscription,
             _lang_subscription: lang_subscription,
-        }
+            _settings_observer: settings_observer,
+        };
+        this.recompute_visible(cx);
+        this
     }
 
     fn reload_tracks(&mut self, cx: &mut Context<Self>) {
         let library = cx.global::<Services>().library.clone();
         self.tracks_all = load_tracks(self.source, &library);
-        self.artist_by_track = build_artist_map(&library, &self.tracks_all);
-        self.haystacks = build_haystacks(&self.tracks_all, &self.artist_by_track);
-        self.unavailable = unavailable_label(&self.tracks_all);
+        self.names = TrackNames::load(&library, &self.tracks_all);
+        self.haystacks = build_haystacks(&self.tracks_all, &self.names);
+        self.unavailable = unavailable_label(&self.tracks_all, self.prefs.unavailable);
         self.recompute_visible(cx);
         cx.notify();
     }
@@ -256,19 +266,15 @@ impl PlaylistTracksView {
         let services = cx.global::<Services>();
         let mut cover_cache = services.cover_art_cache.borrow_mut();
         let library = &services.library;
+        let show_unavailable = self.prefs.unavailable;
         if self.filter.is_empty() {
             self.row_data = self
                 .tracks_all
                 .iter()
                 .enumerate()
+                .filter(|(_, t)| show_unavailable || t.available)
                 .map(|(ix, t)| {
-                    CoverTrackRow::from_track(
-                        t,
-                        ix,
-                        &self.artist_by_track,
-                        &mut cover_cache,
-                        library,
-                    )
+                    CoverTrackRow::from_track(t, ix, &self.names, &mut cover_cache, library)
                 })
                 .collect();
         } else {
@@ -282,11 +288,12 @@ impl PlaylistTracksView {
             );
             self.row_data = indices
                 .into_iter()
+                .filter(|&ix| show_unavailable || self.tracks_all[ix].available)
                 .map(|ix| {
                     CoverTrackRow::from_track(
                         &self.tracks_all[ix],
                         ix,
-                        &self.artist_by_track,
+                        &self.names,
                         &mut cover_cache,
                         library,
                     )
@@ -319,6 +326,10 @@ impl Render for PlaylistTracksView {
         if self.row_data.is_empty() {
             let message = if self.tracks_all.is_empty() {
                 tr().playlist_is_empty.clone()
+            } else if self.filter.is_empty() {
+                self.unavailable
+                    .clone()
+                    .unwrap_or_else(|| tr().no_tracks_match.clone())
             } else {
                 tr().no_tracks_match.clone()
             };
@@ -337,6 +348,7 @@ impl Render for PlaylistTracksView {
             foreground,
             liked_enabled,
             playlists_enabled,
+            prefs: self.prefs,
             buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
@@ -401,6 +413,7 @@ struct PlaylistTrackRowParams {
     foreground: gpui::Hsla,
     liked_enabled: bool,
     playlists_enabled: bool,
+    prefs: TrackListPrefs,
     buttons: RowButtonColors,
 }
 
@@ -443,7 +456,7 @@ fn playlist_track_row(
         cover_el
     };
 
-    h_flex()
+    let row_el = h_flex()
         .group(LIKE_ROW_GROUP)
         .w_full()
         .h(px(TRACK_ROW_HEIGHT))
@@ -460,23 +473,14 @@ fn playlist_track_row(
         .child(
             div()
                 .flex_1()
-                .min_w(px(0.))
+                .min_w(rems(TITLE_MIN_WIDTH))
                 .overflow_hidden()
                 .text_ellipsis()
                 .text_sm()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(row.base.title.clone()),
-        )
-        .child(
-            div()
-                .w(px(140.))
-                .min_w(px(0.))
-                .overflow_hidden()
-                .text_ellipsis()
-                .text_sm()
-                .text_color(p.muted_fg)
-                .child(row.artist.clone()),
-        )
+        );
+    track_columns(row_el, row, p.prefs, p.muted_fg)
         .when(p.playlists_enabled, |el| {
             el.child(add_to_playlist_button(track_id, &p.buttons))
         })

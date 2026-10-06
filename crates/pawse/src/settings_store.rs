@@ -483,6 +483,16 @@ pub struct UserSettings {
     #[serde(default)]
     pub genres_sort: music_library::GenreSort,
     #[serde(default)]
+    pub genres_sort_desc: bool,
+    #[serde(default = "default_true")]
+    pub playlists_show_artist: bool,
+    #[serde(default)]
+    pub playlists_show_album: bool,
+    #[serde(default)]
+    pub playlists_show_year: bool,
+    #[serde(default = "default_true")]
+    pub playlists_show_unavailable: bool,
+    #[serde(default)]
     pub tools_enabled: bool,
     #[serde(default = "default_true")]
     pub show_track_duration: bool,
@@ -598,6 +608,11 @@ impl Default for UserSettings {
             playlists_enabled: true,
             genres_enabled: false,
             genres_sort: music_library::GenreSort::default(),
+            genres_sort_desc: false,
+            playlists_show_artist: true,
+            playlists_show_album: false,
+            playlists_show_year: false,
+            playlists_show_unavailable: true,
             tools_enabled: false,
             show_track_duration: true,
             show_queue_actions: true,
@@ -1300,12 +1315,53 @@ impl SettingsStore {
         self.save()
     }
 
-    pub fn genres_sort(&self) -> music_library::GenreSort {
-        self.settings.genres_sort
+    pub fn genres_sort(&self) -> (music_library::GenreSort, bool) {
+        (self.settings.genres_sort, self.settings.genres_sort_desc)
     }
 
-    pub fn set_genres_sort(&mut self, sort: music_library::GenreSort) -> anyhow::Result<()> {
+    pub fn set_genres_sort(
+        &mut self,
+        sort: music_library::GenreSort,
+        desc: bool,
+    ) -> anyhow::Result<()> {
         self.settings.genres_sort = sort;
+        self.settings.genres_sort_desc = desc;
+        self.save()
+    }
+
+    pub fn playlists_show_artist(&self) -> bool {
+        self.settings.playlists_show_artist
+    }
+
+    pub fn set_playlists_show_artist(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.playlists_show_artist = show;
+        self.save()
+    }
+
+    pub fn playlists_show_album(&self) -> bool {
+        self.settings.playlists_show_album
+    }
+
+    pub fn set_playlists_show_album(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.playlists_show_album = show;
+        self.save()
+    }
+
+    pub fn playlists_show_year(&self) -> bool {
+        self.settings.playlists_show_year
+    }
+
+    pub fn set_playlists_show_year(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.playlists_show_year = show;
+        self.save()
+    }
+
+    pub fn playlists_show_unavailable(&self) -> bool {
+        self.settings.playlists_show_unavailable
+    }
+
+    pub fn set_playlists_show_unavailable(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.playlists_show_unavailable = show;
         self.save()
     }
 
@@ -1889,6 +1945,11 @@ mod tests {
             playlists_enabled: true,
             genres_enabled: true,
             genres_sort: music_library::GenreSort::Year,
+            genres_sort_desc: true,
+            playlists_show_artist: false,
+            playlists_show_album: true,
+            playlists_show_year: true,
+            playlists_show_unavailable: false,
             tools_enabled: true,
             show_track_duration: true,
             show_queue_actions: true,
@@ -1966,6 +2027,11 @@ mod tests {
         );
         assert!(back.genres_enabled);
         assert_eq!(back.genres_sort, music_library::GenreSort::Year);
+        assert!(back.genres_sort_desc);
+        assert!(!back.playlists_show_artist);
+        assert!(back.playlists_show_album);
+        assert!(back.playlists_show_year);
+        assert!(!back.playlists_show_unavailable);
         assert_eq!(back.playback.queue.len(), 1);
         assert_eq!(back.playback.queue[0], track);
         assert_eq!(back.playback.current_index, Some(0));
@@ -2141,7 +2207,14 @@ mod tests {
 
         let store = SettingsStore::load_from(path.clone());
         assert!(!store.genres_enabled());
-        assert_eq!(store.genres_sort(), music_library::GenreSort::Artist);
+        assert_eq!(
+            store.genres_sort(),
+            (music_library::GenreSort::Artist, false)
+        );
+        assert!(store.playlists_show_artist());
+        assert!(!store.playlists_show_album());
+        assert!(!store.playlists_show_year());
+        assert!(store.playlists_show_unavailable());
         assert!(store.scrobble().lastfm.enabled);
         assert!(store.scrobble().first_artist_only);
         assert!(!store.scrobble().csv_log.enabled);

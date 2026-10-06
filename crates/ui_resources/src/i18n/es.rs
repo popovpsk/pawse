@@ -186,8 +186,6 @@ pub static ES: Strings = lang! {
     liked_tracks_desc: "Muestra todo para marcar favoritos: el corazón en las filas de canciones y la pestaña Favoritos.",
     playlists_desc: "Muestra la pestaña Listas y el botón para añadir a una lista en las filas de canciones.",
     genres_desc: "Muestra la pestaña Géneros, que agrupa tus canciones por su etiqueta de género.",
-    genre_sort_artist: "Artista",
-    genre_sort_year: "Año",
     track_duration: "Duración",
     track_duration_desc: "Mostrar u ocultar la duración en la cola",
     action_buttons: "Botones de acción",

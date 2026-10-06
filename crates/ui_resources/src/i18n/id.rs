@@ -186,8 +186,6 @@ pub static ID: Strings = lang! {
     liked_tracks_desc: "Menampilkan semua fitur suka: ikon hati di baris lagu dan tab Disukai.",
     playlists_desc: "Menampilkan tab Playlist dan tombol tambah ke playlist di baris lagu.",
     genres_desc: "Menampilkan tab Genre yang mengelompokkan lagu berdasarkan tag genre.",
-    genre_sort_artist: "Artis",
-    genre_sort_year: "Tahun",
     track_duration: "Durasi",
     track_duration_desc: "Tampilkan atau sembunyikan durasi di antrean",
     action_buttons: "Tombol aksi",

@@ -186,8 +186,6 @@ pub static VI: Strings = lang! {
     liked_tracks_desc: "Hiển thị mọi thứ để yêu thích bài hát: trái tim ở các hàng bài hát và tab Yêu thích.",
     playlists_desc: "Hiển thị tab Danh sách phát và nút thêm vào danh sách phát ở các hàng bài hát.",
     genres_desc: "Hiển thị tab Thể loại, nhóm các bài hát theo thẻ thể loại.",
-    genre_sort_artist: "Nghệ sĩ",
-    genre_sort_year: "Năm",
     track_duration: "Thời lượng",
     track_duration_desc: "Hiện hoặc ẩn thời lượng trong hàng đợi",
     action_buttons: "Nút thao tác",

@@ -14,6 +14,7 @@ use crate::library_views::playlists_view::{
     AllTracksSelectedEvent, PlaylistSelectedEvent, PlaylistsView,
 };
 use crate::library_views::tracks_view::TracksView;
+use crate::library_views::view_menu::ViewMenuTab;
 use crate::localization::tr;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playback_queue::QueueSource;
@@ -161,6 +162,18 @@ impl LibraryView {
 
     pub fn is_drilled_in(&self) -> bool {
         self.stack.len() > 1
+    }
+
+    pub fn view_menu_tab(&self) -> Option<ViewMenuTab> {
+        match self.stack.last()? {
+            NavEntry::Root(LibraryRootTab::Albums) => Some(ViewMenuTab::Albums),
+            NavEntry::Root(LibraryRootTab::Artists) => Some(ViewMenuTab::Artists),
+            NavEntry::Root(LibraryRootTab::Liked) | NavEntry::PlaylistTracks(_) => {
+                Some(ViewMenuTab::Tracks)
+            }
+            NavEntry::GenreTracks { .. } => Some(ViewMenuTab::Genre),
+            _ => None,
+        }
     }
 
     pub fn current_tab(&self) -> Option<LibraryRootTab> {

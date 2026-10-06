@@ -186,8 +186,6 @@ pub static IT: Strings = lang! {
     liked_tracks_desc: "Mostra tutto ciò che serve per i preferiti: il cuore nelle righe dei brani e la scheda Preferiti.",
     playlists_desc: "Mostra la scheda Playlist e il pulsante per aggiungere a una playlist nelle righe dei brani.",
     genres_desc: "Mostra la scheda Generi, che raggruppa i brani in base al tag del genere.",
-    genre_sort_artist: "Artista",
-    genre_sort_year: "Anno",
     track_duration: "Durata",
     track_duration_desc: "Mostra o nascondi la durata nella coda",
     action_buttons: "Pulsanti azione",

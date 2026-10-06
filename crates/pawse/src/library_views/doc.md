@@ -292,8 +292,12 @@ drive the `PlaybackQueue` on click.
   reserves a button-wide slot on *both* sides of the 200 px search box (fuzzy search
   needs two or three letters, a wider field bought nothing) and puts the
   button in the right one, so the search stays centred and the side groups give way in
-  a narrow window instead of being overlapped. Shown only on the root Albums and Artists tabs — not on drill-downs, other
-  tabs, cover mode or Settings/Tools. Every control writes straight to `SettingsStore`
+  a narrow window instead of being overlapped. Which menu, if any, is
+  `LibraryView::view_menu_tab` (top of the nav stack, re-read by `MainView` on every
+  `StateChanged`): `Albums` and `Artists` on those root tabs, `Genre` on a genre page
+  (sort only), `Tracks` on the Liked tab, a playlist and All tracks (columns and
+  unavailable tracks, see `liked_view.rs` below); nothing on the album and artist pages,
+  the Genres and Playlists lists, cover mode or Settings/Tools. Every control writes straight to `SettingsStore`
   (persisted like any other setting); the popover stays open and the tab views redraw
   behind it through their own settings observers. Clicking the active sort again flips
   its direction; picking another sort resets to that sort's default direction (Track
@@ -302,8 +306,8 @@ drive the `PlaybackQueue` on click.
   stop propagation, so a handler on both wrote the setting twice per click. Row labels
   are `min_w_0` and wrap, the switch and the sort hint never shrink: "group by decade"
   in Russian and Ukrainian is wider than the menu and used to push the switch past its
-  edge. Each tab
-  keeps its own sort, direction and grouping; the Grid/List switch is Albums-only. These used to be the Settings → Appearance → Albums view group, which is
+  edge. Each menu
+  keeps its own settings; the Grid/List switch is Albums-only. These used to be the Settings → Appearance → Albums view group, which is
   gone; only `artists_grouping` (which tag defines an artist) stays in Settings, since
   it changes the data rather than how it looks. Strings live in their own table,
   `ui_resources::i18n::view_menu_strings`.
@@ -334,15 +338,21 @@ drive the `PlaybackQueue` on click.
   The save-to-cache button is artist-only too.
   **Genre page**: holds the genre by `genres.key`, never by id — genre ids are not
   kept across scans (see `music_library/src/doc.md`, "Stable album and artist ids"),
-  the key is. The header carries a segmented `[Artist | Year]` sort
-  (`GenreSort`); the choice is one global preference (`genres_sort` in
-  settings.json), so a click saves it, re-queries and scrolls to the top, and every
-  genre opens with it. The order is SQL-side (`tracks_by_genre`) and always keeps an
+  the key is. Its sort lives in the view menu (`ViewMenuTab::Genre`): Artist or Year,
+  each with a direction — clicking the active one flips it, like the Albums tab — and
+  is one global preference (`genres_sort` + `genres_sort_desc` in settings.json), so
+  every genre opens with it. The page follows the setting itself
+  (`observe_global::<SettingsStore>` → `follow_genre_sort`), re-queries and scrolls to
+  the top. These used to be `[Artist | Year]` buttons in the page header, without a
+  direction. The order is SQL-side (`tracks_by_genre`) and always keeps an
   album's tracks contiguous, because grouping is by consecutive `album_id` runs: both
   sorts key on the *album's* year and its position-0 album artist — never `t.year` or
   a track artist — so they ignore `artists_grouping`, exactly like the Albums tab
-  (a per-track artist would scatter a compilation across the page). Year is oldest
-  first; undated albums, then tracks with no album, go last in both sorts. Album
+  (a per-track artist would scatter a compilation across the page). The direction
+  flips only the primary key (`genre_track_order`): an artist's albums stay
+  chronological under Z–A. Undated albums go after the dated ones — within each
+  artist under Artist, at the very end under Year — and tracks with no album go last
+  in every sort and direction. Album
   headers here add the album artist before the year ("Artist · 1970"), the name
   linking to that artist's page (`NavigateToArtistRequested`). No partial albums and
   no Full-albums toggle — expanding an album to its non-genre tracks would contradict
@@ -359,6 +369,25 @@ drive the `PlaybackQueue` on click.
   doesn't format.
 - `liked_view.rs` — the liked-tracks screen. Rows are drag-reorderable (only with
   an empty filter) via `LibraryService::move_liked_track`.
+  **View options (shared with `playlist_tracks_view`).** The `Tracks` view menu sets one
+  preference for Liked, every playlist and All tracks (`TrackListPrefs` in
+  `track_row.rs`: `playlists_show_artist` (default on), `playlists_show_album`,
+  `playlists_show_year`, `playlists_show_unavailable` (default on)). Columns are
+  `track_row::track_columns`, widths in rems so they follow the font scale. In a narrow
+  window artist and album shrink, the year does not, and the title keeps at least
+  `TITLE_MIN_WIDTH`: as a `flex_1` item it starts at zero width, so without a floor it
+  vanished before the columns gave up a pixel. Album names come from
+  `track_albums_map(track ids)` (`TrackNames`), a batch lookup shaped like
+  `track_artists_map`, which also names *unavailable* entries from the item snapshot
+  (`media_items.album`) — `album_id` is NULL for those. Not `albums()`: a reload runs
+  on every reorder drop. The year is the track's own (≤ 0 shown empty). There is no
+  sort: these are playback-ordering screens with drag reorder. Hiding unavailable
+  tracks drops them from `row_data` (reorder still works — rows carry `track_all_ix`),
+  the header label turns into "Hidden unavailable: N", and when nothing is left the
+  label is the empty state instead of "no matches". The switch changes only the list:
+  unavailable tracks never enter the queue either way (`PlaybackQueue` keeps only
+  `playable` ones), so the click path is unchanged. Each view has its own settings
+  observer; only a change of the unavailable switch rebuilds rows.
 - `playlists_view.rs` — list of playlists (create / delete / rename, fuzzy filter).
   Creating is a list row, not a button: the first row ("New playlist") turns into an
   inline name input in place with ✓ / ✕ icon buttons (✓ stays dimmed until a name is

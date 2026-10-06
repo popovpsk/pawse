@@ -597,8 +597,11 @@ impl LibraryService {
         &self,
         key: &str,
         sort: music_library::GenreSort,
+        desc: bool,
     ) -> Vec<music_library::Track> {
-        self.repo.tracks_by_genre(key, sort).unwrap_or_default()
+        self.repo
+            .tracks_by_genre(key, sort, desc)
+            .unwrap_or_default()
     }
 
     pub fn liked_tracks(&self) -> Vec<music_library::Track> {
@@ -889,6 +892,10 @@ impl LibraryService {
 
     pub fn album_title(&self, album_id: i64) -> Option<String> {
         self.repo.album_title(album_id).ok().flatten()
+    }
+
+    pub fn track_albums_map(&self, track_ids: &[i64]) -> HashMap<i64, String> {
+        self.repo.track_albums_map(track_ids).unwrap_or_default()
     }
 
     pub fn album_artists(&self, album_id: i64) -> Vec<String> {

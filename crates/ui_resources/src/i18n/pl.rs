@@ -186,8 +186,6 @@ pub static PL: Strings = lang! {
     liked_tracks_desc: "Pokazuje wszystko do polubień: serce w wierszach utworów i kartę Polubione.",
     playlists_desc: "Pokazuje kartę Playlisty i przycisk dodawania do playlisty w wierszach utworów.",
     genres_desc: "Pokazuje kartę Gatunki, która grupuje utwory według znacznika gatunku.",
-    genre_sort_artist: "Wykonawca",
-    genre_sort_year: "Rok",
     track_duration: "Czas trwania",
     track_duration_desc: "Pokaż lub ukryj czas trwania w kolejce",
     action_buttons: "Przyciski akcji",

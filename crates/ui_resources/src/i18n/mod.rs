@@ -243,8 +243,6 @@ pub struct Strings {
     pub liked_tracks_desc: SharedString,
     pub playlists_desc: SharedString,
     pub genres_desc: SharedString,
-    pub genre_sort_artist: SharedString,
-    pub genre_sort_year: SharedString,
     pub track_duration: SharedString,
     pub track_duration_desc: SharedString,
     pub action_buttons: SharedString,

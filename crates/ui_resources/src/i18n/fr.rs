@@ -186,8 +186,6 @@ pub static FR: Strings = lang! {
     liked_tracks_desc: "Affiche tout ce qui sert aux favoris : le cœur sur les lignes de titres et l'onglet Favoris.",
     playlists_desc: "Affiche l'onglet Playlists et le bouton d'ajout à une playlist sur les lignes de titres.",
     genres_desc: "Affiche l'onglet Genres, qui regroupe vos titres selon leur balise de genre.",
-    genre_sort_artist: "Artiste",
-    genre_sort_year: "Année",
     track_duration: "Durée",
     track_duration_desc: "Afficher ou masquer la durée dans la file d'attente",
     action_buttons: "Boutons d'action",

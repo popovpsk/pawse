@@ -11,9 +11,7 @@ use gpui::{
     anchored, deferred, div, point, px, size, svg,
 };
 use gpui_component::{
-    Selectable, Sizable, VirtualListScrollHandle,
-    button::{Button, ButtonGroup},
-    h_flex,
+    VirtualListScrollHandle, h_flex,
     scroll::{ScrollableElement, ScrollbarAxis},
     tooltip::Tooltip,
     v_flex, v_virtual_list,
@@ -33,7 +31,7 @@ use crate::library_views::fuzzy::fuzzy_scored;
 use crate::localization::{LangChanged, tr};
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::services::Services;
-use crate::settings_store::{SettingsStore, notify_save_error};
+use crate::settings_store::SettingsStore;
 use music_library::{ArtistGrouping, GenreSort};
 
 const TRACK_ROW_HEIGHT: f32 = 36.;
@@ -95,15 +93,22 @@ enum ItemKind {
 }
 
 enum Scope {
-    Artist { id: i64, grouping: ArtistGrouping },
-    Genre { key: String, sort: GenreSort },
+    Artist {
+        id: i64,
+        grouping: ArtistGrouping,
+    },
+    Genre {
+        key: String,
+        sort: GenreSort,
+        desc: bool,
+    },
 }
 
 impl Scope {
     fn fetch(&self, library: &LibraryService) -> Vec<Rc<music_library::Track>> {
         let tracks = match self {
             Scope::Artist { id, grouping } => library.tracks_by_artist(*id, *grouping),
-            Scope::Genre { key, sort } => library.tracks_by_genre(key, *sort),
+            Scope::Genre { key, sort, desc } => library.tracks_by_genre(key, *sort, *desc),
         };
         tracks.into_iter().map(Rc::new).collect()
     }
@@ -137,6 +142,7 @@ pub struct GroupedTracksView {
     _status_subscription: Subscription,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl GroupedTracksView {
@@ -154,12 +160,13 @@ impl GroupedTracksView {
 
     pub fn genre(
         genre: &music_library::GenreSummary,
-        sort: GenreSort,
+        (sort, desc): (GenreSort, bool),
         cx: &mut Context<Self>,
     ) -> Self {
         let scope = Scope::Genre {
             key: genre.key.clone(),
             sort,
+            desc,
         };
         Self::new(scope, genre.name.clone().into(), cx)
     }
@@ -262,6 +269,9 @@ impl GroupedTracksView {
             cx.notify();
         });
 
+        let settings_observer =
+            cx.observe_global::<SettingsStore>(|this, cx| this.follow_genre_sort(cx));
+
         let fill = cx.global::<Services>().cache_fill.clone();
         let fills_seen = fill.read(cx).revision();
         let fill_subscription = cx.observe(&fill, |this, fill, cx| {
@@ -312,6 +322,7 @@ impl GroupedTracksView {
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _lang_subscription: lang_subscription,
+            _settings_observer: settings_observer,
         }
     }
 
@@ -454,17 +465,21 @@ impl GroupedTracksView {
             );
     }
 
-    fn set_genre_sort(&mut self, sort: GenreSort, cx: &mut Context<Self>) {
-        let Scope::Genre { sort: current, .. } = &mut self.scope else {
+    fn follow_genre_sort(&mut self, cx: &mut Context<Self>) {
+        let (sort, desc) = cx.global::<SettingsStore>().genres_sort();
+        let Scope::Genre {
+            sort: current,
+            desc: current_desc,
+            ..
+        } = &mut self.scope
+        else {
             return;
         };
-        if *current == sort {
+        if (*current, *current_desc) == (sort, desc) {
             return;
         }
         *current = sort;
-        if let Err(e) = cx.global_mut::<SettingsStore>().set_genres_sort(sort) {
-            notify_save_error(cx, e);
-        }
+        *current_desc = desc;
         self.rebuild_source(cx);
         self.scroll_handle
             .scroll_to_item(0, gpui::ScrollStrategy::Top);
@@ -1071,7 +1086,7 @@ fn page_header(
         .child(title);
     match &view.scope {
         Scope::Artist { id, .. } => artist_header_controls(row, view, *id, muted_fg, cx),
-        Scope::Genre { sort, .. } => row.child(genre_sort_switch(*sort, cx)),
+        Scope::Genre { .. } => row,
     }
     .into_any_element()
 }
@@ -1116,31 +1131,6 @@ fn artist_header_controls(
                 on, primary, primary_fg, muted_fg, accent, cx,
             ))
         })
-}
-
-fn genre_sort_label(sort: GenreSort) -> SharedString {
-    match sort {
-        GenreSort::Artist => tr().genre_sort_artist.clone(),
-        GenreSort::Year => tr().genre_sort_year.clone(),
-    }
-}
-
-fn genre_sort_switch(current: GenreSort, cx: &mut Context<GroupedTracksView>) -> ButtonGroup {
-    let view = cx.entity().downgrade();
-    let mut group = ButtonGroup::new("genre-sort").small();
-    for (ix, sort) in GenreSort::ALL.into_iter().enumerate() {
-        group = group.child(
-            Button::new(("genre-sort", ix))
-                .label(genre_sort_label(sort))
-                .selected(current == sort),
-        );
-    }
-    group.on_click(move |clicks: &Vec<usize>, _, cx| {
-        let Some(&sort) = clicks.first().and_then(|&ix| GenreSort::ALL.get(ix)) else {
-            return;
-        };
-        let _ = view.update(cx, |view, cx| view.set_genre_sort(sort, cx));
-    })
 }
 
 fn toggle_full_albums(this: &mut GroupedTracksView, cx: &mut Context<GroupedTracksView>) {

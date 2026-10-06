@@ -186,8 +186,6 @@ pub static ZH: Strings = lang! {
     liked_tracks_desc: "显示所有“喜欢”相关功能：曲目行上的爱心和“喜欢”标签页。",
     playlists_desc: "显示“播放列表”标签页以及曲目行上的添加到播放列表按钮。",
     genres_desc: "显示“流派”标签页，按流派标签对曲目分组。",
-    genre_sort_artist: "艺术家",
-    genre_sort_year: "年份",
     track_duration: "曲目时长",
     track_duration_desc: "在队列中显示或隐藏曲目时长",
     action_buttons: "操作按钮",

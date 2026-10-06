@@ -186,8 +186,6 @@ pub static JA: Strings = lang! {
     liked_tracks_desc: "お気に入り機能を表示します：各曲の行のハートと「お気に入り」タブ。",
     playlists_desc: "「プレイリスト」タブと、各曲の行の「プレイリストに追加」ボタンを表示します。",
     genres_desc: "曲をジャンルタグでまとめた「ジャンル」タブを表示します。",
-    genre_sort_artist: "アーティスト",
-    genre_sort_year: "年",
     track_duration: "曲の長さ",
     track_duration_desc: "キューで曲の長さを表示／非表示",
     action_buttons: "操作ボタン",

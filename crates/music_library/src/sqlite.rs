@@ -76,19 +76,20 @@ fn display_ordered_tracks(conn: &Connection, where_clause: &str) -> Result<Vec<T
         .map_err(LibraryError::Database)
 }
 
-fn genre_track_order(sort: GenreSort) -> &'static str {
+fn genre_track_order(sort: GenreSort, desc: bool) -> String {
+    let dir = if desc { "DESC" } else { "ASC" };
     match sort {
-        GenreSort::Artist => {
+        GenreSort::Artist => format!(
             "t.album_id IS NULL, art.id IS NULL, \
-             COALESCE(NULLIF(art.sort_name, ''), art.name) COLLATE NOCASE, art.id, \
+             COALESCE(NULLIF(art.sort_name, ''), art.name) COLLATE NOCASE {dir}, art.id, \
              al.year IS NULL, al.year, al.title COLLATE NOCASE, t.album_id, \
              t.disc_number, t.track_number, t.title"
-        }
-        GenreSort::Year => {
-            "t.album_id IS NULL, al.year IS NULL, al.year, art.id IS NULL, \
+        ),
+        GenreSort::Year => format!(
+            "t.album_id IS NULL, al.year IS NULL, al.year {dir}, art.id IS NULL, \
              COALESCE(NULLIF(art.sort_name, ''), art.name) COLLATE NOCASE, art.id, \
              al.title COLLATE NOCASE, t.album_id, t.disc_number, t.track_number, t.title"
-        }
+        ),
     }
 }
 
@@ -1517,6 +1518,35 @@ impl LibraryRepository for SqliteLibrary {
         Ok(title)
     }
 
+    fn track_albums_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, String>> {
+        if track_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ids = format!(
+            "[{}]",
+            track_ids
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "WITH ids(id) AS (SELECT value FROM json_each(?1)) \
+             SELECT t.id, al.title FROM tracks t JOIN albums al ON al.id = t.album_id \
+             WHERE t.id IN (SELECT id FROM ids) \
+             UNION ALL \
+             SELECT m.id, m.album FROM media_items m \
+             WHERE m.id IN (SELECT id FROM ids) AND COALESCE(m.album, '') <> '' \
+             AND NOT EXISTS (SELECT 1 FROM tracks x WHERE x.id = m.id)",
+        )?;
+        let rows = stmt.query_map([ids], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn album_genres(&self, album_id: i64) -> Result<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
@@ -2043,9 +2073,9 @@ impl LibraryRepository for SqliteLibrary {
         Ok(map)
     }
 
-    fn tracks_by_genre(&self, key: &str, sort: GenreSort) -> Result<Vec<Track>> {
+    fn tracks_by_genre(&self, key: &str, sort: GenreSort, desc: bool) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let order = genre_track_order(sort);
+        let order = genre_track_order(sort, desc);
         let sql = format!(
             "SELECT {TRACK_COLUMNS_T} FROM genres g \
              JOIN track_genres tg ON tg.genre_id = g.id \

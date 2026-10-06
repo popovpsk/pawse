@@ -186,8 +186,6 @@ pub static TR: Strings = lang! {
     liked_tracks_desc: "Beğenmeyle ilgili her şeyi gösterir: parça satırlarındaki kalbi ve Beğenilenler sekmesini.",
     playlists_desc: "Çalma listeleri sekmesini ve parça satırlarındaki çalma listesine ekleme düğmesini gösterir.",
     genres_desc: "Parçalarınızı tür etiketine göre gruplayan Türler sekmesini gösterir.",
-    genre_sort_artist: "Sanatçı",
-    genre_sort_year: "Yıl",
     track_duration: "Parça süresi",
     track_duration_desc: "Sırada parça süresini göster veya gizle",
     action_buttons: "Eylem düğmeleri",
