@@ -1,4 +1,4 @@
-use gpui::{App, Hsla};
+use gpui::{App, Hsla, Rgba};
 use gpui_component::ActiveTheme;
 
 pub struct Colors;
@@ -83,5 +83,10 @@ impl Colors {
     /// Danger color: the window close button's hover state in the title bar (Linux).
     pub fn danger(cx: &App) -> Hsla {
         cx.theme().danger
+    }
+
+    pub fn distance(a: Hsla, b: Hsla) -> f32 {
+        let (a, b) = (Rgba::from(a), Rgba::from(b));
+        (a.r - b.r).abs() + (a.g - b.g).abs() + (a.b - b.b).abs()
     }
 }

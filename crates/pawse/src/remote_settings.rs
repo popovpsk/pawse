@@ -28,6 +28,8 @@ const OFFLINE_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 pub(crate) const COUNT_COLUMN: f32 = 110.;
 const PEERS_COLUMN: f32 = 120.;
 pub(crate) const ICON_SIZE: f32 = 16.;
+const ROW_BG_ALPHA: f32 = 0.4;
+const ROW_BUTTON_MATCH: f32 = 0.05;
 
 #[derive(Clone)]
 pub struct ServerInputs {
@@ -287,9 +289,20 @@ fn ids(kind: ServerKind) -> Ids {
     }
 }
 
+fn row_merges_with_buttons(cx: &App) -> bool {
+    let row = Colors::background(cx).blend(Colors::muted(cx));
+    Colors::distance(row, Colors::secondary(cx)) < ROW_BUTTON_MATCH
+}
+
 pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option<AnyElement> {
     let ids = ids(kind);
     let muted_fg = Colors::muted_foreground(cx);
+    let row_bg = if row_merges_with_buttons(cx) {
+        Colors::muted(cx).opacity(ROW_BG_ALPHA)
+    } else {
+        Colors::muted(cx)
+    };
+    let row_border = Colors::border(cx);
     let mut list = v_flex().gap_2().w_full();
     let mut empty = true;
     for (ix, row) in state.remote(kind).enumerate() {
@@ -309,7 +322,9 @@ pub fn server_list(state: &LibrarySources, kind: ServerKind, cx: &App) -> Option
                 .px_3()
                 .py_2()
                 .rounded(px(6.))
-                .bg(Colors::muted(cx))
+                .bg(row_bg)
+                .border_1()
+                .border_color(row_border)
                 .child(
                     h_flex()
                         .gap_2()

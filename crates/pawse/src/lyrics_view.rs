@@ -5,7 +5,7 @@ use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Animation, AnimationExt, AppContext, Context, Entity, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, Rgba, ScrollHandle, SharedString, Size,
+    IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString, Size,
     StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div, ease_out_quint,
     px,
 };
@@ -1295,10 +1295,7 @@ fn plan_row(
 }
 
 fn unsung_color(foreground: Hsla, muted_foreground: Hsla, primary: Hsla) -> Hsla {
-    let text = Rgba::from(foreground);
-    let fill = Rgba::from(primary);
-    let distance = (text.r - fill.r).abs() + (text.g - fill.g).abs() + (text.b - fill.b).abs();
-    if distance >= FILL_CONTRAST_MIN {
+    if Colors::distance(foreground, primary) >= FILL_CONTRAST_MIN {
         foreground
     } else {
         muted_foreground
