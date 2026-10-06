@@ -240,7 +240,8 @@ the `(playlist_id, track_id)` unique index; ids with no `media_items` row (a que
 can still hold the playing track after a rescan dropped it, or a queue restored from
 settings) are skipped too, so one stale entry cannot fail the whole batch on the
 foreign key. Positions advance only for rows that were actually inserted, so they
-stay contiguous.
+stay contiguous, and that count is what it returns (the server playlist import
+reports it as "tracks added").
 
 ## Server sources (Subsonic, Jellyfin, torrents)
 

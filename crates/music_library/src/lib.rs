@@ -1484,9 +1484,12 @@ mod tests {
         let c = seed_track(&lib, "C", "Album", "Artist");
         let playlist_id = lib.create_playlist("Batch").unwrap();
         lib.add_track_to_playlist(playlist_id, b).unwrap();
-        lib.add_tracks_to_playlist(playlist_id, &[a, b, c, a])
-            .unwrap();
-        lib.add_tracks_to_playlist(playlist_id, &[]).unwrap();
+        assert_eq!(
+            lib.add_tracks_to_playlist(playlist_id, &[a, b, c, a])
+                .unwrap(),
+            2
+        );
+        assert_eq!(lib.add_tracks_to_playlist(playlist_id, &[]).unwrap(), 0);
 
         let ids: Vec<i64> = lib
             .tracks_for_playlist(playlist_id)
@@ -1513,8 +1516,11 @@ mod tests {
         let b = seed_track(&lib, "B", "Album", "Artist");
         let missing = a.max(b) + 1000;
         let playlist_id = lib.create_playlist("Stale").unwrap();
-        lib.add_tracks_to_playlist(playlist_id, &[a, missing, b])
-            .unwrap();
+        assert_eq!(
+            lib.add_tracks_to_playlist(playlist_id, &[a, missing, b])
+                .unwrap(),
+            2
+        );
 
         let ids: Vec<i64> = lib
             .tracks_for_playlist(playlist_id)

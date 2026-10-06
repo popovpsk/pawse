@@ -86,6 +86,8 @@ pub static JA: Strings = lang! {
     server_auth_failed: "ユーザー名またはパスワードが違います",
     server_unreachable_t: "サーバーに接続できません: {}",
     server_fill_fields: "アドレスとユーザー名を入力してください",
+    server_not_synced: "サーバーはまだ同期されていません",
+    server_still_syncing: "サーバーはまだ同期中です。完了してからもう一度お試しください",
     torrents: "トレント",
     torrents_desc: "初回の同期には時間がかかることがあります。ピアを探し、各ファイルのタグを読み込むためです。",
     torrent_magnet: "マグネットリンク",

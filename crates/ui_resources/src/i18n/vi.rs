@@ -86,6 +86,8 @@ pub static VI: Strings = lang! {
     server_auth_failed: "Sai tên người dùng hoặc mật khẩu",
     server_unreachable_t: "Không kết nối được máy chủ: {}",
     server_fill_fields: "Nhập địa chỉ và tên người dùng",
+    server_not_synced: "Máy chủ chưa được đồng bộ",
+    server_still_syncing: "Máy chủ vẫn đang đồng bộ, hãy thử lại khi hoàn tất",
     torrents: "Torrent",
     torrents_desc: "Lần đồng bộ đầu tiên có thể mất một lúc: Pawse cần tìm peer và đọc thẻ của từng tệp.",
     torrent_magnet: "Liên kết magnet",

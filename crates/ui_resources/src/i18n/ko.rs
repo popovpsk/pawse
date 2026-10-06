@@ -86,6 +86,8 @@ pub static KO: Strings = lang! {
     server_auth_failed: "사용자 이름 또는 비밀번호가 올바르지 않습니다",
     server_unreachable_t: "서버에 연결할 수 없습니다: {}",
     server_fill_fields: "주소와 사용자 이름을 입력하세요",
+    server_not_synced: "서버가 아직 동기화되지 않았습니다",
+    server_still_syncing: "서버를 아직 동기화하는 중입니다. 완료된 후 다시 시도하세요",
     torrents: "토렌트",
     torrents_desc: "첫 동기화는 시간이 걸릴 수 있습니다. 피어를 찾고 모든 파일의 태그를 읽어야 합니다.",
     torrent_magnet: "마그넷 링크",

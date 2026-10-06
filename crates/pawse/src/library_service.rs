@@ -1196,15 +1196,7 @@ impl LibraryService {
         let event_tx = self.event_tx.clone();
         let state = self.remote_sync.clone();
         std::thread::spawn(move || {
-            let outcome = {
-                let _one_at_a_time = state
-                    .playlist_imports
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                synced_source(&*repo, &server).and_then(|source_id| {
-                    crate::remote_sync::import_playlists(&*repo, source_id, &server.config, scope)
-                })
-            };
+            let outcome = import_playlists_unless_syncing(&*repo, &state, &server, scope);
             let _ = event_tx.send(LibraryEvent::PlaylistsChanged);
             let outcome = outcome.map(|(report, touched)| {
                 for playlist_id in touched {
@@ -1534,7 +1526,30 @@ fn synced_source(
     crate::remote_sync::source_ids(repo)
         .get(&server.key())
         .copied()
-        .ok_or_else(|| crate::servers::RemoteError::Other("server is not synced yet".into()))
+        .ok_or(crate::servers::RemoteError::NotSynced)
+}
+
+fn import_playlists_unless_syncing(
+    repo: &dyn LibraryRepository,
+    state: &RemoteSyncState,
+    server: &crate::servers::RemoteServer,
+    scope: crate::servers::PlaylistScope,
+) -> Result<(crate::remote_sync::PlaylistImport, Vec<i64>), crate::servers::RemoteError> {
+    let _one_at_a_time = state
+        .playlist_imports
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if state
+        .active
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains(&server.key())
+    {
+        return Err(crate::servers::RemoteError::Syncing);
+    }
+    synced_source(repo, server).and_then(|source_id| {
+        crate::remote_sync::import_playlists(repo, source_id, &server.config, scope)
+    })
 }
 
 fn folder_unavailable(path: &Path, had_media: impl Fn(&Path) -> bool) -> bool {
@@ -3223,5 +3238,36 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn a_playlist_import_is_refused_until_the_server_is_synced_and_while_it_syncs() {
+        let ws = Workspace::new();
+        let url = "http://127.0.0.1:9";
+        let server = crate::servers::RemoteServer {
+            uri: format!("me@{url}"),
+            name: url.to_string(),
+            config: crate::servers::RemoteConfig::Subsonic(subsonic::Config {
+                url: url.to_string(),
+                username: "me".into(),
+                password: "pw".into(),
+            }),
+        };
+        let state = RemoteSyncState::default();
+        let import = || {
+            import_playlists_unless_syncing(
+                &ws.repo,
+                &state,
+                &server,
+                crate::servers::PlaylistScope::All,
+            )
+        };
+
+        assert_eq!(import(), Err(crate::servers::RemoteError::NotSynced));
+
+        crate::remote_sync::reconcile(&ws.repo, std::slice::from_ref(&server));
+        state.active.lock().unwrap().insert(server.key());
+        assert_eq!(import(), Err(crate::servers::RemoteError::Syncing));
+        assert!(ws.repo.playlists().unwrap().is_empty());
     }
 }

@@ -115,6 +115,8 @@ pub fn describe_error(error: &RemoteError) -> SharedString {
     match error {
         RemoteError::Auth => tr().server_auth_failed.clone(),
         RemoteError::Unreachable(reason) => tr().server_unreachable(reason).into(),
+        RemoteError::NotSynced => tr().server_not_synced.clone(),
+        RemoteError::Syncing => tr().server_still_syncing.clone(),
         RemoteError::NotFound(message) | RemoteError::Other(message) => message.clone().into(),
     }
 }

@@ -2276,10 +2276,11 @@ impl LibraryRepository for SqliteLibrary {
     }
 
     fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
-        self.add_tracks_to_playlist(playlist_id, &[track_id])
+        self.add_tracks_to_playlist(playlist_id, &[track_id])?;
+        Ok(())
     }
 
-    fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<()> {
+    fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<usize> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut next_position: i64 = tx
@@ -2289,6 +2290,7 @@ impl LibraryRepository for SqliteLibrary {
                 |row| row.get(0),
             )
             .unwrap_or(0);
+        let mut added = 0;
         // INSERT OR IGNORE: the (playlist_id, track_id) UNIQUE index silently
         // dedupes — double-clicks and stale "containing" UI checks become
         // harmless instead of erroring or producing duplicates.
@@ -2300,11 +2302,12 @@ impl LibraryRepository for SqliteLibrary {
             for &track_id in track_ids {
                 if insert.execute(rusqlite::params![playlist_id, next_position, track_id])? > 0 {
                     next_position += 1;
+                    added += 1;
                 }
             }
         }
         tx.commit()?;
-        Ok(())
+        Ok(added)
     }
 
     fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {

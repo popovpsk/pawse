@@ -143,6 +143,8 @@ pub struct Strings {
     pub server_auth_failed: SharedString,
     pub server_unreachable_t: SharedString,
     pub server_fill_fields: SharedString,
+    pub server_not_synced: SharedString,
+    pub server_still_syncing: SharedString,
     pub torrents: SharedString,
     pub torrents_desc: SharedString,
     pub torrent_magnet: SharedString,

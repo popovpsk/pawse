@@ -86,6 +86,8 @@ pub static HI: Strings = lang! {
     server_auth_failed: "गलत उपयोगकर्ता नाम या पासवर्ड",
     server_unreachable_t: "सर्वर तक पहुँच नहीं: {}",
     server_fill_fields: "पता और उपयोगकर्ता नाम भरें",
+    server_not_synced: "सर्वर अभी सिंक नहीं हुआ है",
+    server_still_syncing: "सर्वर अभी सिंक हो रहा है — पूरा होने के बाद फिर कोशिश करें",
     torrents: "टोरेंट",
     torrents_desc: "पहला सिंक थोड़ा समय ले सकता है: Pawse को पीयर ढूँढने और हर फ़ाइल के टैग पढ़ने होते हैं।",
     torrent_magnet: "मैग्नेट लिंक",

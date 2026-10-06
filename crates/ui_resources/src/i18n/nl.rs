@@ -86,6 +86,8 @@ pub static NL: Strings = lang! {
     server_auth_failed: "Onjuiste gebruikersnaam of wachtwoord",
     server_unreachable_t: "Server onbereikbaar: {}",
     server_fill_fields: "Vul adres en gebruikersnaam in",
+    server_not_synced: "De server is nog niet gesynchroniseerd",
+    server_still_syncing: "De server wordt nog gesynchroniseerd — probeer het opnieuw als dat klaar is",
     torrents: "Torrents",
     torrents_desc: "De eerste synchronisatie kan even duren: Pawse moet peers vinden en de tags van elk bestand lezen.",
     torrent_magnet: "Magnetlink",

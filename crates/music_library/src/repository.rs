@@ -125,7 +125,7 @@ pub trait LibraryRepository: Send + Sync {
     fn rename_playlist(&self, playlist_id: i64, name: &str) -> Result<()>;
     fn playlists(&self) -> Result<Vec<PlaylistSummary>>;
     fn add_track_to_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()>;
-    fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<()>;
+    fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<usize>;
     fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()>;
     fn move_track_in_playlist(&self, playlist_id: i64, from: usize, to: usize) -> Result<()>;
     fn move_liked_track(&self, from: usize, to: usize) -> Result<()>;

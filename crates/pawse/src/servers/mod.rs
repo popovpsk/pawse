@@ -167,6 +167,8 @@ pub enum RemoteError {
     Auth,
     Unreachable(String),
     NotFound(String),
+    NotSynced,
+    Syncing,
     Other(String),
 }
 

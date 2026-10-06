@@ -16,11 +16,12 @@ pub struct PlaylistImportStrings {
 }
 
 impl PlaylistImportStrings {
-    pub fn result(&self, playlists: usize, found: usize, total: usize) -> String {
+    pub fn result(&self, playlists: usize, added: usize, found: usize, total: usize) -> String {
         fill(
             &self.result_t,
             &[
                 &playlists.to_string(),
+                &added.to_string(),
                 &found.to_string(),
                 &total.to_string(),
             ],
@@ -69,9 +70,9 @@ static EN: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Only my playlists"),
     scope_all: SharedString::new_static("All available"),
     scope_all_hint: SharedString::new_static(
-        "Also other users' playlists and the ones the server makes from playlist files (.m3u and similar) in its library.",
+        "Also other users' playlists and the ones the server makes from playlist files (.m3u and similar) in its library. If you're a server admin, this can include other users' private playlists.",
     ),
-    result_t: SharedString::new_static("Playlists: {} · tracks found: {} of {}"),
+    result_t: SharedString::new_static("Playlists: {} · tracks added: {} · found: {} of {}"),
 };
 
 static ZH: PlaylistImportStrings = PlaylistImportStrings {
@@ -86,9 +87,9 @@ static ZH: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("仅我的播放列表"),
     scope_all: SharedString::new_static("所有可访问的"),
     scope_all_hint: SharedString::new_static(
-        "还包括其他用户的播放列表，以及服务器根据其媒体库中的播放列表文件（.m3u 等）生成的列表。",
+        "还包括其他用户的播放列表，以及服务器根据其媒体库中的播放列表文件（.m3u 等）生成的列表。如果你是服务器管理员，其中可能还包括其他用户的私人播放列表。",
     ),
-    result_t: SharedString::new_static("播放列表：{} · 找到曲目：{}/{}"),
+    result_t: SharedString::new_static("播放列表：{} · 新增曲目：{} · 找到：{}/{}"),
 };
 
 static PT: PlaylistImportStrings = PlaylistImportStrings {
@@ -103,9 +104,11 @@ static PT: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Só as minhas playlists"),
     scope_all: SharedString::new_static("Todas as disponíveis"),
     scope_all_hint: SharedString::new_static(
-        "Também as playlists de outros usuários e as que o servidor cria a partir de arquivos de playlist (.m3u e similares) na biblioteca dele.",
+        "Também as playlists de outros usuários e as que o servidor cria a partir de arquivos de playlist (.m3u e similares) na biblioteca dele. Se você for administrador do servidor, isso pode incluir playlists privadas de outros usuários.",
     ),
-    result_t: SharedString::new_static("Playlists: {} · faixas encontradas: {} de {}"),
+    result_t: SharedString::new_static(
+        "Playlists: {} · faixas adicionadas: {} · encontradas: {} de {}",
+    ),
 };
 
 static RU: PlaylistImportStrings = PlaylistImportStrings {
@@ -120,9 +123,9 @@ static RU: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Только мои плейлисты"),
     scope_all: SharedString::new_static("Все доступные"),
     scope_all_hint: SharedString::new_static(
-        "Ещё и плейлисты других пользователей, и те, что сервер собирает из файлов плейлистов (.m3u и подобных) в своей медиатеке.",
+        "Ещё и плейлисты других пользователей, и те, что сервер собирает из файлов плейлистов (.m3u и подобных) в своей медиатеке. Если вы администратор сервера, среди них могут оказаться и чужие личные плейлисты.",
     ),
-    result_t: SharedString::new_static("Плейлистов: {} · найдено треков: {} из {}"),
+    result_t: SharedString::new_static("Плейлистов: {} · добавлено треков: {} · найдено: {} из {}"),
 };
 
 static JA: PlaylistImportStrings = PlaylistImportStrings {
@@ -137,9 +140,11 @@ static JA: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("自分のプレイリストのみ"),
     scope_all: SharedString::new_static("利用できるすべて"),
     scope_all_hint: SharedString::new_static(
-        "他のユーザーのプレイリストや、サーバーがライブラリ内のプレイリストファイル（.m3u など）から作ったものも含みます。",
+        "他のユーザーのプレイリストや、サーバーがライブラリ内のプレイリストファイル（.m3u など）から作ったものも含みます。サーバー管理者の場合は、他のユーザーの非公開プレイリストも含まれることがあります。",
     ),
-    result_t: SharedString::new_static("プレイリスト: {} · 見つかったトラック: {}/{}"),
+    result_t: SharedString::new_static(
+        "プレイリスト: {} · 追加したトラック: {} · 見つかった: {}/{}",
+    ),
 };
 
 static DE: PlaylistImportStrings = PlaylistImportStrings {
@@ -154,9 +159,11 @@ static DE: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Nur meine Playlists"),
     scope_all: SharedString::new_static("Alle verfügbaren"),
     scope_all_hint: SharedString::new_static(
-        "Auch Playlists anderer Benutzer und die, die der Server aus Playlist-Dateien (.m3u u. Ä.) in seiner Bibliothek erstellt.",
+        "Auch Playlists anderer Benutzer und die, die der Server aus Playlist-Dateien (.m3u u. Ä.) in seiner Bibliothek erstellt. Bist du Server-Admin, können auch private Playlists anderer Benutzer dabei sein.",
     ),
-    result_t: SharedString::new_static("Playlists: {} · gefundene Titel: {} von {}"),
+    result_t: SharedString::new_static(
+        "Playlists: {} · hinzugefügte Titel: {} · gefunden: {} von {}",
+    ),
 };
 
 static FR: PlaylistImportStrings = PlaylistImportStrings {
@@ -171,9 +178,11 @@ static FR: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Seulement mes playlists"),
     scope_all: SharedString::new_static("Toutes celles disponibles"),
     scope_all_hint: SharedString::new_static(
-        "Aussi les playlists des autres utilisateurs et celles que le serveur crée à partir de fichiers de playlist (.m3u, etc.) de sa bibliothèque.",
+        "Aussi les playlists des autres utilisateurs et celles que le serveur crée à partir de fichiers de playlist (.m3u, etc.) de sa bibliothèque. Si vous êtes administrateur du serveur, cela peut inclure les playlists privées des autres utilisateurs.",
     ),
-    result_t: SharedString::new_static("Playlists : {} · titres trouvés : {} sur {}"),
+    result_t: SharedString::new_static(
+        "Playlists : {} · titres ajoutés : {} · trouvés : {} sur {}",
+    ),
 };
 
 static KO: PlaylistImportStrings = PlaylistImportStrings {
@@ -188,9 +197,9 @@ static KO: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("내 재생목록만"),
     scope_all: SharedString::new_static("접근 가능한 전체"),
     scope_all_hint: SharedString::new_static(
-        "다른 사용자의 재생목록과 서버가 라이브러리의 재생목록 파일(.m3u 등)로 만든 재생목록도 포함됩니다.",
+        "다른 사용자의 재생목록과 서버가 라이브러리의 재생목록 파일(.m3u 등)로 만든 재생목록도 포함됩니다. 서버 관리자라면 다른 사용자의 비공개 재생목록도 포함될 수 있습니다.",
     ),
-    result_t: SharedString::new_static("재생목록: {} · 찾은 트랙: {}/{}"),
+    result_t: SharedString::new_static("재생목록: {} · 추가된 트랙: {} · 찾음: {}/{}"),
 };
 
 static IT: PlaylistImportStrings = PlaylistImportStrings {
@@ -205,9 +214,9 @@ static IT: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Solo le mie playlist"),
     scope_all: SharedString::new_static("Tutte quelle disponibili"),
     scope_all_hint: SharedString::new_static(
-        "Anche le playlist di altri utenti e quelle che il server crea dai file di playlist (.m3u e simili) nella sua libreria.",
+        "Anche le playlist di altri utenti e quelle che il server crea dai file di playlist (.m3u e simili) nella sua libreria. Se sei amministratore del server, possono esserci anche le playlist private di altri utenti.",
     ),
-    result_t: SharedString::new_static("Playlist: {} · brani trovati: {} su {}"),
+    result_t: SharedString::new_static("Playlist: {} · brani aggiunti: {} · trovati: {} su {}"),
 };
 
 static TR: PlaylistImportStrings = PlaylistImportStrings {
@@ -222,9 +231,9 @@ static TR: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Yalnızca benim çalma listelerim"),
     scope_all: SharedString::new_static("Erişilebilen tümü"),
     scope_all_hint: SharedString::new_static(
-        "Diğer kullanıcıların çalma listeleri ve sunucunun kitaplığındaki çalma listesi dosyalarından (.m3u ve benzerleri) oluşturdukları da dahil.",
+        "Diğer kullanıcıların çalma listeleri ve sunucunun kitaplığındaki çalma listesi dosyalarından (.m3u ve benzerleri) oluşturdukları da dahil. Sunucu yöneticisiyseniz aralarında diğer kullanıcıların özel çalma listeleri de olabilir.",
     ),
-    result_t: SharedString::new_static("Çalma listesi: {} · bulunan parça: {}/{}"),
+    result_t: SharedString::new_static("Çalma listesi: {} · eklenen parça: {} · bulunan: {}/{}"),
 };
 
 static PL: PlaylistImportStrings = PlaylistImportStrings {
@@ -239,9 +248,9 @@ static PL: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Tylko moje playlisty"),
     scope_all: SharedString::new_static("Wszystkie dostępne"),
     scope_all_hint: SharedString::new_static(
-        "Także playlisty innych użytkowników i te, które serwer tworzy z plików playlist (.m3u i podobnych) w swojej bibliotece.",
+        "Także playlisty innych użytkowników i te, które serwer tworzy z plików playlist (.m3u i podobnych) w swojej bibliotece. Jeśli jesteś administratorem serwera, mogą się wśród nich znaleźć także prywatne playlisty innych użytkowników.",
     ),
-    result_t: SharedString::new_static("Playlisty: {} · znalezione utwory: {} z {}"),
+    result_t: SharedString::new_static("Playlisty: {} · dodane utwory: {} · znalezione: {} z {}"),
 };
 
 static NL: PlaylistImportStrings = PlaylistImportStrings {
@@ -256,9 +265,11 @@ static NL: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Alleen mijn afspeellijsten"),
     scope_all: SharedString::new_static("Alle beschikbare"),
     scope_all_hint: SharedString::new_static(
-        "Ook afspeellijsten van andere gebruikers en de lijsten die de server maakt van afspeellijstbestanden (.m3u en dergelijke) in zijn bibliotheek.",
+        "Ook afspeellijsten van andere gebruikers en de lijsten die de server maakt van afspeellijstbestanden (.m3u en dergelijke) in zijn bibliotheek. Ben je serverbeheerder, dan kunnen daar ook privé-afspeellijsten van andere gebruikers tussen zitten.",
     ),
-    result_t: SharedString::new_static("Afspeellijsten: {} · nummers gevonden: {} van {}"),
+    result_t: SharedString::new_static(
+        "Afspeellijsten: {} · nummers toegevoegd: {} · gevonden: {} van {}",
+    ),
 };
 
 static UK: PlaylistImportStrings = PlaylistImportStrings {
@@ -273,9 +284,9 @@ static UK: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Лише мої плейлисти"),
     scope_all: SharedString::new_static("Усі доступні"),
     scope_all_hint: SharedString::new_static(
-        "А також плейлисти інших користувачів і ті, що сервер складає з файлів плейлистів (.m3u тощо) у своїй медіатеці.",
+        "А також плейлисти інших користувачів і ті, що сервер складає з файлів плейлистів (.m3u тощо) у своїй медіатеці. Якщо ви адміністратор сервера, серед них можуть опинитися й чужі приватні плейлисти.",
     ),
-    result_t: SharedString::new_static("Плейлистів: {} · знайдено треків: {} з {}"),
+    result_t: SharedString::new_static("Плейлистів: {} · додано треків: {} · знайдено: {} з {}"),
 };
 
 static VI: PlaylistImportStrings = PlaylistImportStrings {
@@ -290,9 +301,11 @@ static VI: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Chỉ danh sách phát của tôi"),
     scope_all: SharedString::new_static("Tất cả danh sách truy cập được"),
     scope_all_hint: SharedString::new_static(
-        "Gồm cả danh sách phát của người dùng khác và danh sách máy chủ tạo từ tệp danh sách phát (.m3u và tương tự) trong thư viện của nó.",
+        "Gồm cả danh sách phát của người dùng khác và danh sách máy chủ tạo từ tệp danh sách phát (.m3u và tương tự) trong thư viện của nó. Nếu bạn là quản trị viên máy chủ, có thể gồm cả danh sách phát riêng tư của người dùng khác.",
     ),
-    result_t: SharedString::new_static("Danh sách phát: {} · tìm thấy bài hát: {}/{}"),
+    result_t: SharedString::new_static(
+        "Danh sách phát: {} · đã thêm bài hát: {} · tìm thấy: {}/{}",
+    ),
 };
 
 static ID: PlaylistImportStrings = PlaylistImportStrings {
@@ -307,9 +320,9 @@ static ID: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Hanya playlist saya"),
     scope_all: SharedString::new_static("Semua yang tersedia"),
     scope_all_hint: SharedString::new_static(
-        "Termasuk playlist milik pengguna lain dan playlist yang dibuat server dari file playlist (.m3u dan sejenisnya) di pustakanya.",
+        "Termasuk playlist milik pengguna lain dan playlist yang dibuat server dari file playlist (.m3u dan sejenisnya) di pustakanya. Bagi admin server, ini bisa mencakup playlist pribadi milik pengguna lain.",
     ),
-    result_t: SharedString::new_static("Playlist: {} · lagu ditemukan: {}/{}"),
+    result_t: SharedString::new_static("Playlist: {} · lagu ditambahkan: {} · ditemukan: {}/{}"),
 };
 
 static TH: PlaylistImportStrings = PlaylistImportStrings {
@@ -324,9 +337,9 @@ static TH: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("เฉพาะเพลย์ลิสต์ของฉัน"),
     scope_all: SharedString::new_static("ทั้งหมดที่เข้าถึงได้"),
     scope_all_hint: SharedString::new_static(
-        "รวมถึงเพลย์ลิสต์ของผู้ใช้อื่น และเพลย์ลิสต์ที่เซิร์ฟเวอร์สร้างจากไฟล์เพลย์ลิสต์ (.m3u และอื่น ๆ) ในคลังของเซิร์ฟเวอร์",
+        "รวมถึงเพลย์ลิสต์ของผู้ใช้อื่น และเพลย์ลิสต์ที่เซิร์ฟเวอร์สร้างจากไฟล์เพลย์ลิสต์ (.m3u และอื่น ๆ) ในคลังของเซิร์ฟเวอร์ หากคุณเป็นผู้ดูแลเซิร์ฟเวอร์ อาจรวมถึงเพลย์ลิสต์ส่วนตัวของผู้ใช้อื่นด้วย",
     ),
-    result_t: SharedString::new_static("เพลย์ลิสต์: {} · พบเพลง: {}/{}"),
+    result_t: SharedString::new_static("เพลย์ลิสต์: {} · เพิ่มเพลง: {} · พบ: {}/{}"),
 };
 
 static CS: PlaylistImportStrings = PlaylistImportStrings {
@@ -341,9 +354,9 @@ static CS: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Jen moje playlisty"),
     scope_all: SharedString::new_static("Všechny dostupné"),
     scope_all_hint: SharedString::new_static(
-        "Také playlisty jiných uživatelů a ty, které server vytváří ze souborů playlistů (.m3u a podobných) ve své knihovně.",
+        "Také playlisty jiných uživatelů a ty, které server vytváří ze souborů playlistů (.m3u a podobných) ve své knihovně. Pokud jste správce serveru, mohou mezi nimi být i soukromé playlisty jiných uživatelů.",
     ),
-    result_t: SharedString::new_static("Playlisty: {} · nalezené skladby: {} z {}"),
+    result_t: SharedString::new_static("Playlisty: {} · přidané skladby: {} · nalezeno: {} z {}"),
 };
 
 static SV: PlaylistImportStrings = PlaylistImportStrings {
@@ -358,9 +371,9 @@ static SV: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Bara mina spellistor"),
     scope_all: SharedString::new_static("Alla tillgängliga"),
     scope_all_hint: SharedString::new_static(
-        "Även andra användares spellistor och de som servern skapar av spellistfiler (.m3u och liknande) i sitt bibliotek.",
+        "Även andra användares spellistor och de som servern skapar av spellistfiler (.m3u och liknande) i sitt bibliotek. Om du är serveradministratör kan även andra användares privata spellistor komma med.",
     ),
-    result_t: SharedString::new_static("Spellistor: {} · hittade låtar: {} av {}"),
+    result_t: SharedString::new_static("Spellistor: {} · tillagda låtar: {} · hittade: {} av {}"),
 };
 
 static HI: PlaylistImportStrings = PlaylistImportStrings {
@@ -375,9 +388,9 @@ static HI: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("सिर्फ़ मेरी प्लेलिस्ट"),
     scope_all: SharedString::new_static("सभी उपलब्ध"),
     scope_all_hint: SharedString::new_static(
-        "दूसरे उपयोगकर्ताओं की प्लेलिस्ट और वे भी, जिन्हें सर्वर अपनी लाइब्रेरी की प्लेलिस्ट फ़ाइलों (.m3u आदि) से बनाता है।",
+        "दूसरे उपयोगकर्ताओं की प्लेलिस्ट और वे भी, जिन्हें सर्वर अपनी लाइब्रेरी की प्लेलिस्ट फ़ाइलों (.m3u आदि) से बनाता है। अगर आप सर्वर एडमिन हैं, तो इसमें दूसरे उपयोगकर्ताओं की निजी प्लेलिस्ट भी आ सकती हैं।",
     ),
-    result_t: SharedString::new_static("प्लेलिस्ट: {} · मिले ट्रैक: {}/{}"),
+    result_t: SharedString::new_static("प्लेलिस्ट: {} · जोड़े गए ट्रैक: {} · मिले: {}/{}"),
 };
 
 static ES: PlaylistImportStrings = PlaylistImportStrings {
@@ -392,9 +405,11 @@ static ES: PlaylistImportStrings = PlaylistImportStrings {
     scope_mine: SharedString::new_static("Solo mis listas"),
     scope_all: SharedString::new_static("Todas las disponibles"),
     scope_all_hint: SharedString::new_static(
-        "También las listas de otros usuarios y las que el servidor crea a partir de archivos de lista (.m3u y similares) de su biblioteca.",
+        "También las listas de otros usuarios y las que el servidor crea a partir de archivos de lista (.m3u y similares) de su biblioteca. Si eres administrador del servidor, puede incluir listas privadas de otros usuarios.",
     ),
-    result_t: SharedString::new_static("Listas: {} · canciones encontradas: {} de {}"),
+    result_t: SharedString::new_static(
+        "Listas: {} · canciones añadidas: {} · encontradas: {} de {}",
+    ),
 };
 
 #[cfg(test)]
@@ -405,7 +420,7 @@ mod tests {
     fn every_template_keeps_its_placeholders() {
         for lang in Lang::all() {
             let s = for_lang(*lang);
-            assert_eq!(s.result_t.matches("{}").count(), 3, "{lang:?}");
+            assert_eq!(s.result_t.matches("{}").count(), 4, "{lang:?}");
         }
     }
 }

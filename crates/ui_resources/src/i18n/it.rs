@@ -86,6 +86,8 @@ pub static IT: Strings = lang! {
     server_auth_failed: "Nome utente o password errati",
     server_unreachable_t: "Server non raggiungibile: {}",
     server_fill_fields: "Inserisci indirizzo e nome utente",
+    server_not_synced: "Il server non è ancora stato sincronizzato",
+    server_still_syncing: "Sincronizzazione del server in corso: riprova quando è finita",
     torrents: "Torrent",
     torrents_desc: "La prima sincronizzazione può richiedere tempo: Pawse deve trovare i peer e leggere i tag di ogni file.",
     torrent_magnet: "Link magnet",

@@ -86,6 +86,8 @@ pub static ID: Strings = lang! {
     server_auth_failed: "Nama pengguna atau kata sandi salah",
     server_unreachable_t: "Server tidak dapat dijangkau: {}",
     server_fill_fields: "Isi alamat dan nama pengguna",
+    server_not_synced: "Server belum disinkronkan",
+    server_still_syncing: "Server masih disinkronkan; coba lagi setelah selesai",
     torrents: "Torrent",
     torrents_desc: "Sinkronisasi pertama bisa memakan waktu: Pawse harus menemukan peer dan membaca tag setiap file.",
     torrent_magnet: "Tautan magnet",

@@ -240,6 +240,7 @@ pub fn import_stars(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PlaylistImport {
     pub playlists: usize,
+    pub added: usize,
     pub found: usize,
     pub total: usize,
 }
@@ -287,20 +288,21 @@ pub fn import_playlists(
             continue;
         }
         let name = playlist.name.trim();
-        let id = match local.get(name) {
-            Some(&id) => id,
+        let (id, created) = match local.get(name) {
+            Some(&id) => (id, false),
             None => {
                 let id = repo.create_playlist(name)?;
                 local.insert(name.to_string(), id);
-                id
+                (id, true)
             }
         };
-        repo.add_tracks_to_playlist(id, &found)?;
-        report.playlists += 1;
-        if !touched.contains(&id) {
+        let added = repo.add_tracks_to_playlist(id, &found)?;
+        report.added += added;
+        if (created || added > 0) && !touched.contains(&id) {
             touched.push(id);
         }
     }
+    report.playlists = touched.len();
     Ok((report, touched))
 }
 
@@ -539,7 +541,8 @@ mod tests {
                         json(serde_json::json!({"playlists": {"playlist": [
                             {"id": "p1", "name": "Road", "owner": "me"},
                             {"id": "p2", "name": "Dad's", "owner": "dad"},
-                            {"id": "p3", "name": "Nothing here", "owner": "me"}
+                            {"id": "p3", "name": "Nothing here", "owner": "me"},
+                            {"id": "p4", "name": "Road", "owner": "dad"}
                         ]}})),
                     ),
                     "getPlaylist" => {
@@ -547,7 +550,7 @@ mod tests {
                             "p1" => serde_json::json!([
                                 {"id": "s2"}, {"id": "s1"}, {"id": "s2"}, {"id": "not-synced"}
                             ]),
-                            "p2" => serde_json::json!([{"id": "s1"}]),
+                            "p2" | "p4" => serde_json::json!([{"id": "s1"}]),
                             _ => serde_json::json!([{"id": "not-synced"}]),
                         };
                         (
@@ -687,6 +690,7 @@ mod tests {
             report,
             PlaylistImport {
                 playlists: 1,
+                added: 2,
                 found: 2,
                 total: 4
             }
@@ -705,16 +709,34 @@ mod tests {
             report,
             PlaylistImport {
                 playlists: 2,
-                found: 3,
-                total: 5
+                added: 2,
+                found: 4,
+                total: 6
             }
         );
         let playlists = repo.playlists().unwrap();
         let names: Vec<&str> = playlists.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, vec!["Road", "Dad's"]);
-        assert_eq!(touched, vec![road, playlists[1].id]);
+        let dads = playlists[1].id;
+        assert_eq!(touched, vec![road, dads]);
         assert_eq!(entries(road), vec![local, remote]);
-        assert_eq!(entries(playlists[1].id), vec![local]);
+        assert_eq!(entries(dads), vec![local]);
+
+        let (report, touched) =
+            import_playlists(&repo, source_id, &servers[0].config, PlaylistScope::All).unwrap();
+        assert_eq!(
+            report,
+            PlaylistImport {
+                playlists: 0,
+                added: 0,
+                found: 4,
+                total: 6
+            }
+        );
+        assert!(touched.is_empty());
+        assert_eq!(repo.playlists().unwrap().len(), 2);
+        assert_eq!(entries(road), vec![local, remote]);
+        assert_eq!(entries(dads), vec![local]);
     }
 
     fn song_json(id: &str, cover: &str) -> serde_json::Value {

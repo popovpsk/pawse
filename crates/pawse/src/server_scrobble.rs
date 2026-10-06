@@ -50,6 +50,9 @@ fn submit_error(error: RemoteError) -> SubmitError {
         RemoteError::Auth => SubmitError::Auth("wrong username or password".into()),
         RemoteError::Unreachable(message) => SubmitError::Transient(message),
         RemoteError::NotFound(_) => SubmitError::Unsupported,
+        error @ (RemoteError::NotSynced | RemoteError::Syncing) => {
+            SubmitError::Transient(format!("{error:?}"))
+        }
         RemoteError::Other(message) => SubmitError::Permanent(message),
     }
 }

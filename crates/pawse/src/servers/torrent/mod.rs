@@ -164,6 +164,9 @@ impl ServerClient for Torrent {
                 | RemoteError::Other(reason),
             ) => Some(reason.clone()),
             Err(RemoteError::Auth) => Some("access denied".to_string()),
+            Err(error @ (RemoteError::NotSynced | RemoteError::Syncing)) => {
+                Some(format!("{error:?}"))
+            }
         };
         self.host.note_index(&self.info_hash, failure);
         listed

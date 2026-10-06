@@ -86,6 +86,8 @@ pub static TH: Strings = lang! {
     server_auth_failed: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง",
     server_unreachable_t: "เข้าถึงเซิร์ฟเวอร์ไม่ได้: {}",
     server_fill_fields: "กรอกที่อยู่และชื่อผู้ใช้",
+    server_not_synced: "เซิร์ฟเวอร์ยังไม่ได้ซิงค์",
+    server_still_syncing: "เซิร์ฟเวอร์ยังซิงค์ไม่เสร็จ ลองอีกครั้งเมื่อเสร็จแล้ว",
     torrents: "ทอร์เรนต์",
     torrents_desc: "การซิงก์ครั้งแรกอาจใช้เวลาสักพัก เพราะ Pawse ต้องค้นหาพีร์และอ่านแท็กของทุกไฟล์",
     torrent_magnet: "ลิงก์ magnet",

@@ -14,8 +14,9 @@ use gpui_component::{
 use ui_resources::i18n::playlist_import_strings;
 
 use crate::library_service::LibraryEvent;
+use crate::localization::tr;
 use crate::remote_settings::remote_servers;
-use crate::servers::PlaylistScope;
+use crate::servers::{PlaylistScope, RemoteError};
 use crate::services::Services;
 use crate::theme_colors::Colors;
 
@@ -32,6 +33,7 @@ pub struct PlaylistImport {
     scope: PlaylistScope,
     servers: Vec<ServerEntry>,
     busy: HashSet<String>,
+    syncing: HashSet<String>,
     results: HashMap<String, SharedString>,
     _subscription: Subscription,
 }
@@ -56,25 +58,38 @@ impl PlaylistImport {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let bus = cx.global::<Services>().library_event_bus.clone();
         let subscription = cx.subscribe(&bus, |this, _, event: &LibraryEvent, cx| {
-            let LibraryEvent::RemotePlaylistsImported { key, outcome } = event else {
-                return;
-            };
-            let message = match outcome {
-                Ok(report) => SharedString::from(playlist_import_strings().result(
-                    report.playlists,
-                    report.found,
-                    report.total,
-                )),
-                Err(error) => crate::library_sources::describe_error(error),
-            };
-            this.busy.remove(key);
-            this.results.insert(key.clone(), message);
+            match event {
+                LibraryEvent::RemoteSyncStarted { key } => {
+                    this.syncing.insert(key.clone());
+                }
+                LibraryEvent::RemoteSyncFinished { key, .. } => {
+                    this.syncing.remove(key);
+                }
+                LibraryEvent::RemotePlaylistsImported { key, outcome } => {
+                    this.busy.remove(key);
+                    let message = match outcome {
+                        Ok(report) => Some(SharedString::from(playlist_import_strings().result(
+                            report.playlists,
+                            report.added,
+                            report.found,
+                            report.total,
+                        ))),
+                        Err(RemoteError::Syncing) => None,
+                        Err(error) => Some(crate::library_sources::describe_error(error)),
+                    };
+                    if let Some(message) = message {
+                        this.results.insert(key.clone(), message);
+                    }
+                }
+                _ => return,
+            }
             cx.notify();
         });
         Self {
             scope: PlaylistScope::default(),
             servers: Vec::new(),
             busy: HashSet::new(),
+            syncing: HashSet::new(),
             results: HashMap::new(),
             _subscription: subscription,
         }
@@ -90,6 +105,7 @@ impl PlaylistImport {
                 title: server.uri.into(),
             })
             .collect();
+        self.syncing = cx.global::<Services>().library.remote_syncing();
         cx.notify();
     }
 
@@ -116,6 +132,7 @@ impl Render for PlaylistImport {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let strings = playlist_import_strings();
         let muted_fg = Colors::muted_foreground(cx);
+        let still_syncing = &tr().server_still_syncing;
         let selected = match self.scope {
             PlaylistScope::Mine => 0,
             PlaylistScope::All => 1,
@@ -123,41 +140,44 @@ impl Render for PlaylistImport {
         let mut servers = v_flex().gap_3();
         for (ix, server) in self.servers.iter().enumerate() {
             let busy = self.busy.contains(&server.key);
-            servers =
-                servers.child(
-                    v_flex()
-                        .gap_1()
-                        .child(
-                            h_flex()
-                                .gap_3()
-                                .items_center()
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w(px(0.))
-                                        .child(div().text_sm().child(server.title.clone()))
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(muted_fg)
-                                                .child(server.kind.clone()),
-                                        ),
-                                )
-                                .child(
-                                    Button::new(("playlist-import-run", ix))
-                                        .small()
-                                        .label(strings.import.clone())
-                                        .loading(busy)
-                                        .disabled(busy)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.start(ix, cx);
-                                        })),
-                                ),
-                        )
-                        .children(self.results.get(&server.key).map(|result| {
-                            div().text_sm().text_color(muted_fg).child(result.clone())
-                        })),
-                );
+            let syncing = self.syncing.contains(&server.key);
+            let note = if syncing {
+                Some(still_syncing.clone())
+            } else {
+                self.results.get(&server.key).cloned()
+            };
+            servers = servers.child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        h_flex()
+                            .gap_3()
+                            .items_center()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .child(div().text_sm().child(server.title.clone()))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(muted_fg)
+                                            .child(server.kind.clone()),
+                                    ),
+                            )
+                            .child(
+                                Button::new(("playlist-import-run", ix))
+                                    .small()
+                                    .label(strings.import.clone())
+                                    .loading(busy)
+                                    .disabled(busy || syncing)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.start(ix, cx);
+                                    })),
+                            ),
+                    )
+                    .children(note.map(|note| div().text_sm().text_color(muted_fg).child(note))),
+            );
         }
         v_flex()
             .gap_4()

@@ -86,6 +86,8 @@ pub static SV: Strings = lang! {
     server_auth_failed: "Fel användarnamn eller lösenord",
     server_unreachable_t: "Servern kan inte nås: {}",
     server_fill_fields: "Fyll i adress och användarnamn",
+    server_not_synced: "Servern har inte synkroniserats än",
+    server_still_syncing: "Servern synkroniseras fortfarande — försök igen när det är klart",
     torrents: "Torrenter",
     torrents_desc: "Första synkroniseringen kan ta en stund: Pawse måste hitta peers och läsa taggarna i varje fil.",
     torrent_magnet: "Magnetlänk",

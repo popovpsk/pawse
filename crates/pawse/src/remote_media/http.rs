@@ -88,6 +88,9 @@ impl RangeFetch for ServerFetch {
             Err(RemoteError::NotFound(message) | RemoteError::Other(message)) => {
                 Err(FetchError::Fatal(message))
             }
+            Err(error @ (RemoteError::NotSynced | RemoteError::Syncing)) => {
+                Err(FetchError::Fatal(format!("{error:?}")))
+            }
         }
     }
 }

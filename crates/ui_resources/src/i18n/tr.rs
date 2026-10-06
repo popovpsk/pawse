@@ -86,6 +86,8 @@ pub static TR: Strings = lang! {
     server_auth_failed: "Kullanıcı adı veya parola yanlış",
     server_unreachable_t: "Sunucuya ulaşılamıyor: {}",
     server_fill_fields: "Adresi ve kullanıcı adını doldurun",
+    server_not_synced: "Sunucu henüz eşitlenmedi",
+    server_still_syncing: "Sunucu hâlâ eşitleniyor; bittiğinde yeniden deneyin",
     torrents: "Torrentler",
     torrents_desc: "İlk eşitleme biraz sürebilir: Pawse'ın eşleri bulması ve her dosyanın etiketlerini okuması gerekir.",
     torrent_magnet: "Magnet bağlantısı",

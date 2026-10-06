@@ -86,6 +86,8 @@ pub static ZH: Strings = lang! {
     server_auth_failed: "用户名或密码错误",
     server_unreachable_t: "无法连接服务器：{}",
     server_fill_fields: "请填写地址和用户名",
+    server_not_synced: "服务器尚未同步",
+    server_still_syncing: "服务器仍在同步，请在完成后重试",
     torrents: "种子",
     torrents_desc: "首次同步可能需要一些时间：需要寻找节点并读取每个文件的标签。",
     torrent_magnet: "磁力链接",

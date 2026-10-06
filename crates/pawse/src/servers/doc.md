@@ -75,7 +75,12 @@ to `subsonic::` or `jellyfin::` directly.
   Jellyfin), `syncs_alone` (its own sync thread),
   `titled_by_name` and `has_peers`; `RemoteError::NotFound` is a song the
   server says is gone (shown and fetched like `Other`, but a report back to the
-  server drops it quietly); `ServerClient` has `scrobble`,
+  server drops it quietly); `RemoteError::NotSynced` / `Syncing` never come from a
+  client: `LibraryService`'s favorites and playlist imports return them when the
+  server has no enabled source row or (playlists) is mid-sync, and
+  `library_sources::describe_error` shows them as localized lines (the other
+  `match`es never see them and turn them into a plain retry/fatal message);
+  `ServerClient` has `scrobble`,
   `now_playing`, `set_favorite` and `playlists` (an error unless the kind says it reports
   or imports that), `lyrics` (`Ok(None)` by default; see below), `forget` (removal
   cleanup), `peers` and `moved` (a config to save because the server was

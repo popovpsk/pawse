@@ -86,6 +86,8 @@ pub static CS: Strings = lang! {
     server_auth_failed: "Nesprávné uživatelské jméno nebo heslo",
     server_unreachable_t: "Server je nedostupný: {}",
     server_fill_fields: "Vyplňte adresu a uživatelské jméno",
+    server_not_synced: "Server ještě nebyl synchronizován",
+    server_still_syncing: "Synchronizace serveru ještě probíhá — zkuste to znovu, až skončí",
     torrents: "Torrenty",
     torrents_desc: "První synchronizace může chvíli trvat: Pawse musí najít peery a přečíst tagy každého souboru.",
     torrent_magnet: "Magnet odkaz",

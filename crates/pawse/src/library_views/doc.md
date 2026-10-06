@@ -411,8 +411,21 @@ drive the `PlaybackQueue` on click.
   long-lived entity owned by `PlaylistsView` and rendered as the dialog's body, so
   closing the dialog mid-import loses nothing: the busy set and the last result per
   server live there, filled from `LibraryEvent::RemotePlaylistsImported`. Opening it
-  snapshots the importable servers (`refresh_servers`); the scope ("Only my
-  playlists" / "All available") is one choice for every server, default Mine. The
+  snapshots the importable servers (`refresh_servers`) and which of them are syncing
+  (`LibraryService::remote_syncing`), kept current from `RemoteSyncStarted` /
+  `RemoteSyncFinished` like the Library tab's rows. A syncing server's Import is
+  disabled and its row shows "still syncing" instead of the last result: mid-sync
+  (the first one above all) its songs have no bindings yet, so an import would map
+  nothing and create nothing. The service checks too, for a click that beats the
+  `RemoteSyncStarted` event: `import_playlists_unless_syncing` refuses with
+  `RemoteError::Syncing` while the server's key is in `RemoteSyncState::active`, and
+  the dialog records no result for that refusal (the syncing note already says it).
+  A server only queued behind another server's sync is not in `active` yet, so it
+  is not caught. The scope ("Only my
+  playlists" / "All available") is one choice for every server, default Mine; the
+  hint under "All available" warns that a server admin can get other users'
+  private playlists too (Navidrome lists every user's playlists to an admin, only
+  marked `readonly`). The
   work itself is `LibraryService::import_remote_playlists` →
   `remote_sync::import_playlists`: a one-time copy, nothing is ever sent back and
   no sync touches the result again. Song keys become library items through their
@@ -425,10 +438,14 @@ drive the `PlaybackQueue` on click.
   the same file name) end up in one local playlist. A track repeated inside a
   playlist is kept once (the `(playlist_id, track_id)` unique index). A playlist
   none of whose songs is in the library yet (not synced, or every entry a broken
-  `.m3u` path) creates nothing. The result line counts imported playlists and the
-  tracks found out of all tracks, each playlist's tracks counted once (a track in
-  two playlists counts twice); "server is not synced yet" means the source has no
-  enabled row to map keys through. Imports run one at a time
+  `.m3u` path) creates nothing. The result line counts local playlists that were
+  created or got at least one track (so same-name server playlists count once and a
+  re-import that changes nothing says 0), the tracks actually added (what
+  `add_tracks_to_playlist` inserted), and the tracks found out of all tracks, each
+  playlist's tracks counted once (a track in two playlists counts twice).
+  `PlaylistTracksChanged` goes out for those same changed playlists.
+  `RemoteError::NotSynced` ("not synced yet") means the source has no enabled row
+  to map keys through. Imports run one at a time
   (`RemoteSyncState::playlist_imports`): two servers importing a playlist with the
   same new name at once would otherwise each create it.
 - `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable

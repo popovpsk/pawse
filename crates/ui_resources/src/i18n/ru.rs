@@ -86,6 +86,8 @@ pub static RU: Strings = lang! {
     server_auth_failed: "Неверное имя пользователя или пароль",
     server_unreachable_t: "Сервер недоступен: {}",
     server_fill_fields: "Заполните адрес и имя пользователя",
+    server_not_synced: "Сервер ещё не синхронизирован",
+    server_still_syncing: "Идёт синхронизация с сервером — попробуйте снова, когда она закончится",
     torrents: "Торренты",
     torrents_desc: "Первая синхронизация может занять время: нужно найти пиров и прочитать теги каждого файла.",
     torrent_magnet: "Magnet-ссылка",
