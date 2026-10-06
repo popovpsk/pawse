@@ -28,7 +28,7 @@ fn capacity_for_visible(visible: usize) -> usize {
         .clamp(LARGE_COVER_MIN_CAPACITY, ceiling)
 }
 
-pub fn capacity_for_peak_visible(peak: &mut usize, visible: usize) -> usize {
+fn capacity_for_peak_visible(peak: &mut usize, visible: usize) -> usize {
     *peak = (*peak).max(visible);
     capacity_for_visible(*peak)
 }
@@ -55,6 +55,7 @@ pub struct CoverArtCache {
     small: HashMap<i64, Arc<Image>>,
     large: HashMap<i64, LargeEntry>,
     large_capacity: usize,
+    large_peak_visible: usize,
     tick: u64,
 }
 
@@ -74,6 +75,7 @@ impl CoverArtCache {
             small: HashMap::new(),
             large: HashMap::new(),
             large_capacity: large_capacity.max(1),
+            large_peak_visible: 0,
             tick: 0,
         }
     }
@@ -117,8 +119,8 @@ impl CoverArtCache {
         self.large.contains_key(&id)
     }
 
-    pub fn set_large_capacity(&mut self, capacity: usize, cx: &mut App) {
-        let capacity = capacity.max(1);
+    pub fn fit_large_capacity(&mut self, visible: usize, cx: &mut App) {
+        let capacity = capacity_for_peak_visible(&mut self.large_peak_visible, visible).max(1);
         if capacity == self.large_capacity {
             return;
         }

@@ -3859,7 +3859,7 @@ impl ScanWrite for ScanSession {
     }
 }
 
-fn compute_sort_name(name: &str) -> String {
+pub fn compute_sort_name(name: &str) -> String {
     let trimmed = name.trim();
     let lower = trimmed.to_lowercase();
     if let Some(rest) = lower.strip_prefix("the ") {

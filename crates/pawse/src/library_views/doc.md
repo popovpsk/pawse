@@ -47,36 +47,91 @@ drive the `PlaybackQueue` on click.
   `current_tab()` is `None` while drilled in (`MainView` keeps the prior tab lit).
   Disabling Liked/Playlists/Genres in settings purges those frames, resetting to
   `[Root(Albums)]` if that breaks the `stack[0]`-is-`Root` invariant.
-- `albums_view.rs` — Albums tab. One entity, two layouts (`albums_layout`, Settings →
-  Appearance → Albums view): `List` renders here, `Grid` (default) delegates to
-  `albums_grid.rs`. Data, filter, subscriptions and `row_data` are shared; only the
-  render branches. Row order is SQL-side (`artist, year, title`), not derived from the
-  text — independent of how the artist is shown.
+- `albums_view.rs` — Albums tab. One entity, two layouts (`albums_layout`, chosen in
+  the view menu, see `view_menu.rs`): `List` rows render here, `Grid` strips come from
+  `albums_grid.rs`. Data, filter, subscriptions and `row_data` are shared, and both
+  layouts are one `v_virtual_list` over `cover_grid::LibraryItem`s (top padding,
+  section headers, list rows or grid strips). Row order is computed in Rust by
+  `view_order::order_albums` from `AlbumKey`s built once per catalog load
+  (`albums_sort` / `albums_sort_desc`), not taken from SQL; with `albums_grouped` the
+  rows are cut into `view_order::sections`. While a search query is typed the order is
+  the fuzzy score's and there are no sections — the menu's sort and grouping come back
+  when the query is cleared.
   **List**: virtualized vertical list of 48 px rows with a 32 px cover. Genre and year
   are fixed-width trailing columns (reserve their slot even when empty so rows don't
-  flex), each toggleable in Settings (`albums_show_year` / `albums_show_genre`, default
-  on). The artist has a tri-state display (`albums_artist_display`: `Inline`
-  "artist - title" in the title cell, default; `Column` a separate fixed-width column
-  left of year; `Hidden` title only). Genre shows the most-common one + `…` when there
-  are more, full list on hover. Album genres are batch-fetched once
-  (`album_genres_map`) and cached, not queried per row — `recompute_visible` runs on
-  every keystroke.
+  flex), each toggleable from the menu's Show chips (`albums_show_year` /
+  `albums_show_genre`, default on). The artist is shown or not (`albums_show_artist`)
+  and, when shown, placed by `albums_artist_display`: `Inline` "artist - title" in the
+  title cell (default) or `Column`, a separate fixed-width column left of year. The
+  enum still has a `Hidden` variant only so old `settings.json` files deserialize;
+  `migrate_albums_artist` turns it into `Inline` on load, with `albums_show_artist`
+  false only when the layout was `List` — the old `Hidden` never reached grid tiles, so
+  a grid user keeps seeing the artist. The separate flag is what lets the menu remember
+  the placement while the artist is hidden.
+  Genre shows the most-common one + `…` when there are more, full list on hover. Album
+  genres are batch-fetched once (`album_genres_map`) and cached, not queried per row —
+  `recompute_visible` runs on every keystroke.
   **The layout picks the cover size**, so it is a data change, not just a repaint:
-  `AlbumRowData::from_album` takes the `AlbumsLayout` and loads `get_small` (128 px) for
-  the list, `get_large` (320 px) for the grid. The `observe_global::<SettingsStore>`
-  handler therefore compares before acting — it fires on *any* settings write, and an
-  unconditional `recompute_visible` would re-read every cover blob on each one. A layout
-  switch rebuilds `row_data` and scrolls back to the top (the old scroll offset means
-  nothing in the other geometry).
-  `AlbumRowData` precomputes *both* subtitle forms (`artist`, and `subtitle_year` =
-  "artist · year"); render only picks one. Formatting in the virtual-list closure is
+  `AlbumRowData::from_album` takes the `LibraryLayout` and loads `get_small` (128 px) for
+  the list; for the grid it loads nothing — tiles read the 320 px LRU at render time (see
+  `albums_grid.rs` below). The `observe_global::<SettingsStore>`
+  handler therefore compares an `AlbumsPrefs` snapshot before acting — it fires on *any*
+  settings write, and an unconditional `recompute_visible` would re-read every cover
+  blob on each one. A layout, sort or grouping change rebuilds `row_data` and scrolls
+  back to the top; a Show change only rebuilds the item sizes (the grid row loses its
+  subtitle line when neither artist nor year is shown).
+  `AlbumRowData` precomputes every subtitle form (`artist`, `year`, and `subtitle_year`
+  = "artist · year"); render only picks one. A year ≤ 0 (a `0000` tag) counts as no year everywhere:
+  `AlbumKey` files it under "No year" and `from_album` leaves the year empty, so a row
+  never shows "0" inside the undated section. Formatting in the virtual-list closure is
   banned — see `track_list/doc.md`.
-- `albums_grid.rs` — the `Grid` layout: a tile wall of album covers, the alternative
-  most popular players offer. Virtualized on the same `v_virtual_list`, where each item
+- `albums_grid.rs` — the album tile of the `Grid` layout (`grid_strip` / `grid_tile`,
+  `TileParams`, `TileSubtitle`): a tile wall of album covers, the alternative most
+  popular players offer. The geometry, the strip layout and the lazy cover loading it
+  relies on live in `cover_grid.rs`, next to the section machinery both lists share;
+  the notes below describe them here because the album wall is what they serve.
+- `cover_grid.rs` — the item machinery behind the Albums tab (both layouts) and the
+  Artists list: grid geometry, `LibraryItem` / `ItemLayout` (`list_layout`, `grid_layout`),
+  `strip_span` / `cover_span`, `header_metrics`, `section_header`, the measuring
+  `width_probe` and the `GridCovers` lazy loader.
+  **Sticky section header = a docked slot, not an overlay.** The virtual list has no
+  sticky support, so while sections exist (grouping on, no search query) the view puts
+  a fixed `section_slot` (`TOP_PADDING` + header height, no background) *above* the
+  list and the list scrolls only in the area below it. The first section's header is
+  never a list item — it starts docked in the slot — and every later header is an
+  inline item. `docked_labels` (pure, unit-tested) works out from the header offsets
+  and the scroll offset (read in `render`) which label is docked and where an incoming
+  one is: the slot draws the incoming header at exactly the position the inline one
+  would have if the list did not clip it, so a header scrolling up crosses the
+  list's top edge into the slot in one piece, pushes the docked label out, and settles
+  in its place. The overlay this replaced floated over the list, so covers scrolled
+  *under* the letter: with the blur backdrop a translucent band let them show through
+  the label, and an opaque one was a flat plate on the blur — the user rejected both.
+  With the slot nothing ever passes under the label, so it needs no background at all.
+  The slot clamps the scroll offset itself, to the layout height (`ItemLayout.height`)
+  minus the viewport: gpui's wheel handler adds the delta unclamped and notifies, and
+  the clamp only happens later in the list's prepaint, so at the end of the list
+  `render` saw an overscrolled offset and docked a header the list still showed
+  inline. The slot forwards the mouse wheel to the list's scroll handle under the
+  same clamp, so scrolling over the band still scrolls, as it did over the overlay;
+  a mostly sideways trackpad swipe is ignored there, as the list's axis lock does.
+  In a grouped list the row right before an inline header draws no bottom rule
+  (`closes_section`, checked in the item closure against the next item): the header's
+  own rule comes right after, and the two read as a double line.
+  Virtualized on one `v_virtual_list`, where each grid item
   is one `h_flex` strip of N tiles (the pattern gpui-component's own `virtual_list`
-  story uses); item 0 stays the shared top spacer, so `set_filter`'s
-  `scroll_to_item(0)` needs no special case. `items` is left empty in this mode — the
-  strip's slice is arithmetic on `columns`, so `AlbumItem` needs no grid variant.
+  story uses). Item 0 is always the `TopPadding` spacer, zero-high while the slot is
+  shown (the slot carries the top gap then): `VirtualList` measures by calling the item
+  closure with `0..1` every frame, and if item 0 were the first strip that pass would
+  keep requesting its covers whatever the scroll offset (see "the load only follows the
+  strips" below). Going back to the top (a new query,
+  sort, layout or grouping) is `cover_grid::scroll_to_top`, which sets the offset to zero
+  at once rather than `scroll_to_item(0)`: that one is deferred to the list's prepaint,
+  after `render` has already computed the docked label from the old offset against
+  the new header positions, so for a frame (or until something else repainted) the
+  slot showed a section from the middle of the new order over the top of the list. Strips are cut *inside* each section, so
+  a section always starts on a fresh row; an ungrouped wall is one implicit section
+  without a header.
   **Geometry.** `grid_metrics(width)` is a pure function (unit-tested, no GPUI): columns
   = how many `TILE_MIN_WIDTH` tiles fit, then the tiles *stretch* to divide the width
   exactly, so there is no ragged right edge. Because the tile is square, its width sets
@@ -104,25 +159,27 @@ drive the `PlaybackQueue` on click.
   `cx.notify()` for the next frame — the same shape `cover_mode_view` uses. Until the
   first measurement the container renders alone (one frame), which avoids laying the
   grid out at a made-up width.
-  **Everything geometric is snapshotted into `TileParams`, `columns` included.** The two
-  halves of a frame do not see the same state: `render_grid` runs at render time, while
-  the `v_virtual_list` item closure runs in *prepaint* (`virtual_list.rs`), after the
+  **Everything geometric is snapshotted at render time, the items included.** The two
+  halves of a frame do not see the same state: `render` runs first, while the
+  `v_virtual_list` item closure runs in *prepaint* (`virtual_list.rs`), after the
   measuring canvas — the container's first child — has already had its prepaint callback
-  run `set_grid_width`. Reading `view.columns` live inside `grid_row` therefore paired a
-  freshly updated column count with the tile width, row height and `item_sizes` captured
-  a moment earlier, on every frame where the width moved — i.e. for the whole duration of
-  a splitter drag or the queue/lyrics slide, not just once. Snapshotting `columns`
-  alongside the rest makes each frame internally consistent; the frame after the
-  `on_next_frame` notify is the one that shows the new geometry.
-  **Settings.** The three list options are about *columns*, so `albums_view_group` only
-  offers them when the layout is `List`: `albums_artist_display` (Inline/Column/Hidden is
-  meaningless on a tile — the artist is simply the caption's second line) and
-  `albums_show_genre` (no room on a tile) are hidden in `Grid`, and the grid ignores both.
-  `albums_show_year` survives into `Grid` and appends `· year` to the caption, but under a
-  wording that fits — `album_year` / `album_year_desc` instead of `year_column*`. Because
-  the group's *items* depend on the layout, `build_settings_pages` takes the current
-  `AlbumsLayout`; `MainView` already rebuilds the pages from `observe_global::<SettingsStore>`,
-  so flipping the layout re-renders the group with the right rows.
+  run `set_grid_width`, which rebuilds `layout_items`. Reading the column count (or now
+  the strip list) live inside the closure therefore paired freshly cut strips with the
+  tile width, row height and `item_sizes` captured a moment earlier, on every frame where
+  the width moved — i.e. for the whole duration of a splitter drag or the queue/lyrics
+  slide, not just once; with strips that is also an item count that no longer matches
+  the sizes. So `ItemLayout.items` is an `Rc` like `sizes`, `render` clones both, and
+  the closure only ever indexes that snapshot; the frame after the `on_next_frame` notify
+  is the one that shows the new geometry. The closure does read `row_data` and
+  `section_labels` live, which is safe only because `set_grid_width` — the one thing
+  that runs between render and the closure — touches nothing but `layout_items`; never
+  rebuild rows or labels from there.
+  **Which options apply.** The column options make no sense on a tile, so the menu only
+  offers them in `List`: the artist placement (the artist is simply the caption's second
+  line) and `albums_show_genre` (no room on a tile); the grid ignores both.
+  `albums_show_year` and `albums_show_artist` both shape the grid caption (`TileSubtitle`)
+  and, when both are off, the caption loses its second line and the row height shrinks
+  (`row_height(.., subtitle)`).
   **Covers are bounded and lazy, because `Grid` is the default layout.** `img(Arc<Image>)`
   lets gpui own the decode: it keeps the `RenderImage` in `App.loading_assets` and its
   atlas tile forever, and neither is reachable for release. A wall of 320 px tiles made
@@ -131,21 +188,22 @@ drive the `PlaybackQueue` on click.
   window appeared. So `CoverArtCache.large` is an LRU of *decoded* `Arc<RenderImage>`
   that hands each eviction to `drop_atlas_tile`, and the
   grid never fills `AlbumRowData::cover` at all: it keeps `cover_art_id`, reads the cache
-  at render time through `peek_large`, and `ensure_grid_covers` loads what the visible
+  at render time through `peek_large`, and `GridCovers::ensure` loads what the visible
   range is missing — one row of margin either side — on the background executor, decoding
-  there too, then inserting and notifying. `covers_in_flight` keeps a scroll from queueing
+  there too, then inserting and notifying. `in_flight` keeps a scroll from queueing
   the same id twice.
   **The capacity follows the viewport, it is not a constant.** A number big enough for an
   unscaled 4K wall (~220 tiles on screen) never evicts anything on a laptop, where about
   24 fit — and on a library smaller than the constant the bound is pure decoration.
-  `capacity_for_visible` instead takes the span `ensure_grid_covers` was asked for, which
+  `capacity_for_visible` instead takes the span `GridCovers::ensure` was asked for, which
   *is* the visible tile count plus the margin, and keeps `LARGE_COVER_SCREENS` of them,
   clamped to `LARGE_COVER_MIN_CAPACITY..=LARGE_COVER_MAX_CAPACITY`. The floor is what
   cover mode and `album_info` live on when the grid is small or the layout is `List`. The
   invariant that matters is capacity > visible: below that the cache evicts what is on
   screen and thrashes reload → decode → evict, which is why it has its own test.
-  **Capacity only ever grows** (`capacity_for_peak_visible` against
-  `AlbumsView::visible_span_peak`), because the span the closure is handed is not always
+  **Capacity only ever grows** (`CoverArtCache::fit_large_capacity`, which keeps the
+  high-water mark in the cache itself, next to the capacity it bounds), because the span
+  the closure is handed is not always
   the viewport. `VirtualList::measure_item` calls the same closure with `0..1` every frame
   to size an item, and taking that literally dropped the capacity to the floor, evicted
   everything above it, and made the grid flicker between cover and placeholder once per
@@ -154,14 +212,14 @@ drive the `PlaybackQueue` on click.
   reset: re-learning on every width change would put the same thrash inside a splitter
   drag, and the cost of holding the largest viewport the session ever had is bounded by
   `LARGE_COVER_MAX_CAPACITY` anyway.
-  The same measuring pass is also why the *load* is gated on `visible_range.end > 1`: with
-  `0..1` the row arithmetic resolves to albums `0..columns` whatever the scroll offset, so
-  the first row of the library would be re-requested every frame — and once a long scroll
-  pushed it out of the LRU, each request meant another blob read, decode and `cx.notify()`
-  for tiles nowhere near the viewport. A range that short carries no tile rows at all
-  (item 0 is the spacer), so skipping it loses nothing.
-  A cover whose blob is missing or fails to decode goes into `covers_unavailable`.
-  Without it the id is in neither the cache nor `covers_in_flight`, so every frame would
+  The same measuring pass is also why the *load* only follows the strips in the range
+  (`strip_span`): with `0..1` a row-arithmetic version resolved to albums `0..columns`
+  whatever the scroll offset, so the first row of the library was re-requested every
+  frame — and once a long scroll pushed it out of the LRU, each request meant another
+  blob read, decode and `cx.notify()` for tiles nowhere near the viewport. Item 0 is the
+  spacer, so that range carries no strip and loads nothing.
+  A cover whose blob is missing or fails to decode goes into `GridCovers::unavailable`.
+  Without it the id is in neither the cache nor `in_flight`, so every frame would
   queue another background load for a cover that will never arrive. It is cleared on tag
   changes as well as rescans, since re-tagging is how a missing cover gets filled in.
   `insert_large` keeps an entry that is already there rather than replacing it: the only
@@ -179,9 +237,14 @@ drive the `PlaybackQueue` on click.
   `small` stays an unbounded `HashMap<i64, Arc<Image>>` — a 128 px cover is ~6× cheaper,
   every list view uses it, and `cover_backdrop::from_thumbnail` needs the undecoded bytes.
   Note `decode_cover_tile` swaps R and B: gpui's `RenderImage` is BGRA, `to_rgba8` is not.
-- `artists_view.rs` — Artists tab: virtualized list of artists. Which relation the
+- `artists_view.rs` — Artists tab, a list only: a `Grid` of round avatars was built and
+  removed at the user's request, so don't bring it back without asking. Same item machinery as the Albums list (`cover_grid::list_layout`, docked
+  headers); the order comes from
+  `view_order::order_artists` over `ArtistKey`s (`artists_sort`: Name, keyed on
+  `ArtistSummary.sort_name`, or Track count, most first by default), and letter
+  sections only exist for the Name sort. Which relation the
   list is built on is a setting (`artists_grouping`, Settings → Appearance → Artists
-  view): `AlbumArtist` (default) attributes each track to its own album-artist tag;
+  view, deliberately not in the view menu): `AlbumArtist` (default) attributes each track to its own album-artist tag;
   a track without one follows its album's artist when that is *known*
   (`albums.artist_known`, see the derived-artists note below), and only on a true
   compilation falls back to its own track artists — so an untagged compilation
@@ -204,6 +267,46 @@ drive the `PlaybackQueue` on click.
   `artist_album_covers` (a data change, not just a repaint — unlike `albums_view`).
   It re-fetches on every `CatalogChanged`, which a tag edit sends too: a tag edit
   re-derives every album's artist, so rows and counts here move with no scan.
+- `view_order.rs` — pure, unit-tested ordering and sectioning for the Albums and Artists
+  tabs: `AlbumKey` / `ArtistKey`, `order_albums` / `order_artists`, `sections`,
+  `SectionKey` and its label. Keys go through `music_library::compute_sort_name` (the
+  rule behind `artists.sort_name`) and are lowercased, so "The Smile" sorts and groups
+  under S and "A Perfect Circle" under P, for album titles too. A section letter is the
+  first character when it is a *cased* letter (Latin, Cyrillic, Greek, …) whose single
+  uppercase form lowercases back to it; everything else (including `ı` and `ß`, which
+  would otherwise open a second "I"/"S" section after Z, since they sort there) — digits, symbols, uncased scripts such as CJK, Thai or Devanagari —
+  is `#`. **`#`, undated albums and the "No metadata" rows always go last**, in both
+  directions and whether or not grouping is on (the user's choice, Apple Music's
+  convention): keeping one rule for grouped and ungrouped order means a name never
+  moves just because headers were switched on, and a byte order would otherwise put
+  digits first and CJK after Z, splitting `#` in two. Descending flips only the primary
+  key: an artist's albums stay chronological under Z–A. Order is byte order of the
+  lowercased key, not a collation, so accented capitals get their own section after Z
+  (É, Å, Ö) — the same limitation the SQL `NOCASE` order had. Year sections are decades.
+- `view_menu.rs` — the view menu: one ghost round button next to the header search
+  (`icons/s1-view.svg`, two sliders — Lucide `settings-2` redrawn at the app's 1.7
+  stroke). It is the same on both tabs and in both layouts: a layout glyph that
+  followed Grid/List was tried and dropped, the button means "view options", not the
+  current mode. It opens a `gpui_component::Popover` (`Anchor::TopLeft`, so it
+  opens to the right over the queue instead of over the list it changes). `MainView`
+  reserves a button-wide slot on *both* sides of the 200 px search box (fuzzy search
+  needs two or three letters, a wider field bought nothing) and puts the
+  button in the right one, so the search stays centred and the side groups give way in
+  a narrow window instead of being overlapped. Shown only on the root Albums and Artists tabs — not on drill-downs, other
+  tabs, cover mode or Settings/Tools. Every control writes straight to `SettingsStore`
+  (persisted like any other setting); the popover stays open and the tab views redraw
+  behind it through their own settings observers. Clicking the active sort again flips
+  its direction; picking another sort resets to that sort's default direction (Track
+  count starts most-first). The grouping `Switch` is display-only (no handler, no tab
+  stop) and the whole row owns the click: an enabled gpui-component `Switch` does not
+  stop propagation, so a handler on both wrote the setting twice per click. Row labels
+  are `min_w_0` and wrap, the switch and the sort hint never shrink: "group by decade"
+  in Russian and Ukrainian is wider than the menu and used to push the switch past its
+  edge. Each tab
+  keeps its own sort, direction and grouping; the Grid/List switch is Albums-only. These used to be the Settings → Appearance → Albums view group, which is
+  gone; only `artists_grouping` (which tag defines an artist) stays in Settings, since
+  it changes the data rather than how it looks. Strings live in their own table,
+  `ui_resources::i18n::view_menu_strings`.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
 - `genres_view.rs` — Genres tab: virtualized list of every genre that still has a
   track (`LibraryService::genres`, ordered by `genres.key`, i.e. the Rust-lowercased

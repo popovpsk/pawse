@@ -43,6 +43,10 @@ files.
 - `i18n/bit_perfect.rs` — `BitPerfectStrings` (`bit_perfect_strings()`): the
   bit-perfect indicator's tooltip lines and the explanation dialog it opens on
   click, kept separate the same way.
+- `i18n/view_menu.rs` — `ViewMenuStrings` (`view_menu_strings()`): the library view
+  menu next to the header search (layout, sort, grouping, Show chips) and the section
+  labels it produces (`decade(year)` for "1990s", `undated`). Kept separate the same way.
+  Sort hints follow each language's alphabet where it has its own (`А–Я`, `A–Ö`).
 - `i18n/tools.rs` — `ToolsStrings`, a separate table for the Tools screen
   (`tools_strings()` picks the active language). Kept out of `Strings` so long,
   feature-specific texts don't bloat the main per-language files; all 20

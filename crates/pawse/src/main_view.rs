@@ -28,6 +28,7 @@ use crate::keyboard_shortcuts::{
 };
 use crate::library_service::LibraryEvent;
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
+use crate::library_views::view_menu::{self, ViewMenuTab, view_menu};
 use crate::localization::LangChanged;
 use crate::localization::tr;
 use crate::lyrics_view::LyricsView;
@@ -42,6 +43,8 @@ use crate::settings_view::SettingsSliders;
 use crate::theme_colors::Colors;
 
 const HEADER_HEIGHT: f32 = 44.;
+const SEARCH_WIDTH: f32 = 200.;
+const VIEW_MENU_GAP: f32 = 6.;
 const FOOTER_HEIGHT: f32 = 80.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
@@ -937,6 +940,12 @@ impl Render for MainView {
         let genres_enabled = settings.genres_enabled();
         let tools_enabled = settings.tools_enabled();
         let scale = settings.font_scale().ui_scale();
+        let view_menu = match self.current_tab {
+            _ if show_screen || cover_mode || self.is_drilled_in => None,
+            LibraryRootTab::Albums => Some(view_menu(ViewMenuTab::Albums, scale)),
+            LibraryRootTab::Artists => Some(view_menu(ViewMenuTab::Artists, scale)),
+            _ => None,
+        };
 
         let left_group = div()
             .flex_1()
@@ -1089,14 +1098,25 @@ impl Render for MainView {
                     .bg(bar_bg)
                     .child(left_group)
                     .when(!show_screen && !cover_mode, |d| {
+                        let menu_slot = px(VIEW_MENU_GAP + view_menu::TRIGGER_SIZE * scale);
                         d.child(
-                            div().w(px(260.)).child(
-                                Input::new(&self.search_input)
-                                    .with_size(Size::Medium)
-                                    .focus_bordered(false)
-                                    .rounded_full()
-                                    .bg(cover_backdrop::field_bg(title_bar, veil)),
-                            ),
+                            div()
+                                .flex()
+                                .flex_shrink_0()
+                                .items_center()
+                                .when(view_menu.is_some(), |d| d.child(div().w(menu_slot)))
+                                .child(
+                                    div().w(px(SEARCH_WIDTH)).child(
+                                        Input::new(&self.search_input)
+                                            .with_size(Size::Medium)
+                                            .focus_bordered(false)
+                                            .rounded_full()
+                                            .bg(cover_backdrop::field_bg(title_bar, veil)),
+                                    ),
+                                )
+                                .when_some(view_menu, |d, menu| {
+                                    d.child(div().w(menu_slot).flex().justify_end().child(menu))
+                                }),
                         )
                     })
                     .child(right_group);

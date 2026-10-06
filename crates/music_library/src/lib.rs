@@ -19,7 +19,7 @@ pub use models::{
     SourceSummary, StoredLyrics, Track, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
-pub use sqlite::{SqliteLibrary, sha256_hex};
+pub use sqlite::{SqliteLibrary, compute_sort_name, sha256_hex};
 
 pub const NO_METADATA_ALBUM_ID: i64 = -1;
 pub const NO_METADATA_ARTIST_ID: i64 = -2;

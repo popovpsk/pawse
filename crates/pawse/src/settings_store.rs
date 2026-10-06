@@ -242,10 +242,39 @@ pub enum NowPlayingDetails {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum AlbumsLayout {
+pub enum LibraryLayout {
     List,
     #[default]
     Grid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbumsSort {
+    #[default]
+    Artist,
+    Title,
+    Year,
+}
+
+impl AlbumsSort {
+    pub const ALL: [AlbumsSort; 3] = [AlbumsSort::Artist, AlbumsSort::Title, AlbumsSort::Year];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtistsSort {
+    #[default]
+    Name,
+    Tracks,
+}
+
+impl ArtistsSort {
+    pub const ALL: [ArtistsSort; 2] = [ArtistsSort::Name, ArtistsSort::Tracks];
+
+    pub fn default_desc(self) -> bool {
+        self == ArtistsSort::Tracks
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -483,10 +512,24 @@ pub struct UserSettings {
     pub albums_show_genre: bool,
     #[serde(default)]
     pub albums_artist_display: AlbumsArtistDisplay,
+    #[serde(default = "default_true")]
+    pub albums_show_artist: bool,
     #[serde(default)]
-    pub albums_layout: AlbumsLayout,
+    pub albums_layout: LibraryLayout,
+    #[serde(default)]
+    pub albums_sort: AlbumsSort,
+    #[serde(default)]
+    pub albums_sort_desc: bool,
+    #[serde(default)]
+    pub albums_grouped: bool,
     #[serde(default)]
     pub artists_grouping: music_library::ArtistGrouping,
+    #[serde(default)]
+    pub artists_sort: ArtistsSort,
+    #[serde(default)]
+    pub artists_sort_desc: bool,
+    #[serde(default)]
+    pub artists_grouped: bool,
     #[serde(default = "default_true")]
     pub auto_update: bool,
     #[serde(default = "default_true")]
@@ -570,8 +613,15 @@ impl Default for UserSettings {
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
-            albums_layout: AlbumsLayout::default(),
+            albums_show_artist: true,
+            albums_layout: LibraryLayout::default(),
+            albums_sort: AlbumsSort::default(),
+            albums_sort_desc: false,
+            albums_grouped: false,
             artists_grouping: music_library::ArtistGrouping::default(),
+            artists_sort: ArtistsSort::default(),
+            artists_sort_desc: false,
+            artists_grouped: false,
             auto_update: true,
             lyrics_from_internet: true,
             lyrics_prefer_lrclib: false,
@@ -768,6 +818,13 @@ fn migrate_torrents(settings: &mut UserSettings) {
     }
 }
 
+fn migrate_albums_artist(settings: &mut UserSettings) {
+    if settings.albums_artist_display == AlbumsArtistDisplay::Hidden {
+        settings.albums_artist_display = AlbumsArtistDisplay::Inline;
+        settings.albums_show_artist = settings.albums_layout == LibraryLayout::Grid;
+    }
+}
+
 fn migrate_scrobble(settings: &mut UserSettings) {
     let legacy_enabled = settings.legacy_lastfm_enabled.take();
     let legacy_session = settings.legacy_lastfm_session.take();
@@ -811,6 +868,7 @@ impl SettingsStore {
             .unwrap_or_default();
         migrate_scrobble(&mut settings);
         migrate_torrents(&mut settings);
+        migrate_albums_artist(&mut settings);
         Self {
             settings,
             path,
@@ -1412,12 +1470,40 @@ impl SettingsStore {
         self.save()
     }
 
-    pub fn albums_layout(&self) -> AlbumsLayout {
+    pub fn albums_show_artist(&self) -> bool {
+        self.settings.albums_show_artist
+    }
+
+    pub fn set_albums_show_artist(&mut self, show: bool) -> anyhow::Result<()> {
+        self.settings.albums_show_artist = show;
+        self.save()
+    }
+
+    pub fn albums_layout(&self) -> LibraryLayout {
         self.settings.albums_layout
     }
 
-    pub fn set_albums_layout(&mut self, layout: AlbumsLayout) -> anyhow::Result<()> {
+    pub fn set_albums_layout(&mut self, layout: LibraryLayout) -> anyhow::Result<()> {
         self.settings.albums_layout = layout;
+        self.save()
+    }
+
+    pub fn albums_sort(&self) -> (AlbumsSort, bool) {
+        (self.settings.albums_sort, self.settings.albums_sort_desc)
+    }
+
+    pub fn set_albums_sort(&mut self, sort: AlbumsSort, desc: bool) -> anyhow::Result<()> {
+        self.settings.albums_sort = sort;
+        self.settings.albums_sort_desc = desc;
+        self.save()
+    }
+
+    pub fn albums_grouped(&self) -> bool {
+        self.settings.albums_grouped
+    }
+
+    pub fn set_albums_grouped(&mut self, grouped: bool) -> anyhow::Result<()> {
+        self.settings.albums_grouped = grouped;
         self.save()
     }
 
@@ -1430,6 +1516,25 @@ impl SettingsStore {
         grouping: music_library::ArtistGrouping,
     ) -> anyhow::Result<()> {
         self.settings.artists_grouping = grouping;
+        self.save()
+    }
+
+    pub fn artists_sort(&self) -> (ArtistsSort, bool) {
+        (self.settings.artists_sort, self.settings.artists_sort_desc)
+    }
+
+    pub fn set_artists_sort(&mut self, sort: ArtistsSort, desc: bool) -> anyhow::Result<()> {
+        self.settings.artists_sort = sort;
+        self.settings.artists_sort_desc = desc;
+        self.save()
+    }
+
+    pub fn artists_grouped(&self) -> bool {
+        self.settings.artists_grouped
+    }
+
+    pub fn set_artists_grouped(&mut self, grouped: bool) -> anyhow::Result<()> {
+        self.settings.artists_grouped = grouped;
         self.save()
     }
 
@@ -1799,8 +1904,15 @@ mod tests {
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
-            albums_layout: AlbumsLayout::Grid,
+            albums_show_artist: false,
+            albums_layout: LibraryLayout::Grid,
+            albums_sort: AlbumsSort::Year,
+            albums_sort_desc: true,
+            albums_grouped: true,
             artists_grouping: music_library::ArtistGrouping::TrackArtist,
+            artists_sort: ArtistsSort::Tracks,
+            artists_sort_desc: true,
+            artists_grouped: true,
             auto_update: true,
             lyrics_from_internet: true,
             lyrics_prefer_lrclib: false,
@@ -1839,7 +1951,14 @@ mod tests {
         assert_eq!(back.font_scale, FontScale::Large);
         assert_eq!(back.now_playing_details, NowPlayingDetails::Album);
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
-        assert_eq!(back.albums_layout, AlbumsLayout::Grid);
+        assert_eq!(back.albums_layout, LibraryLayout::Grid);
+        assert!(!back.albums_show_artist);
+        assert_eq!(back.albums_sort, AlbumsSort::Year);
+        assert!(back.albums_sort_desc);
+        assert!(back.albums_grouped);
+        assert_eq!(back.artists_sort, ArtistsSort::Tracks);
+        assert!(back.artists_sort_desc);
+        assert!(back.artists_grouped);
         assert_eq!(back.network_cache_gb, 8);
         assert_eq!(
             back.artists_grouping,

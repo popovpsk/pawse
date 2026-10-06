@@ -42,11 +42,13 @@ mod tools;
 mod tr;
 mod uk;
 mod vi;
+mod view_menu;
 mod zh;
 
 pub use bit_perfect::{BitPerfectStrings, bit_perfect_strings};
 pub use cast::{CastStrings, cast_strings};
 pub use tools::{ToolsStrings, tools_strings};
+pub use view_menu::{ViewMenuStrings, view_menu_strings};
 
 /// One immutable string per UI label. See the module docs.
 pub struct Strings {
@@ -256,20 +258,7 @@ pub struct Strings {
     pub cover_controls_desc: SharedString,
     pub queue_deduplication: SharedString,
     pub queue_deduplication_desc: SharedString,
-    pub settings_albums_view: SharedString,
-    pub albums_layout: SharedString,
-    pub albums_layout_desc: SharedString,
-    pub albums_layout_list: SharedString,
-    pub albums_layout_grid: SharedString,
-    pub year_column: SharedString,
-    pub year_column_desc: SharedString,
     pub album_year: SharedString,
-    pub album_year_desc: SharedString,
-    pub genre_column: SharedString,
-    pub genre_column_desc: SharedString,
-    pub albums_artist_desc: SharedString,
-    pub albums_artist_inline: SharedString,
-    pub albums_artist_column: SharedString,
     pub albums_artist_hidden: SharedString,
     pub settings_artists_view: SharedString,
     pub artists_group_by_tag: SharedString,

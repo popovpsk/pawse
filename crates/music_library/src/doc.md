@@ -17,7 +17,9 @@ touches the database; `pawse::library_service` drives scans through
   connections), `ScanSession` (the batched scan writer on its own connection),
   the migration runner, and the SQL shared between them (`CLEAR_CATALOG`,
   `RETIRE_UNSEEN_LOCAL_BINDINGS`, `SWEEP_UNREFERENCED_ITEMS`,
-  `REFRESH_ITEM_SNAPSHOTS`).
+  `REFRESH_ITEM_SNAPSHOTS`). `compute_sort_name` (leading "The " / "A " moved to
+  the end, the rule behind `artists.sort_name`) is public so the app's in-memory
+  sorts of albums and artists agree with the column.
 - `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
 - `genres.rs` — `normalize_genres`, the one rule that turns raw genre values into
   catalog genres (split on `,` `;` `/`, collapse whitespace, drop junk, dedup
