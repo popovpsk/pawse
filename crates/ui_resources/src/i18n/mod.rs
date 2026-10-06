@@ -34,6 +34,7 @@ mod ja;
 mod ko;
 mod nl;
 mod pl;
+mod playlist_import;
 mod pt;
 mod ru;
 mod sv;
@@ -47,6 +48,7 @@ mod zh;
 
 pub use bit_perfect::{BitPerfectStrings, bit_perfect_strings};
 pub use cast::{CastStrings, cast_strings};
+pub use playlist_import::{PlaylistImportStrings, playlist_import_strings};
 pub use tools::{ToolsStrings, tools_strings};
 pub use view_menu::{ViewMenuStrings, view_menu_strings};
 

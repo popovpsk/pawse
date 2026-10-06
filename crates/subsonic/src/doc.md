@@ -47,6 +47,15 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   `set_starred` is `star` / `unstar`. One song per request: the caller settles
   each play on its own. Streaming goes through `download`, which Navidrome does
   not count as a play, so without `scrobble` a server's play counts never move.
+- **Playlists.** `playlists` is `getPlaylists` (every playlist the server shows
+  this user: their own, other users' public ones — every user's, private too, when
+  the user is a Navidrome admin — and on Navidrome the ones it imported from
+  `.m3u`/`.nsp` files); `playlist_song_ids` is `getPlaylist`'s
+  `entry` ids in order, repeats kept, `isVideo` entries dropped. `is_mine` is
+  "owner is this user (or not given) and not `readonly`": OpenSubsonic's
+  `readonly` is how Navidrome marks smart playlists, other users' playlists and
+  file-synced ones, so it tells a hand-made playlist from the rest even for the
+  admin who owns the imported files. A playlist that is gone is `NotFound`.
 - **Lyrics.** `lyrics` is OpenSubsonic `getLyricsBySongId` (the `songLyrics`
   extension) with `enhanced=true`, returned as the server sends it: every
   `structuredLyrics` entry with its `kind`, `offset`, `line`s, `cueLine`s and

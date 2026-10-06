@@ -2716,6 +2716,25 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn items_by_remote_key(&self, source_id: i64, keys: &[String]) -> Result<HashMap<String, i64>> {
+        let conn = self.conn.lock().unwrap();
+        let keys_json = serde_json::to_string(keys).unwrap_or_else(|_| "[]".into());
+        let mut stmt = conn.prepare(
+            "SELECT source_key, item_id FROM media_bindings \
+             WHERE source_id = ?1 AND source_key IN (SELECT value FROM json_each(?2)) \
+             ORDER BY start_offset_ms, id",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![source_id, keys_json], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut items = HashMap::new();
+        for row in rows {
+            let (key, item) = row?;
+            items.entry(key).or_insert(item);
+        }
+        Ok(items)
+    }
+
     fn remote_key_for_item(&self, source_id: i64, item_id: i64) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let key = conn

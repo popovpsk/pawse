@@ -100,6 +100,14 @@ impl AiPromptState {
         }
     }
 
+    pub fn prefer_playlist_mode(&mut self) -> bool {
+        if self.mode.builds_playlist() {
+            return false;
+        }
+        self.set_mode(Mode::FromLibrary);
+        true
+    }
+
     fn set_period(&mut self, period: Period) {
         if self.period != period {
             self.period = period;

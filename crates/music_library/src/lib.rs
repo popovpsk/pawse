@@ -3314,6 +3314,31 @@ mod tests {
     }
 
     #[test]
+    fn server_keys_map_to_their_items_and_unknown_keys_are_left_out() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+        let local = id_of(&lib, "/music/x/a.flac");
+        let source = server(&lib);
+        lib.apply_remote_listing(
+            source,
+            &[remote_song("s1", "A"), remote_song("s2", "Only Remote")],
+            &[],
+        )
+        .unwrap();
+        scan(&lib, vec![scan_track("/music/x/a.flac", "A")]);
+        let remote_only = id_of(&lib, &remote::locator(source, "s2", "flac"));
+
+        let items = lib
+            .items_by_remote_key(source, &["s2".into(), "s1".into(), "nope".into()])
+            .unwrap();
+        assert_eq!(
+            items,
+            HashMap::from([("s1".to_string(), local), ("s2".to_string(), remote_only)])
+        );
+    }
+
+    #[test]
     fn playback_locators_list_the_local_copy_first_and_skip_offline_sources() {
         let (lib, _path) = create_test_db();
         lib.reconcile_local_sources(&folders(&["/music"])).unwrap();

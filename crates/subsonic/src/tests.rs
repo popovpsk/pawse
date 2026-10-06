@@ -395,6 +395,41 @@ fn starred_songs_and_cover_art() {
 }
 
 #[test]
+fn playlists_keep_their_order_and_only_hand_made_own_ones_are_mine() {
+    let stub = Stub::start(|method, params| match method {
+        "getPlaylists" => ok(serde_json::json!({"playlists": {"playlist": [
+            {"id": "p1", "name": "Mine", "owner": "Me"},
+            {"id": 7, "name": "Shared", "owner": "dad", "public": true},
+            {"id": "p3", "name": "No owner"},
+            {"id": "p4", "name": "From a file", "owner": "me", "readonly": true}
+        ]}})),
+        "getPlaylist" if params["id"] == "p1" => ok(serde_json::json!({"playlist": {
+            "id": "p1",
+            "entry": [song(3), {"id": "v", "isVideo": true}, song(1), song(3)]
+        }})),
+        _ => failed(70),
+    });
+    let client = stub.client("x");
+    let playlists = client.playlists().unwrap();
+    assert_eq!(
+        playlists.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        ["p1", "7", "p3", "p4"]
+    );
+    assert_eq!(
+        playlists
+            .iter()
+            .map(|p| client.is_mine(p))
+            .collect::<Vec<_>>(),
+        [true, false, true, false]
+    );
+    assert_eq!(client.playlist_song_ids("p1").unwrap(), ["3", "1", "3"]);
+    assert!(matches!(
+        client.playlist_song_ids("gone"),
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[test]
 fn a_server_that_clamps_the_page_size_is_still_read_to_the_end() {
     let stub = Stub::start(|_, params| {
         let offset: usize = params["songOffset"].parse().unwrap();

@@ -16,7 +16,12 @@ page in `build_pages`.
   group exists only for playlist modes, and when the Covers page gains or loses
   its results / skipped items. Owns the long-lived state entities of every tool
   (for the AI prompt: `AiPromptState` plus the `AiPromptInputs` text fields; for
-  covers: `CoversState`).
+  covers: `CoversState`). The `OpenAiPlaylist` action (the AI button on the
+  Playlists screen, handled by `MainView`) opens the screen on the AI prompt page
+  via `show_ai_playlist`, which switches to From my library first when the current
+  mode builds no playlist (New music / New releases have no answer-import group).
+  It works with the Tools button hidden: `open_tools` never looks at
+  `tools_enabled`.
 - `ai_prompt/` — the AI prompt generator:
   - `mod.rs` — `AiPromptState` (mode, period, count, detail, busy flag, the
     finished prompt, its preview and size line, the answer-import status), the

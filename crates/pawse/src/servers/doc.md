@@ -70,14 +70,14 @@ to `subsonic::` or `jellyfin::` directly.
   a warning is logged. A torrent stores only its thumbnails, so it hands back
   the same 320 px picture.
 - **What differs between kinds is asked, not compared.** `ServerKind` answers
-  `manual_sync`, `imports_favorites`, `reports_plays` / `sends_favorites` (what
+  `manual_sync`, `imports_favorites`, `imports_playlists`, `reports_plays` / `sends_favorites` (what
   `server_scrobble` may send back: plays to Subsonic, likes to Subsonic and
   Jellyfin), `syncs_alone` (its own sync thread),
   `titled_by_name` and `has_peers`; `RemoteError::NotFound` is a song the
   server says is gone (shown and fetched like `Other`, but a report back to the
   server drops it quietly); `ServerClient` has `scrobble`,
-  `now_playing` and `set_favorite` (an error unless the kind says it reports
-  that), `lyrics` (`Ok(None)` by default; see below), `forget` (removal
+  `now_playing`, `set_favorite` and `playlists` (an error unless the kind says it reports
+  or imports that), `lyrics` (`Ok(None)` by default; see below), `forget` (removal
   cleanup), `peers` and `moved` (a config to save because the server was
   found elsewhere — DLNA only; a sync sends it as `LibraryEvent::RemoteMoved`
   and `remote_settings::server_moved` stores it), all no-ops by default; `RemoteConfig::web_url` is the
@@ -85,6 +85,21 @@ to `subsonic::` or `jellyfin::` directly.
   never tests `kind == Torrent`; the only per-kind `match`es left are
   exhaustive maps from a kind to a value (icon, element ids),
   which the compiler keeps complete.
+- **Playlists are read, never written.** `playlists(scope)` returns every
+  playlist the scope keeps as a `RemotePlaylist` (name + song keys in server
+  order, repeats included); a playlist that disappears between the listing and
+  its own request (`NotFound`) is skipped, any other error fails the whole call.
+  `PlaylistScope::Mine` means "made by hand by this user": Subsonic keeps a
+  playlist whose `owner` is the configured user (or missing) and that is not
+  OpenSubsonic `readonly` — Navidrome sets `readonly` on smart playlists, other
+  users' playlists and the ones it imports and keeps in sync from `.m3u` files,
+  even when the admin owns those. Jellyfin has no owner field in its listings, so
+  each playlist is asked `/Playlists/{id}/Users`, which only its owner may read
+  (403 = not mine; a 404 = a server older than 10.9, where every visible
+  playlist is the user's own). On 10.9+ library `.m3u` playlists are open-access
+  and ownerless, so only `All` brings them. `All` takes everything the server lists
+  for the user. What is done with the result is `remote_sync::import_playlists`'s
+  business (see `library_views/doc.md`).
 - **Servers are keyed `kind:uri`** (`source_key`), in `remote_sync::source_ids`,
   the sync queue, `LibraryEvent`s and the settings rows, so two kinds at the
   same address never share state.

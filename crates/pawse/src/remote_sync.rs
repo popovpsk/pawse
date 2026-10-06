@@ -5,7 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use music_library::{LibraryRepository, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport};
 
 use crate::servers::{
-    RemoteConfig, RemoteError, RemoteServer, ServerClient, ServerKind, source_key,
+    PlaylistScope, RemoteConfig, RemoteError, RemotePlaylist, RemoteServer, ServerClient,
+    ServerKind, source_key,
 };
 
 pub fn reconcile(
@@ -234,6 +235,73 @@ pub fn import_stars(
     let keys = config.client().favorite_keys()?;
     let items = repo.items_for_remote_keys(source_id, &keys)?;
     Ok((items, keys.len()))
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlaylistImport {
+    pub playlists: usize,
+    pub found: usize,
+    pub total: usize,
+}
+
+pub fn import_playlists(
+    repo: &dyn LibraryRepository,
+    source_id: i64,
+    config: &RemoteConfig,
+    scope: PlaylistScope,
+) -> Result<(PlaylistImport, Vec<i64>), RemoteError> {
+    let remote: Vec<RemotePlaylist> = config
+        .client()
+        .playlists(scope)?
+        .into_iter()
+        .filter(|playlist| !playlist.name.trim().is_empty())
+        .collect();
+    let keys: Vec<String> = remote
+        .iter()
+        .flat_map(|playlist| playlist.keys.iter().cloned())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let items = repo.items_by_remote_key(source_id, &keys)?;
+    let mut local: HashMap<String, i64> = HashMap::new();
+    for playlist in repo.playlists()? {
+        local.entry(playlist.name).or_insert(playlist.id);
+    }
+    let mut report = PlaylistImport::default();
+    let mut touched = Vec::new();
+    for playlist in remote {
+        let mut seen = HashSet::new();
+        let unique: Vec<&str> = playlist
+            .keys
+            .iter()
+            .map(String::as_str)
+            .filter(|key| seen.insert(*key))
+            .collect();
+        let found: Vec<i64> = unique
+            .iter()
+            .filter_map(|key| items.get(*key).copied())
+            .collect();
+        report.total += unique.len();
+        report.found += found.len();
+        if found.is_empty() {
+            continue;
+        }
+        let name = playlist.name.trim();
+        let id = match local.get(name) {
+            Some(&id) => id,
+            None => {
+                let id = repo.create_playlist(name)?;
+                local.insert(name.to_string(), id);
+                id
+            }
+        };
+        repo.add_tracks_to_playlist(id, &found)?;
+        report.playlists += 1;
+        if !touched.contains(&id) {
+            touched.push(id);
+        }
+    }
+    Ok((report, touched))
 }
 
 pub fn fetch_covers(
@@ -466,6 +534,27 @@ mod tests {
                             {"id": "not-synced", "title": "Unknown"}
                         ]}})),
                     ),
+                    "getPlaylists" => (
+                        "application/json",
+                        json(serde_json::json!({"playlists": {"playlist": [
+                            {"id": "p1", "name": "Road", "owner": "me"},
+                            {"id": "p2", "name": "Dad's", "owner": "dad"},
+                            {"id": "p3", "name": "Nothing here", "owner": "me"}
+                        ]}})),
+                    ),
+                    "getPlaylist" => {
+                        let entries = match id.as_str() {
+                            "p1" => serde_json::json!([
+                                {"id": "s2"}, {"id": "s1"}, {"id": "s2"}, {"id": "not-synced"}
+                            ]),
+                            "p2" => serde_json::json!([{"id": "s1"}]),
+                            _ => serde_json::json!([{"id": "not-synced"}]),
+                        };
+                        (
+                            "application/json",
+                            json(serde_json::json!({"playlist": {"id": id, "entry": entries}})),
+                        )
+                    }
                     _ => ("application/json", json(serde_json::json!({}))),
                 };
                 let head = format!(
@@ -563,6 +652,69 @@ mod tests {
 
         let (items, total) = import_stars(&repo, source_id, &servers[0].config).unwrap();
         assert_eq!((items, total), (vec![remote_track.id], 2));
+    }
+
+    #[test]
+    fn server_playlists_land_on_library_items_and_a_reimport_only_adds() {
+        let repo = temp_db("playlists");
+        repo.reconcile_local_sources(&[LocalFolder {
+            path: "/music".into(),
+            available: true,
+        }])
+        .unwrap();
+        scan_local(&repo, vec![local_track()]);
+        let url = stub_server();
+        let servers = vec![server(&url)];
+        let (configs, _) = reconcile(&repo, &servers);
+        let (&source_id, _) = configs.iter().next().unwrap();
+        sync(&repo, source_id, &servers[0].config).result.unwrap();
+        scan_local(&repo, vec![local_track()]);
+        let tracks = repo.all_tracks().unwrap();
+        let id_of = |path: &str| tracks.iter().find(|t| t.path == path).unwrap().id;
+        let local = id_of("/music/x/a.flac");
+        let remote = id_of(&music_library::remote::locator(source_id, "s2", "mp3"));
+        let entries = |playlist_id: i64| -> Vec<i64> {
+            repo.tracks_for_playlist(playlist_id)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect()
+        };
+
+        let (report, touched) =
+            import_playlists(&repo, source_id, &servers[0].config, PlaylistScope::Mine).unwrap();
+        assert_eq!(
+            report,
+            PlaylistImport {
+                playlists: 1,
+                found: 2,
+                total: 4
+            }
+        );
+        let playlists = repo.playlists().unwrap();
+        assert_eq!(playlists.len(), 1);
+        let road = playlists[0].id;
+        assert_eq!(playlists[0].name, "Road");
+        assert_eq!(touched, vec![road]);
+        assert_eq!(entries(road), vec![remote, local]);
+
+        repo.remove_track_from_playlist(road, remote).unwrap();
+        let (report, touched) =
+            import_playlists(&repo, source_id, &servers[0].config, PlaylistScope::All).unwrap();
+        assert_eq!(
+            report,
+            PlaylistImport {
+                playlists: 2,
+                found: 3,
+                total: 5
+            }
+        );
+        let playlists = repo.playlists().unwrap();
+        let names: Vec<&str> = playlists.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["Road", "Dad's"]);
+        assert_eq!(touched, vec![road, playlists[1].id]);
+        assert_eq!(entries(road), vec![local, remote]);
+        assert_eq!(entries(playlists[1].id), vec![local]);
     }
 
     fn song_json(id: &str, cover: &str) -> serde_json::Value {

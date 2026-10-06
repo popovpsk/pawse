@@ -8,6 +8,7 @@ pub mod genres_view;
 pub mod grouped_tracks_view;
 pub mod library_view;
 pub mod liked_view;
+mod playlist_import;
 pub mod playlist_tracks_view;
 pub mod playlists_view;
 pub(crate) mod track_row;

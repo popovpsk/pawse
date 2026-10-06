@@ -40,6 +40,9 @@ files.
 - `i18n/cast.rs` — `CastStrings`, the streaming section of the output picker,
   its notifications and the Streaming group of Settings → General
   (`cast_strings()`), kept separate the same way.
+- `i18n/playlist_import.rs` — `PlaylistImportStrings` (`playlist_import_strings()`):
+  the Playlists screen's Import / AI strip and the server playlist import
+  dialog, kept separate the same way.
 - `i18n/bit_perfect.rs` — `BitPerfectStrings` (`bit_perfect_strings()`): the
   bit-perfect indicator's tooltip lines and the explanation dialog it opens on
   click, kept separate the same way.

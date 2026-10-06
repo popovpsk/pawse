@@ -867,6 +867,17 @@ impl MainView {
         );
     }
 
+    fn on_open_ai_playlist(
+        &mut self,
+        _: &crate::tools::OpenAiPlaylist,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_tools(window, cx);
+        self.tools_view
+            .update(cx, |view, cx| view.show_ai_playlist(cx));
+    }
+
     fn on_exit_cover_mode(&mut self, _: &ExitCoverMode, _: &mut Window, cx: &mut Context<Self>) {
         if self.cover_mode {
             self.set_cover_mode(false, cx);
@@ -1302,6 +1313,7 @@ impl Render for MainView {
                     .on_action(cx.listener(Self::on_exit_cover_mode))
                     .on_action(cx.listener(Self::on_open_scrobbling_settings))
                     .on_action(cx.listener(Self::on_open_sleep_timer_settings))
+                    .on_action(cx.listener(Self::on_open_ai_playlist))
                     .when(show_chrome, |d| d.child(header_bar))
                     .child(middle)
                     .when(show_chrome, |d| d.child(footer_bar))

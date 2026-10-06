@@ -400,6 +400,37 @@ drive the `PlaybackQueue` on click.
   works after typing; clicking another row while renaming just closes the editor.
   The rename goes through `LibraryService::rename_playlist` → `PlaylistsChanged`;
   the SQL refuses the hidden liked playlist.
+  Above everything (the empty state too) sits a thin strip of ghost buttons, its own
+  row so the "New playlist" row keeps one hover and one click: **Import** (only while a
+  server whose `ServerKind::imports_playlists` is configured; `can_import` is
+  refreshed from a `SettingsStore` observer, never computed in render) opens the
+  import dialog, **AI** dispatches `tools::OpenAiPlaylist`, which `MainView` turns
+  into the Tools screen on the AI prompt page in a playlist mode. AI is there even
+  when the Tools button is hidden in Settings.
+- `playlist_import.rs` — the server playlist import dialog. `PlaylistImport` is a
+  long-lived entity owned by `PlaylistsView` and rendered as the dialog's body, so
+  closing the dialog mid-import loses nothing: the busy set and the last result per
+  server live there, filled from `LibraryEvent::RemotePlaylistsImported`. Opening it
+  snapshots the importable servers (`refresh_servers`); the scope ("Only my
+  playlists" / "All available") is one choice for every server, default Mine. The
+  work itself is `LibraryService::import_remote_playlists` →
+  `remote_sync::import_playlists`: a one-time copy, nothing is ever sent back and
+  no sync touches the result again. Song keys become library items through their
+  bindings (`items_by_remote_key`), so a song that is also a local file is that
+  file's item and plays from disk. A server playlist goes into the local playlist
+  with the same name (the oldest one if several), or a new one, through
+  `add_tracks_to_playlist`, which only appends what is missing — importing again
+  adds the server's new tracks and anything removed locally, and never removes or
+  reorders. Two server playlists with one name (Navidrome: two discs' `.m3u` with
+  the same file name) end up in one local playlist. A track repeated inside a
+  playlist is kept once (the `(playlist_id, track_id)` unique index). A playlist
+  none of whose songs is in the library yet (not synced, or every entry a broken
+  `.m3u` path) creates nothing. The result line counts imported playlists and the
+  tracks found out of all tracks, each playlist's tracks counted once (a track in
+  two playlists counts twice); "server is not synced yet" means the source has no
+  enabled row to map keys through. Imports run one at a time
+  (`RemoteSyncState::playlist_imports`): two servers importing a playlist with the
+  same new name at once would otherwise each create it.
 - `playlist_tracks_view.rs` — tracks of one playlist. Rows are drag-reorderable
   (only with an empty filter), persisted via `LibraryService::move_track_in_playlist`.
   Liked and playlist screens show "Unavailable: N" when entries have no file right

@@ -10,6 +10,7 @@ const PAGE_SIZE: usize = 500;
 const MAX_PAGES: usize = 10_000;
 const MAX_COVER_BYTES: u64 = 32 * 1024 * 1024;
 const ITEM_FIELDS: &str = "MediaSources,Genres,Path";
+const AUDIO_TYPE: &str = "Audio";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -95,6 +96,24 @@ impl Item {
             _ => self.image_tags.primary.as_ref().map(|_| self.id.as_str()),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Playlist {
+    #[serde(deserialize_with = "lenient::id")]
+    pub id: String,
+    #[serde(default, deserialize_with = "lenient::text")]
+    pub name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct EntryRef {
+    #[serde(deserialize_with = "lenient::id")]
+    id: String,
+    #[serde(default, rename = "Type", deserialize_with = "lenient::opt_text")]
+    kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -247,6 +266,50 @@ impl Client {
 
     pub fn favorites(&self) -> Result<Vec<Item>, Error> {
         self.audio_items(&[("Filters", "IsFavorite")])
+    }
+
+    pub fn playlists(&self) -> Result<Vec<Playlist>, Error> {
+        let response = self.json(
+            "/Items",
+            &[
+                ("userId", &self.user_id),
+                ("IncludeItemTypes", "Playlist"),
+                ("Recursive", "true"),
+                ("SortBy", "SortName"),
+                ("SortOrder", "Ascending"),
+            ],
+        )?;
+        items_at(&response, "Items")
+    }
+
+    pub fn owns_playlist(&self, playlist_id: &str) -> Result<bool, Error> {
+        let path = format!("/Playlists/{}/Users", encode(playlist_id));
+        let response = self.send(&path, &[], None)?;
+        match response.status().as_u16() {
+            403 => Ok(false),
+            404 => Ok(true),
+            _ => check_status(response).map(|_| true),
+        }
+    }
+
+    pub fn playlist_song_ids(&self, playlist_id: &str) -> Result<Vec<String>, Error> {
+        let path = format!("/Playlists/{}/Items", encode(playlist_id));
+        let response = self.send(&path, &[("userId", &self.user_id)], None)?;
+        if matches!(response.status().as_u16(), 403 | 404) {
+            return Err(Error::NotFound(format!("Playlists: {playlist_id}")));
+        }
+        let value = read_json(check_status(response)?, "Playlists")?;
+        let entries: Vec<EntryRef> = items_at(&value, "Playlists")?;
+        Ok(entries
+            .into_iter()
+            .filter(|entry| {
+                entry
+                    .kind
+                    .as_deref()
+                    .is_none_or(|kind| kind.eq_ignore_ascii_case(AUDIO_TYPE))
+            })
+            .map(|entry| entry.id)
+            .collect())
     }
 
     pub fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), Error> {
@@ -463,6 +526,27 @@ impl Client {
             })
             .map_err(|e| Error::Transient(server_http::redact(&e.to_string())))
     }
+}
+
+fn items_at<T: for<'de> Deserialize<'de>>(
+    response: &serde_json::Value,
+    what: &str,
+) -> Result<Vec<T>, Error> {
+    let raw = match response.get("Items") {
+        Some(serde_json::Value::Array(raw)) => raw.as_slice(),
+        Some(_) => return Err(Error::Server(format!("{what}: unexpected reply"))),
+        None => &[],
+    };
+    Ok(raw
+        .iter()
+        .filter_map(|item| match serde_json::from_value(item.clone()) {
+            Ok(item) => Some(item),
+            Err(e) => {
+                log::warn!("jellyfin: skipping an item: {e}");
+                None
+            }
+        })
+        .collect())
 }
 
 fn dedupe(items: Vec<Item>) -> Vec<Item> {

@@ -83,6 +83,10 @@ pub enum LibraryEvent {
         key: String,
         outcome: Result<(usize, usize), crate::servers::RemoteError>,
     },
+    RemotePlaylistsImported {
+        key: String,
+        outcome: Result<crate::remote_sync::PlaylistImport, crate::servers::RemoteError>,
+    },
     TrackLikedChanged {
         track_id: i64,
         liked: bool,
@@ -132,6 +136,7 @@ struct RemoteSyncState {
     queued: Mutex<Vec<(crate::servers::RemoteServer, bool)>>,
     torrents: Mutex<HashSet<String>>,
     active: Mutex<HashSet<String>>,
+    playlist_imports: Mutex<()>,
 }
 
 pub struct LibraryService {
@@ -1164,15 +1169,9 @@ impl LibraryService {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
         std::thread::spawn(move || {
-            let ids = crate::remote_sync::source_ids(&*repo);
-            let outcome = match ids.get(&server.key()) {
-                Some(&source_id) => {
-                    crate::remote_sync::import_stars(&*repo, source_id, &server.config)
-                }
-                None => Err(crate::servers::RemoteError::Other(
-                    "server is not synced yet".into(),
-                )),
-            };
+            let outcome = synced_source(&*repo, &server).and_then(|source_id| {
+                crate::remote_sync::import_stars(&*repo, source_id, &server.config)
+            });
             let outcome = outcome.and_then(|(items, total)| {
                 repo.like_many(&items)?;
                 let found = items.len();
@@ -1182,6 +1181,38 @@ impl LibraryService {
                 Ok((found, total))
             });
             let _ = event_tx.send(LibraryEvent::RemoteStarsImported {
+                key: server.key(),
+                outcome,
+            });
+        });
+    }
+
+    pub fn import_remote_playlists(
+        &self,
+        server: crate::servers::RemoteServer,
+        scope: crate::servers::PlaylistScope,
+    ) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let state = self.remote_sync.clone();
+        std::thread::spawn(move || {
+            let outcome = {
+                let _one_at_a_time = state
+                    .playlist_imports
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                synced_source(&*repo, &server).and_then(|source_id| {
+                    crate::remote_sync::import_playlists(&*repo, source_id, &server.config, scope)
+                })
+            };
+            let _ = event_tx.send(LibraryEvent::PlaylistsChanged);
+            let outcome = outcome.map(|(report, touched)| {
+                for playlist_id in touched {
+                    let _ = event_tx.send(LibraryEvent::PlaylistTracksChanged { playlist_id });
+                }
+                report
+            });
+            let _ = event_tx.send(LibraryEvent::RemotePlaylistsImported {
                 key: server.key(),
                 outcome,
             });
@@ -1494,6 +1525,16 @@ impl LibraryService {
         let _ = event_tx.send(LibraryEvent::ScanComplete);
         let _ = event_tx.send(scan_outcome(ok));
     }
+}
+
+fn synced_source(
+    repo: &dyn LibraryRepository,
+    server: &crate::servers::RemoteServer,
+) -> Result<i64, crate::servers::RemoteError> {
+    crate::remote_sync::source_ids(repo)
+        .get(&server.key())
+        .copied()
+        .ok_or_else(|| crate::servers::RemoteError::Other("server is not synced yet".into()))
 }
 
 fn folder_unavailable(path: &Path, had_media: impl Fn(&Path) -> bool) -> bool {

@@ -4,7 +4,7 @@ mod timer;
 
 use gpui::{
     AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
-    div,
+    actions, div,
 };
 use gpui_component::input::{InputState, TextareaState};
 use ui_components::settings::{SettingPage, Settings};
@@ -19,8 +19,11 @@ use covers::CoversState;
 use crate::sleep_timer::SleepTimer;
 use crate::sleep_timer::controls::SleepTimerControls;
 
+actions!(tools, [OpenAiPlaylist]);
+
 const WISHES_ROWS: (usize, usize) = (2, 6);
 const ANSWER_ROWS: (usize, usize) = (4, 12);
+const AI_PROMPT_PAGE: usize = 0;
 pub const TIMER_PAGE: usize = 2;
 
 pub struct ToolsView {
@@ -148,6 +151,15 @@ impl ToolsView {
         self.page_ix = page_ix;
         self.page_request += 1;
         cx.notify();
+    }
+
+    pub fn show_ai_playlist(&mut self, cx: &mut Context<Self>) {
+        self.ai_prompt.update(cx, |state, cx| {
+            if state.prefer_playlist_mode() {
+                cx.notify();
+            }
+        });
+        self.show_page(AI_PROMPT_PAGE, cx);
     }
 }
 

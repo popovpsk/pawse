@@ -289,6 +289,53 @@ fn favorites_ask_the_server_to_filter() {
 }
 
 #[test]
+fn playlists_tell_their_owner_and_keep_only_audio_in_order() {
+    let stub = Stub::start(|request| match request.path.as_str() {
+        "/Items" => json(serde_json::json!({"Items": [
+            {"Id": "p1", "Name": "Mine"},
+            {"Id": "p2", "Name": "Shared"},
+            {"Id": "p3", "Name": "Old server"}
+        ]})),
+        "/Playlists/p1/Users" => json(serde_json::json!([])),
+        "/Playlists/p2/Users" => (403, "text/plain", Vec::new()),
+        "/Playlists/p3/Users" => (404, "text/plain", Vec::new()),
+        "/Playlists/p2/Items" => (403, "text/plain", Vec::new()),
+        "/Playlists/p1/Items" => json(serde_json::json!({"Items": [
+            song(2),
+            {"Id": "v1", "Type": "MusicVideo"},
+            song(1),
+            song(2)
+        ]})),
+        _ => (404, "text/plain", Vec::new()),
+    });
+    let client = stub.client();
+    let playlists = client.playlists().unwrap();
+    assert_eq!(
+        playlists
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Mine", "Shared", "Old server"]
+    );
+    assert!(client.owns_playlist("p1").unwrap());
+    assert!(!client.owns_playlist("p2").unwrap());
+    assert!(client.owns_playlist("p3").unwrap());
+    assert_eq!(client.playlist_song_ids("p1").unwrap(), ["s2", "s1", "s2"]);
+    assert!(matches!(
+        client.playlist_song_ids("gone"),
+        Err(Error::NotFound(_))
+    ));
+    assert!(matches!(
+        client.playlist_song_ids("p2"),
+        Err(Error::NotFound(_))
+    ));
+    let requests = stub.requests();
+    assert_eq!(requests[0].params["IncludeItemTypes"], "Playlist");
+    assert_eq!(requests[0].params["userId"], "u1");
+    assert_eq!(requests[4].params["userId"], "u1");
+}
+
+#[test]
 fn a_server_that_ignores_the_offset_is_an_error() {
     let stub = Stub::start(|_| {
         json(serde_json::json!({"Items": [song(1), song(2)], "TotalRecordCount": 10}))

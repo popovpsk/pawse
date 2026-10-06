@@ -1,8 +1,8 @@
 use music_library::RemoteSong;
 
 use super::{
-    RemoteError, ServerClient, joined_genres, one_line, real_album, real_artist, real_track_number,
-    server_lyrics,
+    PlaylistScope, RemoteError, RemotePlaylist, ServerClient, joined_genres, one_line, real_album,
+    real_artist, real_track_number, server_lyrics,
 };
 
 const KNOWN_CONTAINERS: [&str; 14] = [
@@ -67,6 +67,26 @@ impl ServerClient for Jellyfin {
 
     fn set_favorite(&self, key: &str, favorite: bool) -> Result<(), RemoteError> {
         self.0.set_favorite(key, favorite).map_err(error)
+    }
+
+    fn playlists(&self, scope: PlaylistScope) -> Result<Vec<RemotePlaylist>, RemoteError> {
+        let mut playlists = Vec::new();
+        for playlist in self.0.playlists().map_err(error)? {
+            if scope == PlaylistScope::Mine && !self.0.owns_playlist(&playlist.id).map_err(error)? {
+                continue;
+            }
+            match self.0.playlist_song_ids(&playlist.id) {
+                Ok(keys) => playlists.push(RemotePlaylist {
+                    name: playlist.name,
+                    keys,
+                }),
+                Err(jellyfin::Error::NotFound(message)) => {
+                    log::info!("jellyfin: playlist {} is gone: {message}", playlist.id);
+                }
+                Err(e) => return Err(error(e)),
+            }
+        }
+        Ok(playlists)
     }
 
     fn lyrics(&self, key: &str) -> Result<Option<lyrics::Lyrics>, RemoteError> {

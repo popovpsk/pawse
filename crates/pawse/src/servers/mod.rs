@@ -58,6 +58,13 @@ impl ServerKind {
         }
     }
 
+    pub fn imports_playlists(self) -> bool {
+        match self {
+            ServerKind::Subsonic | ServerKind::Jellyfin => true,
+            ServerKind::Dlna | ServerKind::Torrent => false,
+        }
+    }
+
     pub fn reports_plays(self) -> bool {
         match self {
             ServerKind::Subsonic => true,
@@ -170,6 +177,19 @@ impl From<music_library::LibraryError> for RemoteError {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlaylistScope {
+    #[default]
+    Mine,
+    All,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemotePlaylist {
+    pub name: String,
+    pub keys: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Peers {
     pub connected: u32,
     pub known: u32,
@@ -193,6 +213,9 @@ pub trait ServerClient: Send + Sync {
         Err(unsupported())
     }
     fn set_favorite(&self, _key: &str, _favorite: bool) -> Result<(), RemoteError> {
+        Err(unsupported())
+    }
+    fn playlists(&self, _scope: PlaylistScope) -> Result<Vec<RemotePlaylist>, RemoteError> {
         Err(unsupported())
     }
     fn lyrics(&self, _key: &str) -> Result<Option<lyrics::Lyrics>, RemoteError> {

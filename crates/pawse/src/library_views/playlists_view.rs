@@ -16,11 +16,14 @@ use gpui_component::{
     v_flex, v_virtual_list,
 };
 use nucleo_matcher::{Config, Matcher};
+use ui_resources::i18n::playlist_import_strings;
 
 use crate::library_service::LibraryEvent;
 use crate::library_views::fuzzy::fuzzy_sorted;
+use crate::library_views::playlist_import::{self, PlaylistImport};
 use crate::localization::tr;
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 use crate::track_list::LIKE_ROW_GROUP;
 
@@ -64,6 +67,8 @@ struct PlaylistRowParams {
 const TOP_PADDING: f32 = 12.;
 const PLAYLIST_ROW_HEIGHT: f32 = 48.;
 const ROW_ACTION_SIZE: f32 = 28.;
+const ACTIONS_HEIGHT: f32 = 32.;
+const ACTIONS_PADDING: f32 = 8.;
 
 pub struct PlaylistsView {
     playlists_all: Vec<music_library::PlaylistSummary>,
@@ -82,9 +87,12 @@ pub struct PlaylistsView {
     rename_input: Entity<InputState>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
+    can_import: bool,
+    import: Entity<PlaylistImport>,
     _subscription: Subscription,
     _create_subscription: Subscription,
     _rename_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl PlaylistsView {
@@ -158,6 +166,16 @@ impl PlaylistsView {
             }
         });
 
+        let settings_observer = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
+            let can_import = playlist_import::available(cx);
+            if this.can_import != can_import {
+                this.can_import = can_import;
+                cx.notify();
+            }
+        });
+        let can_import = playlist_import::available(cx);
+        let import = cx.new(PlaylistImport::new);
+
         Self {
             playlists_all,
             all_tracks_count,
@@ -175,9 +193,12 @@ impl PlaylistsView {
             rename_input,
             item_sizes: Rc::new(item_sizes),
             scroll_handle: VirtualListScrollHandle::new(),
+            can_import,
+            import,
             _subscription: subscription,
             _create_subscription: create_subscription,
             _rename_subscription: rename_subscription,
+            _settings_observer: settings_observer,
         }
     }
 
@@ -334,6 +355,7 @@ impl Render for PlaylistsView {
         });
 
         let show_empty_state = self.playlists_all.is_empty() && !self.creating;
+        let actions = actions_row(self.can_import, cx);
         let new_row = (!show_empty_state)
             .then(|| new_playlist_row(self, border, list_hover, muted_fg, icon_btn_hover, cx));
 
@@ -353,6 +375,7 @@ impl Render for PlaylistsView {
             };
             return v_flex()
                 .size_full()
+                .child(actions)
                 .children(new_row)
                 .children(all_tracks)
                 .child(body);
@@ -368,6 +391,7 @@ impl Render for PlaylistsView {
         let item_sizes = self.item_sizes.clone();
         v_flex()
             .size_full()
+            .child(actions)
             .children(new_row)
             .children(all_tracks)
             .child(
@@ -398,6 +422,42 @@ impl Render for PlaylistsView {
                     .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
             )
     }
+}
+
+fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyElement {
+    let strings = playlist_import_strings();
+    h_flex()
+        .w_full()
+        .h(px(ACTIONS_HEIGHT))
+        .flex_shrink_0()
+        .px(px(ACTIONS_PADDING))
+        .gap_1()
+        .items_center()
+        .when(can_import, |row| {
+            row.child(
+                Button::new("playlists-import")
+                    .ghost()
+                    .xsmall()
+                    .icon(Icon::default().path("icons/cloud-download.svg"))
+                    .label(strings.import.clone())
+                    .tooltip(strings.import_tooltip.clone())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        playlist_import::open(this.import.clone(), window, cx);
+                    })),
+            )
+        })
+        .child(
+            Button::new("playlists-ai")
+                .ghost()
+                .xsmall()
+                .icon(Icon::default().path("icons/sparkles.svg"))
+                .label(strings.ai.clone())
+                .tooltip(strings.ai_tooltip.clone())
+                .on_click(|_, window, cx| {
+                    window.dispatch_action(Box::new(crate::tools::OpenAiPlaylist), cx);
+                }),
+        )
+        .into_any_element()
 }
 
 fn new_playlist_row(

@@ -36,6 +36,16 @@ the library database; `pawse::remote_sync` turns its `Item`s into
 - **Favorites** are the same listing with `Filters=IsFavorite` — only the
   favorites come back, so the import never walks the whole library. The main
   listing does not ask for user data.
+- **Playlists.** `playlists` lists `IncludeItemTypes=Playlist` for the user —
+  their own, those shared with them, open-access ones, and `.m3u`/`.pls`/… files
+  found in music libraries (open access, no owner). The listing carries no owner,
+  so `owns_playlist` asks `/Playlists/{id}/Users`: 10.9+ answers it only for the
+  owner (403 otherwise); a 404 means a server without the route, where playlists
+  were never shared, so it counts as owned. `playlist_song_ids` reads
+  `/Playlists/{id}/Items` and keeps the `Id` of `Audio` entries in order, repeats
+  included (a playlist can mix in videos and episodes); a 404 or 403 is
+  `NotFound`, so one playlist the server will not show skips that playlist
+  instead of reading as a failed login.
 - **Lenient fields.** Numbers may come as floats or strings, lists and objects as
   something else; an odd field becomes `None`/empty instead of failing the page.
 - **Covers.** `Item::cover_key` is the album id when the album has a primary

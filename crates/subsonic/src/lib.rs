@@ -147,10 +147,31 @@ pub struct Agent {
     pub role: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Playlist {
+    #[serde(deserialize_with = "lenient::id")]
+    pub id: String,
+    #[serde(default, deserialize_with = "lenient::text")]
+    pub name: String,
+    #[serde(default, deserialize_with = "lenient::opt_text")]
+    pub owner: Option<String>,
+    #[serde(default, deserialize_with = "lenient::boolean")]
+    pub readonly: bool,
+}
+
 #[derive(Deserialize)]
 struct AlbumRef {
     #[serde(deserialize_with = "lenient::id")]
     id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EntryRef {
+    #[serde(deserialize_with = "lenient::id")]
+    id: String,
+    #[serde(default, deserialize_with = "lenient::boolean")]
+    is_video: bool,
 }
 
 pub struct Client {
@@ -203,6 +224,29 @@ impl Client {
     pub fn starred_songs(&self) -> Result<Vec<Song>, Error> {
         let response = self.json("getStarred2", &[])?;
         songs_at(&response, &["starred2", "song"])
+    }
+
+    pub fn playlists(&self) -> Result<Vec<Playlist>, Error> {
+        let response = self.json("getPlaylists", &[])?;
+        list_at(&response, &["playlists", "playlist"])
+    }
+
+    pub fn is_mine(&self, playlist: &Playlist) -> bool {
+        !playlist.readonly
+            && playlist
+                .owner
+                .as_deref()
+                .is_none_or(|owner| owner.eq_ignore_ascii_case(&self.username))
+    }
+
+    pub fn playlist_song_ids(&self, playlist_id: &str) -> Result<Vec<String>, Error> {
+        let response = self.json("getPlaylist", &[("id", playlist_id)])?;
+        let entries: Vec<EntryRef> = list_at(&response, &["playlist", "entry"])?;
+        Ok(entries
+            .into_iter()
+            .filter(|entry| !entry.is_video)
+            .map(|entry| entry.id)
+            .collect())
     }
 
     pub fn scrobble(&self, song_id: &str, played_at_ms: u64) -> Result<(), Error> {
