@@ -5,7 +5,6 @@ use super::{Lang, active, fill};
 pub struct PlaylistImportStrings {
     pub import: SharedString,
     pub import_tooltip: SharedString,
-    pub ai: SharedString,
     pub ai_tooltip: SharedString,
     pub title: SharedString,
     pub description: SharedString,
@@ -61,7 +60,6 @@ fn for_lang(lang: Lang) -> &'static PlaylistImportStrings {
 static EN: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Import"),
     import_tooltip: SharedString::new_static("Import playlists from a server"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Make a playlist with an AI chat"),
     title: SharedString::new_static("Import playlists"),
     description: SharedString::new_static(
@@ -78,7 +76,6 @@ static EN: PlaylistImportStrings = PlaylistImportStrings {
 static ZH: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("导入"),
     import_tooltip: SharedString::new_static("从服务器导入播放列表"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("用 AI 对话生成播放列表"),
     title: SharedString::new_static("导入播放列表"),
     description: SharedString::new_static(
@@ -95,7 +92,6 @@ static ZH: PlaylistImportStrings = PlaylistImportStrings {
 static PT: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importar"),
     import_tooltip: SharedString::new_static("Importar playlists de um servidor"),
-    ai: SharedString::new_static("IA"),
     ai_tooltip: SharedString::new_static("Criar uma playlist com um chat de IA"),
     title: SharedString::new_static("Importar playlists"),
     description: SharedString::new_static(
@@ -114,7 +110,6 @@ static PT: PlaylistImportStrings = PlaylistImportStrings {
 static RU: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Импорт"),
     import_tooltip: SharedString::new_static("Импортировать плейлисты с сервера"),
-    ai: SharedString::new_static("ИИ"),
     ai_tooltip: SharedString::new_static("Собрать плейлист с помощью ИИ-чата"),
     title: SharedString::new_static("Импорт плейлистов"),
     description: SharedString::new_static(
@@ -131,7 +126,6 @@ static RU: PlaylistImportStrings = PlaylistImportStrings {
 static JA: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("インポート"),
     import_tooltip: SharedString::new_static("サーバーからプレイリストをインポート"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("AI チャットでプレイリストを作る"),
     title: SharedString::new_static("プレイリストのインポート"),
     description: SharedString::new_static(
@@ -150,7 +144,6 @@ static JA: PlaylistImportStrings = PlaylistImportStrings {
 static DE: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importieren"),
     import_tooltip: SharedString::new_static("Playlists von einem Server importieren"),
-    ai: SharedString::new_static("KI"),
     ai_tooltip: SharedString::new_static("Playlist mit einem KI-Chat erstellen"),
     title: SharedString::new_static("Playlists importieren"),
     description: SharedString::new_static(
@@ -169,7 +162,6 @@ static DE: PlaylistImportStrings = PlaylistImportStrings {
 static FR: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importer"),
     import_tooltip: SharedString::new_static("Importer des playlists depuis un serveur"),
-    ai: SharedString::new_static("IA"),
     ai_tooltip: SharedString::new_static("Créer une playlist avec un chat IA"),
     title: SharedString::new_static("Importer des playlists"),
     description: SharedString::new_static(
@@ -188,7 +180,6 @@ static FR: PlaylistImportStrings = PlaylistImportStrings {
 static KO: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("가져오기"),
     import_tooltip: SharedString::new_static("서버에서 재생목록 가져오기"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("AI 채팅으로 재생목록 만들기"),
     title: SharedString::new_static("재생목록 가져오기"),
     description: SharedString::new_static(
@@ -205,7 +196,6 @@ static KO: PlaylistImportStrings = PlaylistImportStrings {
 static IT: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importa"),
     import_tooltip: SharedString::new_static("Importa playlist da un server"),
-    ai: SharedString::new_static("IA"),
     ai_tooltip: SharedString::new_static("Crea una playlist con una chat IA"),
     title: SharedString::new_static("Importa playlist"),
     description: SharedString::new_static(
@@ -222,7 +212,6 @@ static IT: PlaylistImportStrings = PlaylistImportStrings {
 static TR: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("İçe aktar"),
     import_tooltip: SharedString::new_static("Sunucudan çalma listelerini içe aktar"),
-    ai: SharedString::new_static("Yapay zekâ"),
     ai_tooltip: SharedString::new_static("Yapay zekâ sohbetiyle çalma listesi oluştur"),
     title: SharedString::new_static("Çalma listelerini içe aktar"),
     description: SharedString::new_static(
@@ -239,7 +228,6 @@ static TR: PlaylistImportStrings = PlaylistImportStrings {
 static PL: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importuj"),
     import_tooltip: SharedString::new_static("Importuj playlisty z serwera"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Utwórz playlistę z pomocą czatu AI"),
     title: SharedString::new_static("Import playlist"),
     description: SharedString::new_static(
@@ -256,7 +244,6 @@ static PL: PlaylistImportStrings = PlaylistImportStrings {
 static NL: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importeren"),
     import_tooltip: SharedString::new_static("Afspeellijsten van een server importeren"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Maak een afspeellijst met een AI-chat"),
     title: SharedString::new_static("Afspeellijsten importeren"),
     description: SharedString::new_static(
@@ -275,7 +262,6 @@ static NL: PlaylistImportStrings = PlaylistImportStrings {
 static UK: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Імпорт"),
     import_tooltip: SharedString::new_static("Імпортувати плейлисти із сервера"),
-    ai: SharedString::new_static("ШІ"),
     ai_tooltip: SharedString::new_static("Скласти плейлист за допомогою ШІ-чату"),
     title: SharedString::new_static("Імпорт плейлистів"),
     description: SharedString::new_static(
@@ -292,7 +278,6 @@ static UK: PlaylistImportStrings = PlaylistImportStrings {
 static VI: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Nhập"),
     import_tooltip: SharedString::new_static("Nhập danh sách phát từ máy chủ"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Tạo danh sách phát bằng trò chuyện AI"),
     title: SharedString::new_static("Nhập danh sách phát"),
     description: SharedString::new_static(
@@ -311,7 +296,6 @@ static VI: PlaylistImportStrings = PlaylistImportStrings {
 static ID: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Impor"),
     import_tooltip: SharedString::new_static("Impor playlist dari server"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Buat playlist dengan chat AI"),
     title: SharedString::new_static("Impor playlist"),
     description: SharedString::new_static(
@@ -328,7 +312,6 @@ static ID: PlaylistImportStrings = PlaylistImportStrings {
 static TH: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("นำเข้า"),
     import_tooltip: SharedString::new_static("นำเข้าเพลย์ลิสต์จากเซิร์ฟเวอร์"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("สร้างเพลย์ลิสต์ด้วยแชต AI"),
     title: SharedString::new_static("นำเข้าเพลย์ลิสต์"),
     description: SharedString::new_static(
@@ -345,7 +328,6 @@ static TH: PlaylistImportStrings = PlaylistImportStrings {
 static CS: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importovat"),
     import_tooltip: SharedString::new_static("Importovat playlisty ze serveru"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Sestavit playlist pomocí AI chatu"),
     title: SharedString::new_static("Import playlistů"),
     description: SharedString::new_static(
@@ -362,7 +344,6 @@ static CS: PlaylistImportStrings = PlaylistImportStrings {
 static SV: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importera"),
     import_tooltip: SharedString::new_static("Importera spellistor från en server"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("Skapa en spellista med en AI-chatt"),
     title: SharedString::new_static("Importera spellistor"),
     description: SharedString::new_static(
@@ -379,7 +360,6 @@ static SV: PlaylistImportStrings = PlaylistImportStrings {
 static HI: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("इम्पोर्ट"),
     import_tooltip: SharedString::new_static("सर्वर से प्लेलिस्ट इम्पोर्ट करें"),
-    ai: SharedString::new_static("AI"),
     ai_tooltip: SharedString::new_static("AI चैट से प्लेलिस्ट बनाएँ"),
     title: SharedString::new_static("प्लेलिस्ट इम्पोर्ट करें"),
     description: SharedString::new_static(
@@ -396,7 +376,6 @@ static HI: PlaylistImportStrings = PlaylistImportStrings {
 static ES: PlaylistImportStrings = PlaylistImportStrings {
     import: SharedString::new_static("Importar"),
     import_tooltip: SharedString::new_static("Importar listas desde un servidor"),
-    ai: SharedString::new_static("IA"),
     ai_tooltip: SharedString::new_static("Crear una lista con un chat de IA"),
     title: SharedString::new_static("Importar listas"),
     description: SharedString::new_static(

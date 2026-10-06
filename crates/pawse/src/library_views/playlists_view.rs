@@ -36,7 +36,9 @@ pub struct PlaylistSelectedEvent {
 pub struct AllTracksSelectedEvent;
 
 enum PlaylistItem {
-    TopPadding,
+    NewPlaylist,
+    AllTracks,
+    Gap,
     Playlist(usize),
 }
 
@@ -64,10 +66,10 @@ struct PlaylistRowParams {
     icon_btn_hover: Hsla,
 }
 
-const TOP_PADDING: f32 = 12.;
+const PLAYLISTS_GAP: f32 = 12.;
 const PLAYLIST_ROW_HEIGHT: f32 = 48.;
 const ROW_ACTION_SIZE: f32 = 28.;
-const ACTIONS_HEIGHT: f32 = 32.;
+const ACTIONS_HEIGHT: f32 = 40.;
 const ACTIONS_PADDING: f32 = 8.;
 
 pub struct PlaylistsView {
@@ -144,7 +146,7 @@ impl PlaylistsView {
         let all_tracks_count_label: SharedString = tr().n_tracks(all_tracks_count).into();
         let row_data: Vec<PlaylistRowData> =
             playlists_all.iter().map(PlaylistRowData::new).collect();
-        let (items, item_sizes) = Self::build_items(row_data.len());
+        let (items, item_sizes) = Self::build_items(row_data.len(), all_tracks_count > 0);
 
         let subscription = cx.subscribe(&library_event_bus, |this, _, event: &LibraryEvent, cx| {
             let refresh = matches!(
@@ -202,9 +204,16 @@ impl PlaylistsView {
         }
     }
 
-    fn build_items(count: usize) -> (Vec<PlaylistItem>, Vec<Size<Pixels>>) {
-        let mut items = vec![PlaylistItem::TopPadding];
-        let mut sizes = vec![size(px(0.), px(TOP_PADDING))];
+    fn build_items(count: usize, all_tracks: bool) -> (Vec<PlaylistItem>, Vec<Size<Pixels>>) {
+        let header = size(px(0.), px(PLAYLIST_ROW_HEIGHT));
+        let mut items = vec![PlaylistItem::NewPlaylist];
+        let mut sizes = vec![header];
+        if all_tracks {
+            items.push(PlaylistItem::AllTracks);
+            sizes.push(header);
+        }
+        items.push(PlaylistItem::Gap);
+        sizes.push(size(px(0.), px(PLAYLISTS_GAP)));
         for ix in 0..count {
             items.push(PlaylistItem::Playlist(ix));
             sizes.push(size(px(0.), px(PLAYLIST_ROW_HEIGHT + 1.)));
@@ -245,7 +254,7 @@ impl PlaylistsView {
                 .map(|ix| PlaylistRowData::new(&self.playlists_all[ix]))
                 .collect();
         }
-        let (items, sizes) = Self::build_items(self.row_data.len());
+        let (items, sizes) = Self::build_items(self.row_data.len(), self.all_tracks_count > 0);
         self.items = items;
         self.item_sizes = Rc::new(sizes);
     }
@@ -337,31 +346,21 @@ impl EventEmitter<AllTracksSelectedEvent> for PlaylistsView {}
 
 impl Render for PlaylistsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let border = Colors::border(cx);
-        let list_hover = Colors::list_hover(cx);
-        let muted_fg = Colors::muted_foreground(cx);
-        let danger_fg = Colors::foreground(cx);
-        let icon_btn_hover = Colors::accent(cx);
-
-        let all_tracks = (self.all_tracks_count > 0).then(|| {
-            all_tracks_row(
-                self.all_tracks_count_label.clone(),
-                border,
-                list_hover,
-                muted_fg,
-                danger_fg,
-                cx,
-            )
-        });
-
-        let show_empty_state = self.playlists_all.is_empty() && !self.creating;
+        let params = PlaylistRowParams {
+            border: Colors::border(cx),
+            list_hover: Colors::list_hover(cx),
+            muted_fg: Colors::muted_foreground(cx),
+            danger_fg: Colors::foreground(cx),
+            icon_btn_hover: Colors::accent(cx),
+        };
         let actions = actions_row(self.can_import, cx);
-        let new_row = (!show_empty_state)
-            .then(|| new_playlist_row(self, border, list_hover, muted_fg, icon_btn_hover, cx));
 
         if self.row_data.is_empty() {
+            let show_empty_state = self.playlists_all.is_empty() && !self.creating;
+            let new_row = (!show_empty_state).then(|| new_playlist_row(self, &params, cx));
+            let all_tracks = (self.all_tracks_count > 0).then(|| all_tracks_row(self, &params, cx));
             let body = if show_empty_state {
-                empty_state(muted_fg, cx).into_any_element()
+                empty_state(params.muted_fg, cx).into_any_element()
             } else if self.playlists_all.is_empty() {
                 div().into_any_element()
             } else {
@@ -369,7 +368,7 @@ impl Render for PlaylistsView {
                     .px_4()
                     .py_2()
                     .text_sm()
-                    .text_color(muted_fg)
+                    .text_color(params.muted_fg)
                     .child(tr().no_playlists_match.clone())
                     .into_any_element()
             };
@@ -381,46 +380,38 @@ impl Render for PlaylistsView {
                 .child(body);
         }
 
-        let params = PlaylistRowParams {
-            border,
-            list_hover,
-            muted_fg,
-            danger_fg,
-            icon_btn_hover,
-        };
         let item_sizes = self.item_sizes.clone();
-        v_flex()
-            .size_full()
-            .child(actions)
-            .children(new_row)
-            .children(all_tracks)
-            .child(
-                v_flex()
-                    .relative()
-                    .flex_1()
-                    .child(
-                        v_virtual_list(
-                            cx.entity().clone(),
-                            "playlists_list",
-                            item_sizes,
-                            move |view, visible_range, _window, cx| {
-                                visible_range
-                                    .map(|ix| match view.items[ix] {
-                                        PlaylistItem::TopPadding => {
-                                            div().w_full().h(px(TOP_PADDING)).into_any_element()
-                                        }
-                                        PlaylistItem::Playlist(row_ix) => {
-                                            playlist_row(view, row_ix, &params, cx)
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
-                            },
-                        )
-                        .track_scroll(&self.scroll_handle)
-                        .flex_1(),
+        v_flex().size_full().child(actions).child(
+            v_flex()
+                .relative()
+                .flex_1()
+                .child(
+                    v_virtual_list(
+                        cx.entity().clone(),
+                        "playlists_list",
+                        item_sizes,
+                        move |view, visible_range, _window, cx| {
+                            visible_range
+                                .map(|ix| match view.items[ix] {
+                                    PlaylistItem::NewPlaylist => {
+                                        new_playlist_row(view, &params, cx)
+                                    }
+                                    PlaylistItem::AllTracks => all_tracks_row(view, &params, cx),
+                                    PlaylistItem::Gap => {
+                                        div().w_full().h(px(PLAYLISTS_GAP)).into_any_element()
+                                    }
+                                    PlaylistItem::Playlist(row_ix) => {
+                                        playlist_row(view, row_ix, &params, cx)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        },
                     )
-                    .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
-            )
+                    .track_scroll(&self.scroll_handle)
+                    .flex_1(),
+                )
+                .scrollbar(&self.scroll_handle, ScrollbarAxis::Vertical),
+        )
     }
 }
 
@@ -433,11 +424,11 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
         .px(px(ACTIONS_PADDING))
         .gap_1()
         .items_center()
+        .justify_end()
         .when(can_import, |row| {
             row.child(
                 Button::new("playlists-import")
                     .ghost()
-                    .xsmall()
                     .icon(Icon::default().path("icons/cloud-download.svg"))
                     .label(strings.import.clone())
                     .tooltip(strings.import_tooltip.clone())
@@ -449,9 +440,7 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
         .child(
             Button::new("playlists-ai")
                 .ghost()
-                .xsmall()
                 .icon(Icon::default().path("icons/sparkles.svg"))
-                .label(strings.ai.clone())
                 .tooltip(strings.ai_tooltip.clone())
                 .on_click(|_, window, cx| {
                     window.dispatch_action(Box::new(crate::tools::OpenAiPlaylist), cx);
@@ -462,10 +451,7 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
 
 fn new_playlist_row(
     view: &PlaylistsView,
-    border: Hsla,
-    list_hover: Hsla,
-    muted_fg: Hsla,
-    icon_btn_hover: Hsla,
+    p: &PlaylistRowParams,
     cx: &mut Context<PlaylistsView>,
 ) -> gpui::AnyElement {
     let row = h_flex()
@@ -477,12 +463,12 @@ fn new_playlist_row(
         .gap_3()
         .items_center()
         .border_b(px(1.))
-        .border_color(border)
+        .border_color(p.border)
         .child(
             svg()
                 .path("icons/s1-plus.svg")
                 .size(px(20.))
-                .text_color(muted_fg),
+                .text_color(p.muted_fg),
         );
 
     if view.creating {
@@ -507,9 +493,9 @@ fn new_playlist_row(
                             if view.create_has_text {
                                 Colors::primary(cx)
                             } else {
-                                muted_fg.opacity(0.5)
+                                p.muted_fg.opacity(0.5)
                             },
-                            icon_btn_hover,
+                            p.icon_btn_hover,
                             view.create_has_text,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.commit_create(cx))),
@@ -519,8 +505,8 @@ fn new_playlist_row(
                             "playlists-new-cancel",
                             "icons/s1-x.svg",
                             tr().cancel.clone(),
-                            muted_fg,
-                            icon_btn_hover,
+                            p.muted_fg,
+                            p.icon_btn_hover,
                             true,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_create(cx))),
@@ -530,11 +516,11 @@ fn new_playlist_row(
     }
 
     row.cursor_pointer()
-        .hover(move |s| s.bg(list_hover))
+        .hover(|s| s.bg(p.list_hover))
         .child(
             div()
                 .flex_1()
-                .text_color(muted_fg)
+                .text_color(p.muted_fg)
                 .child(tr().new_playlist.clone()),
         )
         .on_click(cx.listener(|this, _, window, cx| this.start_create(window, cx)))
@@ -669,28 +655,26 @@ fn empty_state(muted_fg: Hsla, cx: &mut Context<PlaylistsView>) -> gpui::Div {
 }
 
 fn all_tracks_row(
-    count_label: SharedString,
-    border: Hsla,
-    list_hover: Hsla,
-    muted_fg: Hsla,
-    icon_fg: Hsla,
+    view: &PlaylistsView,
+    p: &PlaylistRowParams,
     cx: &mut Context<PlaylistsView>,
 ) -> gpui::AnyElement {
     h_flex()
         .w_full()
         .h(px(PLAYLIST_ROW_HEIGHT))
+        .flex_shrink_0()
         .px_4()
         .gap_3()
         .items_center()
         .border_b(px(1.))
-        .border_color(border)
+        .border_color(p.border)
         .cursor_pointer()
-        .hover(|s| s.bg(list_hover))
+        .hover(|s| s.bg(p.list_hover))
         .child(
             svg()
                 .path("icons/placeholder-notes.svg")
                 .size(px(20.))
-                .text_color(icon_fg),
+                .text_color(p.danger_fg),
         )
         .child(
             div()
@@ -699,7 +683,12 @@ fn all_tracks_row(
                 .text_ellipsis()
                 .child(tr().all_tracks.clone()),
         )
-        .child(div().text_sm().text_color(muted_fg).child(count_label))
+        .child(
+            div()
+                .text_sm()
+                .text_color(p.muted_fg)
+                .child(view.all_tracks_count_label.clone()),
+        )
         .child(div().size(px(ROW_ACTION_SIZE)))
         .id("playlists-all-tracks")
         .on_click(cx.listener(|_, _, _, cx| {

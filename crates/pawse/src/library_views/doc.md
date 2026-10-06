@@ -394,19 +394,25 @@ drive the `PlaybackQueue` on click.
   typed). Enter creates, Esc or blurring it empty cancels; a typed name survives blur
   so clicking ✓ still works. With
   no playlists at all the row is replaced by a centered empty state (hint + primary
-  button) until creation starts. Renaming reuses the pattern: the hover pencil next to
+  button) until creation starts. "New playlist" and All tracks are the first items of
+  the playlists' `v_virtual_list` (then a 12 px `Gap`), so they scroll away with the
+  list; only when no playlist row is shown (empty state, no filter matches) are they
+  plain rows above the body. Their slots are exactly the row height, so they don't
+  shift when a filter flips between the two branches. Scrolling an open "New
+  playlist" input out of view blurs it (an empty one cancels), same as renaming. Renaming reuses the pattern: the hover pencil next to
   the trash swaps that row for an inline input prefilled with the name (✓ / ✕,
   Enter / Esc). Blur cancels only when the text is empty or unchanged, so ✓ still
   works after typing; clicking another row while renaming just closes the editor.
   The rename goes through `LibraryService::rename_playlist` → `PlaylistsChanged`;
   the SQL refuses the hidden liked playlist.
-  Above everything (the empty state too) sits a thin strip of ghost buttons, its own
-  row so the "New playlist" row keeps one hover and one click: **Import** (only while a
-  server whose `ServerKind::imports_playlists` is configured; `can_import` is
-  refreshed from a `SettingsStore` observer, never computed in render) opens the
-  import dialog, **AI** dispatches `tools::OpenAiPlaylist`, which `MainView` turns
-  into the Tools screen on the AI prompt page in a playlist mode. AI is there even
-  when the Tools button is hidden in Settings.
+  Above everything (the empty state too) sits a pinned strip of right-aligned ghost
+  buttons, its own row so the "New playlist" row keeps one hover and one click:
+  **Import** (only while a server whose `ServerKind::imports_playlists` is
+  configured; `can_import` is refreshed from a `SettingsStore` observer, never
+  computed in render) opens the import dialog, **AI** (icon only, the name lives in
+  the tooltip) dispatches `tools::OpenAiPlaylist`, which `MainView` turns into the
+  Tools screen on the AI prompt page in a playlist mode. AI is there even when the
+  Tools button is hidden in Settings.
 - `playlist_import.rs` — the server playlist import dialog. `PlaylistImport` is a
   long-lived entity owned by `PlaylistsView` and rendered as the dialog's body, so
   closing the dialog mid-import loses nothing: the busy set and the last result per
