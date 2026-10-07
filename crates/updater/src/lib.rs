@@ -117,7 +117,10 @@ pub fn apply_and_restart(cx: &mut App) {
         return;
     }
     #[cfg(target_os = "macos")]
-    cx.restart();
+    match cx.app_path().and_then(|bundle| install::relaunch(&bundle)) {
+        Ok(()) => cx.quit(),
+        Err(error) => log::error!("updater: relaunch failed: {error:#}"),
+    }
     #[cfg(target_os = "windows")]
     {
         updater.update(cx, |this, _| this.apply_on_quit = true);

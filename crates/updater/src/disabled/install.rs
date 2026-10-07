@@ -15,6 +15,11 @@ pub(crate) fn appimage_path() -> Option<std::path::PathBuf> {
     None
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn relaunch(_app_bundle: &std::path::Path) -> Result<()> {
+    anyhow::bail!("this build was compiled without the updater")
+}
+
 impl Staged {
     pub fn finalize_on_quit(&self, _relaunch: bool) {}
 }

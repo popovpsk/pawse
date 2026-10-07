@@ -48,6 +48,11 @@ pub(crate) fn appimage_path() -> Option<std::path::PathBuf> {
     linux::appimage_path()
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn relaunch(app_bundle: &std::path::Path) -> Result<()> {
+    macos::relaunch(app_bundle)
+}
+
 impl Staged {
     pub fn finalize_on_quit(&self, relaunch: bool) {
         #[cfg(target_os = "windows")]

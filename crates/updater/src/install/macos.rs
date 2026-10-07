@@ -68,3 +68,27 @@ pub fn install(url: &str, digest: Option<&str>, app_bundle: &Path) -> Result<()>
 
     Ok(())
 }
+
+pub fn relaunch(app_bundle: &Path) -> Result<()> {
+    use std::os::unix::process::CommandExt as _;
+
+    let script = r#"
+        while kill -0 "$0" 2>/dev/null; do
+            sleep 0.1
+        done
+        for _ in {1..50}; do
+            [ -z "$(lsappinfo find pid="$0" 2>/dev/null)" ] && break
+            sleep 0.1
+        done
+        open "$1"
+    "#;
+    Command::new("/bin/bash")
+        .arg("-c")
+        .arg(script)
+        .arg(std::process::id().to_string())
+        .arg(app_bundle)
+        .process_group(0)
+        .spawn()
+        .context("spawning relaunch script")?;
+    Ok(())
+}

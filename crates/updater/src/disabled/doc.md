@@ -11,18 +11,21 @@ compilation rather than a runtime flag.
 - `github.rs` — `Found` + `fetch_latest()`. Returns an error; never called, because
   `is_supported()` is a compile-time `false` in this configuration and `init()` bails
   on it before any entity exists.
-- `install.rs` — `Staged` + `download_and_stage()` + `finalize_on_quit()`, and
-  `appimage_path()` under `cfg(target_os = "linux")`.
+- `install.rs` — `Staged` + `download_and_stage()` + `finalize_on_quit()`,
+  `appimage_path()` under `cfg(target_os = "linux")`, and `relaunch()` under
+  `cfg(target_os = "macos")`.
 
 ## Non-obvious behavior / contract
 
 - **These files are a hand-maintained mirror.** Every item here must keep the exact
   name, signature and `cfg` of its counterpart in `../github.rs` / `../install/mod.rs`
-  — including `appimage_path()` being Linux-only, since `apply_and_restart()` calls it
-  from a `cfg(target_os = "linux")` block that is *not* feature-gated. Nothing
-  type-checks the two trees against each other; drift shows up only when the portable
-  configuration is compiled, which `ci.yml` does on ubuntu (clippy) and on both
-  Windows runners (`cargo check`) for every push to `main` and every pull request.
+  — including `appimage_path()` being Linux-only and `relaunch()` macOS-only, since
+  `apply_and_restart()` calls them from per-OS `cfg` blocks that are *not*
+  feature-gated. Nothing type-checks the two trees against each other; drift shows up
+  only when the portable configuration is compiled, which `ci.yml` does on ubuntu
+  (clippy) and on both Windows runners (`cargo check`) for every push to `main` and
+  every pull request. No CI job builds it on macOS, so a change to `relaunch()` needs
+  a local `cargo check -p updater --no-default-features` there.
 - **Why a parallel tree instead of `#[cfg]` on the real bodies.** Putting
   `#[cfg(not(feature = "self-update"))]` inside `install/mod.rs` would interleave
   feature gates with the per-OS gates that file is already built out of, and would

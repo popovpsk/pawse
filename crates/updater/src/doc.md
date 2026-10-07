@@ -44,7 +44,9 @@ and applies it on the user's go-ahead. Pawse only calls `init` + wires the
   must not brick the update channel, only fall back to the HTTPS-only posture). This is
   not a substitute for signing; it only closes "bytes altered in transit / on the CDN".
 - **Apply contract.** macOS rsyncs the new bundle during download, so the bundle on
-  disk is already updated and apply is just `cx.restart()`. Windows downloads the
+  disk is already updated and apply is just a relaunch: `install::relaunch` spawns a
+  waiter that `open`s the bundle once LaunchServices has let go of us, then
+  `cx.quit()` (not `cx.restart()` — see `install/doc.md` for why). Windows downloads the
   installer and runs it **once, in the `on_app_quit` handler** — never from
   `apply_and_restart` directly (which only sets `apply_on_quit` then quits), so there
   is no double-launch. The quit handler runs the installer only when the user
