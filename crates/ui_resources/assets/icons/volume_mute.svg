@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <path d="M3.5 9.2c0-.7.6-1.3 1.3-1.3h2.6L11.7 4.4c.7-.5 1.7 0 1.7.9v13.4c0 .9-1 1.4-1.7.9L7.4 16.1H4.8c-.7 0-1.3-.6-1.3-1.3V9.2z" fill="currentColor">
-  </path>
-      <path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
-  </path>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.5 10.2c0-.6.5-1.1 1.1-1.1h2.3l4.2-3.5c.6-.5 1.4-.1 1.4.7v11.4c0 .8-.8 1.2-1.4.7l-4.2-3.5H4.6c-.6 0-1.1-.5-1.1-1.1z"/>
+  <path d="M16.2 9.7l4.6 4.6M20.8 9.7l-4.6 4.6"/>
 </svg>

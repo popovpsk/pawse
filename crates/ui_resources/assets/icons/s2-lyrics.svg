@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <g transform="rotate(45 12 12)">
-    <circle cx="12" cy="6.5" r="3.5" />
-    <rect x="9.5" y="11" width="5" height="1.5" rx="0.5" />
-    <path d="M10.2 13.5h3.6l-0.8 6.5h-2z" />
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <g transform="translate(-.45 .45) rotate(45 12 12)">
+    <circle cx="12" cy="6.6" r="3.4"/>
+    <path d="M10.4 12.7h3.2l-.75 6.9a.85.85 0 0 1-1.7 0z"/>
   </g>
 </svg>

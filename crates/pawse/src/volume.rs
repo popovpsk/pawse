@@ -1,6 +1,6 @@
 use gpui::{
     AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Window, div, px, svg,
+    Render, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, svg,
 };
 use gpui_component::{h_flex, tooltip::Tooltip};
 
@@ -53,7 +53,8 @@ impl Render for Volume {
 
                 div()
                     .id("volume_icon")
-                    .cursor_pointer()
+                    .when(!is_exclusive, |d| d.cursor_pointer())
+                    .opacity(if is_exclusive { 0.4 } else { 1.0 })
                     .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
                     .on_click(cx.listener(Self::on_icon_click))
                     .child(
