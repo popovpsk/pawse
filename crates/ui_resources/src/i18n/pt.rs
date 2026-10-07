@@ -200,8 +200,6 @@ pub static PT: Strings = lang! {
     queue_deduplication_desc: "Ignorar faixas que já estão na fila ao adicionar",
     album_year: "Ano",
     albums_artist_hidden: "Oculto",
-    settings_artists_view: "Vista de artistas",
-    artists_group_by_tag: "Agrupar por etiqueta",
     no_folders_added: "Nenhuma pasta adicionada",
     remove: "Remover",
     add_folder: "Adicionar pasta…",

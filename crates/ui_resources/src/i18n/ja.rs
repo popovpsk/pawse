@@ -200,8 +200,6 @@ pub static JA: Strings = lang! {
     queue_deduplication_desc: "追加時にすでにキューにある曲をスキップ",
     album_year: "年",
     albums_artist_hidden: "非表示",
-    settings_artists_view: "アーティスト表示",
-    artists_group_by_tag: "タグでグループ化",
     no_folders_added: "フォルダが追加されていません",
     remove: "削除",
     add_folder: "フォルダを追加…",

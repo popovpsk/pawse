@@ -200,8 +200,6 @@ pub static KO: Strings = lang! {
     queue_deduplication_desc: "추가할 때 이미 대기열에 있는 트랙을 건너뜁니다",
     album_year: "연도",
     albums_artist_hidden: "숨김",
-    settings_artists_view: "아티스트 보기",
-    artists_group_by_tag: "태그로 그룹화",
     no_folders_added: "추가된 폴더 없음",
     remove: "제거",
     add_folder: "폴더 추가…",

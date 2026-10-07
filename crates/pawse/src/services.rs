@@ -128,10 +128,7 @@ impl Services {
                             | LibraryEvent::CatalogChanged
                     );
                     if library_changed {
-                        cx.global::<Services>()
-                            .library_rev
-                            .fetch_add(1, Ordering::Relaxed);
-                        publish_remote_state(cx);
+                        publish_remote_library_change(cx);
                     }
                     notify_scan_event(&event, cx);
                     library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
@@ -750,6 +747,13 @@ pub fn queue_mutated(cx: &mut App) {
     let bus = cx.global::<Services>().library_event_bus.clone();
     bus.update(cx, |_, cx| cx.emit(LibraryEvent::QueueChanged));
     save_playback(cx);
+    publish_remote_state(cx);
+}
+
+pub fn publish_remote_library_change(cx: &mut App) {
+    cx.global::<Services>()
+        .library_rev
+        .fetch_add(1, Ordering::Relaxed);
     publish_remote_state(cx);
 }
 

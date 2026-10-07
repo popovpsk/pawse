@@ -200,8 +200,6 @@ pub static IT: Strings = lang! {
     queue_deduplication_desc: "Salta i brani già presenti nella coda durante l'aggiunta",
     album_year: "Anno",
     albums_artist_hidden: "Nascosto",
-    settings_artists_view: "Vista artisti",
-    artists_group_by_tag: "Raggruppa per tag",
     no_folders_added: "Nessuna cartella aggiunta",
     remove: "Rimuovi",
     add_folder: "Aggiungi cartella…",

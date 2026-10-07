@@ -200,8 +200,6 @@ pub static UK: Strings = lang! {
     queue_deduplication_desc: "Не додавати треки, які вже є в черзі",
     album_year: "Рік",
     albums_artist_hidden: "Сховано",
-    settings_artists_view: "Відображення виконавців",
-    artists_group_by_tag: "Групувати за тегом",
     no_folders_added: "Папки не додані",
     remove: "Видалити",
     add_folder: "Додати папку…",

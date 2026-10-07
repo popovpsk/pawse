@@ -200,8 +200,6 @@ pub static ZH: Strings = lang! {
     queue_deduplication_desc: "添加时跳过已在队列中的曲目",
     album_year: "年份",
     albums_artist_hidden: "隐藏",
-    settings_artists_view: "艺术家视图",
-    artists_group_by_tag: "按标签分组",
     no_folders_added: "未添加文件夹",
     remove: "移除",
     add_folder: "添加文件夹…",

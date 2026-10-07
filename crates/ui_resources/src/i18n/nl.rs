@@ -200,8 +200,6 @@ pub static NL: Strings = lang! {
     queue_deduplication_desc: "Nummers die al in de wachtrij staan overslaan bij toevoegen",
     album_year: "Jaar",
     albums_artist_hidden: "Verborgen",
-    settings_artists_view: "Artiestenweergave",
-    artists_group_by_tag: "Groeperen op tag",
     no_folders_added: "Geen mappen toegevoegd",
     remove: "Verwijderen",
     add_folder: "Map toevoegen…",

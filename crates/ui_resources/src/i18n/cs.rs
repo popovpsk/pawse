@@ -200,8 +200,6 @@ pub static CS: Strings = lang! {
     queue_deduplication_desc: "Při přidávání přeskočit skladby, které už jsou ve frontě",
     album_year: "Rok",
     albums_artist_hidden: "Skrytý",
-    settings_artists_view: "Zobrazení interpretů",
-    artists_group_by_tag: "Seskupit podle tagu",
     no_folders_added: "Nebyly přidány žádné složky",
     remove: "Odebrat",
     add_folder: "Přidat složku…",

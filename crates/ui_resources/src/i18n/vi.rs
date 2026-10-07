@@ -200,8 +200,6 @@ pub static VI: Strings = lang! {
     queue_deduplication_desc: "Bỏ qua các bài hát đã có trong hàng đợi khi thêm",
     album_year: "Năm",
     albums_artist_hidden: "Ẩn",
-    settings_artists_view: "Hiển thị nghệ sĩ",
-    artists_group_by_tag: "Nhóm theo thẻ",
     no_folders_added: "Chưa thêm thư mục",
     remove: "Xóa",
     add_folder: "Thêm thư mục…",

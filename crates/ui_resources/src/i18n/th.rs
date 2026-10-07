@@ -200,8 +200,6 @@ pub static TH: Strings = lang! {
     queue_deduplication_desc: "ข้ามเพลงที่อยู่ในคิวแล้วเมื่อเพิ่ม",
     album_year: "ปี",
     albums_artist_hidden: "ซ่อน",
-    settings_artists_view: "มุมมองศิลปิน",
-    artists_group_by_tag: "จัดกลุ่มตามแท็ก",
     no_folders_added: "ยังไม่ได้เพิ่มโฟลเดอร์",
     remove: "นำออก",
     add_folder: "เพิ่มโฟลเดอร์…",

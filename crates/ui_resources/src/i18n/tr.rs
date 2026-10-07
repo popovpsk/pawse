@@ -200,8 +200,6 @@ pub static TR: Strings = lang! {
     queue_deduplication_desc: "Eklerken sırada zaten bulunan parçaları atla",
     album_year: "Yıl",
     albums_artist_hidden: "Gizli",
-    settings_artists_view: "Sanatçı görünümü",
-    artists_group_by_tag: "Etikete göre grupla",
     no_folders_added: "Klasör eklenmedi",
     remove: "Kaldır",
     add_folder: "Klasör ekle…",

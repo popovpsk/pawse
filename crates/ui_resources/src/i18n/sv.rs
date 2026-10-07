@@ -200,8 +200,6 @@ pub static SV: Strings = lang! {
     queue_deduplication_desc: "Hoppa över spår som redan finns i kön vid tillägg",
     album_year: "År",
     albums_artist_hidden: "Dold",
-    settings_artists_view: "Artistvy",
-    artists_group_by_tag: "Gruppera efter tagg",
     no_folders_added: "Inga mappar tillagda",
     remove: "Ta bort",
     add_folder: "Lägg till mapp…",

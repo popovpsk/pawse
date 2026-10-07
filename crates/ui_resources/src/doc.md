@@ -47,8 +47,8 @@ files.
   bit-perfect indicator's tooltip lines and the explanation dialog it opens on
   click, kept separate the same way.
 - `i18n/view_menu.rs` — `ViewMenuStrings` (`view_menu_strings()`): the library view
-  menu next to the header search (layout, sort, grouping, Show chips, "Show
-  unavailable" for track lists) and the labels it produces (`decade(year)` for
+  menu next to the header search (layout, sort, grouping, the header over the
+  Artists tag switch, Show chips, "Show unavailable" for track lists) and the labels it produces (`decade(year)` for
   "1990s", `undated`, `unavailable_hidden(n)`). Kept separate the same way. The genre
   page's sort reuses `artist` / `year` here; its old `genre_sort_*` keys in `Strings`
   are gone.

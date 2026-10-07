@@ -200,8 +200,6 @@ pub static HI: Strings = lang! {
     queue_deduplication_desc: "जोड़ते समय उन ट्रैक को छोड़ें जो पहले से क़तार में हैं",
     album_year: "वर्ष",
     albums_artist_hidden: "छिपा हुआ",
-    settings_artists_view: "कलाकार दृश्य",
-    artists_group_by_tag: "टैग के अनुसार समूह",
     no_folders_added: "कोई फ़ोल्डर नहीं जोड़ा गया",
     remove: "हटाएँ",
     add_folder: "फ़ोल्डर जोड़ें…",

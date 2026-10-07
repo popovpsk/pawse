@@ -264,8 +264,6 @@ pub struct Strings {
     pub queue_deduplication_desc: SharedString,
     pub album_year: SharedString,
     pub albums_artist_hidden: SharedString,
-    pub settings_artists_view: SharedString,
-    pub artists_group_by_tag: SharedString,
     pub no_folders_added: SharedString,
     pub reveal_folder: SharedString,
     pub remove: SharedString,

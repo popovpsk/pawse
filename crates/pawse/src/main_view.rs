@@ -544,9 +544,11 @@ impl MainView {
             let sleep_timer_controls = sleep_timer_controls.clone();
             move |this, cx| {
                 let grouping = cx.global::<SettingsStore>().artists_grouping();
-                cx.global::<crate::services::Services>()
-                    .library
-                    .set_artists_grouping(grouping);
+                let library = &cx.global::<crate::services::Services>().library;
+                if library.artists_grouping() != grouping {
+                    library.set_artists_grouping(grouping);
+                    crate::services::publish_remote_library_change(cx);
+                }
                 this.settings_pages = crate::settings_view::build_settings_pages(
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),

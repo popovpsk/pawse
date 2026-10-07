@@ -200,8 +200,6 @@ pub static ID: Strings = lang! {
     queue_deduplication_desc: "Lewati lagu yang sudah ada di antrean saat menambahkan",
     album_year: "Tahun",
     albums_artist_hidden: "Tersembunyi",
-    settings_artists_view: "Tampilan artis",
-    artists_group_by_tag: "Kelompokkan menurut tag",
     no_folders_added: "Belum ada folder ditambahkan",
     remove: "Hapus",
     add_folder: "Tambahkan folder…",

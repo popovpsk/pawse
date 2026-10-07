@@ -200,8 +200,6 @@ pub static EN: Strings = lang! {
     queue_deduplication_desc: "Skip tracks that are already in the queue when adding",
     album_year: "Year",
     albums_artist_hidden: "Hidden",
-    settings_artists_view: "Artists view",
-    artists_group_by_tag: "Group by tag",
     no_folders_added: "No folders added",
     remove: "Remove",
     add_folder: "Add folder…",

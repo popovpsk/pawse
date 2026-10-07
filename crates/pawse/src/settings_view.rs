@@ -26,7 +26,6 @@ use crate::settings_store::{
     notify_save_error,
 };
 use crate::theme_colors::Colors;
-use music_library::ArtistGrouping;
 use ui_resources::i18n::cast_strings;
 
 actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
@@ -79,7 +78,6 @@ pub fn build_settings_pages(
                 sliders.blur_intensity,
                 sliders.blur_interface_opacity,
             ))
-            .group(artists_view_group())
             .group(cover_view_group())
             .group(queue_group())
             .group(lyrics_group(sliders.lyrics))
@@ -971,46 +969,6 @@ fn now_playing_group() -> SettingGroup {
             )
             .description(tr().now_playing_details_desc.clone()),
         )
-}
-
-fn artists_view_group() -> SettingGroup {
-    SettingGroup::new()
-        .title(tr().settings_artists_view.clone())
-        .item(SettingItem::new(
-            tr().artists_group_by_tag.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let current = cx.global::<SettingsStore>().artists_grouping();
-                h_flex().items_center().justify_end().child(
-                    ButtonGroup::new("artists-grouping-group")
-                        .small()
-                        .child(
-                            Button::new("artists-grouping-track-artist")
-                                .label("artist")
-                                .selected(current == ArtistGrouping::TrackArtist),
-                        )
-                        .child(
-                            Button::new("artists-grouping-album-artist")
-                                .label("album artist")
-                                .selected(current == ArtistGrouping::AlbumArtist),
-                        )
-                        .on_click(|clicks: &Vec<usize>, _, cx| {
-                            let Some(&ix) = clicks.first() else {
-                                return;
-                            };
-                            let grouping = match ix {
-                                1 => ArtistGrouping::AlbumArtist,
-                                _ => ArtistGrouping::TrackArtist,
-                            };
-                            if let Err(e) = cx
-                                .global_mut::<SettingsStore>()
-                                .set_artists_grouping(grouping)
-                            {
-                                notify_save_error(cx, e);
-                            }
-                        }),
-                )
-            }),
-        ))
 }
 
 fn cover_view_group() -> SettingGroup {

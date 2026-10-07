@@ -243,8 +243,8 @@ drive the `PlaybackQueue` on click.
   `view_order::order_artists` over `ArtistKey`s (`artists_sort`: Name, keyed on
   `ArtistSummary.sort_name`, or Track count, most first by default), and letter
   sections only exist for the Name sort. Which relation the
-  list is built on is a setting (`artists_grouping`, Settings → Appearance → Artists
-  view, deliberately not in the view menu): `AlbumArtist` (default) attributes each track to its own album-artist tag;
+  list is built on is `artists_grouping`, the Tag switch at the bottom of the view
+  menu: `AlbumArtist` (default) attributes each track to its own album-artist tag;
   a track without one follows its album's artist when that is *known*
   (`albums.artist_known`, see the derived-artists note below), and only on a true
   compilation falls back to its own track artists — so an untagged compilation
@@ -265,6 +265,9 @@ drive the `PlaybackQueue` on click.
   (`artist` / `album artist`) on purpose, untranslated. The view observes
   `SettingsStore` and, when the grouping changes, re-fetches `artists` /
   `artist_album_covers` (a data change, not just a repaint — unlike `albums_view`).
+  `MainView` mirrors the new grouping into `LibraryService` and bumps the web remote's
+  `library_rev`, so the remote's Artists list refetches too instead of keeping the old
+  grouping until the next `CatalogChanged`.
   It re-fetches on every `CatalogChanged`, which a tag edit sends too: a tag edit
   re-derives every album's artist, so rows and counts here move with no scan.
 - `view_order.rs` — pure, unit-tested ordering and sectioning for the Albums and Artists
@@ -314,8 +317,10 @@ drive the `PlaybackQueue` on click.
   in Russian and Ukrainian is wider than the menu and used to push the switch past its
   edge. Each menu
   keeps its own settings; the Grid/List switch is Albums-only. These used to be the Settings → Appearance → Albums view group, which is
-  gone; only `artists_grouping` (which tag defines an artist) stays in Settings, since
-  it changes the data rather than how it looks. Strings live in their own table,
+  gone; `artists_grouping` (which tag defines an artist) followed later from Settings →
+  Appearance → Artists view. Controls are ranked by distance from the trigger: what is
+  changed most sits on top, so the Grid/List switch opens the Albums menu while the
+  Tag switch closes the Artists one. Strings live in their own table,
   `ui_resources::i18n::view_menu_strings`.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
 - `genres_view.rs` — Genres tab: virtualized list of every genre that still has a

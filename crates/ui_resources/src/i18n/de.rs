@@ -200,8 +200,6 @@ pub static DE: Strings = lang! {
     queue_deduplication_desc: "Titel überspringen, die bereits in der Warteschlange sind",
     album_year: "Jahr",
     albums_artist_hidden: "Ausgeblendet",
-    settings_artists_view: "Künstleransicht",
-    artists_group_by_tag: "Nach Tag gruppieren",
     no_folders_added: "Keine Ordner hinzugefügt",
     remove: "Entfernen",
     add_folder: "Ordner hinzufügen…",

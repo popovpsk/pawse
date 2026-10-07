@@ -30,6 +30,7 @@ pub struct ViewMenuStrings {
     pub column: SharedString,
     pub undated: SharedString,
     pub decade_t: SharedString,
+    pub tag: SharedString,
 }
 
 impl ViewMenuStrings {
@@ -99,6 +100,7 @@ static EN: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Column"),
     undated: SharedString::new_static("No year"),
     decade_t: SharedString::new_static("{}s"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static ES: ViewMenuStrings = ViewMenuStrings {
@@ -129,6 +131,7 @@ static ES: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Columna"),
     undated: SharedString::new_static("Sin año"),
     decade_t: SharedString::new_static("Década de {}"),
+    tag: SharedString::new_static("Etiqueta"),
 };
 
 static ZH: ViewMenuStrings = ViewMenuStrings {
@@ -159,6 +162,7 @@ static ZH: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("单独一列"),
     undated: SharedString::new_static("无年份"),
     decade_t: SharedString::new_static("{}年代"),
+    tag: SharedString::new_static("标签"),
 };
 
 static PT: ViewMenuStrings = ViewMenuStrings {
@@ -189,6 +193,7 @@ static PT: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Coluna"),
     undated: SharedString::new_static("Sem ano"),
     decade_t: SharedString::new_static("Década de {}"),
+    tag: SharedString::new_static("Etiqueta"),
 };
 
 static RU: ViewMenuStrings = ViewMenuStrings {
@@ -219,6 +224,7 @@ static RU: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Колонкой"),
     undated: SharedString::new_static("Без года"),
     decade_t: SharedString::new_static("{}-е"),
+    tag: SharedString::new_static("Тег"),
 };
 
 static JA: ViewMenuStrings = ViewMenuStrings {
@@ -249,6 +255,7 @@ static JA: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("列"),
     undated: SharedString::new_static("年なし"),
     decade_t: SharedString::new_static("{}年代"),
+    tag: SharedString::new_static("タグ"),
 };
 
 static DE: ViewMenuStrings = ViewMenuStrings {
@@ -279,6 +286,7 @@ static DE: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Spalte"),
     undated: SharedString::new_static("Ohne Jahr"),
     decade_t: SharedString::new_static("{}er"),
+    tag: SharedString::new_static("Künstler-Tag"),
 };
 
 static FR: ViewMenuStrings = ViewMenuStrings {
@@ -309,6 +317,7 @@ static FR: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Colonne"),
     undated: SharedString::new_static("Sans année"),
     decade_t: SharedString::new_static("Années {}"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static KO: ViewMenuStrings = ViewMenuStrings {
@@ -339,6 +348,7 @@ static KO: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("열"),
     undated: SharedString::new_static("연도 없음"),
     decade_t: SharedString::new_static("{}년대"),
+    tag: SharedString::new_static("태그"),
 };
 
 static IT: ViewMenuStrings = ViewMenuStrings {
@@ -369,6 +379,7 @@ static IT: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Colonna"),
     undated: SharedString::new_static("Senza anno"),
     decade_t: SharedString::new_static("Anni {}"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static TR: ViewMenuStrings = ViewMenuStrings {
@@ -399,6 +410,7 @@ static TR: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Sütun"),
     undated: SharedString::new_static("Yılsız"),
     decade_t: SharedString::new_static("{} yılları"),
+    tag: SharedString::new_static("Etiket"),
 };
 
 static PL: ViewMenuStrings = ViewMenuStrings {
@@ -429,6 +441,7 @@ static PL: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Kolumna"),
     undated: SharedString::new_static("Bez roku"),
     decade_t: SharedString::new_static("Lata {}"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static NL: ViewMenuStrings = ViewMenuStrings {
@@ -459,6 +472,7 @@ static NL: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Kolom"),
     undated: SharedString::new_static("Zonder jaar"),
     decade_t: SharedString::new_static("Jaren {}"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static UK: ViewMenuStrings = ViewMenuStrings {
@@ -489,6 +503,7 @@ static UK: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Стовпцем"),
     undated: SharedString::new_static("Без року"),
     decade_t: SharedString::new_static("{}-ті"),
+    tag: SharedString::new_static("Тег"),
 };
 
 static VI: ViewMenuStrings = ViewMenuStrings {
@@ -519,6 +534,7 @@ static VI: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Cột"),
     undated: SharedString::new_static("Không có năm"),
     decade_t: SharedString::new_static("Thập niên {}"),
+    tag: SharedString::new_static("Thẻ"),
 };
 
 static ID: ViewMenuStrings = ViewMenuStrings {
@@ -549,6 +565,7 @@ static ID: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Kolom"),
     undated: SharedString::new_static("Tanpa tahun"),
     decade_t: SharedString::new_static("Tahun {}-an"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static TH: ViewMenuStrings = ViewMenuStrings {
@@ -579,6 +596,7 @@ static TH: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("คอลัมน์"),
     undated: SharedString::new_static("ไม่มีปี"),
     decade_t: SharedString::new_static("ทศวรรษ {}"),
+    tag: SharedString::new_static("แท็ก"),
 };
 
 static CS: ViewMenuStrings = ViewMenuStrings {
@@ -609,6 +627,7 @@ static CS: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Sloupec"),
     undated: SharedString::new_static("Bez roku"),
     decade_t: SharedString::new_static("Léta {}"),
+    tag: SharedString::new_static("Tag"),
 };
 
 static SV: ViewMenuStrings = ViewMenuStrings {
@@ -639,6 +658,7 @@ static SV: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("Kolumn"),
     undated: SharedString::new_static("Utan år"),
     decade_t: SharedString::new_static("{}-talet"),
+    tag: SharedString::new_static("Tagg"),
 };
 
 static HI: ViewMenuStrings = ViewMenuStrings {
@@ -669,4 +689,5 @@ static HI: ViewMenuStrings = ViewMenuStrings {
     column: SharedString::new_static("कॉलम"),
     undated: SharedString::new_static("वर्ष नहीं"),
     decade_t: SharedString::new_static("{} का दशक"),
+    tag: SharedString::new_static("टैग"),
 };

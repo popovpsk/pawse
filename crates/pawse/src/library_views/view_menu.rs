@@ -11,7 +11,7 @@ use gpui_component::{
     switch::Switch,
     v_flex,
 };
-use music_library::GenreSort;
+use music_library::{ArtistGrouping, GenreSort};
 use ui_resources::i18n::view_menu_strings;
 
 use crate::cover_backdrop::{popover_bg, veil_factor};
@@ -157,6 +157,9 @@ fn artists_menu(
                 SettingsStore::set_artists_grouped,
             ))
         })
+        .child(separator(colors))
+        .child(section_label(s.tag.clone(), colors))
+        .child(artist_tag_switch(settings.artists_grouping()))
 }
 
 fn genre_menu(
@@ -251,6 +254,37 @@ fn layout_switch(layout: LibraryLayout) -> impl IntoElement {
                     LibraryLayout::List
                 };
                 save(cx, |s| s.set_albums_layout(layout));
+            }),
+    )
+}
+
+fn artist_tag_switch(grouping: ArtistGrouping) -> impl IntoElement {
+    h_flex().w_full().px_1().pb_1().child(
+        ButtonGroup::new("artists-grouping")
+            .small()
+            .w_full()
+            .child(
+                Button::new("artists-grouping-track-artist")
+                    .flex_1()
+                    .label("artist")
+                    .selected(grouping == ArtistGrouping::TrackArtist),
+            )
+            .child(
+                Button::new("artists-grouping-album-artist")
+                    .flex_1()
+                    .label("album artist")
+                    .selected(grouping == ArtistGrouping::AlbumArtist),
+            )
+            .on_click(|clicks: &Vec<usize>, _, cx| {
+                let Some(&ix) = clicks.first() else {
+                    return;
+                };
+                let grouping = if ix == 0 {
+                    ArtistGrouping::TrackArtist
+                } else {
+                    ArtistGrouping::AlbumArtist
+                };
+                save(cx, |s| s.set_artists_grouping(grouping));
             }),
     )
 }
