@@ -507,6 +507,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub cover_show_controls: bool,
     #[serde(default)]
+    pub header_in_title_bar: bool,
+    #[serde(default)]
     pub blur_background: BlurBackground,
     #[serde(default = "default_blur_intensity")]
     pub blur_intensity: f32,
@@ -620,6 +622,7 @@ impl Default for UserSettings {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            header_in_title_bar: false,
             blur_background: BlurBackground::default(),
             blur_intensity: BLUR_INTENSITY_DEFAULT,
             blur_interface_opacity: BLUR_INTERFACE_OPACITY_DEFAULT,
@@ -1437,6 +1440,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn header_in_title_bar(&self) -> bool {
+        self.settings.header_in_title_bar
+    }
+
+    pub fn set_header_in_title_bar(&mut self, on: bool) -> anyhow::Result<()> {
+        self.settings.header_in_title_bar = on;
+        self.save()
+    }
+
     pub fn blur_background(&self) -> BlurBackground {
         self.settings.blur_background
     }
@@ -1957,6 +1969,7 @@ mod tests {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            header_in_title_bar: true,
             blur_background: BlurBackground::default(),
             blur_intensity: 12.5,
             blur_interface_opacity: 140.,
@@ -2021,6 +2034,7 @@ mod tests {
         assert!(back.artists_sort_desc);
         assert!(back.artists_grouped);
         assert_eq!(back.network_cache_gb, 8);
+        assert!(back.header_in_title_bar);
         assert_eq!(
             back.artists_grouping,
             music_library::ArtistGrouping::TrackArtist

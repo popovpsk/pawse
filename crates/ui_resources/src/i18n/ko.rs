@@ -152,6 +152,8 @@ pub static KO: Strings = lang! {
     theme_desc: "애플리케이션 색상 구성표",
     dynamic_theme: "커버에 맞춘 테마",
     dynamic_theme_desc: "재생 중인 앨범 커버에 맞춰 인터페이스 색상(밝은/어두운 배색과 강조색)을 조정합니다. 뚜렷한 색이 없는 커버에서는 선택한 테마가 그대로 유지됩니다.",
+    header_in_title_bar: "제목 표시줄에 헤더 배치",
+    header_in_title_bar_desc: "탭, 검색, 설정 버튼이 창 제목 표시줄을 함께 사용합니다.",
     system: "시스템",
     language: "언어",
     language_desc: "애플리케이션 인터페이스 언어",

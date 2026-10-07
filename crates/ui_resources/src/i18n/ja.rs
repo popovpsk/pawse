@@ -152,6 +152,8 @@ pub static JA: Strings = lang! {
     theme_desc: "アプリのカラースキーム",
     dynamic_theme: "カバーに合わせたテーマ",
     dynamic_theme_desc: "再生中のアルバムのカバーに合わせて画面の色（明るい／暗い配色とアクセント）を変更します。はっきりした色がないカバーでは、選択中のテーマのままです。",
+    header_in_title_bar: "ヘッダーをタイトルバーに配置",
+    header_in_title_bar_desc: "タブ、検索、設定ボタンをウィンドウのタイトルバーにまとめます。",
     system: "システム",
     language: "言語",
     language_desc: "アプリのインターフェース言語",

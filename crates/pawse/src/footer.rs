@@ -1,7 +1,7 @@
 use gpui::{
-    AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder,
-    px, svg,
+    AnyElement, AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, prelude::FluentBuilder, px, svg,
 };
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
@@ -30,6 +30,9 @@ pub struct ToggleLyricsEvent {
     pub show: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct OpenSleepTimerEvent;
+
 pub struct Footer {
     play_button: Entity<PlayButton>,
     prev_button: Entity<PrevButton>,
@@ -42,6 +45,8 @@ pub struct Footer {
     show_queue: bool,
     show_lyrics: bool,
     show_repeat_shuffle: bool,
+    sleep_timer: Option<Entity<crate::sleep_timer::SleepTimer>>,
+    _sleep_timer_observe: Option<Subscription>,
     _settings_subscription: Subscription,
     _np_album_subscription: Subscription,
     _np_artist_subscription: Subscription,
@@ -75,6 +80,7 @@ impl Footer {
 
 impl EventEmitter<ToggleQueueEvent> for Footer {}
 impl EventEmitter<ToggleLyricsEvent> for Footer {}
+impl EventEmitter<OpenSleepTimerEvent> for Footer {}
 impl EventEmitter<NavigateToAlbumRequested> for Footer {}
 impl EventEmitter<NavigateToArtistRequested> for Footer {}
 
@@ -88,6 +94,11 @@ impl Footer {
                 cx.notify();
             }
         });
+
+        let sleep_timer = crate::sleep_timer::timer(cx);
+        let sleep_timer_observe = sleep_timer
+            .as_ref()
+            .map(|timer| cx.observe(timer, |_, _, cx| cx.notify()));
 
         let now_playing = cx.new(|cx| NowPlaying::new(window, cx));
 
@@ -118,6 +129,8 @@ impl Footer {
             show_queue: false,
             show_lyrics: false,
             show_repeat_shuffle,
+            sleep_timer,
+            _sleep_timer_observe: sleep_timer_observe,
             _settings_subscription: settings_subscription,
             _np_album_subscription: np_album_subscription,
             _np_artist_subscription: np_artist_subscription,
@@ -129,6 +142,16 @@ impl Render for Footer {
     fn render(&mut self, _: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let show_repeat_shuffle = self.show_repeat_shuffle;
         let scale = cx.global::<SettingsStore>().font_scale().ui_scale();
+        let sleep_badge = self
+            .sleep_timer
+            .as_ref()
+            .and_then(|timer| {
+                let timer = timer.read(cx);
+                timer
+                    .badge()
+                    .map(|label| (label, timer.status(), timer.is_countdown()))
+            })
+            .map(|(label, status, countdown)| sleep_timer_badge(label, status, countdown, cx));
         h_flex()
             .gap_4()
             .w_full()
@@ -236,7 +259,42 @@ impl Render for Footer {
                                     ),
                             ),
                     )
-                    .child(self.volume_slider.clone())
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_end()
+                            .gap_2()
+                            .children(sleep_badge)
+                            .child(self.volume_slider.clone()),
+                    )
             })
     }
+}
+
+fn sleep_timer_badge(
+    label: SharedString,
+    status: SharedString,
+    countdown: bool,
+    cx: &mut Context<Footer>,
+) -> AnyElement {
+    let color = Colors::muted_foreground(cx);
+    let hover_bg = Colors::muted(cx);
+    div()
+        .id("sleep_timer_badge")
+        .flex()
+        .items_center()
+        .gap_1()
+        .h(px(22.))
+        .px(px(6.))
+        .rounded_full()
+        .text_xs()
+        .text_color(color)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover_bg))
+        .tooltip(move |window, cx| Tooltip::new(status.clone()).build(window, cx))
+        .on_click(cx.listener(|_, _, _, cx| cx.emit(OpenSleepTimerEvent)))
+        .child(svg().path("icons/moon.svg").size(px(12.)).text_color(color))
+        .when(countdown, |d| d.child(label))
+        .into_any_element()
 }

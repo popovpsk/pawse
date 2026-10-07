@@ -152,6 +152,8 @@ pub static ES: Strings = lang! {
     theme_desc: "Esquema de colores de la aplicación",
     dynamic_theme: "Tema según la portada",
     dynamic_theme_desc: "Adapta los colores de la interfaz a la portada del álbum actual: esquema claro u oscuro y color de acento. Si la portada no tiene un color definido, se mantiene el tema elegido.",
+    header_in_title_bar: "Cabecera en la barra de título",
+    header_in_title_bar_desc: "Las pestañas, la búsqueda y los botones de ajustes comparten la barra de título de la ventana.",
     system: "Sistema",
     language: "Idioma",
     language_desc: "Idioma de la interfaz de la aplicación",

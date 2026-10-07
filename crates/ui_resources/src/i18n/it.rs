@@ -152,6 +152,8 @@ pub static IT: Strings = lang! {
     theme_desc: "Schema di colori dell'applicazione",
     dynamic_theme: "Tema in base alla copertina",
     dynamic_theme_desc: "Adatta i colori dell'interfaccia alla copertina dell'album in riproduzione: schema chiaro o scuro e colore d'accento. Le copertine senza un colore evidente mantengono il tema scelto.",
+    header_in_title_bar: "Intestazione nella barra del titolo",
+    header_in_title_bar_desc: "Schede, ricerca e pulsanti delle impostazioni condividono la barra del titolo della finestra.",
     system: "Sistema",
     language: "Lingua",
     language_desc: "Lingua dell'interfaccia dell'applicazione",

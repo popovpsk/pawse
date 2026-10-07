@@ -152,6 +152,8 @@ pub static ID: Strings = lang! {
     theme_desc: "Skema warna aplikasi",
     dynamic_theme: "Tema mengikuti sampul",
     dynamic_theme_desc: "Menyesuaikan warna antarmuka dengan sampul album yang sedang diputar — skema terang atau gelap dan warna aksen. Sampul tanpa warna yang menonjol tetap memakai tema pilihan Anda.",
+    header_in_title_bar: "Header di bilah judul",
+    header_in_title_bar_desc: "Tab, pencarian, dan tombol pengaturan berbagi bilah judul jendela.",
     system: "Sistem",
     language: "Bahasa",
     language_desc: "Bahasa antarmuka aplikasi",

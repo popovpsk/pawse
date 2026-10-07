@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext, Context, Empty, Entity, Global, Hsla, InteractiveElement, IntoElement,
+    App, AppContext, Context, Empty, Entity, Global, InteractiveElement, IntoElement,
     ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
     Task, Window, div, px, svg,
 };
@@ -11,11 +11,14 @@ use gpui_component::tooltip::Tooltip;
 use crate::library_service::LibraryEvent;
 use crate::localization::tr;
 use crate::services::Services;
+use crate::settings_store::ui_scale;
 use crate::theme_colors::Colors;
 
-const DONE_VISIBLE: Duration = Duration::from_secs(30);
+const DONE_VISIBLE: Duration = Duration::from_secs(5);
 const SYNC_SHOW_DELAY: Duration = Duration::from_secs(1);
-const ICON_SIZE: f32 = 14.;
+pub const WIDTH: f32 = 28.;
+const HEIGHT: f32 = 32.;
+const ICON_SIZE: f32 = 22.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Done {
@@ -134,34 +137,32 @@ impl LibraryScanIndicator {
 
 impl Render for LibraryScanIndicator {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (icon, color, label): (&'static str, Hsla, SharedString) = if self.scanning {
-            (
-                "icons/refresh.svg",
-                Colors::foreground(cx),
-                tr().library_updating.clone(),
-            )
+        let (icon, label): (&'static str, SharedString) = if self.scanning {
+            ("icons/library-sync.svg", tr().library_updating.clone())
         } else if self.sync_shown {
-            (
-                "icons/refresh.svg",
-                Colors::foreground(cx),
-                tr().source_syncing.clone(),
-            )
+            ("icons/library-sync.svg", tr().source_syncing.clone())
         } else {
-            let muted = Colors::muted_foreground(cx);
             match self.done {
-                Some(Done::Updated) => ("icons/check.svg", muted, tr().library_updated.clone()),
-                Some(Done::UpToDate) => ("icons/check.svg", muted, tr().library_up_to_date.clone()),
+                Some(Done::Updated) => ("icons/library-done.svg", tr().library_updated.clone()),
+                Some(Done::UpToDate) => ("icons/library-done.svg", tr().library_up_to_date.clone()),
                 None => return Empty.into_any_element(),
             }
         };
+        let scale = ui_scale(cx);
         div()
             .id("library_scan_indicator")
             .flex()
             .items_center()
             .justify_center()
-            .size(px(22.))
+            .w(px(WIDTH * scale))
+            .h(px(HEIGHT * scale))
             .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
-            .child(svg().path(icon).size(px(ICON_SIZE)).text_color(color))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(ICON_SIZE * scale))
+                    .text_color(Colors::muted_foreground(cx)),
+            )
             .into_any_element()
     }
 }

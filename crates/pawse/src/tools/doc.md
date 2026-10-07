@@ -45,7 +45,7 @@ page in `build_pages`.
   scrolled to the timer group (`OpenSleepTimerSettings`). The timer itself is `crate::sleep_timer`
   (own `doc.md`); the page only reads it. The field and slider states come
   from `sleep_timer::controls`, passed in by `MainView`. It is page `TIMER_PAGE`, which
-  `show_page` opens when the title-bar badge is clicked (`page_request` makes
+  `show_page` opens when the footer badge is clicked (`page_request` makes
   the `Settings` widget switch tabs even if the screen was already open).
 
 ## AI prompt

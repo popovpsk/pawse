@@ -152,6 +152,8 @@ pub static DE: Strings = lang! {
     theme_desc: "Farbschema der Anwendung",
     dynamic_theme: "Theme an Cover anpassen",
     dynamic_theme_desc: "Färbt die Oberfläche passend zum Cover des aktuellen Albums – helles oder dunkles Schema und Akzentfarbe. Bei Covern ohne markante Farbe bleibt das gewählte Theme erhalten.",
+    header_in_title_bar: "Kopfleiste in der Titelleiste",
+    header_in_title_bar_desc: "Tabs, Suche und Einstellungs-Schaltflächen teilen sich die Titelleiste des Fensters.",
     system: "System",
     language: "Sprache",
     language_desc: "Sprache der Benutzeroberfläche",

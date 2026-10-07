@@ -152,6 +152,8 @@ pub static ZH: Strings = lang! {
     theme_desc: "应用程序的配色方案",
     dynamic_theme: "主题跟随封面",
     dynamic_theme_desc: "根据当前专辑封面调整界面配色：明亮或暗色方案以及强调色。封面没有明显主色时，将保留你选择的主题。",
+    header_in_title_bar: "标题栏中显示页眉",
+    header_in_title_bar_desc: "标签页、搜索和设置按钮共用窗口标题栏。",
     system: "跟随系统",
     language: "语言",
     language_desc: "应用程序界面语言",

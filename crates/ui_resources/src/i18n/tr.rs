@@ -152,6 +152,8 @@ pub static TR: Strings = lang! {
     theme_desc: "Uygulamanın renk şeması",
     dynamic_theme: "Temayı kapağa uyarla",
     dynamic_theme_desc: "Arayüz renklerini çalan albümün kapağına uyarlar: açık veya koyu şema ve vurgu rengi. Belirgin rengi olmayan kapaklarda seçtiğiniz tema korunur.",
+    header_in_title_bar: "Üst bilgi başlık çubuğunda",
+    header_in_title_bar_desc: "Sekmeler, arama ve ayar düğmeleri pencerenin başlık çubuğunu paylaşır.",
     system: "Sistem",
     language: "Dil",
     language_desc: "Uygulama arayüzü dili",

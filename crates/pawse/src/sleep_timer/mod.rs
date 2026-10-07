@@ -110,6 +110,10 @@ impl SleepTimer {
         self.badge.clone()
     }
 
+    pub fn is_countdown(&self) -> bool {
+        matches!(self.armed, Some(Armed::Until { .. }))
+    }
+
     pub fn status(&self) -> SharedString {
         self.status.clone()
     }

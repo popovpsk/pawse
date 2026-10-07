@@ -211,6 +211,8 @@ pub struct Strings {
     pub theme_desc: SharedString,
     pub dynamic_theme: SharedString,
     pub dynamic_theme_desc: SharedString,
+    pub header_in_title_bar: SharedString,
+    pub header_in_title_bar_desc: SharedString,
     pub system: SharedString,
     pub language: SharedString,
     pub language_desc: SharedString,

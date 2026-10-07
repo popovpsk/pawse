@@ -74,7 +74,7 @@ impl Render for Volume {
         }
         container = container.child(div().w(px(100.)).child(self.slider.clone()));
 
-        container.w_full().h_6()
+        container.flex_shrink_0().h_6()
     }
 }
 

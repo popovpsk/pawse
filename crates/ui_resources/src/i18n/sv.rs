@@ -152,6 +152,8 @@ pub static SV: Strings = lang! {
     theme_desc: "Färgschema för applikationen",
     dynamic_theme: "Tema efter omslaget",
     dynamic_theme_desc: "Anpassar gränssnittets färger efter det aktuella albumets omslag – ljust eller mörkt schema och accentfärg. Omslag utan tydlig färg behåller ditt valda tema.",
+    header_in_title_bar: "Sidhuvud i titelraden",
+    header_in_title_bar_desc: "Flikar, sök och inställningsknappar delar fönstrets titelrad.",
     system: "System",
     language: "Språk",
     language_desc: "Språk för applikationens gränssnitt",

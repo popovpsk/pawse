@@ -3,9 +3,16 @@
 The sleep timer: pauses playback after a chosen time or at the end of the
 current track. It is armed by hand on the Tools screen (Timer page) or by
 itself at night (the automatic timer, Settings → General). While armed, a small
-badge with the remaining time sits in the window title bar, above the search
-field; clicking it opens the Timer page. In full screen the title bar is a
-thin inset, so there is no badge.
+badge with the remaining time is shown in the footer, in the volume row left
+of the volume icon (between the track length and the volume); clicking it opens
+the Timer page. It is drawn by `footer.rs` (`sleep_timer_badge`); the footer
+observes the `SleepTimer` entity and emits `OpenSleepTimerEvent`, which
+`MainView` turns into opening the Timer page. Being in the footer, the badge is
+also there in full screen, but hidden with the rest of the chrome in cover mode.
+The free part of the volume row is narrow (the right column is `200 × scale`
+wide, the volume icon and slider take 130 px), so only the countdown shows its
+text; the end-of-track mode is a bare moon (`SleepTimer::is_countdown`) whose
+tooltip carries the status, because the localized "End of track" does not fit.
 
 ## Files
 
@@ -34,8 +41,7 @@ thin inset, so there is no badge.
   General page scrolled to this group. `SleepTimerSettings` itself lives in
   `settings_store.rs`.
 
-The Tools page is `tools/timer.rs`; the badge is `sleep_timer_badge` in
-`main_view.rs`, drawn through `WindowTitleBar::center`.
+The Tools page is `tools/timer.rs`.
 
 ## Behaviour
 
@@ -88,7 +94,7 @@ The Tools page is `tools/timer.rs`; the badge is `sleep_timer_badge` in
   inside the window (auto or manual) suppresses the automatic one until the
   next night; the night is identified by the date the window opened
   (`window_opened_on`), so 02:00 belongs to the previous evening.
-- **Countdown in the badge, clock time in Tools.** The title-bar badge shows
+- **Countdown in the badge, clock time in Tools.** The footer badge shows
   the time left (a glance while falling asleep); the Tools status shows when it
   will pause ("Pauses at 23:47"), which is what one plans by. The end time is
   recomputed from the local clock on every relabel rather than stored, so a

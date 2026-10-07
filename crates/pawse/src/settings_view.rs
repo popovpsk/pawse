@@ -378,6 +378,28 @@ fn appearance_group(
         );
     }
 
+    group = group.item(
+        SettingItem::new(
+            tr().header_in_title_bar.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().header_in_title_bar();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("header-in-title-bar-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_header_in_title_bar(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(tr().header_in_title_bar_desc.clone()),
+    );
+
     // The untouched-signal-path toggle: exclusive on macOS/Windows, native
     // sample rate on Linux. Hidden when the platform can't offer it at all
     // (Linux without a running PipeWire server).

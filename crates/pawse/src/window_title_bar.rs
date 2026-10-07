@@ -1,11 +1,12 @@
 use gpui::{
-    AnyElement, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px,
+    AnyElement, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled, Window, div,
+    prelude::FluentBuilder as _, px,
 };
 
 #[cfg(target_os = "linux")]
 use gpui::{
     Decorations, InteractiveElement, MouseButton, Render, StatefulInteractiveElement as _,
-    WindowControlArea, prelude::FluentBuilder, svg,
+    WindowControlArea, svg,
 };
 
 #[cfg(target_os = "linux")]
@@ -13,9 +14,12 @@ use gpui_component::{InteractiveElementExt as _, h_flex};
 
 use crate::theme_colors::Colors;
 
-const HEIGHT: f32 = 34.;
+pub const HEIGHT: f32 = 34.;
+#[cfg(target_os = "macos")]
+pub const TRAFFIC_LIGHT_X: f32 = 9.;
+#[cfg(target_os = "macos")]
+pub const TRAFFIC_LIGHT_Y: f32 = 9.;
 const FULLSCREEN_TOP_INSET: f32 = 8.;
-const CORNER_INSET: f32 = 12.;
 
 pub fn title_bar_height(window: &Window) -> f32 {
     if window.is_fullscreen() {
@@ -25,11 +29,16 @@ pub fn title_bar_height(window: &Window) -> f32 {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub fn traffic_light_y(bar_height: f32) -> f32 {
+    TRAFFIC_LIGHT_Y + (bar_height - HEIGHT) / 2.
+}
+
 #[derive(IntoElement, Default)]
 pub struct WindowTitleBar {
     bg: Option<Hsla>,
-    center: Option<AnyElement>,
-    corner: Option<AnyElement>,
+    height: Option<f32>,
+    content: Option<AnyElement>,
 }
 
 impl WindowTitleBar {
@@ -42,51 +51,15 @@ impl WindowTitleBar {
         self
     }
 
-    pub fn center(mut self, center: Option<AnyElement>) -> Self {
-        self.center = center;
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
         self
     }
 
-    pub fn corner(mut self, corner: Option<AnyElement>) -> Self {
-        self.corner = corner;
+    pub fn content(mut self, content: Option<AnyElement>) -> Self {
+        self.content = content;
         self
     }
-}
-
-fn with_overlays(
-    bar: AnyElement,
-    center: Option<AnyElement>,
-    corner: Option<AnyElement>,
-) -> AnyElement {
-    if center.is_none() && corner.is_none() {
-        return bar;
-    }
-    let corner = corner.map(|corner| {
-        let slot = div().absolute().top_0().h(px(HEIGHT)).flex().items_center();
-        #[cfg(target_os = "macos")]
-        let slot = slot.right(px(CORNER_INSET));
-        #[cfg(not(target_os = "macos"))]
-        let slot = slot.left(px(CORNER_INSET));
-        slot.child(corner)
-    });
-    div()
-        .relative()
-        .w_full()
-        .flex_shrink_0()
-        .child(bar)
-        .children(center.map(|center| {
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(center)
-        }))
-        .children(corner)
-        .into_any_element()
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -101,11 +74,12 @@ impl RenderOnce for WindowTitleBar {
                 .bg(bg)
                 .into_any_element();
         }
-        let bar = gpui_component::TitleBar::new()
+        gpui_component::TitleBar::new()
             .bg(bg)
             .border_color(gpui::transparent_black())
-            .into_any_element();
-        with_overlays(bar, self.center, self.corner)
+            .when_some(self.height, |bar, height| bar.h(px(height)))
+            .children(self.content)
+            .into_any_element()
     }
 }
 
@@ -240,7 +214,7 @@ impl RenderOnce for WindowTitleBar {
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .h(px(HEIGHT))
+                .h(px(self.height.unwrap_or(HEIGHT)))
                 .pl(px(12.))
                 .border_b_1()
                 .border_color(gpui::transparent_black())
@@ -287,7 +261,8 @@ impl RenderOnce for WindowTitleBar {
                                         window.show_window_menu(ev.position)
                                     }),
                             )
-                        }),
+                        })
+                        .children(self.content),
                 )
                 .child(
                     h_flex()
@@ -301,7 +276,6 @@ impl RenderOnce for WindowTitleBar {
                         .child(close_btn),
                 ),
         );
-        let corner = self.corner.filter(|_| !window.is_fullscreen());
-        with_overlays(bar.into_any_element(), self.center, corner)
+        bar.into_any_element()
     }
 }

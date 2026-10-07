@@ -152,6 +152,8 @@ pub static CS: Strings = lang! {
     theme_desc: "Barevné schéma aplikace",
     dynamic_theme: "Motiv podle obalu",
     dynamic_theme_desc: "Přizpůsobí barvy rozhraní obalu aktuálního alba — světlé nebo tmavé schéma a zvýraznění. U obalů bez výrazné barvy zůstane vybraný motiv.",
+    header_in_title_bar: "Hlavička v titulní liště",
+    header_in_title_bar_desc: "Karty, vyhledávání a tlačítka nastavení sdílejí titulní lištu okna.",
     system: "Systém",
     language: "Jazyk",
     language_desc: "Jazyk rozhraní aplikace",

@@ -152,6 +152,8 @@ pub static FR: Strings = lang! {
     theme_desc: "Palette de couleurs de l'application",
     dynamic_theme: "Thème d'après la pochette",
     dynamic_theme_desc: "Adapte les couleurs de l'interface à la pochette de l'album en cours : schéma clair ou sombre et couleur d'accent. Si la pochette n'a pas de couleur marquée, le thème choisi est conservé.",
+    header_in_title_bar: "En-tête dans la barre de titre",
+    header_in_title_bar_desc: "Les onglets, la recherche et les boutons de réglages partagent la barre de titre de la fenêtre.",
     system: "Système",
     language: "Langue",
     language_desc: "Langue de l'interface de l'application",

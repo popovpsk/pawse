@@ -152,6 +152,8 @@ pub static NL: Strings = lang! {
     theme_desc: "Kleurenschema van de applicatie",
     dynamic_theme: "Thema volgt de hoes",
     dynamic_theme_desc: "Past de interfacekleuren aan de hoes van het huidige album aan: licht of donker schema en accentkleur. Hoezen zonder uitgesproken kleur behouden je gekozen thema.",
+    header_in_title_bar: "Koptekst in de titelbalk",
+    header_in_title_bar_desc: "Tabbladen, zoeken en instellingenknoppen delen de titelbalk van het venster.",
     system: "Systeem",
     language: "Taal",
     language_desc: "Taal van de gebruikersinterface",

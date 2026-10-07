@@ -152,6 +152,8 @@ pub static PT: Strings = lang! {
     theme_desc: "Esquema de cores do aplicativo",
     dynamic_theme: "Tema conforme a capa",
     dynamic_theme_desc: "Adapta as cores da interface à capa do álbum atual: esquema claro ou escuro e cor de destaque. Capas sem uma cor marcante mantêm o tema escolhido.",
+    header_in_title_bar: "Cabeçalho na barra de título",
+    header_in_title_bar_desc: "Abas, busca e botões de ajustes dividem a barra de título da janela.",
     system: "Sistema",
     language: "Idioma",
     language_desc: "Idioma da interface do aplicativo",

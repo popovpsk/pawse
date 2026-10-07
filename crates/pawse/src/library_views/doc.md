@@ -835,21 +835,23 @@ changed. `TagsSaved` is only for the "tags saved" toast and dropping the cover
 cache, and is sent before `CatalogChanged` so views reload against the cleared
 cache.
 
-The title-bar corner indicator (`library_scan_indicator.rs`) is one global
-entity created at startup, so it sees scans and syncs that began before the
-window existed (onboarding, a macOS window reopened from the Dock). It shows a
-refresh icon while a scan runs or any server syncs (`RemoteSyncStarted` /
-`Finished`, keyed by server) and a check for 30 s after `ScanSucceeded` or the
-manual `ScanUpToDate`; `ScanFailed`, an unavailable folder and `TagsSaved` stay
-toasts. A sync shows the icon only once it has run for 1 s: every launch
-re-syncs every server, and an unchanged one finishes in milliseconds, which
-would flash the icon at each start. The icon goes away with the last
-`RemoteSyncFinished`; a sync that changed something is followed by a rescan
-whose `ScanStarted` only comes after the folder walk, so on a big library the
-icon may blink off for that moment (accepted, a hold-over delay at launch was
-worse).
-It is right-aligned on macOS and left-aligned elsewhere (opposite the window
-buttons) and hidden in fullscreen.
+The library indicator (`library_scan_indicator.rs`) is one global entity created
+at startup, so it sees scans and syncs that began before the window existed
+(onboarding, a macOS window reopened from the Dock). The header draws it just
+left of the search field (`main_view/header.rs`, absolutely positioned, so it
+never moves the search field). It is one muted icon per state: three books (two
+standing, one leaning) with a badge in the corner — two arrows
+(`library-sync.svg`) while a scan runs or any server syncs
+(`RemoteSyncStarted` / `Finished`, keyed by server), and a bold check
+(`library-done.svg`) for 5 s after `ScanSucceeded` or the manual
+`ScanUpToDate`; `ScanFailed`, an unavailable folder and `TagsSaved` stay toasts.
+A sync shows the icon only once it has run for 1 s: every launch re-syncs every
+server, and an unchanged one finishes in milliseconds, which would flash the
+icon at each start. The icon goes away with the last `RemoteSyncFinished`; a
+sync that changed something is followed by a rescan whose `ScanStarted` only
+comes after the folder walk, so on a big library the icon may blink off for
+that moment (accepted, a hold-over delay at launch was worse). It is not drawn
+where the search field is not (Settings, Tools, cover mode).
 
 The drill-down views (`tracks_view`, `grouped_tracks_view`) are built once for an
 album, artist or genre and do not listen to either; they show what they were opened

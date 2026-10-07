@@ -152,6 +152,8 @@ pub static VI: Strings = lang! {
     theme_desc: "Bảng màu của ứng dụng",
     dynamic_theme: "Giao diện theo ảnh bìa",
     dynamic_theme_desc: "Đổi màu giao diện theo ảnh bìa của album đang phát — bảng sáng hoặc tối và màu nhấn. Những ảnh bìa không có màu nổi bật sẽ giữ nguyên chủ đề bạn đã chọn.",
+    header_in_title_bar: "Phần đầu trong thanh tiêu đề",
+    header_in_title_bar_desc: "Các tab, tìm kiếm và nút cài đặt dùng chung thanh tiêu đề của cửa sổ.",
     system: "Hệ thống",
     language: "Ngôn ngữ",
     language_desc: "Ngôn ngữ giao diện ứng dụng",

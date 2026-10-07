@@ -152,6 +152,8 @@ pub static PL: Strings = lang! {
     theme_desc: "Schemat kolorów aplikacji",
     dynamic_theme: "Motyw według okładki",
     dynamic_theme_desc: "Dopasowuje kolory interfejsu do okładki bieżącego albumu — jasny lub ciemny schemat oraz kolor akcentu. Przy okładkach bez wyrazistego koloru pozostaje wybrany motyw.",
+    header_in_title_bar: "Nagłówek w pasku tytułu",
+    header_in_title_bar_desc: "Karty, wyszukiwanie i przyciski ustawień znajdują się na pasku tytułu okna.",
     system: "Systemowy",
     language: "Język",
     language_desc: "Język interfejsu aplikacji",

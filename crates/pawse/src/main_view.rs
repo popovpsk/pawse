@@ -8,27 +8,28 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
 };
 use gpui_component::{
-    Icon, Sizable, Size, StyledExt,
-    button::{Button, ButtonVariants},
-    input::{Input, InputEvent, InputState},
+    StyledExt,
+    input::{InputEvent, InputState},
     slider::{SliderEvent, SliderState},
     theme::ThemeRegistry,
     tooltip::Tooltip,
 };
+
+mod header;
 
 use crate::audio_settings::AudioSettings;
 use crate::cover_backdrop::{self, CoverBackdrop};
 use crate::cover_mode_view::CoverModeView;
 use crate::cover_skin::CoverSkin;
 use crate::cover_volume::CoverVolume;
-use crate::footer::{Footer, ToggleLyricsEvent, ToggleQueueEvent};
+use crate::footer::{Footer, OpenSleepTimerEvent, ToggleLyricsEvent, ToggleQueueEvent};
 use crate::keyboard_shortcuts::{
     ExitCoverMode, NextTrack, PlayPause, PreviousTrack, SeekBackward, SeekForward, VolumeDown,
     VolumeUp,
 };
 use crate::library_service::LibraryEvent;
 use crate::library_views::library_view::{LibraryRootTab, LibraryView, LibraryViewEvent};
-use crate::library_views::view_menu::{self, ViewMenuTab, view_menu};
+use crate::library_views::view_menu::ViewMenuTab;
 use crate::localization::LangChanged;
 use crate::localization::tr;
 use crate::lyrics_view::LyricsView;
@@ -42,9 +43,6 @@ use crate::settings_store::{BlurBackground, SettingsStore, ui_scale};
 use crate::settings_view::SettingsSliders;
 use crate::theme_colors::Colors;
 
-const HEADER_HEIGHT: f32 = 44.;
-const SEARCH_WIDTH: f32 = 200.;
-const VIEW_MENU_GAP: f32 = 6.;
 const FOOTER_HEIGHT: f32 = 80.;
 const QUEUE_WIDTH_DEFAULT: f32 = 360.;
 const QUEUE_WIDTH_MIN: f32 = 280.;
@@ -145,6 +143,7 @@ pub struct MainView {
     _search_subscription: Subscription,
     _footer_subscription: Subscription,
     _footer_lyrics_subscription: Subscription,
+    _footer_sleep_timer_subscription: Subscription,
     _footer_album_subscription: Subscription,
     _footer_artist_subscription: Subscription,
     _cover_album_subscription: Subscription,
@@ -160,10 +159,10 @@ pub struct MainView {
     _activation_subscription: gpui::Subscription,
     updater: Option<Entity<updater::AutoUpdater>>,
     _updater_observer: Option<gpui::Subscription>,
-    sleep_timer: Option<Entity<crate::sleep_timer::SleepTimer>>,
-    scan_indicator: Entity<crate::library_scan_indicator::LibraryScanIndicator>,
-    _sleep_timer_observe: Option<Subscription>,
     _sleep_timer_controls_observe: Subscription,
+    scan_indicator: Entity<crate::library_scan_indicator::LibraryScanIndicator>,
+    #[cfg(target_os = "macos")]
+    traffic_light_y: f32,
     focus_handle: FocusHandle,
 }
 
@@ -441,6 +440,14 @@ impl MainView {
                 this.set_lyrics_visible(event.show, cx);
             });
 
+        let footer_sleep_timer_subscription = cx.subscribe_in(
+            &footer,
+            window,
+            |this, _, _: &OpenSleepTimerEvent, window, cx| {
+                this.open_tools_page(crate::tools::TIMER_PAGE, window, cx);
+            },
+        );
+
         let cover_volume_source = footer.read(cx).volume().clone();
         let cover_volume = cx.new(|cx| CoverVolume::new(cover_volume_source, window, cx));
 
@@ -590,11 +597,6 @@ impl MainView {
             },
         );
 
-        let sleep_timer = crate::sleep_timer::timer(cx);
-        let sleep_timer_observe = sleep_timer
-            .as_ref()
-            .map(|timer| cx.observe(timer, |_, _, cx| cx.notify()));
-
         let updater = updater::handle(cx);
         let updater_observer = updater
             .as_ref()
@@ -661,6 +663,7 @@ impl MainView {
             _search_subscription: search_subscription,
             _footer_subscription: footer_subscription,
             _footer_lyrics_subscription: footer_lyrics_subscription,
+            _footer_sleep_timer_subscription: footer_sleep_timer_subscription,
             _footer_album_subscription: footer_album_subscription,
             _footer_artist_subscription: footer_artist_subscription,
             _cover_album_subscription: cover_album_subscription,
@@ -676,12 +679,27 @@ impl MainView {
             _activation_subscription: activation_subscription,
             updater,
             _updater_observer: updater_observer,
-            sleep_timer,
-            scan_indicator: crate::library_scan_indicator::indicator(cx),
-            _sleep_timer_observe: sleep_timer_observe,
             _sleep_timer_controls_observe: sleep_timer_controls_observe,
+            scan_indicator: crate::library_scan_indicator::indicator(cx),
+            #[cfg(target_os = "macos")]
+            traffic_light_y: crate::window_title_bar::TRAFFIC_LIGHT_Y,
             focus_handle,
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn sync_traffic_lights(&mut self, window: &mut Window, bar_height: f32) {
+        let y = crate::window_title_bar::traffic_light_y(bar_height);
+        if (self.traffic_light_y - y).abs() < 0.01 {
+            return;
+        }
+        self.traffic_light_y = y;
+        window.on_next_frame(move |window, _| {
+            window.set_traffic_light_position(gpui::point(
+                px(crate::window_title_bar::TRAFFIC_LIGHT_X),
+                px(y),
+            ));
+        });
     }
 
     fn clear_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -893,9 +911,7 @@ impl Render for MainView {
         let show_settings = self.show_settings;
         let show_tools = self.show_tools;
         let show_screen = show_settings || show_tools;
-        let has_back = show_screen || self.is_drilled_in;
         let cover_mode = self.cover_mode;
-        let active_tab = (!cover_mode).then_some(self.current_tab);
         if cover_mode {
             let (lyrics, queue) = (self.show_lyrics, self.show_queue);
             self.cover_mode_view
@@ -943,107 +959,50 @@ impl Render for MainView {
             foreground,
         };
 
-        let sleep_badge = self
-            .sleep_timer
-            .as_ref()
-            .and_then(|timer| timer.read(cx).badge())
-            .map(|label| sleep_timer_badge(label, muted, cx));
-
         let settings = cx.global::<SettingsStore>();
-        let liked_enabled = settings.liked_enabled();
-        let playlists_enabled = settings.playlists_enabled();
-        let genres_enabled = settings.genres_enabled();
-        let tools_enabled = settings.tools_enabled();
         let scale = settings.font_scale().ui_scale();
-        let view_menu = self
-            .view_menu_tab
-            .filter(|_| !show_screen && !cover_mode)
-            .map(|tab| view_menu(tab, scale));
+        let header_in_title_bar = settings.header_in_title_bar();
+        let title_bar_height = header::TITLE_BAR_HEIGHT * scale;
+        let header_in_bar =
+            header_in_title_bar && (!window.is_fullscreen() || cfg!(target_os = "linux"));
+        let show_chrome = !cover_mode || chrome_visible;
+        #[cfg(target_os = "macos")]
+        self.sync_traffic_lights(
+            window,
+            if header_in_title_bar {
+                title_bar_height
+            } else {
+                crate::window_title_bar::HEIGHT
+            },
+        );
 
-        let left_group = div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .h_full()
-            .gap_1()
-            .when(has_back, |d| {
-                d.child(back_button(foreground, muted, scale, cx))
-            })
-            .when(!has_back, |d| {
-                d.child(tab_icon_button(
-                    "tab_albums",
-                    "icons/s1-albums.svg",
-                    active_tab == Some(LibraryRootTab::Albums),
-                    LibraryRootTab::Albums,
-                    tab_colors,
-                    scale,
-                    cx,
-                ))
-                .child(tab_icon_button(
-                    "tab_artists",
-                    "icons/s1-artists.svg",
-                    active_tab == Some(LibraryRootTab::Artists),
-                    LibraryRootTab::Artists,
-                    tab_colors,
-                    scale,
-                    cx,
-                ))
-                .when(genres_enabled, |d| {
-                    d.child(tab_icon_button(
-                        "tab_genres",
-                        "icons/s1-genres.svg",
-                        active_tab == Some(LibraryRootTab::Genres),
-                        LibraryRootTab::Genres,
+        let header_below = (show_chrome && !header_in_bar).then(|| {
+            self.render_header(
+                header::Placement::Below(bar_bg),
+                tab_colors,
+                title_bar,
+                veil,
+                scale,
+                cx,
+            )
+        });
+
+        let mut window_title_bar = crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg);
+        if header_in_bar {
+            window_title_bar = window_title_bar
+                .height(title_bar_height)
+                .content(show_chrome.then(|| {
+                    self.render_header(
+                        header::Placement::TitleBar,
                         tab_colors,
+                        title_bar,
+                        veil,
                         scale,
                         cx,
-                    ))
-                })
-                .when(liked_enabled, |d| {
-                    d.child(tab_icon_button(
-                        "tab_liked",
-                        "icons/s1-heart.svg",
-                        active_tab == Some(LibraryRootTab::Liked),
-                        LibraryRootTab::Liked,
-                        tab_colors,
-                        scale,
-                        cx,
-                    ))
-                })
-                .when(playlists_enabled, |d| {
-                    d.child(tab_icon_button(
-                        "tab_playlists",
-                        "icons/s1-playlists.svg",
-                        active_tab == Some(LibraryRootTab::Playlists),
-                        LibraryRootTab::Playlists,
-                        tab_colors,
-                        scale,
-                        cx,
-                    ))
-                })
-                .child(cover_mode_button(cover_mode, tab_colors, scale, cx))
-            });
-
-        let update_ready = self
-            .updater
-            .as_ref()
-            .is_some_and(|entity| entity.read(cx).has_staged_update());
-
-        let right_group = div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_end()
-            .gap_2()
-            .h_full()
-            .when(update_ready && !show_screen, |d| {
-                d.child(update_button(scale, cx))
-            })
-            .when(!show_screen && tools_enabled, |d| {
-                d.child(tools_button(scale, cx))
-            })
-            .when(!show_screen, |d| d.child(settings_gear_button(scale, cx)))
-            .child(self.audio_settings.clone());
+                    )
+                    .into_any_element()
+                }));
+        }
 
         div()
             .id("main_view")
@@ -1051,6 +1010,17 @@ impl Render for MainView {
             .size_full()
             .relative()
             .overflow_hidden()
+            .on_action(cx.listener(Self::on_seek_forward))
+            .on_action(cx.listener(Self::on_seek_backward))
+            .on_action(cx.listener(Self::on_next_track))
+            .on_action(cx.listener(Self::on_previous_track))
+            .on_action(cx.listener(Self::on_volume_up))
+            .on_action(cx.listener(Self::on_volume_down))
+            .on_action(cx.listener(Self::on_play_pause))
+            .on_action(cx.listener(Self::on_exit_cover_mode))
+            .on_action(cx.listener(Self::on_open_scrobbling_settings))
+            .on_action(cx.listener(Self::on_open_sleep_timer_settings))
+            .on_action(cx.listener(Self::on_open_ai_playlist))
             .on_drag_move(
                 cx.listener(move |this, e: &DragMoveEvent<DragQueueResize>, _, cx| {
                     if e.drag(cx).0 != entity_id {
@@ -1093,47 +1063,8 @@ impl Render for MainView {
             .when_some(backdrop, |d, frame| {
                 d.child(cover_backdrop::layers(frame, background))
             })
-            .child(
-                crate::window_title_bar::WindowTitleBar::new()
-                    .bg(title_bar_bg)
-                    .center(sleep_badge)
-                    .corner(Some(self.scan_indicator.clone().into_any_element())),
-            )
+            .child(window_title_bar)
             .child({
-                let header_bar = div()
-                    .w_full()
-                    .flex_shrink_0()
-                    .h(px(HEADER_HEIGHT * scale))
-                    .flex()
-                    .items_center()
-                    .pl_2()
-                    .pr_2()
-                    .bg(bar_bg)
-                    .child(left_group)
-                    .when(!show_screen && !cover_mode, |d| {
-                        let menu_slot = px(VIEW_MENU_GAP + view_menu::TRIGGER_SIZE * scale);
-                        d.child(
-                            div()
-                                .flex()
-                                .flex_shrink_0()
-                                .items_center()
-                                .when(view_menu.is_some(), |d| d.child(div().w(menu_slot)))
-                                .child(
-                                    div().w(px(SEARCH_WIDTH)).child(
-                                        Input::new(&self.search_input)
-                                            .with_size(Size::Medium)
-                                            .focus_bordered(false)
-                                            .rounded_full()
-                                            .bg(cover_backdrop::field_bg(title_bar, veil)),
-                                    ),
-                                )
-                                .when_some(view_menu, |d, menu| {
-                                    d.child(div().w(menu_slot).flex().justify_end().child(menu))
-                                }),
-                        )
-                    })
-                    .child(right_group);
-
                 let middle = div()
                     .flex_1()
                     .overflow_hidden()
@@ -1294,8 +1225,6 @@ impl Render for MainView {
                     .bg(bar_bg)
                     .child(self.footer.clone());
 
-                let show_chrome = !cover_mode || chrome_visible;
-
                 div()
                     .id("main_content")
                     .v_flex()
@@ -1303,18 +1232,7 @@ impl Render for MainView {
                     .overflow_hidden()
                     .key_context(crate::keyboard_shortcuts::CONTEXT)
                     .track_focus(&self.focus_handle)
-                    .on_action(cx.listener(Self::on_seek_forward))
-                    .on_action(cx.listener(Self::on_seek_backward))
-                    .on_action(cx.listener(Self::on_next_track))
-                    .on_action(cx.listener(Self::on_previous_track))
-                    .on_action(cx.listener(Self::on_volume_up))
-                    .on_action(cx.listener(Self::on_volume_down))
-                    .on_action(cx.listener(Self::on_play_pause))
-                    .on_action(cx.listener(Self::on_exit_cover_mode))
-                    .on_action(cx.listener(Self::on_open_scrobbling_settings))
-                    .on_action(cx.listener(Self::on_open_sleep_timer_settings))
-                    .on_action(cx.listener(Self::on_open_ai_playlist))
-                    .when(show_chrome, |d| d.child(header_bar))
+                    .children(header_below)
                     .child(middle)
                     .when(show_chrome, |d| d.child(footer_bar))
             })
@@ -1342,162 +1260,6 @@ impl Render for MainView {
             })
             .child(self.playlist_popup.clone())
     }
-}
-
-fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
-    Button::new("settings_button")
-        .ghost()
-        .compact()
-        .rounded_full()
-        .w(px(40. * scale))
-        .h(px(40. * scale))
-        .icon(
-            Icon::default()
-                .path("icons/settings.svg")
-                .size(px(20. * scale)),
-        )
-        .tooltip(tr().settings.clone())
-        .on_click(cx.listener(|this, _, window, cx| this.open_settings(0, window, cx)))
-}
-
-fn tools_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
-    Button::new("tools_button")
-        .ghost()
-        .compact()
-        .rounded_full()
-        .w(px(40. * scale))
-        .h(px(40. * scale))
-        .icon(
-            Icon::default()
-                .path("icons/tools.svg")
-                .size(px(20. * scale)),
-        )
-        .tooltip(crate::tools::title())
-        .on_click(cx.listener(|this, _, window, cx| this.open_tools_page(0, window, cx)))
-}
-
-fn sleep_timer_badge(
-    label: gpui::SharedString,
-    hover_bg: Hsla,
-    cx: &mut Context<MainView>,
-) -> gpui::AnyElement {
-    let color = Colors::muted_foreground(cx);
-    div()
-        .id("sleep_timer_badge")
-        .occlude()
-        .flex()
-        .items_center()
-        .gap_1()
-        .h(px(22.))
-        .px_2()
-        .rounded_full()
-        .text_xs()
-        .text_color(color)
-        .cursor_pointer()
-        .hover(move |s| s.bg(hover_bg))
-        .on_mouse_down(MouseButton::Left, |_, window, cx| {
-            window.prevent_default();
-            cx.stop_propagation();
-        })
-        .on_click(cx.listener(|this, _, window, cx| {
-            cx.stop_propagation();
-            this.open_tools_page(crate::tools::TIMER_PAGE, window, cx);
-        }))
-        .child(svg().path("icons/moon.svg").size(px(12.)).text_color(color))
-        .child(label)
-        .into_any_element()
-}
-
-fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
-    Button::new("update_button")
-        .ghost()
-        .compact()
-        .rounded_full()
-        .w(px(40. * scale))
-        .h(px(40. * scale))
-        .icon(
-            Icon::default()
-                .path("icons/update.svg")
-                .size(px(20. * scale)),
-        )
-        .tooltip(tr().restart_to_update.clone())
-        .on_click(cx.listener(|_, _, _, cx| updater::apply_and_restart(cx)))
-}
-
-fn back_button(
-    fg: Hsla,
-    hover_bg: Hsla,
-    scale: f32,
-    cx: &mut Context<MainView>,
-) -> impl IntoElement {
-    div()
-        .id("back_button")
-        .size(px(36. * scale))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .hover(move |style| style.bg(hover_bg))
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.leave_overlays(window, cx);
-            if this.show_settings || this.show_tools {
-                this.close_screens();
-                cx.notify();
-            } else {
-                this.library_view.update(cx, |view, cx| view.go_back(cx));
-            }
-        }))
-        .child(
-            svg()
-                .path("icons/back.svg")
-                .size(px(22. * scale))
-                .text_color(fg),
-        )
-}
-
-fn tab_icon_button(
-    id: &'static str,
-    icon_path: &'static str,
-    active: bool,
-    tab: LibraryRootTab,
-    colors: TabColors,
-    scale: f32,
-    cx: &mut Context<MainView>,
-) -> impl IntoElement {
-    let fg = if active {
-        colors.primary
-    } else {
-        colors.foreground
-    };
-    let active_bg = colors.active_bg;
-    let hover_bg = colors.hover_bg;
-
-    div()
-        .id(id)
-        .size(px(36. * scale))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .when(active, move |d| d.bg(active_bg))
-        .hover(move |s| s.bg(hover_bg))
-        .tooltip(move |window, cx| {
-            let label = match tab {
-                LibraryRootTab::Albums => tr().tab_albums.clone(),
-                LibraryRootTab::Artists => tr().tab_artists.clone(),
-                LibraryRootTab::Genres => tr().tab_genres.clone(),
-                LibraryRootTab::Liked => tr().tab_liked.clone(),
-                LibraryRootTab::Playlists => tr().tab_playlists.clone(),
-            };
-            Tooltip::new(label).build(window, cx)
-        })
-        .on_click(cx.listener(move |this, _, window, cx| {
-            this.leave_overlays(window, cx);
-            this.library_view
-                .update(cx, |view, cx| view.select_tab(tab, cx));
-            cx.notify();
-        }))
-        .child(svg().path(icon_path).size(px(20. * scale)).text_color(fg))
 }
 
 fn cover_chrome_button(
@@ -1531,40 +1293,4 @@ fn cover_chrome_button(
             this.cover_volume.update(cx, |v, cx| v.collapse(cx));
         }))
         .child(svg().path(icon).size(px(20.)).text_color(fg))
-}
-
-fn cover_mode_button(
-    active: bool,
-    colors: TabColors,
-    scale: f32,
-    cx: &mut Context<MainView>,
-) -> impl IntoElement {
-    let fg = if active {
-        colors.primary
-    } else {
-        colors.foreground
-    };
-    let active_bg = colors.active_bg;
-    let hover_bg = colors.hover_bg;
-
-    div()
-        .id("tab_cover_mode")
-        .size(px(36. * scale))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .when(active, move |d| d.bg(active_bg))
-        .hover(move |s| s.bg(hover_bg))
-        .tooltip(|window, cx| Tooltip::new(tr().cover_mode.clone()).build(window, cx))
-        .on_click(cx.listener(move |this, _, window, cx| {
-            this.clear_search(window, cx);
-            this.set_cover_mode(!this.cover_mode, cx);
-        }))
-        .child(
-            svg()
-                .path("icons/s1-cover.svg")
-                .size(px(20. * scale))
-                .text_color(fg),
-        )
 }
