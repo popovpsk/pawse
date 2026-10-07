@@ -27,20 +27,19 @@
 
 <div class="relative">
   <button
-    class={`flex items-center justify-center transition active:scale-90 hover:text-white ${open ? "text-white" : "text-neutral-400"}`}
+    class={`flex items-center justify-center transition active:scale-90 hover:text-white ${open ? "text-white" : "text-neutral-400"} ${remote.volumeLocked ? "opacity-50" : ""}`}
     aria-label="Volume"
     onclick={() => (open = !open)}
   >
-    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor" stroke="none" />
+    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.5 10.2c0-.6.5-1.1 1.1-1.1h2.3l4.2-3.5c.6-.5 1.4-.1 1.4.7v11.4c0 .8-.8 1.2-1.4.7l-4.2-3.5H4.6c-.6 0-1.1-.5-1.1-1.1z" />
       {#if remote.volume <= 0}
-        <line x1="17" y1="9" x2="23" y2="15" />
-        <line x1="23" y1="9" x2="17" y2="15" />
+        <path d="M16.2 9.7l4.6 4.6M20.8 9.7l-4.6 4.6" />
       {:else if remote.volume < 0.5}
-        <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+        <path d="M15.8 9.2a4 4 0 0 1 0 5.6" />
       {:else}
-        <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-        <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+        <path d="M15.8 9.2a4 4 0 0 1 0 5.6" />
+        <path d="M18.6 6.4a8 8 0 0 1 0 11.2" />
       {/if}
     </svg>
   </button>
