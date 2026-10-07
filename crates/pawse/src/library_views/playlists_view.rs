@@ -429,8 +429,8 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
             row.child(
                 Button::new("playlists-import")
                     .ghost()
+                    .rounded_full()
                     .icon(Icon::default().path("icons/cloud-download.svg"))
-                    .label(strings.import.clone())
                     .tooltip(strings.import_tooltip.clone())
                     .on_click(cx.listener(|this, _, window, cx| {
                         playlist_import::open(this.import.clone(), window, cx);
@@ -440,6 +440,7 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
         .child(
             Button::new("playlists-ai")
                 .ghost()
+                .rounded_full()
                 .icon(Icon::default().path("icons/sparkles.svg"))
                 .tooltip(strings.ai_tooltip.clone())
                 .on_click(|_, window, cx| {

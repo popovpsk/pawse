@@ -405,12 +405,12 @@ drive the `PlaybackQueue` on click.
   works after typing; clicking another row while renaming just closes the editor.
   The rename goes through `LibraryService::rename_playlist` → `PlaylistsChanged`;
   the SQL refuses the hidden liked playlist.
-  Above everything (the empty state too) sits a pinned strip of right-aligned ghost
-  buttons, its own row so the "New playlist" row keeps one hover and one click:
-  **Import** (only while a server whose `ServerKind::imports_playlists` is
-  configured; `can_import` is refreshed from a `SettingsStore` observer, never
-  computed in render) opens the import dialog, **AI** (icon only, the name lives in
-  the tooltip) dispatches `tools::OpenAiPlaylist`, which `MainView` turns into the
+  Above everything (the empty state too) sits a pinned strip of right-aligned round
+  icon-only ghost buttons (names live in the tooltips), its own row so the "New
+  playlist" row keeps one hover and one click: **Import** (only while a server whose
+  `ServerKind::imports_playlists` is configured; `can_import` is refreshed from a
+  `SettingsStore` observer, never computed in render) opens the import dialog, **AI**
+  dispatches `tools::OpenAiPlaylist`, which `MainView` turns into the
   Tools screen on the AI prompt page in a playlist mode. AI is there even when the
   Tools button is hidden in Settings.
 - `playlist_import.rs` — the server playlist import dialog. `PlaylistImport` is a
