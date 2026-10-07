@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 
-use crate::{Command, CommandSink, CoverSize, LibraryReader, PlayerState, StateRx};
+use crate::{
+    AlbumSort, ArtistSort, Command, CommandSink, CoverSize, LibraryReader, PlayerState, StateRx,
+};
 
 #[derive(Clone)]
 struct AppState {
@@ -47,6 +49,8 @@ fn build_router(state: AppState) -> Router {
         .route("/api/cover", get(cover_handler))
         .route("/api/artists", get(artists_handler))
         .route("/api/artist", get(artist_handler))
+        .route("/api/albums", get(albums_handler))
+        .route("/api/album", get(album_handler))
         .route("/api/playlists", get(playlists_handler))
         .route("/api/playlist", get(playlist_handler))
         .route("/api/liked", get(liked_handler))
@@ -105,8 +109,22 @@ async fn cover_handler(State(state): State<AppState>, Query(query): Query<CoverQ
     }
 }
 
-async fn artists_handler(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.library.artists())
+#[derive(serde::Deserialize)]
+struct ArtistsQuery {
+    #[serde(default)]
+    sort: ArtistSort,
+    desc: Option<u8>,
+}
+
+async fn artists_handler(
+    State(state): State<AppState>,
+    Query(query): Query<ArtistsQuery>,
+) -> impl IntoResponse {
+    Json(
+        state
+            .library
+            .artists(query.sort, query.desc.unwrap_or(0) != 0),
+    )
 }
 
 #[derive(serde::Deserialize)]
@@ -123,6 +141,36 @@ async fn artist_handler(
         .library
         .artist_detail(query.id, query.full.unwrap_or(0) != 0)
     {
+        Some(detail) => Json(detail).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct AlbumsQuery {
+    #[serde(default)]
+    sort: AlbumSort,
+    desc: Option<u8>,
+}
+
+async fn albums_handler(
+    State(state): State<AppState>,
+    Query(query): Query<AlbumsQuery>,
+) -> impl IntoResponse {
+    Json(
+        state
+            .library
+            .albums(query.sort, query.desc.unwrap_or(0) != 0),
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct AlbumQuery {
+    id: i64,
+}
+
+async fn album_handler(State(state): State<AppState>, Query(query): Query<AlbumQuery>) -> Response {
+    match state.library.album_detail(query.id) {
         Some(detail) => Json(detail).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }

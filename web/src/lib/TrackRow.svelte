@@ -51,7 +51,7 @@
     </span>
   </button>
   <button
-    class="mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-neutral-400 transition active:scale-90 hover:bg-white/10 hover:text-white [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-visible:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
+    class="mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-neutral-400 transition active:scale-90 hover:bg-white/10 hover:text-white can-hover:opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
     aria-label="Add to queue"
     onclick={onqueue}
   >

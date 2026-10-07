@@ -123,7 +123,7 @@ impl ArtistsView {
         };
 
         let artists_all = library.artists(grouping);
-        let keys = Self::artist_keys(&artists_all);
+        let keys: Vec<ArtistKey> = artists_all.iter().map(ArtistKey::of).collect();
         let cover_ids = library.artist_album_covers(grouping);
         let search_haystacks = library.artist_search_haystacks(grouping);
 
@@ -197,20 +197,6 @@ impl ArtistsView {
         this
     }
 
-    fn artist_keys(artists: &[music_library::ArtistSummary]) -> Vec<ArtistKey> {
-        artists
-            .iter()
-            .map(|a| {
-                ArtistKey::new(
-                    &a.name,
-                    &a.sort_name,
-                    a.track_count,
-                    a.id == music_library::NO_METADATA_ARTIST_ID,
-                )
-            })
-            .collect()
-    }
-
     fn reload_source(&mut self, cx: &mut Context<Self>) {
         {
             let library = &cx.global::<Services>().library;
@@ -218,7 +204,7 @@ impl ArtistsView {
             self.cover_ids = library.artist_album_covers(self.grouping);
             self.search_haystacks = library.artist_search_haystacks(self.grouping);
         }
-        self.keys = Self::artist_keys(&self.artists_all);
+        self.keys = self.artists_all.iter().map(ArtistKey::of).collect();
         self.recompute_visible(cx);
     }
 

@@ -2,6 +2,7 @@
   import { fade, fly } from "svelte/transition";
   import { Remote, formatTime, type Status } from "./lib/connection.svelte";
   import Library from "./lib/Library.svelte";
+  import AlbumBrowser from "./lib/AlbumBrowser.svelte";
   import ArtistBrowser from "./lib/ArtistBrowser.svelte";
   import PlaylistBrowser from "./lib/PlaylistBrowser.svelte";
   import LikedBrowser from "./lib/LikedBrowser.svelte";
@@ -12,7 +13,11 @@
   let showQueue = $state(false);
   let showLibrary = $state(false);
   let showPanel = $state(true);
-  let desktopTab = $state<"queue" | "artists" | "playlists" | "liked">("queue");
+  let desktopTab = $state<"queue" | "albums" | "artists" | "playlists" | "liked">("queue");
+
+  let alBrowser = $state<AlbumBrowser | null>(null);
+  let alInDetail = $state(false);
+  let alName = $state("");
 
   let paneBrowser = $state<ArtistBrowser | null>(null);
   let paneInDetail = $state(false);
@@ -98,7 +103,7 @@
         {/if}
         <button
           class={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-neutral-400 transition active:scale-90 hover:bg-white/10 hover:text-white ${
-            variant === "mobile" ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            variant === "mobile" ? "opacity-100" : "can-hover:opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           }`}
           aria-label="Remove from queue"
           onclick={() => remote.removeAt(i)}
@@ -230,7 +235,7 @@
 
     <div class="flex items-center justify-center gap-5 lg:justify-start lg:gap-6">
       <button
-        class={`transition active:scale-90 hover:text-white ${remote.shuffle ? "text-emerald-400" : "text-neutral-500"}`}
+        class={`transition active:scale-90 ${remote.shuffle ? "text-emerald-400 hover:text-emerald-300" : "text-neutral-500 hover:text-white"}`}
         aria-label="Shuffle"
         onclick={() => remote.toggleShuffle()}
       >
@@ -285,7 +290,7 @@
         </svg>
       </button>
       <button
-        class={`transition active:scale-90 hover:text-white ${remote.repeat !== "off" ? "text-emerald-400" : "text-neutral-500"}`}
+        class={`transition active:scale-90 ${remote.repeat !== "off" ? "text-emerald-400 hover:text-emerald-300" : "text-neutral-500 hover:text-white"}`}
         aria-label="Repeat"
         onclick={() => remote.cycleRepeat()}
       >
@@ -314,9 +319,9 @@
     }`}
   >
   <aside class="flex h-full min-h-0 w-80 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl xl:w-96">
-    <div class="flex items-center gap-1 px-3 py-3">
+    <div class="flex items-center overflow-x-auto px-1.5 py-3 [scrollbar-width:none]">
       <button
-        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
+        class={`flex-shrink-0 rounded-full px-2 py-1.5 text-[13px] font-semibold transition ${
           desktopTab === "queue" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
         }`}
         onclick={() => (desktopTab = "queue")}
@@ -324,7 +329,15 @@
         Queue
       </button>
       <button
-        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
+        class={`flex-shrink-0 rounded-full px-2 py-1.5 text-[13px] font-semibold transition ${
+          desktopTab === "albums" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+        }`}
+        onclick={() => (desktopTab = "albums")}
+      >
+        Albums
+      </button>
+      <button
+        class={`flex-shrink-0 rounded-full px-2 py-1.5 text-[13px] font-semibold transition ${
           desktopTab === "artists" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
         }`}
         onclick={() => (desktopTab = "artists")}
@@ -332,7 +345,7 @@
         Artists
       </button>
       <button
-        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
+        class={`flex-shrink-0 rounded-full px-2 py-1.5 text-[13px] font-semibold transition ${
           desktopTab === "playlists" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
         }`}
         onclick={() => (desktopTab = "playlists")}
@@ -340,7 +353,7 @@
         Playlists
       </button>
       <button
-        class={`flex-shrink-0 rounded-full px-2.5 py-1.5 text-sm font-semibold tracking-wide transition ${
+        class={`flex-shrink-0 rounded-full px-2 py-1.5 text-[13px] font-semibold transition ${
           desktopTab === "liked" ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
         }`}
         onclick={() => (desktopTab = "liked")}
@@ -350,6 +363,28 @@
     </div>
     <div class={`min-h-0 flex-1 overflow-y-auto px-2 pb-4 ${desktopTab === "queue" ? "" : "hidden"}`}>
       {@render queueList("desktop")}
+    </div>
+    <div class={`min-h-0 flex-1 flex-col ${desktopTab === "albums" ? "flex" : "hidden"}`}>
+      {#if alInDetail}
+        <div class="flex items-center gap-2 border-y border-white/10 px-2 py-2">
+          <button
+            class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-neutral-300 transition active:scale-90 hover:bg-white/10"
+            aria-label="Back to albums"
+            onclick={() => alBrowser?.goBack()}
+          >
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <span class="min-w-0 flex-1 truncate text-sm font-semibold">{alName}</span>
+        </div>
+      {/if}
+      <AlbumBrowser
+        bind:this={alBrowser}
+        {remote}
+        bind:inDetail={alInDetail}
+        bind:detailName={alName}
+      />
     </div>
     <div class={`min-h-0 flex-1 flex-col ${desktopTab === "artists" ? "flex" : "hidden"}`}>
       {#if paneInDetail}

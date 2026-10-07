@@ -21,13 +21,48 @@ impl pawse_remote::LibraryReader for TestLibrary {
         }
     }
 
-    fn artists(&self) -> Vec<pawse_remote::ArtistEntry> {
+    fn artists(
+        &self,
+        sort: pawse_remote::ArtistSort,
+        desc: bool,
+    ) -> Vec<pawse_remote::ArtistEntry> {
+        let name = format!("Smoke Artist {sort:?} {desc}");
         vec![pawse_remote::ArtistEntry {
             id: 1,
-            name: "Smoke Artist".into(),
+            name,
             track_count: 1,
             cover_ids: vec![7],
         }]
+    }
+
+    fn albums(&self, sort: pawse_remote::AlbumSort, desc: bool) -> Vec<pawse_remote::AlbumEntry> {
+        vec![pawse_remote::AlbumEntry {
+            id: 3,
+            title: format!("Smoke Album {sort:?} {desc}"),
+            artist: "Smoke Artist".into(),
+            year: Some(2024),
+            cover_id: Some(7),
+        }]
+    }
+
+    fn album_detail(&self, album_id: i64) -> Option<pawse_remote::AlbumDetail> {
+        if album_id != 3 {
+            return None;
+        }
+        Some(pawse_remote::AlbumDetail {
+            id: 3,
+            title: "Smoke Album".into(),
+            artist: "Smoke Artist".into(),
+            year: Some(2024),
+            cover_id: Some(7),
+            tracks: vec![pawse_remote::AlbumTrack {
+                id: 11,
+                title: "Smoke Track".into(),
+                track_number: Some(1),
+                disc_number: 1,
+                duration_ms: 1000,
+            }],
+        })
     }
 
     fn artist_detail(&self, artist_id: i64, full: bool) -> Option<pawse_remote::ArtistDetail> {
@@ -123,8 +158,31 @@ fn serves_state_snapshot() {
     assert!(try_get(addr, "/api/cover?id=8").is_none());
 
     let artists = try_get(addr, "/api/artists").expect("artists endpoint");
-    assert!(artists.contains("Smoke Artist"), "artists: {artists}");
+    assert!(
+        artists.contains("Smoke Artist Name false"),
+        "artists: {artists}"
+    );
     assert!(artists.contains("\"cover_ids\":[7]"), "artists: {artists}");
+    let by_tracks = try_get(addr, "/api/artists?sort=tracks&desc=1").expect("artists endpoint");
+    assert!(
+        by_tracks.contains("Smoke Artist Tracks true"),
+        "artists: {by_tracks}"
+    );
+    assert!(try_get(addr, "/api/artists?sort=bogus").is_none());
+
+    let albums = try_get(addr, "/api/albums").expect("albums endpoint");
+    assert!(
+        albums.contains("Smoke Album Artist false"),
+        "albums: {albums}"
+    );
+    let by_year = try_get(addr, "/api/albums?sort=year&desc=1").expect("albums endpoint");
+    assert!(
+        by_year.contains("Smoke Album Year true"),
+        "albums: {by_year}"
+    );
+    let album = try_get(addr, "/api/album?id=3").expect("album endpoint");
+    assert!(album.contains("Smoke Track"), "album: {album}");
+    assert!(try_get(addr, "/api/album?id=4").is_none());
 
     let artist = try_get(addr, "/api/artist?id=1").expect("artist endpoint");
     assert!(artist.contains("Smoke Album"), "artist: {artist}");

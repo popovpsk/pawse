@@ -58,6 +58,27 @@ export type ArtistDetail = {
   albums: ArtistAlbum[];
 };
 
+export type AlbumSort = "artist" | "title" | "year";
+
+export type ArtistSort = "name" | "tracks";
+
+export type AlbumEntry = {
+  id: number;
+  title: string;
+  artist: string;
+  year: number | null;
+  cover_id: number | null;
+};
+
+export type AlbumDetail = {
+  id: number;
+  title: string;
+  artist: string;
+  year: number | null;
+  cover_id: number | null;
+  tracks: AlbumTrack[];
+};
+
 export type PlaylistEntry = {
   id: number;
   name: string;
@@ -93,6 +114,9 @@ type Cmd =
   | { cmd: "play_artist_track"; artist_id: number; track_id: number; full: boolean }
   | { cmd: "queue_artist_track"; artist_id: number; track_id: number; full: boolean }
   | { cmd: "queue_artist_album"; artist_id: number; album_id: number | null; full: boolean }
+  | { cmd: "play_album_track"; album_id: number; track_id: number }
+  | { cmd: "queue_album_track"; album_id: number; track_id: number }
+  | { cmd: "queue_album"; album_id: number }
   | { cmd: "play_playlist_track"; playlist_id: number; track_id: number }
   | { cmd: "queue_playlist_track"; playlist_id: number; track_id: number }
   | { cmd: "queue_playlist"; playlist_id: number }
@@ -361,6 +385,18 @@ export class Remote {
 
   queueArtistAlbum(artistId: number, albumId: number | null, full: boolean) {
     this.#send({ cmd: "queue_artist_album", artist_id: artistId, album_id: albumId, full });
+  }
+
+  playAlbumTrack(albumId: number, trackId: number) {
+    this.#send({ cmd: "play_album_track", album_id: albumId, track_id: trackId });
+  }
+
+  queueAlbumTrack(albumId: number, trackId: number) {
+    this.#send({ cmd: "queue_album_track", album_id: albumId, track_id: trackId });
+  }
+
+  queueAlbum(albumId: number) {
+    this.#send({ cmd: "queue_album", album_id: albumId });
   }
 
   playPlaylistTrack(playlistId: number, trackId: number) {

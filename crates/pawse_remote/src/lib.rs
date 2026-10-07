@@ -25,6 +25,23 @@ pub enum RepeatMode {
     One,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbumSort {
+    #[default]
+    Artist,
+    Title,
+    Year,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtistSort {
+    #[default]
+    Name,
+    Tracks,
+}
+
 #[derive(Clone, serde::Serialize)]
 pub struct ArtistEntry {
     pub id: i64,
@@ -61,6 +78,25 @@ pub struct ArtistDetail {
 }
 
 #[derive(Clone, serde::Serialize)]
+pub struct AlbumEntry {
+    pub id: i64,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<i32>,
+    pub cover_id: Option<i64>,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct AlbumDetail {
+    pub id: i64,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<i32>,
+    pub cover_id: Option<i64>,
+    pub tracks: Vec<AlbumTrack>,
+}
+
+#[derive(Clone, serde::Serialize)]
 pub struct PlaylistEntry {
     pub id: i64,
     pub name: String,
@@ -86,8 +122,10 @@ pub struct PlaylistDetail {
 pub trait LibraryReader: Send + Sync + 'static {
     fn cover(&self, id: i64, size: CoverSize) -> Option<Vec<u8>>;
     fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)>;
-    fn artists(&self) -> Vec<ArtistEntry>;
+    fn artists(&self, sort: ArtistSort, desc: bool) -> Vec<ArtistEntry>;
     fn artist_detail(&self, artist_id: i64, full: bool) -> Option<ArtistDetail>;
+    fn albums(&self, sort: AlbumSort, desc: bool) -> Vec<AlbumEntry>;
+    fn album_detail(&self, album_id: i64) -> Option<AlbumDetail>;
     fn playlists(&self) -> Vec<PlaylistEntry>;
     fn playlist_detail(&self, playlist_id: i64) -> Option<PlaylistDetail>;
     fn liked(&self) -> Vec<PlaylistTrack>;
@@ -202,6 +240,17 @@ pub enum Command {
         artist_id: i64,
         album_id: Option<i64>,
         full: bool,
+    },
+    PlayAlbumTrack {
+        album_id: i64,
+        track_id: i64,
+    },
+    QueueAlbumTrack {
+        album_id: i64,
+        track_id: i64,
+    },
+    QueueAlbum {
+        album_id: i64,
     },
     PlayPlaylistTrack {
         playlist_id: i64,

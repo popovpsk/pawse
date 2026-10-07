@@ -14,4 +14,4 @@ pub mod playlists_view;
 pub(crate) mod track_row;
 pub mod tracks_view;
 pub mod view_menu;
-mod view_order;
+pub(crate) mod view_order;

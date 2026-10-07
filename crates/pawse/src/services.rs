@@ -19,6 +19,7 @@ use music_library::Track;
 
 use crate::cover_art_cache::CoverArtCache;
 use crate::library_service::{LibraryEvent, LibraryService};
+use crate::playback_queue::QueueSource;
 
 #[derive(Clone)]
 pub struct Services {
@@ -561,147 +562,91 @@ fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
             artist_id,
             track_id,
             full,
-        } => play_artist_track(cx, artist_id, track_id, full),
+        } => {
+            let tracks = library(cx).artist_display_tracks(artist_id, full);
+            play_from(cx, tracks, track_id, QueueSource::Unknown);
+        }
         pawse_remote::Command::QueueArtistTrack {
             artist_id,
             track_id,
             full,
-        } => queue_artist_track(cx, artist_id, track_id, full),
+        } => {
+            let tracks = library(cx).artist_display_tracks(artist_id, full);
+            queue_one(cx, tracks, track_id);
+        }
         pawse_remote::Command::QueueArtistAlbum {
             artist_id,
             album_id,
             full,
-        } => queue_artist_album(cx, artist_id, album_id, full),
+        } => {
+            let tracks = library(cx).artist_display_tracks(artist_id, full);
+            queue_all(cx, tracks.into_iter().filter(|t| t.album_id == album_id));
+        }
+        pawse_remote::Command::PlayAlbumTrack { album_id, track_id } => {
+            let tracks = library(cx).tracks_for_album(album_id);
+            play_from(cx, tracks, track_id, QueueSource::Unknown);
+        }
+        pawse_remote::Command::QueueAlbumTrack { album_id, track_id } => {
+            let tracks = library(cx).tracks_for_album(album_id);
+            queue_one(cx, tracks, track_id);
+        }
+        pawse_remote::Command::QueueAlbum { album_id } => {
+            let tracks = library(cx).tracks_for_album(album_id);
+            queue_all(cx, tracks);
+        }
         pawse_remote::Command::PlayPlaylistTrack {
             playlist_id,
             track_id,
-        } => play_playlist_track(cx, playlist_id, track_id),
+        } => {
+            let tracks = library(cx).tracks_for_playlist(playlist_id);
+            play_from(cx, tracks, track_id, QueueSource::Playlist(playlist_id));
+        }
         pawse_remote::Command::QueuePlaylistTrack {
             playlist_id,
             track_id,
-        } => queue_playlist_track(cx, playlist_id, track_id),
-        pawse_remote::Command::QueuePlaylist { playlist_id } => queue_playlist(cx, playlist_id),
-        pawse_remote::Command::PlayLikedTrack { track_id } => play_liked_track(cx, track_id),
-        pawse_remote::Command::QueueLikedTrack { track_id } => queue_liked_track(cx, track_id),
-        pawse_remote::Command::QueueLiked => queue_liked(cx),
+        } => {
+            let tracks = library(cx).tracks_for_playlist(playlist_id);
+            queue_one(cx, tracks, track_id);
+        }
+        pawse_remote::Command::QueuePlaylist { playlist_id } => {
+            let tracks = library(cx).tracks_for_playlist(playlist_id);
+            queue_all(cx, tracks);
+        }
+        pawse_remote::Command::PlayLikedTrack { track_id } => {
+            let tracks = library(cx).liked_tracks();
+            play_from(cx, tracks, track_id, QueueSource::Unknown);
+        }
+        pawse_remote::Command::QueueLikedTrack { track_id } => {
+            let tracks = library(cx).liked_tracks();
+            queue_one(cx, tracks, track_id);
+        }
+        pawse_remote::Command::QueueLiked => {
+            let tracks = library(cx).liked_tracks();
+            queue_all(cx, tracks);
+        }
     }
 }
 
-fn play_artist_track(cx: &mut App, artist_id: i64, track_id: i64, full: bool) {
-    let tracks = cx
-        .global::<Services>()
-        .library
-        .artist_display_tracks(artist_id, full);
+fn library(cx: &App) -> &LibraryService {
+    &cx.global::<Services>().library
+}
+
+fn play_from(cx: &mut App, tracks: Vec<Track>, track_id: i64, source: QueueSource) {
     let Some(index) = tracks.iter().position(|t| t.id == track_id) else {
         return;
     };
     let tracks: Vec<Rc<Track>> = tracks.into_iter().map(Rc::new).collect();
-    crate::track_list::replace_queue_and_play(
-        tracks,
-        index,
-        crate::playback_queue::QueueSource::Unknown,
-        cx,
-    );
+    crate::track_list::replace_queue_and_play(tracks, index, source, cx);
 }
 
-fn queue_artist_track(cx: &mut App, artist_id: i64, track_id: i64, full: bool) {
-    let track = cx
-        .global::<Services>()
-        .library
-        .artist_display_tracks(artist_id, full)
-        .into_iter()
-        .find(|t| t.id == track_id);
-    if let Some(track) = track {
+fn queue_one(cx: &mut App, tracks: Vec<Track>, track_id: i64) {
+    if let Some(track) = tracks.into_iter().find(|t| t.id == track_id) {
         crate::track_list::append_tracks_to_queue(vec![Rc::new(track)], cx);
     }
 }
 
-fn queue_artist_album(cx: &mut App, artist_id: i64, album_id: Option<i64>, full: bool) {
-    let tracks: Vec<Rc<Track>> = cx
-        .global::<Services>()
-        .library
-        .artist_display_tracks(artist_id, full)
-        .into_iter()
-        .filter(|t| t.album_id == album_id)
-        .map(Rc::new)
-        .collect();
-    crate::track_list::append_tracks_to_queue(tracks, cx);
-}
-
-fn play_playlist_track(cx: &mut App, playlist_id: i64, track_id: i64) {
-    let tracks = cx
-        .global::<Services>()
-        .library
-        .tracks_for_playlist(playlist_id);
-    let Some(index) = tracks.iter().position(|t| t.id == track_id) else {
-        return;
-    };
+fn queue_all(cx: &mut App, tracks: impl IntoIterator<Item = Track>) {
     let tracks: Vec<Rc<Track>> = tracks.into_iter().map(Rc::new).collect();
-    crate::track_list::replace_queue_and_play(
-        tracks,
-        index,
-        crate::playback_queue::QueueSource::Playlist(playlist_id),
-        cx,
-    );
-}
-
-fn queue_playlist_track(cx: &mut App, playlist_id: i64, track_id: i64) {
-    let track = cx
-        .global::<Services>()
-        .library
-        .tracks_for_playlist(playlist_id)
-        .into_iter()
-        .find(|t| t.id == track_id);
-    if let Some(track) = track {
-        crate::track_list::append_tracks_to_queue(vec![Rc::new(track)], cx);
-    }
-}
-
-fn queue_playlist(cx: &mut App, playlist_id: i64) {
-    let tracks: Vec<Rc<Track>> = cx
-        .global::<Services>()
-        .library
-        .tracks_for_playlist(playlist_id)
-        .into_iter()
-        .map(Rc::new)
-        .collect();
-    crate::track_list::append_tracks_to_queue(tracks, cx);
-}
-
-fn play_liked_track(cx: &mut App, track_id: i64) {
-    let tracks = cx.global::<Services>().library.liked_tracks();
-    let Some(index) = tracks.iter().position(|t| t.id == track_id) else {
-        return;
-    };
-    let tracks: Vec<Rc<Track>> = tracks.into_iter().map(Rc::new).collect();
-    crate::track_list::replace_queue_and_play(
-        tracks,
-        index,
-        crate::playback_queue::QueueSource::Unknown,
-        cx,
-    );
-}
-
-fn queue_liked_track(cx: &mut App, track_id: i64) {
-    let track = cx
-        .global::<Services>()
-        .library
-        .liked_tracks()
-        .into_iter()
-        .find(|t| t.id == track_id);
-    if let Some(track) = track {
-        crate::track_list::append_tracks_to_queue(vec![Rc::new(track)], cx);
-    }
-}
-
-fn queue_liked(cx: &mut App) {
-    let tracks: Vec<Rc<Track>> = cx
-        .global::<Services>()
-        .library
-        .liked_tracks()
-        .into_iter()
-        .map(Rc::new)
-        .collect();
     crate::track_list::append_tracks_to_queue(tracks, cx);
 }
 

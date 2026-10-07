@@ -3,12 +3,15 @@
   import { fade } from "svelte/transition";
   import {
     Remote,
-    formatTime,
     type AlbumTrack,
     type ArtistAlbum,
     type ArtistDetail,
     type ArtistEntry,
+    type ArtistSort,
   } from "./connection.svelte";
+  import AlbumTracks from "./AlbumTracks.svelte";
+  import SortBar from "./SortBar.svelte";
+  import { setArtistSort, sortPrefs } from "./sort.svelte";
 
   let {
     remote,
@@ -36,16 +39,29 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let listEl = $state<HTMLElement | null>(null);
   let detailGen = 0;
+  let listGen = 0;
+
+  const sortOptions: { value: ArtistSort; label: string; hints: [string, string]; defaultDesc?: boolean }[] = [
+    { value: "name", label: "Name", hints: ["A–Z", "Z–A"] },
+    { value: "tracks", label: "Tracks", hints: ["Fewest first", "Most first"], defaultDesc: true },
+  ];
 
   $effect(() => {
     remote.libraryRev;
+    sortPrefs.artists.sort;
+    sortPrefs.artists.desc;
     untrack(() => {
       refresh();
     });
   });
 
+  function changeSort(sort: ArtistSort, desc: boolean) {
+    setArtistSort(sort, desc);
+    listEl?.scrollTo(0, 0);
+  }
+
   async function refresh() {
-    await loadArtists();
+    if (!(await loadArtists())) return;
     if (!viewing || artists === null) return;
     const name = detail !== null ? detail.name : pendingName;
     const same = artists.find((a) => a.name === name);
@@ -70,14 +86,20 @@
     detailFull = full;
   });
 
-  async function loadArtists() {
+  async function loadArtists(): Promise<boolean> {
+    const gen = ++listGen;
+    const { sort, desc } = sortPrefs.artists;
     error = false;
     try {
-      const r = await fetch("/api/artists");
+      const r = await fetch(`/api/artists?sort=${sort}&desc=${desc ? 1 : 0}`);
       if (!r.ok) throw new Error();
-      artists = await r.json();
+      const fetched: ArtistEntry[] = await r.json();
+      if (gen !== listGen) return false;
+      artists = fetched;
+      return true;
     } catch {
-      if (!viewing) error = true;
+      if (gen === listGen && !viewing) error = true;
+      return false;
     }
   }
 
@@ -162,23 +184,6 @@
   function albumTitle(album: ArtistAlbum): string {
     return album.title || "No metadata";
   }
-
-  type Row = { kind: "disc"; disc: number } | { kind: "track"; track: AlbumTrack };
-
-  function albumRows(album: ArtistAlbum): Row[] {
-    const multiDisc = album.tracks.some((t) => t.disc_number > 1);
-    if (!multiDisc) return album.tracks.map((track) => ({ kind: "track", track }));
-    const rows: Row[] = [];
-    let disc = 0;
-    for (const track of album.tracks) {
-      if (track.disc_number !== disc) {
-        disc = track.disc_number;
-        rows.push({ kind: "disc", disc });
-      }
-      rows.push({ kind: "track", track });
-    }
-    return rows;
-  }
 </script>
 
 {#snippet coverFallback()}
@@ -192,6 +197,14 @@
 {/snippet}
 
 <div class="relative flex min-h-0 flex-1 flex-col">
+  {#if !viewing}
+    <SortBar
+      options={sortOptions}
+      sort={sortPrefs.artists.sort}
+      desc={sortPrefs.artists.desc}
+      onchange={changeSort}
+    />
+  {/if}
   <div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
     {#if error}
       <div class="flex flex-col items-center gap-3 px-3 py-10">
@@ -259,52 +272,7 @@
               </svg>
             </button>
           </div>
-          {#each albumRows(album) as row, rowIx (rowIx)}
-            {#if row.kind === "disc"}
-              <p class="px-3 pb-1 pt-3 text-xs font-semibold text-neutral-500">Disc {row.disc}</p>
-            {:else}
-              <div
-                class={`group flex w-full items-center rounded-xl transition hover:bg-white/5 ${
-                  row.track.id === remote.currentTrackId ? "bg-white/10" : ""
-                }`}
-              >
-                <button
-                  class="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3 pr-2 text-left"
-                  onclick={() => playTrack(row.track)}
-                >
-                  {#if row.track.id === remote.currentTrackId}
-                    <svg class="h-4 w-4 flex-shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  {:else}
-                    <span class="w-4 flex-shrink-0 text-right text-xs tabular-nums text-neutral-500">
-                      {row.track.track_number ?? "·"}
-                    </span>
-                  {/if}
-                  <span
-                    class={`min-w-0 flex-1 truncate text-sm ${
-                      row.track.id === remote.currentTrackId ? "font-semibold text-white" : "text-neutral-200"
-                    }`}
-                  >
-                    {row.track.title}
-                  </span>
-                  <span class="flex-shrink-0 text-xs tabular-nums text-neutral-500">
-                    {formatTime(row.track.duration_ms)}
-                  </span>
-                </button>
-                <button
-                  class="mr-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-neutral-400 transition active:scale-90 hover:bg-white/10 hover:text-white [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-visible:opacity-100 [@media(hover:hover)]:group-hover:opacity-100"
-                  aria-label="Add to queue"
-                  onclick={() => queueTrack(row.track)}
-                >
-                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <path d="M4 6h9M4 12h9M4 18h6" />
-                    <path d="M18 9v6M15 12h6" />
-                  </svg>
-                </button>
-              </div>
-            {/if}
-          {/each}
+          <AlbumTracks {remote} tracks={album.tracks} onplay={playTrack} onqueue={queueTrack} />
         </section>
       {/each}
     {/if}

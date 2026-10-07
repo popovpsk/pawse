@@ -57,7 +57,7 @@ fn directed(ordering: Ordering, desc: bool) -> Ordering {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct AlbumKey {
+pub(crate) struct AlbumKey {
     artist: String,
     title: String,
     year: Option<i32>,
@@ -78,6 +78,15 @@ impl AlbumKey {
             year: year.filter(|y| *y > 0),
             pinned_last,
         }
+    }
+
+    pub(crate) fn of(album: &music_library::AlbumSummary) -> Self {
+        Self::new(
+            &album.artist_name,
+            &album.title,
+            album.year,
+            album.id == music_library::NO_METADATA_ALBUM_ID,
+        )
     }
 
     pub(super) fn section(&self, sort: AlbumsSort) -> SectionKey {
@@ -113,14 +122,14 @@ fn compare_albums(a: &AlbumKey, b: &AlbumKey, sort: AlbumsSort, desc: bool) -> O
         })
 }
 
-pub(super) fn order_albums(keys: &[AlbumKey], sort: AlbumsSort, desc: bool) -> Vec<usize> {
+pub(crate) fn order_albums(keys: &[AlbumKey], sort: AlbumsSort, desc: bool) -> Vec<usize> {
     let mut order: Vec<usize> = (0..keys.len()).collect();
     order.sort_by(|&a, &b| compare_albums(&keys[a], &keys[b], sort, desc));
     order
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ArtistKey {
+pub(crate) struct ArtistKey {
     name: String,
     section: SectionKey,
     tracks: i64,
@@ -146,6 +155,15 @@ impl ArtistKey {
         }
     }
 
+    pub(crate) fn of(artist: &music_library::ArtistSummary) -> Self {
+        Self::new(
+            &artist.name,
+            &artist.sort_name,
+            artist.track_count,
+            artist.id == music_library::NO_METADATA_ARTIST_ID,
+        )
+    }
+
     pub(super) fn section(&self) -> SectionKey {
         self.section
     }
@@ -162,7 +180,7 @@ fn compare_artists(a: &ArtistKey, b: &ArtistKey, sort: ArtistsSort, desc: bool) 
     })
 }
 
-pub(super) fn order_artists(keys: &[ArtistKey], sort: ArtistsSort, desc: bool) -> Vec<usize> {
+pub(crate) fn order_artists(keys: &[ArtistKey], sort: ArtistsSort, desc: bool) -> Vec<usize> {
     let mut order: Vec<usize> = (0..keys.len()).collect();
     order.sort_by(|&a, &b| compare_artists(&keys[a], &keys[b], sort, desc));
     order

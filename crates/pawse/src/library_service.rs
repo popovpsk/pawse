@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 use music_indexer::{PreparedTrack, ScanEvent};
 use music_library::{ArtistGrouping, LibraryRepository, NewTrack, ScanTrack, SqliteLibrary};
 
+use crate::library_views::view_order::{self, AlbumKey, ArtistKey};
+use crate::settings_store::{AlbumsSort, ArtistsSort};
+
 /// The album-level fields of a tag edit, applied to every track of one album.
 /// Kept separate from [`tag_writer::TrackTagEdits`] because these describe a
 /// shared `albums` row: writing them into a single file would leave the album's
@@ -213,12 +216,21 @@ impl pawse_remote::LibraryReader for LibraryAccess {
         }
     }
 
-    fn artists(&self) -> Vec<pawse_remote::ArtistEntry> {
+    fn artists(
+        &self,
+        sort: pawse_remote::ArtistSort,
+        desc: bool,
+    ) -> Vec<pawse_remote::ArtistEntry> {
         let grouping = load_grouping(&self.artists_grouping);
         let covers = self.repo.artist_album_covers(grouping).unwrap_or_default();
-        self.repo
-            .artists(grouping)
-            .unwrap_or_default()
+        let artists = self.repo.artists(grouping).unwrap_or_default();
+        let keys: Vec<ArtistKey> = artists.iter().map(ArtistKey::of).collect();
+        let sort = match sort {
+            pawse_remote::ArtistSort::Name => ArtistsSort::Name,
+            pawse_remote::ArtistSort::Tracks => ArtistsSort::Tracks,
+        };
+        let order = view_order::order_artists(&keys, sort, desc);
+        in_order(artists, &order)
             .into_iter()
             .map(|artist| pawse_remote::ArtistEntry {
                 id: artist.id,
@@ -260,6 +272,45 @@ impl pawse_remote::LibraryReader for LibraryAccess {
         })
     }
 
+    fn albums(&self, sort: pawse_remote::AlbumSort, desc: bool) -> Vec<pawse_remote::AlbumEntry> {
+        let albums = self.repo.albums().unwrap_or_default();
+        let keys: Vec<AlbumKey> = albums.iter().map(AlbumKey::of).collect();
+        let sort = match sort {
+            pawse_remote::AlbumSort::Artist => AlbumsSort::Artist,
+            pawse_remote::AlbumSort::Title => AlbumsSort::Title,
+            pawse_remote::AlbumSort::Year => AlbumsSort::Year,
+        };
+        let order = view_order::order_albums(&keys, sort, desc);
+        in_order(albums, &order)
+            .into_iter()
+            .map(|album| pawse_remote::AlbumEntry {
+                id: album.id,
+                title: album.title,
+                artist: album.artist_name,
+                year: album.year.filter(|y| *y > 0),
+                cover_id: album.cover_art_id,
+            })
+            .collect()
+    }
+
+    fn album_detail(&self, album_id: i64) -> Option<pawse_remote::AlbumDetail> {
+        let album = self
+            .repo
+            .albums()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|a| a.id == album_id)?;
+        let tracks = self.repo.tracks_for_album(album_id).unwrap_or_default();
+        Some(pawse_remote::AlbumDetail {
+            id: album.id,
+            title: album.title,
+            artist: album.artist_name,
+            year: album.year.filter(|y| *y > 0),
+            cover_id: album.cover_art_id,
+            tracks: tracks.iter().map(to_album_track).collect(),
+        })
+    }
+
     fn playlists(&self) -> Vec<pawse_remote::PlaylistEntry> {
         self.repo
             .playlists()
@@ -295,6 +346,21 @@ impl pawse_remote::LibraryReader for LibraryAccess {
     fn liked(&self) -> Vec<pawse_remote::PlaylistTrack> {
         let tracks = self.repo.liked_tracks().unwrap_or_default();
         to_playlist_tracks(&*self.repo, tracks)
+    }
+}
+
+fn in_order<T>(items: Vec<T>, order: &[usize]) -> Vec<T> {
+    let mut slots: Vec<Option<T>> = items.into_iter().map(Some).collect();
+    order.iter().filter_map(|&ix| slots[ix].take()).collect()
+}
+
+fn to_album_track(track: &music_library::Track) -> pawse_remote::AlbumTrack {
+    pawse_remote::AlbumTrack {
+        id: track.id,
+        title: track.title.clone(),
+        track_number: track.track_number,
+        disc_number: track.disc_number,
+        duration_ms: track.duration_ms.unwrap_or(0).max(0) as u64,
     }
 }
 
@@ -384,13 +450,7 @@ fn group_artist_albums(
 ) -> Vec<pawse_remote::ArtistAlbum> {
     let mut albums: Vec<pawse_remote::ArtistAlbum> = Vec::new();
     for track in tracks {
-        let item = pawse_remote::AlbumTrack {
-            id: track.id,
-            title: track.title.clone(),
-            track_number: track.track_number,
-            disc_number: track.disc_number,
-            duration_ms: track.duration_ms.unwrap_or(0).max(0) as u64,
-        };
+        let item = to_album_track(track);
         if let Some(last) = albums.last_mut()
             && last.album_id == track.album_id
         {
@@ -3258,7 +3318,11 @@ mod tests {
             artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(ArtistGrouping::AlbumArtist))),
         };
         let names = |access: &LibraryAccess| {
-            let mut names: Vec<String> = access.artists().into_iter().map(|a| a.name).collect();
+            let mut names: Vec<String> = access
+                .artists(pawse_remote::ArtistSort::Name, false)
+                .into_iter()
+                .map(|a| a.name)
+                .collect();
             names.sort();
             names
         };
@@ -3285,6 +3349,67 @@ mod tests {
                 .albums
                 .is_empty()
         );
+
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn the_remote_reader_sorts_albums_like_the_albums_tab() {
+        use pawse_remote::{AlbumSort, LibraryReader};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let folder = std::env::temp_dir().join(format!(
+            "pawse-remote-albums-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let repo = SqliteLibrary::open_at(folder.join("library.db")).unwrap();
+
+        let older = repo.upsert_album("The Zebra", Some(1999), None).unwrap();
+        let newer = repo.upsert_album("Apple", Some(2010), None).unwrap();
+        for (album, album_title, title, path) in [
+            (older, "The Zebra", "Stripes", "/m/z.flac"),
+            (newer, "Apple", "Core", "/m/a.flac"),
+        ] {
+            repo.upsert_track(
+                &NewTrack {
+                    path: path.into(),
+                    title: Some(title.into()),
+                    album_title: Some(album_title.into()),
+                    track_number: Some(1),
+                    disc_number: Some(1),
+                    ..Default::default()
+                },
+                Some(album),
+                &[],
+            )
+            .unwrap();
+        }
+
+        let access = LibraryAccess {
+            repo: Arc::new(repo),
+            artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(ArtistGrouping::AlbumArtist))),
+        };
+        let titles = |sort: AlbumSort, desc: bool| -> Vec<String> {
+            access
+                .albums(sort, desc)
+                .into_iter()
+                .map(|a| a.title)
+                .collect()
+        };
+
+        assert_eq!(titles(AlbumSort::Title, false), ["Apple", "The Zebra"]);
+        assert_eq!(titles(AlbumSort::Title, true), ["The Zebra", "Apple"]);
+        assert_eq!(titles(AlbumSort::Year, false), ["The Zebra", "Apple"]);
+        assert_eq!(titles(AlbumSort::Year, true), ["Apple", "The Zebra"]);
+
+        let detail = access.album_detail(older).unwrap();
+        assert_eq!(detail.title, "The Zebra");
+        assert_eq!(detail.year, Some(1999));
+        let tracks: Vec<&str> = detail.tracks.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(tracks, ["Stripes"]);
+        assert!(access.album_detail(older.max(newer) + 1).is_none());
 
         let _ = std::fs::remove_dir_all(&folder);
     }

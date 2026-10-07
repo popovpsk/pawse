@@ -209,7 +209,7 @@ impl AlbumsView {
 
         let library_access: LibraryAccess = library.library_access();
         let albums_all = library.albums();
-        let keys = Self::album_keys(&albums_all);
+        let keys: Vec<AlbumKey> = albums_all.iter().map(AlbumKey::of).collect();
         let search_entries = library.album_search_entries();
         let genres_map = library.album_genres_map();
         let id_to_ix = Self::id_index(&albums_all);
@@ -233,7 +233,7 @@ impl AlbumsView {
                         this.search_entries = services.library.album_search_entries();
                         this.genres_map = services.library.album_genres_map();
                         cache.borrow_mut().clear(cx);
-                        this.keys = Self::album_keys(&this.albums_all);
+                        this.keys = this.albums_all.iter().map(AlbumKey::of).collect();
                         this.id_to_ix = Self::id_index(&this.albums_all);
                         this.covers.reset();
                         this.recompute_visible(cx);
@@ -295,20 +295,6 @@ impl AlbumsView {
         };
         this.recompute_visible(cx);
         this
-    }
-
-    fn album_keys(albums: &[music_library::AlbumSummary]) -> Vec<AlbumKey> {
-        albums
-            .iter()
-            .map(|album| {
-                AlbumKey::new(
-                    &album.artist_name,
-                    &album.title,
-                    album.year,
-                    album.id == music_library::NO_METADATA_ALBUM_ID,
-                )
-            })
-            .collect()
     }
 
     fn id_index(albums: &[music_library::AlbumSummary]) -> HashMap<i64, usize> {

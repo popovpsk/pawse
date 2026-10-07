@@ -283,6 +283,12 @@ drive the `PlaybackQueue` on click.
   key: an artist's albums stay chronological under Z–A. Order is byte order of the
   lowercased key, not a collation, so accented capitals get their own section after Z
   (É, Å, Ö) — the same limitation the SQL `NOCASE` order had. Year sections are decades.
+  `AlbumKey::of` / `ArtistKey::of` build a key from a summary (the "No metadata" row is
+  the pinned one). The module is `pub(crate)` because the web remote sorts with it too:
+  `LibraryAccess::albums` / `artists` (`library_service.rs`) order `/api/albums` and
+  `/api/artists` by the `sort` / `desc` the page asks for, so the remote's lists match
+  this tab's order rule for rule. The web keeps its own choice per browser
+  (`localStorage`); it never reads or writes the desktop's `albums_sort` / `artists_sort`.
 - `view_menu.rs` — the view menu: one ghost round button next to the header search
   (`icons/s1-view.svg`, two sliders — Lucide `settings-2` redrawn at the app's 1.7
   stroke). It is the same on both tabs and in both layouts: a layout glyph that
