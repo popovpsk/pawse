@@ -10,7 +10,7 @@ Child modules of `main_view.rs` (the root view that composes title bar, header, 
 
 `Placement::Below(bg)` is the classic layout: the header is its own bar under the window title bar, inside `#main_content`.
 
-`Placement::TitleBar` is the `header_in_title_bar` setting (Appearance). The header is passed to `WindowTitleBar::content` and the title bar takes `TITLE_BAR_HEIGHT`, so the two bars become one. It is taller than the standalone header so the search field and the round buttons keep some air above and below.
+`Placement::TitleBar` is the `header_in_title_bar` setting (Appearance, on by default). The header is passed to `WindowTitleBar::content` and the title bar takes `TITLE_BAR_HEIGHT`, so the two bars become one. It is taller than the standalone header so the search field and the round buttons keep some air above and below.
 
 Non-obvious behavior of the title-bar placement:
 

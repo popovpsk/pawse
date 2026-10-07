@@ -506,7 +506,7 @@ pub struct UserSettings {
     pub cover_show_progress: bool,
     #[serde(default = "default_true")]
     pub cover_show_controls: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub header_in_title_bar: bool,
     #[serde(default)]
     pub blur_background: BlurBackground,
@@ -622,7 +622,7 @@ impl Default for UserSettings {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
-            header_in_title_bar: false,
+            header_in_title_bar: true,
             blur_background: BlurBackground::default(),
             blur_intensity: BLUR_INTENSITY_DEFAULT,
             blur_interface_opacity: BLUR_INTERFACE_OPACITY_DEFAULT,
