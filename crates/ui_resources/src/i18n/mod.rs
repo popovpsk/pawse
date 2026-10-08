@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::SharedString;
 
+mod artist_card;
 mod bit_perfect;
 mod cast;
 mod cs;
@@ -46,6 +47,7 @@ mod vi;
 mod view_menu;
 mod zh;
 
+pub use artist_card::{ArtistCardStrings, artist_card_strings_for};
 pub use bit_perfect::{BitPerfectStrings, bit_perfect_strings};
 pub use cast::{CastStrings, cast_strings};
 pub use playlist_import::{PlaylistImportStrings, playlist_import_strings};

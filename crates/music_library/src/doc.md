@@ -427,7 +427,25 @@ Albums still merge on the exact title.
 no `track_artists` rows (i.e. unavailable ones), so a greyed playlist row still
 shows who it is. It binds every id through one JSON parameter (`json_each`)
 rather than one placeholder per id: callers pass the whole library, and SQLite
-caps bound parameters at 32766.
+caps bound parameters at 32766. `known_album_artists_map` (each album's
+credited artists in `position` order, for the app's guest column) binds its ids
+the same way; only albums with `artist_known = 1` are in it — for the others the
+`album_artists` row is a placeholder (the first track's artist), not who the
+album is by.
+
+## Artist info cache
+
+`artist_info` (migration 12) is the app's artist index: one row per artist
+**name** with `facts` (JSON the app writes, opaque here), `photo` (original
+image bytes), `photo_pending` (the photo download failed; the app retries just
+that, `artists_pending_photo()`) and `fetched_at`. A row with `facts` NULL means
+"looked up, not found". It is a cache with no invalidation: nothing here refreshes or deletes
+it — not `clear()` / `CLEAR_CATALOG`, not the orphan cleanup — which is why it is
+keyed by name and has no foreign key. `artists_without_info()` lists the artists
+still to look up; `artist_titles(id)` gives the album titles (albums they head,
+have a track credit on, or a per-track album-artist tag on) and track titles
+(credited, tagged as the track's album artist, or on an album they head) the
+lookup confirms identity with.
 
 `tracks_for_playlist` (and so `liked_tracks`) returns every entry, joined
 through `media_items`: an entry without a `tracks` row comes back with

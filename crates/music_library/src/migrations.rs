@@ -484,4 +484,16 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
         "#,
     ),
+    (
+        12,
+        r#"
+        CREATE TABLE artist_info (
+            name TEXT PRIMARY KEY,
+            facts TEXT,
+            photo BLOB,
+            photo_pending INTEGER NOT NULL DEFAULT 0,
+            fetched_at INTEGER NOT NULL
+        );
+        "#,
+    ),
 ];

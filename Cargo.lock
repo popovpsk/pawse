@@ -289,6 +289,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "artist_info"
+version = "1.0.0"
+dependencies = [
+ "cover_search",
+ "log",
+ "rstest",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "as-raw-xcb-connection"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6633,6 +6645,7 @@ name = "pawse"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "artist_info",
  "audio_common",
  "audio_engine",
  "audio_output",

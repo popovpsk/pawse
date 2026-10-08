@@ -39,11 +39,14 @@ pub fn decode_cover_tile(bytes: &[u8]) -> Option<Arc<RenderImage>> {
         .ok()?
         .decode()
         .ok()?;
-    let mut raster = decoded.to_rgba8();
+    Some(render_tile(decoded.to_rgba8()))
+}
+
+pub fn render_tile(mut raster: image::RgbaImage) -> Arc<RenderImage> {
     for pixel in raster.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
-    Some(Arc::new(RenderImage::new(vec![image::Frame::new(raster)])))
+    Arc::new(RenderImage::new(vec![image::Frame::new(raster)]))
 }
 
 struct LargeEntry {

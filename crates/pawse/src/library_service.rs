@@ -1016,6 +1016,34 @@ impl LibraryService {
         self.repo.album_artists(album_id).unwrap_or_default()
     }
 
+    pub fn known_album_artists_map(&self, album_ids: &[i64]) -> HashMap<i64, Vec<String>> {
+        self.repo
+            .known_album_artists_map(album_ids)
+            .unwrap_or_default()
+    }
+
+    pub fn artists_without_info(&self) -> Vec<(i64, String)> {
+        self.repo.artists_without_info().unwrap_or_default()
+    }
+
+    pub fn artists_pending_photo(&self) -> Vec<(String, music_library::ArtistInfoRow)> {
+        self.repo.artists_pending_photo().unwrap_or_default()
+    }
+
+    pub fn artist_titles(&self, artist_id: i64) -> music_library::ArtistTitles {
+        self.repo.artist_titles(artist_id).unwrap_or_default()
+    }
+
+    pub fn artist_info(&self, name: &str) -> Option<music_library::ArtistInfoRow> {
+        self.repo.artist_info(name).ok().flatten()
+    }
+
+    pub fn save_artist_info(&self, name: &str, row: &music_library::ArtistInfoRow) {
+        if let Err(e) = self.repo.save_artist_info(name, row) {
+            log::warn!("artist info: saving {name} failed: {e}");
+        }
+    }
+
     pub fn album_genres(&self, album_id: i64) -> Vec<String> {
         self.repo.album_genres(album_id).unwrap_or_default()
     }

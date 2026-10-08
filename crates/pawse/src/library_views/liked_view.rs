@@ -93,7 +93,7 @@ impl LikedView {
 
         let tracks_all: Vec<Rc<_>> = library.liked_tracks().into_iter().map(Rc::new).collect();
         let names = TrackNames::load(&library, &tracks_all);
-        let haystacks = build_haystacks(&tracks_all, &names);
+        let haystacks = build_haystacks(&tracks_all, &names.artists);
         let prefs = TrackListPrefs::read(cx.global::<SettingsStore>());
 
         let current_track_id = services
@@ -123,7 +123,7 @@ impl LikedView {
                         let before = this.tracks_all.len();
                         this.tracks_all.retain(|t| t.id != *track_id);
                         if this.tracks_all.len() != before {
-                            this.haystacks = build_haystacks(&this.tracks_all, &this.names);
+                            this.haystacks = build_haystacks(&this.tracks_all, &this.names.artists);
                             this.unavailable =
                                 unavailable_label(&this.tracks_all, this.prefs.unavailable);
                             this.recompute_visible(cx);
@@ -219,7 +219,7 @@ impl LikedView {
             .map(Rc::new)
             .collect();
         self.names = TrackNames::load(&services.library, &self.tracks_all);
-        self.haystacks = build_haystacks(&self.tracks_all, &self.names);
+        self.haystacks = build_haystacks(&self.tracks_all, &self.names.artists);
         self.unavailable = unavailable_label(&self.tracks_all, self.prefs.unavailable);
         self.recompute_visible(cx);
         cx.notify();

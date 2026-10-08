@@ -95,6 +95,19 @@ pub enum ArtistGrouping {
     AlbumArtist,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ArtistInfoRow {
+    pub facts: Option<String>,
+    pub photo: Option<Vec<u8>>,
+    pub photo_pending: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ArtistTitles {
+    pub albums: Vec<String>,
+    pub tracks: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtistSummary {
     pub id: i64,

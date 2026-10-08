@@ -5,10 +5,10 @@ use std::sync::Arc;
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Anchor, App, ClickEvent, Context, Div, ElementId, EventEmitter, FontWeight, Hsla, Image,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
+    Anchor, App, ClickEvent, Context, Div, ElementId, Entity, EventEmitter, FontWeight, Hsla,
+    Image, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Point, Render,
     SharedString, Size, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
-    anchored, deferred, div, point, px, size, svg,
+    anchored, deferred, div, point, px, rems, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -17,6 +17,7 @@ use gpui_component::{
     v_flex, v_virtual_list,
 };
 
+use crate::artist_card::{ArtistCards, Card, HEADER_HEIGHT, card_header};
 use crate::cover_art_cache::CoverArtCache;
 use crate::theme_colors::Colors;
 use crate::track_list::{
@@ -28,6 +29,7 @@ use ui_components::cover_thumb::cover_thumb;
 
 use crate::library_service::{LibraryEvent, LibraryService};
 use crate::library_views::fuzzy::fuzzy_scored;
+use crate::library_views::track_row::{TITLE_MIN_WIDTH, artist_column, guest_credits};
 use crate::localization::{LangChanged, tr};
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::services::Services;
@@ -49,14 +51,16 @@ struct TrackRow {
     base: TrackRowBase,
     track_num_str: SharedString,
     disc_number: i32,
+    credit: SharedString,
 }
 
 impl TrackRow {
-    fn from_track(track: &music_library::Track) -> Self {
+    fn from_track(track: &music_library::Track, credits: &HashMap<i64, SharedString>) -> Self {
         Self {
             base: TrackRowBase::from_track(track),
             track_num_str: fmt_track_num(track.track_number),
             disc_number: track.disc_number,
+            credit: credits.get(&track.id).cloned().unwrap_or_default(),
         }
     }
 }
@@ -68,6 +72,7 @@ struct AlbumGroup {
     artist: Option<(i64, SharedString)>,
     year_label: Option<SharedString>,
     cover: Option<Arc<Image>>,
+    has_credits: bool,
     tracks: Vec<TrackRow>,
     /// Indices of `tracks` in the flat artist-wide list (used as playback queue index).
     global_indices: Vec<usize>,
@@ -116,6 +121,26 @@ impl Scope {
     fn is_genre(&self) -> bool {
         matches!(self, Scope::Genre { .. })
     }
+
+    fn wants_card(&self) -> bool {
+        matches!(self, Scope::Artist { id, .. } if *id != music_library::NO_METADATA_ARTIST_ID)
+    }
+
+    fn credits(
+        &self,
+        title: &str,
+        tracks: &[Rc<music_library::Track>],
+        library: &LibraryService,
+    ) -> HashMap<i64, SharedString> {
+        match self {
+            Scope::Artist {
+                grouping: ArtistGrouping::AlbumArtist,
+                ..
+            } => guest_credits(library, tracks, Some(title)),
+            Scope::Artist { .. } => HashMap::new(),
+            Scope::Genre { .. } => guest_credits(library, tracks, None),
+        }
+    }
 }
 
 pub struct GroupedTracksView {
@@ -123,6 +148,7 @@ pub struct GroupedTracksView {
     title: SharedString,
     tracks_all: Vec<Rc<music_library::Track>>,
     albums: HashMap<i64, AlbumMeta>,
+    credits: HashMap<i64, SharedString>,
     haystacks: Vec<String>,
     groups: Vec<AlbumGroup>,
     items: Vec<ItemKind>,
@@ -141,6 +167,8 @@ pub struct GroupedTracksView {
     _engine_subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
+    card: Option<Rc<Card>>,
+    _card_observer: Option<Subscription>,
     _lang_subscription: Subscription,
     _settings_observer: Subscription,
 }
@@ -178,7 +206,8 @@ impl GroupedTracksView {
         let lang_event_bus = services.lang_event_bus.clone();
         let tracks_all = scope.fetch(&services.library);
         let albums = album_meta(&services.library);
-        let haystacks = build_haystacks(&scope, &tracks_all, &albums);
+        let credits = scope.credits(&title, &tracks_all, &services.library);
+        let haystacks = build_haystacks(&scope, &tracks_all, &albums, &credits);
 
         let groups = {
             let mut cache = services.cover_art_cache.borrow_mut();
@@ -186,6 +215,7 @@ impl GroupedTracksView {
                 &tracks_all,
                 0..tracks_all.len(),
                 &albums,
+                &credits,
                 scope.is_genre(),
                 &services.library,
                 &mut cache,
@@ -196,8 +226,6 @@ impl GroupedTracksView {
         } else {
             Self::compute_partial_albums(&tracks_all, &services.library)
         };
-        let (items, sizes) = Self::build_items(&groups, tr());
-
         let current_track_id = services
             .playback_queue
             .borrow()
@@ -206,6 +234,15 @@ impl GroupedTracksView {
         let is_playing = services
             .is_playing
             .load(std::sync::atomic::Ordering::Relaxed);
+        let cards = services.artist_cards.clone();
+
+        let wants_card = scope.wants_card();
+        let card_observer = wants_card.then(|| {
+            cards.update(cx, |cards, cx| cards.load(&title, cx));
+            cx.observe(&cards, |this, cards, cx| this.follow_card(cards, cx))
+        });
+        let card = wants_card.then(|| cards.read(cx).card(&title)).flatten();
+        let (items, sizes) = Self::build_items(&groups, tr(), header_height(card.as_deref()));
 
         let engine_subscription = cx.subscribe(
             &engine_event_bus,
@@ -263,14 +300,13 @@ impl GroupedTracksView {
             });
 
         let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
-            let (items, sizes) = Self::build_items(&this.groups, tr());
-            this.items = items;
-            this.item_sizes = Rc::new(sizes);
+            this.rebuild_items();
             cx.notify();
         });
 
-        let settings_observer =
-            cx.observe_global::<SettingsStore>(|this, cx| this.follow_genre_sort(cx));
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            this.follow_genre_sort(cx);
+        });
 
         let fill = cx.global::<Services>().cache_fill.clone();
         let fills_seen = fill.read(cx).revision();
@@ -303,6 +339,7 @@ impl GroupedTracksView {
             title,
             tracks_all,
             albums,
+            credits,
             haystacks,
             groups,
             items,
@@ -321,9 +358,41 @@ impl GroupedTracksView {
             _engine_subscription: engine_subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
+            card,
+            _card_observer: card_observer,
             _lang_subscription: lang_subscription,
             _settings_observer: settings_observer,
         }
+    }
+
+    fn rebuild_items(&mut self) {
+        let header = header_height(self.card.as_deref());
+        let (items, sizes) = Self::build_items(&self.groups, tr(), header);
+        self.items = items;
+        self.item_sizes = Rc::new(sizes);
+    }
+
+    fn follow_card(&mut self, cards: Entity<ArtistCards>, cx: &mut Context<Self>) {
+        cards.update(cx, |cards, cx| cards.load(&self.title, cx));
+        let card = cards.read(cx).card(&self.title);
+        let same = match (&card, &self.card) {
+            (Some(new), Some(old)) => Rc::ptr_eq(new, old),
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return;
+        }
+        let before = header_height(self.card.as_deref());
+        self.card = card;
+        let delta = header_height(self.card.as_deref()) - before;
+        self.rebuild_items();
+        let offset = self.scroll_handle.offset();
+        if offset.y < px(0.) {
+            self.scroll_handle
+                .set_offset(point(offset.x, (offset.y - px(delta)).min(px(0.))));
+        }
+        cx.notify();
     }
 
     fn compute_partial_albums(
@@ -348,9 +417,10 @@ impl GroupedTracksView {
     fn build_items(
         groups: &[AlbumGroup],
         strings: &ui_resources::i18n::Strings,
+        header: f32,
     ) -> (Vec<ItemKind>, Vec<Size<Pixels>>) {
         let mut items = vec![ItemKind::PageHeader];
-        let mut sizes = vec![size(px(300.), px(PAGE_HEADER_HEIGHT))];
+        let mut sizes = vec![size(px(300.), px(header))];
         for (g_ix, g) in groups.iter().enumerate() {
             items.push(ItemKind::AlbumHeader(g_ix));
             sizes.push(size(px(300.), px(ALBUM_HEADER_HEIGHT + 1.)));
@@ -398,6 +468,7 @@ impl GroupedTracksView {
                 &self.tracks_all,
                 0..self.tracks_all.len(),
                 &self.albums,
+                &self.credits,
                 with_artist,
                 &library,
                 &mut cover_cache,
@@ -415,15 +486,14 @@ impl GroupedTracksView {
                 &self.tracks_all,
                 matches.into_iter().map(|(ix, _)| ix),
                 &self.albums,
+                &self.credits,
                 with_artist,
                 &library,
                 &mut cover_cache,
             )
         };
         drop(cover_cache);
-        let (items, sizes) = Self::build_items(&self.groups, tr());
-        self.items = items;
-        self.item_sizes = Rc::new(sizes);
+        self.rebuild_items();
     }
 
     fn rebuild_source(&mut self, cx: &mut Context<Self>) {
@@ -451,7 +521,9 @@ impl GroupedTracksView {
             self.tracks_all = artist_tracks;
         }
         self.albums = album_meta(&library);
-        self.haystacks = build_haystacks(&self.scope, &self.tracks_all, &self.albums);
+        self.credits = self.scope.credits(&self.title, &self.tracks_all, &library);
+        self.haystacks =
+            build_haystacks(&self.scope, &self.tracks_all, &self.albums, &self.credits);
         self.album_menu = None;
         self.refresh_missing_in_cache(cx);
         self.recompute_groups(cx);
@@ -503,6 +575,13 @@ impl GroupedTracksView {
     }
 }
 
+fn header_height(card: Option<&Card>) -> f32 {
+    match card {
+        Some(_) => HEADER_HEIGHT,
+        None => PAGE_HEADER_HEIGHT,
+    }
+}
+
 fn album_meta(library: &LibraryService) -> HashMap<i64, AlbumMeta> {
     library
         .albums()
@@ -524,14 +603,22 @@ fn build_haystacks(
     scope: &Scope,
     tracks: &[Rc<music_library::Track>],
     albums: &HashMap<i64, AlbumMeta>,
+    credits: &HashMap<i64, SharedString>,
 ) -> Vec<String> {
-    if !scope.is_genre() {
+    if !scope.is_genre() && credits.is_empty() {
         return Vec::new();
     }
     tracks
         .iter()
         .map(|track| {
             let mut hay = track.title.clone();
+            if let Some(credit) = credits.get(&track.id) {
+                hay.push(' ');
+                hay.push_str(credit);
+            }
+            if !scope.is_genre() {
+                return hay;
+            }
             if let Some(meta) = track.album_id.and_then(|id| albums.get(&id)) {
                 hay.push(' ');
                 hay.push_str(&meta.title);
@@ -549,6 +636,7 @@ fn group_runs(
     tracks: &[Rc<music_library::Track>],
     indices: impl IntoIterator<Item = usize>,
     albums: &HashMap<i64, AlbumMeta>,
+    credits: &HashMap<i64, SharedString>,
     with_artist: bool,
     library: &LibraryService,
     cover_cache: &mut CoverArtCache,
@@ -560,7 +648,9 @@ fn group_runs(
         if let Some(last) = groups.last_mut()
             && last.album_id == album_id
         {
-            last.tracks.push(TrackRow::from_track(track));
+            let row = TrackRow::from_track(track, credits);
+            last.has_credits |= !row.credit.is_empty();
+            last.tracks.push(row);
             last.global_indices.push(ix);
             continue;
         }
@@ -570,13 +660,15 @@ fn group_runs(
             .unwrap_or_else(|| SharedString::new_static("Unknown"));
         let artist = meta.filter(|_| with_artist).and_then(|m| m.artist.clone());
         let cover = cover_cache.get_small(track.cover_art_id, library);
+        let row = TrackRow::from_track(track, credits);
         groups.push(AlbumGroup {
             album_id,
             album_title,
             artist,
             year_label: track.year.map(|y| y.to_string().into()),
             cover,
-            tracks: vec![TrackRow::from_track(track)],
+            has_credits: !row.credit.is_empty(),
+            tracks: vec![row],
             global_indices: vec![ix],
         });
     }
@@ -994,6 +1086,7 @@ fn artist_track_row(
     let track_id = track.base.id;
     let is_current = Some(track_id) == view.current_track_id;
     let is_playing = view.is_playing;
+    let has_credits = group.has_credits;
     let track_for_queue = view.tracks_all[global_ix].clone();
 
     let leading = if is_current {
@@ -1031,11 +1124,15 @@ fn artist_track_row(
             div()
                 .flex_1()
                 .min_w(px(0.))
+                .when(has_credits, |d| d.min_w(rems(TITLE_MIN_WIDTH)))
                 .overflow_hidden()
                 .text_ellipsis()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(track.base.title.clone()),
         )
+        .when(has_credits, |el| {
+            el.child(artist_column(track_id, &track.credit, p.muted_fg))
+        })
         .when(p.tag_editor_enabled && track.base.local, |el| {
             el.child(crate::track_list::edit_tags_button(
                 track_for_queue.clone(),
@@ -1068,6 +1165,18 @@ fn page_header(
     muted_fg: Hsla,
     cx: &mut Context<GroupedTracksView>,
 ) -> gpui::AnyElement {
+    if let (Some(card), Scope::Artist { id, .. }) = (&view.card, &view.scope) {
+        let controls =
+            artist_header_controls(h_flex().gap_1().items_center(), view, *id, muted_fg, cx);
+        return card_header(
+            card,
+            view.header_name(),
+            controls,
+            muted_fg,
+            Colors::secondary(cx),
+        )
+        .into_any_element();
+    }
     let title = div()
         .flex_1()
         .min_w(px(0.))

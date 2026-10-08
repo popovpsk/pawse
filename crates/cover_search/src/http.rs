@@ -1,4 +1,5 @@
-use std::time::Duration;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use ureq::Agent;
 use ureq::RequestBuilder;
@@ -10,6 +11,9 @@ const USER_AGENT: &str = concat!(
     " ( https://github.com/popovpsk/pawse )"
 );
 const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+const MUSICBRAINZ_GAP: Duration = Duration::from_millis(1100);
+
+static MUSICBRAINZ_NEXT: Mutex<Option<Instant>> = Mutex::new(None);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -19,6 +23,19 @@ pub enum Error {
     Status(u16),
     #[error("unexpected response: {0}")]
     Parse(String),
+}
+
+pub fn musicbrainz_turn() {
+    let wait = {
+        let mut next = MUSICBRAINZ_NEXT
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let now = Instant::now();
+        let at = next.map_or(now, |at| at.max(now));
+        *next = Some(at + MUSICBRAINZ_GAP);
+        at - now
+    };
+    std::thread::sleep(wait);
 }
 
 pub fn agent() -> Agent {
@@ -33,7 +50,7 @@ pub fn agent() -> Agent {
     )
 }
 
-pub(crate) fn get_text(request: RequestBuilder<WithoutBody>) -> Result<String, Error> {
+pub fn get_text(request: RequestBuilder<WithoutBody>) -> Result<String, Error> {
     let mut response = request
         .call()
         .map_err(|e| Error::Transport(e.to_string()))?;
@@ -47,7 +64,7 @@ pub(crate) fn get_text(request: RequestBuilder<WithoutBody>) -> Result<String, E
         .map_err(|e| Error::Transport(e.to_string()))
 }
 
-pub(crate) fn get_bytes(agent: &Agent, url: &str) -> Result<Vec<u8>, Error> {
+pub fn get_bytes(agent: &Agent, url: &str) -> Result<Vec<u8>, Error> {
     let mut response = agent
         .get(url)
         .call()

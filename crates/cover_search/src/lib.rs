@@ -7,7 +7,7 @@ pub mod musicbrainz;
 
 pub use candidate::{Candidate, Source};
 pub use finder::{Finder, Found};
-pub use http::{Error, agent};
+pub use http::{Error, agent, get_bytes, get_text, musicbrainz_turn};
 
 pub fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {

@@ -3,12 +3,11 @@ use std::time::{Duration, Instant};
 use ureq::Agent;
 
 use crate::candidate::Candidate;
-use crate::http::{Error, agent, get_bytes};
+use crate::http::{Error, agent, get_bytes, musicbrainz_turn};
 use crate::matching::is_exact;
 use crate::{itunes, musicbrainz};
 
 const ITUNES_GAP: Duration = Duration::from_secs(3);
-const MUSICBRAINZ_GAP: Duration = Duration::from_millis(1100);
 const SEARCH_LIMIT: usize = 10;
 const EXACT_TRIES: usize = 3;
 pub const THUMBNAIL_SIZE: u32 = 100;
@@ -24,7 +23,6 @@ pub struct Found {
 pub struct Finder {
     agent: Agent,
     itunes_next: Option<Instant>,
-    musicbrainz_next: Option<Instant>,
 }
 
 impl Default for Finder {
@@ -38,7 +36,6 @@ impl Finder {
         Self {
             agent: agent(),
             itunes_next: None,
-            musicbrainz_next: None,
         }
     }
 
@@ -59,7 +56,7 @@ impl Finder {
             return Ok(Some(found));
         }
 
-        wait(&mut self.musicbrainz_next, MUSICBRAINZ_GAP);
+        musicbrainz_turn();
         let from_musicbrainz = musicbrainz::search(&self.agent, artist, album, SEARCH_LIMIT)
             .unwrap_or_else(|e| {
                 log::warn!("cover search: MusicBrainz failed for {artist} — {album}: {e}");

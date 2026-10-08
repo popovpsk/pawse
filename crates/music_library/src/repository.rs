@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay,
-    PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource,
-    RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
+    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
+    PendingLove, PendingPlay, PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong,
+    RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -63,6 +63,12 @@ pub trait LibraryRepository: Send + Sync {
     /// [`album_genres`](LibraryRepository::album_genres); needed where an album's
     /// artists must be shown without walking every album summary.
     fn album_artists(&self, album_id: i64) -> Result<Vec<String>>;
+    fn known_album_artists_map(&self, album_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
+    fn artists_without_info(&self) -> Result<Vec<(i64, String)>>;
+    fn artists_pending_photo(&self) -> Result<Vec<(String, ArtistInfoRow)>>;
+    fn artist_titles(&self, artist_id: i64) -> Result<ArtistTitles>;
+    fn artist_info(&self, name: &str) -> Result<Option<ArtistInfoRow>>;
+    fn save_artist_info(&self, name: &str, row: &ArtistInfoRow) -> Result<()>;
     fn album_genres_map(&self) -> Result<HashMap<i64, Vec<String>>>;
     fn clear(&self) -> Result<()>;
     fn has_tracks(&self) -> Result<bool>;

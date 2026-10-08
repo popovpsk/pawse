@@ -322,7 +322,10 @@ drive the `PlaybackQueue` on click.
   changed most sits on top, so the Grid/List switch opens the Albums menu while the
   Tag switch closes the Artists one. Strings live in their own table,
   `ui_resources::i18n::view_menu_strings`.
-- `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware.
+- `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware. Shows the
+  guest column (see "Guest column" under `grouped_tracks_view.rs`) when any track
+  of the album is credited to someone other than the album artist; the filter then
+  matches that credit too.
 - `genres_view.rs` — Genres tab: virtualized list of every genre that still has a
   track (`LibraryService::genres`, ordered by `genres.key`, i.e. the Rust-lowercased
   name, which sorts non-ASCII correctly where SQLite's `NOCASE` would not), with the
@@ -372,6 +375,75 @@ drive the `PlaybackQueue` on click.
   "too big" dialog; a `FillTarget::Genre` keyed by the genre key is the follow-up if
   wanted. Search matches title, album and album artist (the artist page: title only),
   from haystacks built once per source load.
+  **Artist info block** (artist pages only, never "No metadata"): once the artist
+  has a card, the page header turns into the album page's layout
+  (`artist_card::card_header`, fixed `HEADER_HEIGHT` = album info's 12 + 170 px):
+  the photo as a 150 px `cover_tile` (placeholder tile when there is no photo,
+  like an album without a cover), the name to its right in the album title's
+  style, under it up to three muted one-line facts, the header controls (save to
+  cache, Full albums) at the right end. The facts are "since 1994 · Berlin, Germany" (years: since / born /
+  "1964–2014", then begin area and area), the top three genres, and "Members: …"
+  (current line-up, or everyone when nobody is current) or, for a person,
+  "Member of: …" (current bands first). Places and genres are MusicBrainz's English
+  names. Nothing here touches the network: the page only reads the cache, see
+  "Artist index" below. A Wikipedia lead with a source link was there first, then
+  removed by the user together with on-demand loading.
+  **Artist index** (`crate::artist_card::ArtistCards`, `Services::artist_cards`):
+  every artist row gets looked up once and stored in the `artist_info` table
+  (`music_library`) — facts as `artist_info::ArtistFacts` JSON (Deezer id
+  included) plus the original Deezer JPEG, or an empty row for "not found". A run
+  starts at launch and on every `ScanComplete` and `CatalogChanged` (a tag edit
+  can create an artist without a scan; a run with nothing to do is one query),
+  collects its steps (`pending_steps`: every artist from `artists_without_info()`,
+  then every row from `artists_pending_photo()`) and walks them one at a time on
+  the background executor with a clone of the stateless `artist_info::Lookup`;
+  a trigger during a run (`indexing`) sets `index_again`. Rows are never refreshed (the user's
+  call: no invalidation) — so an artist first seen with too little to confirm
+  (one soundtrack track) stays "not found" even after the discography is added.
+  Not stored, so retried on the next run: an artist whose titles came back empty
+  (its row went away mid-run), and a MusicBrainz error; a transport error ends
+  the run (offline), so a dead network costs one request per trigger, not one
+  per artist. A failed photo download does not throw the facts away: the row is
+  saved with `photo_pending`, and the photo steps of the next runs retry only the
+  photo (one Deezer call each, no MusicBrainz) until it arrives, Deezer says
+  there is none, or answers a 4xx other than 429 (a removed image never comes
+  back — without that a 404 would cost two requests per run forever). The rows
+  are keyed by artist **name**, not id, so they survive rescans and the orphan
+  cleanup. Each stored artist re-reads its in-memory slot in place (`refresh`):
+  the old card stays on screen until the new one replaces it, so a page whose
+  photo just arrived doesn't collapse to the plain header and back. Only
+  photo-less cards are ever replaced (rows are written once; a photo retry
+  replaces a photo-less row), so no photo tile is orphaned.
+  **Card cache**: `load(name)` reads the row and decodes the photo (cut to 300 px,
+  2× the tile, `cover_art_cache::render_tile`) on the background executor; the
+  slot keeps the facts, the photo and the built `Rc<Card>` for the session (photo
+  atlas tile ~350 KB, stable id, never dropped). A language switch only rebuilds the text
+  lines from the kept facts (`relabel`), synchronously: same photo, same tile,
+  no reload and no flicker. Sizes are fixed px like the album page's (title plus
+  three `text_sm` lines still fit in 150 px at `FontScale::Large`). Whenever the
+  header changes height (48 px plain → 182 px with a card), `follow_card` moves the scroll offset by
+  the same delta so a scrolled list doesn't jump. Lines use `text_ellipsis()`;
+  gpui-pre 0.3.8 copies the text runs when truncating, so the multibyte panic
+  gpui 0.2.2 had there is gone (checked with Russian text).
+  **Guest column**: a track credited to someone else than its album's artist(s)
+  shows the credit in an artist column (`track_row::artist_column`, the playlist
+  column's width), e.g. "Gorillaz & Lou Reed" on Plastic Beach, every performer on
+  a "Various Artists" soundtrack. The rule is `track_row::guest_credits`: shown when
+  the track's credited artists differ, as a set, from the album's artists — only
+  when the album's artist is *known* (`albums.artist_known`); for an untagged
+  compilation the `album_artists` row is just the first track's artist, so there
+  every track shows its own credit — and — on
+  an artist page — from the page artist (so Mick Gordon's own tracks on a Various
+  Artists soundtrack stay blank on his page). Artist pages show it only in the
+  `AlbumArtist` grouping: under `TrackArtist` every row is already the page
+  artist's, the user found it useless there. Genre pages compare with the album
+  artist only. The column is reserved per album group (empty cells on the other
+  rows) so titles stay aligned, and only in groups that have a credit. Credits run
+  long ("Gorillaz, Mos Def & Bobby Womack"), so the cell shows the full text in a
+  tooltip — `artist_column` does that for every artist column, playlists
+  included. The user chose the tooltip over shortening the credit. Computed
+  once per source load (`credits`) from two batched lookups (`track_artists_map`,
+  `known_album_artists_map`), also fed into the filter haystacks.
   **Shared**: album titles and artists come from an `AlbumMeta` map built once per
   source load from `albums()`, so regrouping on a filter keystroke does no database
   reads (it used to query `album_title` per group per keystroke). Each album header

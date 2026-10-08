@@ -29,6 +29,7 @@ music_indexer = { path = "../music_indexer" }
 tag_writer = { path = "../tag_writer" }
 pawse_remote = { path = "../pawse_remote" }
 lyrics = { path = "../lyrics" }
+artist_info = { path = "../artist_info" }
 cover_search = { path = "../cover_search" }
 diagnostics = { workspace = true }
 log = { workspace = true }

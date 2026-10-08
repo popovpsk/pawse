@@ -27,6 +27,7 @@ members = [
     "crates/tag_writer",
     "crates/dsd",
     "crates/cover_search",
+    "crates/artist_info",
     "crates/cast",
     "crates/chromecast",
     "crates/airplay"

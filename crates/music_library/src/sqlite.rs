@@ -13,10 +13,10 @@ use crate::album_artists::{AlbumTrackArtists, derive_album_artists};
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistSummary, CoverArt, DeliveryOutcome,
-    GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay,
-    PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource,
-    RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
+    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
+    PendingLove, PendingPlay, PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong,
+    RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -198,6 +198,13 @@ fn apply_pragmas(conn: &Connection) -> Result<()> {
     // fail with SQLITE_BUSY instead of waiting for the batch to commit.
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     Ok(())
+}
+
+fn json_ids(ids: &[i64]) -> String {
+    format!(
+        "[{}]",
+        ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+    )
 }
 
 fn unix_now() -> i64 {
@@ -1522,14 +1529,7 @@ impl LibraryRepository for SqliteLibrary {
         if track_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let ids = format!(
-            "[{}]",
-            track_ids
-                .iter()
-                .map(i64::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        );
+        let ids = json_ids(track_ids);
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
             "WITH ids(id) AS (SELECT value FROM json_each(?1)) \
@@ -1595,6 +1595,112 @@ impl LibraryRepository for SqliteLibrary {
         let rows = stmt.query_map([album_id], |row| row.get::<_, String>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
+    }
+
+    fn known_album_artists_map(&self, album_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>> {
+        if album_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ids = json_ids(album_ids);
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT aa.album_id, ar.name FROM album_artists aa \
+             JOIN artists ar ON ar.id = aa.artist_id \
+             JOIN albums al ON al.id = aa.album_id AND al.artist_known = 1 \
+             WHERE aa.album_id IN (SELECT value FROM json_each(?1)) \
+             ORDER BY aa.album_id, aa.position",
+        )?;
+        let rows = stmt.query_map([ids], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (id, name) = row.map_err(LibraryError::Database)?;
+            map.entry(id).or_default().push(name);
+        }
+        Ok(map)
+    }
+
+    fn artists_without_info(&self) -> Result<Vec<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT a.id, a.name FROM artists a \
+             WHERE NOT EXISTS (SELECT 1 FROM artist_info i WHERE i.name = a.name) \
+             ORDER BY a.sort_name, a.id",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn artists_pending_photo(&self) -> Result<Vec<(String, ArtistInfoRow)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT name, facts FROM artist_info WHERE photo_pending = 1 ORDER BY name",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                ArtistInfoRow {
+                    facts: row.get(1)?,
+                    photo: None,
+                    photo_pending: true,
+                },
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn artist_titles(&self, artist_id: i64) -> Result<ArtistTitles> {
+        let conn = self.conn.lock().unwrap();
+        let mut albums = conn.prepare_cached(
+            "SELECT DISTINCT al.title FROM albums al WHERE al.id IN ( \
+                 SELECT album_id FROM album_artists WHERE artist_id = ?1 \
+                 UNION SELECT t.album_id FROM tracks t \
+                 JOIN track_artists ta ON ta.track_id = t.id WHERE ta.artist_id = ?1 \
+                 UNION SELECT t.album_id FROM tracks t \
+                 JOIN track_album_artists tw ON tw.track_id = t.id WHERE tw.artist_id = ?1)",
+        )?;
+        let albums = albums
+            .query_map([artist_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut tracks = conn.prepare_cached(
+            "SELECT DISTINCT t.title FROM tracks t \
+             WHERE t.id IN (SELECT track_id FROM track_artists WHERE artist_id = ?1) \
+             OR t.id IN (SELECT track_id FROM track_album_artists WHERE artist_id = ?1) \
+             OR t.album_id IN (SELECT album_id FROM album_artists WHERE artist_id = ?1)",
+        )?;
+        let tracks = tracks
+            .query_map([artist_id], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(ArtistTitles { albums, tracks })
+    }
+
+    fn artist_info(&self, name: &str) -> Result<Option<ArtistInfoRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT facts, photo, photo_pending FROM artist_info WHERE name = ?1",
+        )?;
+        stmt.query_row([name], |row| {
+            Ok(ArtistInfoRow {
+                facts: row.get(0)?,
+                photo: row.get(1)?,
+                photo_pending: row.get(2)?,
+            })
+        })
+        .optional()
+        .map_err(LibraryError::Database)
+    }
+
+    fn save_artist_info(&self, name: &str, row: &ArtistInfoRow) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO artist_info (name, facts, photo, photo_pending, fetched_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![name, row.facts, row.photo, row.photo_pending, unix_now()],
+        )?;
+        Ok(())
     }
 
     fn album_genres_map(&self) -> Result<HashMap<i64, Vec<String>>> {
@@ -2505,14 +2611,7 @@ impl LibraryRepository for SqliteLibrary {
         if track_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let ids = format!(
-            "[{}]",
-            track_ids
-                .iter()
-                .map(i64::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        );
+        let ids = json_ids(track_ids);
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
             "WITH ids(id) AS (SELECT value FROM json_each(?1)) \

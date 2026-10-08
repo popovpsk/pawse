@@ -103,7 +103,7 @@ impl PlaylistTracksView {
 
         let tracks_all = load_tracks(source, &library);
         let names = TrackNames::load(&library, &tracks_all);
-        let haystacks = build_haystacks(&tracks_all, &names);
+        let haystacks = build_haystacks(&tracks_all, &names.artists);
         let prefs = TrackListPrefs::read(cx.global::<SettingsStore>());
 
         let current_track_id = services
@@ -231,7 +231,7 @@ impl PlaylistTracksView {
         let library = cx.global::<Services>().library.clone();
         self.tracks_all = load_tracks(self.source, &library);
         self.names = TrackNames::load(&library, &self.tracks_all);
-        self.haystacks = build_haystacks(&self.tracks_all, &self.names);
+        self.haystacks = build_haystacks(&self.tracks_all, &self.names.artists);
         self.unavailable = unavailable_label(&self.tracks_all, self.prefs.unavailable);
         self.recompute_visible(cx);
         cx.notify();

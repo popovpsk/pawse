@@ -30,6 +30,7 @@ pub struct Services {
     pub library: Arc<LibraryService>,
     pub remote_media: crate::remote_media::RemoteMedia,
     pub cache_fill: Entity<crate::cache_fill::CacheFill>,
+    pub artist_cards: Entity<crate::artist_card::ArtistCards>,
     pub torrents: Arc<crate::servers::torrent::TorrentHost>,
     pub album_export: Entity<crate::album_export::AlbumExport>,
     pub is_buffering: Arc<AtomicBool>,
@@ -176,6 +177,13 @@ impl Services {
         })
         .detach();
 
+        let artist_cards = crate::artist_card::ArtistCards::create(
+            library.clone(),
+            &library_event_bus,
+            &lang_event_bus,
+            cx,
+        );
+
         Services {
             output,
             player,
@@ -201,6 +209,7 @@ impl Services {
             library_rev: Arc::new(AtomicU64::new(0)),
             remote_media,
             cache_fill: cx.new(|_| crate::cache_fill::CacheFill::default()),
+            artist_cards,
             album_export,
             torrents,
             is_buffering: Arc::new(AtomicBool::new(false)),

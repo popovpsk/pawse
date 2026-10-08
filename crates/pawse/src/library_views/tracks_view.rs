@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use audio_engine::EngineEvent;
@@ -5,7 +6,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, ElementId, Entity, EventEmitter, FontWeight, InteractiveElement,
     IntoElement, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px, size, svg,
+    Styled, Subscription, Window, div, px, rems, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -23,6 +24,9 @@ use nucleo_matcher::{Config, Matcher};
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
 use crate::library_views::fuzzy::fuzzy_sorted;
+use crate::library_views::track_row::{
+    TITLE_MIN_WIDTH, artist_column, build_haystacks, guest_credits,
+};
 use crate::localization::{LangChanged, tr};
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
@@ -47,21 +51,29 @@ struct TrackRow {
     track_all_ix: usize,
     track_num_str: SharedString,
     disc_number: i32,
+    credit: SharedString,
 }
 
 impl TrackRow {
-    fn from_track(track: &music_library::Track, track_all_ix: usize) -> Self {
+    fn from_track(
+        track: &music_library::Track,
+        track_all_ix: usize,
+        credits: &HashMap<i64, SharedString>,
+    ) -> Self {
         Self {
             base: TrackRowBase::from_track(track),
             track_all_ix,
             track_num_str: fmt_track_num(track.track_number),
             disc_number: track.disc_number,
+            credit: credits.get(&track.id).cloned().unwrap_or_default(),
         }
     }
 }
 
 pub struct TracksView {
     tracks_all: Vec<Rc<music_library::Track>>,
+    credits: HashMap<i64, SharedString>,
+    haystacks: Vec<String>,
     row_data: Vec<TrackRow>,
     filter: String,
     matcher: Matcher,
@@ -87,10 +99,12 @@ impl TracksView {
             .into_iter()
             .map(Rc::new)
             .collect();
+        let credits = guest_credits(&services.library, &tracks_all, None);
+        let haystacks = build_haystacks(&tracks_all, &credits);
         let row_data: Vec<_> = tracks_all
             .iter()
             .enumerate()
-            .map(|(ix, t)| TrackRow::from_track(t, ix))
+            .map(|(ix, t)| TrackRow::from_track(t, ix, &credits))
             .collect();
         let (items, item_sizes_vec) = Self::build_items(&row_data, tr());
 
@@ -199,6 +213,8 @@ impl TracksView {
 
         Self {
             tracks_all,
+            credits,
+            haystacks,
             row_data,
             filter: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
@@ -273,20 +289,20 @@ impl TracksView {
                 .tracks_all
                 .iter()
                 .enumerate()
-                .map(|(ix, t)| TrackRow::from_track(t, ix))
+                .map(|(ix, t)| TrackRow::from_track(t, ix, &self.credits))
                 .collect();
         } else {
             let indices = fuzzy_sorted(
                 &mut self.matcher,
                 &self.filter,
-                self.tracks_all
+                self.haystacks
                     .iter()
                     .enumerate()
-                    .map(|(ix, t)| (ix, t.title.as_str())),
+                    .map(|(ix, hay)| (ix, hay.as_str())),
             );
             self.row_data = indices
                 .into_iter()
-                .map(|ix| TrackRow::from_track(&self.tracks_all[ix], ix))
+                .map(|ix| TrackRow::from_track(&self.tracks_all[ix], ix, &self.credits))
                 .collect();
         }
         let strings = tr();
@@ -320,6 +336,7 @@ impl Render for TracksView {
             liked_enabled: cx.global::<SettingsStore>().liked_enabled(),
             playlists_enabled: cx.global::<SettingsStore>().playlists_enabled(),
             tag_editor_enabled: cx.global::<SettingsStore>().tag_editor_enabled(),
+            has_credits: !self.credits.is_empty(),
             buttons: RowButtonColors::from_cx(cx),
         };
         let item_sizes = self.item_sizes.clone();
@@ -386,6 +403,7 @@ struct TrackRowParams {
     liked_enabled: bool,
     playlists_enabled: bool,
     tag_editor_enabled: bool,
+    has_credits: bool,
     buttons: RowButtonColors,
 }
 
@@ -434,11 +452,15 @@ fn track_row(
             div()
                 .flex_1()
                 .min_w(px(0.))
+                .when(p.has_credits, |d| d.min_w(rems(TITLE_MIN_WIDTH)))
                 .overflow_hidden()
                 .text_ellipsis()
                 .when(is_current, |d| d.font_weight(FontWeight::SEMIBOLD))
                 .child(row.base.title.clone()),
         )
+        .when(p.has_credits, |el| {
+            el.child(artist_column(track_id, &row.credit, p.muted_fg))
+        })
         .when(p.tag_editor_enabled && row.base.local, |el| {
             el.child(crate::track_list::edit_tags_button(
                 track_for_queue.clone(),

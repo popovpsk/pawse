@@ -12,6 +12,8 @@ library or files. Used by `pawse::tools::covers` (the Covers tool) and by
 - `http.rs` — `agent()` (timeouts, `http_status_as_error(false)`, the
   `Pawse/<version> ( repo url )` User-Agent MusicBrainz requires), `Error`
   (`Transport` / `Status` / `Parse`), `get_text` and size-capped `get_bytes`.
+  All public: `artist_info` reuses them, and `matching::normalize`, instead of
+  keeping a second copy.
 - `candidate.rs` — `Candidate` (source, the artist/album the service reports,
   and where its art lives) and `art_url(size)`: iTunes URLs are resized by
   rewriting the `100x100bb` token, Cover Art Archive URLs round up to the
@@ -44,12 +46,15 @@ applies.
 
 ## Non-obvious behavior
 
-- **Rate limits live in `Finder`.** iTunes: one search per 3 s (its unofficial
-  limit is ~20/min and it answers 403 for a while once exceeded). MusicBrainz:
-  one per 1.1 s (its hard limit is 1/s per client). The wait is a
-  `thread::sleep` before the request, so a `Finder` must be used from one
-  background task at a time. Image downloads (mzstatic, archive.org) are not
-  throttled.
+- **Rate limits.** iTunes: one search per 3 s, kept in `Finder` (its unofficial
+  limit is ~20/min and it answers 403 for a while once exceeded), so a `Finder`
+  must be used from one background task at a time. MusicBrainz: one request per
+  1.1 s for the whole process (its hard limit is 1/s per client), through
+  `musicbrainz_turn()` (`http.rs`) — a static next-slot that every MusicBrainz
+  caller, `artist_info` included, takes a turn from, so the Covers tool and the
+  artist index running together still stay under the limit. A turn reserves its
+  slot under the lock and sleeps outside it. Image downloads (mzstatic,
+  archive.org) are not throttled.
 - **Normalization** lowercases, drops iTunes' ` - Single` / ` - EP` suffixes, a
   leading `the`, and every non-alphanumeric character; `&` counts as `and`.
   Bracketed parts are dropped **only** when they name an edition

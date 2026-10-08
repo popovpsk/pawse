@@ -13,10 +13,10 @@ pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use genres::normalize_genres;
 pub use models::{
-    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistSummary, CoverArt,
-    GenreSort, GenreSummary, LocalFolder, NewTrack, PlayTally, Playlist, PlaylistSummary,
-    RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack,
-    SourceSummary, StoredLyrics, Track, TrackListing, lyrics_source,
+    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow, ArtistSummary,
+    ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack, PlayTally, Playlist,
+    PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
+    ScanLyrics, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, compute_sort_name, sha256_hex};
@@ -305,6 +305,150 @@ mod tests {
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
         assert_eq!(albums[0].artist_name, "The Beatles");
+    }
+
+    #[test]
+    fn artist_info_outlives_the_catalog() {
+        let (lib, _path) = create_test_db();
+        scan(&lib, vec![scan_track("/m/a.flac", "Song")]);
+        assert_eq!(
+            lib.artists_without_info()
+                .unwrap()
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect::<Vec<_>>(),
+            vec!["Artist".to_string()]
+        );
+        let row = ArtistInfoRow {
+            facts: Some("{}".into()),
+            photo: Some(vec![1, 2, 3]),
+            photo_pending: false,
+        };
+        let waiting = ArtistInfoRow {
+            facts: Some("{\"deezer\":\"1\"}".into()),
+            photo: None,
+            photo_pending: true,
+        };
+        lib.save_artist_info("Waiting", &waiting).unwrap();
+        assert_eq!(
+            lib.artists_pending_photo().unwrap(),
+            vec![("Waiting".to_string(), waiting.clone())]
+        );
+        lib.save_artist_info("Artist", &row).unwrap();
+        lib.save_artist_info("Nobody", &ArtistInfoRow::default())
+            .unwrap();
+        assert!(lib.artists_without_info().unwrap().is_empty());
+
+        scan(&lib, vec![]);
+        assert_eq!(lib.artist_info("Artist").unwrap(), Some(row));
+        assert_eq!(
+            lib.artist_info("Nobody").unwrap(),
+            Some(ArtistInfoRow::default())
+        );
+        assert_eq!(lib.artist_info("Unknown").unwrap(), None);
+        assert_eq!(lib.artist_info("Waiting").unwrap(), Some(waiting));
+    }
+
+    #[test]
+    fn artist_titles_cover_albums_and_credited_tracks() {
+        let (lib, _path) = create_test_db();
+        let mut guest = scan_track("/m/guest.flac", "Duet");
+        guest.album_title = Some("Their Album".into());
+        guest.artist_names = vec!["Guest".into()];
+        guest.album_artist_names = vec!["Other".into()];
+        scan(&lib, vec![scan_track("/m/own.flac", "Own Song"), guest]);
+        let id = |name: &str| {
+            lib.artists(ArtistGrouping::TrackArtist)
+                .unwrap()
+                .into_iter()
+                .find(|a| a.name == name)
+                .unwrap()
+                .id
+        };
+
+        let own = lib.artist_titles(id("Artist")).unwrap();
+        assert_eq!(own.albums, vec!["Album".to_string()]);
+        assert_eq!(own.tracks, vec!["Own Song".to_string()]);
+        let guest = lib.artist_titles(id("Guest")).unwrap();
+        assert_eq!(guest.albums, vec!["Their Album".to_string()]);
+        assert_eq!(guest.tracks, vec!["Duet".to_string()]);
+    }
+
+    #[test]
+    fn artist_titles_include_per_track_album_artists() {
+        let (lib, _path) = create_test_db();
+        let split_track = |path: &str, title: &str, head: &str| {
+            let mut track = scan_track(path, title);
+            track.album_title = Some("Split".into());
+            track.artist_names = vec!["Performer".into()];
+            track.album_artist_names = vec![head.into()];
+            track
+        };
+        scan(
+            &lib,
+            vec![
+                split_track("/m/s1.flac", "First Side", "First"),
+                split_track("/m/s2.flac", "Second Side", "Second"),
+            ],
+        );
+        lib.resolve_album_artists().unwrap();
+        let second = lib
+            .artists(ArtistGrouping::AlbumArtist)
+            .unwrap()
+            .into_iter()
+            .find(|a| a.name == "Second")
+            .unwrap()
+            .id;
+
+        let titles = lib.artist_titles(second).unwrap();
+        assert_eq!(titles.albums, vec!["Split".to_string()]);
+        assert!(titles.tracks.contains(&"Second Side".to_string()));
+    }
+
+    #[test]
+    fn known_album_artists_map_skips_albums_without_a_known_artist() {
+        let (lib, _path) = create_test_db();
+        let mut let_it_be = scan_track("/m/lib.flac", "Get Back");
+        let_it_be.album_title = Some("Let It Be".into());
+        let_it_be.artist_names = vec!["The Beatles".into()];
+        let_it_be.album_artist_names = vec!["The Beatles".into(), "Billy Preston".into()];
+        let comp_track = |path: &str, title: &str, artist: &str| {
+            let mut track = scan_track(path, title);
+            track.album_title = Some("Comp".into());
+            track.artist_names = vec![artist.into()];
+            track.album_artist_names = Vec::new();
+            track
+        };
+        scan(
+            &lib,
+            vec![
+                let_it_be,
+                comp_track("/m/c1.flac", "One", "A"),
+                comp_track("/m/c2.flac", "Two", "B"),
+            ],
+        );
+        lib.resolve_album_artists().unwrap();
+        let album = |title: &str| {
+            lib.albums()
+                .unwrap()
+                .into_iter()
+                .find(|a| a.title == title)
+                .unwrap()
+                .id
+        };
+
+        let map = lib
+            .known_album_artists_map(&[album("Let It Be"), album("Comp"), 9_999_999])
+            .unwrap();
+
+        assert_eq!(
+            map.get(&album("Let It Be")),
+            Some(&vec![
+                "The Beatles".to_string(),
+                "Billy Preston".to_string()
+            ])
+        );
+        assert_eq!(map.len(), 1);
     }
 
     #[test]
