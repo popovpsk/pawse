@@ -392,14 +392,39 @@ drive the `PlaybackQueue` on click.
   every artist row gets looked up once and stored in the `artist_info` table
   (`music_library`) — facts as `artist_info::ArtistFacts` JSON (Deezer id
   included) plus the original Deezer JPEG, or an empty row for "not found". A run
-  starts at launch and on every `ScanComplete` and `CatalogChanged` (a tag edit
-  can create an artist without a scan; a run with nothing to do is one query),
+  starts at launch, on `ScanIdle` (no scan running or queued) and on every
+  `CatalogChanged` (a tag edit can create an artist without a scan; a run with
+  nothing to do is one query). **Never during a scan**: a scan is `clear()` +
+  refill in batches, so mid-scan `artist_titles` sees an artist with part of
+  their tracks — a lookup on that would save "not found" for an artist the full
+  library confirms, and since their tracks are not new, the change-based retry
+  below would never heal it. So `index` does nothing while
+  `LibraryService::is_scanning()`, and `index_one` checks it again on the
+  background thread **after** reading the titles and drops them if a scan is on
+  (`Indexed::Scanning` ends the run like `Offline`). After, not before: the flag
+  is set before the scan's `clear()`, and a partial catalog is visible only once
+  the first batch after it commits, so a read that saw one always finds the flag
+  set; a check before the read would leave a window between the two. `ScanIdle`
+  comes after the flag is cleared, so it is the resume trigger (`ScanComplete`
+  would race the flag). Photo retries don't read
+  the catalog but end with the run anyway. Server syncs need no pause: they
+  write a listing in one transaction. A run
   collects its steps (`pending_steps`: every artist from `artists_without_info()`,
   then every row from `artists_pending_photo()`) and walks them one at a time on
   the background executor with a clone of the stateless `artist_info::Lookup`;
-  a trigger during a run (`indexing`) sets `index_again`. Rows are never refreshed (the user's
-  call: no invalidation) — so an artist first seen with too little to confirm
-  (one soundtrack track) stays "not found" even after the discography is added.
+  a trigger during a run (`indexing`) sets `index_again`. Found rows are never
+  refreshed (the user's call: no invalidation by time — the facts do not depend
+  on the library). A "not found" row is looked up again once one of the artist's
+  tracks has appeared or changed since the lookup (`artists_without_info`, see
+  `music_library`'s doc): an artist first seen with one soundtrack track (one
+  weak hit, not enough to confirm) gets found once their albums are added. No
+  retry without a change: about half of the not-found rows in a real library are
+  combined credits ("Gorillaz & …", "X Feat. Y") that no number of tracks will
+  confirm, and re-sending every name on every scan would also undo the privacy
+  switch's point. `fetched_at` is when the titles were read
+  (`ArtistTitles::read_at`), not when the row was saved, so tracks a running scan
+  writes during the lookup still trigger the retry; a photo retry keeps the row's
+  original `fetched_at`.
   Not stored, so retried on the next run: an artist whose titles came back empty
   (its row went away mid-run), and a MusicBrainz error; a transport error ends
   the run (offline), so a dead network costs one request per trigger, not one
@@ -414,6 +439,19 @@ drive the `PlaybackQueue` on click.
   photo just arrived doesn't collapse to the plain header and back. Only
   photo-less cards are ever replaced (rows are written once; a photo retry
   replaces a photo-less row), so no photo tile is orphaned.
+  **Privacy switch** (Settings → General, `artist_info_from_internet`, on by
+  default): off means no runs and no cards. A run checks the switch before every
+  step, so turning it off mid-run stops after the request already in flight
+  (one artist's chain, a few seconds); there is no way to abort inside
+  `Lookup::find`. `card()` returns `None` while it is off and the change
+  notifies `ArtistCards`, so open pages fall back to the plain header through
+  `follow_card`. The `artist_info` rows and the session's slots are kept: the
+  data is already local, and turning it back on shows the cards at once and
+  resumes indexing where it stopped instead of repeating minutes of rate-limited
+  MusicBrainz calls. The description names what leaves the machine: artist names
+  (MusicBrainz search; release groups and details go by MBID, the album and
+  track titles used for confirmation are compared locally) and the Deezer photo
+  download.
   **Card cache**: `load(name)` reads the row and decodes the photo (cut to 300 px,
   2× the tile, `cover_art_cache::render_tile`) on the background executor; the
   slot keeps the facts, the photo and the built `Rc<Card>` for the session (photo

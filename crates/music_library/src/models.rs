@@ -100,12 +100,14 @@ pub struct ArtistInfoRow {
     pub facts: Option<String>,
     pub photo: Option<Vec<u8>>,
     pub photo_pending: bool,
+    pub fetched_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ArtistTitles {
     pub albums: Vec<String>,
     pub tracks: Vec<String>,
+    pub read_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

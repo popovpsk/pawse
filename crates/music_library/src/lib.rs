@@ -323,11 +323,13 @@ mod tests {
             facts: Some("{}".into()),
             photo: Some(vec![1, 2, 3]),
             photo_pending: false,
+            fetched_at: i64::MAX,
         };
         let waiting = ArtistInfoRow {
             facts: Some("{\"deezer\":\"1\"}".into()),
             photo: None,
             photo_pending: true,
+            fetched_at: 7,
         };
         lib.save_artist_info("Waiting", &waiting).unwrap();
         assert_eq!(
@@ -335,18 +337,81 @@ mod tests {
             vec![("Waiting".to_string(), waiting.clone())]
         );
         lib.save_artist_info("Artist", &row).unwrap();
-        lib.save_artist_info("Nobody", &ArtistInfoRow::default())
-            .unwrap();
+        let nobody = ArtistInfoRow {
+            fetched_at: 3,
+            ..ArtistInfoRow::default()
+        };
+        lib.save_artist_info("Nobody", &nobody).unwrap();
         assert!(lib.artists_without_info().unwrap().is_empty());
 
         scan(&lib, vec![]);
         assert_eq!(lib.artist_info("Artist").unwrap(), Some(row));
-        assert_eq!(
-            lib.artist_info("Nobody").unwrap(),
-            Some(ArtistInfoRow::default())
-        );
+        assert_eq!(lib.artist_info("Nobody").unwrap(), Some(nobody));
         assert_eq!(lib.artist_info("Unknown").unwrap(), None);
         assert_eq!(lib.artist_info("Waiting").unwrap(), Some(waiting));
+    }
+
+    #[rstest::rstest]
+    #[case::found_is_final(Some("{}"), 0, false)]
+    #[case::not_found_unchanged_since(None, i64::MAX, false)]
+    #[case::not_found_changed_since(None, 0, true)]
+    fn not_found_artists_are_retried_after_their_tracks_change(
+        #[case] facts: Option<&str>,
+        #[case] fetched_at: i64,
+        #[case] retried: bool,
+    ) {
+        let (lib, _path) = create_test_db();
+        let mut guest = scan_track("/m/guest.flac", "Duet");
+        guest.artist_names = vec!["Guest".into()];
+        let mut split = scan_track("/m/split.flac", "Side");
+        split.album_title = Some("Split".into());
+        split.artist_names = vec!["Performer".into()];
+        split.album_artist_names = vec!["Head".into()];
+        scan(&lib, vec![guest, split]);
+        lib.resolve_album_artists().unwrap();
+        let row = ArtistInfoRow {
+            facts: facts.map(str::to_string),
+            fetched_at,
+            ..ArtistInfoRow::default()
+        };
+        for name in ["Artist", "Guest", "Performer", "Head"] {
+            lib.save_artist_info(name, &row).unwrap();
+        }
+
+        let mut names: Vec<String> = lib
+            .artists_without_info()
+            .unwrap()
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect();
+        names.sort();
+        let expected: Vec<String> = if retried {
+            vec![
+                "Artist".into(),
+                "Guest".into(),
+                "Head".into(),
+                "Performer".into(),
+            ]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn tracks_dated_in_the_future_do_not_trigger_a_retry() {
+        let (lib, path) = create_test_db();
+        scan(&lib, vec![scan_track("/m/a.flac", "Song")]);
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute("UPDATE media_items SET updated_at = updated_at + 3600", [])
+            .unwrap();
+        let not_found = ArtistInfoRow {
+            fetched_at: 0,
+            ..ArtistInfoRow::default()
+        };
+        lib.save_artist_info("Artist", &not_found).unwrap();
+        assert!(lib.artists_without_info().unwrap().is_empty());
     }
 
     #[test]

@@ -439,13 +439,39 @@ album is by.
 **name** with `facts` (JSON the app writes, opaque here), `photo` (original
 image bytes), `photo_pending` (the photo download failed; the app retries just
 that, `artists_pending_photo()`) and `fetched_at`. A row with `facts` NULL means
-"looked up, not found". It is a cache with no invalidation: nothing here refreshes or deletes
-it — not `clear()` / `CLEAR_CATALOG`, not the orphan cleanup — which is why it is
-keyed by name and has no foreign key. `artists_without_info()` lists the artists
-still to look up; `artist_titles(id)` gives the album titles (albums they head,
-have a track credit on, or a per-track album-artist tag on) and track titles
-(credited, tagged as the track's album artist, or on an album they head) the
-lookup confirms identity with.
+"looked up, not found". Nothing here deletes it — not `clear()` /
+`CLEAR_CATALOG`, not the orphan cleanup — which is why it is keyed by name and
+has no foreign key. `artists_without_info()` lists the artists to look up: those
+without a row, and the not-found ones with a credited track (same three paths as
+`artist_titles`) whose `media_items.updated_at` is at or after the row's
+`fetched_at` — a track appeared, or an existing one's snapshot changed (title,
+first artist, album, duration, cover), since the lookup, so it may confirm now.
+Credits the snapshot does not hold — a second track artist, an album-artist tag
+added to existing tracks — do not bump it and do not trigger a retry; catching
+those would need per-row state (a migration) for a rare case. Found rows are
+final: their facts come from MusicBrainz, not from the library. `updated_at`
+works as the signal because it is written when an item is created and bumped
+only when its snapshot really changes (`REFRESH_ITEM_SNAPSHOTS` compares first),
+so a plain rescan leaves it alone; a cover change also bumps it and costs a
+not-found artist one extra lookup. Items dated in the future (`updated_at` past
+now: the clock was ahead during a scan, then corrected) are ignored until their
+time comes — otherwise each lookup would save a `fetched_at` still below them
+and the artist would be re-sent on every run for hours. The query is set-based
+(`missing` → `credited` → one `IN`), not a correlated `EXISTS` per artist:
+`album_artists` has no index on `artist_id`, and the per-artist form scanned it,
+or every track, once per not-found artist — 0.27 s with planner statistics and
+4.8 s without them on a synthetic 50k-track library with 2000 not-found rows,
+under the connection mutex on every scan and tag edit; this one takes ~25 ms
+either way.
+`fetched_at` is whatever the row carries (`ArtistInfoRow::fetched_at`), and the
+app passes `ArtistTitles::read_at` — the moment `artist_titles(id)` read the
+titles, not the save — so a track written by a scan while the lookup was talking
+to MusicBrainz still counts as newer. `>=` because both are whole seconds: a
+change in the same second as the read costs at most one extra lookup instead of
+being missed. `artist_titles(id)` gives the album titles (albums they head, have a
+track credit on, or a per-track album-artist tag on) and track titles (credited,
+tagged as the track's album artist, or on an album they head) the lookup
+confirms identity with.
 
 `tracks_for_playlist` (and so `liked_tracks`) returns every entry, joined
 through `media_items`: an entry without a `tracks` row comes back with

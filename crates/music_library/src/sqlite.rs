@@ -1624,11 +1624,29 @@ impl LibraryRepository for SqliteLibrary {
     fn artists_without_info(&self) -> Result<Vec<(i64, String)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT a.id, a.name FROM artists a \
+            "WITH missing AS ( \
+                 SELECT a.id AS artist_id, i.fetched_at FROM artists a \
+                 JOIN artist_info i ON i.name = a.name WHERE i.facts IS NULL \
+             ), \
+             credited(artist_id, item_id) AS ( \
+                 SELECT artist_id, track_id FROM track_artists \
+                     WHERE artist_id IN (SELECT artist_id FROM missing) \
+                 UNION ALL SELECT artist_id, track_id FROM track_album_artists \
+                     WHERE artist_id IN (SELECT artist_id FROM missing) \
+                 UNION ALL SELECT aa.artist_id, t.id FROM album_artists aa \
+                     JOIN tracks t ON t.album_id = aa.album_id \
+                     WHERE aa.artist_id IN (SELECT artist_id FROM missing) \
+             ) \
+             SELECT a.id, a.name FROM artists a \
              WHERE NOT EXISTS (SELECT 1 FROM artist_info i WHERE i.name = a.name) \
+             OR a.id IN ( \
+                 SELECT c.artist_id FROM credited c \
+                 JOIN missing ms ON ms.artist_id = c.artist_id \
+                 JOIN media_items m ON m.id = c.item_id \
+                 WHERE m.updated_at >= ms.fetched_at AND m.updated_at <= ?1) \
              ORDER BY a.sort_name, a.id",
         )?;
-        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let rows = stmt.query_map([unix_now()], |row| Ok((row.get(0)?, row.get(1)?)))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
@@ -1636,7 +1654,7 @@ impl LibraryRepository for SqliteLibrary {
     fn artists_pending_photo(&self) -> Result<Vec<(String, ArtistInfoRow)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT name, facts FROM artist_info WHERE photo_pending = 1 ORDER BY name",
+            "SELECT name, facts, fetched_at FROM artist_info WHERE photo_pending = 1 ORDER BY name",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
@@ -1645,6 +1663,7 @@ impl LibraryRepository for SqliteLibrary {
                     facts: row.get(1)?,
                     photo: None,
                     photo_pending: true,
+                    fetched_at: row.get(2)?,
                 },
             ))
         })?;
@@ -1654,6 +1673,7 @@ impl LibraryRepository for SqliteLibrary {
 
     fn artist_titles(&self, artist_id: i64) -> Result<ArtistTitles> {
         let conn = self.conn.lock().unwrap();
+        let read_at = unix_now();
         let mut albums = conn.prepare_cached(
             "SELECT DISTINCT al.title FROM albums al WHERE al.id IN ( \
                  SELECT album_id FROM album_artists WHERE artist_id = ?1 \
@@ -1674,19 +1694,24 @@ impl LibraryRepository for SqliteLibrary {
         let tracks = tracks
             .query_map([artist_id], |row| row.get::<_, String>(0))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(ArtistTitles { albums, tracks })
+        Ok(ArtistTitles {
+            albums,
+            tracks,
+            read_at,
+        })
     }
 
     fn artist_info(&self, name: &str) -> Result<Option<ArtistInfoRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT facts, photo, photo_pending FROM artist_info WHERE name = ?1",
+            "SELECT facts, photo, photo_pending, fetched_at FROM artist_info WHERE name = ?1",
         )?;
         stmt.query_row([name], |row| {
             Ok(ArtistInfoRow {
                 facts: row.get(0)?,
                 photo: row.get(1)?,
                 photo_pending: row.get(2)?,
+                fetched_at: row.get(3)?,
             })
         })
         .optional()
@@ -1698,7 +1723,13 @@ impl LibraryRepository for SqliteLibrary {
         conn.execute(
             "INSERT OR REPLACE INTO artist_info (name, facts, photo, photo_pending, fetched_at) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![name, row.facts, row.photo, row.photo_pending, unix_now()],
+            rusqlite::params![
+                name,
+                row.facts,
+                row.photo,
+                row.photo_pending,
+                row.fetched_at
+            ],
         )?;
         Ok(())
     }

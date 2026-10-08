@@ -16,6 +16,7 @@ use crate::cover_art_cache::render_tile;
 use crate::library_service::{LibraryEvent, LibraryService};
 use crate::localization::{LangChanged, LangEventBus};
 use crate::services::LibraryEventsBus;
+use crate::settings_store::SettingsStore;
 
 const PHOTO_PX: u32 = 300;
 const PHOTO_SIZE: f32 = 150.;
@@ -47,16 +48,19 @@ enum Indexed {
     Saved(String),
     Skipped,
     Offline,
+    Scanning,
 }
 
 pub struct ArtistCards {
     library: Arc<LibraryService>,
     cards: HashMap<String, Slot>,
     lookup: Lookup,
+    online: bool,
     indexing: bool,
     index_again: bool,
     _library_subscription: Subscription,
     _lang_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl ArtistCards {
@@ -70,10 +74,7 @@ impl ArtistCards {
             let library_subscription = cx.subscribe(
                 library_bus,
                 |this: &mut Self, _, event: &LibraryEvent, cx| {
-                    if matches!(
-                        event,
-                        LibraryEvent::ScanComplete | LibraryEvent::CatalogChanged
-                    ) {
+                    if matches!(event, LibraryEvent::ScanIdle | LibraryEvent::CatalogChanged) {
                         this.index(cx);
                     }
                 },
@@ -82,6 +83,8 @@ impl ArtistCards {
                 .subscribe(lang_bus, |this: &mut Self, _, _: &LangChanged, cx| {
                     this.relabel(cx)
                 });
+            let settings_observer =
+                cx.observe_global::<SettingsStore>(|this: &mut Self, cx| this.follow_settings(cx));
             cx.spawn(async move |this, cx| {
                 this.update(cx, |this: &mut Self, cx| this.index(cx)).ok()
             })
@@ -90,15 +93,20 @@ impl ArtistCards {
                 library,
                 cards: HashMap::new(),
                 lookup: Lookup::new(),
+                online: cx.global::<SettingsStore>().artist_info_from_internet(),
                 indexing: false,
                 index_again: false,
                 _library_subscription: library_subscription,
                 _lang_subscription: lang_subscription,
+                _settings_observer: settings_observer,
             }
         })
     }
 
     pub fn card(&self, name: &str) -> Option<Rc<Card>> {
+        if !self.online {
+            return None;
+        }
         match self.cards.get(name)? {
             Slot::Ready { card, .. } => card.clone(),
             Slot::Loading | Slot::Missing => None,
@@ -156,7 +164,22 @@ impl ArtistCards {
         cx.notify();
     }
 
+    fn follow_settings(&mut self, cx: &mut Context<Self>) {
+        let online = cx.global::<SettingsStore>().artist_info_from_internet();
+        if online == self.online {
+            return;
+        }
+        self.online = online;
+        if online {
+            self.index(cx);
+        }
+        cx.notify();
+    }
+
     fn index(&mut self, cx: &mut Context<Self>) {
+        if !self.online || self.library.is_scanning() {
+            return;
+        }
         if self.indexing {
             self.index_again = true;
             return;
@@ -174,6 +197,9 @@ impl ArtistCards {
                 log::info!("artist info: {} steps to index", steps.len());
             }
             for step in steps {
+                if !this.read_with(cx, |this, _| this.online).unwrap_or(false) {
+                    break;
+                }
                 let library = library.clone();
                 let lookup = lookup.clone();
                 let indexed = cx
@@ -186,7 +212,7 @@ impl ArtistCards {
                         }
                     }
                     Indexed::Skipped => {}
-                    Indexed::Offline => break,
+                    Indexed::Offline | Indexed::Scanning => break,
                 }
             }
             this.update(cx, |this, cx| {
@@ -226,6 +252,9 @@ fn run_step(lookup: &Lookup, library: &LibraryService, step: Step) -> Indexed {
 
 fn index_one(lookup: &Lookup, library: &LibraryService, artist_id: i64, name: String) -> Indexed {
     let titles = library.artist_titles(artist_id);
+    if library.is_scanning() {
+        return Indexed::Scanning;
+    }
     if titles.albums.is_empty() && titles.tracks.is_empty() {
         return Indexed::Skipped;
     }
@@ -239,8 +268,12 @@ fn index_one(lookup: &Lookup, library: &LibraryService, artist_id: i64, name: St
             facts: serde_json::to_string(&found.facts).ok(),
             photo: found.photo,
             photo_pending: found.photo_pending,
+            fetched_at: titles.read_at,
         },
-        Ok(None) => ArtistInfoRow::default(),
+        Ok(None) => ArtistInfoRow {
+            fetched_at: titles.read_at,
+            ..ArtistInfoRow::default()
+        },
         Err(Error::Transport(e)) => {
             log::warn!("artist info: offline, stopping at {name}: {e}");
             return Indexed::Offline;

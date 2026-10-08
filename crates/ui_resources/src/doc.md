@@ -57,7 +57,8 @@ files.
   the card is built for the language its load started in): the artist page's
   info block — `since(year)` / `born(year)` for the years line (a finished span
   is a bare "1964–2014" built by the caller), `members(names)` /
-  `member_of(names)` for the line-up line. Kept separate the same way.
+  `member_of(names)` for the line-up line, plus `setting` / `setting_desc` for
+  its privacy switch in Settings → General. Kept separate the same way.
 - `i18n/tools.rs` — `ToolsStrings`, a separate table for the Tools screen
   (`tools_strings()` picks the active language). Kept out of `Strings` so long,
   feature-specific texts don't bloat the main per-language files; all 20

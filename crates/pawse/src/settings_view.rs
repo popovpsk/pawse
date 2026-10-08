@@ -26,7 +26,7 @@ use crate::settings_store::{
     notify_save_error,
 };
 use crate::theme_colors::Colors;
-use ui_resources::i18n::cast_strings;
+use ui_resources::i18n::{active, artist_card_strings_for, cast_strings};
 
 actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
 
@@ -682,6 +682,29 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
             }),
         )
         .description(tr().lyrics_prefer_lrclib_desc.clone()),
+    );
+
+    let artist_strings = artist_card_strings_for(active());
+    group = group.item(
+        SettingItem::new(
+            artist_strings.setting.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().artist_info_from_internet();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("artist-info-from-internet-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_artist_info_from_internet(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                        }),
+                )
+            }),
+        )
+        .description(artist_strings.setting_desc.clone()),
     );
 
     group = group.item(
