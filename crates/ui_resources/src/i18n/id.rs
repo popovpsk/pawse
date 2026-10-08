@@ -263,7 +263,7 @@ pub static ID: Strings = lang! {
     lyrics_prefer_lrclib: "Utamakan lirik LRCLIB",
     lyrics_prefer_lrclib_desc: "Tampilkan lirik dari LRCLIB sebelum file .lrc dan tag, diunduh otomatis",
     similar_tracks: "Rekomendasi berdasarkan suara",
-    similar_tracks_desc: "Analisis suara trek di latar belakang untuk menemukan musik serupa. Model analisis (16 MB) diunduh sekali saja.",
+    similar_tracks_desc: "Menyarankan lagu dari pustaka yang terdengar mirip. Analisis dilakukan secara lokal dan pertama kali bisa memakan waktu.",
     remote_control: "Kendali jarak jauh",
     lastfm_status_disconnected: "Tidak terhubung.",
     lastfm_status_awaiting: "Menunggu Anda mengizinkan pawse di browser…",

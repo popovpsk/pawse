@@ -7,9 +7,10 @@ no progress display. Delivery to users is a separate task.
 
 The one user-facing piece is the switch in Settings → General, "Sound-based
 recommendations" (`similar_tracks_enabled`, off by default; `tr().similar_tracks`).
-Its description says the analysis runs in the background and the model (16 MB) is
-downloaded once — turning it on is the consent to that download. Turning it off stops
-the thread within one track and cancels a model download in progress.
+Its description talks about the result (similar-sounding tracks from the library), says
+the analysis is local and that the first pass can take a while; it does not mention the
+background thread or the one-time model download (16 MB). Turning
+it off stops the thread within one track and cancels a model download in progress.
 
 ## Files
 

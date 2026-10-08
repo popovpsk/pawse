@@ -263,7 +263,7 @@ pub static KO: Strings = lang! {
     lyrics_prefer_lrclib: "LRCLIB 가사 우선",
     lyrics_prefer_lrclib_desc: "LRCLIB 가사를 .lrc 파일과 태그보다 먼저 표시하고 자동으로 가져옵니다",
     similar_tracks: "사운드 기반 추천",
-    similar_tracks_desc: "백그라운드에서 트랙의 사운드를 분석해 비슷한 음악을 찾습니다. 분석 모델(16MB)은 한 번만 다운로드됩니다.",
+    similar_tracks_desc: "라이브러리에서 비슷한 사운드의 트랙을 추천합니다. 분석은 로컬에서 진행되며, 처음에는 시간이 걸릴 수 있습니다.",
     remote_control: "원격 제어",
     lastfm_status_disconnected: "연결되지 않음.",
     lastfm_status_awaiting: "브라우저에서 pawse 승인을 기다리는 중…",

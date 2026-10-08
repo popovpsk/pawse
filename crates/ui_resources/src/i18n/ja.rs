@@ -263,7 +263,7 @@ pub static JA: Strings = lang! {
     lyrics_prefer_lrclib: "LRCLIB の歌詞を優先",
     lyrics_prefer_lrclib_desc: "LRCLIB の歌詞を .lrc ファイルやタグより優先して表示し、自動で取得します",
     similar_tracks: "サウンドに基づくおすすめ",
-    similar_tracks_desc: "バックグラウンドでトラックのサウンドを分析し、似た音楽を見つけます。分析モデル（16 MB）は一度だけダウンロードされます。",
+    similar_tracks_desc: "ライブラリから似たサウンドの曲を提案します。分析はローカルで行われ、初回は時間がかかることがあります。",
     remote_control: "リモート操作",
     lastfm_status_disconnected: "未接続。",
     lastfm_status_awaiting: "ブラウザで pawse を承認するのをお待ちしています…",

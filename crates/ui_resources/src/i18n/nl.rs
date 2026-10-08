@@ -263,7 +263,7 @@ pub static NL: Strings = lang! {
     lyrics_prefer_lrclib: "LRCLIB-songteksten verkiezen",
     lyrics_prefer_lrclib_desc: "Songteksten van LRCLIB vóór het .lrc-bestand en de tags tonen en automatisch ophalen",
     similar_tracks: "Aanbevelingen op basis van geluid",
-    similar_tracks_desc: "Op de achtergrond analyseren hoe nummers klinken om vergelijkbare muziek te vinden. Het analysemodel (16 MB) wordt één keer gedownload.",
+    similar_tracks_desc: "Stelt nummers uit je bibliotheek voor die vergelijkbaar klinken. De analyse gebeurt lokaal en kan de eerste keer even duren.",
     remote_control: "Afstandsbediening",
     lastfm_status_disconnected: "Niet verbonden.",
     lastfm_status_awaiting: "Wachten tot je pawse autoriseert in je browser…",

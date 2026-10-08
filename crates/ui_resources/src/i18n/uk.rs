@@ -263,7 +263,7 @@ pub static UK: Strings = lang! {
     lyrics_prefer_lrclib: "Надавати перевагу текстам з LRCLIB",
     lyrics_prefer_lrclib_desc: "Показувати текст з LRCLIB раніше за файл .lrc і теги, завантажуючи його автоматично",
     similar_tracks: "Рекомендації за звучанням",
-    similar_tracks_desc: "Аналізувати звучання треків у фоні, щоб знаходити схожу музику. Модель аналізу (16 МБ) завантажується один раз.",
+    similar_tracks_desc: "Підказує схожі за звучанням треки з медіатеки. Аналіз виконується локально, і першого разу може тривати довго.",
     remote_control: "Дистанційне керування",
     lastfm_status_disconnected: "Не під'єднано.",
     lastfm_status_awaiting: "Очікуємо авторизації pawse у браузері…",

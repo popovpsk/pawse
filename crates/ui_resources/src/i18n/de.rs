@@ -263,7 +263,7 @@ pub static DE: Strings = lang! {
     lyrics_prefer_lrclib: "LRCLIB-Liedtexte bevorzugen",
     lyrics_prefer_lrclib_desc: "Liedtexte von LRCLIB vor .lrc-Datei und Tags anzeigen und automatisch laden",
     similar_tracks: "Klangbasierte Empfehlungen",
-    similar_tracks_desc: "Den Klang der Titel im Hintergrund analysieren, um ähnliche Musik zu finden. Das Analysemodell (16 MB) wird einmalig heruntergeladen.",
+    similar_tracks_desc: "Schlägt ähnlich klingende Titel aus deiner Bibliothek vor. Die Analyse läuft lokal und kann beim ersten Mal dauern.",
     remote_control: "Fernsteuerung",
     lastfm_status_disconnected: "Nicht verbunden.",
     lastfm_status_awaiting: "Warte auf deine Autorisierung von pawse im Browser …",

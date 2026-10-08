@@ -263,7 +263,7 @@ pub static CS: Strings = lang! {
     lyrics_prefer_lrclib: "Upřednostnit texty z LRCLIB",
     lyrics_prefer_lrclib_desc: "Zobrazovat text z LRCLIB před souborem .lrc a štítky a stahovat ho automaticky",
     similar_tracks: "Doporučení podle zvuku",
-    similar_tracks_desc: "Na pozadí analyzovat zvuk skladeb a hledat podobnou hudbu. Model analýzy (16 MB) se stáhne jen jednou.",
+    similar_tracks_desc: "Navrhuje skladby z knihovny s podobným zvukem. Analýza probíhá lokálně a poprvé může chvíli trvat.",
     remote_control: "Vzdálené ovládání",
     lastfm_status_disconnected: "Nepřipojeno.",
     lastfm_status_awaiting: "Čeká se na autorizaci pawse v prohlížeči…",

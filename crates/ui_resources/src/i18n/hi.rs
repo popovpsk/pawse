@@ -263,7 +263,7 @@ pub static HI: Strings = lang! {
     lyrics_prefer_lrclib: "LRCLIB के बोल को प्राथमिकता दें",
     lyrics_prefer_lrclib_desc: "LRCLIB के बोल .lrc फ़ाइल और टैग से पहले दिखाएँ और उन्हें अपने-आप लाएँ",
     similar_tracks: "ध्वनि आधारित सुझाव",
-    similar_tracks_desc: "मिलता-जुलता संगीत खोजने के लिए बैकग्राउंड में ट्रैक की ध्वनि का विश्लेषण करें। विश्लेषण मॉडल (16 MB) केवल एक बार डाउनलोड होता है।",
+    similar_tracks_desc: "लाइब्रेरी से मिलती-जुलती ध्वनि वाले ट्रैक सुझाता है। विश्लेषण स्थानीय रूप से होता है और पहली बार इसमें कुछ समय लग सकता है।",
     remote_control: "रिमोट कंट्रोल",
     lastfm_status_disconnected: "कनेक्ट नहीं है।",
     lastfm_status_awaiting: "आपके ब्राउज़र में pawse को अधिकृत करने की प्रतीक्षा…",
