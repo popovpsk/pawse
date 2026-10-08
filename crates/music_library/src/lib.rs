@@ -5733,4 +5733,200 @@ mod tests {
             Some(id_of("Samurai feat. Refused"))
         );
     }
+
+    const VERSION: &str = "test-model:1";
+
+    fn floats(seed: f32, n: usize) -> Vec<f32> {
+        (0..n).map(|i| seed + i as f32 * 0.25).collect()
+    }
+
+    fn scanned(lib: &SqliteLibrary, version: &str, chunk: usize) -> Vec<(Vec<i64>, Vec<f32>)> {
+        let mut calls = Vec::new();
+        lib.scan_embeddings(version, chunk, &mut |ids, vectors| {
+            calls.push((ids.to_vec(), vectors.to_vec()))
+        })
+        .unwrap();
+        calls
+    }
+
+    #[test]
+    fn a_fresh_database_has_an_empty_embeddings_table() {
+        let (_lib, path) = create_test_db();
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM track_embeddings"),
+            0
+        );
+    }
+
+    #[test]
+    fn migration_to_v13_adds_embeddings_and_keeps_the_catalog() {
+        let path = fresh_db_path();
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 12) {
+                conn.execute_batch(sql).unwrap();
+                conn.pragma_update(None, "user_version", version).unwrap();
+            }
+            conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+            conn.execute_batch(
+                "INSERT INTO media_items (id, title, created_at, updated_at)
+                     VALUES (5, 'Kept', 0, 0);
+                 INSERT INTO tracks (id, path, title, duration_ms)
+                     VALUES (5, '/m/kept.flac', 'Kept', 1000);",
+            )
+            .unwrap();
+        }
+        assert_eq!(user_version(&path), 12);
+
+        let lib = SqliteLibrary::open_at(&path).unwrap();
+
+        assert_eq!(user_version(&path), 13);
+        assert_eq!(lib.track(5).unwrap().unwrap().title, "Kept");
+        assert_eq!(
+            lib.save_embeddings(VERSION, &[(5, floats(1.0, 4))])
+                .unwrap(),
+            1
+        );
+        assert_eq!(lib.embedding(5, VERSION).unwrap(), Some(floats(1.0, 4)));
+    }
+
+    #[test]
+    fn a_vector_comes_back_bit_for_bit() {
+        let (lib, _path) = create_test_db();
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+        let vector = vec![
+            0.1,
+            -0.0,
+            f32::MIN_POSITIVE / 2.0,
+            f32::MAX,
+            f32::NEG_INFINITY,
+            1.0e-30,
+            -123.456,
+        ];
+
+        lib.save_embeddings(VERSION, &[(id, vector.clone())])
+            .unwrap();
+
+        let stored = lib.embedding(id, VERSION).unwrap().unwrap();
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&stored), bits(&vector));
+        assert_eq!(scanned(&lib, VERSION, 8)[0].1, stored);
+        assert_eq!(lib.embedding(id, "other").unwrap(), None);
+    }
+
+    #[test]
+    fn saving_again_replaces_the_vector_and_a_vanished_item_is_skipped() {
+        let (lib, _path) = create_test_db();
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.save_embeddings(VERSION, &[(id, floats(1.0, 3))])
+            .unwrap();
+
+        let saved = lib
+            .save_embeddings(VERSION, &[(id, floats(2.0, 3)), (999_999, floats(3.0, 3))])
+            .unwrap();
+
+        assert_eq!(saved, 1);
+        assert_eq!(lib.embedding(id, VERSION).unwrap(), Some(floats(2.0, 3)));
+        assert_eq!(lib.embedding(999_999, VERSION).unwrap(), None);
+    }
+
+    #[test]
+    fn deleting_an_item_drops_its_vectors() {
+        let (lib, path) = create_test_db();
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.save_embeddings(VERSION, &[(id, floats(1.0, 3))])
+            .unwrap();
+        drop(lib);
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute("DELETE FROM media_items WHERE id = ?1", [id])
+            .unwrap();
+
+        assert_eq!(
+            count_rows(&path, "SELECT COUNT(*) FROM track_embeddings"),
+            0
+        );
+    }
+
+    #[test]
+    fn vectors_stream_in_chunks_of_one_version() {
+        let (lib, _path) = create_test_db();
+        let ids: Vec<i64> = ["a", "b", "c", "d", "e"]
+            .iter()
+            .map(|t| seed_track(&lib, t, "Album", "Artist"))
+            .collect();
+        let rows: Vec<(i64, Vec<f32>)> = ids.iter().map(|&id| (id, floats(id as f32, 3))).collect();
+        lib.save_embeddings(VERSION, &rows).unwrap();
+        lib.save_embeddings("old", &[(ids[0], floats(-1.0, 2))])
+            .unwrap();
+
+        let calls = scanned(&lib, VERSION, 2);
+
+        assert_eq!(
+            calls.iter().map(|(ids, _)| ids.len()).collect::<Vec<_>>(),
+            vec![2, 2, 1]
+        );
+        let mut seen: Vec<(i64, Vec<f32>)> = calls
+            .iter()
+            .flat_map(|(ids, vectors)| {
+                ids.iter()
+                    .zip(vectors.as_chunks::<3>().0)
+                    .map(|(&id, v)| (id, v.to_vec()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        seen.sort_by_key(|(id, _)| *id);
+        assert_eq!(seen, rows);
+        assert!(scanned(&lib, "missing", 2).is_empty());
+    }
+
+    #[test]
+    fn pruning_keeps_only_the_current_version() {
+        let (lib, _path) = create_test_db();
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.save_embeddings("old", &[(id, floats(1.0, 2))]).unwrap();
+        lib.save_embeddings(VERSION, &[(id, floats(2.0, 2))])
+            .unwrap();
+
+        assert_eq!(lib.prune_embeddings(VERSION).unwrap(), 1);
+
+        assert_eq!(lib.embedding(id, "old").unwrap(), None);
+        assert_eq!(lib.embedding(id, VERSION).unwrap(), Some(floats(2.0, 2)));
+    }
+
+    #[test]
+    fn candidates_are_likes_then_recent_plays_then_the_rest_by_album() {
+        let (lib, _path) = create_test_db();
+        let id =
+            |title: &str, artist: &str| seed_track(&lib, title, &format!("{artist} album"), artist);
+        let abba = id("a1", "Abba");
+        let beatles = id("b1", "Beatles");
+        let cream = id("c1", "Cream");
+        let doors = id("d1", "Doors");
+        let eagles = id("e1", "Eagles");
+        lib.set_liked(doors, true).unwrap();
+        for (track, at) in [(beatles, 100), (eagles, 200), (beatles, 50)] {
+            lib.record_play(
+                &models::NewPlay {
+                    track_id: Some(track),
+                    ..a_play_at(true, at)
+                },
+                &[],
+            )
+            .unwrap();
+        }
+        lib.save_embeddings(VERSION, &[(cream, floats(1.0, 2))])
+            .unwrap();
+
+        let order: Vec<i64> = lib
+            .embedding_candidates(VERSION)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+
+        assert_eq!(order, vec![doors, eagles, beatles, abba]);
+        assert_eq!(lib.embedding_candidates("other").unwrap().len(), 5);
+    }
 }

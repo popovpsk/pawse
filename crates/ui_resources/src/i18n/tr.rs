@@ -262,6 +262,8 @@ pub static TR: Strings = lang! {
     lyrics_searching_lrclib: "LRCLIB'de aranıyor…",
     lyrics_prefer_lrclib: "LRCLIB sözlerini tercih et",
     lyrics_prefer_lrclib_desc: "LRCLIB sözlerini .lrc dosyasından ve etiketlerden önce göster, otomatik olarak indir",
+    similar_tracks: "Sese dayalı öneriler",
+    similar_tracks_desc: "Benzer müzikleri bulmak için parçaların sesini arka planda analiz et. Analiz modeli (16 MB) bir kez indirilir.",
     remote_control: "Uzaktan kumanda",
     lastfm_status_disconnected: "Bağlı değil.",
     lastfm_status_awaiting: "Tarayıcında pawse'a izin vermeni bekliyoruz…",

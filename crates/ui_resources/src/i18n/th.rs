@@ -262,6 +262,8 @@ pub static TH: Strings = lang! {
     lyrics_searching_lrclib: "กำลังค้นหาใน LRCLIB…",
     lyrics_prefer_lrclib: "ใช้เนื้อเพลงจาก LRCLIB ก่อน",
     lyrics_prefer_lrclib_desc: "แสดงเนื้อเพลงจาก LRCLIB ก่อนไฟล์ .lrc และแท็ก โดยดึงข้อมูลอัตโนมัติ",
+    similar_tracks: "คำแนะนำตามเสียงเพลง",
+    similar_tracks_desc: "วิเคราะห์เสียงของแทร็กในเบื้องหลังเพื่อค้นหาเพลงที่คล้ายกัน โมเดลวิเคราะห์ (16 MB) จะดาวน์โหลดเพียงครั้งเดียว",
     remote_control: "การควบคุมระยะไกล",
     lastfm_status_disconnected: "ยังไม่ได้เชื่อมต่อ",
     lastfm_status_awaiting: "กำลังรอให้คุณอนุญาต pawse ในเบราว์เซอร์…",

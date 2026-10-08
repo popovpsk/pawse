@@ -13,8 +13,8 @@ touches the database; `pawse::library_service` drives scans through
   by replaying `MIGRATIONS[..=8]` and seeding it, then open it through
   `SqliteLibrary::open_at`.
 - `repository.rs` — the `LibraryRepository` and `ScanWrite` traits.
-- `sqlite.rs` — the only implementation: `SqliteLibrary` (main + scrobble
-  connections), `ScanSession` (the batched scan writer on its own connection),
+- `sqlite.rs` — the only implementation: `SqliteLibrary` (main, scrobble and
+  embedding connections), `ScanSession` (the batched scan writer on its own connection),
   the migration runner, and the SQL shared between them (`CLEAR_CATALOG`,
   `RETIRE_UNSEEN_LOCAL_BINDINGS`, `SWEEP_UNREFERENCED_ITEMS`,
   `REFRESH_ITEM_SNAPSHOTS`). `compute_sort_name` (leading "The " / "A " moved to
@@ -60,6 +60,10 @@ the files. A scan is still `clear()` + refill for this part, and that is fine:
 **Identity and user data** — `media_items`, `media_bindings`, `sources`,
 `playlist_tracks`, `lyrics` from the network, `plays`, `loves`, and their
 `*_deliveries`. None of it is derivable, so no scan deletes it.
+
+**Derived cache** — `track_embeddings` (sound vectors, see below). Re-derivable from
+the files, but expensive, so keyed by the item rather than the catalog row: a scan
+leaves it alone and it is not user data either.
 
 The link between them is the id. `media_items.id` is the durable identity of a
 track; `tracks.id` borrows it (`tracks.id REFERENCES media_items(id)`), so a
@@ -500,6 +504,49 @@ through three queries on the main connection, used by `pawse::tools::ai_prompt`:
   (the item id). Plays of tracks that left the catalog are only visible through
   `play_tallies`.
 
+## Sound vectors (`track_embeddings`)
+
+One row per `(item_id, version)`: the `audio_embedding` vector of a track (`DIM` f32
+little-endian, packed with `to_le_bytes`, 5 KB per track, ~50 MB for 10k tracks) and
+the `EMBEDDING_VERSION` that made it. Written and read only by
+`pawse::similar_tracks`; this crate knows neither the model nor the dimension.
+
+- Keyed by `media_items.id`, not `tracks`: the item survives rescans (the catalog row
+  is cleared and refilled), and one recording held by several sources is one item,
+  analysed once.
+- Derived data, so it is **not** in `media_items_guard_user_data` and the sweep does
+  not look at it: `ON DELETE CASCADE` drops the vectors of swept items. When a lost
+  item absorbs a spare one, the spare is deleted and its vector with it; the lost
+  item keeps the vector it had from before its file went missing, or gets one on the
+  next analysis pass.
+- No extra index: the primary key `(item_id, version)` answers "has this item a
+  vector" and the candidates' `NOT EXISTS`; the streaming read is a full pass, and
+  after `prune_embeddings` the table holds one version anyway.
+- No table of failures: a track that fails analysis is simply tried again next session.
+
+All of it runs on its own connection (`embedding_conn`), like `plays` on the
+scrobble one: the analysis thread saves every few seconds for as long as a first
+pass takes, and a save that waits for a scan batch's write lock (up to the busy
+timeout) must not hold the main connection's mutex the UI reads through.
+
+Methods:
+
+- `embedding_candidates(version)` — catalog tracks without a row for `version`, most
+  wanted first: liked, then by the last play (newest first, from `plays`), then the
+  rest in the library's album order.
+- `save_embeddings(version, rows)` — one `BEGIN IMMEDIATE` transaction, `INSERT OR
+  REPLACE`. A row whose item disappeared meanwhile (a scan swept it) is skipped through
+  an `INSERT … SELECT … FROM media_items`, so it cannot fail the batch on the foreign
+  key; the return value counts the rows written.
+- `embedding(item_id, version)` — one vector.
+- `scan_embeddings(version, chunk, f)` — every vector of `version` in chunks of
+  `chunk` rows, handed to `f` as reused buffers (ids + a flat `chunk × dim` matrix);
+  the BLOB is read through `get_ref` without a `Vec` per row. Rows whose length
+  differs from the first one are skipped with a warning. `f` runs while the embedding
+  connection is locked: it must not call back into the embedding methods.
+- `prune_embeddings(keep_version)` — deletes every other version (a model or
+  front-end change); the next pass recomputes.
+
 ## Migrations
 
 There are users: schema changes are versioned steps in `MIGRATIONS`, never a
@@ -519,6 +566,8 @@ wipe. `run_migrations`:
   back only if the migration **added** violations. Pre-existing junk in someone's
   catalog (a dangling `track_artists` row) must not turn every launch into a
   failed open.
+
+Migration 13 only creates `track_embeddings` (see "Sound vectors" above).
 
 Everything this release adds to the schema — identity, sources, bindings,
 adoptions, `remote_tracks` — is one step, migration 9: a user upgrades once,

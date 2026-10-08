@@ -262,6 +262,8 @@ pub static VI: Strings = lang! {
     lyrics_searching_lrclib: "Đang tìm trên LRCLIB…",
     lyrics_prefer_lrclib: "Ưu tiên lời bài hát từ LRCLIB",
     lyrics_prefer_lrclib_desc: "Hiển thị lời từ LRCLIB trước tệp .lrc và thẻ, tự động tải về",
+    similar_tracks: "Gợi ý theo âm thanh",
+    similar_tracks_desc: "Phân tích âm thanh của các bản nhạc trong nền để tìm nhạc tương tự. Mô hình phân tích (16 MB) chỉ được tải xuống một lần.",
     remote_control: "Điều khiển từ xa",
     lastfm_status_disconnected: "Chưa kết nối.",
     lastfm_status_awaiting: "Đang chờ bạn cấp quyền cho pawse trong trình duyệt…",

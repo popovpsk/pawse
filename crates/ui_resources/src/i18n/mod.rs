@@ -332,6 +332,8 @@ pub struct Strings {
     pub lyrics_searching_lrclib: SharedString,
     pub lyrics_prefer_lrclib: SharedString,
     pub lyrics_prefer_lrclib_desc: SharedString,
+    pub similar_tracks: SharedString,
+    pub similar_tracks_desc: SharedString,
     pub remote_control: SharedString,
     pub remote_control_desc: SharedString,
     pub remote_port: SharedString,

@@ -1,0 +1,20 @@
+[package]
+name = "audio_embedding"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+audio_common = { path = "../audio_common" }
+tract-onnx = { version = "0.23", default-features = false }
+realfft = "3.5"
+thiserror = "2.0"
+log = { workspace = true }
+ureq = "3"
+sha2 = "0.10"
+
+[dev-dependencies]
+rstest = "0.26"
+
+[lints]
+workspace = true

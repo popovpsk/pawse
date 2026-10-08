@@ -58,11 +58,14 @@ impl CacheStore {
     }
 
     pub fn lookup(&self, reference: &RemoteRef) -> Option<PathBuf> {
+        let path = self.peek(reference)?;
+        touch(&path);
+        Some(path)
+    }
+
+    pub fn peek(&self, reference: &RemoteRef) -> Option<PathBuf> {
         let path = self.path_for(reference);
-        path.exists().then(|| {
-            touch(&path);
-            path
-        })
+        path.exists().then_some(path)
     }
 
     pub fn trim_on_complete(&self) -> OnComplete {
@@ -313,6 +316,24 @@ mod tests {
         trim(&dir, 15, Path::new(""));
         assert!(path.exists());
         assert!(!other.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_peek_finds_the_file_without_refreshing_it() {
+        let dir = temp_dir("peek");
+        let store = CacheStore::new(dir.clone());
+        let hit = reference(1, "hit", "flac");
+        let path = store.path_for(&hit);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        aged(&path, Duration::from_secs(1000));
+        let other = dir.join("1").join("other.flac");
+        aged(&other, Duration::from_secs(10));
+        assert_eq!(store.peek(&hit), Some(path.clone()));
+        assert_eq!(store.peek(&reference(1, "miss", "flac")), None);
+        trim(&dir, 15, Path::new(""));
+        assert!(!path.exists());
+        assert!(other.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -262,6 +262,8 @@ pub static ZH: Strings = lang! {
     lyrics_searching_lrclib: "正在 LRCLIB 上搜索…",
     lyrics_prefer_lrclib: "优先使用 LRCLIB 歌词",
     lyrics_prefer_lrclib_desc: "优先显示 LRCLIB 的歌词（先于 .lrc 文件和标签），并自动获取",
+    similar_tracks: "基于声音的推荐",
+    similar_tracks_desc: "在后台分析曲目的声音，以找到相似的音乐。分析模型（16 MB）只需下载一次。",
     remote_control: "远程控制",
     lastfm_status_disconnected: "未连接。",
     lastfm_status_awaiting: "正在等待您在浏览器中授权 pawse…",

@@ -148,6 +148,10 @@ impl RemoteMedia {
         }
     }
 
+    pub fn peek_cached(&self, reference: &RemoteRef) -> Option<PathBuf> {
+        self.cache.peek(reference)
+    }
+
     pub fn is_cached(&self, path: &Path) -> bool {
         match remote::location(&path.to_string_lossy()) {
             Location::File(_) => true,

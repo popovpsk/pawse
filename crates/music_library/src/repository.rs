@@ -197,4 +197,15 @@ pub trait LibraryRepository: Send + Sync {
     fn play_tallies(&self, since: Option<u64>) -> Result<Vec<PlayTally>>;
     fn recent_plays(&self, limit: usize) -> Result<Vec<RecentPlay>>;
     fn track_listings(&self) -> Result<Vec<TrackListing>>;
+
+    fn embedding_candidates(&self, version: &str) -> Result<Vec<Track>>;
+    fn save_embeddings(&self, version: &str, vectors: &[(i64, Vec<f32>)]) -> Result<usize>;
+    fn embedding(&self, item_id: i64, version: &str) -> Result<Option<Vec<f32>>>;
+    fn scan_embeddings(
+        &self,
+        version: &str,
+        chunk: usize,
+        f: &mut dyn FnMut(&[i64], &[f32]),
+    ) -> Result<()>;
+    fn prune_embeddings(&self, keep_version: &str) -> Result<usize>;
 }

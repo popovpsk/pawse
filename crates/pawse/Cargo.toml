@@ -21,6 +21,8 @@ gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
 audio_common = { path = "../audio_common" }
+audio_decoder = { path = "../audio_decoder" }
+audio_embedding = { path = "../audio_embedding" }
 audio_engine = { path = "../audio_engine" }
 cast = { path = "../cast" }
 audio_output = { path = "../audio_output" }

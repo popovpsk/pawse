@@ -157,6 +157,7 @@ fn orphan_track_count(conn: &Connection, grouping: ArtistGrouping) -> Result<i64
 pub struct SqliteLibrary {
     conn: Mutex<Connection>,
     scrobble_conn: Mutex<Connection>,
+    embedding_conn: Mutex<Connection>,
     db_path: PathBuf,
     liked_playlist_id: i64,
 }
@@ -1044,9 +1045,12 @@ impl SqliteLibrary {
         apply_pragmas(&conn)?;
         let scrobble_conn = Connection::open(&db_path)?;
         apply_pragmas(&scrobble_conn)?;
+        let embedding_conn = Connection::open(&db_path)?;
+        apply_pragmas(&embedding_conn)?;
         let mut lib = Self {
             conn: Mutex::new(conn),
             scrobble_conn: Mutex::new(scrobble_conn),
+            embedding_conn: Mutex::new(embedding_conn),
             db_path,
             liked_playlist_id: 0,
         };
@@ -1063,9 +1067,12 @@ impl SqliteLibrary {
         apply_pragmas(&conn)?;
         let scrobble_conn = Connection::open(path)?;
         apply_pragmas(&scrobble_conn)?;
+        let embedding_conn = Connection::open(path)?;
+        apply_pragmas(&embedding_conn)?;
         let mut lib = Self {
             conn: Mutex::new(conn),
             scrobble_conn: Mutex::new(scrobble_conn),
+            embedding_conn: Mutex::new(embedding_conn),
             db_path: path.to_path_buf(),
             liked_playlist_id: 0,
         };
@@ -3245,6 +3252,132 @@ impl LibraryRepository for SqliteLibrary {
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
+
+    fn embedding_candidates(&self, version: &str) -> Result<Vec<Track>> {
+        let conn = self.embedding_conn.lock().unwrap();
+        let sql = format!(
+            "WITH last_play AS ( \
+                 SELECT track_id, MAX(started_at) AS at FROM plays \
+                 WHERE track_id IS NOT NULL GROUP BY track_id \
+             ) \
+             SELECT {TRACK_COLUMNS_T} FROM tracks t \
+             LEFT JOIN albums al ON al.id = t.album_id \
+             LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.position = 0 \
+             LEFT JOIN artists art ON art.id = aa.artist_id \
+             LEFT JOIN last_play lp ON lp.track_id = t.id \
+             WHERE NOT EXISTS ( \
+                 SELECT 1 FROM track_embeddings e WHERE e.item_id = t.id AND e.version = ?1 \
+             ) \
+             ORDER BY EXISTS(SELECT 1 FROM liked_track_ids lk WHERE lk.track_id = t.id) DESC, \
+             lp.at IS NULL, lp.at DESC, \
+             art.sort_name COLLATE NOCASE, COALESCE(al.year, 0), al.title COLLATE NOCASE, \
+             t.disc_number, t.track_number, t.title",
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map([version], map_track_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn save_embeddings(&self, version: &str, vectors: &[(i64, Vec<f32>)]) -> Result<usize> {
+        let mut conn = self.embedding_conn.lock().unwrap();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let now = unix_now();
+        let mut saved = 0;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO track_embeddings (item_id, version, vector, created_at) \
+                 SELECT id, ?2, ?3, ?4 FROM media_items WHERE id = ?1",
+            )?;
+            let mut blob = Vec::new();
+            for (item_id, vector) in vectors {
+                blob.clear();
+                blob.extend(vector.iter().flat_map(|v| v.to_le_bytes()));
+                saved += stmt.execute(rusqlite::params![item_id, version, blob, now])?;
+            }
+        }
+        tx.commit()?;
+        Ok(saved)
+    }
+
+    fn embedding(&self, item_id: i64, version: &str) -> Result<Option<Vec<f32>>> {
+        let conn = self.embedding_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT vector FROM track_embeddings WHERE item_id = ?1 AND version = ?2",
+        )?;
+        let blob = stmt
+            .query_row(rusqlite::params![item_id, version], |row| {
+                row.get::<_, Vec<u8>>(0)
+            })
+            .optional()?;
+        Ok(blob.map(|bytes| {
+            let mut vector = Vec::with_capacity(bytes.len() / 4);
+            push_f32s(&bytes, &mut vector);
+            vector
+        }))
+    }
+
+    fn scan_embeddings(
+        &self,
+        version: &str,
+        chunk: usize,
+        f: &mut dyn FnMut(&[i64], &[f32]),
+    ) -> Result<()> {
+        let chunk = chunk.max(1);
+        let conn = self.embedding_conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare_cached("SELECT item_id, vector FROM track_embeddings WHERE version = ?1")?;
+        let mut rows = stmt.query([version])?;
+        let mut ids = Vec::with_capacity(chunk);
+        let mut vectors = Vec::new();
+        let mut width = None;
+        while let Some(row) = rows.next()? {
+            let rusqlite::types::ValueRef::Blob(bytes) = row.get_ref(1)? else {
+                continue;
+            };
+            let floats = bytes.len() / 4;
+            if bytes.len() % 4 != 0 || *width.get_or_insert(floats) != floats {
+                log::warn!(
+                    "track_embeddings: skipping a {}-byte vector of item {}",
+                    bytes.len(),
+                    row.get::<_, i64>(0)?
+                );
+                continue;
+            }
+            if vectors.capacity() == 0 {
+                vectors.reserve_exact(chunk * floats);
+            }
+            ids.push(row.get::<_, i64>(0)?);
+            push_f32s(bytes, &mut vectors);
+            if ids.len() == chunk {
+                f(&ids, &vectors);
+                ids.clear();
+                vectors.clear();
+            }
+        }
+        if !ids.is_empty() {
+            f(&ids, &vectors);
+        }
+        Ok(())
+    }
+
+    fn prune_embeddings(&self, keep_version: &str) -> Result<usize> {
+        let conn = self.embedding_conn.lock().unwrap();
+        Ok(conn.execute(
+            "DELETE FROM track_embeddings WHERE version <> ?1",
+            [keep_version],
+        )?)
+    }
+}
+
+fn push_f32s(bytes: &[u8], out: &mut Vec<f32>) {
+    out.extend(
+        bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b)),
+    );
 }
 
 fn drop_oldest_items(

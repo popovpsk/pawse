@@ -709,6 +709,29 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
 
     group = group.item(
         SettingItem::new(
+            tr().similar_tracks.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let enabled = cx.global::<SettingsStore>().similar_tracks_enabled();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("similar-tracks-toggle")
+                        .checked(enabled)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_similar_tracks_enabled(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                            crate::similar_tracks::set_enabled(*new_val, cx);
+                        }),
+                )
+            }),
+        )
+        .description(tr().similar_tracks_desc.clone()),
+    );
+
+    group = group.item(
+        SettingItem::new(
             tr().remote_control.clone(),
             SettingField::render(|_window, cx: &mut App| {
                 let enabled = cx.global::<SettingsStore>().remote_enabled();

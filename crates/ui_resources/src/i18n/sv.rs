@@ -262,6 +262,8 @@ pub static SV: Strings = lang! {
     lyrics_searching_lrclib: "Söker på LRCLIB…",
     lyrics_prefer_lrclib: "Föredra låttexter från LRCLIB",
     lyrics_prefer_lrclib_desc: "Visa låttext från LRCLIB före .lrc-filen och taggarna och hämta den automatiskt",
+    similar_tracks: "Rekommendationer efter ljud",
+    similar_tracks_desc: "Analysera i bakgrunden hur spåren låter för att hitta liknande musik. Analysmodellen (16 MB) laddas ner en gång.",
     remote_control: "Fjärrstyrning",
     lastfm_status_disconnected: "Inte ansluten.",
     lastfm_status_awaiting: "Väntar på att du godkänner pawse i webbläsaren…",

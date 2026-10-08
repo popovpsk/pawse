@@ -262,6 +262,8 @@ pub static ID: Strings = lang! {
     lyrics_searching_lrclib: "Mencari di LRCLIB…",
     lyrics_prefer_lrclib: "Utamakan lirik LRCLIB",
     lyrics_prefer_lrclib_desc: "Tampilkan lirik dari LRCLIB sebelum file .lrc dan tag, diunduh otomatis",
+    similar_tracks: "Rekomendasi berdasarkan suara",
+    similar_tracks_desc: "Analisis suara trek di latar belakang untuk menemukan musik serupa. Model analisis (16 MB) diunduh sekali saja.",
     remote_control: "Kendali jarak jauh",
     lastfm_status_disconnected: "Tidak terhubung.",
     lastfm_status_awaiting: "Menunggu Anda mengizinkan pawse di browser…",

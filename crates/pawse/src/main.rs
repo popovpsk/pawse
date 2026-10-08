@@ -66,6 +66,7 @@ pub mod services;
 pub mod settings_store;
 pub mod settings_view;
 pub mod shuffle_button;
+pub mod similar_tracks;
 #[cfg(not(target_os = "macos"))]
 pub mod single_instance;
 pub mod sleep_timer;
@@ -321,6 +322,7 @@ fn main() {
         cx.on_app_quit(|cx| {
             let scrobble = crate::scrobble_bridge::finalize_on_quit(cx);
             crate::discord_bridge::finalize_on_quit(cx);
+            crate::similar_tracks::shutdown(cx);
             let state = cx.global::<Services>().snapshot_playback();
             let _ = cx
                 .global_mut::<crate::settings_store::SettingsStore>()
@@ -369,6 +371,7 @@ fn main() {
 
         crate::scrobble_bridge::setup(cx);
         crate::sleep_timer::setup(cx);
+        crate::similar_tracks::setup(cx);
 
         open_initial_window(cx, true);
 

@@ -39,6 +39,11 @@ same streams to the device through the same `LibraryBackend`); behind it each so
   `RemoteMedia::lyrics(locator)` → `SourceMedia::lyrics` → the source's
   `ServerClient::lyrics`. A locator that is not a server track, or whose
   source is not configured, is `Ok(None)`.
+- **Looking up without touching.** `cached` (and the engine's resolver) refreshes
+  the file's mtime, because the cache is LRU by mtime and a lookup means the track
+  is being played. `peek_cached` (`CacheStore::peek`) only answers whether the
+  finished file is there: `crate::similar_tracks` reads cached server tracks for
+  analysis, and walking the whole library must not reorder what gets evicted.
 - **A source that is not configured** (removed server, stale locator) is an
   error on open and `None` from `ping`; a file already in the cache still plays.
 - **Retries.** `ServerFetch` retries only `RemoteError::Unreachable`; a wrong

@@ -518,6 +518,8 @@ pub struct UserSettings {
     pub queue_deduplication: bool,
     #[serde(default)]
     pub tag_editor_enabled: bool,
+    #[serde(default)]
+    pub similar_tracks_enabled: bool,
     #[serde(default = "default_true")]
     pub albums_show_year: bool,
     #[serde(default = "default_true")]
@@ -630,6 +632,7 @@ impl Default for UserSettings {
             blur_interface_opacity: BLUR_INTERFACE_OPACITY_DEFAULT,
             queue_deduplication: false,
             tag_editor_enabled: false,
+            similar_tracks_enabled: false,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
@@ -1511,6 +1514,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn similar_tracks_enabled(&self) -> bool {
+        self.settings.similar_tracks_enabled
+    }
+
+    pub fn set_similar_tracks_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.similar_tracks_enabled = enabled;
+        self.save()
+    }
+
     pub fn albums_show_year(&self) -> bool {
         self.settings.albums_show_year
     }
@@ -1987,6 +1999,7 @@ mod tests {
             blur_interface_opacity: 140.,
             queue_deduplication: false,
             tag_editor_enabled: false,
+            similar_tracks_enabled: false,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
