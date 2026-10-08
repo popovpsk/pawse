@@ -11,7 +11,9 @@ use crate::localization::tr;
 use crate::settings_store::SettingsStore;
 use crate::{
     next_button::NextButton,
-    now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested, NowPlaying},
+    now_playing::{
+        NavigateToAlbumRequested, NavigateToArtistRequested, NowPlaying, ToggleCoverModeRequested,
+    },
     play_button::PlayButton,
     prev_button::PrevButton,
     repeat_button::RepeatButton,
@@ -50,6 +52,7 @@ pub struct Footer {
     _settings_subscription: Subscription,
     _np_album_subscription: Subscription,
     _np_artist_subscription: Subscription,
+    _np_cover_subscription: Subscription,
 }
 
 impl Footer {
@@ -83,6 +86,7 @@ impl EventEmitter<ToggleLyricsEvent> for Footer {}
 impl EventEmitter<OpenSleepTimerEvent> for Footer {}
 impl EventEmitter<NavigateToAlbumRequested> for Footer {}
 impl EventEmitter<NavigateToArtistRequested> for Footer {}
+impl EventEmitter<ToggleCoverModeRequested> for Footer {}
 
 impl Footer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -116,6 +120,12 @@ impl Footer {
                 cx.emit(event.clone());
             },
         );
+        let np_cover_subscription = cx.subscribe(
+            &now_playing,
+            |_, _, event: &ToggleCoverModeRequested, cx| {
+                cx.emit(event.clone());
+            },
+        );
 
         Self {
             play_button: cx.new(|cx| PlayButton::new(window, cx)),
@@ -134,6 +144,7 @@ impl Footer {
             _settings_subscription: settings_subscription,
             _np_album_subscription: np_album_subscription,
             _np_artist_subscription: np_artist_subscription,
+            _np_cover_subscription: np_cover_subscription,
         }
     }
 }

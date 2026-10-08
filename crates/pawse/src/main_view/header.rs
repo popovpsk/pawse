@@ -50,8 +50,8 @@ impl MainView {
     ) -> Div {
         let in_title_bar = matches!(placement, Placement::TitleBar);
         let show_screen = self.show_settings || self.show_tools;
-        let has_back = show_screen || self.is_drilled_in;
         let cover_mode = self.cover_mode;
+        let has_back = !cover_mode && (show_screen || self.is_drilled_in);
         let active_tab = (!cover_mode).then_some(self.current_tab);
         let muted = Colors::muted(cx);
         let foreground = Colors::foreground(cx);
@@ -363,8 +363,7 @@ fn cover_mode_button(
         .hover(move |s| s.bg(hover_bg))
         .tooltip(|window, cx| Tooltip::new(tr().cover_mode.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _, window, cx| {
-            this.clear_search(window, cx);
-            this.set_cover_mode(!this.cover_mode, cx);
+            this.toggle_cover_mode(window, cx);
         }))
         .child(
             svg()

@@ -3,9 +3,9 @@ use std::sync::atomic::Ordering;
 
 use crate::playback_status::{Phase, StatusChanged};
 use gpui::{
-    AnyElement, Context, EventEmitter, Image, InteractiveElement, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
-    div, img, px,
+    AnyElement, ClickEvent, Context, EventEmitter, Image, InteractiveElement, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, Window, div, img, px,
 };
 use gpui_component::{h_flex, v_flex};
 
@@ -26,6 +26,9 @@ pub struct NavigateToArtistRequested {
     pub artist_id: i64,
     pub track_id: Option<i64>,
 }
+
+#[derive(Clone, Debug)]
+pub struct ToggleCoverModeRequested;
 
 pub struct NowPlaying {
     has_track: bool,
@@ -283,6 +286,7 @@ impl NowPlaying {
 
 impl EventEmitter<NavigateToAlbumRequested> for NowPlaying {}
 impl EventEmitter<NavigateToArtistRequested> for NowPlaying {}
+impl EventEmitter<ToggleCoverModeRequested> for NowPlaying {}
 
 impl Render for NowPlaying {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -325,33 +329,42 @@ impl Render for NowPlaying {
             .gap_3()
             .items_center()
             .w(px(200. * scale))
-            .child({
-                if let Some(cover_img) = self.cover_image.clone() {
-                    img(cover_img)
-                        .flex_shrink_0()
-                        .w(px(cover_size))
-                        .h(px(cover_size))
-                        .rounded(px(cover_radius))
-                        .object_fit(gpui::ObjectFit::Cover)
-                        .with_fallback({
-                            let bg = Colors::secondary(cx);
-                            let fg = Colors::muted_foreground(cx);
-                            move || {
-                                cover_placeholder(cover_size, cover_radius, bg, fg)
-                                    .into_any_element()
-                            }
-                        })
+            .child(
+                div()
+                    .id("np_cover")
+                    .flex_shrink_0()
+                    .cursor_pointer()
+                    .on_click(cx.listener(|_, event: &ClickEvent, _, cx| {
+                        if event.click_count() == 1 {
+                            cx.emit(ToggleCoverModeRequested);
+                        }
+                    }))
+                    .child(if let Some(cover_img) = self.cover_image.clone() {
+                        img(cover_img)
+                            .flex_shrink_0()
+                            .w(px(cover_size))
+                            .h(px(cover_size))
+                            .rounded(px(cover_radius))
+                            .object_fit(gpui::ObjectFit::Cover)
+                            .with_fallback({
+                                let bg = Colors::secondary(cx);
+                                let fg = Colors::muted_foreground(cx);
+                                move || {
+                                    cover_placeholder(cover_size, cover_radius, bg, fg)
+                                        .into_any_element()
+                                }
+                            })
+                            .into_any_element()
+                    } else {
+                        cover_placeholder(
+                            cover_size,
+                            cover_radius,
+                            Colors::secondary(cx),
+                            Colors::muted_foreground(cx),
+                        )
                         .into_any_element()
-                } else {
-                    cover_placeholder(
-                        cover_size,
-                        cover_radius,
-                        Colors::secondary(cx),
-                        Colors::muted_foreground(cx),
-                    )
-                    .into_any_element()
-                }
-            })
+                    }),
+            )
             .child(
                 v_flex()
                     .flex_shrink_0()

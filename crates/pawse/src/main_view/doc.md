@@ -4,7 +4,7 @@ Child modules of `main_view.rs` (the root view that composes title bar, header, 
 
 ## Files
 
-- `header.rs` — `MainView::render_header(placement, …)`: back button or library tabs plus the cover-mode button on the left, search field with the view menu in the middle, update / tools / settings / audio buttons on the right. Also holds the button helpers only the header uses and `HEIGHT` (44 px, the standalone bar) and `TITLE_BAR_HEIGHT` (52 px, the bar when the header lives in the title bar; both before the font scale).
+- `header.rs` — `MainView::render_header(placement, …)`: back button or library tabs plus the cover-mode button on the left, search field with the view menu in the middle, update / tools / settings / audio buttons on the right. Also holds the button helpers only the header uses and `HEIGHT` (44 px, the standalone bar) and `TITLE_BAR_HEIGHT` (52 px, the bar when the header lives in the title bar; both before the font scale). In cover mode the left side always shows the tabs and the active cover-mode button, never the back button, even when the library is drilled in (cover mode can be entered from anywhere through the footer cover); leaving it with the cover-mode button, the footer cover or Escape returns to the drilled-in page, a tab click switches to that tab. The header button and the footer cover (`NowPlaying` → `Footer` → `ToggleCoverModeRequested`) share `MainView::toggle_cover_mode`: it closes Settings / Tools, so leaving cover mode lands in the library, not on the closed screen, and clears the search. The footer cover reacts only to the first click of a double click, otherwise a double click would enter and immediately leave cover mode.
 
 ## Placement
 

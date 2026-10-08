@@ -35,7 +35,9 @@ use crate::localization::tr;
 use crate::lyrics_view::LyricsView;
 #[cfg(not(target_os = "macos"))]
 use crate::media_bridge::MediaBridge;
-use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
+use crate::now_playing::{
+    NavigateToAlbumRequested, NavigateToArtistRequested, ToggleCoverModeRequested,
+};
 use crate::playlist_popup::PlaylistPopup;
 use crate::queue_view::QueueView;
 use crate::scrobble_settings::{ScrobbleInputs, ScrobbleUiState};
@@ -146,6 +148,7 @@ pub struct MainView {
     _footer_sleep_timer_subscription: Subscription,
     _footer_album_subscription: Subscription,
     _footer_artist_subscription: Subscription,
+    _footer_cover_subscription: Subscription,
     _cover_album_subscription: Subscription,
     _cover_artist_subscription: Subscription,
     _cover_observe_subscription: Subscription,
@@ -473,6 +476,14 @@ impl MainView {
             }
         });
 
+        let footer_cover_subscription = cx.subscribe_in(
+            &footer,
+            window,
+            |this, _, _: &ToggleCoverModeRequested, window, cx| {
+                this.toggle_cover_mode(window, cx);
+            },
+        );
+
         let queue_view = cx.new(|cx| QueueView::new(window, cx));
         let lyrics_view = cx.new(|cx| LyricsView::new(window, cx));
 
@@ -668,6 +679,7 @@ impl MainView {
             _footer_sleep_timer_subscription: footer_sleep_timer_subscription,
             _footer_album_subscription: footer_album_subscription,
             _footer_artist_subscription: footer_artist_subscription,
+            _footer_cover_subscription: footer_cover_subscription,
             _cover_album_subscription: cover_album_subscription,
             _cover_artist_subscription: cover_artist_subscription,
             _cover_observe_subscription: cover_observe_subscription,
@@ -793,6 +805,12 @@ impl MainView {
     fn leave_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear_search(window, cx);
         self.set_cover_mode(false, cx);
+    }
+
+    fn toggle_cover_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_screens();
+        self.clear_search(window, cx);
+        self.set_cover_mode(!self.cover_mode, cx);
     }
 
     fn set_cover_mode(&mut self, on: bool, cx: &mut Context<Self>) {
