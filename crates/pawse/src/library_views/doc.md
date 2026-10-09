@@ -321,7 +321,9 @@ drive the `PlaybackQueue` on click.
   Appearance → Artists view. Controls are ranked by distance from the trigger: what is
   changed most sits on top, so the Grid/List switch opens the Albums menu while the
   Tag switch closes the Artists one. Strings live in their own table,
-  `ui_resources::i18n::view_menu_strings`.
+  `ui_resources::i18n::view_menu_strings`. The surface (`menu_surface`), `MenuColors`,
+  `section_label` and `separator` are `pub(crate)`: the queue panel's similar-music
+  menu (`similar_tracks::menu`) is built from them so both popovers look alike.
 - `tracks_view.rs` — tracks of one album (drill-down). Multi-disc aware. Shows the
   guest column (see "Guest column" under `grouped_tracks_view.rs`) when any track
   of the album is credited to someone other than the album artist; the filter then

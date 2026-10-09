@@ -32,6 +32,7 @@ use crate::playback_queue::RemoveOutcome;
 use crate::playlist_popup::OpenAddToPlaylist;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
+use crate::similar_tracks::{self, OnApplied};
 
 #[derive(Clone)]
 struct DraggedQueueTrack {
@@ -131,6 +132,7 @@ pub struct QueueView {
     visible: bool,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
+    on_similar_applied: OnApplied,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
@@ -228,6 +230,15 @@ impl QueueView {
             is_playing,
             visible: false,
             scroll_handle: VirtualListScrollHandle::new(),
+            on_similar_applied: {
+                let view = cx.weak_entity();
+                Rc::new(move |cx: &mut gpui::App| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.refresh_tracks(cx);
+                        this.scroll_current_into_view();
+                    });
+                })
+            },
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
@@ -311,7 +322,7 @@ impl QueueView {
 
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = queue_header(cx, !self.tracks.is_empty());
+        let header = queue_header(cx, !self.tracks.is_empty(), &self.on_similar_applied);
 
         if self.tracks.is_empty() {
             return queue_empty_state(cx, header);
@@ -552,9 +563,22 @@ fn queue_empty_state(cx: &Context<QueueView>, header: Div) -> Div {
     )
 }
 
-fn queue_header(cx: &mut Context<QueueView>, has_tracks: bool) -> Div {
-    let playlists_enabled = cx.global::<SettingsStore>().playlists_enabled();
+fn queue_header(
+    cx: &mut Context<QueueView>,
+    has_tracks: bool,
+    on_similar_applied: &OnApplied,
+) -> Div {
+    let settings = cx.global::<SettingsStore>();
+    let playlists_enabled = settings.playlists_enabled();
+    let scale = settings.font_scale().ui_scale();
     let actions = panel_header_actions()
+        .when(has_tracks && similar_tracks::is_running(cx), |d| {
+            d.child(similar_tracks::queue_menu(
+                on_similar_applied.clone(),
+                scale,
+                cx,
+            ))
+        })
         .when(has_tracks && playlists_enabled, |d| {
             d.child(
                 panel_header_button(

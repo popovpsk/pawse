@@ -378,6 +378,12 @@ pub struct TrackListing {
     pub last_played: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PlayStats {
+    pub plays: u32,
+    pub last_played: Option<u64>,
+}
+
 pub mod delivery_state {
     pub const PENDING: i64 = 0;
     pub const SENT: i64 = 1;

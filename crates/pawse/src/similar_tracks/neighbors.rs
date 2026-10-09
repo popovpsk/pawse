@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use audio_embedding::similarity::{MeanAccumulator, SCAN_CHUNK, TopN};
+use audio_embedding::similarity::{MeanAccumulator, Query, SCAN_CHUNK, TopN};
 use audio_embedding::{DIM, EMBEDDING_VERSION};
 use music_library::LibraryRepository;
 
@@ -14,21 +15,55 @@ impl Neighbors {
         *self.mean.lock().unwrap() = None;
     }
 
-    pub fn nearest(
+    pub fn vector(
         &self,
         repo: &dyn LibraryRepository,
-        seed_id: i64,
-        n: usize,
-    ) -> music_library::Result<Vec<(i64, f32)>> {
-        let Some(seed) = repo.embedding(seed_id, EMBEDDING_VERSION)? else {
-            return Ok(Vec::new());
-        };
-        let mean = self.mean(repo)?;
-        let mut top = TopN::new(seed_id, &seed, &mean, n);
+        id: i64,
+    ) -> music_library::Result<Option<Vec<f32>>> {
+        Ok(repo
+            .embedding(id, EMBEDDING_VERSION)?
+            .filter(|vector| vector.len() == DIM))
+    }
+
+    pub fn mean_of(
+        &self,
+        repo: &dyn LibraryRepository,
+        ids: &[i64],
+    ) -> music_library::Result<Option<Vec<f32>>> {
+        if ids.is_empty() {
+            return Ok(None);
+        }
+        let wanted: HashSet<i64> = ids.iter().copied().collect();
+        let mut sum = MeanAccumulator::new(DIM);
         repo.scan_embeddings(EMBEDDING_VERSION, SCAN_CHUNK, &mut |ids, vectors| {
-            top.feed(ids, vectors)
+            for (id, row) in ids.iter().zip(vectors.as_chunks::<DIM>().0) {
+                if wanted.contains(id) {
+                    sum.feed(row);
+                }
+            }
         })?;
-        Ok(top.finish())
+        Ok((sum.count() > 0).then(|| sum.finish().into_vec()))
+    }
+
+    pub fn search(
+        &self,
+        repo: &dyn LibraryRepository,
+        queries: Vec<Query>,
+    ) -> music_library::Result<Vec<Vec<(i64, f32)>>> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mean = self.mean(repo)?;
+        let mut tops: Vec<TopN> = queries
+            .into_iter()
+            .map(|query| TopN::new(query, &mean))
+            .collect();
+        repo.scan_embeddings(EMBEDDING_VERSION, SCAN_CHUNK, &mut |ids, vectors| {
+            for top in &mut tops {
+                top.feed(ids, vectors);
+            }
+        })?;
+        Ok(tops.into_iter().map(TopN::finish).collect())
     }
 
     fn mean(&self, repo: &dyn LibraryRepository) -> music_library::Result<Arc<[f32]>> {
@@ -86,6 +121,10 @@ pub(super) mod tests {
         v
     }
 
+    fn ids(found: &[(i64, f32)]) -> Vec<i64> {
+        found.iter().map(|(id, _)| *id).collect()
+    }
+
     #[test]
     fn the_nearest_tracks_point_the_same_way_after_centering() {
         let (_dir, lib) = library();
@@ -104,16 +143,43 @@ pub(super) mod tests {
         )
         .unwrap();
         let neighbors = Neighbors::default();
+        let seed_vector = neighbors.vector(&lib, seed).unwrap().unwrap();
 
-        let found: Vec<i64> = neighbors
-            .nearest(&lib, seed, 10)
-            .unwrap()
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
+        let found = neighbors
+            .search(
+                &lib,
+                vec![
+                    Query::nearest(seed_vector.clone(), 10).excluding([seed]),
+                    Query::farthest(seed_vector, 1),
+                    Query::nearest(vector(&[1.0, 0.0]), 10).excluding([seed, close]),
+                ],
+            )
+            .unwrap();
 
-        assert_eq!(found, vec![close, other, far]);
-        assert!(neighbors.nearest(&lib, 999, 10).unwrap().is_empty());
+        assert_eq!(ids(&found[0]), vec![close, other, far]);
+        assert_eq!(ids(&found[1]), vec![far]);
+        assert_eq!(ids(&found[2]), vec![other, far]);
+        assert!(neighbors.vector(&lib, 999).unwrap().is_none());
+        assert!(neighbors.search(&lib, Vec::new()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_mean_of_tracks_skips_those_without_a_vector() {
+        let (_dir, lib) = library();
+        let a = add_track(&lib, "a", "A", 200_000);
+        let b = add_track(&lib, "b", "B", 200_000);
+        let bare = add_track(&lib, "bare", "C", 200_000);
+        lib.save_embeddings(
+            EMBEDDING_VERSION,
+            &[(a, vector(&[2.0, 0.0])), (b, vector(&[0.0, 2.0]))],
+        )
+        .unwrap();
+        let neighbors = Neighbors::default();
+
+        let mean = neighbors.mean_of(&lib, &[a, b, bare]).unwrap().unwrap();
+        assert_eq!(&mean[..3], &[2.0, 2.0, 1.0]);
+        assert!(neighbors.mean_of(&lib, &[bare]).unwrap().is_none());
+        assert!(neighbors.mean_of(&lib, &[]).unwrap().is_none());
     }
 
     #[test]

@@ -1,11 +1,12 @@
 # similar_tracks
 
 Tracks that sound alike, from `audio_embedding` vectors: background analysis of the
-library, nearest neighbours of a track, and a "radio from this track" queue. Nothing
-in the UI uses the results yet and the radio is not connected to the player; there is
-no progress display. Delivery to users is a separate task.
+library, a nearest-neighbour search, a re-ranking step that turns neighbours into a
+list worth listening to, and two queue actions built on them — "radio from this
+track" and "mix other artists into the queue" — in a menu in the queue panel's
+header. There is no progress display for the analysis.
 
-The one user-facing piece is the switch in Settings → General, "Sound-based
+The switch is in Settings → General, "Sound-based
 recommendations" (`similar_tracks_enabled`, off by default; `tr().similar_tracks`).
 Its description talks about the result (similar-sounding tracks from the library), says
 the analysis is local and that the first pass can take a while; it does not mention the
@@ -16,12 +17,24 @@ it off stops the thread within one track and cancels a model download in progres
 
 - `mod.rs` — `SimilarTracks` (a cheap `Clone` handle on the shared state), the `State`
   global holding the running instance, `setup`, `set_enabled` (the switch), `current`
-  (the running handle, if any) and `shutdown`.
+  (the running handle, if any), `is_running` (the same without the clone, for render)
+  and `shutdown`.
 - `worker.rs` — the analysis thread: model, candidates, decoding, saving.
-- `neighbors.rs` — `Neighbors`: the cached library mean and the streaming nearest-
-  neighbour query.
-- `radio.rs` — `SimilarTracks::radio` and `pick`, the pure filter that turns
-  neighbours into a queue.
+- `neighbors.rs` — `Neighbors`: the cached library mean, a track's vector, the mean of
+  several tracks' vectors, and `search`, which answers any number of
+  `audio_embedding::similarity::Query`s in one streaming pass.
+- `rerank.rs` — `Rerank`, the pure re-ranking step (no database, no GPUI), `Candidate`,
+  `Taken` (what the list already holds), `Weights`, and `Familiarity` (the menu's
+  "familiar / any / new" choice, persisted as `similar_familiarity`).
+- `pool.rs` — `Pool`: turns search results into `Candidate`s (track rows, first
+  artist, play stats) and the re-ranked ids back into `Track`s.
+- `radio.rs` — `SimilarTracks::radio`: the queries and re-ranking for a radio.
+- `mix.rs` — `SimilarTracks::mix`: the same for mixing other artists into a queue, and
+  `GAP` (how many tracks go after each one).
+- `actions.rs` — `start_radio` / `mix_queue`: snapshot the queue, build the list on
+  the background executor, apply it to `PlaybackQueue` if the queue has not moved on
+  meanwhile, or show why nothing happened.
+- `menu.rs` — `queue_menu`, the popover in the queue panel's header.
 
 ## Lifecycle
 
@@ -86,35 +99,115 @@ it off stops the thread within one track and cancels a model download in progres
   `error!`. There are no user-facing notices in v1; progress goes to the log every 100
   tracks and at the end of a pass.
 
-## Neighbours
+## Search
 
-`Neighbors::nearest(repo, seed, n)` reads the seed's vector, then streams every vector
-of the current version through `audio_embedding::similarity::TopN` in `SCAN_CHUNK`
-rows (`scan_embeddings`); nothing but a ~5 MB buffer is in memory. The centering mean
-(5 KB) is cached and computed the same streaming way on the first query after an
-invalidation. It is computed under its mutex, so `invalidate` (the worker, after a
-save and at the start of a pass) waits for a computation in flight and then clears
-it; a mean never outlives the save that made it stale, and deletions are caught up
-by the next pass. A seed without a vector has no neighbours.
+`Neighbors::search(repo, queries)` streams every vector of the current version
+through one `TopN` per query in `SCAN_CHUNK` (1024) rows (`scan_embeddings`); nothing
+but a ~5 MB buffer and the heaps is in memory, whatever the library size. A query
+knows only a vector, `n`, nearest or farthest, and ids to skip; deciding which ids
+and why is the caller's job. The centering mean (5 KB) is cached and computed the
+same streaming way on the first query after an invalidation. It is computed under its
+mutex, so `invalidate` (the worker, after a save and at the start of a pass) waits for
+a computation in flight and then clears it; a mean never outlives the save that made
+it stale, and deletions are caught up by the next pass. A track without a vector (or
+with one of the wrong length) has no `vector`. `mean_of` is one more streaming pass
+that sums the vectors of the given ids, so its cost does not grow with a long queue;
+`None` means none of them had one. Only catalog tracks are scanned
+(`scan_embeddings`), so vectors of tracks on an offline source never take places in
+a top-N.
+
+## Re-ranking
+
+Nearest neighbours alone are the seed's own artist: in the PoC (EffNet multi, 2184
+tracks, 49 artists) the median top 10 held 8 tracks of the same artist, and 74 seeds
+had no other artist at all in their top 40. So the candidates are re-ranked, greedily,
+one pick at a time. A candidate's value is
+
+`score + familiarity bonus − recent penalty + noise − artist × (tracks of its artist
+already taken) − repeat × (same artist as the previous pick)`
+
+- `Taken` starts with the seed (radio) or empty (mix) and grows with every pick, so the
+  artist penalty spreads an artist through the list instead of capping it; there is no
+  hard per-artist limit. Album is not a signal: the artist term already covers it.
+- The same first artist + normalised title is taken once (single and album version);
+  skits (under `MIN_DURATION_MS`, 60 s), unavailable tracks and tracks scoring below
+  `MIN_SCORE` (0: less alike than a random pair, whose median was −0.05 in the PoC)
+  are dropped, so a small library gives a shorter list rather than one padded with
+  the opposite sound; tracks without an artist are neither penalised nor
+  deduplicated.
+- History (`play_stats`): played within `RECENT_SECS` (a day) costs `recent`;
+  `Familiarity::Familiar` adds `familiarity` to tracks played or liked before, `New`
+  to the others, `Any` neither.
+- Noise is Gumbel, drawn once per candidate from an `StdRng` seeded by the caller:
+  the same seed gives the same list (tests), the app passes a random one, so pressing
+  again gives another list. Gumbel noise plus a greedy max is sampling from a softmax
+  of the values, with `noise` as the temperature.
+- `Weights::default()` (artist 0.1, repeat 0.1, recent 0.2, familiarity 0.15, noise
+  0.04) came from a simulation over the PoC's real neighbour lists: on 12 picks out of
+  40 neighbours the seed's artist fell from 8.0 to 3.9 tracks, distinct artists rose
+  from 3.0 to 6.0, the mean similarity only from 0.78 to 0.73, and two runs shared
+  about half their tracks. The gap between the best neighbour and the best one of
+  another artist is ~0.08 in the median, which is the scale the penalties work at.
 
 ## Radio
 
-`SimilarTracks::radio(seed)` is blocking: take the handle with `similar_tracks::current(cx)`
-(`None` while the switch is off) and call it on the background executor. It takes the `POOL`
-(200) nearest tracks and filters them with `pick`, a pure function:
+`SimilarTracks::radio(seed, familiarity, rng_seed)` (blocking; background executor)
+returns `None` when the seed is not in the catalog or has no vector, otherwise up to
+`LENGTH` (30) tracks, the seed not included. One pass answers two queries: the
+`ANY_ARTIST_POOL` (50) nearest overall, and the `OTHER_ARTISTS_POOL` (250) nearest
+without any track of the seed's first artist (`same_artist_track_ids`). Without the second one a big
+discography fills the whole pool and the re-ranking has no one else to pick.
 
-- the track is still in the catalog and available;
-- it lasts at least `MIN_DURATION_MS` (60 s): skits, intros and short interludes all
-  sound alike and would cluster together; an unknown duration passes;
-- at most `MAX_PER_ARTIST` (2) per first artist (`track_artists_map`, compared with
-  `normalize_tag`), the seed counting as one — otherwise the same artist and album
-  fill the list;
-- the same first artist + title is played once (the single and the album version);
-- tracks without an artist are neither capped nor deduplicated: there is nothing to
-  tell them apart by.
+`start_radio` keeps the playing track's queue entry (read again when the radio is
+ready, so a refresh of that entry meanwhile is not undone) and replaces the queue with
+it and the radio (`set_tracks_and_play_at`, index 0, so playback is not touched and
+shuffle, if on, shuffles the radio). It asks nothing when the queue was custom: the
+user picked the action from the queue panel, looking at the queue. The radio queue is
+not custom. The result is dropped if another track started meanwhile.
 
-The result is `[seed] + LENGTH` (30) tracks, best first. The constants are a starting
-point; the final rules are decided with the delivery of the feature.
+## Mix
+
+`SimilarTracks::mix(basis, queue, count, …)` searches from the mean vector of `basis`
+(the queue's own tracks), skipping every track in `queue` and every track of the
+basis tracks' first artists, so what comes in is other artists only; `None` when no
+basis track has a vector. The pool is `count × POOL_PER_TRACK` (at least `MIN_POOL`),
+`count` is capped here at `MAX_MIXED` (400).
+
+`mix_queue` takes `PlaybackQueue::mix_plan()`: the basis, what stays in the queue, the
+number of anchors (the current track and every own track after it) and a snapshot of
+the ids. It draws `GAP` (1–3) per anchor — the owner wants the queue to become mostly
+new music, not the same queue with a few extra tracks — asks `mix` for the sum, and
+`mix_in` puts each anchor's block right after it, in the re-ranked order. History
+before the current track is not touched, and the queue is not shuffled. If the picks
+run out, the last anchors get nothing.
+
+- `PlaybackQueue` remembers the mixed-in ids for the session (`mixed`, not persisted;
+  cleared by a new queue or a restore). Mixing again first drops the mixed tracks
+  after the current one, so it re-rolls instead of mixing into a mixed queue; mixed
+  tracks already heard stay. They are not part of the basis.
+- With shuffle on, every block also goes after its anchor in `original_order`, so
+  turning shuffle off keeps each mixed track after the one it was mixed in for.
+- The custom flag is left as it was: a mixed album is, like a radio, a generated list
+  the next click on a track replaces without asking, while a hand-built queue stays
+  protected. The source becomes `Unknown`: the queue is no longer the playlist it came
+  from, and a playlist-backed queue is rebuilt from the playlist on every edit
+  (`sync_queue_with_playlist`), which would silently drop the mix.
+- `mix_in` refuses (and nothing changes) when the queue's ids or its current index
+  differ from the plan's `MixSnapshot`: a track that ended meanwhile would shift every
+  block by one anchor and could put the now-current mixed track right after itself.
+
+## The menu
+
+`queue_menu` is a popover on the queue panel header, left of "save to playlist",
+shown only while the queue has tracks and the analysis is running. It is built like
+the library view menu (`library_views::view_menu`'s `menu_surface`, `MenuColors`,
+`section_label`, `separator`). Most used nearest to the trigger: radio (disabled with
+no current track), mix, then the "Tracks: familiar / any / new" switch. Picking an
+action closes the popover. When the list is ready, the queue view refreshes and
+scrolls to the current track (`OnApplied`, built once in `QueueView::new`) before
+`queue_mutated`, so the `QueueChanged` handler does not jump to the bottom the way it
+does for "add to queue". A seed or queue without vectors, an empty result and a
+database error each show a notification (`similar_strings()`).
 
 ## Checking by hand
 

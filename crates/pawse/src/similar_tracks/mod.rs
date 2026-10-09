@@ -8,11 +8,19 @@ use crate::library_service::LibraryEvent;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
+mod actions;
+mod menu;
+mod mix;
 mod neighbors;
+mod pool;
 mod radio;
+mod rerank;
 mod worker;
 
+pub use actions::OnApplied;
+pub use menu::queue_menu;
 use neighbors::Neighbors;
+pub use rerank::Familiarity;
 
 #[derive(Clone)]
 pub struct SimilarTracks {
@@ -62,6 +70,11 @@ pub fn set_enabled(enabled: bool, cx: &mut App) {
     } else {
         stop(cx);
     }
+}
+
+pub fn is_running(cx: &App) -> bool {
+    cx.try_global::<State>()
+        .is_some_and(|state| state.running.is_some())
 }
 
 pub fn current(cx: &App) -> Option<SimilarTracks> {

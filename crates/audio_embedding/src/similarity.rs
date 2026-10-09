@@ -1,5 +1,5 @@
 use std::cmp::{Ordering, Reverse};
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 
 pub const SCAN_CHUNK: usize = 1024;
 
@@ -75,8 +75,46 @@ pub fn centered_cosine(x: &[f32], seed_centered: &[f32], seed_norm: f32, mean: &
     if denom > 0.0 { dot / denom } else { 0.0 }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Nearest,
+    Farthest,
+}
+
+#[derive(Debug, Clone)]
+pub struct Query {
+    pub vector: Vec<f32>,
+    pub n: usize,
+    pub direction: Direction,
+    pub exclude: HashSet<i64>,
+}
+
+impl Query {
+    pub fn nearest(vector: Vec<f32>, n: usize) -> Self {
+        Self {
+            vector,
+            n,
+            direction: Direction::Nearest,
+            exclude: HashSet::new(),
+        }
+    }
+
+    pub fn farthest(vector: Vec<f32>, n: usize) -> Self {
+        Self {
+            direction: Direction::Farthest,
+            ..Self::nearest(vector, n)
+        }
+    }
+
+    pub fn excluding(mut self, ids: impl IntoIterator<Item = i64>) -> Self {
+        self.exclude.extend(ids);
+        self
+    }
+}
+
 pub struct TopN {
-    exclude: i64,
+    exclude: HashSet<i64>,
+    sign: f32,
     seed: Box<[f32]>,
     seed_norm: f32,
     mean: Box<[f32]>,
@@ -85,29 +123,37 @@ pub struct TopN {
 }
 
 impl TopN {
-    pub fn new(seed_id: i64, seed: &[f32], mean: &[f32], n: usize) -> Self {
-        let seed: Box<[f32]> = seed.iter().zip(mean).map(|(s, m)| s - m).collect();
+    pub fn new(query: Query, mean: &[f32]) -> Self {
+        let seed: Box<[f32]> = if query.vector.len() == mean.len() {
+            query.vector.iter().zip(mean).map(|(s, m)| s - m).collect()
+        } else {
+            Box::default()
+        };
         let seed_norm = seed.iter().map(|v| v * v).sum::<f32>().sqrt();
         Self {
-            exclude: seed_id,
+            exclude: query.exclude,
+            sign: match query.direction {
+                Direction::Nearest => 1.0,
+                Direction::Farthest => -1.0,
+            },
             seed,
             seed_norm,
             mean: mean.into(),
-            n,
-            heap: BinaryHeap::with_capacity(n + 1),
+            n: query.n,
+            heap: BinaryHeap::with_capacity(query.n + 1),
         }
     }
 
     pub fn feed(&mut self, ids: &[i64], vectors: &[f32]) {
-        if self.n == 0 {
+        if self.n == 0 || self.seed.is_empty() {
             return;
         }
         for (&id, row) in ids.iter().zip(vectors.chunks_exact(self.seed.len())) {
-            if id == self.exclude {
+            if self.exclude.contains(&id) {
                 continue;
             }
             let candidate = Scored {
-                score: centered_cosine(row, &self.seed, self.seed_norm, &self.mean),
+                score: self.sign * centered_cosine(row, &self.seed, self.seed_norm, &self.mean),
                 id,
             };
             if self.heap.len() < self.n {
@@ -124,10 +170,11 @@ impl TopN {
     }
 
     pub fn finish(self) -> Vec<(i64, f32)> {
+        let sign = self.sign;
         self.heap
             .into_sorted_vec()
             .into_iter()
-            .map(|Reverse(s)| (s.id, s.score))
+            .map(|Reverse(s)| (s.id, sign * s.score))
             .collect()
     }
 }
@@ -206,7 +253,10 @@ mod tests {
         expected.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         expected.truncate(25);
 
-        let mut top = TopN::new(seed_id, seed, &mean, 25);
+        let mut top = TopN::new(
+            Query::nearest(seed.to_vec(), 25).excluding([seed_id]),
+            &mean,
+        );
         for (id_chunk, vec_chunk) in ids.chunks(chunk).zip(vectors.chunks(chunk * dim)) {
             top.feed(id_chunk, vec_chunk);
         }
@@ -217,7 +267,7 @@ mod tests {
     fn centering_turns_a_shared_offset_into_contrast() {
         let mean = [10.0, 10.0];
         let seed = [11.0, 10.0];
-        let mut top = TopN::new(0, &seed, &mean, 2);
+        let mut top = TopN::new(Query::nearest(seed.to_vec(), 2), &mean);
         top.feed(&[1, 2], &[12.0, 10.0, 9.0, 10.0]);
         let found = top.finish();
         assert_eq!(found[0].0, 1);
@@ -229,14 +279,51 @@ mod tests {
     #[test]
     fn a_vector_at_the_mean_scores_zero_instead_of_nan() {
         let mean = [1.0, 2.0];
-        let mut top = TopN::new(0, &[2.0, 2.0], &mean, 5);
+        let mut top = TopN::new(Query::nearest(vec![2.0, 2.0], 5), &mean);
         top.feed(&[7], &[1.0, 2.0]);
         assert_eq!(top.finish(), vec![(7, 0.0)]);
     }
 
     #[test]
+    fn farthest_ranks_the_opposite_direction_first_with_true_scores() {
+        let mean = [0.0, 0.0];
+        let mut top = TopN::new(Query::farthest(vec![1.0, 0.0], 2), &mean);
+        top.feed(&[1, 2, 3], &[1.0, 0.0, -1.0, 0.0, 0.0, 1.0]);
+        let found = top.finish();
+        assert_eq!(
+            found.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+        assert!((found[0].1 + 1.0).abs() < 1e-6);
+        assert!(found[1].1.abs() < 1e-6);
+    }
+
+    #[test]
+    fn every_excluded_id_is_skipped() {
+        let mean = [0.0, 0.0];
+        let mut top = TopN::new(Query::nearest(vec![1.0, 0.0], 5).excluding([1, 3]), &mean);
+        top.feed(&[1, 2, 3, 4], &[1.0, 0.0, 0.9, 0.1, 0.8, 0.2, 0.0, 1.0]);
+        let ids: Vec<i64> = top.finish().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec![2, 4]);
+    }
+
+    #[test]
+    fn a_query_of_another_width_than_the_mean_finds_nothing() {
+        let mut top = TopN::new(Query::nearest(vec![1.0, 0.0, 0.0], 5), &[0.0, 0.0]);
+        top.feed(&[1, 2, 3], &[1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+        assert!(top.finish().is_empty());
+    }
+
+    #[test]
+    fn an_empty_query_vector_finds_nothing() {
+        let mut top = TopN::new(Query::nearest(Vec::new(), 5), &[]);
+        top.feed(&[1], &[1.0]);
+        assert!(top.finish().is_empty());
+    }
+
+    #[test]
     fn asking_for_nothing_returns_nothing() {
-        let mut top = TopN::new(0, &[1.0], &[0.0], 0);
+        let mut top = TopN::new(Query::nearest(vec![1.0], 0), &[0.0]);
         top.feed(&[1], &[1.0]);
         assert!(top.finish().is_empty());
     }

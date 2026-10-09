@@ -4,8 +4,9 @@ use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
     CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
-    PendingLove, PendingPlay, PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong,
-    RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
+    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
+    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track,
+    TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -197,6 +198,8 @@ pub trait LibraryRepository: Send + Sync {
     fn play_tallies(&self, since: Option<u64>) -> Result<Vec<PlayTally>>;
     fn recent_plays(&self, limit: usize) -> Result<Vec<RecentPlay>>;
     fn track_listings(&self) -> Result<Vec<TrackListing>>;
+    fn play_stats(&self, track_ids: &[i64]) -> Result<HashMap<i64, PlayStats>>;
+    fn same_artist_track_ids(&self, track_ids: &[i64]) -> Result<Vec<i64>>;
 
     fn embedding_candidates(&self, version: &str) -> Result<Vec<Track>>;
     fn save_embeddings(&self, version: &str, vectors: &[(i64, Vec<f32>)]) -> Result<usize>;

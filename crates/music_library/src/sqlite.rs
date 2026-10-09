@@ -15,8 +15,9 @@ use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
     CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
-    PendingLove, PendingPlay, PlayTally, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong,
-    RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing,
+    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
+    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track,
+    TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -3253,6 +3254,50 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
+    fn play_stats(&self, track_ids: &[i64]) -> Result<HashMap<i64, PlayStats>> {
+        if track_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "WITH ids(id) AS (SELECT value FROM json_each(?1)) \
+             SELECT track_id, COUNT(*), MAX(started_at) FROM plays \
+             WHERE track_id IN (SELECT id FROM ids) GROUP BY track_id",
+        )?;
+        let rows = stmt.query_map([json_ids(track_ids)], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                PlayStats {
+                    plays: row.get::<_, i64>(1)? as u32,
+                    last_played: row.get::<_, Option<i64>>(2)?.map(|secs| secs as u64),
+                },
+            ))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn same_artist_track_ids(&self, track_ids: &[i64]) -> Result<Vec<i64>> {
+        if track_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "WITH ids(id) AS (SELECT value FROM json_each(?1)), \
+             firsts(artist_id) AS ( \
+                 SELECT (SELECT ta.artist_id FROM track_artists ta \
+                         WHERE ta.track_id = ids.id ORDER BY ta.position LIMIT 1) \
+                 FROM ids \
+             ) \
+             SELECT DISTINCT ta.track_id FROM track_artists ta \
+             WHERE ta.artist_id IN (SELECT artist_id FROM firsts WHERE artist_id IS NOT NULL) \
+             ORDER BY ta.track_id",
+        )?;
+        let rows = stmt.query_map([json_ids(track_ids)], |row| row.get::<_, i64>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
     fn embedding_candidates(&self, version: &str) -> Result<Vec<Track>> {
         let conn = self.embedding_conn.lock().unwrap();
         let sql = format!(
@@ -3325,8 +3370,10 @@ impl LibraryRepository for SqliteLibrary {
     ) -> Result<()> {
         let chunk = chunk.max(1);
         let conn = self.embedding_conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare_cached("SELECT item_id, vector FROM track_embeddings WHERE version = ?1")?;
+        let mut stmt = conn.prepare_cached(
+            "SELECT e.item_id, e.vector FROM track_embeddings e \
+             JOIN tracks t ON t.id = e.item_id WHERE e.version = ?1",
+        )?;
         let mut rows = stmt.query([version])?;
         let mut ids = Vec::with_capacity(chunk);
         let mut vectors = Vec::new();

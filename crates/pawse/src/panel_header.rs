@@ -11,8 +11,8 @@ use gpui_component::{h_flex, tooltip::Tooltip};
 use crate::theme_colors::Colors;
 
 const HEADER_HEIGHT: f32 = 40.;
-const BUTTON_SIZE: f32 = 28.;
-const ICON_SIZE: f32 = 16.;
+pub(crate) const BUTTON_SIZE: f32 = 28.;
+pub(crate) const ICON_SIZE: f32 = 16.;
 
 pub fn panel_header(title: SharedString, actions: Div, cx: &App) -> Div {
     h_flex()

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use music_library::Track;
@@ -39,6 +40,19 @@ pub struct PlaybackQueue {
     repeat: RepeatMode,
     source: QueueSource,
     custom: bool,
+    mixed: HashSet<i64>,
+}
+
+pub struct MixPlan {
+    pub basis: Vec<i64>,
+    pub keep: Vec<i64>,
+    pub anchors: usize,
+    pub snapshot: MixSnapshot,
+}
+
+pub struct MixSnapshot {
+    ids: Vec<i64>,
+    current: Option<usize>,
 }
 
 pub struct QueueRestore {
@@ -85,6 +99,7 @@ impl PlaybackQueue {
             repeat: RepeatMode::Off,
             source: QueueSource::Unknown,
             custom: false,
+            mixed: HashSet::new(),
         }
     }
 
@@ -98,6 +113,7 @@ impl PlaybackQueue {
         self.current_index = None;
         self.source = source;
         self.custom = false;
+        self.mixed.clear();
         if self.shuffle {
             self.apply_shuffle();
         }
@@ -121,6 +137,7 @@ impl PlaybackQueue {
         self.original_order = None;
         self.source = source;
         self.custom = false;
+        self.mixed.clear();
         self.current_index = tracks
             .get(index)
             .filter(|track| track.available)
@@ -153,6 +170,7 @@ impl PlaybackQueue {
         let current_id = self.current_track().map(|t| t.id);
         self.tracks = playable(new_tracks);
         self.custom = false;
+        self.mixed.clear();
         self.current_index = current_id.and_then(|id| self.tracks.iter().position(|t| t.id == id));
         if self.shuffle {
             self.apply_shuffle();
@@ -259,9 +277,11 @@ impl PlaybackQueue {
     }
 
     pub fn current_track(&self) -> Option<&Track> {
-        self.current_index
-            .and_then(|i| self.tracks.get(i))
-            .map(|rc| rc.as_ref())
+        self.current_entry().map(|rc| rc.as_ref())
+    }
+
+    pub fn current_entry(&self) -> Option<&Rc<Track>> {
+        self.current_index.and_then(|i| self.tracks.get(i))
     }
 
     pub fn has_next(&self) -> bool {
@@ -342,6 +362,7 @@ impl PlaybackQueue {
         self.repeat = state.repeat;
         self.source = state.source;
         self.custom = state.custom;
+        self.mixed.clear();
     }
 
     pub fn set_track_liked(&mut self, track_id: i64, liked: bool) {
@@ -386,6 +407,7 @@ impl PlaybackQueue {
         }
         let removed = self.tracks.remove(index);
         self.custom = !self.tracks.is_empty();
+        self.mixed.remove(&removed.id);
         if let Some(ref mut original) = self.original_order
             && let Some(pos) = original.iter().position(|t| t.id == removed.id)
         {
@@ -433,6 +455,107 @@ impl PlaybackQueue {
                 cur
             });
         }
+    }
+
+    pub fn mix_plan(&self) -> MixPlan {
+        let start = self.current_index.unwrap_or(0);
+        let first_upcoming = self.current_index.map_or(0, |current| current + 1);
+        let mut plan = MixPlan {
+            basis: Vec::new(),
+            keep: Vec::new(),
+            anchors: 0,
+            snapshot: MixSnapshot {
+                ids: self.tracks.iter().map(|t| t.id).collect(),
+                current: self.current_index,
+            },
+        };
+        for (ix, track) in self.tracks.iter().enumerate() {
+            let mixed = self.mixed.contains(&track.id);
+            if mixed && ix >= first_upcoming {
+                continue;
+            }
+            plan.keep.push(track.id);
+            if !mixed {
+                plan.basis.push(track.id);
+            }
+            if ix >= start {
+                plan.anchors += 1;
+            }
+        }
+        plan
+    }
+
+    pub fn mix_in(
+        &mut self,
+        snapshot: &MixSnapshot,
+        picks: Vec<Rc<Track>>,
+        gaps: &[usize],
+    ) -> bool {
+        if self.current_index != snapshot.current
+            || !self
+                .tracks
+                .iter()
+                .map(|t| t.id)
+                .eq(snapshot.ids.iter().copied())
+        {
+            return false;
+        }
+        self.drop_upcoming_mixed();
+        let start = self.current_index.unwrap_or(0).min(self.tracks.len());
+        let anchors = self.tracks.split_off(start);
+        let mut picks = playable(picks).into_iter();
+        let mut after: HashMap<i64, Vec<Rc<Track>>> = HashMap::new();
+        for (ix, anchor) in anchors.into_iter().enumerate() {
+            let anchor_id = anchor.id;
+            self.tracks.push(anchor);
+            let block: Vec<Rc<Track>> = picks
+                .by_ref()
+                .take(gaps.get(ix).copied().unwrap_or(0))
+                .collect();
+            if block.is_empty() {
+                continue;
+            }
+            self.mixed.extend(block.iter().map(|t| t.id));
+            self.tracks.extend(block.iter().cloned());
+            if self.original_order.is_some() {
+                after.entry(anchor_id).or_default().extend(block);
+            }
+        }
+        if let Some(original) = self.original_order.take() {
+            let mut merged = Vec::with_capacity(self.tracks.len());
+            for track in original {
+                let id = track.id;
+                merged.push(track);
+                if let Some(block) = after.remove(&id) {
+                    merged.extend(block);
+                }
+            }
+            merged.extend(after.into_values().flatten());
+            self.original_order = Some(merged);
+        }
+        self.source = QueueSource::Unknown;
+        true
+    }
+
+    fn drop_upcoming_mixed(&mut self) {
+        if self.mixed.is_empty() {
+            return;
+        }
+        let first_upcoming = self.current_index.map_or(0, |current| current + 1);
+        let mut dropped = HashSet::new();
+        let mut ix = 0;
+        self.tracks.retain(|track| {
+            let keep = ix < first_upcoming || !self.mixed.contains(&track.id);
+            if !keep {
+                dropped.insert(track.id);
+            }
+            ix += 1;
+            keep
+        });
+        if let Some(original) = self.original_order.as_mut() {
+            original.retain(|track| !dropped.contains(&track.id));
+        }
+        self.mixed.retain(|id| !dropped.contains(id));
     }
 
     fn apply_shuffle(&mut self) {
@@ -1090,5 +1213,130 @@ mod tests {
         assert_eq!(q.len(), 4);
         let ids: Vec<i64> = q.tracks_vec().iter().map(|t| t.id).collect();
         assert_eq!(ids, vec![0, 1, 2, 1]);
+    }
+
+    fn ids(q: &PlaybackQueue) -> Vec<i64> {
+        q.tracks_vec().iter().map(|t| t.id).collect()
+    }
+
+    fn picks(ids: std::ops::Range<i64>) -> Vec<Rc<Track>> {
+        ids.map(|id| track(id, &format!("/mix/{id}"))).collect()
+    }
+
+    #[test]
+    fn mixing_inserts_after_the_current_and_every_upcoming_track() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=4).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 1, QueueSource::Playlist(9));
+        let plan = q.mix_plan();
+        assert_eq!(plan.anchors, 3);
+        assert_eq!(plan.basis, vec![1, 2, 3, 4]);
+
+        assert!(q.mix_in(&plan.snapshot, picks(100..106), &[1, 3, 2]));
+        assert_eq!(ids(&q), vec![1, 2, 100, 3, 101, 102, 103, 4, 104, 105]);
+        assert_eq!(q.current_index(), Some(1));
+        assert!(!q.is_custom());
+        assert_eq!(q.source(), QueueSource::Unknown);
+    }
+
+    #[test]
+    fn mixing_again_replaces_the_upcoming_mix_and_keeps_what_was_heard() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=3).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 0, QueueSource::Unknown);
+        let plan = q.mix_plan();
+        assert!(q.mix_in(&plan.snapshot, picks(100..103), &[1, 1, 1]));
+        assert_eq!(ids(&q), vec![1, 100, 2, 101, 3, 102]);
+        q.play_track_at(2);
+
+        let plan = q.mix_plan();
+        assert_eq!(plan.basis, vec![1, 2, 3]);
+        assert_eq!(plan.keep, vec![1, 100, 2, 3]);
+        assert_eq!(plan.anchors, 2);
+        assert!(q.mix_in(&plan.snapshot, picks(200..204), &[2, 2]));
+        assert_eq!(ids(&q), vec![1, 100, 2, 200, 201, 3, 202, 203]);
+        assert_eq!(q.current_index(), Some(2));
+    }
+
+    #[test]
+    fn a_short_mix_fills_the_first_gaps_only() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=3).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 0, QueueSource::Unknown);
+        let plan = q.mix_plan();
+        assert!(q.mix_in(&plan.snapshot, picks(100..103), &[2, 2, 2]));
+        assert_eq!(ids(&q), vec![1, 100, 101, 2, 102, 3]);
+    }
+
+    #[test]
+    fn a_stale_plan_changes_nothing() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=3).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 0, QueueSource::Unknown);
+        let plan = q.mix_plan();
+        q.remove_track_at(2);
+        assert!(!q.mix_in(&plan.snapshot, picks(100..103), &[1, 1, 1]));
+        assert_eq!(ids(&q), vec![1, 2]);
+
+        let plan = q.mix_plan();
+        q.next_track();
+        assert!(!q.mix_in(&plan.snapshot, picks(100..103), &[1, 1]));
+        assert_eq!(ids(&q), vec![1, 2]);
+    }
+
+    #[test]
+    fn mixing_a_hand_built_queue_keeps_it_protected() {
+        let mut q = PlaybackQueue::new();
+        q.append_tracks(vec![track(1, "/1"), track(2, "/2")], false);
+        q.play_track_at(0);
+        let plan = q.mix_plan();
+        assert!(q.mix_in(&plan.snapshot, picks(100..102), &[1, 1]));
+        assert!(q.is_custom());
+    }
+
+    #[test]
+    fn mixed_tracks_follow_their_anchor_when_shuffle_is_turned_off() {
+        let mut q = PlaybackQueue::new();
+        q.set_shuffle(true);
+        let list = (1..=5).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 0, QueueSource::Unknown);
+        let plan = q.mix_plan();
+        assert!(q.mix_in(&plan.snapshot, picks(100..105), &[1, 1, 1, 1, 1]));
+        let shuffled = ids(&q);
+        for pair in shuffled.chunks(2) {
+            assert!(pair[0] < 100 && pair[1] >= 100);
+        }
+
+        q.set_shuffle(false);
+        let anchor_of = |mixed: i64| {
+            let pos = shuffled.iter().position(|&id| id == mixed).unwrap();
+            shuffled[pos - 1]
+        };
+        let restored = ids(&q);
+        assert_eq!(restored.len(), 10);
+        for pair in restored.chunks(2) {
+            assert_eq!(anchor_of(pair[1]), pair[0]);
+        }
+        assert_eq!(
+            restored
+                .iter()
+                .copied()
+                .filter(|id| *id < 100)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn a_new_queue_forgets_what_was_mixed_in() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=2).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 0, QueueSource::Unknown);
+        let plan = q.mix_plan();
+        assert!(q.mix_in(&plan.snapshot, picks(100..102), &[1, 1]));
+
+        let mixed_queue: Vec<Rc<Track>> = q.tracks_vec();
+        q.set_tracks_and_play_at(mixed_queue, 0, QueueSource::Unknown);
+        assert_eq!(q.mix_plan().basis, vec![1, 100, 2, 101]);
     }
 }

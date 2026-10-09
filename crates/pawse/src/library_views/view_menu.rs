@@ -29,8 +29,8 @@ pub enum ViewMenuTab {
 }
 
 pub const TRIGGER_SIZE: f32 = 36.;
-const MENU_WIDTH: f32 = 264.;
-const ROW_HEIGHT: f32 = 30.;
+pub(crate) const MENU_WIDTH: f32 = 264.;
+pub(crate) const ROW_HEIGHT: f32 = 30.;
 
 pub fn view_menu(tab: ViewMenuTab, scale: f32) -> impl IntoElement {
     Popover::new("library-view-menu")
@@ -53,41 +53,51 @@ pub fn view_menu(tab: ViewMenuTab, scale: f32) -> impl IntoElement {
         .content(move |_, _, cx| menu(tab, scale, cx))
 }
 
-fn save(cx: &mut App, write: impl FnOnce(&mut SettingsStore) -> anyhow::Result<()>) {
+pub(crate) fn save(cx: &mut App, write: impl FnOnce(&mut SettingsStore) -> anyhow::Result<()>) {
     if let Err(e) = write(cx.global_mut::<SettingsStore>()) {
         notify_save_error(cx, e);
     }
 }
 
 #[derive(Clone, Copy)]
-struct MenuColors {
-    foreground: Hsla,
-    muted_fg: Hsla,
-    hover: Hsla,
-    border: Hsla,
-    chip_on: Hsla,
+pub(crate) struct MenuColors {
+    pub(crate) foreground: Hsla,
+    pub(crate) muted_fg: Hsla,
+    pub(crate) hover: Hsla,
+    pub(crate) border: Hsla,
+    pub(crate) chip_on: Hsla,
 }
 
-fn menu(tab: ViewMenuTab, scale: f32, cx: &App) -> impl IntoElement + use<> {
-    let settings = cx.global::<SettingsStore>();
-    let colors = MenuColors {
-        foreground: Colors::foreground(cx),
-        muted_fg: Colors::muted_foreground(cx),
-        hover: Colors::muted(cx),
-        border: Colors::border(cx),
-        chip_on: Colors::secondary(cx),
-    };
-    let content = v_flex()
-        .id("library-view-menu-content")
+impl MenuColors {
+    pub(crate) fn from_cx(cx: &App) -> Self {
+        Self {
+            foreground: Colors::foreground(cx),
+            muted_fg: Colors::muted_foreground(cx),
+            hover: Colors::muted(cx),
+            border: Colors::border(cx),
+            chip_on: Colors::secondary(cx),
+        }
+    }
+}
+
+pub(crate) fn menu_surface(id: &'static str, scale: f32, cx: &App) -> Stateful<Div> {
+    v_flex()
+        .id(id)
         .w(px(MENU_WIDTH * scale))
         .p_1p5()
         .gap_0p5()
         .bg(popover_bg(Colors::popover(cx), veil_factor(cx)))
         .border_1()
-        .border_color(colors.border)
+        .border_color(Colors::border(cx))
         .rounded(px(8.))
         .shadow_md()
-        .occlude();
+        .occlude()
+}
+
+fn menu(tab: ViewMenuTab, scale: f32, cx: &App) -> impl IntoElement + use<> {
+    let settings = cx.global::<SettingsStore>();
+    let colors = MenuColors::from_cx(cx);
+    let content = menu_surface("library-view-menu-content", scale, cx);
     match tab {
         ViewMenuTab::Albums => albums_menu(content, settings, colors),
         ViewMenuTab::Artists => artists_menu(content, settings, colors),
@@ -357,7 +367,7 @@ fn genre_sort_row(
     })
 }
 
-fn section_label(label: SharedString, colors: MenuColors) -> impl IntoElement {
+pub(crate) fn section_label(label: SharedString, colors: MenuColors) -> impl IntoElement {
     div()
         .px_2p5()
         .pt_2()
@@ -368,7 +378,7 @@ fn section_label(label: SharedString, colors: MenuColors) -> impl IntoElement {
         .child(label)
 }
 
-fn separator(colors: MenuColors) -> impl IntoElement {
+pub(crate) fn separator(colors: MenuColors) -> impl IntoElement {
     div().mx_1().my_1().h(px(1.)).bg(colors.border)
 }
 

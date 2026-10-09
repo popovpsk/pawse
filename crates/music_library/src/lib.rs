@@ -14,8 +14,8 @@ pub use error::{LibraryError, Result};
 pub use genres::normalize_genres;
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow, ArtistSummary,
-    ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack, PlayTally, Playlist,
-    PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
+    ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack, PlayStats, PlayTally,
+    Playlist, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
     ScanLyrics, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
@@ -5083,6 +5083,84 @@ mod tests {
     }
 
     #[test]
+    fn play_stats_count_plays_of_the_asked_tracks_only() {
+        let (lib, _path) = create_test_db();
+        let a = lib.upsert_artist("A").unwrap();
+        let track = |path: &str| {
+            lib.upsert_track(
+                &NewTrack {
+                    path: path.into(),
+                    title: Some(path.into()),
+                    artist_names: vec!["A".into()],
+                    ..Default::default()
+                },
+                None,
+                &[(a, 0)],
+            )
+            .unwrap()
+        };
+        let (twice, once, never, other) = (track("/1"), track("/2"), track("/3"), track("/4"));
+        for (id, at) in [(twice, 100), (twice, 300), (once, 200), (other, 400)] {
+            lib.record_play(
+                &models::NewPlay {
+                    track_id: Some(id),
+                    ..a_play_at(true, at)
+                },
+                &[],
+            )
+            .unwrap();
+        }
+
+        let stats = lib.play_stats(&[twice, once, never]).unwrap();
+        assert_eq!(
+            stats[&twice],
+            PlayStats {
+                plays: 2,
+                last_played: Some(300)
+            }
+        );
+        assert_eq!(stats[&once].plays, 1);
+        assert!(!stats.contains_key(&never));
+        assert!(!stats.contains_key(&other));
+        assert!(lib.play_stats(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn same_artist_track_ids_follow_the_first_artist_into_any_credit() {
+        let (lib, _path) = create_test_db();
+        let a = lib.upsert_artist("A").unwrap();
+        let b = lib.upsert_artist("B").unwrap();
+        let c = lib.upsert_artist("C").unwrap();
+        let track = |path: &str, artists: &[(i64, i32)]| {
+            lib.upsert_track(
+                &NewTrack {
+                    path: path.into(),
+                    title: Some(path.into()),
+                    ..Default::default()
+                },
+                None,
+                artists,
+            )
+            .unwrap()
+        };
+        let seed = track("/seed", &[(a, 0), (b, 1)]);
+        let a_alone = track("/a", &[(a, 0)]);
+        let a_guest = track("/c-feat-a", &[(c, 0), (a, 1)]);
+        let b_alone = track("/b", &[(b, 0)]);
+        let untagged = track("/none", &[]);
+
+        assert_eq!(
+            lib.same_artist_track_ids(&[seed]).unwrap(),
+            vec![seed, a_alone, a_guest]
+        );
+        assert_eq!(
+            lib.same_artist_track_ids(&[b_alone, untagged]).unwrap(),
+            vec![seed, b_alone]
+        );
+        assert!(lib.same_artist_track_ids(&[]).unwrap().is_empty());
+    }
+
+    #[test]
     fn a_play_is_recorded_even_with_no_target_configured() {
         let (lib, path) = create_test_db();
         lib.record_play(&a_play(true), &[]).unwrap();
@@ -5879,6 +5957,25 @@ mod tests {
         seen.sort_by_key(|(id, _)| *id);
         assert_eq!(seen, rows);
         assert!(scanned(&lib, "missing", 2).is_empty());
+    }
+
+    #[test]
+    fn the_scan_skips_vectors_of_items_outside_the_catalog() {
+        let (lib, path) = create_test_db();
+        let kept = seed_track(&lib, "Kept", "Album", "Artist");
+        let lost = seed_track(&lib, "Lost", "Album", "Artist");
+        lib.save_embeddings(VERSION, &[(kept, floats(1.0, 3)), (lost, floats(2.0, 3))])
+            .unwrap();
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute("DELETE FROM tracks WHERE id = ?1", [lost])
+            .unwrap();
+
+        let calls = scanned(&lib, VERSION, 8);
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, vec![kept]);
+        assert_eq!(lib.embedding(lost, VERSION).unwrap(), Some(floats(2.0, 3)));
     }
 
     #[test]

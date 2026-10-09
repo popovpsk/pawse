@@ -111,10 +111,18 @@ full f32). A query streams them in `SCAN_CHUNK` (1024) rows — a ~5 MB buffer f
 library size:
 
 - `MeanAccumulator` — the library mean as a streamed sum (f64).
-- `TopN::new(seed_id, seed, mean, n)` / `feed(ids, vectors)` / `finish()` — cosine of
-  `x − mean` and `seed − mean`, row norms on the fly, the best `n` in a min-heap, the
-  seed itself skipped by id, ties broken by the lower id. The result, best first, is
-  exactly what sorting every cosine would give.
+- `Query` — what to look for: any vector (a track's, or the mean of a queue), `n`,
+  `Direction::Nearest` or `Farthest`, and a set of ids to skip (`excluding`). It knows
+  only ids and vectors; who to skip and why (the seed, an artist's tracks) is the
+  caller's business.
+- `TopN::new(query, mean)` / `feed(ids, vectors)` / `finish()` — cosine of
+  `x − mean` and `query − mean`, row norms on the fly, the best `n` in a min-heap
+  (for `Farthest` the cosine is negated inside the heap and restored in the result),
+  excluded ids skipped, ties broken by the lower id. The result, best first, is
+  exactly what sorting every cosine would give. A query vector that is empty or not
+  as long as the mean finds nothing, rather than reading the rows at a wrong stride.
+  Several `TopN`s can be fed from the same chunks, so one pass answers several
+  queries.
 - Centering is mandatory: raw vectors put almost every pair at 0.7–0.99; centred
   medians in the PoC were 0.58 same album, 0.50 same artist, −0.05 unrelated.
 - A vector equal to the mean scores 0, not NaN.

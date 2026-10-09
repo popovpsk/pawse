@@ -11,6 +11,7 @@ use music_library::Track;
 use serde::{Deserialize, Serialize};
 
 use crate::localization::tr;
+use crate::similar_tracks::Familiarity;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum ThemeChoice {
@@ -520,6 +521,8 @@ pub struct UserSettings {
     pub tag_editor_enabled: bool,
     #[serde(default)]
     pub similar_tracks_enabled: bool,
+    #[serde(default)]
+    pub similar_familiarity: Familiarity,
     #[serde(default = "default_true")]
     pub albums_show_year: bool,
     #[serde(default = "default_true")]
@@ -633,6 +636,7 @@ impl Default for UserSettings {
             queue_deduplication: false,
             tag_editor_enabled: false,
             similar_tracks_enabled: false,
+            similar_familiarity: Familiarity::default(),
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
@@ -1523,6 +1527,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn similar_familiarity(&self) -> Familiarity {
+        self.settings.similar_familiarity
+    }
+
+    pub fn set_similar_familiarity(&mut self, familiarity: Familiarity) -> anyhow::Result<()> {
+        self.settings.similar_familiarity = familiarity;
+        self.save()
+    }
+
     pub fn albums_show_year(&self) -> bool {
         self.settings.albums_show_year
     }
@@ -2000,6 +2013,7 @@ mod tests {
             queue_deduplication: false,
             tag_editor_enabled: false,
             similar_tracks_enabled: false,
+            similar_familiarity: Familiarity::New,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
@@ -2052,6 +2066,7 @@ mod tests {
         assert_eq!(back.now_playing_details, NowPlayingDetails::Album);
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
         assert_eq!(back.albums_layout, LibraryLayout::Grid);
+        assert_eq!(back.similar_familiarity, Familiarity::New);
         assert!(!back.albums_show_artist);
         assert_eq!(back.albums_sort, AlbumsSort::Year);
         assert!(back.albums_sort_desc);

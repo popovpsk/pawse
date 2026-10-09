@@ -503,6 +503,15 @@ through three queries on the main connection, used by `pawse::tools::ai_prompt`:
   album artist, year, like flag and play stats joined on `plays.track_id`
   (the item id). Plays of tracks that left the catalog are only visible through
   `play_tallies`.
+- `play_stats(ids)` — the same play count and last play, but only for the given
+  item ids (`idx_plays_track`); ids never played are absent from the map. Used by
+  `pawse::similar_tracks` for its candidate pool, so it does not load the whole
+  catalog the way `track_listings` does.
+
+`same_artist_track_ids(ids)` — every track credited, in any position, to the
+first artist (lowest `track_artists.position`) of one of the given tracks, the
+given tracks included; tracks without `track_artists` rows add nothing. Used by
+`pawse::similar_tracks` to keep an artist's own tracks out of one of its queries.
 
 ## Sound vectors (`track_embeddings`)
 
@@ -539,8 +548,12 @@ Methods:
   an `INSERT … SELECT … FROM media_items`, so it cannot fail the batch on the foreign
   key; the return value counts the rows written.
 - `embedding(item_id, version)` — one vector.
-- `scan_embeddings(version, chunk, f)` — every vector of `version` in chunks of
-  `chunk` rows, handed to `f` as reused buffers (ids + a flat `chunk × dim` matrix);
+- `scan_embeddings(version, chunk, f)` — every vector of `version` whose item is in
+  the catalog (`JOIN tracks`) in chunks of `chunk` rows, handed to `f` as reused
+  buffers (ids + a flat `chunk × dim` matrix). Vectors of items that dropped out of
+  the catalog (an offline folder or server, a lost file) stay in the table for when
+  they come back, but a query never sees them: they would only take places in a
+  fixed-size top-N that nothing can play;
   the BLOB is read through `get_ref` without a `Vec` per row. Rows whose length
   differs from the first one are skipped with a warning. `f` runs while the embedding
   connection is locked: it must not call back into the embedding methods.
