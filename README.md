@@ -33,22 +33,22 @@ macOS · Windows · Linux
   </tr>
 </table>
 
-## Features
+## Highlights
 
-- **Bit-perfect playback** — sample-rate / bit-depth matching with a live bit-perfect status indicator, plus an untouched signal path on every platform: **exclusive output** on Windows and macOS, and **native sample rate** on Linux.
-- **Modern, fluid, customizable UI** — a clean, easy-to-use interface that stays smooth at 120+ fps, and strips down to your taste: hide the controls, labels and columns you never use, element by element.
-- **Themes & languages** — 20+ built-in themes and 20 UI languages, with an option for any theme to follow the cover art.
-- **Wide format support** — FLAC, ALAC, MP3, WAV, OGG, DSD (DSF/DFF, decoded to PCM), and more.
-- **Media servers** — play from Subsonic/Navidrome, Jellyfin and DLNA/UPnP servers, or straight from a torrent, mixed into one library with your local files.
-- **CUE sheets** — single-file albums are split into individual tracks automatically.
-- **Instant fuzzy search** — find any album, artist or track as you type.
-- **Tag editor** *(beta)* — edit tags in your files, per track or album.
-- **Lyrics** — time-synced lyrics from your files or fetched online.
-- **Remote control** — control playback from any device on your network through a built-in HTTP web view.
-- **System media integration** — control playback from your OS media controls and hardware media keys.
-- **Scrobbling** — Last.fm, Libre.fm, ListenBrainz (including a custom server) and a local CSV log, all at once, each enabled and configured on its own, with preset and custom rewrite rules. Import loved tracks from a service into Liked, or optionally sync your likes back to it.
-- **Discord** — show what you're listening to as your Discord status.
-- **The little things** — click-free fades on pause and seek, artist grouping by album artist (with per-track fallback), keyboard shortcuts, a blurred cover backdrop, and queue de-duplication — small comforts that add up to a player you actually want to live in.
+- **Bit-perfect playback** — **exclusive output** on Windows and macOS, **native sample rate** on Linux, with automatic sample-rate / bit-depth matching and a live bit-perfect indicator.
+- **Fluid, minimal UI** — smooth at 120+ fps, 20+ themes plus an adaptive one that follows the cover art, 20 UI languages; hide any control, label or column you never use.
+- **One library, many sources** — local files, Subsonic/Navidrome, Jellyfin, DLNA/UPnP servers and torrents, mixed into one library.
+- **Cast anywhere** — AirPlay 1 & 2, Chromecast and DLNA renderers; switch outputs mid-track without losing your place.
+- **Remote control** — a built-in web remote for any phone or browser on your network: player, queue and full library browsing.
+- **Scrobbling** — Last.fm, Libre.fm, ListenBrainz and a local CSV log, all at once, with rewrite rules and loved-track sync.
+
+## Everything you'd expect
+
+- **Formats** — FLAC, ALAC, AAC, MP3, WAV, Ogg Vorbis, Opus, APE, DSD (DSF/DFF) and more; CUE sheets split into tracks; gapless playback and click-free fades.
+- **Lyrics** — time-synced, with karaoke highlighting, from your files, LRCLIB or your media server.
+- **Tag editor** — per track or per album.
+- **System integration** — OS media controls, media keys, keyboard shortcuts, Discord status.
+- **Sleep timer** and **automatic updates**.
 
 ## Download
 
