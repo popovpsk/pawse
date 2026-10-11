@@ -54,8 +54,9 @@ files.
   are gone.
   Sort hints follow each language's alphabet where it has its own (`А–Я`, `A–Ö`).
 - `i18n/similar.rs` — `SimilarStrings` (`similar_strings()`): the similar-music menu
-  in the queue panel (radio, mix, the familiar / any / new switch) and its
-  notifications. Kept separate the same way.
+  in the queue panel (radio, mix, the familiar / any / new switch), its
+  notifications, and the Indexing dialog in Settings (its `about` note,
+  `analysed(done, total)`, `failed_count(n)`, `unreachable(n)`). Kept separate the same way.
 - `i18n/artist_card.rs` — `ArtistCardStrings` (`artist_card_strings_for(lang)`:
   the card is built for the language its load started in): the artist page's
   info block — `since(year)` / `born(year)` for the years line (a finished span

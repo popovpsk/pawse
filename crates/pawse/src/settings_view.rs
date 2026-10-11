@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use gpui::{
     Anchor, App, ClipboardItem, Entity, ParentElement, SharedString, Styled, Window, actions, div,
-    px,
+    prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
@@ -26,7 +26,7 @@ use crate::settings_store::{
     notify_save_error,
 };
 use crate::theme_colors::Colors;
-use ui_resources::i18n::{active, artist_card_strings_for, cast_strings};
+use ui_resources::i18n::{active, artist_card_strings_for, cast_strings, similar_strings};
 
 actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
 
@@ -712,19 +712,33 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
             tr().similar_tracks.clone(),
             SettingField::render(|_window, cx: &mut App| {
                 let enabled = cx.global::<SettingsStore>().similar_tracks_enabled();
-                h_flex().items_center().justify_end().child(
-                    Switch::new("similar-tracks-toggle")
-                        .checked(enabled)
-                        .on_click(|new_val, _, cx| {
-                            if let Err(e) = cx
-                                .global_mut::<SettingsStore>()
-                                .set_similar_tracks_enabled(*new_val)
-                            {
-                                notify_save_error(cx, e);
-                            }
-                            crate::similar_tracks::set_enabled(*new_val, cx);
-                        }),
-                )
+                h_flex()
+                    .items_center()
+                    .justify_end()
+                    .gap_2()
+                    .when(crate::similar_tracks::is_running(cx), |row| {
+                        row.child(
+                            Button::new("similar-tracks-indexing")
+                                .small()
+                                .label(similar_strings().indexing.clone())
+                                .on_click(|_, window, cx| {
+                                    crate::similar_tracks::open_indexing(window, cx)
+                                }),
+                        )
+                    })
+                    .child(
+                        Switch::new("similar-tracks-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_similar_tracks_enabled(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                                crate::similar_tracks::set_enabled(*new_val, cx);
+                            }),
+                    )
             }),
         )
         .description(tr().similar_tracks_desc.clone()),

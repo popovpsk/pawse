@@ -204,6 +204,7 @@ pub trait LibraryRepository: Send + Sync {
     fn embedding_candidates(&self, version: &str) -> Result<Vec<Track>>;
     fn save_embeddings(&self, version: &str, vectors: &[(i64, Vec<f32>)]) -> Result<usize>;
     fn embedding(&self, item_id: i64, version: &str) -> Result<Option<Vec<f32>>>;
+    fn embedding_coverage(&self, version: &str) -> Result<(usize, usize)>;
     fn scan_embeddings(
         &self,
         version: &str,

@@ -703,11 +703,13 @@ name = "audio_embedding"
 version = "1.0.0"
 dependencies = [
  "audio_common",
+ "audio_decoder",
  "log",
  "realfft",
  "rstest",
  "sha2 0.10.9",
  "thiserror 2.0.19",
+ "tract-metal",
  "tract-onnx",
  "ureq",
 ]
@@ -10145,6 +10147,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tract-gpu"
+version = "0.23.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ea1826853bff7c830577fcd9df856624c6e9ae94159d6e47d6beacdfd5bf9ab"
+dependencies = [
+ "anyhow",
+ "derive-new",
+ "downcast-rs 2.0.2",
+ "dyn-hash",
+ "num-traits",
+ "tract-core",
+ "tract-pulse-opl",
+ "tract-transformers",
+]
+
+[[package]]
 name = "tract-hir"
 version = "0.23.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10177,6 +10195,26 @@ dependencies = [
  "pastey 0.2.3",
  "tract-data",
  "walkdir",
+]
+
+[[package]]
+name = "tract-metal"
+version = "0.23.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25b13c6becd29d2d87d66c8066eee1c6ba80e3d9fd8d54473674162822c53801"
+dependencies = [
+ "anyhow",
+ "derive-new",
+ "downcast-rs 2.0.2",
+ "inventory",
+ "log",
+ "metal",
+ "num-traits",
+ "objc",
+ "tract-core",
+ "tract-gpu",
+ "tract-pulse-opl",
+ "tract-transformers",
 ]
 
 [[package]]
@@ -10233,6 +10271,28 @@ dependencies = [
  "rand_distr",
  "rustfft",
  "tract-extra",
+ "tract-nnef",
+]
+
+[[package]]
+name = "tract-pulse-opl"
+version = "0.23.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17fb7c893409929cffc5fa72d09ff9d035c33b7ac98481c5e7fded58322e4f30"
+dependencies = [
+ "downcast-rs 2.0.2",
+ "lazy_static",
+ "tract-nnef",
+]
+
+[[package]]
+name = "tract-transformers"
+version = "0.23.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4eefbb8d21ab36b48185fc86a3e861b3b62e6dcfd97c3cc13b0dd34389b60916"
+dependencies = [
+ "float-ord",
+ "rayon",
  "tract-nnef",
 ]
 

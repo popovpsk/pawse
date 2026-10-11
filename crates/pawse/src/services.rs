@@ -324,14 +324,27 @@ fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
 fn advance_on_track_end(cx: &mut App) {
     let stop = crate::sleep_timer::stop_at_track_end(cx);
     let services = cx.global::<Services>();
+    let last = services
+        .playback_queue
+        .borrow()
+        .current_track()
+        .map(|t| t.id);
     let next = services.playback_queue.borrow_mut().next_track().cloned();
-    if let Some(track) = next {
-        if stop {
-            services.load_track(&track);
-        } else {
-            services.play_track_gapless(&track);
+    match next {
+        Some(track) => {
+            if stop {
+                services.load_track(&track);
+            } else {
+                services.play_track_gapless(&track);
+            }
+            save_playback(cx);
         }
-        save_playback(cx);
+        None if !stop => {
+            if let Some(last) = last {
+                crate::similar_tracks::continue_ended_queue(last, cx);
+            }
+        }
+        None => {}
     }
 }
 

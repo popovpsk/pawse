@@ -1,8 +1,10 @@
 mod analyzer;
+mod backend;
 mod decode;
 mod frontend;
 pub mod model_file;
 pub mod similarity;
+mod windows;
 
 #[cfg(test)]
 mod oracle_tests;
@@ -12,6 +14,7 @@ use std::time::Duration;
 use audio_common::AudioSource;
 
 pub use analyzer::Analyzer;
+pub use backend::Backend;
 
 pub const EMBEDDING_VERSION: &str = "effnet-multi-1:65cfde30:fe1:spread32";
 pub const DIM: usize = 1280;
@@ -66,6 +69,9 @@ impl Prepared {
 
 pub fn prepare(job: Job) -> Result<Prepared, EmbedError> {
     let Job { mut source, range } = job;
+    if let Some(prepared) = windows::prepare(source.as_mut(), range)? {
+        return Ok(prepared);
+    }
     let rate = source.params().sample_rate;
     let frontend = frontend::MelFrontend::new();
     let mut resampler = frontend::Resampler::new(rate);

@@ -12,10 +12,10 @@ use symphonia::core::codecs::audio::well_known::{
     CODEC_ID_PCM_S16BE, CODEC_ID_PCM_S16LE, CODEC_ID_PCM_S24BE, CODEC_ID_PCM_S24LE,
     CODEC_ID_PCM_S32LE, CODEC_ID_VORBIS,
 };
-use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoderOptions};
+use symphonia::core::codecs::audio::{AudioCodecId, AudioCodecParameters, AudioDecoderOptions};
 use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::formats::probe::Hint;
-use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::formats::{FormatOptions, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::packet::Packet;
@@ -262,6 +262,7 @@ struct SymphoniaDecoder {
     track_id: u32,
     codec_params: AudioCodecParameters,
     duration: Option<Duration>,
+    exact_frames: Option<u64>,
     start_time: Option<Time>,
     opus: bool,
     gain: Option<f32>,
@@ -288,7 +289,7 @@ impl SymphoniaDecoder {
             hint.with_extension(ext);
         }
 
-        let format = symphonia::default::get_probe()
+        let mut format = symphonia::default::get_probe()
             .probe(
                 &hint,
                 mss,
@@ -322,6 +323,26 @@ impl SymphoniaDecoder {
             let secs = frames as f64 / sample_rate as f64;
             Duration::from_secs_f64(secs)
         });
+        let sample_exact = matches!(
+            codec_kind(codec_params.codec),
+            Codec::Flac | Codec::Alac | Codec::Pcm
+        ) && track.start_ts.get() == 0
+            && track
+                .time_base
+                .is_some_and(|tb| tb.numer.get() == 1 && tb.denom.get() == sample_rate);
+        let mut pending = None;
+        let exact_frames = if sample_exact && num_frames.is_some() {
+            match format.next_packet() {
+                Ok(Some(packet)) => {
+                    let starts_at_zero = packet.track_id == track_id && packet.pts.get() == 0;
+                    pending = Some(packet);
+                    num_frames.filter(|_| starts_at_zero)
+                }
+                Ok(None) | Err(_) => None,
+            }
+        } else {
+            None
+        };
 
         let decoder_opts = AudioDecoderOptions::default();
         let decoder = CODECS
@@ -341,10 +362,11 @@ impl SymphoniaDecoder {
             track_id,
             codec_params,
             duration,
+            exact_frames,
             start_time,
             opus,
             gain,
-            pending: None,
+            pending,
         })
     }
 
@@ -496,6 +518,35 @@ impl AudioSource for SymphoniaDecoder {
     fn duration(&self) -> Option<Duration> {
         self.duration
     }
+
+    fn exact_frames(&self) -> Option<u64> {
+        self.exact_frames
+    }
+
+    fn seek_frame(&mut self, frame: u64) -> Result<u64, AudioError> {
+        if self.exact_frames.is_none() {
+            return Err(AudioError::Decoder(
+                "this track cannot seek to an exact frame".to_string(),
+            ));
+        }
+        let ts = i64::try_from(frame)
+            .map(Timestamp::new)
+            .map_err(|_| AudioError::Decoder("Seek position out of range".to_string()))?;
+        let seeked = self
+            .format
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Timestamp {
+                    ts,
+                    track_id: self.track_id,
+                },
+            )
+            .map_err(|e| AudioError::Decoder(e.to_string()))?;
+        self.pending = None;
+        self.decoder.reset();
+        u64::try_from(seeked.actual_ts.get())
+            .map_err(|_| AudioError::Decoder("Seek landed before the start".to_string()))
+    }
 }
 
 // ============================================================================
@@ -597,20 +648,24 @@ impl Decoder {
 impl Decoder {
     pub fn codec(&self) -> Codec {
         match self {
-            Decoder::Symphonia(d) => match d.codec_params.codec {
-                CODEC_ID_MP3 => Codec::Mp3,
-                CODEC_ID_AAC => Codec::Aac,
-                CODEC_ID_ALAC => Codec::Alac,
-                CODEC_ID_FLAC => Codec::Flac,
-                CODEC_ID_VORBIS => Codec::Vorbis,
-                CODEC_ID_OPUS => Codec::Opus,
-                CODEC_ID_PCM_S16LE | CODEC_ID_PCM_S24LE | CODEC_ID_PCM_S32LE
-                | CODEC_ID_PCM_F32LE | CODEC_ID_PCM_S16BE | CODEC_ID_PCM_S24BE => Codec::Pcm,
-                _ => Codec::Other,
-            },
+            Decoder::Symphonia(d) => codec_kind(d.codec_params.codec),
             Decoder::Ape(_) => Codec::Ape,
             Decoder::Dsd(_) => Codec::Dsd,
         }
+    }
+}
+
+fn codec_kind(codec: AudioCodecId) -> Codec {
+    match codec {
+        CODEC_ID_MP3 => Codec::Mp3,
+        CODEC_ID_AAC => Codec::Aac,
+        CODEC_ID_ALAC => Codec::Alac,
+        CODEC_ID_FLAC => Codec::Flac,
+        CODEC_ID_VORBIS => Codec::Vorbis,
+        CODEC_ID_OPUS => Codec::Opus,
+        CODEC_ID_PCM_S16LE | CODEC_ID_PCM_S24LE | CODEC_ID_PCM_S32LE | CODEC_ID_PCM_F32LE
+        | CODEC_ID_PCM_S16BE | CODEC_ID_PCM_S24BE => Codec::Pcm,
+        _ => Codec::Other,
     }
 }
 
@@ -644,6 +699,21 @@ impl AudioSource for Decoder {
             Decoder::Symphonia(d) => d.duration(),
             Decoder::Ape(d) => d.duration(),
             Decoder::Dsd(d) => d.duration(),
+        }
+    }
+
+    fn exact_frames(&self) -> Option<u64> {
+        match self {
+            Decoder::Symphonia(d) => d.exact_frames(),
+            Decoder::Ape(_) | Decoder::Dsd(_) => None,
+        }
+    }
+
+    fn seek_frame(&mut self, frame: u64) -> Result<u64, AudioError> {
+        match self {
+            Decoder::Symphonia(d) => d.seek_frame(frame),
+            Decoder::Ape(d) => d.seek_frame(frame),
+            Decoder::Dsd(d) => d.seek_frame(frame),
         }
     }
 }

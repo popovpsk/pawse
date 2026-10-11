@@ -7,7 +7,7 @@ use crate::{Analyzer, DIM, EMBEDDING_VERSION, Job, prepare};
 
 const CHORD: [f64; 4] = [1.0, 1.25, 1.5, 1.335];
 
-fn signal(rate: u32, length: usize) -> Vec<f32> {
+pub(crate) fn signal(rate: u32, length: usize) -> Vec<f32> {
     let mut state: u32 = 0x1234_5678;
     (0..length)
         .map(|i| {
@@ -107,20 +107,37 @@ fn embedding_matches_essentia_and_onnx_runtime() {
 
 #[test]
 #[ignore = "needs PAWSE_EFFNET_MODEL"]
+fn the_model_runs_on_the_gpu_where_there_is_one() {
+    let analyzer = model();
+    if cfg!(target_os = "macos") {
+        assert_eq!(analyzer.backend(), crate::Backend::Metal);
+    } else {
+        assert_eq!(analyzer.backend(), crate::Backend::Cpu);
+    }
+}
+
+#[test]
+#[ignore = "needs PAWSE_EFFNET_MODEL"]
 fn a_track_embeds_the_same_alone_and_in_a_batch() {
     let analyzer = model();
     let jobs = || {
-        [75 * 16_000, 5 * 44_100, 3 * 22_050]
-            .into_iter()
-            .zip([16_000, 44_100, 22_050])
-            .map(|(len, rate)| {
-                prepare(Job {
-                    source: Box::new(FakeSource::mono(rate, signal(rate, len))),
-                    range: None,
-                })
-                .unwrap()
+        [
+            5 * 44_100,
+            75 * 16_000,
+            80 * 44_100,
+            90 * 22_050,
+            3 * 22_050,
+        ]
+        .into_iter()
+        .zip([44_100, 16_000, 44_100, 22_050, 22_050])
+        .map(|(len, rate)| {
+            prepare(Job {
+                source: Box::new(FakeSource::mono(rate, signal(rate, len))),
+                range: None,
             })
-            .collect::<Vec<_>>()
+            .unwrap()
+        })
+        .collect::<Vec<_>>()
     };
     let together = analyzer.embed(&jobs());
     for (ix, prepared) in jobs().into_iter().enumerate() {

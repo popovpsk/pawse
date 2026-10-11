@@ -47,12 +47,18 @@ pub struct MixPlan {
     pub basis: Vec<i64>,
     pub keep: Vec<i64>,
     pub anchors: usize,
-    pub snapshot: MixSnapshot,
+    pub snapshot: QueueSnapshot,
 }
 
-pub struct MixSnapshot {
+pub struct QueueSnapshot {
     ids: Vec<i64>,
     current: Option<usize>,
+}
+
+impl QueueSnapshot {
+    pub fn ids(&self) -> &[i64] {
+        &self.ids
+    }
 }
 
 pub struct QueueRestore {
@@ -464,10 +470,7 @@ impl PlaybackQueue {
             basis: Vec::new(),
             keep: Vec::new(),
             anchors: 0,
-            snapshot: MixSnapshot {
-                ids: self.tracks.iter().map(|t| t.id).collect(),
-                current: self.current_index,
-            },
+            snapshot: self.snapshot(),
         };
         for (ix, track) in self.tracks.iter().enumerate() {
             let mixed = self.mixed.contains(&track.id);
@@ -487,17 +490,11 @@ impl PlaybackQueue {
 
     pub fn mix_in(
         &mut self,
-        snapshot: &MixSnapshot,
+        snapshot: &QueueSnapshot,
         picks: Vec<Rc<Track>>,
         gaps: &[usize],
     ) -> bool {
-        if self.current_index != snapshot.current
-            || !self
-                .tracks
-                .iter()
-                .map(|t| t.id)
-                .eq(snapshot.ids.iter().copied())
-        {
+        if !self.matches(snapshot) {
             return false;
         }
         self.drop_upcoming_mixed();
@@ -535,6 +532,43 @@ impl PlaybackQueue {
         }
         self.source = QueueSource::Unknown;
         true
+    }
+
+    pub fn snapshot(&self) -> QueueSnapshot {
+        QueueSnapshot {
+            ids: self.tracks.iter().map(|t| t.id).collect(),
+            current: self.current_index,
+        }
+    }
+
+    pub fn continue_with(
+        &mut self,
+        snapshot: &QueueSnapshot,
+        tracks: Vec<Rc<Track>>,
+    ) -> Option<usize> {
+        if !self.matches(snapshot) {
+            return None;
+        }
+        let tracks = playable(tracks);
+        if tracks.is_empty() {
+            return None;
+        }
+        let first = self.tracks.len();
+        if let Some(original) = self.original_order.as_mut() {
+            original.extend(tracks.iter().cloned());
+        }
+        self.tracks.extend(tracks);
+        self.source = QueueSource::Unknown;
+        Some(first)
+    }
+
+    fn matches(&self, snapshot: &QueueSnapshot) -> bool {
+        self.current_index == snapshot.current
+            && self
+                .tracks
+                .iter()
+                .map(|t| t.id)
+                .eq(snapshot.ids.iter().copied())
     }
 
     fn drop_upcoming_mixed(&mut self) {
@@ -1338,5 +1372,67 @@ mod tests {
         let mixed_queue: Vec<Rc<Track>> = q.tracks_vec();
         q.set_tracks_and_play_at(mixed_queue, 0, QueueSource::Unknown);
         assert_eq!(q.mix_plan().basis, vec![1, 100, 2, 101]);
+    }
+
+    #[test]
+    fn a_continuation_goes_after_the_last_track_and_keeps_the_queue_generated() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=3).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 2, QueueSource::Playlist(9));
+        let snapshot = q.snapshot();
+        assert_eq!(snapshot.ids(), &[1, 2, 3]);
+
+        let mut unavailable = (*track(101, "/gone")).clone();
+        unavailable.available = false;
+        let continuation = vec![track(100, "/100"), Rc::new(unavailable), track(102, "/102")];
+        assert_eq!(q.continue_with(&snapshot, continuation), Some(3));
+        assert_eq!(ids(&q), vec![1, 2, 3, 100, 102]);
+        assert_eq!(q.current_index(), Some(2));
+        assert!(!q.is_custom());
+        assert_eq!(q.source(), QueueSource::Unknown);
+    }
+
+    #[test]
+    fn a_continuation_is_dropped_when_the_queue_moved_on() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=2).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 1, QueueSource::Unknown);
+        let snapshot = q.snapshot();
+        q.append_track(track(5, "/5"), false);
+        assert_eq!(q.continue_with(&snapshot, picks(100..102)), None);
+
+        let snapshot = q.snapshot();
+        assert!(q.next_track().is_some());
+        assert_eq!(q.continue_with(&snapshot, picks(100..102)), None);
+        let snapshot = q.snapshot();
+        assert_eq!(q.continue_with(&snapshot, Vec::new()), None);
+        assert_eq!(ids(&q), vec![1, 2, 5]);
+    }
+
+    #[test]
+    fn a_queue_that_ended_continues_after_its_last_track() {
+        let mut q = PlaybackQueue::new();
+        let list = (1..=2).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 1, QueueSource::Unknown);
+        assert!(q.next_track().is_none());
+        let snapshot = q.snapshot();
+        assert_eq!(q.continue_with(&snapshot, picks(100..102)), Some(2));
+        assert_eq!(q.play_track_at(2).map(|t| t.id), Some(100));
+    }
+
+    #[test]
+    fn a_continuation_of_a_shuffled_queue_also_ends_its_original_order() {
+        let mut q = PlaybackQueue::new();
+        q.set_shuffle(true);
+        let list = (1..=4).map(|id| track(id, &format!("/{id}"))).collect();
+        q.set_tracks_and_play_at(list, 0, QueueSource::Unknown);
+        let last = q.len() - 1;
+        q.play_track_at(last);
+        let snapshot = q.snapshot();
+        assert_eq!(q.continue_with(&snapshot, picks(100..102)), Some(4));
+        assert_eq!(ids(&q)[4..], [100, 101]);
+
+        q.set_shuffle(false);
+        assert_eq!(ids(&q), vec![1, 2, 3, 4, 100, 101]);
     }
 }

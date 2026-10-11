@@ -44,6 +44,18 @@ same streams to the device through the same `LibraryBackend`); behind it each so
   is being played. `peek_cached` (`CacheStore::peek`) only answers whether the
   finished file is there: `crate::similar_tracks` reads cached server tracks for
   analysis, and walking the whole library must not reorder what gets evicted.
+- **Downloading outside the cache.** `download_to(reference, dest, abandoned)` is
+  `SourceMedia::fetch_whole` into a path the caller picks: the sound analysis
+  downloads server tracks it has no cached file for into its own scratch folder and
+  deletes them after reading, so its first pass never evicts what was cached for
+  listening. The download still goes through the cache's `Downloads` registry, and
+  its trim-on-complete runs, which only looks at the cache folder. A different
+  destination is a different download, so `is_downloading(reference)` tells the
+  analysis that playback is already fetching the file into the cache; it then joins
+  that one through `resolve`.
+  `is_torrent(source_id)` comes from the kinds `set_servers` was given (sources set
+  with `set_sources`, as in tests, are never torrents); the analysis downloads
+  torrent tracks last.
 - **A source that is not configured** (removed server, stale locator) is an
   error on open and `None` from `ping`; a file already in the cache still plays.
 - **Retries.** `ServerFetch` retries only `RemoteError::Unreachable`; a wrong

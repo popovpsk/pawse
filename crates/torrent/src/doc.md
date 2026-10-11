@@ -103,7 +103,9 @@ tags from. It knows nothing about audio, the library or the media cache.
   is deleted again, so no session entry outlives a failed `acquire`.
 - **The session** starts on first use and stops when nothing is loaded, nothing
   is in flight (`resolve`, `meta`, `acquire` count as busy) and nothing was
-  used for `idle_unload` — so no seeding happens while nothing plays.
+  used for `idle_unload` — so no seeding happens while nothing plays or
+  downloads (the app's sound analysis downloads torrent tracks in the
+  background, which counts).
 - **Upload.** `WhileActive` uploads without a limit while a torrent is loaded,
   `Limited` caps it (KiB/s, applied live). `Off` starts sessions with
   uploading disabled. Turning it on or off while a session runs cannot change

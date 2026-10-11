@@ -7,14 +7,15 @@ use super::SimilarTracks;
 use super::pool::{Pool, now_secs, seed_taken};
 use super::rerank::{Familiarity, Rerank, Weights};
 
-pub const ANY_ARTIST_POOL: usize = 50;
-pub const OTHER_ARTISTS_POOL: usize = 250;
-pub const LENGTH: usize = 30;
+pub const ANY_ARTIST_POOL: usize = 100;
+pub const OTHER_ARTISTS_POOL: usize = 400;
+pub const LENGTH: usize = 100;
 
 impl SimilarTracks {
     pub fn radio(
         &self,
         seed_id: i64,
+        skip: &[i64],
         familiarity: Familiarity,
         rng_seed: u64,
     ) -> music_library::Result<Option<Vec<Track>>> {
@@ -30,9 +31,10 @@ impl SimilarTracks {
         let found = neighbors.search(
             repo,
             vec![
-                Query::nearest(vector.clone(), ANY_ARTIST_POOL).excluding([seed_id]),
+                Query::nearest(vector.clone(), ANY_ARTIST_POOL)
+                    .excluding(skip.iter().copied().chain([seed_id])),
                 Query::nearest(vector, OTHER_ARTISTS_POOL)
-                    .excluding(own.into_iter().chain([seed_id])),
+                    .excluding(own.into_iter().chain(skip.iter().copied()).chain([seed_id])),
             ],
         )?;
         let taken = seed_taken(repo, &seed)?;
@@ -68,6 +70,7 @@ pub(super) mod tests {
                 repo,
                 neighbors: Neighbors::default(),
                 stop: AtomicBool::new(false),
+                progress: Default::default(),
             }),
         }
     }
@@ -97,16 +100,76 @@ pub(super) mod tests {
         let similar = similar(Arc::new(lib));
 
         assert_eq!(
-            ids(&similar.radio(seed, Familiarity::Any, 1).unwrap().unwrap()),
+            ids(&similar
+                .radio(seed, &[], Familiarity::Any, 1)
+                .unwrap()
+                .unwrap()),
             vec![twin]
         );
         assert!(
             similar
-                .radio(unanalysed, Familiarity::Any, 1)
+                .radio(unanalysed, &[], Familiarity::Any, 1)
                 .unwrap()
                 .is_none()
         );
-        assert!(similar.radio(12345, Familiarity::Any, 1).unwrap().is_none());
+        assert!(
+            similar
+                .radio(12345, &[], Familiarity::Any, 1)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_radio_skips_the_tracks_it_is_told_to() {
+        let (_dir, lib) = library();
+        let seed = add_track(&lib, "seed", "A", 200_000);
+        let same_artist = add_track(&lib, "same", "A", 200_000);
+        let heard = add_track(&lib, "heard", "B", 200_000);
+        let fresh = add_track(&lib, "fresh", "C", 200_000);
+        let unrelated = add_track(&lib, "unrelated", "D", 200_000);
+        lib.save_embeddings(
+            EMBEDDING_VERSION,
+            &[
+                (seed, vector(&[1.0, 0.0])),
+                (same_artist, vector(&[1.0, 0.02])),
+                (heard, vector(&[1.0, 0.05])),
+                (fresh, vector(&[1.0, 0.1])),
+                (unrelated, vector(&[-1.0, 0.0])),
+            ],
+        )
+        .unwrap();
+        let similar = similar(Arc::new(lib));
+
+        let all = ids(&similar
+            .radio(seed, &[], Familiarity::Any, 1)
+            .unwrap()
+            .unwrap());
+        assert!(
+            [same_artist, heard, fresh]
+                .iter()
+                .all(|id| all.contains(id))
+        );
+        assert_eq!(
+            ids(&similar
+                .radio(seed, &[same_artist, heard, seed], Familiarity::Any, 1)
+                .unwrap()
+                .unwrap()),
+            vec![fresh]
+        );
+    }
+
+    #[test]
+    fn the_status_counts_analysed_catalog_tracks() {
+        let (_dir, lib) = library();
+        let a = add_track(&lib, "a", "A", 200_000);
+        add_track(&lib, "b", "B", 200_000);
+        lib.save_embeddings(EMBEDDING_VERSION, &[(a, vector(&[1.0]))])
+            .unwrap();
+        let status = similar(Arc::new(lib)).status().unwrap();
+        assert_eq!((status.analysed, status.total), (1, 2));
+        assert_eq!(status.phase, crate::similar_tracks::Phase::Idle);
+        assert_eq!((status.failed, status.unreachable), (0, 0));
     }
 
     #[test]
@@ -133,7 +196,10 @@ pub(super) mod tests {
         lib.save_embeddings(EMBEDDING_VERSION, &rows).unwrap();
         let similar = similar(Arc::new(lib));
 
-        let radio = ids(&similar.radio(seed, Familiarity::Any, 3).unwrap().unwrap());
+        let radio = ids(&similar
+            .radio(seed, &[], Familiarity::Any, 3)
+            .unwrap()
+            .unwrap());
         assert_eq!(radio.len(), LENGTH);
         assert!(others.iter().all(|id| radio.contains(id)));
         assert!(radio.iter().filter(|id| own.contains(id)).count() >= 10);

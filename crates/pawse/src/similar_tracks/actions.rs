@@ -7,7 +7,7 @@ use rand::Rng;
 use ui_resources::i18n::similar_strings;
 
 use super::mix::GAP;
-use crate::playback_queue::{MixPlan, MixSnapshot, QueueSource};
+use crate::playback_queue::{MixPlan, QueueSnapshot, QueueSource};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
@@ -36,7 +36,8 @@ pub fn start_radio(on_applied: OnApplied, cx: &mut App) {
     };
     let familiarity = cx.global::<SettingsStore>().similar_familiarity();
     let rng_seed: u64 = rand::random();
-    let task = cx.background_spawn(async move { similar.radio(seed_id, familiarity, rng_seed) });
+    let task =
+        cx.background_spawn(async move { similar.radio(seed_id, &[], familiarity, rng_seed) });
     cx.spawn(async move |cx| {
         let built = task.await;
         cx.update(|cx| apply_radio(seed_id, built, &on_applied, cx));
@@ -90,7 +91,7 @@ fn apply_radio(seed_id: i64, built: Built, on_applied: &OnApplied, cx: &mut App)
 }
 
 fn apply_mix(
-    snapshot: &MixSnapshot,
+    snapshot: &QueueSnapshot,
     gaps: &[usize],
     built: Built,
     on_applied: &OnApplied,

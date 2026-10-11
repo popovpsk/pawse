@@ -1,5 +1,7 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+
+use audio_embedding::EMBEDDING_VERSION;
 
 use gpui::{App, Global};
 use music_library::LibraryRepository;
@@ -9,6 +11,9 @@ use crate::services::Services;
 use crate::settings_store::SettingsStore;
 
 mod actions;
+mod autoplay;
+mod fetch;
+mod indexing;
 mod menu;
 mod mix;
 mod neighbors;
@@ -18,9 +23,13 @@ mod rerank;
 mod worker;
 
 pub use actions::OnApplied;
+pub use autoplay::{continue_ended_queue, set_queue_refresh};
+pub use indexing::open as open_indexing;
 pub use menu::queue_menu;
 use neighbors::Neighbors;
 pub use rerank::Familiarity;
+
+static INSTANCES: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 pub struct SimilarTracks {
@@ -31,6 +40,68 @@ struct Shared {
     repo: Arc<dyn LibraryRepository>,
     neighbors: Neighbors,
     stop: AtomicBool,
+    progress: Progress,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Idle = 0,
+    LoadingModel = 1,
+    Analysing = 2,
+    NoModel = 3,
+    Stopped = 4,
+}
+
+const PHASES: [Phase; 5] = [
+    Phase::Idle,
+    Phase::LoadingModel,
+    Phase::Analysing,
+    Phase::NoModel,
+    Phase::Stopped,
+];
+
+#[derive(Default)]
+struct Progress {
+    phase: AtomicU8,
+    failed: AtomicUsize,
+    unreachable: AtomicUsize,
+}
+
+impl Progress {
+    fn set_phase(&self, phase: Phase) {
+        self.phase.store(phase as u8, Ordering::Relaxed);
+    }
+
+    fn phase(&self) -> Phase {
+        PHASES
+            .get(self.phase.load(Ordering::Relaxed) as usize)
+            .copied()
+            .unwrap_or(Phase::Idle)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Status {
+    pub phase: Phase,
+    pub analysed: usize,
+    pub total: usize,
+    pub failed: usize,
+    pub unreachable: usize,
+}
+
+impl SimilarTracks {
+    pub fn status(&self) -> music_library::Result<Status> {
+        let (analysed, total) = self.shared.repo.embedding_coverage(EMBEDDING_VERSION)?;
+        let progress = &self.shared.progress;
+        Ok(Status {
+            phase: progress.phase(),
+            analysed,
+            total,
+            failed: progress.failed.load(Ordering::Relaxed),
+            unreachable: progress.unreachable.load(Ordering::Relaxed),
+        })
+    }
 }
 
 struct Running {
@@ -41,6 +112,7 @@ struct Running {
 #[derive(Default)]
 struct State {
     running: Option<Running>,
+    queue_refresh: Option<OnApplied>,
 }
 
 impl Global for State {}
@@ -51,9 +123,7 @@ pub fn setup(cx: &mut App) {
     cx.subscribe(&bus, |_, event: &LibraryEvent, cx| {
         if matches!(
             event,
-            LibraryEvent::ScanComplete
-                | LibraryEvent::CatalogChanged
-                | LibraryEvent::RemoteSyncFinished { .. }
+            LibraryEvent::CatalogChanged | LibraryEvent::RemoteSyncFinished { .. }
         ) {
             request_pass(cx);
         }
@@ -105,11 +175,21 @@ fn start(cx: &mut App) {
         log::error!("similar tracks: no data directory for the model");
         return;
     };
+    let scratch_dir = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("pawse")
+        .join("analysis")
+        .join(format!(
+            "{}-{}",
+            std::process::id(),
+            INSTANCES.fetch_add(1, Ordering::Relaxed)
+        ));
     let services = cx.global::<Services>();
     let shared = Arc::new(Shared {
         repo: services.library.repo(),
         neighbors: Neighbors::default(),
         stop: AtomicBool::new(false),
+        progress: Progress::default(),
     });
     let (requests, inbox) = flume::bounded(1);
     let _ = requests.try_send(());
@@ -117,6 +197,7 @@ fn start(cx: &mut App) {
         shared.clone(),
         services.remote_media.clone(),
         model_dir,
+        scratch_dir,
         inbox,
     ) {
         log::error!("similar tracks: could not start the analysis thread: {e}");
@@ -134,5 +215,20 @@ fn stop(cx: &mut App) {
     }
     if let Some(running) = cx.global_mut::<State>().running.take() {
         running.similar.shared.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_phase_reads_back_as_itself() {
+        let progress = Progress::default();
+        assert_eq!(progress.phase(), Phase::Idle);
+        for phase in PHASES {
+            progress.set_phase(phase);
+            assert_eq!(progress.phase(), phase);
+        }
     }
 }

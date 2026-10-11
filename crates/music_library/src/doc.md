@@ -548,6 +548,10 @@ Methods:
   an `INSERT … SELECT … FROM media_items`, so it cannot fail the batch on the foreign
   key; the return value counts the rows written.
 - `embedding(item_id, version)` — one vector.
+- `embedding_coverage(version)` — `(catalog tracks with a vector of version, catalog
+  tracks)`, for the indexing dialog in Settings. A plain read on the main connection,
+  not `embedding_conn`: the analysis holds that one through `save_embeddings`, which
+  can wait out a scan's write lock, and the dialog would wait with it.
 - `scan_embeddings(version, chunk, f)` — every vector of `version` whose item is in
   the catalog (`JOIN tracks`) in chunks of `chunk` rows, handed to `f` as reused
   buffers (ids + a flat `chunk × dim` matrix). Vectors of items that dropped out of

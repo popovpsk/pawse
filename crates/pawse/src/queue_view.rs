@@ -244,6 +244,7 @@ impl QueueView {
             _library_subscription: library_subscription,
             item_sizes: Rc::new(Vec::new()),
         };
+        similar_tracks::set_queue_refresh(result.on_similar_applied.clone(), cx);
         result.refresh_tracks(cx);
         result
     }

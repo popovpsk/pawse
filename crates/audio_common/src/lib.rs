@@ -184,4 +184,14 @@ pub trait AudioSource: Send {
     fn seek(&mut self, position: f32) -> Result<Duration, AudioError>;
 
     fn duration(&self) -> Option<Duration>;
+
+    fn exact_frames(&self) -> Option<u64> {
+        None
+    }
+
+    fn seek_frame(&mut self, frame: u64) -> Result<u64, AudioError> {
+        Err(AudioError::Decoder(format!(
+            "this source cannot seek to frame {frame}"
+        )))
+    }
 }

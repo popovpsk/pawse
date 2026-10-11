@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use audio_common::{AudioError, AudioSamples, AudioSource};
+use audio_common::{AudioBatch, AudioError, AudioSamples, AudioSource};
 
 use crate::{EmbedError, TrackRange};
 
 const MAX_ANALYSED: Duration = Duration::from_secs(30 * 60);
 
-fn decode_error(e: AudioError) -> EmbedError {
+pub(crate) fn decode_error(e: AudioError) -> EmbedError {
     EmbedError::Decode(e.to_string())
 }
 
@@ -40,6 +40,50 @@ fn mix_down(samples: &AudioSamples, channels: usize, out: &mut Vec<f32>) {
     }
 }
 
+pub(crate) struct Start {
+    pub(crate) landed: Option<Duration>,
+    pub(crate) skip: u64,
+}
+
+pub(crate) fn seek_start(
+    source: &mut dyn AudioSource,
+    range: Option<TrackRange>,
+    rate: u32,
+) -> Result<Start, EmbedError> {
+    let Some(start) = range.map(|r| r.start).filter(|s| !s.is_zero()) else {
+        return Ok(Start {
+            landed: None,
+            skip: 0,
+        });
+    };
+    Ok(match source.duration().filter(|d| !d.is_zero()) {
+        Some(total) => {
+            let fraction = (start.as_secs_f64() / total.as_secs_f64()) as f32;
+            let landed = source.seek(fraction).map_err(decode_error)?;
+            Start {
+                landed: Some(landed),
+                skip: frames_in(start.saturating_sub(landed), rate),
+            }
+        }
+        None => Start {
+            landed: None,
+            skip: frames_in(start, rate),
+        },
+    })
+}
+
+pub(crate) fn analysed_limit(range: Option<TrackRange>, rate: u32) -> u64 {
+    let length = range
+        .and_then(|r| r.length)
+        .map_or(MAX_ANALYSED, |l| l.min(MAX_ANALYSED));
+    frames_in(length, rate)
+}
+
+pub(crate) fn push_mono(batch: &AudioBatch, out: &mut Vec<f32>) {
+    let channels = batch.metadata.channels.to_u8().max(1) as usize;
+    mix_down(&batch.data, channels, out);
+}
+
 pub(crate) fn read_mono(
     source: &mut dyn AudioSource,
     range: Option<TrackRange>,
@@ -51,30 +95,16 @@ pub(crate) fn read_mono(
             "the source reports no sample rate".into(),
         ));
     }
-    let mut skip = 0;
-    if let Some(start) = range.map(|r| r.start).filter(|s| !s.is_zero()) {
-        skip = match source.duration().filter(|d| !d.is_zero()) {
-            Some(total) => {
-                let fraction = (start.as_secs_f64() / total.as_secs_f64()) as f32;
-                let landed = source.seek(fraction).map_err(decode_error)?;
-                frames_in(start.saturating_sub(landed), rate)
-            }
-            None => frames_in(start, rate),
-        };
-    }
-    let length = range
-        .and_then(|r| r.length)
-        .map_or(MAX_ANALYSED, |l| l.min(MAX_ANALYSED));
-    let limit = frames_in(length, rate);
+    let mut skip = seek_start(source, range, rate)?.skip;
+    let limit = analysed_limit(range, rate);
     let mut taken = 0;
     let mut mono = Vec::new();
     while taken < limit {
         let Some(batch) = source.next_buffer().map_err(decode_error)? else {
             break;
         };
-        let channels = batch.metadata.channels.to_u8().max(1) as usize;
         mono.clear();
-        mix_down(&batch.data, channels, &mut mono);
+        push_mono(&batch, &mut mono);
         let mut chunk = &mono[..];
         if skip > 0 {
             let n = skip.min(chunk.len() as u64) as usize;
@@ -104,6 +134,7 @@ pub(crate) mod tests {
         pub(crate) position: usize,
         pub(crate) seek_granule: usize,
         pub(crate) report_duration: bool,
+        pub(crate) exact: Option<u64>,
     }
 
     impl FakeSource {
@@ -116,6 +147,7 @@ pub(crate) mod tests {
                 position: 0,
                 seek_granule: 1,
                 report_duration: true,
+                exact: None,
             }
         }
 
@@ -158,6 +190,19 @@ pub(crate) mod tests {
         fn duration(&self) -> Option<Duration> {
             self.report_duration
                 .then(|| Duration::from_secs_f64(self.frames() as f64 / self.rate as f64))
+        }
+
+        fn exact_frames(&self) -> Option<u64> {
+            self.exact
+        }
+
+        fn seek_frame(&mut self, frame: u64) -> Result<u64, AudioError> {
+            if self.exact.is_none() {
+                return Err(AudioError::Decoder("not exact".into()));
+            }
+            self.position =
+                (frame as usize).min(self.frames()) / self.seek_granule * self.seek_granule;
+            Ok(self.position as u64)
         }
     }
 

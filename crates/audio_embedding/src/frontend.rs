@@ -10,7 +10,7 @@ pub(crate) const PATCH: usize = 128;
 pub(crate) const PATCH_HOP: usize = 62;
 pub(crate) const PATCHES: usize = 32;
 
-const HALF: usize = FRAME / 2;
+pub(crate) const HALF: usize = FRAME / 2;
 
 pub(crate) type MelFrame = [f32; BANDS];
 
@@ -23,10 +23,31 @@ pub(crate) struct Resampler {
     next: usize,
 }
 
+pub(crate) fn step_for(from: u32) -> f64 {
+    from as f64 / SAMPLE_RATE as f64
+}
+
+pub(crate) fn resampled_len(received: usize, from: u32) -> usize {
+    if from == SAMPLE_RATE {
+        received
+    } else {
+        (received as f64 / step_for(from)).floor() as usize
+    }
+}
+
+pub(crate) fn resampled_at(step: f64, i: usize, x: impl Fn(isize) -> f32) -> f32 {
+    let pos = i as f64 * step - 1.0;
+    let idx = pos.floor();
+    let frac = (pos - idx) as f32;
+    let a = x(idx as isize);
+    let b = x(idx as isize + 1);
+    a + (b - a) * frac
+}
+
 impl Resampler {
     pub(crate) fn new(from: u32) -> Self {
         Self {
-            step: from as f64 / SAMPLE_RATE as f64,
+            step: step_for(from),
             identity: from == SAMPLE_RATE,
             window: Vec::new(),
             base: 0,
@@ -62,12 +83,7 @@ impl Resampler {
 
     fn emit(&mut self, until: usize, out: &mut Vec<f32>) {
         while self.next < until {
-            let pos = self.next as f64 * self.step - 1.0;
-            let idx = pos.floor();
-            let frac = (pos - idx) as f32;
-            let a = self.at(idx as isize);
-            let b = self.at(idx as isize + 1);
-            out.push(a + (b - a) * frac);
+            out.push(resampled_at(self.step, self.next, |k| self.at(k)));
             self.next += 1;
         }
     }
@@ -112,6 +128,24 @@ pub(crate) struct MelFrontend {
     window: Vec<f32>,
     filters: Vec<(usize, Vec<f32>)>,
     fft: Arc<dyn RealToComplex<f32>>,
+}
+
+pub(crate) struct MelScratch {
+    input: Vec<f32>,
+    spectrum: Vec<realfft::num_complex::Complex<f32>>,
+    scratch: Vec<realfft::num_complex::Complex<f32>>,
+    power: Vec<f32>,
+}
+
+impl MelScratch {
+    pub(crate) fn new(frontend: &MelFrontend) -> Self {
+        Self {
+            input: frontend.fft.make_input_vec(),
+            spectrum: frontend.fft.make_output_vec(),
+            scratch: frontend.fft.make_scratch_vec(),
+            power: vec![0.0; FRAME / 2 + 1],
+        }
+    }
 }
 
 impl MelFrontend {
@@ -161,6 +195,38 @@ impl MelFrontend {
         }
     }
 
+    pub(crate) fn frame(
+        &self,
+        buffers: &mut MelScratch,
+        index: usize,
+        sample: impl Fn(isize) -> f32,
+    ) -> MelFrame {
+        let start = (index * HOP) as isize - HALF as isize;
+        for (i, slot) in buffers.input.iter_mut().enumerate() {
+            *slot = sample(start + i as isize) * self.window[i];
+        }
+        self.fft
+            .process_with_scratch(
+                &mut buffers.input,
+                &mut buffers.spectrum,
+                &mut buffers.scratch,
+            )
+            .expect("buffers come from the same FFT plan");
+        for (p, c) in buffers.power.iter_mut().zip(&buffers.spectrum) {
+            *p = c.norm_sqr();
+        }
+        let mut row = [0f32; BANDS];
+        for (value, (first, weights)) in row.iter_mut().zip(&self.filters) {
+            let energy: f32 = weights
+                .iter()
+                .zip(&buffers.power[*first..])
+                .map(|(w, p)| w * p)
+                .sum();
+            *value = (1.0 + 10000.0 * energy).log10();
+        }
+        row
+    }
+
     #[cfg(test)]
     pub(crate) fn compute(&self, x: &[f32]) -> Vec<MelFrame> {
         let mut stream = MelStream::new(self);
@@ -183,10 +249,7 @@ pub(crate) struct MelStream<'a> {
     base: usize,
     received: usize,
     frames: Vec<MelFrame>,
-    input: Vec<f32>,
-    spectrum: Vec<realfft::num_complex::Complex<f32>>,
-    scratch: Vec<realfft::num_complex::Complex<f32>>,
-    power: Vec<f32>,
+    buffers: MelScratch,
 }
 
 impl<'a> MelStream<'a> {
@@ -197,10 +260,7 @@ impl<'a> MelStream<'a> {
             base: 0,
             received: 0,
             frames: Vec::new(),
-            input: frontend.fft.make_input_vec(),
-            spectrum: frontend.fft.make_output_vec(),
-            scratch: frontend.fft.make_scratch_vec(),
-            power: vec![0.0; FRAME / 2 + 1],
+            buffers: MelScratch::new(frontend),
         }
     }
 
@@ -226,32 +286,16 @@ impl<'a> MelStream<'a> {
     }
 
     fn compute_next(&mut self) {
-        let start = (self.frames.len() * HOP) as isize - HALF as isize;
-        for (i, slot) in self.input.iter_mut().enumerate() {
-            let k = start + i as isize;
-            let sample = if k < self.base as isize || k >= self.received as isize {
-                0.0
-            } else {
-                self.window[k as usize - self.base]
-            };
-            *slot = sample * self.frontend.window[i];
-        }
-        self.frontend
-            .fft
-            .process_with_scratch(&mut self.input, &mut self.spectrum, &mut self.scratch)
-            .expect("buffers come from the same FFT plan");
-        for (p, c) in self.power.iter_mut().zip(&self.spectrum) {
-            *p = c.norm_sqr();
-        }
-        let mut row = [0f32; BANDS];
-        for (value, (first, weights)) in row.iter_mut().zip(&self.frontend.filters) {
-            let energy: f32 = weights
-                .iter()
-                .zip(&self.power[*first..])
-                .map(|(w, p)| w * p)
-                .sum();
-            *value = (1.0 + 10000.0 * energy).log10();
-        }
+        let (base, received, window) = (self.base, self.received, &self.window);
+        let row = self
+            .frontend
+            .frame(&mut self.buffers, self.frames.len(), |k| {
+                if k < base as isize || k >= received as isize {
+                    0.0
+                } else {
+                    window[k as usize - base]
+                }
+            });
         self.frames.push(row);
     }
 }

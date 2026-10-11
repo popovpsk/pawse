@@ -23,7 +23,11 @@ FIXTURES = \
 	$(FIXTURES_DIR)/tagged_ogg.ogg \
 	$(FIXTURES_DIR)/tagged_opus.opus \
 	$(FIXTURES_DIR)/late_start_opus.opus \
-	$(FIXTURES_DIR)/tagged_m4a.m4a
+	$(FIXTURES_DIR)/tagged_m4a.m4a \
+	$(FIXTURES_DIR)/long_44_stereo.flac \
+	$(FIXTURES_DIR)/long_44_stereo.m4a \
+	$(FIXTURES_DIR)/long_22_mono.wav \
+	$(FIXTURES_DIR)/long_44_cut.flac
 
 .PHONY: all generate clean bin-deps
 
@@ -74,6 +78,25 @@ $(FIXTURES_DIR)/silence_16_44_mono.wav: | $(FIXTURES_DIR)
 $(FIXTURES_DIR)/1khz_16_44_1.wav: | $(FIXTURES_DIR)
 	$(FFMPEG) -y -f lavfi -i "sine=frequency=1000:duration=2.0" \
 		-acodec pcm_s16le -ar 44100 -ac 1 "$@"
+
+# --- Long lossless files: the sound analysis decodes only 32 windows of a track
+# over ~110 s and must get the same patches as a full decode (audio_embedding). ---
+
+LONG_SIGNAL = aevalsrc=0.3*sin(2*PI*220*t+3*sin(2*PI*0.2*t))+0.01*(random(0)-0.5)|0.3*sin(2*PI*330*t)*sin(2*PI*0.05*t)+0.01*(random(1)-0.5)
+
+$(FIXTURES_DIR)/long_44_stereo.flac: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "$(LONG_SIGNAL):s=44100:d=125" -sample_fmt s16 -c:a flac "$@"
+
+$(FIXTURES_DIR)/long_44_stereo.m4a: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "$(LONG_SIGNAL):s=44100:d=125" -sample_fmt s16p -c:a alac "$@"
+
+# Cut with -c copy: the frames keep their numbers, so the first one is not 0 and
+# STREAMINFO still has the whole file's length. Such a file must take the full pass.
+$(FIXTURES_DIR)/long_44_cut.flac: $(FIXTURES_DIR)/long_44_stereo.flac
+	$(FFMPEG) -y -ss 30 -i "$<" -c copy "$@"
+
+$(FIXTURES_DIR)/long_22_mono.wav: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "$(LONG_SIGNAL):s=22050:d=120" -ac 1 -c:a pcm_s16le "$@"
 
 # --- Cover art images ---
 

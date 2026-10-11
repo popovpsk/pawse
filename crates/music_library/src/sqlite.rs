@@ -3408,6 +3408,19 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
+    fn embedding_coverage(&self, version: &str) -> Result<(usize, usize)> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT (SELECT COUNT(*) FROM track_embeddings e \
+                     JOIN tracks t ON t.id = e.item_id WHERE e.version = ?1), \
+                    (SELECT COUNT(*) FROM tracks)",
+        )?;
+        let (analysed, total) = stmt.query_row([version], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        Ok((analysed as usize, total as usize))
+    }
+
     fn prune_embeddings(&self, keep_version: &str) -> Result<usize> {
         let conn = self.embedding_conn.lock().unwrap();
         Ok(conn.execute(

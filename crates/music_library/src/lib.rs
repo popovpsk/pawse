@@ -5979,6 +5979,29 @@ mod tests {
     }
 
     #[test]
+    fn coverage_counts_catalog_tracks_with_a_vector_of_the_version() {
+        let (lib, path) = create_test_db();
+        let ids: Vec<i64> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|t| seed_track(&lib, t, "Album", "Artist"))
+            .collect();
+        assert_eq!(lib.embedding_coverage(VERSION).unwrap(), (0, 4));
+        lib.save_embeddings(
+            VERSION,
+            &[(ids[0], floats(1.0, 3)), (ids[1], floats(1.0, 3))],
+        )
+        .unwrap();
+        lib.save_embeddings("old", &[(ids[2], floats(1.0, 3))])
+            .unwrap();
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute("DELETE FROM tracks WHERE id = ?1", [ids[1]])
+            .unwrap();
+
+        assert_eq!(lib.embedding_coverage(VERSION).unwrap(), (1, 3));
+    }
+
+    #[test]
     fn pruning_keeps_only_the_current_version() {
         let (lib, _path) = create_test_db();
         let id = seed_track(&lib, "Song", "Album", "Artist");

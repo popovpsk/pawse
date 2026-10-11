@@ -26,6 +26,22 @@ Turns a file or a network stream into `AudioBatch`es for the engine. The lib roo
   starts late (for example Opus muxed by ffmpeg from a video, `start_ts` = 624) reject
   a seek to 0 as out of range otherwise.
 - `seek` calls `AudioDecoder::reset` for every codec except Opus.
+- `exact_frames` / `seek_frame` (on `AudioSource`, default: none) are for
+  `audio_embedding`, which decodes only some windows of a track. They exist only for
+  FLAC, PCM (WAV/AIFF) and ALAC whose time base is `1/rate`, whose track starts at 0
+  and whose **first packet** has timestamp 0 — read when the file opens and kept in
+  `pending`, so playback still decodes it first. The last check matters: Symphonia
+  reports `start_ts` 0 for every FLAC, but a FLAC cut with `ffmpeg -ss … -c copy`
+  keeps its frame numbers (the first one is not 0) and the STREAMINFO length of the
+  whole file; a CAF with priming starts at a negative timestamp. For the rest a
+  packet's timestamp is its first frame and decoding after a seek is bit-identical
+  to decoding through, so `seek_frame` (`SeekMode::Accurate` to a `Timestamp`)
+  returns the frame it really landed on and the caller skips the rest. It lands at
+  or before the target except where FLAC's search overshoots (a frame number that
+  is not where the bisection expects it); the caller checks and falls back. `exact_frames` is the container's frame count (FLAC
+  STREAMINFO, the WAV data size, the MP4 sample table). Symphonia's MP4 reader cannot
+  seek once it read to the end of the file (`isomp4: no atom pending read`); a
+  fresh reader seeks exactly.
 
 ## Opus
 

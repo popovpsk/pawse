@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use audio_engine::TrackResolver;
 use music_library::remote::{self, Location, RemoteRef};
 
-use crate::servers::{RemoteConfig, RemoteError};
+use crate::servers::{RemoteConfig, RemoteError, ServerKind};
 
 mod cache;
 mod http;
@@ -57,6 +57,7 @@ type Sources = HashMap<i64, Arc<dyn SourceMedia>>;
 #[derive(Clone)]
 pub struct RemoteMedia {
     sources: Arc<RwLock<Sources>>,
+    torrents: Arc<RwLock<HashSet<i64>>>,
     cache: Arc<CacheStore>,
     prefetching: Arc<Mutex<Option<KeepAlive>>>,
 }
@@ -74,12 +75,18 @@ impl RemoteMedia {
     pub fn with_cache(cache: CacheStore) -> Self {
         Self {
             sources: Arc::new(RwLock::new(HashMap::new())),
+            torrents: Arc::new(RwLock::new(HashSet::new())),
             cache: Arc::new(cache),
             prefetching: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn set_servers(&self, configs: HashMap<i64, RemoteConfig>) {
+        *self.torrents.write().unwrap() = configs
+            .iter()
+            .filter(|(_, config)| config.kind() == ServerKind::Torrent)
+            .map(|(&source_id, _)| source_id)
+            .collect();
         let sources: Sources = configs
             .into_iter()
             .map(|(source_id, config)| {
@@ -207,6 +214,26 @@ impl RemoteMedia {
             &self.cache.path_for(&reference),
             abandoned,
         )
+    }
+
+    pub fn is_downloading(&self, reference: &RemoteRef) -> bool {
+        self.cache
+            .downloads()
+            .is_active(&self.cache.path_for(reference))
+    }
+
+    pub fn is_torrent(&self, source_id: i64) -> bool {
+        self.torrents.read().unwrap().contains(&source_id)
+    }
+
+    pub fn download_to(
+        &self,
+        reference: &RemoteRef,
+        dest: &Path,
+        abandoned: &dyn Fn() -> bool,
+    ) -> Result<PathBuf, String> {
+        self.source(reference)?
+            .fetch_whole(reference, dest, abandoned)
     }
 
     pub fn open_stream(&self, path: &Path) -> Result<PendingStream, String> {

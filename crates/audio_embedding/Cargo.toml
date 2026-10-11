@@ -13,8 +13,12 @@ log = { workspace = true }
 ureq = "3"
 sha2 = "0.10"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+tract-metal = "0.23"
+
 [dev-dependencies]
 rstest = "0.26"
+audio_decoder = { path = "../audio_decoder" }
 
 [lints]
 workspace = true
