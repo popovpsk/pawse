@@ -115,6 +115,9 @@ impl Shown {
             Phase::Analysing => &s.analysing,
             Phase::NoModel => &s.no_model,
             Phase::Stopped => &s.stopped,
+            Phase::NoGpu => &s.no_gpu,
+            Phase::GpuFailed => &s.gpu_failed,
+            Phase::GpuRetry => &s.gpu_retry,
         };
         let mut notes = Vec::new();
         if status.failed > 0 {

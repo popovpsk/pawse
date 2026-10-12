@@ -6,17 +6,17 @@ publish = false
 
 [dependencies]
 audio_common = { path = "../audio_common" }
-tract-onnx = { version = "0.23", default-features = false }
-realfft = "3.5"
+realfft = { version = "3.5", optional = true }
 thiserror = "2.0"
 log = { workspace = true }
 ureq = "3"
 sha2 = "0.10"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-tract-metal = "0.23"
+[features]
+test-support = ["dep:realfft"]
 
 [dev-dependencies]
+realfft = "3.5"
 rstest = "0.26"
 audio_decoder = { path = "../audio_decoder" }
 

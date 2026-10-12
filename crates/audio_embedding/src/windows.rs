@@ -4,56 +4,72 @@ use audio_common::AudioSource;
 
 use crate::decode::{analysed_limit, decode_error, push_mono, seek_start};
 use crate::frontend::{
-    BANDS, HALF, HOP, MelFrontend, MelScratch, PATCH, SAMPLE_RATE, frame_count, patch_starts,
-    resampled_at, resampled_len, spread, step_for,
+    HALF, HOP, PATCH, SAMPLE_RATE, frame_count, patch_starts, resampled_len, spread, step_for,
 };
 use crate::{EmbedError, Prepared, TrackRange};
 
 const MAX_COVERAGE: f64 = 0.6;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Chosen {
+    pub(crate) first: usize,
+    pub(crate) frames: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Plan {
-    pub(crate) len: u64,
+pub(crate) struct Layout {
     pub(crate) resampled: usize,
-    pub(crate) patches: Vec<usize>,
+    pub(crate) patches: Vec<Chosen>,
+    pub(crate) needed: Vec<Range<u64>>,
     pub(crate) ranges: Vec<Range<u64>>,
 }
 
-pub(crate) fn plan(len: u64, rate: u32) -> Option<Plan> {
-    if len < rate as u64 {
-        return None;
-    }
+pub(crate) fn layout(len: u64, rate: u32) -> Layout {
     let resampled = resampled_len(len as usize, rate);
     let frames = frame_count(resampled);
     let starts = patch_starts(frames);
-    let patches: Vec<usize> = spread(starts.len())
+    let patches: Vec<Chosen> = spread(starts.len())
         .into_iter()
-        .map(|ix| starts[ix])
+        .map(|ix| Chosen {
+            first: starts[ix],
+            frames: frames.saturating_sub(starts[ix]).min(PATCH),
+        })
         .collect();
-    if patches.iter().any(|&first| first + PATCH > frames) {
-        return None;
-    }
-    let mut ranges: Vec<Range<u64>> = Vec::with_capacity(patches.len());
-    for &first in &patches {
-        let needed = source_range(first, resampled, len, rate);
+    let needed: Vec<Range<u64>> = patches
+        .iter()
+        .map(|p| source_range(p.first, resampled, len, rate))
+        .collect();
+    let mut ranges: Vec<Range<u64>> = Vec::with_capacity(needed.len());
+    for range in &needed {
         match ranges.last_mut() {
-            Some(last) if needed.start <= last.end => last.end = last.end.max(needed.end),
-            _ => ranges.push(needed),
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => ranges.push(range.clone()),
         }
     }
-    let covered: u64 = ranges.iter().map(|r| r.end - r.start).sum();
+    Layout {
+        resampled,
+        patches,
+        needed,
+        ranges,
+    }
+}
+
+pub(crate) fn plan(len: u64, rate: u32) -> Option<Layout> {
+    if len < rate as u64 {
+        return None;
+    }
+    let layout = layout(len, rate);
+    if layout.patches.iter().any(|p| p.frames < PATCH) {
+        return None;
+    }
+    let covered: u64 = layout.ranges.iter().map(|r| r.end - r.start).sum();
     if covered as f64 > MAX_COVERAGE * len as f64 {
         return None;
     }
-    Some(Plan {
-        len,
-        resampled,
-        patches,
-        ranges,
-    })
+    Some(layout)
 }
 
-fn resampled_range(first: usize, resampled: usize) -> Range<usize> {
+pub(crate) fn resampled_range(first: usize, resampled: usize) -> Range<usize> {
     let start = (first * HOP).saturating_sub(HALF);
     let end = ((first + PATCH - 1) * HOP + HALF).min(resampled);
     start.min(end)..end
@@ -91,10 +107,10 @@ pub(crate) fn prepare(
     let Some(available) = total.checked_sub(first) else {
         return Ok(None);
     };
-    let Some(plan) = plan(available.min(analysed_limit(range, rate)), rate) else {
+    let Some(layout) = plan(available.min(analysed_limit(range, rate)), rate) else {
         return Ok(None);
     };
-    match windowed(source, first, total, rate, &plan) {
+    match windowed(source, first, total, rate, &layout) {
         Ok(Some(prepared)) => Ok(Some(prepared)),
         Ok(None) | Err(_) => restore(source, range),
     }
@@ -118,65 +134,19 @@ fn windowed(
     first: u64,
     total: u64,
     rate: u32,
-    plan: &Plan,
+    layout: &Layout,
 ) -> Result<Option<Prepared>, EmbedError> {
     if !ends_at(source, total)? {
         return Ok(None);
     }
-    let frontend = MelFrontend::new();
-    let mut buffers = MelScratch::new(&frontend);
-    let mut patches = vec![0f32; plan.patches.len() * PATCH * BANDS];
-    let mut slots = patches.as_chunks_mut::<{ PATCH * BANDS }>().0.iter_mut();
-    let mut pending = plan.patches.iter().copied().peekable();
-    let mut y = Vec::new();
-    let step = step_for(rate);
-    for range in &plan.ranges {
+    let mut windows = Vec::with_capacity(layout.ranges.len());
+    for range in &layout.ranges {
         let Some(x) = read(source, first + range.start, range.end - range.start)? else {
             return Ok(None);
         };
-        while let Some(&patch) = pending.peek() {
-            if source_range(patch, plan.resampled, plan.len, rate).end > range.end {
-                break;
-            }
-            pending.next();
-            let ys = resampled_range(patch, plan.resampled);
-            let at = |k: isize| -> f32 {
-                usize::try_from(k)
-                    .ok()
-                    .and_then(|k| k.checked_sub(range.start as usize))
-                    .and_then(|k| x.get(k))
-                    .copied()
-                    .unwrap_or(0.0)
-            };
-            y.clear();
-            y.extend(ys.clone().map(|i| {
-                if rate == SAMPLE_RATE {
-                    at(i as isize)
-                } else {
-                    resampled_at(step, i, at)
-                }
-            }));
-            let Some(slot) = slots.next() else {
-                return Ok(None);
-            };
-            for (row, dst) in slot.as_chunks_mut::<BANDS>().0.iter_mut().enumerate() {
-                *dst = frontend.frame(&mut buffers, patch + row, |k| {
-                    if k < ys.start as isize || k >= ys.end as isize {
-                        0.0
-                    } else {
-                        y[k as usize - ys.start]
-                    }
-                });
-            }
-        }
+        windows.push(x);
     }
-    if pending.next().is_some() {
-        return Ok(None);
-    }
-    Ok(Some(Prepared {
-        patches,
-        count: plan.patches.len(),
-    }))
+    Ok(Prepared::new(rate, layout, windows))
 }
 
 fn ends_at(source: &mut dyn AudioSource, total: u64) -> Result<bool, EmbedError> {
@@ -233,8 +203,9 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::decode::tests::FakeSource;
-    use crate::oracle_tests::signal;
+    use crate::decode::read_mono;
+    use crate::frontend::{MelFrontend, MelStream, Resampler, select_patches};
+    use crate::test_support::{FakeSource, signal};
     use crate::{Job, prepare as prepare_job};
 
     fn source(rate: u32, channels: u8, seconds: usize) -> FakeSource {
@@ -283,8 +254,52 @@ mod tests {
         let got = prepare(&mut windowed, range)
             .unwrap()
             .expect("windows apply");
-        assert_eq!(got.count, expected.count);
-        assert!(got.patches == expected.patches);
+        assert_eq!(got.rate(), rate);
+        assert_eq!(expected.rate(), SAMPLE_RATE);
+        assert_eq!(got.patch_count(), expected.patch_count());
+        assert!(got.reference_mel() == expected.reference_mel());
+    }
+
+    fn whole_signal_mel(mut source: FakeSource, range: Option<TrackRange>) -> (Vec<f32>, usize) {
+        let frontend = MelFrontend::new();
+        let mut resampler = Resampler::new(source.rate);
+        let mut mel = MelStream::new(&frontend);
+        let mut resampled = Vec::new();
+        read_mono(&mut source, range, |chunk| {
+            resampled.clear();
+            resampler.push(chunk, &mut resampled);
+            mel.push(&resampled);
+        })
+        .unwrap();
+        resampled.clear();
+        resampler.finish(&mut resampled);
+        mel.push(&resampled);
+        select_patches(&mel.finish())
+    }
+
+    #[rstest]
+    #[case::short(44_100, 5, None)]
+    #[case::under_two_seconds(48_000, 1, None)]
+    #[case::one_minute(44_100, 60, None)]
+    #[case::model_rate(16_000, 75, None)]
+    #[case::long_low_rate(22_050, 140, None)]
+    #[case::cue_track(44_100, 200, Some((12_345, Some(70_000))))]
+    fn a_full_pass_keeps_the_mel_of_the_whole_signal(
+        #[case] rate: u32,
+        #[case] seconds: usize,
+        #[case] range: Option<(u64, Option<u64>)>,
+    ) {
+        let range = range.map(|(start, length)| TrackRange {
+            start: Duration::from_millis(start),
+            length: length.map(Duration::from_millis),
+        });
+        let make = || FakeSource::mono(rate, signal(rate, rate as usize * seconds + 321));
+        let (expected, count) = whole_signal_mel(make(), range);
+        let got = full(make(), range);
+        assert_eq!(got.patch_count(), count);
+        assert!(got.reference_mel() == expected);
+        let held: usize = got.windows.iter().map(Vec::len).sum();
+        assert!(held <= got.resampled_len());
     }
 
     #[test]
@@ -303,7 +318,7 @@ mod tests {
             range: None,
         })
         .unwrap();
-        assert!(got.patches == full(source(rate, 1, 150), None).patches);
+        assert!(got.reference_mel() == full(source(rate, 1, 150), None).reference_mel());
     }
 
     #[test]
@@ -319,6 +334,7 @@ mod tests {
         let len = 44_100 * 240;
         let plan = plan(len, 44_100).unwrap();
         assert_eq!(plan.patches.len(), 32);
+        assert!(plan.patches.iter().all(|p| p.frames == PATCH));
         let covered: u64 = plan.ranges.iter().map(|r| r.end - r.start).sum();
         let share = covered as f64 / len as f64;
         assert!((0.25..0.3).contains(&share), "{share}");
@@ -388,8 +404,8 @@ mod real_files {
             range,
         })
         .unwrap();
-        assert_eq!(got.count, full.count);
-        assert!(got.patches == full.patches);
+        assert_eq!(got.patch_count(), full.patch_count());
+        assert!(got.reference_mel() == full.reference_mel());
     }
 
     #[test]

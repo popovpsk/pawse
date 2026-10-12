@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use audio_embedding::EMBEDDING_VERSION;
 
-use gpui::{App, Global};
+use gpui::{App, AppContext, Global};
 use music_library::LibraryRepository;
 
 use crate::library_service::LibraryEvent;
@@ -51,14 +51,20 @@ pub enum Phase {
     Analysing = 2,
     NoModel = 3,
     Stopped = 4,
+    NoGpu = 5,
+    GpuFailed = 6,
+    GpuRetry = 7,
 }
 
-const PHASES: [Phase; 5] = [
+const PHASES: [Phase; 8] = [
     Phase::Idle,
     Phase::LoadingModel,
     Phase::Analysing,
     Phase::NoModel,
     Phase::Stopped,
+    Phase::NoGpu,
+    Phase::GpuFailed,
+    Phase::GpuRetry,
 ];
 
 #[derive(Default)]
@@ -109,10 +115,20 @@ struct Running {
     requests: flume::Sender<()>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Gpu {
+    #[default]
+    Unchecked,
+    Checking,
+    Found,
+    Missing,
+}
+
 #[derive(Default)]
 struct State {
     running: Option<Running>,
     queue_refresh: Option<OnApplied>,
+    gpu: Gpu,
 }
 
 impl Global for State {}
@@ -134,12 +150,42 @@ pub fn setup(cx: &mut App) {
     }
 }
 
+fn check_gpu(cx: &mut App) {
+    cx.global_mut::<State>().gpu = Gpu::Checking;
+    let check = cx.background_spawn(async { audio_embedding_gpu::adapter_name() });
+    cx.spawn(async move |cx| {
+        let adapter = check.await;
+        cx.update(|cx| {
+            match &adapter {
+                Some(name) => log::info!("similar tracks: graphics adapter {name}"),
+                None => log::warn!(
+                    "similar tracks: no hardware graphics adapter, sound analysis is unavailable"
+                ),
+            }
+            cx.global_mut::<State>().gpu = match adapter {
+                Some(_) => Gpu::Found,
+                None => Gpu::Missing,
+            };
+            if cx.global::<SettingsStore>().similar_tracks_enabled() {
+                start(cx);
+            }
+            cx.refresh_windows();
+        });
+    })
+    .detach();
+}
+
 pub fn set_enabled(enabled: bool, cx: &mut App) {
     if enabled {
         start(cx);
     } else {
         stop(cx);
     }
+}
+
+pub fn gpu_missing(cx: &App) -> bool {
+    cx.try_global::<State>()
+        .is_some_and(|state| state.gpu == Gpu::Missing)
 }
 
 pub fn is_running(cx: &App) -> bool {
@@ -165,11 +211,16 @@ fn request_pass(cx: &App) {
 }
 
 fn start(cx: &mut App) {
-    if cx
-        .try_global::<State>()
-        .is_none_or(|state| state.running.is_some())
-    {
+    let Some(state) = cx.try_global::<State>() else {
         return;
+    };
+    if state.running.is_some() {
+        return;
+    }
+    match state.gpu {
+        Gpu::Found => {}
+        Gpu::Unchecked => return check_gpu(cx),
+        Gpu::Checking | Gpu::Missing => return,
     }
     let Some(model_dir) = dirs::data_dir().map(|dir| dir.join("pawse").join("models")) else {
         log::error!("similar tracks: no data directory for the model");

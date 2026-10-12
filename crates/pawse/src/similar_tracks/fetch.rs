@@ -485,17 +485,12 @@ mod tests {
     }
 
     fn run(rig: &Rig, files: Vec<ServerFile>, per_source: usize, max: usize) -> (usize, Vec<Done>) {
-        let (stop, halt, turn) = (
-            AtomicBool::new(false),
-            AtomicBool::new(false),
-            Mutex::new(None),
-        );
+        let (stop, halt) = (AtomicBool::new(false), AtomicBool::new(false));
         let unreachable = AtomicUsize::new(0);
         let fetcher = Fetcher {
             lanes: Lanes {
                 stop: &stop,
                 halt: &halt,
-                turn: &turn,
             },
             media: &rig.media,
             scratch: rig.scratch.path(),

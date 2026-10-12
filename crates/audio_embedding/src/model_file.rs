@@ -16,10 +16,10 @@ pub struct ModelSpec<'a> {
 }
 
 pub const MODEL: ModelSpec<'static> = ModelSpec {
-    url: "https://github.com/popovpsk/pawse-models/releases/download/effnet-multi-1/discogs_multi_embeddings-effnet-bs64-1.onnx",
-    file_name: "discogs_multi_embeddings-effnet-bs64-1.onnx",
-    size: 15_998_047,
-    sha256: "65cfde30655a939de420e5c09a49a43648336fdbbf79eb3af6d3b40176339d8e",
+    url: "https://github.com/popovpsk/pawse-models/releases/download/effnet-multi-gpu-1/effnet-multi-gpu-1.bin",
+    file_name: "effnet-multi-gpu-1.bin",
+    size: 16_285_696,
+    sha256: "7de2039168405f5fe55fb366c070afb93b52649f223e330810c4adb9e9ffdf05",
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);

@@ -4,6 +4,7 @@ members = [
     "crates/audio_common",
     "crates/audio_decoder",
     "crates/audio_embedding",
+    "crates/audio_embedding_gpu",
     "crates/audio_output",
     "crates/audio_engine",
     "crates/music_library",

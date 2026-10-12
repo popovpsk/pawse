@@ -711,11 +711,20 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
         SettingItem::new(
             tr().similar_tracks.clone(),
             SettingField::render(|_window, cx: &mut App| {
-                let enabled = cx.global::<SettingsStore>().similar_tracks_enabled();
+                let missing = crate::similar_tracks::gpu_missing(cx);
+                let enabled = cx.global::<SettingsStore>().similar_tracks_enabled() && !missing;
                 h_flex()
                     .items_center()
                     .justify_end()
                     .gap_2()
+                    .when(missing, |row| {
+                        row.child(
+                            div()
+                                .text_sm()
+                                .text_color(Colors::muted_foreground(cx))
+                                .child(similar_strings().no_gpu_short.clone()),
+                        )
+                    })
                     .when(crate::similar_tracks::is_running(cx), |row| {
                         row.child(
                             Button::new("similar-tracks-indexing")
@@ -729,6 +738,7 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
                     .child(
                         Switch::new("similar-tracks-toggle")
                             .checked(enabled)
+                            .disabled(missing)
                             .on_click(|new_val, _, cx| {
                                 if let Err(e) = cx
                                     .global_mut::<SettingsStore>()

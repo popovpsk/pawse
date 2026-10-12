@@ -4,7 +4,7 @@ use audio_common::{AudioBatch, AudioError, AudioSamples, AudioSource};
 
 use crate::{EmbedError, TrackRange};
 
-const MAX_ANALYSED: Duration = Duration::from_secs(30 * 60);
+pub(crate) const MAX_ANALYSED: Duration = Duration::from_secs(30 * 60);
 
 pub(crate) fn decode_error(e: AudioError) -> EmbedError {
     EmbedError::Decode(e.to_string())
@@ -122,89 +122,10 @@ pub(crate) fn read_mono(
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    use audio_common::{AudioBatch, ChannelCount, I24, Metadata, StreamParams};
-
-    pub(crate) struct FakeSource {
-        pub(crate) rate: u32,
-        pub(crate) channels: u8,
-        pub(crate) samples: Vec<f32>,
-        pub(crate) batch: usize,
-        pub(crate) position: usize,
-        pub(crate) seek_granule: usize,
-        pub(crate) report_duration: bool,
-        pub(crate) exact: Option<u64>,
-    }
-
-    impl FakeSource {
-        pub(crate) fn mono(rate: u32, samples: Vec<f32>) -> Self {
-            Self {
-                rate,
-                channels: 1,
-                samples,
-                batch: 1152,
-                position: 0,
-                seek_granule: 1,
-                report_duration: true,
-                exact: None,
-            }
-        }
-
-        fn frames(&self) -> usize {
-            self.samples.len() / self.channels as usize
-        }
-    }
-
-    impl AudioSource for FakeSource {
-        fn params(&self) -> StreamParams {
-            StreamParams::new(self.rate, ChannelCount::from_u8(self.channels), 32)
-        }
-
-        fn next_buffer(&mut self) -> Result<Option<AudioBatch>, AudioError> {
-            let ch = self.channels as usize;
-            if self.position >= self.frames() {
-                return Ok(None);
-            }
-            let end = (self.position + self.batch).min(self.frames());
-            let data = self.samples[self.position * ch..end * ch].to_vec();
-            self.position = end;
-            Ok(Some(AudioBatch {
-                data: AudioSamples::F32(data),
-                metadata: Metadata {
-                    sample_rate: self.rate,
-                    channels: ChannelCount::from_u8(self.channels),
-                    bit_depth: 32,
-                },
-            }))
-        }
-
-        fn seek(&mut self, position: f32) -> Result<Duration, AudioError> {
-            let target = (position as f64 * self.frames() as f64) as usize;
-            self.position = target / self.seek_granule * self.seek_granule;
-            Ok(Duration::from_secs_f64(
-                self.position as f64 / self.rate as f64,
-            ))
-        }
-
-        fn duration(&self) -> Option<Duration> {
-            self.report_duration
-                .then(|| Duration::from_secs_f64(self.frames() as f64 / self.rate as f64))
-        }
-
-        fn exact_frames(&self) -> Option<u64> {
-            self.exact
-        }
-
-        fn seek_frame(&mut self, frame: u64) -> Result<u64, AudioError> {
-            if self.exact.is_none() {
-                return Err(AudioError::Decoder("not exact".into()));
-            }
-            self.position =
-                (frame as usize).min(self.frames()) / self.seek_granule * self.seek_granule;
-            Ok(self.position as u64)
-        }
-    }
+    use crate::test_support::FakeSource;
+    use audio_common::I24;
 
     fn ramp(len: usize) -> Vec<f32> {
         (0..len).map(|i| i as f32).collect()

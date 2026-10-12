@@ -1,0 +1,22 @@
+[package]
+name = "audio_embedding_gpu"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+audio_common = { path = "../audio_common" }
+audio_embedding = { path = "../audio_embedding" }
+wgpu = { version = "29.0.4", default-features = false, features = ["std", "parking_lot", "wgsl", "metal", "dx12", "vulkan"] }
+bytemuck = "1"
+pollster = "0.4"
+log = { workspace = true }
+
+[dev-dependencies]
+audio_decoder = { path = "../audio_decoder" }
+audio_embedding = { path = "../audio_embedding", features = ["test-support"] }
+tract-onnx = { version = "0.23", default-features = false }
+rstest = "0.26"
+
+[lints]
+workspace = true

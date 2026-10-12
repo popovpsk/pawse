@@ -25,6 +25,10 @@ pub struct SimilarStrings {
     pub analysing: SharedString,
     pub no_model: SharedString,
     pub stopped: SharedString,
+    pub no_gpu_short: SharedString,
+    pub no_gpu: SharedString,
+    pub gpu_failed: SharedString,
+    pub gpu_retry: SharedString,
     pub status_failed: SharedString,
     pub failed_t: SharedString,
     pub unreachable_t: SharedString,
@@ -105,6 +109,16 @@ static EN: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "The analysis stopped on an error (details in the log). It resumes at the next library update.",
     ),
+    no_gpu_short: SharedString::new_static("No graphics card found"),
+    no_gpu: SharedString::new_static(
+        "This computer has no graphics card the analysis can use, so it is unavailable.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "The graphics card did not pass the check (details in the log). The analysis is unavailable until the app restarts.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "The graphics card did not pass the check (details in the log). Trying again in 30 seconds.",
+    ),
     status_failed: SharedString::new_static("Couldn't read the progress."),
     failed_t: SharedString::new_static("Could not be analysed: {}"),
     unreachable_t: SharedString::new_static(
@@ -140,6 +154,12 @@ static ZH: SimilarStrings = SimilarStrings {
     analysing: SharedString::new_static("正在分析…"),
     no_model: SharedString::new_static("模型不可用，5 分钟后重试。"),
     stopped: SharedString::new_static("分析因错误而停止（详情见日志）。将在下次更新音乐库时继续。"),
+    no_gpu_short: SharedString::new_static("未找到显卡"),
+    no_gpu: SharedString::new_static("这台电脑没有可用于分析的显卡，因此无法分析。"),
+    gpu_failed: SharedString::new_static(
+        "显卡未通过检查（详情见日志）。重新启动应用之前无法分析。",
+    ),
+    gpu_retry: SharedString::new_static("显卡未通过检查（详情见日志）。30 秒后重试。"),
     status_failed: SharedString::new_static("无法读取进度。"),
     failed_t: SharedString::new_static("无法分析：{}"),
     unreachable_t: SharedString::new_static(
@@ -183,6 +203,16 @@ static PT: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "A análise parou por um erro (detalhes no log). Ela continua na próxima atualização da biblioteca.",
     ),
+    no_gpu_short: SharedString::new_static("Nenhuma placa de vídeo encontrada"),
+    no_gpu: SharedString::new_static(
+        "Este computador não tem uma placa de vídeo que a análise possa usar, por isso ela não está disponível.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "A placa de vídeo não passou na verificação (detalhes no log). A análise fica indisponível até o app ser reiniciado.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "A placa de vídeo não passou na verificação (detalhes no log). Nova tentativa em 30 segundos.",
+    ),
     status_failed: SharedString::new_static("Não foi possível ler o progresso."),
     failed_t: SharedString::new_static("Não foi possível analisar: {}"),
     unreachable_t: SharedString::new_static(
@@ -221,6 +251,16 @@ static RU: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("Модель недоступна. Повторная попытка через 5 минут."),
     stopped: SharedString::new_static(
         "Анализ остановился из-за ошибки (подробности в журнале). Он продолжится при следующем обновлении медиатеки.",
+    ),
+    no_gpu_short: SharedString::new_static("Видеокарта не найдена"),
+    no_gpu: SharedString::new_static(
+        "На этом компьютере нет видеокарты, которую может использовать анализ, поэтому он недоступен.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Видеокарта не прошла проверку (подробности в журнале). Анализ недоступен до перезапуска приложения.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Видеокарта не прошла проверку (подробности в журнале). Повторная попытка через 30 секунд.",
     ),
     status_failed: SharedString::new_static("Не удалось прочитать прогресс."),
     failed_t: SharedString::new_static("Не удалось проанализировать: {}"),
@@ -262,6 +302,16 @@ static JA: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("モデルを利用できません。5 分後に再試行します。"),
     stopped: SharedString::new_static(
         "エラーのため分析が停止しました（詳細はログを参照）。次回のライブラリ更新時に再開します。",
+    ),
+    no_gpu_short: SharedString::new_static("グラフィックカードが見つかりません"),
+    no_gpu: SharedString::new_static(
+        "このコンピューターには分析に使えるグラフィックカードがないため、分析は利用できません。",
+    ),
+    gpu_failed: SharedString::new_static(
+        "グラフィックカードがチェックに通りませんでした（詳細はログを参照）。アプリを再起動するまで分析は利用できません。",
+    ),
+    gpu_retry: SharedString::new_static(
+        "グラフィックカードがチェックに通りませんでした（詳細はログを参照）。30 秒後に再試行します。",
     ),
     status_failed: SharedString::new_static("進行状況を読み込めませんでした。"),
     failed_t: SharedString::new_static("分析できませんでした：{}"),
@@ -308,6 +358,16 @@ static DE: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "Die Analyse wurde wegen eines Fehlers angehalten (Details im Protokoll). Sie läuft beim nächsten Bibliotheksupdate weiter.",
     ),
+    no_gpu_short: SharedString::new_static("Keine Grafikkarte gefunden"),
+    no_gpu: SharedString::new_static(
+        "Dieser Computer hat keine Grafikkarte, die die Analyse nutzen kann, daher ist sie nicht verfügbar.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Die Grafikkarte hat die Prüfung nicht bestanden (Details im Protokoll). Die Analyse ist bis zum Neustart der App nicht verfügbar.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Die Grafikkarte hat die Prüfung nicht bestanden (Details im Protokoll). Neuer Versuch in 30 Sekunden.",
+    ),
     status_failed: SharedString::new_static("Der Fortschritt konnte nicht gelesen werden."),
     failed_t: SharedString::new_static("Nicht analysierbar: {}"),
     unreachable_t: SharedString::new_static(
@@ -349,6 +409,16 @@ static FR: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "L'analyse s'est arrêtée sur une erreur (détails dans le journal). Elle reprendra à la prochaine actualisation de la bibliothèque.",
     ),
+    no_gpu_short: SharedString::new_static("Aucune carte graphique trouvée"),
+    no_gpu: SharedString::new_static(
+        "Cet ordinateur n'a pas de carte graphique utilisable par l'analyse, elle n'est donc pas disponible.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "La carte graphique n'a pas passé la vérification (détails dans le journal). L'analyse est indisponible jusqu'au redémarrage de l'application.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "La carte graphique n'a pas passé la vérification (détails dans le journal). Nouvel essai dans 30 secondes.",
+    ),
     status_failed: SharedString::new_static("Impossible de lire la progression."),
     failed_t: SharedString::new_static("Impossible à analyser : {}"),
     unreachable_t: SharedString::new_static(
@@ -389,6 +459,16 @@ static KO: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("모델을 사용할 수 없습니다. 5분 후 다시 시도합니다."),
     stopped: SharedString::new_static(
         "오류로 분석이 중단되었습니다(자세한 내용은 로그 참조). 다음 라이브러리 업데이트 때 계속됩니다.",
+    ),
+    no_gpu_short: SharedString::new_static("그래픽 카드를 찾을 수 없음"),
+    no_gpu: SharedString::new_static(
+        "이 컴퓨터에는 분석에 사용할 수 있는 그래픽 카드가 없어 분석을 사용할 수 없습니다.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "그래픽 카드가 검사를 통과하지 못했습니다(자세한 내용은 로그 참조). 앱을 다시 시작할 때까지 분석을 사용할 수 없습니다.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "그래픽 카드가 검사를 통과하지 못했습니다(자세한 내용은 로그 참조). 30초 후 다시 시도합니다.",
     ),
     status_failed: SharedString::new_static("진행 상황을 읽을 수 없습니다."),
     failed_t: SharedString::new_static("분석하지 못함: {}"),
@@ -435,6 +515,16 @@ static IT: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "L'analisi si è fermata per un errore (dettagli nel registro). Riprenderà al prossimo aggiornamento della libreria.",
     ),
+    no_gpu_short: SharedString::new_static("Nessuna scheda grafica trovata"),
+    no_gpu: SharedString::new_static(
+        "Questo computer non ha una scheda grafica utilizzabile per l'analisi, quindi non è disponibile.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "La scheda grafica non ha superato il controllo (dettagli nel registro). L'analisi non è disponibile fino al riavvio dell'app.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "La scheda grafica non ha superato il controllo (dettagli nel registro). Nuovo tentativo tra 30 secondi.",
+    ),
     status_failed: SharedString::new_static("Impossibile leggere l'avanzamento."),
     failed_t: SharedString::new_static("Impossibile analizzare: {}"),
     unreachable_t: SharedString::new_static(
@@ -477,6 +567,16 @@ static TR: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("Model kullanılamıyor. 5 dakika sonra yeniden denenecek."),
     stopped: SharedString::new_static(
         "Analiz bir hata nedeniyle durdu (ayrıntılar günlükte). Bir sonraki kitaplık güncellemesinde devam edecek.",
+    ),
+    no_gpu_short: SharedString::new_static("Ekran kartı bulunamadı"),
+    no_gpu: SharedString::new_static(
+        "Bu bilgisayarda analizin kullanabileceği bir ekran kartı yok, bu yüzden analiz kullanılamıyor.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Ekran kartı denetimi geçemedi (ayrıntılar günlükte). Uygulama yeniden başlatılana kadar analiz kullanılamaz.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Ekran kartı denetimi geçemedi (ayrıntılar günlükte). 30 saniye sonra yeniden denenecek.",
     ),
     status_failed: SharedString::new_static("İlerleme okunamadı."),
     failed_t: SharedString::new_static("Analiz edilemedi: {}"),
@@ -521,6 +621,16 @@ static PL: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "Analiza zatrzymała się z powodu błędu (szczegóły w dzienniku). Będzie kontynuowana przy następnej aktualizacji biblioteki.",
     ),
+    no_gpu_short: SharedString::new_static("Nie znaleziono karty graficznej"),
+    no_gpu: SharedString::new_static(
+        "Ten komputer nie ma karty graficznej, z której może korzystać analiza, więc jest ona niedostępna.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Karta graficzna nie przeszła testu (szczegóły w dzienniku). Analiza jest niedostępna do ponownego uruchomienia aplikacji.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Karta graficzna nie przeszła testu (szczegóły w dzienniku). Ponowna próba za 30 sekund.",
+    ),
     status_failed: SharedString::new_static("Nie udało się odczytać postępu."),
     failed_t: SharedString::new_static("Nie udało się przeanalizować: {}"),
     unreachable_t: SharedString::new_static(
@@ -564,6 +674,16 @@ static NL: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "De analyse is gestopt door een fout (details in het logboek). Ze gaat verder bij de volgende bibliotheekupdate.",
     ),
+    no_gpu_short: SharedString::new_static("Geen videokaart gevonden"),
+    no_gpu: SharedString::new_static(
+        "Deze computer heeft geen videokaart die de analyse kan gebruiken, dus die is niet beschikbaar.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "De videokaart is niet door de controle gekomen (details in het logboek). De analyse is niet beschikbaar tot de app opnieuw start.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "De videokaart is niet door de controle gekomen (details in het logboek). Nieuwe poging over 30 seconden.",
+    ),
     status_failed: SharedString::new_static("Kon de voortgang niet lezen."),
     failed_t: SharedString::new_static("Kon niet worden geanalyseerd: {}"),
     unreachable_t: SharedString::new_static(
@@ -602,6 +722,16 @@ static UK: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("Модель недоступна. Повторна спроба за 5 хвилин."),
     stopped: SharedString::new_static(
         "Аналіз зупинився через помилку (подробиці в журналі). Він продовжиться під час наступного оновлення медіатеки.",
+    ),
+    no_gpu_short: SharedString::new_static("Відеокарту не знайдено"),
+    no_gpu: SharedString::new_static(
+        "На цьому комп'ютері немає відеокарти, яку може використати аналіз, тому він недоступний.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Відеокарта не пройшла перевірку (подробиці в журналі). Аналіз недоступний до перезапуску застосунку.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Відеокарта не пройшла перевірку (подробиці в журналі). Повторна спроба за 30 секунд.",
     ),
     status_failed: SharedString::new_static("Не вдалося прочитати прогрес."),
     failed_t: SharedString::new_static("Не вдалося проаналізувати: {}"),
@@ -644,6 +774,16 @@ static VI: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "Quá trình phân tích đã dừng do lỗi (chi tiết trong nhật ký). Sẽ tiếp tục ở lần cập nhật thư viện tiếp theo.",
     ),
+    no_gpu_short: SharedString::new_static("Không tìm thấy card đồ họa"),
+    no_gpu: SharedString::new_static(
+        "Máy tính này không có card đồ họa mà quá trình phân tích có thể dùng, nên không thể phân tích.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Card đồ họa không vượt qua bước kiểm tra (chi tiết trong nhật ký). Không thể phân tích cho đến khi khởi động lại ứng dụng.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Card đồ họa không vượt qua bước kiểm tra (chi tiết trong nhật ký). Sẽ thử lại sau 30 giây.",
+    ),
     status_failed: SharedString::new_static("Không đọc được tiến độ."),
     failed_t: SharedString::new_static("Không phân tích được: {}"),
     unreachable_t: SharedString::new_static(
@@ -685,6 +825,16 @@ static ID: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "Analisis berhenti karena galat (detail di log). Akan dilanjutkan pada pembaruan pustaka berikutnya.",
     ),
+    no_gpu_short: SharedString::new_static("Kartu grafis tidak ditemukan"),
+    no_gpu: SharedString::new_static(
+        "Komputer ini tidak punya kartu grafis yang bisa dipakai untuk analisis, jadi analisis tidak tersedia.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Kartu grafis tidak lolos pemeriksaan (detail di log). Analisis tidak tersedia sampai aplikasi dimulai ulang.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Kartu grafis tidak lolos pemeriksaan (detail di log). Mencoba lagi dalam 30 detik.",
+    ),
     status_failed: SharedString::new_static("Tidak dapat membaca progres."),
     failed_t: SharedString::new_static("Tidak dapat dianalisis: {}"),
     unreachable_t: SharedString::new_static(
@@ -721,6 +871,14 @@ static TH: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("ใช้โมเดลไม่ได้ จะลองอีกครั้งใน 5 นาที"),
     stopped: SharedString::new_static(
         "การวิเคราะห์หยุดเพราะเกิดข้อผิดพลาด (ดูรายละเอียดในบันทึก) จะทำต่อเมื่ออัปเดตคลังเพลงครั้งถัดไป",
+    ),
+    no_gpu_short: SharedString::new_static("ไม่พบการ์ดจอ"),
+    no_gpu: SharedString::new_static("คอมพิวเตอร์เครื่องนี้ไม่มีการ์ดจอที่ใช้วิเคราะห์ได้ จึงวิเคราะห์ไม่ได้"),
+    gpu_failed: SharedString::new_static(
+        "การ์ดจอไม่ผ่านการตรวจสอบ (ดูรายละเอียดในบันทึก) วิเคราะห์ไม่ได้จนกว่าจะเปิดแอปใหม่",
+    ),
+    gpu_retry: SharedString::new_static(
+        "การ์ดจอไม่ผ่านการตรวจสอบ (ดูรายละเอียดในบันทึก) จะลองอีกครั้งใน 30 วินาที",
     ),
     status_failed: SharedString::new_static("อ่านความคืบหน้าไม่ได้"),
     failed_t: SharedString::new_static("วิเคราะห์ไม่ได้: {}"),
@@ -765,6 +923,16 @@ static CS: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "Analýza se zastavila kvůli chybě (podrobnosti v protokolu). Bude pokračovat při další aktualizaci knihovny.",
     ),
+    no_gpu_short: SharedString::new_static("Grafická karta nenalezena"),
+    no_gpu: SharedString::new_static(
+        "Tento počítač nemá grafickou kartu, kterou by analýza mohla použít, proto není dostupná.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Grafická karta neprošla kontrolou (podrobnosti v protokolu). Analýza je nedostupná až do restartu aplikace.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Grafická karta neprošla kontrolou (podrobnosti v protokolu). Další pokus za 30 sekund.",
+    ),
     status_failed: SharedString::new_static("Průběh se nepodařilo načíst."),
     failed_t: SharedString::new_static("Nepodařilo se analyzovat: {}"),
     unreachable_t: SharedString::new_static(
@@ -806,6 +974,16 @@ static SV: SimilarStrings = SimilarStrings {
     stopped: SharedString::new_static(
         "Analysen stoppade på grund av ett fel (detaljer i loggen). Den fortsätter vid nästa biblioteksuppdatering.",
     ),
+    no_gpu_short: SharedString::new_static("Inget grafikkort hittades"),
+    no_gpu: SharedString::new_static(
+        "Den här datorn har inget grafikkort som analysen kan använda, så den är inte tillgänglig.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "Grafikkortet klarade inte kontrollen (detaljer i loggen). Analysen är inte tillgänglig förrän appen startas om.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "Grafikkortet klarade inte kontrollen (detaljer i loggen). Nytt försök om 30 sekunder.",
+    ),
     status_failed: SharedString::new_static("Kunde inte läsa förloppet."),
     failed_t: SharedString::new_static("Kunde inte analyseras: {}"),
     unreachable_t: SharedString::new_static(
@@ -846,6 +1024,16 @@ static HI: SimilarStrings = SimilarStrings {
     no_model: SharedString::new_static("मॉडल उपलब्ध नहीं है। 5 मिनट में फिर कोशिश होगी।"),
     stopped: SharedString::new_static(
         "त्रुटि के कारण विश्लेषण रुक गया (विवरण लॉग में)। लाइब्रेरी के अगले अपडेट पर यह जारी रहेगा।",
+    ),
+    no_gpu_short: SharedString::new_static("ग्राफ़िक्स कार्ड नहीं मिला"),
+    no_gpu: SharedString::new_static(
+        "इस कंप्यूटर में ऐसा कोई ग्राफ़िक्स कार्ड नहीं है जिसे विश्लेषण इस्तेमाल कर सके, इसलिए यह उपलब्ध नहीं है।",
+    ),
+    gpu_failed: SharedString::new_static(
+        "ग्राफ़िक्स कार्ड जाँच में पास नहीं हुआ (विवरण लॉग में)। ऐप दोबारा शुरू होने तक विश्लेषण उपलब्ध नहीं है।",
+    ),
+    gpu_retry: SharedString::new_static(
+        "ग्राफ़िक्स कार्ड जाँच में पास नहीं हुआ (विवरण लॉग में)। 30 सेकंड में फिर कोशिश होगी।",
     ),
     status_failed: SharedString::new_static("प्रगति नहीं पढ़ी जा सकी।"),
     failed_t: SharedString::new_static("विश्लेषण नहीं हो सका: {}"),
@@ -889,6 +1077,16 @@ static ES: SimilarStrings = SimilarStrings {
     ),
     stopped: SharedString::new_static(
         "El análisis se detuvo por un error (detalles en el registro). Continuará en la próxima actualización de la biblioteca.",
+    ),
+    no_gpu_short: SharedString::new_static("No se encontró una tarjeta gráfica"),
+    no_gpu: SharedString::new_static(
+        "Este equipo no tiene una tarjeta gráfica que el análisis pueda usar, así que no está disponible.",
+    ),
+    gpu_failed: SharedString::new_static(
+        "La tarjeta gráfica no pasó la comprobación (detalles en el registro). El análisis no está disponible hasta reiniciar la app.",
+    ),
+    gpu_retry: SharedString::new_static(
+        "La tarjeta gráfica no pasó la comprobación (detalles en el registro). Se reintentará en 30 segundos.",
     ),
     status_failed: SharedString::new_static("No se pudo leer el progreso."),
     failed_t: SharedString::new_static("No se pudieron analizar: {}"),

@@ -1,17 +1,21 @@
+#[cfg(any(test, feature = "test-support"))]
 use std::sync::Arc;
 
+#[cfg(any(test, feature = "test-support"))]
 use realfft::{RealFftPlanner, RealToComplex};
 
-pub(crate) const SAMPLE_RATE: u32 = 16_000;
-pub(crate) const FRAME: usize = 512;
-pub(crate) const HOP: usize = 256;
-pub(crate) const BANDS: usize = 96;
-pub(crate) const PATCH: usize = 128;
+pub const SAMPLE_RATE: u32 = 16_000;
+pub const FRAME: usize = 512;
+pub const HOP: usize = 256;
+pub const BANDS: usize = 96;
+pub const PATCH: usize = 128;
 pub(crate) const PATCH_HOP: usize = 62;
 pub(crate) const PATCHES: usize = 32;
 
-pub(crate) const HALF: usize = FRAME / 2;
+pub const HALF: usize = FRAME / 2;
+pub const PATCH_SAMPLES: usize = (PATCH - 1) * HOP + FRAME;
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) type MelFrame = [f32; BANDS];
 
 pub(crate) struct Resampler {
@@ -124,12 +128,66 @@ fn mel_to_hz(mel: f32) -> f32 {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MelFilter {
+    pub first: usize,
+    pub weights: Vec<f32>,
+}
+
+pub fn hann_window() -> Vec<f32> {
+    (0..FRAME)
+        .map(|i| {
+            0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / (FRAME as f64 - 1.0)).cos() as f32
+        })
+        .collect()
+}
+
+pub fn mel_filters() -> Vec<MelFilter> {
+    let lo = hz_to_mel(0.0);
+    let hi = hz_to_mel(SAMPLE_RATE as f32 / 2.0);
+    let inc = (hi - lo) / (BANDS as f32 + 1.0);
+    let mut edges = Vec::with_capacity(BANDS + 2);
+    let mut mel = lo;
+    for _ in 0..BANDS + 2 {
+        edges.push(mel_to_hz(mel));
+        mel += inc;
+    }
+    let bin_hz = (SAMPLE_RATE as f32 / 2.0) / (FRAME / 2) as f32;
+    (0..BANDS)
+        .map(|band| {
+            let (f_lo, f_c, f_hi) = (edges[band], edges[band + 1], edges[band + 2]);
+            let (rise, fall) = (f_c - f_lo, f_hi - f_c);
+            let first = (f_lo / bin_hz).ceil() as usize;
+            let last = ((f_hi / bin_hz).floor() as usize).min(FRAME / 2);
+            let norm = (rise + fall) / 2.0;
+            let weights = (first..=last)
+                .map(|bin| {
+                    let f = bin as f32 * bin_hz;
+                    let w = if f < f_c {
+                        (f - f_lo) / rise
+                    } else {
+                        (f_hi - f) / fall
+                    };
+                    w / norm
+                })
+                .collect();
+            MelFilter { first, weights }
+        })
+        .collect()
+}
+
+pub fn mel_value(energy: f32) -> f32 {
+    (1.0 + 10000.0 * energy).log10()
+}
+
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) struct MelFrontend {
     window: Vec<f32>,
-    filters: Vec<(usize, Vec<f32>)>,
+    filters: Vec<MelFilter>,
     fft: Arc<dyn RealToComplex<f32>>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) struct MelScratch {
     input: Vec<f32>,
     spectrum: Vec<realfft::num_complex::Complex<f32>>,
@@ -137,6 +195,7 @@ pub(crate) struct MelScratch {
     power: Vec<f32>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl MelScratch {
     pub(crate) fn new(frontend: &MelFrontend) -> Self {
         Self {
@@ -148,50 +207,13 @@ impl MelScratch {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl MelFrontend {
     pub(crate) fn new() -> Self {
-        let window = (0..FRAME)
-            .map(|i| {
-                0.5 - 0.5
-                    * (2.0 * std::f64::consts::PI * i as f64 / (FRAME as f64 - 1.0)).cos() as f32
-            })
-            .collect();
-        let lo = hz_to_mel(0.0);
-        let hi = hz_to_mel(SAMPLE_RATE as f32 / 2.0);
-        let inc = (hi - lo) / (BANDS as f32 + 1.0);
-        let mut edges = Vec::with_capacity(BANDS + 2);
-        let mut mel = lo;
-        for _ in 0..BANDS + 2 {
-            edges.push(mel_to_hz(mel));
-            mel += inc;
-        }
-        let bin_hz = (SAMPLE_RATE as f32 / 2.0) / (FRAME / 2) as f32;
-        let filters = (0..BANDS)
-            .map(|band| {
-                let (f_lo, f_c, f_hi) = (edges[band], edges[band + 1], edges[band + 2]);
-                let (rise, fall) = (f_c - f_lo, f_hi - f_c);
-                let first = (f_lo / bin_hz).ceil() as usize;
-                let last = ((f_hi / bin_hz).floor() as usize).min(FRAME / 2);
-                let norm = (rise + fall) / 2.0;
-                let weights = (first..=last)
-                    .map(|bin| {
-                        let f = bin as f32 * bin_hz;
-                        let w = if f < f_c {
-                            (f - f_lo) / rise
-                        } else {
-                            (f_hi - f) / fall
-                        };
-                        w / norm
-                    })
-                    .collect();
-                (first, weights)
-            })
-            .collect();
-        let fft = RealFftPlanner::<f32>::new().plan_fft_forward(FRAME);
         Self {
-            window,
-            filters,
-            fft,
+            window: hann_window(),
+            filters: mel_filters(),
+            fft: RealFftPlanner::<f32>::new().plan_fft_forward(FRAME),
         }
     }
 
@@ -216,13 +238,14 @@ impl MelFrontend {
             *p = c.norm_sqr();
         }
         let mut row = [0f32; BANDS];
-        for (value, (first, weights)) in row.iter_mut().zip(&self.filters) {
-            let energy: f32 = weights
+        for (value, filter) in row.iter_mut().zip(&self.filters) {
+            let energy: f32 = filter
+                .weights
                 .iter()
-                .zip(&buffers.power[*first..])
+                .zip(&buffers.power[filter.first..])
                 .map(|(w, p)| w * p)
                 .sum();
-            *value = (1.0 + 10000.0 * energy).log10();
+            *value = mel_value(energy);
         }
         row
     }
@@ -235,7 +258,7 @@ impl MelFrontend {
     }
 }
 
-pub(crate) fn frame_count(samples: usize) -> usize {
+pub fn frame_count(samples: usize) -> usize {
     if samples <= HALF {
         1
     } else {
@@ -243,6 +266,7 @@ pub(crate) fn frame_count(samples: usize) -> usize {
     }
 }
 
+#[cfg(test)]
 pub(crate) struct MelStream<'a> {
     frontend: &'a MelFrontend,
     window: Vec<f32>,
@@ -252,6 +276,7 @@ pub(crate) struct MelStream<'a> {
     buffers: MelScratch,
 }
 
+#[cfg(test)]
 impl<'a> MelStream<'a> {
     pub(crate) fn new(frontend: &'a MelFrontend) -> Self {
         Self {
@@ -318,6 +343,7 @@ pub(crate) fn spread(total: usize) -> Vec<usize> {
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn select_patches(mel: &[MelFrame]) -> (Vec<f32>, usize) {
     let starts = patch_starts(mel.len());
     let chosen = spread(starts.len());
@@ -439,11 +465,11 @@ mod tests {
 
     #[test]
     fn filters_stay_inside_the_spectrum() {
-        let frontend = MelFrontend::new();
-        assert_eq!(frontend.filters.len(), BANDS);
-        for (first, weights) in &frontend.filters {
-            assert!(first + weights.len() <= FRAME / 2 + 1);
-            assert!(weights.iter().all(|w| *w >= 0.0));
+        let filters = mel_filters();
+        assert_eq!(filters.len(), BANDS);
+        for filter in &filters {
+            assert!(filter.first + filter.weights.len() <= FRAME / 2 + 1);
+            assert!(filter.weights.iter().all(|w| *w >= 0.0));
         }
     }
 

@@ -1,12 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use audio_decoder::Decoder;
-use audio_embedding::{Analyzer, EMBEDDING_VERSION, EmbedError, Job, Prepared, TrackRange};
+use audio_embedding::{EMBEDDING_VERSION, EmbedError, Embedding, Job, Prepared, TrackRange};
+use audio_embedding_gpu::{Availability, Device, Submitted};
 use music_library::Track;
 use music_library::remote::RemoteRef;
 
@@ -17,9 +18,10 @@ use crate::remote_media::RemoteMedia;
 const SAVE_BATCH: usize = 16;
 const PROGRESS_EVERY: usize = 100;
 const LOAD_RETRY: Duration = Duration::from_secs(5 * 60);
-const MAX_THREADS_PER_STAGE: usize = 3;
-const MAX_PREPARE_THREADS_ON_GPU: usize = 8;
-const READY_PER_THREAD: usize = 2;
+const GPU_RETRY: Duration = Duration::from_secs(30);
+const MAX_PREPARE_THREADS: usize = 8;
+const READY: usize = 4;
+const IN_FLIGHT: usize = 2;
 const FILL_WAIT: Duration = Duration::from_millis(300);
 
 pub(super) fn spawn(
@@ -38,16 +40,16 @@ pub(super) fn spawn(
                 remote_media,
                 model_dir,
                 scratch_dir,
-                analyzer: None,
+                model: Model::Unloaded,
                 failed: HashSet::new(),
             };
             loop {
-                let next = if worker.analyzer.is_none() {
-                    inbox.recv_timeout(LOAD_RETRY)
-                } else {
-                    inbox
+                let next = match worker.model {
+                    Model::Missing => inbox.recv_timeout(LOAD_RETRY),
+                    Model::Faulted => inbox.recv_timeout(GPU_RETRY),
+                    Model::Unloaded | Model::Unavailable(_) => inbox
                         .recv()
-                        .map_err(|_| flume::RecvTimeoutError::Disconnected)
+                        .map_err(|_| flume::RecvTimeoutError::Disconnected),
                 };
                 if matches!(next, Err(flume::RecvTimeoutError::Disconnected)) || worker.stopped() {
                     break;
@@ -64,8 +66,26 @@ struct Worker {
     remote_media: RemoteMedia,
     model_dir: PathBuf,
     scratch_dir: PathBuf,
-    analyzer: Option<Analyzer>,
+    model: Model,
     failed: HashSet<i64>,
+}
+
+#[derive(Debug, PartialEq)]
+enum Model {
+    Unloaded,
+    Missing,
+    Faulted,
+    Unavailable(Phase),
+}
+
+enum Ended {
+    Finished,
+    Faulted { analysed: usize },
+}
+
+struct Work {
+    todo: Vec<(Track, PathBuf)>,
+    groups: Vec<ServerFile>,
 }
 
 impl Worker {
@@ -75,41 +95,75 @@ impl Worker {
 
     fn run_pass(&mut self, inbox: &flume::Receiver<()>) {
         self.shared.neighbors.invalidate();
-        let progress = &self.shared.progress;
-        if self.analyzer.is_none() {
-            progress.set_phase(Phase::LoadingModel);
-            self.analyzer = self.load();
-        }
-        if self.analyzer.is_none() {
-            progress.set_phase(Phase::NoModel);
+        let shared = self.shared.clone();
+        let progress = &shared.progress;
+        if let Model::Unavailable(phase) = self.model {
+            progress.set_phase(phase);
             return;
         }
-        progress.set_phase(Phase::Analysing);
-        let phase = match self.analyse_missing(inbox) {
-            Ok(()) => Phase::Idle,
+        let work = match self.work(inbox) {
+            Ok(Some(work)) => work,
+            Ok(None) => {
+                if matches!(self.model, Model::Missing | Model::Faulted) {
+                    self.model = Model::Unloaded;
+                }
+                progress.set_phase(Phase::Idle);
+                return;
+            }
             Err(e) => {
                 log::error!("similar tracks: analysis stopped: {e:#}");
-                Phase::Stopped
+                progress.set_phase(Phase::Stopped);
+                return;
             }
         };
-        self.shared.progress.set_phase(phase);
+        progress.set_phase(Phase::LoadingModel);
+        let device = match self.load() {
+            Ok(device) => device,
+            Err(model) => {
+                let phase = match model {
+                    Model::Unavailable(phase) => phase,
+                    _ => Phase::NoModel,
+                };
+                self.model = model;
+                progress.set_phase(phase);
+                return;
+            }
+        };
+        self.model = Model::Unloaded;
+        progress.set_phase(Phase::Analysing);
+        let (model, phase) = after_analysis(self.analyse(&device, work, inbox));
+        drop(device);
+        self.model = model;
+        progress.set_phase(phase);
     }
 
-    fn load(&self) -> Option<Analyzer> {
+    fn load(&self) -> Result<Box<Device>, Model> {
         let started = Instant::now();
+        if audio_embedding_gpu::adapter_name().is_none() {
+            log::warn!("similar tracks: no hardware graphics adapter, the analysis is unavailable");
+            return Err(Model::Unavailable(Phase::NoGpu));
+        }
         let path = match audio_embedding::model_file::ensure(&self.model_dir, &|| self.stopped()) {
             Ok(path) => path,
-            Err(EmbedError::Cancelled) => return None,
+            Err(EmbedError::Cancelled) => return Err(Model::Missing),
             Err(e) => {
                 log::error!("similar tracks: the model is unavailable: {e}");
-                return None;
+                return Err(Model::Missing);
             }
         };
         if self.stopped() {
-            return None;
+            return Err(Model::Missing);
         }
-        let analyzer = match Analyzer::load(&path) {
-            Ok(analyzer) => analyzer,
+        let device = match audio_embedding_gpu::open(&path) {
+            Ok(Availability::Ready(device)) => device,
+            Ok(Availability::NoGpu(reason)) => {
+                log::warn!("similar tracks: the analysis is unavailable: {reason}");
+                return Err(Model::Unavailable(Phase::NoGpu));
+            }
+            Ok(Availability::Failed(reason)) => {
+                log::error!("similar tracks: no graphics adapter passed the check: {reason}");
+                return Err(Model::Unavailable(Phase::GpuFailed));
+            }
             Err(e) => {
                 log::error!("similar tracks: the model does not load: {e}");
                 match audio_embedding::model_file::discard_if_corrupt(&self.model_dir) {
@@ -119,13 +173,14 @@ impl Worker {
                     Ok(false) => {}
                     Err(e) => log::warn!("similar tracks: could not check the model file: {e}"),
                 }
-                return None;
+                return Err(Model::Missing);
             }
         };
         log::info!(
-            "similar tracks: model ready on {} in {} ms",
-            analyzer.backend().name(),
-            started.elapsed().as_millis()
+            "similar tracks: model ready on {} in {} ms (agreement {:.7})",
+            device.name(),
+            started.elapsed().as_millis(),
+            device.agreement()
         );
         match self.shared.repo.prune_embeddings(EMBEDDING_VERSION) {
             Ok(0) => {}
@@ -135,22 +190,16 @@ impl Worker {
             }
             Err(e) => {
                 log::error!("similar tracks: could not drop old vectors: {e}");
-                return None;
+                return Err(Model::Missing);
             }
         }
-        Some(analyzer)
+        Ok(device)
     }
 
-    fn analyse_missing(&mut self, inbox: &flume::Receiver<()>) -> anyhow::Result<()> {
-        let Some(analyzer) = self.analyzer.as_ref() else {
-            return Ok(());
-        };
+    fn work(&self, inbox: &flume::Receiver<()>) -> anyhow::Result<Option<Work>> {
         let shared = &self.shared;
-        let failed_ids = &mut self.failed;
-        let media = &self.remote_media;
-        let scratch = self.scratch_dir.as_path();
+        let failed_ids = &self.failed;
         while inbox.try_recv().is_ok() {}
-        let superseded = || !inbox.is_empty();
         let candidates = shared.repo.embedding_candidates(EMBEDDING_VERSION)?;
         let known_failed = candidates
             .iter()
@@ -165,35 +214,44 @@ impl Worker {
             candidates
                 .into_iter()
                 .filter(|track| !failed_ids.contains(&track.id)),
-            media,
+            &self.remote_media,
         );
+        Ok((!todo.is_empty() || !groups.is_empty()).then_some(Work { todo, groups }))
+    }
+
+    fn analyse(
+        &mut self,
+        device: &Device,
+        work: Work,
+        inbox: &flume::Receiver<()>,
+    ) -> anyhow::Result<Ended> {
+        let Work { todo, groups } = work;
+        let shared = &self.shared;
+        let failed_ids = &mut self.failed;
+        let media = &self.remote_media;
+        let scratch = self.scratch_dir.as_path();
+        let superseded = || !inbox.is_empty();
         let from_servers: usize = groups.iter().map(|file| file.tracks.len()).sum();
-        if todo.is_empty() && groups.is_empty() {
-            return Ok(());
-        }
         let total = todo.len() + from_servers;
         let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let per_stage = threads_per_stage(cores);
-        let preparing = prepare_threads(cores, analyzer.backend().is_gpu());
+        let preparing = prepare_threads(cores);
         log::info!(
             "similar tracks: {total} tracks to analyse, {from_servers} of them downloaded from \
-             servers, {preparing} preparing and {per_stage} running the model"
+             servers, {preparing} preparing"
         );
         let started = Instant::now();
         let halt = AtomicBool::new(false);
-        let turn = Mutex::new(None);
         let (jobs_tx, jobs) = flume::unbounded();
         for job in todo {
             let _ = jobs_tx.send(job);
         }
         drop(jobs_tx);
-        let (ready_tx, ready) = flume::bounded(per_stage * READY_PER_THREAD);
+        let (ready_tx, ready) = flume::bounded(READY);
         let (done_tx, done) = flume::unbounded();
         std::thread::scope(|scope| {
             let lanes = Lanes {
                 stop: &shared.stop,
                 halt: &halt,
-                turn: &turn,
             };
             let spawned = (|| -> std::io::Result<()> {
                 let mut preparers = Vec::with_capacity(preparing);
@@ -208,14 +266,12 @@ impl Worker {
                             })?,
                     );
                 }
-                for n in 0..per_stage {
-                    let (model_ready, model_done) = (ready.clone(), done_tx.clone());
-                    std::thread::Builder::new()
-                        .name(format!("similar-model-{n}"))
-                        .spawn_scoped(scope, move || {
-                            lanes.embed(analyzer, &model_ready, &model_done)
-                        })?;
-                }
+                let (model_ready, model_done) = (ready.clone(), done_tx.clone());
+                std::thread::Builder::new()
+                    .name("similar-gpu".into())
+                    .spawn_scoped(scope, move || {
+                        lanes.drive(device, &model_ready, &model_done)
+                    })?;
                 if groups.is_empty() {
                     return Ok(());
                 }
@@ -252,6 +308,30 @@ impl Worker {
     }
 }
 
+fn after_analysis(ended: anyhow::Result<Ended>) -> (Model, Phase) {
+    match ended {
+        Ok(Ended::Finished) => (Model::Unloaded, Phase::Idle),
+        Ok(Ended::Faulted { analysed: 0 }) => {
+            log::error!(
+                "similar tracks: the graphics card failed before any track was analysed, the \
+                 analysis is unavailable until the app restarts"
+            );
+            (Model::Unavailable(Phase::GpuFailed), Phase::GpuFailed)
+        }
+        Ok(Ended::Faulted { .. }) => {
+            log::warn!(
+                "similar tracks: trying the graphics card again in {} s",
+                GPU_RETRY.as_secs()
+            );
+            (Model::Faulted, Phase::GpuRetry)
+        }
+        Err(e) => {
+            log::error!("similar tracks: analysis stopped: {e:#}");
+            (Model::Unloaded, Phase::Stopped)
+        }
+    }
+}
+
 fn clear_leftovers(scratch: &Path) {
     let own = format!("{}-", std::process::id());
     let Some(Ok(entries)) = scratch.parent().map(std::fs::read_dir) else {
@@ -269,16 +349,8 @@ fn clear_leftovers(scratch: &Path) {
     }
 }
 
-fn threads_per_stage(cores: usize) -> usize {
-    (cores / 4).clamp(1, MAX_THREADS_PER_STAGE)
-}
-
-fn prepare_threads(cores: usize, gpu: bool) -> usize {
-    if gpu {
-        (cores / 2).clamp(1, MAX_PREPARE_THREADS_ON_GPU)
-    } else {
-        threads_per_stage(cores)
-    }
+fn prepare_threads(cores: usize) -> usize {
+    (cores / 2).clamp(1, MAX_PREPARE_THREADS)
 }
 
 pub(super) struct Ready {
@@ -297,7 +369,6 @@ pub(super) struct Done {
 pub(super) struct Lanes<'a> {
     pub(super) stop: &'a AtomicBool,
     pub(super) halt: &'a AtomicBool,
-    pub(super) turn: &'a Mutex<Option<Ready>>,
 }
 
 impl Lanes<'_> {
@@ -337,49 +408,113 @@ impl Lanes<'_> {
         }
     }
 
-    fn embed(
-        &self,
-        analyzer: &Analyzer,
-        ready: &flume::Receiver<Ready>,
-        done: &flume::Sender<Done>,
-    ) {
-        let capacity = analyzer.patches_per_run();
+    fn drive(&self, device: &Device, ready: &flume::Receiver<Ready>, done: &flume::Sender<Done>) {
+        let capacity = device.patches_per_run();
+        let mut flight: VecDeque<InFlight> = VecDeque::new();
+        let mut carry: Option<Ready> = None;
         loop {
-            let batch = {
-                let mut carry = self.turn.lock().unwrap_or_else(|e| e.into_inner());
-                let first = match carry.take() {
-                    Some(item) => item,
-                    None => match ready.recv() {
-                        Ok(item) => item,
-                        Err(_) => return,
-                    },
-                };
-                let (batch, next) = gather(
-                    first,
-                    ready,
-                    capacity,
-                    |item: &Ready| item.prepared.patch_count(),
-                    FILL_WAIT,
-                );
-                *carry = next;
-                batch
-            };
             if self.halted() {
+                break;
+            }
+            let first = match carry.take() {
+                Some(item) => Some(item),
+                None if flight.is_empty() => ready.recv().ok(),
+                None => ready.try_recv().ok(),
+            };
+            let Some(first) = first else {
+                match flight.pop_front() {
+                    Some(oldest) => {
+                        if !finish(oldest, done) {
+                            return;
+                        }
+                        continue;
+                    }
+                    None => break,
+                }
+            };
+            let (batch, next) = gather(
+                first,
+                ready,
+                capacity,
+                |item: &Ready| item.prepared.patch_count(),
+                FILL_WAIT,
+            );
+            carry = next;
+            if self.halted() {
+                break;
+            }
+            flight.push_back(submit(device, batch));
+            if flight.len() > IN_FLIGHT
+                && let Some(oldest) = flight.pop_front()
+                && !finish(oldest, done)
+            {
                 return;
             }
-            let (tracks, prepared): (Vec<(i64, PathBuf)>, Vec<Prepared>) = batch
-                .into_iter()
-                .map(|item| ((item.id, item.path), item.prepared))
-                .unzip();
-            let results = embed_batch(analyzer, &prepared);
-            for ((id, path), result) in tracks.into_iter().zip(results) {
-                let sent = done.send(Done { id, path, result });
-                if sent.is_err() {
-                    return;
-                }
+        }
+        for item in flight {
+            if !finish(item, done) {
+                return;
             }
         }
     }
+}
+
+struct InFlight<'a> {
+    tracks: Vec<(i64, PathBuf)>,
+    submitted: Submission<'a>,
+}
+
+enum Submission<'a> {
+    Pending(Submitted<'a>),
+    Done(Vec<Result<Embedding, EmbedError>>),
+}
+
+fn submit(device: &Device, batch: Vec<Ready>) -> InFlight<'_> {
+    let (tracks, prepared): (Vec<(i64, PathBuf)>, Vec<Prepared>) = batch
+        .into_iter()
+        .map(|item| ((item.id, item.path), item.prepared))
+        .unzip();
+    let submitted = match catch_unwind(AssertUnwindSafe(|| device.submit(&prepared))) {
+        Ok(submitted) => Submission::Pending(submitted),
+        Err(_) => Submission::Done(prepared.iter().map(|one| one_by_one(device, one)).collect()),
+    };
+    InFlight { tracks, submitted }
+}
+
+fn one_by_one(device: &Device, prepared: &Prepared) -> Result<Embedding, EmbedError> {
+    catch_unwind(AssertUnwindSafe(|| {
+        device.submit(std::slice::from_ref(prepared))
+    }))
+    .map_err(|_| EmbedError::Decode("the analysis panicked".into()))
+    .and_then(|submitted| {
+        catch_unwind(AssertUnwindSafe(|| submitted.wait()))
+            .map_err(|_| EmbedError::Model("the GPU run panicked".into()))
+    })
+    .and_then(|mut results| {
+        results
+            .pop()
+            .unwrap_or_else(|| Err(EmbedError::Model("no result".into())))
+    })
+}
+
+fn finish(item: InFlight<'_>, done: &flume::Sender<Done>) -> bool {
+    let results = match item.submitted {
+        Submission::Pending(submitted) => catch_unwind(AssertUnwindSafe(|| submitted.wait()))
+            .unwrap_or_else(|_| {
+                item.tracks
+                    .iter()
+                    .map(|_| Err(EmbedError::Model("the GPU run panicked".into())))
+                    .collect()
+            }),
+        Submission::Done(results) => results,
+    };
+    for ((id, path), result) in item.tracks.into_iter().zip(results) {
+        let result = result.map(|embedding| embedding.vector.into_vec());
+        if done.send(Done { id, path, result }).is_err() {
+            return false;
+        }
+    }
+    true
 }
 
 fn gather<T>(
@@ -413,7 +548,7 @@ fn collect(
     total: usize,
     started: Instant,
     halt: &AtomicBool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Ended> {
     let mut pending = Vec::with_capacity(SAVE_BATCH);
     let (mut analysed, mut failed) = (0usize, 0usize);
     let mut model_error = None;
@@ -447,7 +582,11 @@ fn collect(
     }
     save(shared, &mut pending)?;
     if let Some(e) = model_error {
-        anyhow::bail!("model: {e}");
+        log::error!(
+            "similar tracks: the graphics card failed after {analysed} tracks in {} s: {e}",
+            started.elapsed().as_secs()
+        );
+        return Ok(Ended::Faulted { analysed });
     }
     log::info!(
         "similar tracks: pass finished in {} s: {analysed} analysed, {failed} failed, {} waiting \
@@ -455,7 +594,7 @@ fn collect(
         started.elapsed().as_secs(),
         shared.progress.unreachable.load(Ordering::Relaxed)
     );
-    Ok(())
+    Ok(Ended::Finished)
 }
 
 fn save(shared: &Shared, pending: &mut Vec<(i64, Vec<f32>)>) -> anyhow::Result<()> {
@@ -533,28 +672,6 @@ pub(super) fn prepare(path: &Path, track: &Track) -> Result<Prepared, EmbedError
         .unwrap_or_else(|_| Err(EmbedError::Decode("the analysis panicked".into())))
 }
 
-fn embed_batch(analyzer: &Analyzer, batch: &[Prepared]) -> Vec<Result<Vec<f32>, EmbedError>> {
-    let run = |items: &[Prepared]| catch_unwind(AssertUnwindSafe(|| analyzer.embed(items)));
-    match run(batch) {
-        Ok(results) => results.into_iter().map(vectors).collect(),
-        Err(_) if batch.len() > 1 => batch
-            .chunks(1)
-            .map(|one| match run(one) {
-                Ok(mut results) => results
-                    .pop()
-                    .map(vectors)
-                    .unwrap_or_else(|| Err(EmbedError::Model("no result".into()))),
-                Err(_) => Err(EmbedError::Decode("the analysis panicked".into())),
-            })
-            .collect(),
-        Err(_) => vec![Err(EmbedError::Decode("the analysis panicked".into()))],
-    }
-}
-
-fn vectors(result: Result<audio_embedding::Embedding, EmbedError>) -> Result<Vec<f32>, EmbedError> {
-    result.map(|embedding| embedding.vector.into_vec())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -579,22 +696,34 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::one_core(1, false, 1, 1)]
-    #[case::one_core_gpu(1, true, 1, 1)]
-    #[case::four_cores(4, false, 1, 1)]
-    #[case::four_cores_gpu(4, true, 2, 1)]
-    #[case::m1(8, true, 4, 2)]
-    #[case::m3_max(14, true, 7, 3)]
-    #[case::m3_max_cpu(14, false, 3, 3)]
-    #[case::workstation_gpu(32, true, 8, 3)]
-    fn decoding_takes_the_cores_the_model_leaves(
-        #[case] cores: usize,
-        #[case] gpu: bool,
-        #[case] preparing: usize,
-        #[case] modelling: usize,
+    #[case::finished(Ok(Ended::Finished), Model::Unloaded, Phase::Idle)]
+    #[case::gpu_fault_after_progress(
+        Ok(Ended::Faulted { analysed: 3 }),
+        Model::Faulted,
+        Phase::GpuRetry
+    )]
+    #[case::gpu_fault_without_progress(
+        Ok(Ended::Faulted { analysed: 0 }),
+        Model::Unavailable(Phase::GpuFailed),
+        Phase::GpuFailed
+    )]
+    #[case::database_error(Err(anyhow::anyhow!("disk full")), Model::Unloaded, Phase::Stopped)]
+    fn a_gpu_fault_is_retried_only_after_progress(
+        #[case] ended: anyhow::Result<Ended>,
+        #[case] model: Model,
+        #[case] phase: Phase,
     ) {
-        assert_eq!(prepare_threads(cores, gpu), preparing);
-        assert_eq!(threads_per_stage(cores), modelling);
+        assert_eq!(after_analysis(ended), (model, phase));
+    }
+
+    #[rstest::rstest]
+    #[case::one_core(1, 1)]
+    #[case::four_cores(4, 2)]
+    #[case::m1(8, 4)]
+    #[case::m3_max(14, 7)]
+    #[case::workstation(32, 8)]
+    fn decoding_takes_half_the_cores(#[case] cores: usize, #[case] preparing: usize) {
+        assert_eq!(prepare_threads(cores), preparing);
     }
 
     #[test]

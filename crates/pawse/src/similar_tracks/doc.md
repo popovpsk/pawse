@@ -11,7 +11,12 @@ The switch is in Settings → General, "Sound-based
 recommendations" (`similar_tracks_enabled`, off by default; `tr().similar_tracks`).
 Its description talks about the result (similar-sounding tracks from the library), says
 the analysis is local and that the first pass can take a while; it does not mention the
-background thread or the one-time model download (16 MB). Turning
+background thread or the one-time model download (16 MB). The analysis runs only on a
+graphics card (`audio_embedding_gpu`; no CPU fallback, owner's decision): without a
+hardware adapter the switch is disabled and shown off, with "No graphics card found"
+left of it, the queue menu never shows, and the rest of the player works as usual. The
+setting itself is kept, so the same `settings.json` on a machine with a GPU turns the
+analysis on. Turning
 it off stops the analysis within one track, model run or server download (polled every
 250 ms) and cancels a model download in progress; a server check (`ping`) after a
 failed download is not cancellable and runs to its own timeout.
@@ -51,28 +56,48 @@ failed download is not cancellable and runs to its own timeout.
 
 - `setup` (after `Services`, next to the other bridges) installs the `State` global and
   the library-event subscription, and starts the analysis if the setting is on.
+  `start` first needs a graphics adapter: the first time it runs (`State::gpu` is
+  `Unchecked`) it checks on the background executor (`audio_embedding_gpu::adapter_name`,
+  no weights, tens of ms) and returns; when the answer comes it is logged, the analysis
+  starts if the setting is still on and there is an adapter, and the windows refresh so
+  Settings shows the switch's real state. The check never runs while the feature is
+  off: it loads the platform's GPU drivers (Vulkan, DX12), which most users of a
+  disabled feature should not pay for, and a broken driver must not take the app down
+  for them. So a machine without a GPU learns it the first time the switch is turned
+  on, which then shows disabled with the note.
   `set_enabled(true)` (the switch) starts it the same way: a new thread with its own
   `Shared` and the first pass queued. `set_enabled(false)` and `shutdown` (from
   `on_app_quit`) set that instance's stop flag and drop its request channel; each of
   the pass's threads finishes the track or model run in hand (or the model download
   is aborted between two reads) and the thread exits. Vectors already saved stay, so
   turning it back on only analyses what is missing. A quick off/on can leave the old
-  pass finishing its runs in hand (up to one per model thread, ~550 MB each) next to
+  pass finishing its runs in hand (two at most, on the GPU) next to
   the new instance loading its model; both only add rows. Two threads never download at once: `ensure` lets one
   download at a time, so the new thread waits for the old one to cancel and then
   downloads (or finds the file) itself.
 - The model lives in `dirs::data_dir()/pawse/models/` — not the cache dir, which users
   and the OS clear.
-- The first pass downloads the model if needed (`audio_embedding::model_file::ensure`,
-  blocking, on this thread), loads it, and drops vectors of other versions
-  (`prune_embeddings`). A failed download or load is logged and retried every 5
-  minutes (`LOAD_RETRY`, the thread waits on its request channel with that timeout
-  while it has no model) or sooner on the next library event, so starting offline only
-  postpones the analysis. `ensure` trusts a file of
-  the right size without hashing it; when such a file does not load,
-  `discard_if_corrupt` hashes it and deletes it if the SHA is wrong, so the next pass
-  downloads it again (a genuine file that tract rejects is kept, not re-downloaded on
-  every pass).
+- A pass lists the candidates first; with nothing to analyse it ends there, without
+  touching the GPU or the network. Otherwise it checks the adapter again (the worker
+  cannot see GPUI's state), downloads the weights if needed
+  (`audio_embedding::model_file::ensure`, blocking, on this thread), opens the GPU
+  (`audio_embedding_gpu::open`: kernels, weights, the probe; ~0.1–0.4 s) and drops
+  vectors of other versions (`prune_embeddings`), analyses, and **drops the `Device` at
+  the end of the pass**: its buffers are ~220 MB of GPU memory, and passes are rare
+  (library changes), so the app does not hold them in between. `Model` is `Unloaded`
+  (closed; the next pass with work opens it), `Missing` (the last attempt failed: the
+  thread then wakes every `LOAD_RETRY` to try again, until a pass has nothing to do),
+  `Faulted` (the GPU failed mid-pass; the thread wakes after `GPU_RETRY`, see below) or
+  `Unavailable(phase)`. A failed download or a weights file that does not parse is
+  logged and retried every 5 minutes (`LOAD_RETRY`, the thread waits on its request
+  channel with that timeout while the model is missing) or sooner on the next library
+  event, so starting offline only postpones the analysis. `ensure` trusts a file of the
+  right size without hashing it; when such a file does not parse, `discard_if_corrupt`
+  hashes it and deletes it if the SHA is wrong, so the next pass downloads it again (a
+  genuine file is kept, not re-downloaded on every pass). No hardware adapter
+  (`Phase::NoGpu`) or no adapter that passes the probe (`Phase::GpuFailed`) is final for
+  the session: every later pass only sets the phase. The log says which adapter the
+  model runs on and how well the probe agreed.
 - `CatalogChanged` and `RemoteSyncFinished` queue another pass. The queue is a
   `bounded(1)` channel: passes never overlap, and any number of events during a pass
   collapse into one follow-up pass, which picks up whatever the catalog gained
@@ -92,33 +117,28 @@ failed download is not cancellable and runs to its own timeout.
 - Long CPU work owns its threads, like the indexer's pool. The `similar-tracks` thread
   loads the model, lists the candidates, saves and logs; each pass runs a pipeline of
   scoped threads under it (`std::thread::scope`, joined before the pass returns):
-  `prepare_threads()` `similar-prepare-N` threads and `threads_per_stage()`
-  `similar-model-N` threads — the model threads a quarter of `available_parallelism`,
-  at least 1, at most `MAX_THREADS_PER_STAGE` (3); the prepare threads as many on the
-  CPU backend, and half the cores (at most `MAX_PREPARE_THREADS_ON_GPU`, 8) when the
-  model runs on a GPU — plus, when there are server tracks to download, a
-  `similar-fetch` thread that waits for the prepare threads and then runs the
-  download threads (`similar-fetch-N`). All at normal priority, by the owner's decision:
-  changing it needs OS calls (`unsafe`), and parking those in a crate only because
-  `unsafe` is allowed there is not worth it.
-- The cap is memory, not cores: a model run holds ~550 MB of tract's intermediate
-  tensors, so three model threads peak at ~1.5 GB. Measured on 228 real tracks (M3
-  Max, 3 + 3 threads): 25 s, 0.11 s a track, ~5 cores busy, 1.55 GB peak; the same
-  tracks one at a time on one thread took 0.83 s a track. The vectors are the same
-  (cosine 1.0 to the one-at-a-time ones), so this changed no `EMBEDDING_VERSION`.
-- On a GPU backend (`Analyzer::backend`, Metal on macOS; logged with "model ready
-  on …") the model threads only feed the device and keep the `threads_per_stage()`
-  count: three of them ran ~38 tracks/s on an M3 Max (one 19, four 43, six 37), and
-  the process's memory stayed flat with the thread count. The model then no longer
-  takes the cores, so decoding gets them instead: with three prepare threads the
-  first Metal re-analysis (2238 local tracks in ~136 s, ~16.5 tracks/s against
-  ~8.7 on the CPU) held the CPU at ~300% while the GPU waited, worst on albums that
-  take the full decode (lossy, APE, hi-res). Hence `prepare_threads`: half the cores
-  on a GPU, a plain rule chosen by the owner over a load-driven governor; not all
-  cores, so the machine does not spin up entirely. On the CPU backend the model needs
-  those cores, so the count stays as it was. The app took ~500–600 MB while indexing
-  on Metal (~300 MB of it the UI) against ~1.5 GB on the CPU. If the GPU fails
-  mid-session the analyzer drops to the CPU by itself with the same threads.
+  `prepare_threads()` `similar-prepare-N` threads — half the cores, at most
+  `MAX_PREPARE_THREADS` (8): not all of them, so the machine does not spin up
+  entirely, a plain rule chosen by the owner over a load-driven governor — one
+  `similar-gpu` thread that feeds the graphics card, and, when there are server tracks
+  to download, a `similar-fetch` thread that waits for the prepare threads and then
+  runs the download threads (`similar-fetch-N`). All at normal priority, by the owner's
+  decision: changing it needs OS calls (`unsafe`), and parking those in a crate only
+  because `unsafe` is allowed there is not worth it.
+- The GPU does resampling, mel and the model (~19 ms a run of two tracks on an M3 Max,
+  ~108 tracks/s), so the prepare threads — decoding — are the limit, as they already
+  were with Metal-tract (which ran ~38 tracks/s on three model threads). With tract
+  the earlier history was: three CPU model threads at ~550 MB of tract tensors each
+  (~1.5 GB peak, ~9 tracks/s), then Metal with three feeding threads.
+- Measured on `music-test` (2184 tracks, M3 Max, isolated `HOME`, release): 58 s
+  against 86 s with Metal-tract, 7 prepare threads at ~400–700% CPU, the GPU busy
+  ~25% of the time. Peak RSS ~1.32 GB (tract: ~1.36 GB). After the pass the footprint
+  stays ~940 MB (tract: ~750 MB) although the GPU buffers are gone: ~450 MB of it is
+  libmalloc's cache of freed large blocks (the PCM windows and the 16 kHz signals of the
+  full pass), which it gives back on the system's memory-pressure signal, not a leak
+  (`vmmap`: "MALLOC_LARGE (empty)"; live allocations ~390 MB). The slow spots are DSD
+  (~9 s per DSF track: DSD→PCM plus the full pass) and APE images with a CUE sheet
+  (~1.7 s per track).
 - On macOS an idle app in the background (no playback, window hidden) gets demoted by
   the system (App Nap): its threads drop to the background band, the efficiency
   cores, ~3.5× slower — 2.8 s a track on one thread was measured that way. Nothing
@@ -133,10 +153,10 @@ failed download is not cancellable and runs to its own timeout.
   - opens the file with `audio_decoder::Decoder`;
   - decodes a cue track over `start_offset_ms` .. `+ duration_ms` (`TrackRange`), a
     plain file whole.
-  - runs `audio_embedding::prepare` (decode, resample, mel, patch choice) and puts
-    the `Prepared` into `ready`, a channel bounded at `READY_PER_THREAD` (2) per
-    model thread, so prepared tracks (~1.5 MB each) never pile up; a failure goes
-    straight to the collector.
+  - runs `audio_embedding::prepare` (decode, patch choice, the PCM windows; lossy and
+    short tracks also resampled to 16 kHz) and puts the `Prepared` into `ready`, a
+    channel bounded at `READY` (4 tracks, two runs), so prepared tracks (~4–12 MB each,
+    more for hi-res) never pile up; a failure goes straight to the collector.
 - Every other server track is downloaded, by the owner's decision, whole: the same
   vectors as a local copy and no new audio code, at the cost of the full file
   (~27 MB for four minutes of 16/44.1 FLAC). Reading only the 32 windows over the
@@ -158,7 +178,7 @@ failed download is not cancellable and runs to its own timeout.
   it downloaded, but only `prepare_threads()` of them prepare at a time (`Gate`;
   `prepare_slots`), so the network phase takes no more CPU than the local one — on a
   four-core machine one decode, not eight, next to playback. The bounded `ready`
-  channel holds them back when the model threads are the bottleneck. Up to
+  channel holds them back when the GPU is the bottleneck. Up to
   `MAX_DOWNLOADS` downloaded files can be on disk at once.
 - A download thread fetches with `RemoteMedia::download_to` (`SourceMedia::fetch_whole`,
   the same `media_stream` download playback uses) into `scratch_dir` —
@@ -200,39 +220,49 @@ failed download is not cancellable and runs to its own timeout.
   `prepare` has its own), so its source keeps its download slot.
 - A torrent loaded for a download keeps the torrent session running, so it uploads
   (per its upload setting) while the analysis downloads, even with nothing playing.
-- A model thread takes the next prepared track and `gather`s more that are ready, up
-  to `Analyzer::patches_per_run()` (64) patches — two full tracks — waiting for them
-  until one `FILL_WAIT` (300 ms) deadline for the whole batch, since a half-empty run
-  costs as much as a full one; a track that does not fit waits in a carry slot for
-  the next batch. Only one model thread gathers at a time (`turn`, a mutex over that
-  slot, held while gathering, not while running the model): otherwise idle threads
-  would each grab one track when preparing is the bottleneck (slow disk, NAS) and run
-  three half-empty runs instead of fewer full ones, and a carried track would wait
-  for its own thread instead of joining the next batch. The worker hands `embed` exactly one
-  run's worth; `embed`'s packing across runs is its general contract (any slice, the
-  GPU batches later). The results go to the collector (the `similar-tracks` thread).
+- The `similar-gpu` thread takes the next prepared track and `gather`s more that are
+  ready, up to `Device::patches_per_run()` (64) patches — two full tracks — waiting for
+  them until one `FILL_WAIT` (300 ms) deadline for the whole batch, since a half-empty
+  run costs as much as a full one; a track that does not fit is carried into the next
+  batch. It submits the batch (the PCM is copied into GPU staging memory, the
+  `Prepared`s are dropped) and keeps up to `IN_FLIGHT` (2) submitted runs: while the
+  GPU computes one, the thread gathers and uploads the next. It waits for the oldest
+  run when more are in flight or nothing is ready, and sends its results to the
+  collector (the `similar-tracks` thread). A panic in `submit` re-runs the batch's
+  tracks one at a time, so only the track that panics fails (as a decode error,
+  remembered for the session) and the others get their vectors; a panic in `wait` is a
+  model error for the batch (`catch_unwind`).
 - On stop the collector keeps saving what still arrives until every thread has left
   (each finishes the track or run in hand), so finished vectors are not thrown away.
-- This is the shape the planned GPU path keeps: decoding stays on CPU threads, and the
-  whole front end plus the model becomes one graph over batches of 16–32 tracks
-  behind the same `prepare` / `embed` split.
 - Results are saved every 16 tracks (`save_embeddings`, which also skips items a scan
   swept meanwhile, on `music_library`'s own embedding connection, so waiting for a
   scan's write lock never blocks the UI's reads), and every save invalidates the
   cached mean. Every pass invalidates it too when it starts: passes follow catalog
   changes, and a scan that swept items took their vectors out of the mean.
-- A track that fails (decode error, under one second, a non-finite vector, a panic
-  in decoding or inference — caught per track in `prepare` and per batch in the model
-  thread, where a panicking batch is retried one track at a time so its batch-mates
-  still get vectors; one broken file does not end the session's analysis) is logged
+- A track that fails (decode error, under one second, an unsupported sample rate, a
+  non-finite vector whose re-check of the GPU passed, a panic in decoding — caught per
+  track in `prepare`; one broken file does not end the session's analysis) is logged
   with
   `warn!` and remembered in memory for this session only: no table of failures, the
-  next launch tries again. A model error or a database error stops the pass with
-  `error!` and leaves the phase at `Stopped`: the collector raises `halt`, and every
-  thread leaves at its next check (a prepare thread blocked on a full `ready` gets an
-  error once the model threads have dropped their receivers). After a model error the
-  collector still saves what the other model threads finish before they leave. There are no user-facing notices in v1; progress goes to the log every 100
-  tracks and at the end of a pass.
+  next launch tries again. A model error or a database error stops the pass: the
+  collector raises `halt`, and every thread leaves at its next check (a prepare thread
+  blocked on a full `ready` gets an error once the GPU thread has dropped its
+  receiver). A database error leaves the phase at `Stopped` (resumes at the next
+  library event). A model error is a GPU fault, a failed wait, a probe that stops
+  agreeing (`audio_embedding_gpu` re-runs it every 64 runs) or a panic in the GPU
+  thread; that `Device` then refuses every later run, and `after_analysis` decides
+  (owner's rule: retry only a card that can pass the probe):
+  - the pass saved at least one vector → `Faulted` + `Phase::GpuRetry` ("trying again
+    in 30 seconds"): after `GPU_RETRY` (or sooner on a library event) the next pass
+    opens a new `Device`, whose load-time probe decides — a transient fault is gone, a
+    card that fails it makes the analysis `GpuFailed` for the session;
+  - nothing saved → `GpuFailed` for the session at once. Without this a card that
+    passes the probe but faults on real work (say a driver reset on one heavy batch,
+    which stays first in the queue) would be reopened every 30 s forever; with it every
+    retry follows progress, so the retries end with the library.
+  Vectors saved before a failed periodic check stay (owner: not now). There are no
+  pop-up notices in v1: the phase shows in the indexing dialog, and progress goes to
+  the log every 100 tracks and at the end of a pass.
 
 ## Search
 
@@ -374,12 +404,13 @@ Settings → General shows an "Indexing" button left of the switch while it is o
 opens a dialog (`window.open_dialog`, like the torrents confirmation) that starts
 with a short note (`about`): every track is analysed to learn how it sounds, server
 tracks are downloaded for it, and the app loads the processor and the graphics card
-more and takes more memory while it runs (the model is on the GPU on macOS, the
-decoding always on the CPU). Below it comes
+more and takes more memory while it runs (decoding on the CPU, everything else on the
+GPU). Below it comes
 `SimilarTracks::status()`: `embedding_coverage` (catalog tracks with a vector of the
 current version, out of all catalog tracks) plus what the worker publishes in
 `Shared::progress` — the phase (`Idle`, `LoadingModel`, `Analysing`, `NoModel`,
-`Stopped`; an `AtomicU8` with explicit discriminants and a round-trip test), the
+`Stopped`, `NoGpu`, `GpuFailed`, `GpuRetry`; an `AtomicU8` with explicit discriminants and a
+round-trip test), the
 current candidates that failed this session (counted against the catalog, so a
 folder removed since does not inflate it) and the server tracks the current or last
 pass could not get because their server did not answer (`unreachable`). The button shows only while the analysis is running (`is_running`), so it
