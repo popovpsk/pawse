@@ -3,7 +3,9 @@
 Turns a track's audio into a vector that describes how it **sounds** (not its tags):
 Discogs-EffNet "multi" (MTG / Essentia), 1280 numbers per track. Tracks whose vectors
 point the same way after centering sound alike; `pawse::similar_tracks` stores the
-vectors and builds "radio from a track" out of them. GPUI-free, knows nothing about
+vectors and builds "radio from a track" out of them. Every analysis also gives the
+scores of MTG's Discogs-EffNet style classifier on the same patches — 400 Discogs
+styles, `styles.rs` — which the app turns into genres by sound. GPUI-free, knows nothing about
 `music_library`: the input is an `audio_common::AudioSource` (the caller opens
 `audio_decoder::Decoder`). This crate is the CPU half — decoding, the CUE range, which
 samples the patches need, the model file, the similarity maths and
@@ -31,6 +33,9 @@ card in `audio_embedding_gpu`. The crate owns no threads and does not know wgpu.
   same feature.
 - `similarity.rs` — `MeanAccumulator`, `TopN`, `centered_cosine`, `SCAN_CHUNK`: the
   maths of a nearest-neighbour query over vectors streamed in chunks.
+- `styles.rs` — `STYLES` (400) and `LABELS`, the classifier's classes in output order
+  (`"Parent---Style"`, copied from MTG's `discogs-effnet-bsdynamic-1.json`), and
+  `genres`: the style scores of a track → its genre rows (see "Genres by sound").
 - `model_file.rs` — `MODEL` (url, file name, size, SHA-256), `ensure(dir, cancelled)`
   and `discard_if_corrupt(dir)`.
 - `oracle_tests.rs` — the reference checks against Essentia (see Tests).
@@ -212,14 +217,39 @@ including its quirks; "correct" DSP would drift from what the weights expect.
 - The **stored vector is the plain mean**, neither normalised nor centred. Centering
   depends on the library (its mean), so it happens at query time.
 
+## Genres by sound
+
+`Embedding::styles` holds the mean over the track's patches of the classifier's sigmoid
+outputs, one score in 0..1 per Discogs style. Scores are low by nature (400 classes,
+several plausible at once): on 196 tracks of `music-test` the best style of a track
+scored 0.1–0.7, typically 0.2–0.4. `genres(scores)` turns them into what the app stores
+as genre rows:
+
+- the style name without its parent (`Rock---Grunge` → `Grunge`); a name under two
+  parents (16 of them: `Disco`, `Dub`, `Industrial`, `Hardcore`, …) is one genre with
+  the higher score;
+- scores under `GENRE_FLOOR` (0.05) are left out — the app's display thresholds (0.12
+  for an album's mean, 0.2 for a track on a genre page) are above it, so they can be
+  tuned without a re-analysis;
+- the 13 `Non-Music` labels (`Spoken Word`, `Audiobook`, `Field Recording`,
+  `Interview`, …) are not genres: skits and intros score on them;
+- best first, ties by name.
+
+The full 400 scores are stored too (`music_library`'s `styles` column), so another
+reading of them later needs no GPU. Any change to `genres` changes what is stored and so
+the `genres` part of `EMBEDDING_VERSION`.
+
 ## `EMBEDDING_VERSION`
 
-`effnet-multi-gpu-1:7de20391:gpu1:spread32:flacbytes` = weights release + first 8 hex
-of its SHA-256 + front-end revision + patch selection (`flacbytes`: a whole FLAC's
-windows sit at byte positions, below). Any change that moves the numbers (model,
-resampler, mel, patch choice, averaging) must change the string; the app then drops the
-old rows and re-analyses everything. Refactors that keep the oracle tests bit for bit do
-not. `effnet-multi-gpu-1:7de20391:gpu1:spread32` was the same with time positions for
+`effnet-multi-styles-gpu-1:5cc5a7ec:gpu1:spread32:flacbytes:genres1` = weights release
++ first 8 hex of its SHA-256 + front-end revision + patch selection (`flacbytes`: a
+whole FLAC's windows sit at byte positions, below) + the genre rows' revision
+(`genres1`, above). Any change that moves the numbers (model, resampler, mel, patch
+choice, averaging) or the genre rows must change the string; the app then drops the
+old rows and re-analyses everything. Refactors that keep the oracle tests bit for bit
+do not. `effnet-multi-gpu-1:7de20391:gpu1:spread32:flacbytes` was the multi model alone
+(no style scores; the vectors are the same, the file and its SHA are not).
+`effnet-multi-gpu-1:7de20391:gpu1:spread32` was the same with time positions for
 every format; FLAC vectors moved by a centred cosine of ~0.993 (median), the quality
 metric did not (0.479 both). The string before it, `effnet-multi-1:65cfde30:fe1:spread32`,
 was the tract path over the ONNX file; the GPU vectors agree with it to cosine 1.000000000 on
@@ -259,12 +289,15 @@ library size:
   Group, Universitat Pompeu Fabra; Alonso-Jiménez, Serra, Bogdanov, "Music
   Representation Learning Based on Editorial Metadata from Discogs", ISMIR 2022) and
   pawse is MIT. They live in the owner's repository `popovpsk/pawse-models`: release
-  `effnet-multi-gpu-1` (immutable) holds `effnet-multi-gpu-1.bin`, MTG's
-  `discogs_multi_embeddings-effnet-bs64-1.onnx` (from essentia.upf.edu, SHA `65cfde30…`)
-  converted for the GPU shaders by `audio_embedding_gpu`'s converter — a derivative under
-  the same licence and attribution. `MODEL` pins the URL, size and SHA. The ONNX release
-  `effnet-multi-1` is deleted (no app release ever used it); the app no longer downloads
-  the ONNX file, and an old copy in the models folder is left alone.
+  `effnet-multi-styles-gpu-1` (immutable, 34 MB) holds `effnet-multi-styles-gpu-1.bin`,
+  MTG's `discogs_multi_embeddings-effnet-bs64-1.onnx` (SHA `65cfde30…`) and
+  `discogs-effnet-bsdynamic-1.onnx` (the style classifier, SHA `a280825b…`), both from
+  essentia.upf.edu, converted into one file for the GPU shaders by
+  `audio_embedding_gpu`'s converter — a derivative under the same licence and
+  attribution. `MODEL` pins the URL, size and SHA. The earlier release
+  `effnet-multi-gpu-1` (the multi model alone, 16 MB) stays published but unused; the
+  ONNX release `effnet-multi-1` is deleted (no app release ever used it). Old files in
+  the models folder are left alone.
 - `ensure(dir, cancelled)`: a file of the right size is trusted without hashing (no SHA
   on every start). Otherwise a blocking `ureq` GET (GitHub redirects to its object
   store; ureq follows) streams into `<name>.partial` while hashing; a matching SHA is
@@ -281,7 +314,7 @@ library size:
 - `discard_if_corrupt(dir)` is for a file of the right size that does not load: it
   hashes the file and deletes it only on a SHA mismatch, so `ensure` downloads it
   again next time. A genuine file is kept even if it fails to load, or the app would
-  download 16 MB on every attempt.
+  download 34 MB on every attempt.
 
 ## Inference
 
@@ -310,14 +343,19 @@ reference its tests and the weights converter run.
   - `embedding.f32` — Essentia mel of a 75 s signal (enough for `spread32` to pick),
     `spread32`, ONNX Runtime, mean. Ours runs the whole path from samples and must
     reach cos ≥ 0.9999 (measured 0.99999999999998).
+  - `styles.f32` — the same patches through the style model (`activations`, ONNX
+    Runtime), mean over the patches. Ours must reach cos ≥ 0.9999 and a max difference
+    of 1e-4 (measured 1.000000000000 and 6e-7).
 - Both sides synthesise the **same signal** (`signal` in `oracle_tests.rs` and in the
   script: chords of sines, an envelope, LCG noise on wrapping `u32`, f64 maths with
   libm `sin`, rounded to f32), so no audio file is committed. Keep the two in step,
   operation order included.
 - To rebuild the goldens: `python3 -m venv venv && venv/bin/pip install essentia numpy
   onnxruntime` (installs on macOS arm64 with Python 3.9; `TensorflowInputMusiCNN`
-  needs no TensorFlow), then `venv/bin/python scripts/gen_embedding_golden.py <model>`.
-- The model tests (the `embedding.f32` oracle, alone vs batched) live in
+  needs no TensorFlow), then `venv/bin/python scripts/gen_embedding_golden.py <multi>
+  <styles>` (the two ONNX files). Regenerating gave the same bytes for the three older
+  files.
+- The model tests (the `embedding.f32` and `styles.f32` oracles, alone vs batched) live in
   `audio_embedding_gpu` now, with the GPU path; `mel_16k.f32` is checked there against
   the GPU mel too.
 - `a_full_pass_keeps_the_mel_of_the_whole_signal`: the 16 kHz windows of the full pass

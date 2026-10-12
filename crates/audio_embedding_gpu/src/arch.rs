@@ -1,4 +1,4 @@
-use audio_embedding::{BANDS, DIM, PATCH};
+use audio_embedding::{BANDS, DIM, PATCH, STYLES};
 
 pub(crate) const BATCH: usize = 64;
 pub(crate) const STEM: usize = 32;
@@ -109,7 +109,15 @@ pub(crate) fn head_plane() -> Plane {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Role {
+pub(crate) enum Net {
+    Multi,
+    Styles,
+}
+
+pub(crate) const NETS: [Net; 2] = [Net::Multi, Net::Styles];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Layer {
     StemWeight,
     StemBias,
     ExpandWeight(usize),
@@ -124,7 +132,15 @@ pub(crate) enum Role {
     ProjectBias(usize),
     HeadWeight,
     HeadBias,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Role {
+    Layer(Net, Layer),
+    ClassifierWeight,
+    ClassifierBias,
     ProbeRows,
+    ProbeStyles,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,24 +158,30 @@ impl Tensor {
     pub(crate) fn is_weight(&self) -> bool {
         matches!(
             self.role,
-            Role::StemWeight
-                | Role::ExpandWeight(_)
-                | Role::DepthwiseWeight(_)
-                | Role::SqueezeWeight(_)
-                | Role::ExciteWeight(_)
-                | Role::ProjectWeight(_)
-                | Role::HeadWeight
+            Role::Layer(
+                _,
+                Layer::StemWeight
+                    | Layer::ExpandWeight(_)
+                    | Layer::DepthwiseWeight(_)
+                    | Layer::SqueezeWeight(_)
+                    | Layer::ExciteWeight(_)
+                    | Layer::ProjectWeight(_)
+                    | Layer::HeadWeight
+            ) | Role::ClassifierWeight
         )
     }
 
     pub(crate) fn transposed(&self) -> bool {
         matches!(
             self.role,
-            Role::ExpandWeight(_)
-                | Role::SqueezeWeight(_)
-                | Role::ExciteWeight(_)
-                | Role::ProjectWeight(_)
-                | Role::HeadWeight
+            Role::Layer(
+                _,
+                Layer::ExpandWeight(_)
+                    | Layer::SqueezeWeight(_)
+                    | Layer::ExciteWeight(_)
+                    | Layer::ProjectWeight(_)
+                    | Layer::HeadWeight
+            ) | Role::ClassifierWeight
         )
     }
 }
@@ -178,30 +200,62 @@ fn bias(role: Role, len: usize) -> Tensor {
     }
 }
 
-pub(crate) fn tensors() -> Vec<Tensor> {
-    let mut list = vec![
-        conv(Role::StemWeight, STEM, 1, STEM_KERNEL),
-        bias(Role::StemBias, STEM),
-    ];
+fn network(net: Net, list: &mut Vec<Tensor>) {
+    let role = |layer| Role::Layer(net, layer);
+    list.push(conv(role(Layer::StemWeight), STEM, 1, STEM_KERNEL));
+    list.push(bias(role(Layer::StemBias), STEM));
     for (ix, b) in BLOCKS.iter().enumerate() {
         if b.expands() {
-            list.push(conv(Role::ExpandWeight(ix), b.expanded, b.input, 1));
-            list.push(bias(Role::ExpandBias(ix), b.expanded));
+            list.push(conv(role(Layer::ExpandWeight(ix)), b.expanded, b.input, 1));
+            list.push(bias(role(Layer::ExpandBias(ix)), b.expanded));
         }
-        list.push(conv(Role::DepthwiseWeight(ix), b.expanded, 1, b.kernel));
-        list.push(bias(Role::DepthwiseBias(ix), b.expanded));
-        list.push(conv(Role::SqueezeWeight(ix), b.squeeze, b.expanded, 1));
-        list.push(bias(Role::SqueezeBias(ix), b.squeeze));
-        list.push(conv(Role::ExciteWeight(ix), b.expanded, b.squeeze, 1));
-        list.push(bias(Role::ExciteBias(ix), b.expanded));
-        list.push(conv(Role::ProjectWeight(ix), b.output, b.expanded, 1));
-        list.push(bias(Role::ProjectBias(ix), b.output));
+        list.push(conv(
+            role(Layer::DepthwiseWeight(ix)),
+            b.expanded,
+            1,
+            b.kernel,
+        ));
+        list.push(bias(role(Layer::DepthwiseBias(ix)), b.expanded));
+        list.push(conv(
+            role(Layer::SqueezeWeight(ix)),
+            b.squeeze,
+            b.expanded,
+            1,
+        ));
+        list.push(bias(role(Layer::SqueezeBias(ix)), b.squeeze));
+        list.push(conv(
+            role(Layer::ExciteWeight(ix)),
+            b.expanded,
+            b.squeeze,
+            1,
+        ));
+        list.push(bias(role(Layer::ExciteBias(ix)), b.expanded));
+        list.push(conv(
+            role(Layer::ProjectWeight(ix)),
+            b.output,
+            b.expanded,
+            1,
+        ));
+        list.push(bias(role(Layer::ProjectBias(ix)), b.output));
     }
-    list.push(conv(Role::HeadWeight, DIM, HEAD_INPUT, 1));
-    list.push(bias(Role::HeadBias, DIM));
+    list.push(conv(role(Layer::HeadWeight), DIM, HEAD_INPUT, 1));
+    list.push(bias(role(Layer::HeadBias), DIM));
+}
+
+pub(crate) fn tensors() -> Vec<Tensor> {
+    let mut list = Vec::new();
+    for net in NETS {
+        network(net, &mut list);
+    }
+    list.push(conv(Role::ClassifierWeight, STYLES, DIM, 1));
+    list.push(bias(Role::ClassifierBias, STYLES));
     list.push(Tensor {
         role: Role::ProbeRows,
         onnx_shape: [BATCH, DIM, 1, 1],
+    });
+    list.push(Tensor {
+        role: Role::ProbeStyles,
+        onnx_shape: [BATCH, STYLES, 1, 1],
     });
     list
 }
@@ -213,8 +267,15 @@ mod tests {
     #[test]
     fn the_network_has_the_onnx_graph_shape() {
         let all = tensors();
-        assert_eq!(all.iter().filter(|t| t.is_weight()).count(), 81);
-        assert_eq!(all.len(), 81 * 2 + 1);
+        assert_eq!(all.iter().filter(|t| t.is_weight()).count(), 81 * 2 + 1);
+        assert_eq!(all.len(), 81 * 2 * 2 + 2 + 2);
+        let multi = all
+            .iter()
+            .filter(|t| matches!(t.role, Role::Layer(Net::Multi, _)));
+        let styles = all
+            .iter()
+            .filter(|t| matches!(t.role, Role::Layer(Net::Styles, _)));
+        assert!(multi.map(|t| t.onnx_shape).eq(styles.map(|t| t.onnx_shape)));
         assert_eq!(stem_plane(), Plane { h: 64, w: 48 });
         assert_eq!(head_plane(), Plane { h: 4, w: 3 });
         assert_eq!(BLOCKS.last().unwrap().output, HEAD_INPUT);

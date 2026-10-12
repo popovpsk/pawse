@@ -28,6 +28,7 @@ pub(crate) struct Kernels {
     pub(crate) project: Kernel,
     pub(crate) project_residual: Kernel,
     pub(crate) head: Kernel,
+    pub(crate) classifier: Kernel,
     pub(crate) pool: Kernel,
 }
 
@@ -148,6 +149,7 @@ impl Kernels {
             project: gemm_kernel("project", &[("LOAD", 1.0)]),
             project_residual: gemm_kernel("project residual", &[("LOAD", 1.0), ("RESIDUAL", 1.0)]),
             head: gemm_kernel("head", &[("SWISH", 1.0)]),
+            classifier: gemm_kernel("classifier", &[]),
             pool: kernel(
                 device,
                 "pool",

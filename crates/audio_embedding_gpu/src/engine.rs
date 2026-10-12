@@ -1,12 +1,13 @@
 use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
-use audio_embedding::{BANDS, DIM, FRAME, PATCH, PATCH_SAMPLES, hann_window, mel_filters};
+use audio_embedding::{BANDS, DIM, FRAME, PATCH, PATCH_SAMPLES, STYLES, hann_window, mel_filters};
 use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, Buffer, BufferUsages, ComputePipeline};
 
 use crate::arch::{
-    BATCH, BLOCKS, HEAD_INPUT, INPUT, Plane, Role, STEM, head_plane, planes, stem_plane,
+    BATCH, BLOCKS, HEAD_INPUT, INPUT, Layer, NETS, Net, Plane, Role, STEM, head_plane, planes,
+    stem_plane,
 };
 use crate::gpu::Gpu;
 use crate::input::{INFO_WORDS, PCM_CAP};
@@ -20,6 +21,7 @@ const WAIT: Duration = Duration::from_secs(60);
 #[cfg(test)]
 pub(crate) const FRONTEND_STEPS: usize = 2;
 pub(crate) const OUT_LEN: usize = BATCH * DIM;
+pub(crate) const STYLES_LEN: usize = BATCH * STYLES;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Buf {
@@ -28,6 +30,7 @@ pub(crate) enum Buf {
     MelWeights,
     MelFilters,
     Info,
+    M,
     P,
     Q,
     E,
@@ -35,6 +38,7 @@ pub(crate) enum Buf {
     Pool,
     Gate,
     Out,
+    Styles,
     Dummy,
 }
 
@@ -68,6 +72,7 @@ struct Buffers {
     mel_weights: Buffer,
     mel_filters: Buffer,
     info: Buffer,
+    m: Buffer,
     p: Buffer,
     q: Buffer,
     e: Buffer,
@@ -75,6 +80,7 @@ struct Buffers {
     pool: Buffer,
     gate: Buffer,
     out: Buffer,
+    styles: Buffer,
     dummy: Buffer,
 }
 
@@ -85,7 +91,7 @@ pub(crate) struct Engine {
     steps: Vec<Step>,
     pcm: Mutex<Pcm>,
     #[cfg(test)]
-    pub(crate) block_taps: Vec<Tap>,
+    pub(crate) block_taps: Vec<Vec<Tap>>,
 }
 
 pub(crate) struct Pending {
@@ -168,6 +174,7 @@ fn sizes() -> Sizes {
         channels = channels.max(b.expanded);
     }
     e = e.max(DIM * BATCH * head_plane().area());
+    d = d.max(STYLES * BATCH * head_plane().area());
     Sizes { pq, e, d, channels }
 }
 
@@ -198,6 +205,7 @@ impl Engine {
                 BufferUsages::STORAGE,
             ),
             info: storage(device, "patches", BATCH * INFO_WORDS),
+            m: storage(device, "mel", BATCH * INPUT.area()),
             p: storage(device, "activations p", sizes.pq),
             q: storage(device, "activations q", sizes.pq),
             e: storage(device, "expanded", sizes.e),
@@ -205,11 +213,12 @@ impl Engine {
             pool: storage(device, "pool", sizes.channels * BATCH),
             gate: storage(device, "gate", sizes.channels * BATCH),
             out: storage(device, "embeddings", OUT_LEN),
+            styles: storage(device, "styles", STYLES_LEN),
             dummy: storage(device, "dummy", 64),
         };
         let mut params: Vec<Vec<u32>> = Vec::new();
         let mut specs: Vec<Spec> = Vec::new();
-        let mut block_taps = Vec::new();
+        let mut block_taps = vec![Vec::new(); NETS.len()];
         let mut add = |kernel: &Kernel, words: Vec<u32>, bufs: &[Buf], groups: [u32; 3]| {
             let mut bindings = Vec::with_capacity(bufs.len() + 1);
             if !words.is_empty() {
@@ -250,11 +259,11 @@ impl Engine {
         add(
             &kernels.mel,
             vec![FRAMES as u32, BINS as u32, BANDS as u32, 0],
-            &[Buf::Info, Buf::E, Buf::MelWeights, Buf::MelFilters, Buf::Q],
+            &[Buf::Info, Buf::E, Buf::MelWeights, Buf::MelFilters, Buf::M],
             [groups(FRAMES, 256), BANDS as u32, 1],
         );
-        if let Some(weights) = weights {
-            let w = |role| Buf::Weights(weights.slice(role));
+        for (net, weights) in weights.into_iter().flat_map(|w| NETS.map(|net| (net, w))) {
+            let w = |layer| Buf::Weights(weights.slice(Role::Layer(net, layer)));
             let stem = stem_plane();
             add(
                 &kernels.stem,
@@ -268,7 +277,7 @@ impl Engine {
                     0,
                     0,
                 ],
-                &[w(Role::StemWeight), w(Role::StemBias), Buf::Q, Buf::P],
+                &[w(Layer::StemWeight), w(Layer::StemBias), Buf::M, Buf::P],
                 [groups(BATCH * stem.area(), 256), 1, 1],
             );
             let (mut cur, mut other) = (Buf::P, Buf::Q);
@@ -279,8 +288,8 @@ impl Engine {
                         &kernels.expand,
                         words,
                         &[
-                            w(Role::ExpandWeight(ix)),
-                            w(Role::ExpandBias(ix)),
+                            w(Layer::ExpandWeight(ix)),
+                            w(Layer::ExpandBias(ix)),
                             cur,
                             Buf::Dummy,
                             Buf::Dummy,
@@ -306,8 +315,8 @@ impl Engine {
                         0,
                     ],
                     &[
-                        w(Role::DepthwiseWeight(ix)),
-                        w(Role::DepthwiseBias(ix)),
+                        w(Layer::DepthwiseWeight(ix)),
+                        w(Layer::DepthwiseBias(ix)),
                         dw_src,
                         Buf::D,
                         Buf::Pool,
@@ -324,10 +333,10 @@ impl Engine {
                         squeeze_lanes as u32,
                     ],
                     &[
-                        w(Role::SqueezeWeight(ix)),
-                        w(Role::SqueezeBias(ix)),
-                        w(Role::ExciteWeight(ix)),
-                        w(Role::ExciteBias(ix)),
+                        w(Layer::SqueezeWeight(ix)),
+                        w(Layer::SqueezeBias(ix)),
+                        w(Layer::ExciteWeight(ix)),
+                        w(Layer::ExciteBias(ix)),
                         Buf::Pool,
                         Buf::Gate,
                     ],
@@ -343,8 +352,8 @@ impl Engine {
                     kernel,
                     words,
                     &[
-                        w(Role::ProjectWeight(ix)),
-                        w(Role::ProjectBias(ix)),
+                        w(Layer::ProjectWeight(ix)),
+                        w(Layer::ProjectBias(ix)),
                         Buf::D,
                         Buf::Gate,
                         residual,
@@ -352,7 +361,7 @@ impl Engine {
                     ],
                     dims,
                 );
-                block_taps.push(Tap {
+                block_taps[net as usize].push(Tap {
                     after,
                     buffer: other,
                     len: b.output * BATCH * out.area(),
@@ -365,8 +374,8 @@ impl Engine {
                 &kernels.head,
                 words,
                 &[
-                    w(Role::HeadWeight),
-                    w(Role::HeadBias),
+                    w(Layer::HeadWeight),
+                    w(Layer::HeadBias),
                     cur,
                     Buf::Dummy,
                     Buf::Dummy,
@@ -374,11 +383,31 @@ impl Engine {
                 ],
                 dims,
             );
+            let (pooled, channels, out) = match net {
+                Net::Multi => (Buf::E, DIM, Buf::Out),
+                Net::Styles => {
+                    let (words, dims) = gemm(STYLES, BATCH * head.area(), DIM, head.area());
+                    add(
+                        &kernels.classifier,
+                        words,
+                        &[
+                            Buf::Weights(weights.slice(Role::ClassifierWeight)),
+                            Buf::Weights(weights.slice(Role::ClassifierBias)),
+                            Buf::E,
+                            Buf::Dummy,
+                            Buf::Dummy,
+                            Buf::D,
+                        ],
+                        dims,
+                    );
+                    (Buf::D, STYLES, Buf::Styles)
+                }
+            };
             add(
                 &kernels.pool,
-                vec![DIM as u32, BATCH as u32, head.area() as u32, 0],
-                &[Buf::E, Buf::Out],
-                [groups(DIM * BATCH, 256), 1, 1],
+                vec![channels as u32, BATCH as u32, head.area() as u32, 0],
+                &[pooled, out],
+                [groups(channels * BATCH, 256), 1, 1],
             );
         }
         let mut param_bytes = vec![0u8; params.len() * PARAM_STRIDE as usize];
@@ -447,6 +476,7 @@ impl Engine {
             Buf::MelWeights => &b.mel_weights,
             Buf::MelFilters => &b.mel_filters,
             Buf::Info => &b.info,
+            Buf::M => &b.m,
             Buf::P => &b.p,
             Buf::Q => &b.q,
             Buf::E => &b.e,
@@ -454,6 +484,7 @@ impl Engine {
             Buf::Pool => &b.pool,
             Buf::Gate => &b.gate,
             Buf::Out => &b.out,
+            Buf::Styles => &b.styles,
             Buf::Dummy => &b.dummy,
         }
     }
@@ -474,15 +505,23 @@ impl Engine {
         infos: &[[u32; INFO_WORDS]],
         pcm: &[&[f32]],
     ) -> Result<Pending, String> {
+        let after = self.steps.len();
         self.submit_with_taps(
             infos,
             pcm,
-            self.steps.len(),
-            &[Tap {
-                after: self.steps.len(),
-                buffer: Buf::Out,
-                len: OUT_LEN,
-            }],
+            after,
+            &[
+                Tap {
+                    after,
+                    buffer: Buf::Out,
+                    len: OUT_LEN,
+                },
+                Tap {
+                    after,
+                    buffer: Buf::Styles,
+                    len: STYLES_LEN,
+                },
+            ],
         )
     }
 

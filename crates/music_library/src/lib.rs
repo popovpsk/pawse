@@ -16,7 +16,8 @@ pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow, ArtistSummary,
     ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack, PlayStats, PlayTally,
     Playlist, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
-    ScanLyrics, ScanTrack, SourceSummary, StoredLyrics, Track, TrackListing, lyrics_source,
+    ScanLyrics, ScanTrack, SoundGenres, SourceSummary, StoredLyrics, Track, TrackAnalysis,
+    TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, compute_sort_name, sha256_hex};
@@ -5494,7 +5495,7 @@ mod tests {
     }
 
     fn genre_titles(lib: &SqliteLibrary, key: &str, sort: GenreSort, desc: bool) -> Vec<String> {
-        lib.tracks_by_genre(key, sort, desc)
+        lib.tracks_by_genre(key, sort, desc, None)
             .unwrap()
             .into_iter()
             .map(|t| t.title)
@@ -5519,7 +5520,7 @@ mod tests {
             ],
         );
 
-        let genres = lib.genres().unwrap();
+        let genres = lib.genres(None).unwrap();
         let listed: Vec<(&str, i64)> = genres
             .iter()
             .map(|g| (g.key.as_str(), g.track_count))
@@ -5548,10 +5549,15 @@ mod tests {
             )],
         );
 
-        let keys: Vec<String> = lib.genres().unwrap().into_iter().map(|g| g.key).collect();
+        let keys: Vec<String> = lib
+            .genres(None)
+            .unwrap()
+            .into_iter()
+            .map(|g| g.key)
+            .collect();
         assert_eq!(keys, vec!["rock".to_string()]);
         assert!(
-            lib.tracks_by_genre("jazz", GenreSort::Artist, false)
+            lib.tracks_by_genre("jazz", GenreSort::Artist, false, None)
                 .unwrap()
                 .is_empty()
         );
@@ -5684,7 +5690,7 @@ mod tests {
         add("C", Some(c3), 2, "Rock");
         add("Bare", None, 2, "Jazz");
 
-        let covers = lib.genre_album_covers().unwrap();
+        let covers = lib.genre_album_covers(None).unwrap();
         assert_eq!(covers.get("rock"), Some(&vec![c1, c3, c2]));
         assert!(!covers.contains_key("jazz"));
     }
@@ -5818,6 +5824,17 @@ mod tests {
         (0..n).map(|i| seed + i as f32 * 0.25).collect()
     }
 
+    fn analyses(rows: &[(i64, Vec<f32>)]) -> Vec<TrackAnalysis> {
+        rows.iter()
+            .map(|(item_id, vector)| TrackAnalysis {
+                item_id: *item_id,
+                vector: vector.clone(),
+                styles: vec![0.5; 4],
+                genres: Vec::new(),
+            })
+            .collect()
+    }
+
     fn scanned(lib: &SqliteLibrary, version: &str, chunk: usize) -> Vec<(Vec<i64>, Vec<f32>)> {
         let mut calls = Vec::new();
         lib.scan_embeddings(version, chunk, &mut |ids, vectors| {
@@ -5837,11 +5854,11 @@ mod tests {
     }
 
     #[test]
-    fn migration_to_v13_adds_embeddings_and_keeps_the_catalog() {
+    fn migration_to_v14_restarts_the_analysis_and_keeps_the_catalog() {
         let path = fresh_db_path();
         {
             let conn = rusqlite::Connection::open(&path).unwrap();
-            for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 12) {
+            for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 13) {
                 conn.execute_batch(sql).unwrap();
                 conn.pragma_update(None, "user_version", version).unwrap();
             }
@@ -5850,18 +5867,24 @@ mod tests {
                 "INSERT INTO media_items (id, title, created_at, updated_at)
                      VALUES (5, 'Kept', 0, 0);
                  INSERT INTO tracks (id, path, title, duration_ms)
-                     VALUES (5, '/m/kept.flac', 'Kept', 1000);",
+                     VALUES (5, '/m/kept.flac', 'Kept', 1000);
+                 INSERT INTO track_embeddings (item_id, version, vector, created_at)
+                     VALUES (5, 'old', x'0000803f', 0);",
             )
             .unwrap();
         }
-        assert_eq!(user_version(&path), 12);
+        assert_eq!(user_version(&path), 13);
 
         let lib = SqliteLibrary::open_at(&path).unwrap();
 
-        assert_eq!(user_version(&path), 13);
+        assert_eq!(user_version(&path), 14);
         assert_eq!(lib.track(5).unwrap().unwrap().title, "Kept");
         assert_eq!(
-            lib.save_embeddings(VERSION, &[(5, floats(1.0, 4))])
+            count_rows(&path, "SELECT COUNT(*) FROM track_embeddings"),
+            0
+        );
+        assert_eq!(
+            lib.save_embeddings(VERSION, &analyses(&[(5, floats(1.0, 4))]))
                 .unwrap(),
             1
         );
@@ -5882,7 +5905,7 @@ mod tests {
             -123.456,
         ];
 
-        lib.save_embeddings(VERSION, &[(id, vector.clone())])
+        lib.save_embeddings(VERSION, &analyses(&[(id, vector.clone())]))
             .unwrap();
 
         let stored = lib.embedding(id, VERSION).unwrap().unwrap();
@@ -5896,11 +5919,14 @@ mod tests {
     fn saving_again_replaces_the_vector_and_a_vanished_item_is_skipped() {
         let (lib, _path) = create_test_db();
         let id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.save_embeddings(VERSION, &[(id, floats(1.0, 3))])
+        lib.save_embeddings(VERSION, &analyses(&[(id, floats(1.0, 3))]))
             .unwrap();
 
         let saved = lib
-            .save_embeddings(VERSION, &[(id, floats(2.0, 3)), (999_999, floats(3.0, 3))])
+            .save_embeddings(
+                VERSION,
+                &analyses(&[(id, floats(2.0, 3)), (999_999, floats(3.0, 3))]),
+            )
             .unwrap();
 
         assert_eq!(saved, 1);
@@ -5912,7 +5938,7 @@ mod tests {
     fn deleting_an_item_drops_its_vectors() {
         let (lib, path) = create_test_db();
         let id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.save_embeddings(VERSION, &[(id, floats(1.0, 3))])
+        lib.save_embeddings(VERSION, &analyses(&[(id, floats(1.0, 3))]))
             .unwrap();
         drop(lib);
 
@@ -5935,8 +5961,8 @@ mod tests {
             .map(|t| seed_track(&lib, t, "Album", "Artist"))
             .collect();
         let rows: Vec<(i64, Vec<f32>)> = ids.iter().map(|&id| (id, floats(id as f32, 3))).collect();
-        lib.save_embeddings(VERSION, &rows).unwrap();
-        lib.save_embeddings("old", &[(ids[0], floats(-1.0, 2))])
+        lib.save_embeddings(VERSION, &analyses(&rows)).unwrap();
+        lib.save_embeddings("old", &analyses(&[(ids[0], floats(-1.0, 2))]))
             .unwrap();
 
         let calls = scanned(&lib, VERSION, 2);
@@ -5964,8 +5990,11 @@ mod tests {
         let (lib, path) = create_test_db();
         let kept = seed_track(&lib, "Kept", "Album", "Artist");
         let lost = seed_track(&lib, "Lost", "Album", "Artist");
-        lib.save_embeddings(VERSION, &[(kept, floats(1.0, 3)), (lost, floats(2.0, 3))])
-            .unwrap();
+        lib.save_embeddings(
+            VERSION,
+            &analyses(&[(kept, floats(1.0, 3)), (lost, floats(2.0, 3))]),
+        )
+        .unwrap();
         let conn = rusqlite::Connection::open(&path).unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         conn.execute("DELETE FROM tracks WHERE id = ?1", [lost])
@@ -5988,10 +6017,10 @@ mod tests {
         assert_eq!(lib.embedding_coverage(VERSION).unwrap(), (0, 4));
         lib.save_embeddings(
             VERSION,
-            &[(ids[0], floats(1.0, 3)), (ids[1], floats(1.0, 3))],
+            &analyses(&[(ids[0], floats(1.0, 3)), (ids[1], floats(1.0, 3))]),
         )
         .unwrap();
-        lib.save_embeddings("old", &[(ids[2], floats(1.0, 3))])
+        lib.save_embeddings("old", &analyses(&[(ids[2], floats(1.0, 3))]))
             .unwrap();
         let conn = rusqlite::Connection::open(&path).unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
@@ -6005,14 +6034,196 @@ mod tests {
     fn pruning_keeps_only_the_current_version() {
         let (lib, _path) = create_test_db();
         let id = seed_track(&lib, "Song", "Album", "Artist");
-        lib.save_embeddings("old", &[(id, floats(1.0, 2))]).unwrap();
-        lib.save_embeddings(VERSION, &[(id, floats(2.0, 2))])
+        lib.save_embeddings("old", &analyses(&[(id, floats(1.0, 2))]))
+            .unwrap();
+        lib.save_embeddings(VERSION, &analyses(&[(id, floats(2.0, 2))]))
             .unwrap();
 
         assert_eq!(lib.prune_embeddings(VERSION).unwrap(), 1);
 
         assert_eq!(lib.embedding(id, "old").unwrap(), None);
         assert_eq!(lib.embedding(id, VERSION).unwrap(), Some(floats(2.0, 2)));
+    }
+
+    fn analysed(lib: &SqliteLibrary, version: &str, item_id: i64, genres: &[(&str, f32)]) {
+        let row = TrackAnalysis {
+            item_id,
+            vector: floats(1.0, 2),
+            styles: vec![0.25; 3],
+            genres: genres.iter().map(|(n, s)| (n.to_string(), *s)).collect(),
+        };
+        assert_eq!(lib.save_embeddings(version, &[row]).unwrap(), 1);
+    }
+
+    const SOUND: SoundGenres = SoundGenres {
+        version: VERSION,
+        min_score: 0.1,
+        min_tracks: 1,
+    };
+
+    fn titles(tracks: Vec<Track>) -> Vec<String> {
+        let mut titles: Vec<String> = tracks.into_iter().map(|t| t.title).collect();
+        titles.sort();
+        titles
+    }
+
+    #[test]
+    fn sound_genres_join_the_tag_genres_by_key() {
+        let (lib, _path) = create_test_db();
+        let tagged = seed_track(&lib, "Tagged", "Album", "Artist");
+        let heard = seed_track(&lib, "Heard", "Album", "Artist");
+        let both = seed_track(&lib, "Both", "Album", "Artist");
+        let quiet = seed_track(&lib, "Quiet", "Album", "Artist");
+        lib.set_track_genres(tagged, &["Ambient".into()]).unwrap();
+        lib.set_track_genres(both, &["Ambient".into()]).unwrap();
+        analysed(&lib, VERSION, heard, &[("ambient", 0.4), ("Shoegaze", 0.3)]);
+        analysed(&lib, VERSION, both, &[("Ambient", 0.5)]);
+        analysed(&lib, VERSION, quiet, &[("Shoegaze", 0.05)]);
+
+        let summary: Vec<(String, String, i64, bool)> = lib
+            .genres(Some(&SOUND))
+            .unwrap()
+            .into_iter()
+            .map(|g| (g.key, g.name, g.track_count, g.tagged))
+            .collect();
+
+        assert_eq!(
+            summary,
+            vec![
+                ("ambient".into(), "Ambient".into(), 3, true),
+                ("shoegaze".into(), "Shoegaze".into(), 1, false),
+            ]
+        );
+        let tags_only: Vec<(String, i64, bool)> = lib
+            .genres(None)
+            .unwrap()
+            .into_iter()
+            .map(|g| (g.key, g.track_count, g.tagged))
+            .collect();
+        assert_eq!(tags_only, vec![("ambient".into(), 2, true)]);
+        let stricter = SoundGenres {
+            min_tracks: 2,
+            ..SOUND
+        };
+        let keys: Vec<String> = lib
+            .genres(Some(&stricter))
+            .unwrap()
+            .into_iter()
+            .map(|g| g.key)
+            .collect();
+        assert_eq!(keys, vec!["ambient"], "a tag genre stays however few");
+
+        let by = |key: &str, sound| {
+            titles(
+                lib.tracks_by_genre(key, GenreSort::Artist, false, sound)
+                    .unwrap(),
+            )
+        };
+        assert_eq!(by("ambient", Some(&SOUND)), vec!["Both", "Heard", "Tagged"]);
+        assert_eq!(by("shoegaze", Some(&SOUND)), vec!["Heard"]);
+        assert_eq!(by("ambient", None), vec!["Both", "Tagged"]);
+        assert!(by("shoegaze", None).is_empty());
+    }
+
+    #[test]
+    fn sound_genres_of_another_version_or_off_the_catalog_are_not_listed() {
+        let (lib, path) = create_test_db();
+        let kept = seed_track(&lib, "Kept", "Album", "Artist");
+        let lost = seed_track(&lib, "Lost", "Album", "Artist");
+        analysed(&lib, "old", kept, &[("Techno", 0.9)]);
+        analysed(&lib, VERSION, lost, &[("House", 0.9)]);
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute("DELETE FROM tracks WHERE id = ?1", [lost])
+            .unwrap();
+
+        assert!(lib.genres(Some(&SOUND)).unwrap().is_empty());
+        assert!(lib.genre_album_covers(Some(&SOUND)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sound_genres_live_and_die_with_their_analysis() {
+        let (lib, path) = create_test_db();
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+        let other = seed_track(&lib, "Other", "Album", "Artist");
+        let genre_rows = || count_rows(&path, "SELECT COUNT(*) FROM track_sound_genres");
+        analysed(&lib, VERSION, id, &[("Grunge", 0.4), ("Punk", 0.2)]);
+        analysed(&lib, VERSION, id, &[("Grunge", 0.3)]);
+        assert_eq!(genre_rows(), 1, "saving again replaces the genres");
+        analysed(&lib, "old", other, &[("Techno", 0.5)]);
+
+        assert_eq!(lib.prune_embeddings(VERSION).unwrap(), 1);
+        assert_eq!(genre_rows(), 1, "pruning takes the old version's genres");
+        let gone = TrackAnalysis {
+            item_id: 999_999,
+            vector: floats(1.0, 2),
+            styles: vec![0.5],
+            genres: vec![("Jazz".into(), 0.9)],
+        };
+        assert_eq!(lib.save_embeddings(VERSION, &[gone]).unwrap(), 0);
+        assert_eq!(genre_rows(), 1, "a vanished item gets no genres either");
+        drop(lib);
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute("DELETE FROM media_items WHERE id = ?1", [id])
+            .unwrap();
+        assert_eq!(genre_rows(), 0);
+    }
+
+    #[test]
+    fn album_sound_genres_average_over_the_analysed_tracks() {
+        let (lib, _path) = create_test_db();
+        let first = seed_track(&lib, "One", "Album", "Artist");
+        let second = seed_track(&lib, "Two", "Album", "Artist");
+        let _unanalysed = seed_track(&lib, "Three", "Album", "Artist");
+        let elsewhere = seed_track(&lib, "Else", "Other", "Artist");
+        analysed(
+            &lib,
+            VERSION,
+            first,
+            &[("Grunge", 0.4), ("Alternative Rock", 0.3)],
+        );
+        analysed(&lib, VERSION, second, &[("Grunge", 0.2)]);
+        analysed(&lib, VERSION, elsewhere, &[("Techno", 0.6)]);
+        let album = lib.upsert_album("Album", Some(2020), None).unwrap();
+        let other = lib.upsert_album("Other", Some(2020), None).unwrap();
+
+        let all = lib.album_sound_genres(VERSION, 0.1, 3, None).unwrap();
+        assert_eq!(all[&album], vec!["Grunge", "Alternative Rock"]);
+        assert_eq!(all[&other], vec!["Techno"]);
+        let strict = lib.album_sound_genres(VERSION, 0.2, 3, None).unwrap();
+        assert_eq!(strict[&album], vec!["Grunge"]);
+        let one = lib
+            .album_sound_genres(VERSION, 0.1, 1, Some(album))
+            .unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[&album], vec!["Grunge"]);
+        assert!(
+            lib.album_sound_genres("old", 0.1, 3, None)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn sound_genres_bring_their_album_covers() {
+        let (lib, _path) = create_test_db();
+        let cover = lib
+            .save_cover_art(&make_test_jpeg(&[255, 0, 0]), "/music/a.flac", true)
+            .unwrap();
+        let artist = lib.upsert_artist("Band").unwrap();
+        let album = lib.upsert_album("A", Some(2000), Some(cover)).unwrap();
+        let id = insert_album_track(&lib, "/m/1.flac", Some(album), Some(1), &[(artist, 0)]);
+        analysed(&lib, VERSION, id, &[("Shoegaze", 0.5)]);
+
+        assert_eq!(
+            lib.genre_album_covers(Some(&SOUND))
+                .unwrap()
+                .get("shoegaze"),
+            Some(&vec![cover])
+        );
+        assert!(lib.genre_album_covers(None).unwrap().is_empty());
     }
 
     #[test]
@@ -6036,7 +6247,7 @@ mod tests {
             )
             .unwrap();
         }
-        lib.save_embeddings(VERSION, &[(cream, floats(1.0, 2))])
+        lib.save_embeddings(VERSION, &analyses(&[(cream, floats(1.0, 2))]))
             .unwrap();
 
         let order: Vec<i64> = lib

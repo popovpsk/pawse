@@ -46,7 +46,7 @@ def spread32(frames):
     return [starts[i] for i in chosen]
 
 
-def embedding(model, audio):
+def average(model, audio, output):
     m = mel(audio)[: frame_count(len(audio))]
     starts = spread32(len(m))
     batch = np.zeros((BATCH, PATCH, 96), dtype=np.float32)
@@ -54,19 +54,24 @@ def embedding(model, audio):
         rows = m[s : s + PATCH]
         batch[p, : len(rows)] = rows
     session = ort.InferenceSession(model, providers=["CPUExecutionProvider"])
-    out = session.run(None, {session.get_inputs()[0].name: batch})[0]
+    out = session.run([output], {session.get_inputs()[0].name: batch})[0]
     return out[: len(starts)].astype(np.float64).mean(0).astype(np.float32)
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: gen_embedding_golden.py <discogs_multi_embeddings-effnet-bs64-1.onnx>")
-    model = sys.argv[1]
+    if len(sys.argv) != 3:
+        raise SystemExit(
+            "usage: gen_embedding_golden.py <discogs_multi_embeddings-effnet-bs64-1.onnx> "
+            "<discogs-effnet-bsdynamic-1.onnx>"
+        )
+    multi, styles = sys.argv[1:3]
     os.makedirs(OUT, exist_ok=True)
     mel(signal(16000, 3 * 16000)).tofile(os.path.join(OUT, "mel_16k.f32"))
     resample = es.Resample(inputSampleRate=44100, outputSampleRate=16000, quality=4)
     resample(signal(44100, 44100)).astype(np.float32).tofile(os.path.join(OUT, "resample_44k.f32"))
-    embedding(model, signal(16000, 75 * 16000)).tofile(os.path.join(OUT, "embedding.f32"))
+    track = signal(16000, 75 * 16000)
+    average(multi, track, "embeddings").tofile(os.path.join(OUT, "embedding.f32"))
+    average(styles, track, "activations").tofile(os.path.join(OUT, "styles.f32"))
 
 
 if __name__ == "__main__":

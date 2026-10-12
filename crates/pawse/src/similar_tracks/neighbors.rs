@@ -134,12 +134,12 @@ pub(super) mod tests {
         let other = add_track(&lib, "other", "D", 200_000);
         lib.save_embeddings(
             EMBEDDING_VERSION,
-            &[
+            &crate::similar_tracks::analyses(&[
                 (seed, vector(&[1.0, 0.0])),
                 (close, vector(&[0.9, 0.1])),
                 (far, vector(&[-1.0, 0.0])),
                 (other, vector(&[0.0, 1.0])),
-            ],
+            ]),
         )
         .unwrap();
         let neighbors = Neighbors::default();
@@ -171,7 +171,7 @@ pub(super) mod tests {
         let bare = add_track(&lib, "bare", "C", 200_000);
         lib.save_embeddings(
             EMBEDDING_VERSION,
-            &[(a, vector(&[2.0, 0.0])), (b, vector(&[0.0, 2.0]))],
+            &crate::similar_tracks::analyses(&[(a, vector(&[2.0, 0.0])), (b, vector(&[0.0, 2.0]))]),
         )
         .unwrap();
         let neighbors = Neighbors::default();
@@ -187,13 +187,19 @@ pub(super) mod tests {
         let (_dir, lib) = library();
         let a = add_track(&lib, "a", "A", 200_000);
         let b = add_track(&lib, "b", "B", 200_000);
-        lib.save_embeddings(EMBEDDING_VERSION, &[(a, vector(&[2.0]))])
-            .unwrap();
+        lib.save_embeddings(
+            EMBEDDING_VERSION,
+            &crate::similar_tracks::analyses(&[(a, vector(&[2.0]))]),
+        )
+        .unwrap();
         let neighbors = Neighbors::default();
         assert_eq!(neighbors.mean(&lib).unwrap()[0], 3.0);
 
-        lib.save_embeddings(EMBEDDING_VERSION, &[(b, vector(&[0.0]))])
-            .unwrap();
+        lib.save_embeddings(
+            EMBEDDING_VERSION,
+            &crate::similar_tracks::analyses(&[(b, vector(&[0.0]))]),
+        )
+        .unwrap();
         assert_eq!(neighbors.mean(&lib).unwrap()[0], 3.0);
 
         neighbors.invalidate();

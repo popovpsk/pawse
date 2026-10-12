@@ -36,6 +36,8 @@ pub struct SimilarStrings {
     pub settings_title: SharedString,
     pub autoplay: SharedString,
     pub autoplay_desc: SharedString,
+    pub genres: SharedString,
+    pub genres_desc: SharedString,
     pub about: SharedString,
 }
 
@@ -132,6 +134,10 @@ static EN: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "When the last track ends, similar-sounding tracks from your library keep playing.",
     ),
+    genres: SharedString::new_static("Genres by sound"),
+    genres_desc: SharedString::new_static(
+        "Shows the genres the analysis hears in the music after the genres from tags, in a muted colour: next to albums and on the Genres tab. Files are not changed.",
+    ),
     about: SharedString::new_static(
         "Each track is analysed to learn how it sounds; tracks from servers are downloaded for this. While the analysis runs, the app uses more memory and puts more load on the processor and graphics card.",
     ),
@@ -175,6 +181,10 @@ static ZH: SimilarStrings = SimilarStrings {
     settings_title: SharedString::new_static("推荐"),
     autoplay: SharedString::new_static("播放队列结束后继续播放"),
     autoplay_desc: SharedString::new_static("最后一首播完后，继续播放媒体库中听起来相似的曲目。"),
+    genres: SharedString::new_static("按声音识别的流派"),
+    genres_desc: SharedString::new_static(
+        "在标签流派之后以较淡的颜色显示分析从声音中识别出的流派：显示在专辑旁和“流派”标签页中。不会修改文件。",
+    ),
     about: SharedString::new_static(
         "每首歌曲都会被分析其声音特征，服务器上的歌曲需要为此下载。分析期间，应用会占用更多内存，处理器和显卡的负载也会更高。",
     ),
@@ -232,6 +242,10 @@ static PT: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Quando a última faixa terminar, faixas de som parecido da sua biblioteca continuam tocando.",
     ),
+    genres: SharedString::new_static("Géneros pelo som"),
+    genres_desc: SharedString::new_static(
+        "Mostra os géneros que a análise ouve na música depois dos géneros das tags, numa cor mais suave: junto aos álbuns e na aba Géneros. Os arquivos não são alterados.",
+    ),
     about: SharedString::new_static(
         "Cada faixa é analisada para saber como soa; as faixas dos servidores são baixadas para isso. Durante a análise, o app usa mais memória e exige mais do processador e da placa de vídeo.",
     ),
@@ -284,6 +298,10 @@ static RU: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("Продолжать очередь, когда она закончится"),
     autoplay_desc: SharedString::new_static(
         "Когда доиграет последний трек, дальше заиграют похожие по звучанию треки из медиатеки.",
+    ),
+    genres: SharedString::new_static("Жанры по звучанию"),
+    genres_desc: SharedString::new_static(
+        "Показывает жанры, которые анализ слышит в музыке, после жанров из тегов и приглушённым цветом: у альбомов и на вкладке «Жанры». Файлы не меняются.",
     ),
     about: SharedString::new_static(
         "Каждый трек анализируется, чтобы понять, как он звучит; треки с серверов для этого скачиваются. Пока идёт анализ, приложение занимает больше памяти и сильнее нагружает процессор и видеокарту.",
@@ -339,6 +357,10 @@ static JA: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("キューが終わったら再生を続ける"),
     autoplay_desc: SharedString::new_static(
         "最後の曲が終わると、ライブラリから似たサウンドの曲を続けて再生します。",
+    ),
+    genres: SharedString::new_static("サウンドから判定したジャンル"),
+    genres_desc: SharedString::new_static(
+        "解析が音から判定したジャンルを、タグのジャンルの後に控えめな色で表示します（アルバムの横と「ジャンル」タブ）。ファイルは変更されません。",
     ),
     about: SharedString::new_static(
         "各曲を分析して、どのように聞こえるかを調べます。サーバーの曲はそのためにダウンロードされます。分析中はメモリの使用量が増え、プロセッサとグラフィックスの負荷も高くなります。",
@@ -399,6 +421,10 @@ static DE: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Wenn der letzte Titel endet, laufen ähnlich klingende Titel aus deiner Mediathek weiter.",
     ),
+    genres: SharedString::new_static("Genres nach Klang"),
+    genres_desc: SharedString::new_static(
+        "Zeigt die Genres, die die Analyse in der Musik hört, nach den Genres aus den Tags und in gedämpfter Farbe: bei Alben und im Tab „Genres“. Dateien werden nicht verändert.",
+    ),
     about: SharedString::new_static(
         "Jeder Titel wird analysiert, um zu erfassen, wie er klingt; Titel von Servern werden dafür heruntergeladen. Während der Analyse braucht die App mehr Arbeitsspeicher und belastet Prozessor und Grafikkarte stärker.",
     ),
@@ -454,6 +480,10 @@ static FR: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Quand le dernier morceau se termine, des morceaux au son proche de votre bibliothèque prennent le relais.",
     ),
+    genres: SharedString::new_static("Genres d’après le son"),
+    genres_desc: SharedString::new_static(
+        "Affiche les genres que l’analyse entend dans la musique, après ceux des tags et dans une couleur atténuée : à côté des albums et dans l’onglet Genres. Les fichiers ne sont pas modifiés.",
+    ),
     about: SharedString::new_static(
         "Chaque titre est analysé pour savoir comment il sonne ; les titres des serveurs sont téléchargés pour cela. Pendant l’analyse, l’app utilise plus de mémoire et sollicite davantage le processeur et la carte graphique.",
     ),
@@ -508,6 +538,10 @@ static KO: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("대기열이 끝나면 계속 재생"),
     autoplay_desc: SharedString::new_static(
         "마지막 곡이 끝나면 보관함에서 비슷한 소리의 곡을 이어서 재생합니다.",
+    ),
+    genres: SharedString::new_static("소리로 판단한 장르"),
+    genres_desc: SharedString::new_static(
+        "분석이 음악에서 듣는 장르를 태그 장르 뒤에 흐린 색으로 표시합니다. 앨범 옆과 '장르' 탭에 나타납니다. 파일은 바뀌지 않습니다.",
     ),
     about: SharedString::new_static(
         "각 곡을 분석해 어떤 소리인지 파악합니다. 서버의 곡은 이를 위해 다운로드됩니다. 분석하는 동안 앱이 메모리를 더 많이 쓰고 프로세서와 그래픽 카드 부하도 커집니다.",
@@ -568,6 +602,10 @@ static IT: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Quando l'ultimo brano finisce, continuano brani dal suono simile della tua libreria.",
     ),
+    genres: SharedString::new_static("Generi dal suono"),
+    genres_desc: SharedString::new_static(
+        "Mostra i generi che l’analisi sente nella musica dopo quelli dei tag, in un colore attenuato: accanto agli album e nella scheda Generi. I file non vengono modificati.",
+    ),
     about: SharedString::new_static(
         "Ogni brano viene analizzato per capire come suona; i brani dei server vengono scaricati per farlo. Durante l’analisi l’app usa più memoria e impegna di più il processore e la scheda grafica.",
     ),
@@ -624,6 +662,10 @@ static TR: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("Kuyruk bitince çalmaya devam et"),
     autoplay_desc: SharedString::new_static(
         "Son parça bitince kitaplığındaki benzer sesli parçalar çalmaya devam eder.",
+    ),
+    genres: SharedString::new_static("Sese göre türler"),
+    genres_desc: SharedString::new_static(
+        "Analizin müzikte duyduğu türleri etiketlerdeki türlerden sonra, soluk renkte gösterir: albümlerin yanında ve Türler sekmesinde. Dosyalar değiştirilmez.",
     ),
     about: SharedString::new_static(
         "Her parça nasıl tınladığını anlamak için analiz edilir; sunuculardaki parçalar bunun için indirilir. Analiz sürerken uygulama daha fazla bellek kullanır, işlemciyi ve ekran kartını daha çok yorar.",
@@ -682,6 +724,10 @@ static PL: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Gdy skończy się ostatni utwór, grają dalej podobnie brzmiące utwory z twojej biblioteki.",
     ),
+    genres: SharedString::new_static("Gatunki według brzmienia"),
+    genres_desc: SharedString::new_static(
+        "Pokazuje gatunki, które analiza słyszy w muzyce, po gatunkach z tagów i w przygaszonym kolorze: przy albumach i na karcie Gatunki. Pliki nie są zmieniane.",
+    ),
     about: SharedString::new_static(
         "Każdy utwór jest analizowany, by poznać jego brzmienie; utwory z serwerów są w tym celu pobierane. Podczas analizy aplikacja zajmuje więcej pamięci i mocniej obciąża procesor oraz kartę graficzną.",
     ),
@@ -739,6 +785,10 @@ static NL: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Als het laatste nummer is afgelopen, spelen soortgelijk klinkende nummers uit je bibliotheek verder.",
     ),
+    genres: SharedString::new_static("Genres op basis van geluid"),
+    genres_desc: SharedString::new_static(
+        "Toont de genres die de analyse in de muziek hoort na de genres uit tags, in een gedempte kleur: bij albums en op het tabblad Genres. Bestanden worden niet gewijzigd.",
+    ),
     about: SharedString::new_static(
         "Elk nummer wordt geanalyseerd om te bepalen hoe het klinkt; nummers van servers worden daarvoor gedownload. Tijdens de analyse gebruikt de app meer geheugen en belast ze de processor en de videokaart zwaarder.",
     ),
@@ -791,6 +841,10 @@ static UK: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("Продовжувати чергу, коли вона закінчиться"),
     autoplay_desc: SharedString::new_static(
         "Коли дограє останній трек, далі гратимуть схожі за звучанням треки з медіатеки.",
+    ),
+    genres: SharedString::new_static("Жанри за звучанням"),
+    genres_desc: SharedString::new_static(
+        "Показує жанри, які аналіз чує в музиці, після жанрів із тегів і приглушеним кольором: біля альбомів і на вкладці «Жанри». Файли не змінюються.",
     ),
     about: SharedString::new_static(
         "Кожен трек аналізується, щоб зрозуміти, як він звучить; треки із серверів для цього завантажуються. Поки триває аналіз, застосунок займає більше пам’яті й сильніше навантажує процесор і відеокарту.",
@@ -847,6 +901,10 @@ static VI: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Khi bài cuối kết thúc, các bài có âm thanh tương tự trong thư viện sẽ tiếp tục phát.",
     ),
+    genres: SharedString::new_static("Thể loại theo âm thanh"),
+    genres_desc: SharedString::new_static(
+        "Hiển thị các thể loại mà phân tích nghe được trong nhạc, sau thể loại từ thẻ và với màu nhạt hơn: bên cạnh album và trong thẻ Thể loại. Tệp không bị thay đổi.",
+    ),
     about: SharedString::new_static(
         "Mỗi bài được phân tích để biết nó nghe như thế nào; các bài trên máy chủ sẽ được tải xuống để làm việc này. Trong lúc phân tích, ứng dụng dùng nhiều bộ nhớ hơn và khiến bộ xử lý và card đồ họa phải làm việc nặng hơn.",
     ),
@@ -902,6 +960,10 @@ static ID: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Setelah lagu terakhir selesai, lagu dengan suara serupa dari pustaka Anda terus diputar.",
     ),
+    genres: SharedString::new_static("Genre menurut suara"),
+    genres_desc: SharedString::new_static(
+        "Menampilkan genre yang didengar analisis dalam musik setelah genre dari tag, dengan warna redup: di samping album dan di tab Genre. File tidak diubah.",
+    ),
     about: SharedString::new_static(
         "Setiap lagu dianalisis untuk mengetahui bagaimana suaranya; lagu dari server diunduh untuk itu. Selama analisis berjalan, aplikasi memakai lebih banyak memori dan lebih membebani prosesor dan kartu grafis.",
     ),
@@ -950,6 +1012,10 @@ static TH: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("เล่นต่อเมื่อคิวจบ"),
     autoplay_desc: SharedString::new_static(
         "เมื่อเพลงสุดท้ายจบ จะเล่นเพลงที่มีเสียงคล้ายกันจากคลังเพลงของคุณต่อ",
+    ),
+    genres: SharedString::new_static("แนวเพลงจากเสียง"),
+    genres_desc: SharedString::new_static(
+        "แสดงแนวเพลงที่การวิเคราะห์ได้ยินในเพลง ต่อจากแนวเพลงในแท็กและเป็นสีจาง: ข้างอัลบั้มและในแท็บแนวเพลง ไฟล์จะไม่ถูกแก้ไข",
     ),
     about: SharedString::new_static(
         "แต่ละเพลงจะถูกวิเคราะห์เพื่อดูว่ามีเสียงแบบไหน เพลงจากเซิร์ฟเวอร์จะถูกดาวน์โหลดเพื่อการนี้ ระหว่างการวิเคราะห์ แอปจะใช้หน่วยความจำมากขึ้นและใช้งานโปรเซสเซอร์กับการ์ดจอหนักขึ้น",
@@ -1008,6 +1074,10 @@ static CS: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "Když dohraje poslední skladba, budou dál hrát podobně znějící skladby z vaší knihovny.",
     ),
+    genres: SharedString::new_static("Žánry podle zvuku"),
+    genres_desc: SharedString::new_static(
+        "Zobrazuje žánry, které analýza slyší v hudbě, za žánry ze štítků a tlumenou barvou: u alb a na kartě Žánry. Soubory se nemění.",
+    ),
     about: SharedString::new_static(
         "Každá skladba se analyzuje, aby se zjistilo, jak zní; skladby ze serverů se kvůli tomu stahují. Během analýzy aplikace zabírá více paměti a víc vytěžuje procesor a grafickou kartu.",
     ),
@@ -1063,6 +1133,10 @@ static SV: SimilarStrings = SimilarStrings {
     autoplay_desc: SharedString::new_static(
         "När det sista spåret är slut fortsätter liknande spår från ditt bibliotek att spelas.",
     ),
+    genres: SharedString::new_static("Genrer efter ljud"),
+    genres_desc: SharedString::new_static(
+        "Visar de genrer som analysen hör i musiken efter genrerna från taggar, i en dämpad färg: vid album och på fliken Genrer. Filerna ändras inte.",
+    ),
     about: SharedString::new_static(
         "Varje spår analyseras för att ta reda på hur det låter; spår från servrar laddas ned för det. Medan analysen pågår använder appen mer minne och belastar processorn och grafikkortet mer.",
     ),
@@ -1117,6 +1191,10 @@ static HI: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("कतार ख़त्म होने पर चलाना जारी रखें"),
     autoplay_desc: SharedString::new_static(
         "आख़िरी ट्रैक ख़त्म होने पर आपकी लाइब्रेरी के मिलती-जुलती आवाज़ वाले ट्रैक चलते रहेंगे।",
+    ),
+    genres: SharedString::new_static("आवाज़ से पहचानी गई शैलियाँ"),
+    genres_desc: SharedString::new_static(
+        "विश्लेषण संगीत में जो शैलियाँ सुनता है, उन्हें टैग की शैलियों के बाद हल्के रंग में दिखाता है: एल्बमों के पास और शैलियाँ टैब में। फ़ाइलें नहीं बदलतीं।",
     ),
     about: SharedString::new_static(
         "हर ट्रैक का विश्लेषण किया जाता है ताकि पता चले कि वह कैसा सुनाई देता है; सर्वर के ट्रैक इसके लिए डाउनलोड किए जाते हैं। विश्लेषण के दौरान ऐप ज़्यादा मेमोरी लेता है और प्रोसेसर व ग्राफ़िक्स कार्ड पर ज़्यादा भार डालता है।",
@@ -1174,6 +1252,10 @@ static ES: SimilarStrings = SimilarStrings {
     autoplay: SharedString::new_static("Continuar la cola cuando termine"),
     autoplay_desc: SharedString::new_static(
         "Cuando termine la última pista, seguirán sonando pistas de sonido parecido de tu biblioteca.",
+    ),
+    genres: SharedString::new_static("Géneros por el sonido"),
+    genres_desc: SharedString::new_static(
+        "Muestra los géneros que el análisis oye en la música después de los de las etiquetas, en un color atenuado: junto a los álbumes y en la pestaña Géneros. Los archivos no se modifican.",
     ),
     about: SharedString::new_static(
         "Cada pista se analiza para saber cómo suena; las pistas de los servidores se descargan para ello. Mientras dura el análisis, la app usa más memoria y exige más al procesador y a la tarjeta gráfica.",

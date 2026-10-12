@@ -70,7 +70,14 @@ drive the `PlaybackQueue` on click.
   the placement while the artist is hidden.
   Genre shows the most-common one + `…` when there are more, full list on hover. Album
   genres are batch-fetched once (`album_genres_map`) and cached, not queried per row —
-  `recompute_visible` runs on every keystroke.
+  `recompute_visible` runs on every keystroke. Genres by sound (see
+  `similar_tracks/doc.md`, "Genres by sound") are a second cached map (`sound_map`,
+  `similar_tracks::genres::albums`, tag genres already taken out), read on the
+  background executor (`reload_sound_genres`, the task in `sound_task`; the previous
+  map stays until the new one arrives, so the column does not flicker) after the
+  first, on `SoundGenresChanged` and when the switch flips (`AlbumsPrefs::sound_genres`):
+  an album without tags shows its first heard genre dimmed (`genre_heard`), and the
+  tooltip is two lines, tags then heard genres dimmed (`genres::tooltip`).
   **The layout picks the cover size**, so it is a data change, not just a repaint:
   `AlbumRowData::from_album` takes the `LibraryLayout` and loads `get_small` (128 px) for
   the list; for the grid it loads nothing — tiles read the 320 px LRU at render time (see
@@ -406,7 +413,12 @@ drive the `PlaybackQueue` on click.
   same row shape as the Artists tab: a collage of up to three album covers
   (`genre_album_covers` — the albums with the most tracks in that genre first, through
   the same `artist_avatar`), the name and the track count. Filter matches the name.
-  Reloads on `CatalogChanged` (tag edits included). No "No genre" pseudo-row by
+  Reloads on `CatalogChanged` (tag edits included). With genres by sound shown
+  (`genres::filter`) the list, the covers and the counts come from the union of tags and
+  heard genres (`music_library`, "Genres by sound"); genres only heard follow the
+  tagged ones with a dimmed name (`GenreSummary::tagged`). It reloads on
+  `SoundGenresChanged` and when the filter changes (`observe_global`). No "No genre"
+  pseudo-row by
   decision: in a poorly tagged library it would be the biggest row and a copy of All
   tracks. When the library is empty it offers the library settings like the other
   tabs; when it has music but no genre tags it only says so — adding folders would not
@@ -431,7 +443,8 @@ drive the `PlaybackQueue` on click.
   is one global preference (`genres_sort` + `genres_sort_desc` in settings.json), so
   every genre opens with it. The page follows the setting itself
   (`observe_global::<SettingsStore>` → `follow_genre_sort`), re-queries and scrolls to
-  the top. These used to be `[Artist | Year]` buttons in the page header, without a
+  the top; the genres-by-sound filter is part of the scope and followed the same way
+  (shown, the page holds the tracks tagged with the genre or heard as it). These used to be `[Artist | Year]` buttons in the page header, without a
   direction. The order is SQL-side (`tracks_by_genre`) and always keeps an
   album's tracks contiguous, because grouping is by consecutive `album_id` runs: both
   sorts key on the *album's* year and its position-0 album artist — never `t.year` or
@@ -686,7 +699,11 @@ drive the `PlaybackQueue` on click.
 - `album_info.rs` — the album header element (cover + title/artist/year + genres +
   add-album button) rendered as the first row inside `tracks_view`. Album genres are
   aggregated from the album's tracks (most-common first), capped at 3 inline with a
-  trailing `…` and the full set on hover when there are more.
+  trailing `…` and the full set on hover when there are more. Its genres by sound
+  (`similar_tracks::genres::albums` for this album) follow them dimmed. On
+  `CatalogChanged` the header reads its tag genres again (`reload_genres`), then the
+  heard ones; on `SoundGenresChanged` and the switch only the heard ones. The album
+  export keeps the first tag genre only.
 
 ## Conventions & non-obvious behavior
 

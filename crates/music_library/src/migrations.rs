@@ -508,4 +508,32 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
         "#,
     ),
+    (
+        14,
+        r#"
+        DROP TABLE track_embeddings;
+
+        CREATE TABLE track_embeddings (
+            item_id    INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+            version    TEXT    NOT NULL,
+            vector     BLOB    NOT NULL,
+            styles     BLOB    NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (item_id, version)
+        );
+
+        CREATE TABLE track_sound_genres (
+            item_id INTEGER NOT NULL,
+            version TEXT    NOT NULL,
+            key     TEXT    NOT NULL,
+            name    TEXT    NOT NULL,
+            score   REAL    NOT NULL,
+            PRIMARY KEY (item_id, version, key),
+            FOREIGN KEY (item_id, version)
+                REFERENCES track_embeddings(item_id, version) ON DELETE CASCADE
+        );
+
+        CREATE INDEX idx_track_sound_genres_key ON track_sound_genres(version, key, score);
+        "#,
+    ),
 ];

@@ -5,8 +5,8 @@ use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
     CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
     PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
-    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SourceSummary, StoredLyrics, Track,
-    TrackListing,
+    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
+    StoredLyrics, Track, TrackAnalysis, TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -108,9 +108,22 @@ pub trait LibraryRepository: Send + Sync {
     fn artist_search_haystacks(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, String>>;
     fn artist_album_covers(&self, grouping: ArtistGrouping) -> Result<HashMap<i64, Vec<i64>>>;
     fn tracks_by_artist(&self, artist_id: i64, grouping: ArtistGrouping) -> Result<Vec<Track>>;
-    fn genres(&self) -> Result<Vec<GenreSummary>>;
-    fn genre_album_covers(&self) -> Result<HashMap<String, Vec<i64>>>;
-    fn tracks_by_genre(&self, key: &str, sort: GenreSort, desc: bool) -> Result<Vec<Track>>;
+    fn genres(&self, sound: Option<&SoundGenres>) -> Result<Vec<GenreSummary>>;
+    fn genre_album_covers(&self, sound: Option<&SoundGenres>) -> Result<HashMap<String, Vec<i64>>>;
+    fn tracks_by_genre(
+        &self,
+        key: &str,
+        sort: GenreSort,
+        desc: bool,
+        sound: Option<&SoundGenres>,
+    ) -> Result<Vec<Track>>;
+    fn album_sound_genres(
+        &self,
+        version: &str,
+        min_score: f32,
+        per_album: usize,
+        album_id: Option<i64>,
+    ) -> Result<HashMap<i64, Vec<String>>>;
     fn track(&self, id: i64) -> Result<Option<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn all_tracks(&self) -> Result<Vec<Track>>;
@@ -202,7 +215,7 @@ pub trait LibraryRepository: Send + Sync {
     fn same_artist_track_ids(&self, track_ids: &[i64]) -> Result<Vec<i64>>;
 
     fn embedding_candidates(&self, version: &str) -> Result<Vec<Track>>;
-    fn save_embeddings(&self, version: &str, vectors: &[(i64, Vec<f32>)]) -> Result<usize>;
+    fn save_embeddings(&self, version: &str, rows: &[TrackAnalysis]) -> Result<usize>;
     fn embedding(&self, item_id: i64, version: &str) -> Result<Option<Vec<f32>>>;
     fn embedding_coverage(&self, version: &str) -> Result<(usize, usize)>;
     fn scan_embeddings(

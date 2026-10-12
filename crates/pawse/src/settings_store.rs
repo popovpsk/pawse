@@ -537,6 +537,8 @@ pub struct UserSettings {
     pub similar_familiarity: Familiarity,
     #[serde(default = "default_true")]
     pub similar_autoplay: bool,
+    #[serde(default)]
+    pub sound_genres_shown: bool,
     #[serde(default = "default_true")]
     pub albums_show_year: bool,
     #[serde(default = "default_true")]
@@ -656,6 +658,7 @@ impl Default for UserSettings {
             similar_tracks_enabled: false,
             similar_familiarity: Familiarity::default(),
             similar_autoplay: true,
+            sound_genres_shown: false,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
@@ -1557,6 +1560,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn sound_genres_shown(&self) -> bool {
+        self.settings.sound_genres_shown
+    }
+
+    pub fn set_sound_genres_shown(&mut self, shown: bool) -> anyhow::Result<()> {
+        self.settings.sound_genres_shown = shown;
+        self.save()
+    }
+
     pub fn similar_familiarity(&self) -> Familiarity {
         self.settings.similar_familiarity
     }
@@ -2068,6 +2080,7 @@ mod tests {
             similar_tracks_enabled: false,
             similar_familiarity: Familiarity::New,
             similar_autoplay: false,
+            sound_genres_shown: true,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
@@ -2124,6 +2137,7 @@ mod tests {
         assert_eq!(back.albums_layout, LibraryLayout::Grid);
         assert_eq!(back.similar_familiarity, Familiarity::New);
         assert!(!back.similar_autoplay);
+        assert!(back.sound_genres_shown);
         assert!(!back.albums_show_artist);
         assert_eq!(back.albums_sort, AlbumsSort::Year);
         assert!(back.albums_sort_desc);
@@ -2165,6 +2179,7 @@ mod tests {
         assert!(settings.similar_autoplay);
         assert!(UserSettings::default().similar_autoplay);
         assert!(!UserSettings::default().similar_tracks_enabled);
+        assert!(!settings.sound_genres_shown);
     }
 
     #[test]

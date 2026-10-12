@@ -2,6 +2,7 @@ mod decode;
 mod frontend;
 pub mod model_file;
 pub mod similarity;
+pub mod styles;
 mod windows;
 
 #[cfg(test)]
@@ -18,8 +19,10 @@ pub use frontend::{
     BANDS, FRAME, HALF, HOP, MelFilter, PATCH, PATCH_SAMPLES, SAMPLE_RATE, frame_count,
     hann_window, mel_filters, mel_value,
 };
+pub use styles::STYLES;
 
-pub const EMBEDDING_VERSION: &str = "effnet-multi-gpu-1:7de20391:gpu1:spread32:flacbytes";
+pub const EMBEDDING_VERSION: &str =
+    "effnet-multi-styles-gpu-1:5cc5a7ec:gpu1:spread32:flacbytes:genres1";
 pub const DIM: usize = 1280;
 
 pub struct Job {
@@ -37,6 +40,7 @@ pub struct TrackRange {
 pub struct Embedding {
     pub version: &'static str,
     pub vector: Box<[f32]>,
+    pub styles: Box<[f32]>,
 }
 
 #[derive(Debug, thiserror::Error)]

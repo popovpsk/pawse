@@ -686,6 +686,31 @@ fn similar_group() -> SettingGroup {
             )
             .description(strings.autoplay_desc.clone()),
         )
+        .item(
+            SettingItem::new(
+                strings.genres.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let settings = cx.global::<SettingsStore>();
+                    let on = settings.similar_tracks_enabled()
+                        && !crate::similar_tracks::gpu_missing(cx);
+                    let shown = settings.sound_genres_shown();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("sound-genres-toggle")
+                            .checked(shown && on)
+                            .disabled(!on)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_sound_genres_shown(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(strings.genres_desc.clone()),
+        )
 }
 
 fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {

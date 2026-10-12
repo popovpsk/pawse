@@ -59,6 +59,7 @@ pub enum LibraryEvent {
     },
     ScanComplete,
     CatalogChanged,
+    SoundGenresChanged,
     TagsSaved,
     ScanUpToDate,
     ScanIdle,
@@ -698,12 +699,18 @@ impl LibraryService {
             .unwrap_or_default()
     }
 
-    pub fn genres(&self) -> Vec<music_library::GenreSummary> {
-        self.repo.genres().unwrap_or_default()
+    pub fn genres(
+        &self,
+        sound: Option<&music_library::SoundGenres>,
+    ) -> Vec<music_library::GenreSummary> {
+        self.repo.genres(sound).unwrap_or_default()
     }
 
-    pub fn genre_album_covers(&self) -> HashMap<String, Vec<i64>> {
-        self.repo.genre_album_covers().unwrap_or_default()
+    pub fn genre_album_covers(
+        &self,
+        sound: Option<&music_library::SoundGenres>,
+    ) -> HashMap<String, Vec<i64>> {
+        self.repo.genre_album_covers(sound).unwrap_or_default()
     }
 
     pub fn tracks_by_genre(
@@ -711,9 +718,10 @@ impl LibraryService {
         key: &str,
         sort: music_library::GenreSort,
         desc: bool,
+        sound: Option<&music_library::SoundGenres>,
     ) -> Vec<music_library::Track> {
         self.repo
-            .tracks_by_genre(key, sort, desc)
+            .tracks_by_genre(key, sort, desc, sound)
             .unwrap_or_default()
     }
 

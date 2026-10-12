@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use audio_embedding::{DIM, EMBEDDING_VERSION, EmbedError, Embedding, Prepared};
+use audio_embedding::{DIM, EMBEDDING_VERSION, EmbedError, Embedding, Prepared, STYLES};
 
 use crate::arch::{BATCH, Role};
 use crate::engine::{Engine, Pending};
@@ -23,7 +23,7 @@ use crate::input::{PCM_CAP, Segment, pack, patch_info, supported};
 use crate::weights::Weights;
 
 pub use gpu::adapter_name;
-pub use probe::{AGREEMENT, probe_input};
+pub use probe::{AGREEMENT, STYLE_TOLERANCE, probe_input};
 
 const CHECK_EVERY: usize = 64;
 
@@ -56,7 +56,7 @@ pub fn open(weights: &Path) -> Result<Availability, EmbedError> {
 pub struct Device {
     engine: Engine,
     probe: Vec<Prepared>,
-    expected: Vec<f32>,
+    expected: Rows,
     runs: AtomicUsize,
     broken: Mutex<Option<String>>,
     agreement: f64,
@@ -73,7 +73,10 @@ impl Device {
         let mut device = Self {
             engine,
             probe: probe_input(),
-            expected: weights.floats(Role::ProbeRows),
+            expected: Rows {
+                vectors: weights.floats(Role::ProbeRows),
+                styles: weights.floats(Role::ProbeStyles),
+            },
             runs: AtomicUsize::new(0),
             broken: Mutex::new(None),
             agreement: 0.0,
@@ -158,23 +161,37 @@ impl Device {
         self.engine.submit(&infos, &pcm)
     }
 
-    fn rows(&self, items: &[Prepared]) -> Result<Vec<f32>, String> {
+    fn rows(&self, items: &[Prepared]) -> Result<Rows, String> {
         let refs: Vec<&Prepared> = items.iter().collect();
-        let mut rows = Vec::new();
+        let mut rows = Rows::default();
         for run in pack(&refs, BATCH, PCM_CAP) {
             let used: usize = run.iter().map(|s| s.len).sum();
             let out = self.engine.wait(self.send(&refs, &run)?)?;
-            rows.extend_from_slice(&out[0][..used * DIM]);
+            rows.vectors.extend_from_slice(&out[0][..used * DIM]);
+            rows.styles
+                .extend(out[1][..used * STYLES].iter().map(|&v| sigmoid(v) as f32));
         }
         Ok(rows)
     }
 
     fn check(&self) -> Result<f64, String> {
         let rows = self.rows(&self.probe)?;
-        let cosine = probe::worst_cosine(&self.expected, &rows);
+        let vectors = probe::worst_cosine(&self.expected.vectors, &rows.vectors, DIM);
+        let style_rows = probe::worst_cosine(&self.expected.styles, &rows.styles, STYLES);
+        let cosine = if vectors.is_nan() || style_rows.is_nan() {
+            f64::NAN
+        } else {
+            vectors.min(style_rows)
+        };
+        let styles = probe::worst_difference(&self.expected.styles, &rows.styles);
         if cosine.is_nan() || cosine < AGREEMENT {
             return Err(format!(
                 "its output differs from the reference (cosine {cosine})"
+            ));
+        }
+        if styles.is_nan() || styles > STYLE_TOLERANCE {
+            return Err(format!(
+                "its style scores differ from the reference by {styles}"
             ));
         }
         Ok(cosine)
@@ -227,11 +244,15 @@ impl Submitted<'_> {
             runs,
         } = self;
         let mut sums = vec![vec![0f64; DIM]; counts.len()];
+        let mut style_sums = vec![vec![0f64; STYLES]; counts.len()];
         let mut failure: Option<String> = None;
         for (run, pending) in runs {
             let out = pending.and_then(|p| device.engine.wait(p));
-            let rows = match out {
-                Ok(mut out) => out.swap_remove(0),
+            let (rows, styles) = match out {
+                Ok(mut out) => {
+                    let styles = out.swap_remove(1);
+                    (out.swap_remove(0), styles)
+                }
                 Err(e) => {
                     device.give_up(e.clone());
                     failure.get_or_insert(e);
@@ -239,26 +260,30 @@ impl Submitted<'_> {
                 }
             };
             let mut rows = rows.as_chunks::<DIM>().0.iter();
+            let mut styles = styles.as_chunks::<STYLES>().0.iter();
             for segment in &run {
-                for row in rows.by_ref().take(segment.len) {
+                for (row, logits) in rows.by_ref().zip(styles.by_ref()).take(segment.len) {
                     for (acc, &v) in sums[segment.item].iter_mut().zip(row) {
                         *acc += v as f64;
+                    }
+                    for (acc, &v) in style_sums[segment.item].iter_mut().zip(logits) {
+                        *acc += sigmoid(v);
                     }
                 }
             }
         }
         let mut results: Vec<Result<Embedding, EmbedError>> = counts
             .iter()
-            .zip(sums)
+            .zip(sums.into_iter().zip(style_sums))
             .zip(rejected.iter_mut())
-            .map(|((&count, sum), rejected)| {
+            .map(|((&count, sums), rejected)| {
                 if let Some(e) = rejected.take() {
                     return Err(e);
                 }
                 if let Some(e) = &failure {
                     return Err(EmbedError::Model(e.clone()));
                 }
-                mean(count, sum)
+                mean(count, sums)
             })
             .collect();
         if let Some(e) = device.broken() {
@@ -287,14 +312,26 @@ impl Submitted<'_> {
     }
 }
 
-fn mean(count: usize, sum: Vec<f64>) -> Result<Embedding, EmbedError> {
+#[derive(Default)]
+struct Rows {
+    vectors: Vec<f32>,
+    styles: Vec<f32>,
+}
+
+fn sigmoid(logit: f32) -> f64 {
+    1.0 / (1.0 + (-(logit as f64)).exp())
+}
+
+fn mean(count: usize, (vector, styles): (Vec<f64>, Vec<f64>)) -> Result<Embedding, EmbedError> {
     let n = count.max(1) as f64;
-    let vector: Box<[f32]> = sum.into_iter().map(|s| (s / n) as f32).collect();
-    if !vector.iter().all(|v| v.is_finite()) {
+    let vector: Box<[f32]> = vector.into_iter().map(|s| (s / n) as f32).collect();
+    let styles: Box<[f32]> = styles.into_iter().map(|s| (s / n) as f32).collect();
+    if !vector.iter().chain(styles.iter()).all(|v| v.is_finite()) {
         return Err(EmbedError::NonFinite);
     }
     Ok(Embedding {
         version: EMBEDDING_VERSION,
         vector,
+        styles,
     })
 }

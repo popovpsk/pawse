@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
 use audio_embedding::test_support::{FakeSource, signal};
-use audio_embedding::{BANDS, DIM, Job, PATCH, PATCH_SAMPLES, PatchInput, Prepared, prepare};
+use audio_embedding::{
+    BANDS, DIM, Job, PATCH, PATCH_SAMPLES, PatchInput, Prepared, STYLES, prepare,
+};
 use rstest::rstest;
 use tract_onnx::prelude::Framework;
 
-use crate::arch::BATCH;
+use crate::arch::{BATCH, Net};
 use crate::engine::{Buf, Engine, FRONTEND_STEPS, Tap};
 use crate::input::{INFO_WORDS, patch_info};
 use crate::probe::cosine;
@@ -17,21 +19,34 @@ fn engine(weights: Option<&Weights>) -> Engine {
     Engine::new(gpu, weights)
 }
 
-fn model_path() -> PathBuf {
-    std::env::var("PAWSE_EFFNET_MODEL")
-        .expect("PAWSE_EFFNET_MODEL")
-        .into()
+fn model_path(net: Net) -> PathBuf {
+    let var = match net {
+        Net::Multi => "PAWSE_EFFNET_MODEL",
+        Net::Styles => "PAWSE_STYLES_MODEL",
+    };
+    std::env::var(var).expect(var).into()
 }
 
 pub(crate) fn weights_from_onnx() -> Weights {
-    let path = model_path();
-    let mut tensors = onnx::conv_tensors(&path).unwrap();
     let mel: Vec<f32> = probe_input()
         .iter()
         .flat_map(Prepared::reference_mel)
         .collect();
-    tensors.push(onnx::run(&path, &mel, &[]).unwrap().remove(0));
+    let tensors = onnx::weights(&model_path(Net::Multi), &model_path(Net::Styles), &mel).unwrap();
     Weights::parse(encode(&tensors).unwrap()).unwrap()
+}
+
+fn golden(name: &str) -> Vec<f32> {
+    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("../audio_embedding/tests/data")
+        .join(name);
+    std::fs::read(&path)
+        .unwrap()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect()
 }
 
 fn device(weights: &Weights) -> Device {
@@ -211,7 +226,7 @@ fn gpu_mel(engine: &Engine, items: &[Prepared]) -> Vec<f32> {
     let (infos, pcm) = inputs(items);
     let tap = Tap {
         after: FRONTEND_STEPS,
-        buffer: Buf::Q,
+        buffer: Buf::M,
         len: BATCH * PATCH * BANDS,
     };
     let pending = engine
@@ -249,15 +264,7 @@ fn the_mel_spectrogram_matches_the_cpu_reference() {
 #[test]
 #[ignore = "needs a GPU"]
 fn the_mel_spectrogram_matches_essentia() {
-    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join("../audio_embedding/tests/data/mel_16k.f32");
-    let golden: Vec<f32> = std::fs::read(&path)
-        .unwrap()
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect();
+    let golden = golden("mel_16k.f32");
     let item = prepare(Job {
         source: Box::new(FakeSource::mono(16_000, signal(16_000, 3 * 16_000))),
         range: None,
@@ -287,7 +294,7 @@ fn block_outputs(path: &std::path::Path) -> Vec<String> {
                 .node
                 .iter()
                 .filter(|_| block.residual())
-                .find(|n| n.op_type == "Add" && n.input.first() == Some(project))
+                .find(|n| n.op_type == "Add" && n.input.contains(project))
                 .map_or(project.clone(), |n| n.output[0].clone())
         })
         .collect()
@@ -305,30 +312,40 @@ fn nchw(cbhw: &[f32], channels: usize, plane: usize) -> Vec<f32> {
     out
 }
 
-#[test]
-#[ignore = "needs a GPU and PAWSE_EFFNET_MODEL"]
-fn every_block_matches_tract() {
+#[rstest]
+#[case::multi(Net::Multi)]
+#[case::styles(Net::Styles)]
+#[ignore = "needs a GPU, PAWSE_EFFNET_MODEL and PAWSE_STYLES_MODEL"]
+fn every_block_matches_tract(#[case] net: Net) {
     let weights = weights_from_onnx();
     let engine = engine(Some(&weights));
     let items = probe_input();
     let (infos, pcm) = inputs(&items);
     let mut taps = vec![Tap {
         after: FRONTEND_STEPS,
-        buffer: Buf::Q,
+        buffer: Buf::M,
         len: BATCH * PATCH * BANDS,
     }];
-    taps.extend(engine.block_taps.iter().copied());
+    taps.extend(engine.block_taps[net as usize].iter().copied());
+    let (out, width, final_output) = match net {
+        Net::Multi => (Buf::Out, DIM, "embeddings"),
+        Net::Styles => (Buf::Styles, STYLES, "activations"),
+    };
     taps.push(Tap {
         after: engine.steps(),
-        buffer: Buf::Out,
-        len: BATCH * DIM,
+        buffer: out,
+        len: BATCH * width,
     });
     let pending = engine
         .submit_with_taps(&infos, &pcm, engine.steps(), &taps)
         .unwrap();
     let got = engine.wait(pending).unwrap();
-    let names = block_outputs(&model_path());
-    let expected = onnx::run(&model_path(), &got[0], &names).unwrap();
+    let path = model_path(net);
+    let mut names = block_outputs(&path);
+    if net == Net::Styles {
+        names.push(final_output.into());
+    }
+    let expected = onnx::run(&path, &got[0], &names).unwrap();
     let planes = crate::arch::planes();
     let mut worst = 1.0f64;
     for (ix, block) in crate::arch::BLOCKS.iter().enumerate() {
@@ -344,39 +361,50 @@ fn every_block_matches_tract() {
         eprintln!("block {ix:2}: cosine {cos:.9}, max diff {diff:e} of {scale:e}");
         worst = worst.min(cos);
     }
-    let rows = crate::probe::worst_cosine(&expected[16], &got[17]);
-    eprintln!("embeddings: worst row cosine {rows:.9}");
+    let last = got.last().unwrap();
+    let ours: Vec<f32> = match net {
+        Net::Multi => last.clone(),
+        Net::Styles => last.iter().map(|&v| crate::sigmoid(v) as f32).collect(),
+    };
+    let rows = crate::probe::worst_cosine(&expected[16], &ours, width);
+    let diff = ours
+        .iter()
+        .zip(&expected[16])
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
+    eprintln!("{final_output}: worst row cosine {rows:.9}, max diff {diff:e}");
     assert!(worst >= 0.99999, "worst block cosine {worst}");
     assert!(rows >= 0.99999, "worst row cosine {rows}");
 }
 
 #[test]
-#[ignore = "needs a GPU and PAWSE_EFFNET_MODEL"]
+#[ignore = "needs a GPU, PAWSE_EFFNET_MODEL and PAWSE_STYLES_MODEL"]
 fn the_device_passes_its_probe_and_matches_essentia() {
     let device = device(&weights_from_onnx());
     eprintln!("{} agrees to {:.9}", device.name(), device.agreement());
-    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join("../audio_embedding/tests/data/embedding.f32");
-    let golden: Vec<f32> = std::fs::read(&path)
-        .unwrap()
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect();
     let item = prepare(Job {
         source: Box::new(FakeSource::mono(16_000, signal(16_000, 75 * 16_000))),
         range: None,
     })
     .unwrap();
     let embedding = device.embed(&[item]).pop().unwrap().unwrap();
-    let cos = cosine(&embedding.vector, &golden);
-    eprintln!("cosine to Essentia {cos:.12}");
+    let cos = cosine(&embedding.vector, &golden("embedding.f32"));
+    let styles = golden("styles.f32");
+    let styles_cos = cosine(&embedding.styles, &styles);
+    let diff = embedding
+        .styles
+        .iter()
+        .zip(&styles)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
+    eprintln!("cosine to Essentia {cos:.12}, styles {styles_cos:.12} (max diff {diff:e})");
     assert!(cos >= 0.9999, "cosine {cos}");
+    assert!(styles_cos >= 0.9999, "styles cosine {styles_cos}");
+    assert!(diff <= 1e-4, "styles max diff {diff:e}");
 }
 
 #[test]
-#[ignore = "needs a GPU and PAWSE_EFFNET_MODEL"]
+#[ignore = "needs a GPU, PAWSE_EFFNET_MODEL and PAWSE_STYLES_MODEL"]
 fn a_track_embeds_the_same_alone_and_in_a_batch() {
     let device = device(&weights_from_onnx());
     let jobs = || {
@@ -409,6 +437,7 @@ fn a_track_embeds_the_same_alone_and_in_a_batch() {
             .vector
             .iter()
             .zip(batched.vector.iter())
+            .chain(alone.styles.iter().zip(batched.styles.iter()))
             .map(|(a, b)| (a - b).abs())
             .fold(0f32, f32::max);
         assert!(worst <= 1e-6, "track {ix}: max abs diff {worst:e}");
@@ -434,7 +463,7 @@ fn music_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs a GPU, PAWSE_EFFNET_MODEL and PAWSE_MUSIC_DIR"]
+#[ignore = "needs a GPU, PAWSE_EFFNET_MODEL, PAWSE_STYLES_MODEL and PAWSE_MUSIC_DIR"]
 fn real_tracks_match_the_tract_cpu_path() {
     let dir = PathBuf::from(std::env::var("PAWSE_MUSIC_DIR").expect("PAWSE_MUSIC_DIR"));
     let mut files = Vec::new();
@@ -466,22 +495,31 @@ fn real_tracks_match_the_tract_cpu_path() {
             Err(e) => panic!("{}: {e}", path.display()),
         };
         let mel = item.reference_mel();
-        let rows = onnx::run(&model_path(), &mel, &[]).unwrap().remove(0);
         let count = item.patch_count();
-        let reference: Vec<f32> = (0..DIM)
-            .map(|d| {
-                (0..count).map(|r| rows[r * DIM + d] as f64).sum::<f64>() as f32 / count as f32
-            })
-            .collect();
+        let mean = |rows: &[f32], width: usize| -> Vec<f32> {
+            (0..width)
+                .map(|d| {
+                    (0..count).map(|r| rows[r * width + d] as f64).sum::<f64>() as f32
+                        / count as f32
+                })
+                .collect()
+        };
+        let rows = onnx::run(&model_path(Net::Multi), &mel, &[])
+            .unwrap()
+            .remove(0);
+        let activations = onnx::run(&model_path(Net::Styles), &mel, &["activations".into()])
+            .unwrap()
+            .remove(0);
         let got = device
             .embed(std::slice::from_ref(&item))
             .pop()
             .unwrap()
             .unwrap();
-        let cos = cosine(&got.vector, &reference);
-        worst = worst.min(cos);
+        let cos = cosine(&got.vector, &mean(&rows, DIM));
+        let styles = cosine(&got.styles, &mean(&activations, STYLES));
+        worst = worst.min(cos).min(styles);
         eprintln!(
-            "{cos:.9} {} Hz {} {}",
+            "{cos:.9} {styles:.9} {} Hz {} {}",
             item.rate(),
             count,
             path.strip_prefix(&dir).unwrap().display()

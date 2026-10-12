@@ -2,15 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    App, Context, Div, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, div, prelude::FluentBuilder, px,
+    App, AppContext, Context, Div, ElementId, EventEmitter, Hsla, Image, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Task, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Icon, VirtualListScrollHandle,
     button::{Button, ButtonVariants},
     scroll::{ScrollableElement, ScrollbarAxis},
-    tooltip::Tooltip,
     v_flex, v_virtual_list,
 };
 
@@ -28,6 +27,7 @@ use crate::library_views::view_order::{self, AlbumKey, Section};
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::{AlbumsArtistDisplay, AlbumsSort, LibraryLayout, SettingsStore};
+use crate::similar_tracks::genres;
 
 #[derive(Clone, Debug)]
 pub struct AlbumSelectedEvent {
@@ -46,7 +46,8 @@ pub(super) struct AlbumRowData {
     pub(super) display_inline: SharedString,
     pub(super) subtitle_year: SharedString,
     pub(super) genre_inline: SharedString,
-    pub(super) genre_tooltip: Option<SharedString>,
+    pub(super) genre_tooltip: Option<(SharedString, SharedString)>,
+    pub(super) genre_heard: bool,
     pub(super) year: SharedString,
     pub(super) cover: Option<Arc<Image>>,
 }
@@ -58,6 +59,7 @@ impl AlbumRowData {
         cover_cache: &mut crate::cover_art_cache::CoverArtCache,
         library: &crate::library_service::LibraryService,
         genres_map: &HashMap<i64, Vec<String>>,
+        sound_map: &HashMap<i64, Vec<String>>,
         layout: LibraryLayout,
     ) -> Self {
         let (title, artist, year): (SharedString, SharedString, SharedString) =
@@ -91,15 +93,18 @@ impl AlbumRowData {
         } else {
             format!("{} \u{00b7} {}", artist, year).into()
         };
-        let (genre_inline, genre_tooltip): (SharedString, Option<SharedString>) =
-            match genres_map.get(&album.id) {
-                Some(genres) if genres.len() > 1 => (
-                    format!("{} …", genres[0]).into(),
-                    Some(genres.join(" · ").into()),
-                ),
-                Some(genres) if !genres.is_empty() => (genres[0].clone().into(), None),
-                _ => (SharedString::default(), None),
-            };
+        let tags = genres_map.get(&album.id).map_or(&[][..], Vec::as_slice);
+        let heard = sound_map.get(&album.id).map_or(&[][..], Vec::as_slice);
+        let genre_heard = tags.is_empty() && !heard.is_empty();
+        let first = tags.first().or(heard.first());
+        let (genre_inline, genre_tooltip) = match first {
+            Some(first) if tags.len() + heard.len() > 1 => (
+                format!("{first} …").into(),
+                Some((tags.join(" · ").into(), heard.join(" · ").into())),
+            ),
+            Some(first) => (first.clone().into(), None),
+            None => (SharedString::default(), None),
+        };
         Self {
             albums_all_ix,
             id: album.id,
@@ -110,6 +115,7 @@ impl AlbumRowData {
             subtitle_year,
             genre_inline,
             genre_tooltip,
+            genre_heard,
             year,
             cover: match layout {
                 LibraryLayout::Grid => None,
@@ -127,10 +133,12 @@ struct AlbumsPrefs {
     grouped: bool,
     show_artist: bool,
     show_year: bool,
+    sound_genres: bool,
 }
 
 impl AlbumsPrefs {
-    fn read(settings: &SettingsStore) -> Self {
+    fn read(cx: &App) -> Self {
+        let settings = cx.global::<SettingsStore>();
         let (sort, desc) = settings.albums_sort();
         Self {
             layout: settings.albums_layout(),
@@ -139,6 +147,7 @@ impl AlbumsPrefs {
             grouped: settings.albums_grouped(),
             show_artist: settings.albums_show_artist(),
             show_year: settings.albums_show_year(),
+            sound_genres: genres::shown(cx),
         }
     }
 
@@ -155,6 +164,7 @@ struct AlbumRowParams {
     list_hover: Hsla,
     muted: Hsla,
     muted_fg: Hsla,
+    dimmed: Hsla,
     show_artist: bool,
     show_year: bool,
     show_genre: bool,
@@ -174,6 +184,8 @@ pub struct AlbumsView {
     search_entries: Vec<music_library::AlbumSearchEntry>,
     id_to_ix: HashMap<i64, usize>,
     genres_map: HashMap<i64, Vec<String>>,
+    sound_map: HashMap<i64, Vec<String>>,
+    sound_task: Option<Task<()>>,
     pub(super) row_data: Vec<AlbumRowData>,
     sections: Vec<Section>,
     section_labels: Vec<SharedString>,
@@ -197,10 +209,7 @@ impl AlbumsView {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (prefs, rem_size) = {
             let settings = cx.global::<SettingsStore>();
-            (
-                AlbumsPrefs::read(settings),
-                f32::from(settings.font_scale().px()),
-            )
+            (AlbumsPrefs::read(cx), f32::from(settings.font_scale().px()))
         };
         let services = cx.global::<Services>();
         let library_event_bus = services.library_event_bus.clone();
@@ -237,6 +246,11 @@ impl AlbumsView {
                         this.id_to_ix = Self::id_index(&this.albums_all);
                         this.covers.reset();
                         this.recompute_visible(cx);
+                        this.reload_sound_genres(cx);
+                        cx.notify();
+                    }
+                    LibraryEvent::SoundGenresChanged if this.prefs.sound_genres => {
+                        this.reload_sound_genres(cx);
                         cx.notify();
                     }
                     _ => {}
@@ -246,10 +260,7 @@ impl AlbumsView {
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
             let (prefs, rem_size) = {
                 let settings = cx.global::<SettingsStore>();
-                (
-                    AlbumsPrefs::read(settings),
-                    f32::from(settings.font_scale().px()),
-                )
+                (AlbumsPrefs::read(cx), f32::from(settings.font_scale().px()))
             };
             let old = this.prefs;
             let rem_changed = this.rem_size != rem_size;
@@ -258,6 +269,8 @@ impl AlbumsView {
             if prefs.order_changed(&old) {
                 this.recompute_visible(cx);
                 cover_grid::scroll_to_top(&this.scroll_handle);
+            } else if prefs.sound_genres != old.sound_genres {
+                this.reload_sound_genres(cx);
             } else if rem_changed || prefs != old {
                 this.rebuild_items();
             }
@@ -274,6 +287,8 @@ impl AlbumsView {
             keys,
             search_entries,
             genres_map,
+            sound_map: HashMap::new(),
+            sound_task: None,
             id_to_ix,
             row_data: Vec::new(),
             sections: Vec::new(),
@@ -294,6 +309,7 @@ impl AlbumsView {
             _lang_subscription: lang_subscription,
         };
         this.recompute_visible(cx);
+        this.reload_sound_genres(cx);
         this
     }
 
@@ -338,6 +354,29 @@ impl AlbumsView {
         cx.notify();
     }
 
+    fn reload_sound_genres(&mut self, cx: &mut Context<Self>) {
+        if !self.prefs.sound_genres {
+            self.sound_task = None;
+            if !self.sound_map.is_empty() {
+                self.sound_map.clear();
+                self.recompute_visible(cx);
+            }
+            return;
+        }
+        let repo = cx.global::<Services>().library.repo();
+        let tags = self.genres_map.clone();
+        let load = cx.background_spawn(async move { genres::albums(repo.as_ref(), &tags, None) });
+        self.sound_task = Some(cx.spawn(async move |this, cx| {
+            let map = load.await;
+            this.update(cx, |this, cx| {
+                this.sound_map = map;
+                this.recompute_visible(cx);
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
     fn recompute_visible(&mut self, cx: &mut Context<Self>) {
         let prefs = self.prefs;
         let order: Vec<usize> = if self.filter.is_empty() {
@@ -366,6 +405,7 @@ impl AlbumsView {
         let mut cover_cache = services.cover_art_cache.borrow_mut();
         let library = &services.library;
         let genres_map = &self.genres_map;
+        let sound_map = &self.sound_map;
         self.row_data = order
             .into_iter()
             .map(|ix| {
@@ -375,6 +415,7 @@ impl AlbumsView {
                     &mut cover_cache,
                     library,
                     genres_map,
+                    sound_map,
                     prefs.layout,
                 )
             })
@@ -488,6 +529,7 @@ impl Render for AlbumsView {
             list_hover,
             muted,
             muted_fg,
+            dimmed: genres::dimmed(cx),
             show_artist: self.prefs.show_artist,
             show_year: self.prefs.show_year,
             show_genre: settings.albums_show_genre(),
@@ -634,13 +676,17 @@ fn album_row(
             .overflow_hidden()
             .text_ellipsis()
             .text_sm()
-            .text_color(p.muted_fg)
+            .text_color(if row.genre_heard {
+                p.dimmed
+            } else {
+                p.muted_fg
+            })
             .text_right()
             .child(row.genre_inline.clone());
         let genre_el = match row.genre_tooltip.clone() {
-            Some(tooltip) => genre_base
+            Some((tags, heard)) => genre_base
                 .id(("album_genre", row.id as u64))
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                .tooltip(move |window, cx| genres::tooltip(tags.clone(), heard.clone(), window, cx))
                 .into_any_element(),
             None => genre_base.into_any_element(),
         };

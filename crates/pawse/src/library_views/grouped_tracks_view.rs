@@ -34,7 +34,7 @@ use crate::localization::{LangChanged, tr};
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
-use music_library::{ArtistGrouping, GenreSort};
+use music_library::{ArtistGrouping, GenreSort, SoundGenres};
 
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const ALBUM_COVER_SIZE: f32 = 60.;
@@ -106,6 +106,7 @@ enum Scope {
         key: String,
         sort: GenreSort,
         desc: bool,
+        sound: Option<SoundGenres<'static>>,
     },
 }
 
@@ -113,7 +114,12 @@ impl Scope {
     fn fetch(&self, library: &LibraryService) -> Vec<Rc<music_library::Track>> {
         let tracks = match self {
             Scope::Artist { id, grouping } => library.tracks_by_artist(*id, *grouping),
-            Scope::Genre { key, sort, desc } => library.tracks_by_genre(key, *sort, *desc),
+            Scope::Genre {
+                key,
+                sort,
+                desc,
+                sound,
+            } => library.tracks_by_genre(key, *sort, *desc, sound.as_ref()),
         };
         tracks.into_iter().map(Rc::new).collect()
     }
@@ -195,6 +201,7 @@ impl GroupedTracksView {
             key: genre.key.clone(),
             sort,
             desc,
+            sound: crate::similar_tracks::genres::filter(cx),
         };
         Self::new(scope, genre.name.clone().into(), cx)
     }
@@ -539,19 +546,22 @@ impl GroupedTracksView {
 
     fn follow_genre_sort(&mut self, cx: &mut Context<Self>) {
         let (sort, desc) = cx.global::<SettingsStore>().genres_sort();
+        let sound = crate::similar_tracks::genres::filter(cx);
         let Scope::Genre {
             sort: current,
             desc: current_desc,
+            sound: current_sound,
             ..
         } = &mut self.scope
         else {
             return;
         };
-        if (*current, *current_desc) == (sort, desc) {
+        if (*current, *current_desc, *current_sound) == (sort, desc, sound) {
             return;
         }
         *current = sort;
         *current_desc = desc;
+        *current_sound = sound;
         self.rebuild_source(cx);
         self.scroll_handle
             .scroll_to_item(0, gpui::ScrollStrategy::Top);

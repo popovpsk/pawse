@@ -13,6 +13,7 @@ use crate::settings_store::SettingsStore;
 mod actions;
 mod autoplay;
 mod fetch;
+pub mod genres;
 mod indexing;
 mod menu;
 mod mix;
@@ -41,6 +42,7 @@ struct Shared {
     neighbors: Neighbors,
     stop: AtomicBool,
     progress: Progress,
+    saved: flume::Sender<()>,
 }
 
 #[repr(u8)]
@@ -235,12 +237,14 @@ fn start(cx: &mut App) {
             std::process::id(),
             INSTANCES.fetch_add(1, Ordering::Relaxed)
         ));
+    let (saved, announcements) = flume::bounded(1);
     let services = cx.global::<Services>();
     let shared = Arc::new(Shared {
         repo: services.library.repo(),
         neighbors: Neighbors::default(),
         stop: AtomicBool::new(false),
         progress: Progress::default(),
+        saved,
     });
     let (requests, inbox) = flume::bounded(1);
     let _ = requests.try_send(());
@@ -258,6 +262,15 @@ fn start(cx: &mut App) {
         similar: SimilarTracks { shared },
         requests,
     });
+    cx.spawn(async move |cx| {
+        while announcements.recv_async().await.is_ok() {
+            cx.update(|cx| {
+                let bus = cx.global::<Services>().library_event_bus.clone();
+                bus.update(cx, |_, cx| cx.emit(LibraryEvent::SoundGenresChanged));
+            });
+        }
+    })
+    .detach();
 }
 
 fn stop(cx: &mut App) {
@@ -267,6 +280,18 @@ fn stop(cx: &mut App) {
     if let Some(running) = cx.global_mut::<State>().running.take() {
         running.similar.shared.stop.store(true, Ordering::Relaxed);
     }
+}
+
+#[cfg(test)]
+fn analyses(rows: &[(i64, Vec<f32>)]) -> Vec<music_library::TrackAnalysis> {
+    rows.iter()
+        .map(|(item_id, vector)| music_library::TrackAnalysis {
+            item_id: *item_id,
+            vector: vector.clone(),
+            styles: Vec::new(),
+            genres: Vec::new(),
+        })
+        .collect()
 }
 
 #[cfg(test)]

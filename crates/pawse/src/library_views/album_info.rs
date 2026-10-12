@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
@@ -13,6 +14,8 @@ use ui_components::cover_thumb::cover_tile;
 use crate::cache_fill::FillTarget;
 use crate::now_playing::NavigateToArtistRequested;
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
+use crate::similar_tracks::genres;
 use crate::track_list::{add_album_to_queue_button, move_to_local_button, save_to_cache_button};
 
 pub struct AlbumInfo {
@@ -24,6 +27,9 @@ pub struct AlbumInfo {
     cover: Option<Arc<RenderImage>>,
     genres_inline: SharedString,
     genres_tooltip: Option<SharedString>,
+    tag_genres: Vec<String>,
+    heard_inline: SharedString,
+    sound_shown: bool,
     missing_in_cache: bool,
     has_local_files: bool,
     has_remote: bool,
@@ -33,6 +39,7 @@ pub struct AlbumInfo {
     _fill_subscription: gpui::Subscription,
     _export_subscription: gpui::Subscription,
     _catalog_subscription: gpui::Subscription,
+    _settings_observer: gpui::Subscription,
 }
 
 impl AlbumInfo {
@@ -50,12 +57,22 @@ impl AlbumInfo {
         let library_event_bus = cx.global::<Services>().library_event_bus.clone();
         let catalog_subscription = cx.subscribe(
             &library_event_bus,
-            |this, _, event: &crate::library_service::LibraryEvent, cx| {
-                if matches!(event, crate::library_service::LibraryEvent::CatalogChanged) {
+            |this, _, event: &crate::library_service::LibraryEvent, cx| match event {
+                crate::library_service::LibraryEvent::CatalogChanged => {
                     this.reload_tracks(cx);
+                    this.reload_genres(cx);
                 }
+                crate::library_service::LibraryEvent::SoundGenresChanged if this.sound_shown => {
+                    this.reload_heard(cx);
+                }
+                _ => {}
             },
         );
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            if genres::shown(cx) != this.sound_shown {
+                this.reload_heard(cx);
+            }
+        });
         let fills_seen = fill.read(cx).revision();
         let fill_subscription = cx.observe(&fill, |this, fill, cx| {
             let finished = fill.read(cx).revision();
@@ -72,21 +89,7 @@ impl AlbumInfo {
             .borrow_mut()
             .get_large(album.cover_art_id, &library, cx);
         let all_genres = library.album_genres(album.id);
-        let shown = all_genres
-            .iter()
-            .take(3)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ");
-        let (genres_inline, genres_tooltip): (SharedString, Option<SharedString>) =
-            if all_genres.len() > 3 {
-                (
-                    format!("{shown} …").into(),
-                    Some(all_genres.join(" · ").into()),
-                )
-            } else {
-                (shown.into(), None)
-            };
+        let (genres_inline, genres_tooltip) = tag_display(&all_genres);
         let tracks = library.tracks_for_album(album.id);
         let has_local_files = tracks.iter().any(|t| t.local_file().is_some());
         let missing_in_cache =
@@ -100,7 +103,7 @@ impl AlbumInfo {
             genre: all_genres.first().cloned(),
             cover_art_id: album.cover_art_id,
         };
-        Self {
+        let mut this = Self {
             album_id: album.id,
             title: album.title.clone(),
             artist_name: album.artist_name.clone().into(),
@@ -109,6 +112,9 @@ impl AlbumInfo {
             cover,
             genres_inline,
             genres_tooltip,
+            tag_genres: all_genres,
+            heard_inline: SharedString::default(),
+            sound_shown: false,
             missing_in_cache,
             has_local_files,
             has_remote,
@@ -118,11 +124,36 @@ impl AlbumInfo {
             _fill_subscription: fill_subscription,
             _export_subscription: export_subscription,
             _catalog_subscription: catalog_subscription,
-        }
+            _settings_observer: settings_observer,
+        };
+        this.reload_heard(cx);
+        this
     }
 }
 
 impl AlbumInfo {
+    fn reload_genres(&mut self, cx: &mut Context<Self>) {
+        self.tag_genres = cx.global::<Services>().library.album_genres(self.album_id);
+        (self.genres_inline, self.genres_tooltip) = tag_display(&self.tag_genres);
+        self.reload_heard(cx);
+    }
+
+    fn reload_heard(&mut self, cx: &mut Context<Self>) {
+        self.sound_shown = genres::shown(cx);
+        self.heard_inline = if self.sound_shown {
+            let repo = cx.global::<Services>().library.repo();
+            let tags = HashMap::from([(self.album_id, self.tag_genres.clone())]);
+            genres::albums(repo.as_ref(), &tags, Some(self.album_id))
+                .remove(&self.album_id)
+                .unwrap_or_default()
+                .join(", ")
+                .into()
+        } else {
+            SharedString::default()
+        };
+        cx.notify();
+    }
+
     fn reload_tracks(&mut self, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
         let tracks = services.library.tracks_for_album(self.album_id);
@@ -131,6 +162,20 @@ impl AlbumInfo {
         self.missing_in_cache = crate::cache_fill::has_missing(&tracks, &services.remote_media);
         self.tracks = std::rc::Rc::new(tracks);
         cx.notify();
+    }
+}
+
+fn tag_display(genres: &[String]) -> (SharedString, Option<SharedString>) {
+    let shown = genres
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if genres.len() > 3 {
+        (format!("{shown} …").into(), Some(genres.join(" · ").into()))
+    } else {
+        (shown.into(), None)
     }
 }
 
@@ -263,6 +308,14 @@ impl Render for AlbumInfo {
                             .text_color(muted_fg)
                             .child(self.genres_inline.clone())
                             .into_any_element()
+                    })
+                    .when(!self.heard_inline.is_empty(), |row| {
+                        row.child(
+                            div()
+                                .text_sm()
+                                .text_color(genres::dimmed(cx))
+                                .child(self.heard_inline.clone()),
+                        )
                     }),
             )
             .child(

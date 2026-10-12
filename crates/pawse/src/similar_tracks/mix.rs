@@ -81,7 +81,8 @@ mod tests {
             (close, vector(&[0.95, 0.1])),
             (far, vector(&[-1.0, 0.0])),
         ]);
-        lib.save_embeddings(EMBEDDING_VERSION, &rows).unwrap();
+        lib.save_embeddings(EMBEDDING_VERSION, &crate::similar_tracks::analyses(&rows))
+            .unwrap();
         let similar = similar(Arc::new(lib));
         let queue = [album.as_slice(), &[guest]].concat();
 

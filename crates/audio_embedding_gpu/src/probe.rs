@@ -3,9 +3,10 @@ use std::time::Duration;
 use audio_common::{
     AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, Metadata, StreamParams,
 };
-use audio_embedding::{DIM, Job, Prepared, prepare};
+use audio_embedding::{Job, Prepared, prepare};
 
 pub const AGREEMENT: f64 = 0.999;
+pub const STYLE_TOLERANCE: f32 = 0.01;
 
 struct Memory {
     rate: u32,
@@ -94,21 +95,36 @@ pub fn probe_input() -> Vec<Prepared> {
         .collect()
 }
 
-pub(crate) fn worst_cosine(expected: &[f32], got: &[f32]) -> f64 {
-    if expected.len() != got.len() {
+pub(crate) fn worst_cosine(expected: &[f32], got: &[f32], width: usize) -> f64 {
+    if expected.len() != got.len() || !expected.len().is_multiple_of(width) {
         return f64::NAN;
     }
     expected
-        .as_chunks::<DIM>()
-        .0
-        .iter()
-        .zip(got.as_chunks::<DIM>().0)
+        .chunks(width)
+        .zip(got.chunks(width))
         .map(|(a, b)| cosine(a, b))
         .fold(1.0f64, |worst, c| {
             if c.is_nan() || worst.is_nan() {
                 f64::NAN
             } else {
                 worst.min(c)
+            }
+        })
+}
+
+pub(crate) fn worst_difference(expected: &[f32], got: &[f32]) -> f32 {
+    if expected.len() != got.len() {
+        return f32::NAN;
+    }
+    expected
+        .iter()
+        .zip(got)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, |worst, d| {
+            if d.is_nan() || worst.is_nan() {
+                f32::NAN
+            } else {
+                worst.max(d)
             }
         })
 }
@@ -129,6 +145,7 @@ pub(crate) fn cosine(a: &[f32], b: &[f32]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use audio_embedding::DIM;
 
     #[test]
     fn the_probe_is_one_full_run_through_both_paths() {
@@ -147,12 +164,29 @@ mod tests {
         let row = |v: f32| vec![v; DIM];
         let rows = |r: [Vec<f32>; 3]| r.concat();
         let expected = rows([row(1.0), row(2.0), row(3.0)]);
-        assert!(worst_cosine(&expected, &expected) > 1.0 - 1e-12);
+        assert!(worst_cosine(&expected, &expected, DIM) > 1.0 - 1e-12);
         let nan_middle = rows([row(1.0), row(f32::NAN), row(3.0)]);
-        assert!(worst_cosine(&expected, &nan_middle).is_nan());
+        assert!(worst_cosine(&expected, &nan_middle, DIM).is_nan());
         let mut flipped = expected.clone();
         flipped[DIM] = -50.0;
-        assert!(worst_cosine(&expected, &flipped) < AGREEMENT);
-        assert!(worst_cosine(&expected, &expected[..DIM]).is_nan());
+        assert!(worst_cosine(&expected, &flipped, DIM) < AGREEMENT);
+        assert!(worst_cosine(&expected, &expected[..DIM], DIM).is_nan());
+        assert!(worst_cosine(&expected, &expected, DIM + 1).is_nan());
+    }
+
+    #[test]
+    fn one_style_score_off_by_more_than_the_tolerance_fails() {
+        let expected = vec![0.01f32, 0.2, 0.5, 0.9];
+        assert_eq!(worst_difference(&expected, &expected), 0.0);
+        let mut close = expected.clone();
+        close[2] += STYLE_TOLERANCE / 2.0;
+        assert!(worst_difference(&expected, &close) <= STYLE_TOLERANCE);
+        let mut off = expected.clone();
+        off[0] += 2.0 * STYLE_TOLERANCE;
+        assert!(worst_difference(&expected, &off) > STYLE_TOLERANCE);
+        let mut nan = expected.clone();
+        nan[3] = f32::NAN;
+        assert!(worst_difference(&expected, &nan).is_nan());
+        assert!(worst_difference(&expected, &expected[..3]).is_nan());
     }
 }

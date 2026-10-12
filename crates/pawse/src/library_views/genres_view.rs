@@ -22,6 +22,9 @@ use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, has_
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
+use crate::settings_store::SettingsStore;
+use crate::similar_tracks::genres;
+use music_library::SoundGenres;
 
 #[derive(Clone, Debug)]
 pub struct GenreSelectedEvent {
@@ -72,8 +75,10 @@ pub struct GenresView {
     is_scanning: bool,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
+    sound: Option<SoundGenres<'static>>,
     _subscription: Subscription,
     _lang_subscription: Subscription,
+    _settings_observer: Subscription,
 }
 
 impl GenresView {
@@ -84,8 +89,9 @@ impl GenresView {
         let library = services.library.clone();
         let is_scanning = library.is_scanning();
 
-        let genres_all = library.genres();
-        let cover_ids = library.genre_album_covers();
+        let sound = genres::filter(cx);
+        let genres_all = library.genres(sound.as_ref());
+        let cover_ids = library.genre_album_covers(sound.as_ref());
         let rows = {
             let mut cache = services.cover_art_cache.borrow_mut();
             Self::build_rows(&genres_all, &cover_ids, &mut cache, &library)
@@ -108,6 +114,10 @@ impl GenresView {
                         this.reload_source(cx);
                         cx.notify();
                     }
+                    LibraryEvent::SoundGenresChanged if this.sound.is_some() => {
+                        this.reload_source(cx);
+                        cx.notify();
+                    }
                     _ => {}
                 },
             );
@@ -115,6 +125,14 @@ impl GenresView {
         let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
             this.recompute_visible(cx);
             cx.notify();
+        });
+
+        let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
+            let sound = genres::filter(cx);
+            if sound != this.sound {
+                this.reload_source(cx);
+                cx.notify();
+            }
         });
 
         Self {
@@ -126,16 +144,19 @@ impl GenresView {
             is_scanning,
             item_sizes,
             scroll_handle: VirtualListScrollHandle::new(),
+            sound,
             _subscription: subscription,
             _lang_subscription: lang_subscription,
+            _settings_observer: settings_observer,
         }
     }
 
     fn reload_source(&mut self, cx: &mut Context<Self>) {
+        self.sound = genres::filter(cx);
         {
             let library = &cx.global::<Services>().library;
-            self.genres_all = library.genres();
-            self.cover_ids = library.genre_album_covers();
+            self.genres_all = library.genres(self.sound.as_ref());
+            self.cover_ids = library.genre_album_covers(self.sound.as_ref());
         }
         self.recompute_visible(cx);
     }
@@ -205,6 +226,8 @@ impl Render for GenresView {
         let secondary = Colors::secondary(cx);
         let list_hover = Colors::list_hover(cx);
         let muted_fg = Colors::muted_foreground(cx);
+        let foreground = Colors::foreground(cx);
+        let heard = genres::dimmed(cx);
 
         if self.is_scanning && self.genres_all.is_empty() {
             return v_flex()
@@ -267,6 +290,11 @@ impl Render for GenresView {
                                             .flex_1()
                                             .overflow_hidden()
                                             .text_ellipsis()
+                                            .text_color(if row.summary.tagged {
+                                                foreground
+                                            } else {
+                                                heard
+                                            })
                                             .child(row.name.clone()),
                                     )
                                     .child(

@@ -80,6 +80,7 @@ pub(super) mod tests {
                 neighbors: Neighbors::default(),
                 stop: AtomicBool::new(false),
                 progress: Default::default(),
+                saved: flume::bounded(1).0,
             }),
         }
     }
@@ -98,12 +99,12 @@ pub(super) mod tests {
         let unanalysed = add_track(&lib, "unanalysed", "E", 200_000);
         lib.save_embeddings(
             EMBEDDING_VERSION,
-            &[
+            &crate::similar_tracks::analyses(&[
                 (seed, vector(&[1.0, 0.0])),
                 (twin, vector(&[1.0, 0.1])),
                 (skit, vector(&[1.0, 0.05])),
                 (unrelated, vector(&[-1.0, 0.0])),
-            ],
+            ]),
         )
         .unwrap();
         let similar = similar(Arc::new(lib));
@@ -139,13 +140,13 @@ pub(super) mod tests {
         let unrelated = add_track(&lib, "unrelated", "D", 200_000);
         lib.save_embeddings(
             EMBEDDING_VERSION,
-            &[
+            &crate::similar_tracks::analyses(&[
                 (seed, vector(&[1.0, 0.0])),
                 (same_artist, vector(&[1.0, 0.02])),
                 (heard, vector(&[1.0, 0.05])),
                 (fresh, vector(&[1.0, 0.1])),
                 (unrelated, vector(&[-1.0, 0.0])),
-            ],
+            ]),
         )
         .unwrap();
         let similar = similar(Arc::new(lib));
@@ -180,14 +181,14 @@ pub(super) mod tests {
         let far = add_track(&lib, "far", "F", 200_000);
         lib.save_embeddings(
             EMBEDDING_VERSION,
-            &[
+            &crate::similar_tracks::analyses(&[
                 (left, vector(&[1.0, 0.0, 0.0])),
                 (right, vector(&[0.0, 1.0, 0.0])),
                 (middle, vector(&[0.7, 0.7, 0.0])),
                 (near_left, vector(&[1.0, -0.4, 0.0])),
                 (near_right, vector(&[-0.4, 1.0, 0.0])),
                 (far, vector(&[-1.0, -1.0, 0.0])),
-            ],
+            ]),
         )
         .unwrap();
         let similar = similar(Arc::new(lib));
@@ -227,8 +228,11 @@ pub(super) mod tests {
         let (_dir, lib) = library();
         let a = add_track(&lib, "a", "A", 200_000);
         add_track(&lib, "b", "B", 200_000);
-        lib.save_embeddings(EMBEDDING_VERSION, &[(a, vector(&[1.0]))])
-            .unwrap();
+        lib.save_embeddings(
+            EMBEDDING_VERSION,
+            &crate::similar_tracks::analyses(&[(a, vector(&[1.0]))]),
+        )
+        .unwrap();
         let status = similar(Arc::new(lib)).status().unwrap();
         assert_eq!((status.analysed, status.total), (1, 2));
         assert_eq!(status.phase, crate::similar_tracks::Phase::Idle);
@@ -256,7 +260,8 @@ pub(super) mod tests {
             let id = add_track(&lib, &format!("z{n}"), "Z", 200_000);
             rows.push((id, vector(&[-1.0, 0.0])));
         }
-        lib.save_embeddings(EMBEDDING_VERSION, &rows).unwrap();
+        lib.save_embeddings(EMBEDDING_VERSION, &crate::similar_tracks::analyses(&rows))
+            .unwrap();
         let similar = similar(Arc::new(lib));
 
         let radio = ids(&similar

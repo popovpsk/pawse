@@ -8,14 +8,15 @@ use std::time::{Duration, Instant};
 use audio_decoder::Decoder;
 use audio_embedding::{EMBEDDING_VERSION, EmbedError, Embedding, Job, Prepared, TrackRange};
 use audio_embedding_gpu::{Availability, Device, Submitted};
-use music_library::Track;
 use music_library::remote::RemoteRef;
+use music_library::{Track, TrackAnalysis};
 
 use super::fetch::{Fetcher, MAX_DOWNLOADS, PER_SOURCE, PER_SOURCE_RANGED, ServerFile, Stopped};
 use super::{Phase, Shared};
 use crate::remote_media::RemoteMedia;
 
 const SAVE_BATCH: usize = 16;
+const ANNOUNCE_EVERY: usize = 512;
 const PROGRESS_EVERY: usize = 100;
 const LOAD_RETRY: Duration = Duration::from_secs(5 * 60);
 const GPU_RETRY: Duration = Duration::from_secs(30);
@@ -368,7 +369,7 @@ pub(super) struct Ready {
 pub(super) struct Done {
     pub(super) id: i64,
     pub(super) path: PathBuf,
-    pub(super) result: Result<Vec<f32>, EmbedError>,
+    pub(super) result: Result<Embedding, EmbedError>,
 }
 
 #[derive(Clone, Copy)]
@@ -515,7 +516,6 @@ fn finish(item: InFlight<'_>, done: &flume::Sender<Done>) -> bool {
         Submission::Done(results) => results,
     };
     for ((id, path), result) in item.tracks.into_iter().zip(results) {
-        let result = result.map(|embedding| embedding.vector.into_vec());
         if done.send(Done { id, path, result }).is_err() {
             return false;
         }
@@ -556,12 +556,12 @@ fn collect(
     halt: &AtomicBool,
 ) -> anyhow::Result<Ended> {
     let mut pending = Vec::with_capacity(SAVE_BATCH);
-    let (mut analysed, mut failed) = (0usize, 0usize);
+    let (mut analysed, mut failed, mut announced) = (0usize, 0usize, 0usize);
     let mut model_error = None;
     for item in done.iter() {
         match item.result {
-            Ok(vector) => {
-                pending.push((item.id, vector));
+            Ok(embedding) => {
+                pending.push(analysis(item.id, embedding));
                 analysed += 1;
             }
             Err(EmbedError::Model(e)) => {
@@ -577,6 +577,10 @@ fn collect(
         }
         if pending.len() >= SAVE_BATCH {
             save(shared, &mut pending)?;
+            if analysed - announced >= ANNOUNCE_EVERY {
+                announced = analysed;
+                let _ = shared.saved.try_send(());
+            }
         }
         let attempted = analysed + failed;
         if attempted > 0 && attempted % PROGRESS_EVERY == 0 {
@@ -587,6 +591,9 @@ fn collect(
         }
     }
     save(shared, &mut pending)?;
+    if analysed > announced {
+        let _ = shared.saved.try_send(());
+    }
     if let Some(e) = model_error {
         log::error!(
             "similar tracks: the graphics card failed after {analysed} tracks in {} s: {e}",
@@ -603,7 +610,20 @@ fn collect(
     Ok(Ended::Finished)
 }
 
-fn save(shared: &Shared, pending: &mut Vec<(i64, Vec<f32>)>) -> anyhow::Result<()> {
+fn analysis(item_id: i64, embedding: Embedding) -> TrackAnalysis {
+    let genres = audio_embedding::styles::genres(&embedding.styles)
+        .into_iter()
+        .map(|(name, score)| (name.to_string(), score))
+        .collect();
+    TrackAnalysis {
+        item_id,
+        vector: embedding.vector.into_vec(),
+        styles: embedding.styles.into_vec(),
+        genres,
+    }
+}
+
+fn save(shared: &Shared, pending: &mut Vec<TrackAnalysis>) -> anyhow::Result<()> {
     if pending.is_empty() {
         return Ok(());
     }

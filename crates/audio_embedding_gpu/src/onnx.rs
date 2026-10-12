@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use tract_onnx::pb::{ModelProto, NodeProto, TensorProto};
+use tract_onnx::pb::{ModelProto, TensorProto};
 use tract_onnx::prelude::*;
 
 pub const INPUT_ROWS: usize = 64;
@@ -24,12 +24,7 @@ fn values(tensor: &TensorProto) -> Vec<f32> {
         .collect()
 }
 
-fn convs(model: &ModelProto) -> Vec<&NodeProto> {
-    let graph = model.graph.as_ref().expect("a graph");
-    graph.node.iter().filter(|n| n.op_type == "Conv").collect()
-}
-
-pub fn conv_tensors(path: &Path) -> TractResult<Vec<Vec<f32>>> {
+pub fn initializers(path: &Path, op: &str) -> TractResult<Vec<Vec<f32>>> {
     let model = proto(path)?;
     let graph = model.graph.as_ref().expect("a graph");
     let init: HashMap<&str, &TensorProto> = graph
@@ -38,7 +33,7 @@ pub fn conv_tensors(path: &Path) -> TractResult<Vec<Vec<f32>>> {
         .map(|t| (t.name.as_str(), t))
         .collect();
     let mut out = Vec::new();
-    for node in convs(&model) {
+    for node in graph.node.iter().filter(|n| n.op_type == op) {
         for input in &node.input[1..] {
             let tensor = init
                 .get(input.as_str())
@@ -49,9 +44,25 @@ pub fn conv_tensors(path: &Path) -> TractResult<Vec<Vec<f32>>> {
     Ok(out)
 }
 
+pub fn weights(multi: &Path, styles: &Path, mel: &[f32]) -> TractResult<Vec<Vec<f32>>> {
+    let mut tensors = initializers(multi, "Conv")?;
+    tensors.extend(initializers(styles, "Conv")?);
+    tensors.extend(initializers(styles, "Gemm")?);
+    tensors.push(run(multi, mel, &[])?.remove(0));
+    tensors.push(run(styles, mel, &["activations".into()])?.remove(0));
+    Ok(tensors)
+}
+
 pub fn run(path: &Path, mel: &[f32], outputs: &[String]) -> TractResult<Vec<Vec<f32>>> {
+    let mut proto = proto(path)?;
+    if let Some(graph) = proto.graph.as_mut() {
+        graph.value_info.clear();
+        for output in &mut graph.output {
+            output.r#type = None;
+        }
+    }
     let mut model = tract_onnx::onnx()
-        .model_for_path(path)?
+        .model_for_proto_model(&proto)?
         .with_input_fact(0, f32::fact([INPUT_ROWS, 128, 96]).into())?;
     if !outputs.is_empty() {
         let mut names: Vec<&str> = outputs.iter().map(String::as_str).collect();

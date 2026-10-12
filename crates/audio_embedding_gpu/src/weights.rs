@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::arch::{Role, Tensor, tensors};
 
 pub const MAGIC: [u8; 8] = *b"PWSEFNET";
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 
 pub(crate) const ALIGN: usize = 256;
 const HEADER: usize = 16;
@@ -167,6 +167,7 @@ fn transpose(values: &[f32], rows: usize, cols: usize) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arch::{Layer, Net};
 
     fn fake() -> Vec<Vec<f32>> {
         tensors()
@@ -180,8 +181,19 @@ mod tests {
     fn an_encoded_file_reads_back() {
         let onnx = fake();
         let weights = Weights::parse(encode(&onnx).unwrap()).unwrap();
-        assert_eq!(weights.floats(Role::StemBias), onnx[1]);
-        assert_eq!(weights.floats(Role::ProbeRows), *onnx.last().unwrap());
+        assert_eq!(
+            weights.floats(Role::Layer(Net::Multi, Layer::StemBias)),
+            onnx[1]
+        );
+        let styles_stem = tensors()
+            .iter()
+            .position(|t| t.role == Role::Layer(Net::Styles, Layer::StemBias))
+            .unwrap();
+        assert_eq!(
+            weights.floats(Role::Layer(Net::Styles, Layer::StemBias)),
+            onnx[styles_stem]
+        );
+        assert_eq!(weights.floats(Role::ProbeStyles), *onnx.last().unwrap());
         for (tensor, offset) in &weights.entries {
             assert_eq!(offset % ALIGN, 0, "{:?}", tensor.role);
         }
@@ -191,15 +203,21 @@ mod tests {
     fn pointwise_weights_are_stored_input_major() {
         let onnx = fake();
         let weights = Weights::parse(encode(&onnx).unwrap()).unwrap();
-        let ix = tensors()
-            .iter()
-            .position(|t| t.role == Role::ExpandWeight(1))
-            .unwrap();
-        let stored = weights.floats(Role::ExpandWeight(1));
+        let role = Role::Layer(Net::Styles, Layer::ExpandWeight(1));
+        let ix = tensors().iter().position(|t| t.role == role).unwrap();
+        let stored = weights.floats(role);
         let [rows, cols, _, _] = tensors()[ix].onnx_shape;
         assert_eq!((rows, cols), (96, 16));
         assert_eq!(stored[1], onnx[ix][cols]);
         assert_eq!(stored[rows], onnx[ix][1]);
+        let ix = tensors()
+            .iter()
+            .position(|t| t.role == Role::ClassifierWeight)
+            .unwrap();
+        let stored = weights.floats(Role::ClassifierWeight);
+        let [rows, cols, _, _] = tensors()[ix].onnx_shape;
+        assert_eq!((rows, cols), (400, 1280));
+        assert_eq!(stored[1], onnx[ix][cols]);
     }
 
     #[test]
@@ -209,8 +227,11 @@ mod tests {
         let mut wrong = bytes.clone();
         wrong[0] = b'X';
         assert!(Weights::parse(wrong).is_err());
+        let mut older = bytes.clone();
+        older[8] = 1;
+        assert!(Weights::parse(older).is_err());
         let mut newer = bytes;
-        newer[8] = 2;
+        newer[8] = 3;
         assert!(Weights::parse(newer).is_err());
         let mut short = fake();
         short[3].pop();

@@ -61,9 +61,10 @@ the files. A scan is still `clear()` + refill for this part, and that is fine:
 `playlist_tracks`, `lyrics` from the network, `plays`, `loves`, and their
 `*_deliveries`. None of it is derivable, so no scan deletes it.
 
-**Derived cache** — `track_embeddings` (sound vectors, see below). Re-derivable from
-the files, but expensive, so keyed by the item rather than the catalog row: a scan
-leaves it alone and it is not user data either.
+**Derived cache** — `track_embeddings` (sound vectors and style scores) and
+`track_sound_genres` (genres by sound), see below. Re-derivable from the files, but
+expensive, so keyed by the item rather than the catalog row: a scan leaves them alone
+and they are not user data either.
 
 The link between them is the id. `media_items.id` is the durable identity of a
 track; `tracks.id` borrows it (`tracks.id REFERENCES media_items(id)`), so a
@@ -515,10 +516,14 @@ given tracks included; tracks without `track_artists` rows add nothing. Used by
 
 ## Sound vectors (`track_embeddings`)
 
-One row per `(item_id, version)`: the `audio_embedding` vector of a track (`DIM` f32
-little-endian, packed with `to_le_bytes`, 5 KB per track, ~50 MB for 10k tracks) and
-the `EMBEDDING_VERSION` that made it. Written and read only by
-`pawse::similar_tracks`; this crate knows neither the model nor the dimension.
+One row per `(item_id, version)`: one analysis of a track — the `audio_embedding`
+vector (`DIM` f32 little-endian, packed with `to_le_bytes`, 5 KB per track, ~50 MB for
+10k tracks), the style classifier's scores (`styles`, 400 f32 the same way, 1.6 KB) and
+the `EMBEDDING_VERSION` that made them. Both columns are `NOT NULL` and come from the
+same run, so an analysed track always has both. Written by `pawse::similar_tracks`;
+this crate knows neither the model nor the dimensions. Nothing reads `styles` yet: it
+keeps the whole model output, so the genre rows below can be derived again without
+the GPU.
 
 - Keyed by `media_items.id`, not `tracks`: the item survives rescans (the catalog row
   is cleared and refilled), and one recording held by several sources is one item,
@@ -533,6 +538,26 @@ the `EMBEDDING_VERSION` that made it. Written and read only by
   after `prune_embeddings` the table holds one version anyway.
 - No table of failures: a track that fails analysis is simply tried again next session.
 
+### Genres by sound (`track_sound_genres`)
+
+`(item_id, version, key, name, score)`, the genres `pawse` derived from a track's style
+scores (`audio_embedding::styles::genres`: every genre scoring at least 0.05), saved in
+the same transaction as the vector. `key` is `name.to_lowercase()`, the same rule as
+`genres.key`, so the two meet in one join. It is a materialised view of the analysis:
+
+- Its foreign key is `(item_id, version) → track_embeddings` with `ON DELETE
+  CASCADE`, so a pruned version or a swept item (which cascades into
+  `track_embeddings`) takes its genres with it. `save_embeddings` deletes a track's row
+  of that version first, then inserts — the explicit delete is what clears the old
+  genres; `INSERT OR REPLACE` would not reliably fire the cascade.
+- Kept apart from `genres` / `track_genres` on purpose: those are the tags. A scan and
+  the tag editor rewrite them and sweep `genres` rows nothing links to, and the tag
+  editor is prefilled from `album_genres`; genres by sound in there would be swept by
+  the next scan or written into the user's files.
+- Index `(version, key, score)`: a genre page's track ids and the Genres list's counts
+  come straight from it. Display thresholds are query parameters, so changing them
+  needs no re-analysis.
+
 All of it runs on its own connection (`embedding_conn`), like `plays` on the
 scrobble one: the analysis thread saves every few seconds for as long as a first
 pass takes, and a save that waits for a scan batch's write lock (up to the busy
@@ -543,10 +568,12 @@ Methods:
 - `embedding_candidates(version)` — catalog tracks without a row for `version`, most
   wanted first: liked, then by the last play (newest first, from `plays`), then the
   rest in the library's album order.
-- `save_embeddings(version, rows)` — one `BEGIN IMMEDIATE` transaction, `INSERT OR
-  REPLACE`. A row whose item disappeared meanwhile (a scan swept it) is skipped through
+- `save_embeddings(version, rows)` — `TrackAnalysis` rows (item, vector, styles,
+  genres) in one `BEGIN IMMEDIATE` transaction: delete the item's row of `version`
+  (cascading to its genres), insert the analysis, then its genres (blank names
+  skipped). A row whose item disappeared meanwhile (a scan swept it) is skipped through
   an `INSERT … SELECT … FROM media_items`, so it cannot fail the batch on the foreign
-  key; the return value counts the rows written.
+  key, and gets no genres; the return value counts the rows written.
 - `embedding(item_id, version)` — one vector.
 - `embedding_coverage(version)` — `(catalog tracks with a vector of version, catalog
   tracks)`, for the indexing dialog in Settings. A plain read on the main connection,
@@ -562,7 +589,27 @@ Methods:
   differs from the first one are skipped with a warning. `f` runs while the embedding
   connection is locked: it must not call back into the embedding methods.
 - `prune_embeddings(keep_version)` — deletes every other version (a model or
-  front-end change); the next pass recomputes.
+  front-end change) and, by the cascade, its genres; the next pass recomputes.
+
+Genres by sound in the library queries (`SoundGenres { version, min_score,
+min_tracks }`; `None` keeps the tag-only SQL exactly as it was):
+
+- `genres(sound)` — one row per `key` over the union of the tag links and the
+  genre rows of `version` with `score >= min_score` on catalog tracks; `track_count`
+  counts distinct tracks (a track tagged and heard as the same genre counts once), the
+  name is the tag's spelling when there is one, `tagged` says whether any tag links to
+  it. A genre only heard is listed when it has at least `min_tracks` tracks. Tagged
+  genres first, then heard ones, each by key.
+- `genre_album_covers(sound)` — the same union, three covers per key as before.
+- `tracks_by_genre(key, sort, desc, sound)` — tracks tagged with `key` or heard as it
+  above `min_score`, in the same orders.
+- `album_sound_genres(version, min_score, per_album, album_id)` — per album, the genres
+  whose sum of scores over the album's analysed tracks, divided by the number of those
+  tracks, reaches `min_score` (a track without a row for a genre counts as 0), best
+  first, at most `per_album`; one album or all. The query starts from the albums'
+  tracks and finds their rows by the primary key (`+s.version` keeps SQLite off the
+  `(version, …)` index, which would read every genre row of the version even for one
+  album): ~1 ms for one album, ~12 ms for every album of 2196 tracks.
 
 ## Migrations
 
@@ -584,7 +631,11 @@ wipe. `run_migrations`:
   catalog (a dangling `track_artists` row) must not turn every launch into a
   failed open.
 
-Migration 13 only creates `track_embeddings` (see "Sound vectors" above).
+Migration 13 only creates `track_embeddings` (see "Sound vectors" above). Migration 14
+drops and recreates it with the `styles` column and adds `track_sound_genres`: the
+vectors of 13 had no style scores, an analysed track must have both, and the version
+that wrote them is gone anyway (`EMBEDDING_VERSION` changed with the weights), so the
+analysis simply runs again — derived data, no user data touched.
 
 Everything this release adds to the schema — identity, sources, bindings,
 adoptions, `remote_tracks` — is one step, migration 9: a user upgrades once,

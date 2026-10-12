@@ -135,6 +135,22 @@ pub struct GenreSummary {
     pub key: String,
     pub name: String,
     pub track_count: i64,
+    pub tagged: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SoundGenres<'a> {
+    pub version: &'a str,
+    pub min_score: f32,
+    pub min_tracks: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackAnalysis {
+    pub item_id: i64,
+    pub vector: Vec<f32>,
+    pub styles: Vec<f32>,
+    pub genres: Vec<(String, f32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -5,7 +5,9 @@ library, a nearest-neighbour search, a re-ranking step that turns neighbours int
 list worth listening to, two queue actions built on them — "radio from this
 track" and "mix other artists into the queue" — in a menu in the queue panel's
 header, and a queue that runs out continuing as a radio from the last tracks it played. The
-analysis' progress is in a dialog behind a button in Settings.
+same analysis also gives every track's genres by sound, shown (if the user wants) next
+to the tag genres in the library. The analysis' progress is in a dialog behind a button
+in Settings.
 
 The settings are a group of their own in Settings → General, "Recommendations"
 (`similar_group` in `settings_view.rs`, strings in `similar_strings()`): the switch
@@ -13,7 +15,8 @@ The settings are a group of their own in Settings → General, "Recommendations"
 `tr().similar_tracks`) and under it "Continue the queue when it ends"
 (`similar_autoplay`, on by default — also for a `settings.json` written before it
 existed; greyed out and shown off while the feature is off or there is no graphics
-card, its own value kept).
+card, its own value kept), then "Genres by sound" (`sound_genres_shown`, off by
+default, greyed out the same way; see "Genres by sound").
 Its description talks about the result (similar-sounding tracks from the library), says
 the analysis is local and that the first pass can take a while; it does not mention the
 background thread or the one-time model download (16 MB). The analysis runs only on a
@@ -58,6 +61,10 @@ failed download is not cancellable and runs to its own timeout.
   `services::advance_on_track_end`) and `set_queue_refresh`.
 - `indexing.rs` — `open` (`open_indexing`), the progress dialog behind the
   "Indexing" button in Settings → General.
+- `genres.rs` — the display side of the genres by sound, for the library views:
+  `shown` (the two switches), `filter` (the `music_library::SoundGenres` of a genre
+  list or page, `None` while not shown), `albums` (an album's genres by sound, minus its
+  tag genres), `dimmed` (their colour) and `tooltip` (tags, then heard genres dimmed).
 
 ## Lifecycle
 
@@ -288,7 +295,14 @@ failed download is not cancellable and runs to its own timeout.
 - Results are saved every 16 tracks (`save_embeddings`, which also skips items a scan
   swept meanwhile, on `music_library`'s own embedding connection, so waiting for a
   scan's write lock never blocks the UI's reads), and every save invalidates the
-  cached mean. Every pass invalidates it too when it starts: passes follow catalog
+  cached mean. A result is the vector, the 400 style scores and the genre rows derived
+  from them (`audio_embedding::styles::genres`), one `TrackAnalysis`, saved together:
+  a track with a vector always has its genres. After every `ANNOUNCE_EVERY` (512)
+  saved tracks and at the end of a pass that saved any, the collector sends on
+  `Shared::saved` (a `bounded(1)` channel, so a busy UI coalesces them); a task `start`
+  spawns turns that into `LibraryEvent::SoundGenresChanged`, which the library views
+  reload on. Not on every save: the album list re-reads its genre map on the event, and
+  a first pass saves every half second. Every pass invalidates it too when it starts: passes follow catalog
   changes, and a scan that swept items took their vectors out of the mean.
 - A track that fails (decode error, under one second, an unsupported sample rate, a
   non-finite vector whose re-check of the GPU passed, a panic in decoding — caught per
@@ -499,6 +513,43 @@ every second while it is open (`REFRESH_EVERY`, a task the view owns, so closing
 dialog ends it; there is no "Refresh" button, owner's choice): the snapshot is read on
 the background executor, a read still running skips the tick, and the texts are built
 then (`Shown`), not per frame.
+
+## Genres by sound
+
+Both networks run in every analysis run (`audio_embedding_gpu`): the GPU is not the
+limit on the owner's machine (the decoding is), so the style classifier costs no
+extra pass, no second download and no switch of its own for the analysis. What the
+user switches is the display: "Genres by sound" under the queue continuation
+(`sound_genres_shown`, off by default; `genres::shown` also needs the main switch and
+a graphics card — the views agree with the switch, which shows off and greyed out
+without one, even when an earlier session left genre rows in the database).
+Off, the views run their tag-only queries exactly as before.
+
+- **Where they show.** In the album list's genre column, an album without tag genres
+  shows its first genre by sound in a dimmer colour than the tag genres
+  (`muted_foreground` at 60%); one with tags shows its first tag as before, and the
+  tooltip lists the tags, then the heard genres dimmed. The album header lists the
+  heard genres after the tag ones, dimmed. On the Genres tab a genre that is only
+  heard comes after all tagged ones, its name dimmed; a genre both tagged and heard
+  is one row, and its page holds the tracks of both (`music_library`'s union).
+- **Which ones** (`genres.rs`, measured on `music-test` against its tags): an album's
+  genres are those whose mean score over its analysed tracks is at least `ALBUM_MIN`
+  (0.12), at most `PER_ALBUM` (3), its tag genres left out by name (case-insensitive) —
+  about two per album, none for an album whose sound is vague (a varied soundtrack).
+  A track belongs to a genre page from `TRACK_MIN` (0.2) — about one genre a track:
+  pages hold tracks that clearly sound like it, so they can hold part of an album. A
+  genre only heard is listed when it has at least `MIN_TRACKS` (5) tracks.
+- Names are compared by `key` only (`to_lowercase`): a tag `Trip-Hop` and the heard
+  `Trip Hop` are two rows. No normalisation of names beyond that (owner's rule).
+- Never in the files or the tag editor: the rows live in their own table, and the
+  album export's genre stays the first tag genre.
+- The Genres tab, the album list and an open album header reload on
+  `SoundGenresChanged` (only while shown) and follow the switch; an open genre page
+  follows the switch only, as it does not reload on catalog changes either. The album
+  list's map (every album; ~12 ms on 2196 tracks, so ~60 ms on 10k) is read on the
+  background executor and swapped in when ready, keeping the old one meanwhile; the
+  header's one album (~1 ms), the Genres list (~3 ms) and its covers (~4 ms) are read
+  in place, like their tag-only queries.
 
 ## The menu
 
