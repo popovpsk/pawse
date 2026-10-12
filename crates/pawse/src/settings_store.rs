@@ -114,6 +114,10 @@ impl<'de> Deserialize<'de> for LangChoice {
     }
 }
 
+fn default_list_layout() -> LibraryLayout {
+    LibraryLayout::List
+}
+
 fn default_true() -> bool {
     true
 }
@@ -276,6 +280,14 @@ impl ArtistsSort {
     pub fn default_desc(self) -> bool {
         self == ArtistsSort::Tracks
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtistPicture {
+    #[default]
+    Photo,
+    Covers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -549,6 +561,10 @@ pub struct UserSettings {
     pub artists_sort_desc: bool,
     #[serde(default)]
     pub artists_grouped: bool,
+    #[serde(default)]
+    pub artists_picture: ArtistPicture,
+    #[serde(default = "default_list_layout")]
+    pub artists_layout: LibraryLayout,
     #[serde(default = "default_true")]
     pub auto_update: bool,
     #[serde(default = "default_true")]
@@ -652,6 +668,8 @@ impl Default for UserSettings {
             artists_sort: ArtistsSort::default(),
             artists_sort_desc: false,
             artists_grouped: false,
+            artists_picture: ArtistPicture::default(),
+            artists_layout: LibraryLayout::List,
             auto_update: true,
             lyrics_from_internet: true,
             lyrics_prefer_lrclib: false,
@@ -1655,6 +1673,29 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn artists_picture(&self) -> ArtistPicture {
+        self.settings.artists_picture
+    }
+
+    pub fn set_artists_picture(&mut self, picture: ArtistPicture) -> anyhow::Result<()> {
+        self.settings.artists_picture = picture;
+        self.save()
+    }
+
+    pub fn artists_layout(&self) -> LibraryLayout {
+        self.settings.artists_layout
+    }
+
+    pub fn set_artists_layout(&mut self, layout: LibraryLayout) -> anyhow::Result<()> {
+        self.settings.artists_layout = layout;
+        self.save()
+    }
+
+    pub fn artists_show_photos(&self) -> bool {
+        self.settings.artist_info_from_internet
+            && self.settings.artists_picture == ArtistPicture::Photo
+    }
+
     pub fn font_scale(&self) -> FontScale {
         self.settings.font_scale
     }
@@ -2039,6 +2080,8 @@ mod tests {
             artists_sort: ArtistsSort::Tracks,
             artists_sort_desc: true,
             artists_grouped: true,
+            artists_picture: ArtistPicture::Covers,
+            artists_layout: LibraryLayout::Grid,
             auto_update: true,
             lyrics_from_internet: true,
             lyrics_prefer_lrclib: false,
@@ -2088,6 +2131,8 @@ mod tests {
         assert_eq!(back.artists_sort, ArtistsSort::Tracks);
         assert!(back.artists_sort_desc);
         assert!(back.artists_grouped);
+        assert_eq!(back.artists_picture, ArtistPicture::Covers);
+        assert_eq!(back.artists_layout, LibraryLayout::Grid);
         assert_eq!(back.network_cache_gb, 8);
         assert!(back.header_in_title_bar);
         assert_eq!(

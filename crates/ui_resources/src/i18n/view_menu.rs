@@ -31,6 +31,9 @@ pub struct ViewMenuStrings {
     pub undated: SharedString,
     pub decade_t: SharedString,
     pub tag: SharedString,
+    pub picture: SharedString,
+    pub photo: SharedString,
+    pub covers: SharedString,
 }
 
 impl ViewMenuStrings {
@@ -101,6 +104,9 @@ static EN: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("No year"),
     decade_t: SharedString::new_static("{}s"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Picture"),
+    photo: SharedString::new_static("Photo"),
+    covers: SharedString::new_static("Covers"),
 };
 
 static ES: ViewMenuStrings = ViewMenuStrings {
@@ -132,6 +138,9 @@ static ES: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Sin año"),
     decade_t: SharedString::new_static("Década de {}"),
     tag: SharedString::new_static("Etiqueta"),
+    picture: SharedString::new_static("Imagen"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Portadas"),
 };
 
 static ZH: ViewMenuStrings = ViewMenuStrings {
@@ -163,6 +172,9 @@ static ZH: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("无年份"),
     decade_t: SharedString::new_static("{}年代"),
     tag: SharedString::new_static("标签"),
+    picture: SharedString::new_static("图片"),
+    photo: SharedString::new_static("照片"),
+    covers: SharedString::new_static("封面"),
 };
 
 static PT: ViewMenuStrings = ViewMenuStrings {
@@ -194,6 +206,9 @@ static PT: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Sem ano"),
     decade_t: SharedString::new_static("Década de {}"),
     tag: SharedString::new_static("Etiqueta"),
+    picture: SharedString::new_static("Imagem"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Capas"),
 };
 
 static RU: ViewMenuStrings = ViewMenuStrings {
@@ -225,6 +240,9 @@ static RU: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Без года"),
     decade_t: SharedString::new_static("{}-е"),
     tag: SharedString::new_static("Тег"),
+    picture: SharedString::new_static("Картинка"),
+    photo: SharedString::new_static("Фото"),
+    covers: SharedString::new_static("Обложки"),
 };
 
 static JA: ViewMenuStrings = ViewMenuStrings {
@@ -256,6 +274,9 @@ static JA: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("年なし"),
     decade_t: SharedString::new_static("{}年代"),
     tag: SharedString::new_static("タグ"),
+    picture: SharedString::new_static("画像"),
+    photo: SharedString::new_static("写真"),
+    covers: SharedString::new_static("カバー"),
 };
 
 static DE: ViewMenuStrings = ViewMenuStrings {
@@ -287,6 +308,9 @@ static DE: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Ohne Jahr"),
     decade_t: SharedString::new_static("{}er"),
     tag: SharedString::new_static("Künstler-Tag"),
+    picture: SharedString::new_static("Bild"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Cover"),
 };
 
 static FR: ViewMenuStrings = ViewMenuStrings {
@@ -318,6 +342,9 @@ static FR: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Sans année"),
     decade_t: SharedString::new_static("Années {}"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Image"),
+    photo: SharedString::new_static("Photo"),
+    covers: SharedString::new_static("Pochettes"),
 };
 
 static KO: ViewMenuStrings = ViewMenuStrings {
@@ -349,6 +376,9 @@ static KO: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("연도 없음"),
     decade_t: SharedString::new_static("{}년대"),
     tag: SharedString::new_static("태그"),
+    picture: SharedString::new_static("이미지"),
+    photo: SharedString::new_static("사진"),
+    covers: SharedString::new_static("커버"),
 };
 
 static IT: ViewMenuStrings = ViewMenuStrings {
@@ -380,6 +410,9 @@ static IT: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Senza anno"),
     decade_t: SharedString::new_static("Anni {}"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Immagine"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Copertine"),
 };
 
 static TR: ViewMenuStrings = ViewMenuStrings {
@@ -411,6 +444,9 @@ static TR: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Yılsız"),
     decade_t: SharedString::new_static("{} yılları"),
     tag: SharedString::new_static("Etiket"),
+    picture: SharedString::new_static("Görsel"),
+    photo: SharedString::new_static("Fotoğraf"),
+    covers: SharedString::new_static("Kapaklar"),
 };
 
 static PL: ViewMenuStrings = ViewMenuStrings {
@@ -442,6 +478,9 @@ static PL: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Bez roku"),
     decade_t: SharedString::new_static("Lata {}"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Obraz"),
+    photo: SharedString::new_static("Zdjęcie"),
+    covers: SharedString::new_static("Okładki"),
 };
 
 static NL: ViewMenuStrings = ViewMenuStrings {
@@ -473,6 +512,9 @@ static NL: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Zonder jaar"),
     decade_t: SharedString::new_static("Jaren {}"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Afbeelding"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Hoezen"),
 };
 
 static UK: ViewMenuStrings = ViewMenuStrings {
@@ -504,6 +546,9 @@ static UK: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Без року"),
     decade_t: SharedString::new_static("{}-ті"),
     tag: SharedString::new_static("Тег"),
+    picture: SharedString::new_static("Зображення"),
+    photo: SharedString::new_static("Фото"),
+    covers: SharedString::new_static("Обкладинки"),
 };
 
 static VI: ViewMenuStrings = ViewMenuStrings {
@@ -535,6 +580,9 @@ static VI: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Không có năm"),
     decade_t: SharedString::new_static("Thập niên {}"),
     tag: SharedString::new_static("Thẻ"),
+    picture: SharedString::new_static("Hình ảnh"),
+    photo: SharedString::new_static("Ảnh"),
+    covers: SharedString::new_static("Ảnh bìa"),
 };
 
 static ID: ViewMenuStrings = ViewMenuStrings {
@@ -566,6 +614,9 @@ static ID: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Tanpa tahun"),
     decade_t: SharedString::new_static("Tahun {}-an"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Gambar"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Sampul"),
 };
 
 static TH: ViewMenuStrings = ViewMenuStrings {
@@ -597,6 +648,9 @@ static TH: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("ไม่มีปี"),
     decade_t: SharedString::new_static("ทศวรรษ {}"),
     tag: SharedString::new_static("แท็ก"),
+    picture: SharedString::new_static("รูปภาพ"),
+    photo: SharedString::new_static("รูปถ่าย"),
+    covers: SharedString::new_static("ปก"),
 };
 
 static CS: ViewMenuStrings = ViewMenuStrings {
@@ -628,6 +682,9 @@ static CS: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Bez roku"),
     decade_t: SharedString::new_static("Léta {}"),
     tag: SharedString::new_static("Tag"),
+    picture: SharedString::new_static("Obrázek"),
+    photo: SharedString::new_static("Fotka"),
+    covers: SharedString::new_static("Obaly"),
 };
 
 static SV: ViewMenuStrings = ViewMenuStrings {
@@ -659,6 +716,9 @@ static SV: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("Utan år"),
     decade_t: SharedString::new_static("{}-talet"),
     tag: SharedString::new_static("Tagg"),
+    picture: SharedString::new_static("Bild"),
+    photo: SharedString::new_static("Foto"),
+    covers: SharedString::new_static("Omslag"),
 };
 
 static HI: ViewMenuStrings = ViewMenuStrings {
@@ -690,4 +750,7 @@ static HI: ViewMenuStrings = ViewMenuStrings {
     undated: SharedString::new_static("वर्ष नहीं"),
     decade_t: SharedString::new_static("{} का दशक"),
     tag: SharedString::new_static("टैग"),
+    picture: SharedString::new_static("चित्र"),
+    photo: SharedString::new_static("फ़ोटो"),
+    covers: SharedString::new_static("कवर"),
 };

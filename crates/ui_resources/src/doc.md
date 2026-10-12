@@ -48,7 +48,8 @@ files.
   click, kept separate the same way.
 - `i18n/view_menu.rs` — `ViewMenuStrings` (`view_menu_strings()`): the library view
   menu next to the header search (layout, sort, grouping, the header over the
-  Artists tag switch, Show chips, "Show unavailable" for track lists) and the labels it produces (`decade(year)` for
+  Artists tag switch, the Artists Picture switch — `picture` / `photo` / `covers` —, Show chips,
+  "Show unavailable" for track lists) and the labels it produces (`decade(year)` for
   "1990s", `undated`, `unavailable_hidden(n)`). Kept separate the same way. The genre
   page's sort reuses `artist` / `year` here; its old `genre_sort_*` keys in `Strings`
   are gone.

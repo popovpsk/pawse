@@ -1,6 +1,7 @@
 pub mod album_info;
 mod albums_grid;
 pub mod albums_view;
+mod artists_grid;
 pub mod artists_view;
 mod cover_grid;
 mod fuzzy;

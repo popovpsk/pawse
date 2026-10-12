@@ -4,7 +4,7 @@ use gpui::{
     AnyElement, Hsla, Image, IntoElement, ObjectFit, RenderImage, Styled, StyledImage, img, px,
 };
 
-use crate::cover_placeholder::cover_placeholder;
+use crate::cover_placeholder::{artist_placeholder, cover_placeholder};
 
 pub fn cover_thumb(
     cover: Option<&Arc<Image>>,
@@ -40,5 +40,24 @@ pub fn cover_tile(
             .object_fit(ObjectFit::Cover)
             .into_any_element(),
         None => cover_placeholder(size, radius, bg, fg).into_any_element(),
+    }
+}
+
+pub fn artist_tile(
+    photo: Option<&Arc<RenderImage>>,
+    size: f32,
+    radius: f32,
+    bg: Hsla,
+    fg: Hsla,
+) -> AnyElement {
+    match photo {
+        Some(p) => img(p.clone())
+            .flex_shrink_0()
+            .w(px(size))
+            .h(px(size))
+            .rounded(px(radius))
+            .object_fit(ObjectFit::Cover)
+            .into_any_element(),
+        None => artist_placeholder(size, radius, bg, fg).into_any_element(),
     }
 }

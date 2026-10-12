@@ -16,7 +16,8 @@ use ui_resources::i18n::view_menu_strings;
 
 use crate::cover_backdrop::{popover_bg, veil_factor};
 use crate::settings_store::{
-    AlbumsArtistDisplay, AlbumsSort, ArtistsSort, LibraryLayout, SettingsStore, notify_save_error,
+    AlbumsArtistDisplay, AlbumsSort, ArtistPicture, ArtistsSort, LibraryLayout, SettingsStore,
+    notify_save_error,
 };
 use crate::theme_colors::Colors;
 
@@ -120,7 +121,7 @@ fn albums_menu(
         s.group_by_letter.clone()
     };
     content
-        .child(layout_switch(layout))
+        .child(layout_switch(layout, SettingsStore::set_albums_layout))
         .child(section_label(s.sort_by.clone(), colors))
         .children(
             AlbumsSort::ALL
@@ -152,6 +153,10 @@ fn artists_menu(
     let s = view_menu_strings();
     let (current, desc) = settings.artists_sort();
     content
+        .child(layout_switch(
+            settings.artists_layout(),
+            SettingsStore::set_artists_layout,
+        ))
         .child(section_label(s.sort_by.clone(), colors))
         .children(
             ArtistsSort::ALL
@@ -166,6 +171,11 @@ fn artists_menu(
                 colors,
                 SettingsStore::set_artists_grouped,
             ))
+        })
+        .when(settings.artist_info_from_internet(), |menu| {
+            menu.child(separator(colors))
+                .child(section_label(s.picture.clone(), colors))
+                .child(artist_picture_switch(settings.artists_picture()))
         })
         .child(separator(colors))
         .child(section_label(s.tag.clone(), colors))
@@ -234,7 +244,10 @@ fn tracks_menu(
         ))
 }
 
-fn layout_switch(layout: LibraryLayout) -> impl IntoElement {
+fn layout_switch(
+    layout: LibraryLayout,
+    set: fn(&mut SettingsStore, LibraryLayout) -> anyhow::Result<()>,
+) -> impl IntoElement {
     let s = view_menu_strings();
     h_flex().w_full().p_1().child(
         ButtonGroup::new("library-view-layout")
@@ -263,7 +276,39 @@ fn layout_switch(layout: LibraryLayout) -> impl IntoElement {
                 } else {
                     LibraryLayout::List
                 };
-                save(cx, |s| s.set_albums_layout(layout));
+                save(cx, |s| set(s, layout));
+            }),
+    )
+}
+
+fn artist_picture_switch(picture: ArtistPicture) -> impl IntoElement {
+    let s = view_menu_strings();
+    h_flex().w_full().px_1().pb_1().child(
+        ButtonGroup::new("artists-picture")
+            .small()
+            .w_full()
+            .child(
+                Button::new("artists-picture-photo")
+                    .flex_1()
+                    .label(s.photo.clone())
+                    .selected(picture == ArtistPicture::Photo),
+            )
+            .child(
+                Button::new("artists-picture-covers")
+                    .flex_1()
+                    .label(s.covers.clone())
+                    .selected(picture == ArtistPicture::Covers),
+            )
+            .on_click(|clicks: &Vec<usize>, _, cx| {
+                let Some(&ix) = clicks.first() else {
+                    return;
+                };
+                let picture = if ix == 0 {
+                    ArtistPicture::Photo
+                } else {
+                    ArtistPicture::Covers
+                };
+                save(cx, |s| s.set_artists_picture(picture));
             }),
     )
 }

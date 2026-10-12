@@ -9,7 +9,11 @@ can depend on it without cycles.
 - `settings.rs` — Settings widget: top tab bar over a scrollable content area.
 - `slider.rs` — Horizontal slider with `live_update` and non-live modes, tooltip, thumb visibility.
 - `artist_avatar.rs` — Stacked 3‑cover composite (up to 3 `Arc<Image>` layers, oldest on top).
-- `cover_placeholder.rs` — `cover_placeholder(size, radius, bg, fg)` — inline SVG placeholder for missing album art.
+- `cover_placeholder.rs` — `cover_placeholder(size, radius, bg, fg)` — inline SVG placeholder for missing album art
+  (`icons/placeholder-notes.svg`); `artist_placeholder` — the same tile with the person from the Artists tab icon
+  (`icons/s1-artists.svg`, drawn a bit larger: the figure is thinner than the notes) for a missing artist photo.
+- `cover_thumb.rs` — `cover_thumb` (`Arc<Image>`, falls back to the placeholder on a decode failure), `cover_tile`
+  (`Arc<RenderImage>` or the notes placeholder) and `artist_tile` (`Arc<RenderImage>` or the person placeholder).
 
 ---
 

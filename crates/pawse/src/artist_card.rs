@@ -9,9 +9,10 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex};
 use music_library::ArtistInfoRow;
-use ui_components::cover_thumb::cover_tile;
+use ui_components::cover_thumb::artist_tile;
 use ui_resources::i18n::{ArtistCardStrings, active, artist_card_strings_for};
 
+use crate::artist_photos::PhotoTiles;
 use crate::cover_art_cache::render_tile;
 use crate::library_service::{LibraryEvent, LibraryService};
 use crate::localization::{LangChanged, LangEventBus};
@@ -19,6 +20,7 @@ use crate::services::LibraryEventsBus;
 use crate::settings_store::SettingsStore;
 
 const PHOTO_PX: u32 = 300;
+const THUMB_PX: u32 = 80;
 const PHOTO_SIZE: f32 = 150.;
 const PHOTO_RADIUS: f32 = 6.;
 const TOP_PAD: f32 = 12.;
@@ -54,6 +56,8 @@ enum Indexed {
 pub struct ArtistCards {
     library: Arc<LibraryService>,
     cards: HashMap<String, Slot>,
+    thumbs: PhotoTiles,
+    photos: PhotoTiles,
     lookup: Lookup,
     online: bool,
     indexing: bool,
@@ -92,6 +96,8 @@ impl ArtistCards {
             Self {
                 library,
                 cards: HashMap::new(),
+                thumbs: PhotoTiles::new(THUMB_PX),
+                photos: PhotoTiles::new(PHOTO_PX),
                 lookup: Lookup::new(),
                 online: cx.global::<SettingsStore>().artist_info_from_internet(),
                 indexing: false,
@@ -113,6 +119,89 @@ impl ArtistCards {
         }
     }
 
+    pub fn thumb(&self, name: &str) -> Option<Arc<RenderImage>> {
+        if !self.online {
+            return None;
+        }
+        self.thumbs.get(name)
+    }
+
+    pub fn photo(&self, name: &str) -> Option<Arc<RenderImage>> {
+        if !self.online {
+            return None;
+        }
+        self.photos.get(name)
+    }
+
+    pub fn ensure_thumbs<'a>(
+        &mut self,
+        visible: usize,
+        names: impl Iterator<Item = &'a str>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ensure(visible, names, Self::thumbs_mut, cx);
+    }
+
+    pub fn ensure_photos<'a>(
+        &mut self,
+        visible: usize,
+        names: impl Iterator<Item = &'a str>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ensure(visible, names, Self::photos_mut, cx);
+    }
+
+    fn thumbs_mut(&mut self) -> &mut PhotoTiles {
+        &mut self.thumbs
+    }
+
+    fn photos_mut(&mut self) -> &mut PhotoTiles {
+        &mut self.photos
+    }
+
+    fn ensure<'a>(
+        &mut self,
+        visible: usize,
+        names: impl Iterator<Item = &'a str>,
+        store: fn(&mut Self) -> &mut PhotoTiles,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.online {
+            return;
+        }
+        let tiles = store(self);
+        let wanted = tiles.wanted(visible, names, cx);
+        if wanted.is_empty() {
+            return;
+        }
+        let (side, generation) = (tiles.side(), tiles.generation());
+        let library = self.library.clone();
+        cx.spawn(async move |this, cx| {
+            for name in wanted {
+                let photo = {
+                    let library = library.clone();
+                    let name = name.clone();
+                    cx.background_spawn(async move { read_photo(&library, &name, side) })
+                        .await
+                };
+                let current = this.update(cx, |this, cx| {
+                    let tiles = store(this);
+                    if tiles.generation() != generation {
+                        return false;
+                    }
+                    if tiles.finish(name, photo, cx) {
+                        cx.notify();
+                    }
+                    true
+                });
+                if !matches!(current, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     pub fn load(&mut self, name: &str, cx: &mut Context<Self>) {
         if self.cards.contains_key(name) {
             return;
@@ -122,6 +211,11 @@ impl ArtistCards {
     }
 
     fn refresh(&mut self, name: String, cx: &mut Context<Self>) {
+        let thumb_retry = self.thumbs.forget(&name);
+        let photo_retry = self.photos.forget(&name);
+        if thumb_retry || photo_retry {
+            cx.notify();
+        }
         if self.cards.contains_key(&name) {
             self.fetch(name, cx);
         }
@@ -172,6 +266,9 @@ impl ArtistCards {
         self.online = online;
         if online {
             self.index(cx);
+        } else {
+            self.thumbs.clear(cx);
+            self.photos.clear(cx);
         }
         cx.notify();
     }
@@ -329,14 +426,22 @@ fn read_card(
 ) -> Option<(ArtistFacts, Option<Arc<RenderImage>>)> {
     let row = library.artist_info(name)?;
     let facts: ArtistFacts = serde_json::from_str(row.facts.as_deref()?).ok()?;
-    let photo = row.photo.as_deref().and_then(decode_photo);
+    let photo = row
+        .photo
+        .as_deref()
+        .and_then(|bytes| decode_photo(bytes, PHOTO_PX));
     Some((facts, photo))
 }
 
-fn decode_photo(bytes: &[u8]) -> Option<Arc<RenderImage>> {
+fn read_photo(library: &LibraryService, name: &str, side: u32) -> Option<Arc<RenderImage>> {
+    let row = library.artist_info(name)?;
+    decode_photo(row.photo.as_deref()?, side)
+}
+
+fn decode_photo(bytes: &[u8], side: u32) -> Option<Arc<RenderImage>> {
     let decoded = image::load_from_memory(bytes).ok()?;
     let raster = decoded
-        .resize_to_fill(PHOTO_PX, PHOTO_PX, image::imageops::FilterType::Triangle)
+        .resize_to_fill(side, side, image::imageops::FilterType::Triangle)
         .to_rgba8();
     Some(render_tile(raster))
 }
@@ -439,7 +544,7 @@ pub fn card_header(
         .pr_6()
         .gap_4()
         .items_start()
-        .child(cover_tile(
+        .child(artist_tile(
             card.photo.as_ref(),
             PHOTO_SIZE,
             PHOTO_RADIUS,

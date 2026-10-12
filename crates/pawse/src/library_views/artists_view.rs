@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, Context, ElementId, EventEmitter, Hsla, Image, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, prelude::FluentBuilder, px,
+    AnyElement, Context, ElementId, Entity, EventEmitter, Hsla, Image, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -15,15 +15,20 @@ use gpui_component::{
 use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
 use ui_components::artist_avatar::artist_avatar;
+use ui_components::cover_thumb::artist_tile;
 
+use crate::artist_card::ArtistCards;
 use crate::library_service::LibraryEvent;
 use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, no_music_message};
-use crate::library_views::cover_grid::{self, ItemLayout, LIST_PAD_X, LibraryItem};
+use crate::library_views::artists_grid::{self, TileParams};
+use crate::library_views::cover_grid::{
+    self, GridCovers, ItemLayout, LIST_PAD_X, LibraryItem, MeasuredGrid,
+};
 use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::view_order::{self, ArtistKey, Section};
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
-use crate::settings_store::{ArtistsSort, SettingsStore};
+use crate::settings_store::{ArtistsSort, LibraryLayout, SettingsStore};
 use music_library::ArtistGrouping;
 
 #[derive(Clone, Debug)]
@@ -35,11 +40,12 @@ pub struct ArtistSelectedEvent {
 /// label, the name as a `SharedString`, and the resolved cover thumbnails) is
 /// done here, off the render hot path, so the `v_virtual_list` closure only
 /// clones cheap handles.
-struct ArtistRow {
-    summary: music_library::ArtistSummary,
-    name: SharedString,
-    count_label: SharedString,
+pub(super) struct ArtistRow {
+    pub(super) summary: music_library::ArtistSummary,
+    pub(super) name: SharedString,
+    pub(super) count_label: SharedString,
     covers: Vec<Arc<Image>>,
+    pub(super) tile_covers: Vec<i64>,
 }
 
 impl ArtistRow {
@@ -48,15 +54,29 @@ impl ArtistRow {
         cover_ids: &HashMap<i64, Vec<i64>>,
         cache: &mut crate::cover_art_cache::CoverArtCache,
         library: &crate::library_service::LibraryService,
+        grid: bool,
+        photos: bool,
     ) -> Self {
-        let covers = cover_ids
-            .get(&summary.id)
-            .into_iter()
-            .flat_map(|ids| ids.iter())
-            .filter_map(|&id| cache.get_small(Some(id), library))
-            .collect();
+        let no_metadata = summary.id == music_library::NO_METADATA_ARTIST_ID;
+        let ids = cover_ids.get(&summary.id).map_or(&[][..], Vec::as_slice);
+        let covers = if grid || photos {
+            Vec::new()
+        } else {
+            ids.iter()
+                .take(STACK_COVERS)
+                .filter_map(|&id| cache.get_small(Some(id), library))
+                .collect()
+        };
+        let tile_covers = if grid && !photos {
+            ids.iter()
+                .take(artists_grid::FLOW_COVERS)
+                .copied()
+                .collect()
+        } else {
+            Vec::new()
+        };
         let count_label = tr().n_tracks(summary.track_count).into();
-        let name = if summary.id == music_library::NO_METADATA_ARTIST_ID {
+        let name = if no_metadata {
             tr().no_metadata.clone()
         } else {
             summary.name.clone().into()
@@ -66,12 +86,18 @@ impl ArtistRow {
             name,
             count_label,
             covers,
+            tile_covers,
         }
+    }
+
+    pub(super) fn is_no_metadata(&self) -> bool {
+        self.summary.id == music_library::NO_METADATA_ARTIST_ID
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct ArtistsPrefs {
+    layout: LibraryLayout,
     sort: ArtistsSort,
     desc: bool,
     grouped: bool,
@@ -81,20 +107,27 @@ impl ArtistsPrefs {
     fn read(settings: &SettingsStore) -> Self {
         let (sort, desc) = settings.artists_sort();
         Self {
+            layout: settings.artists_layout(),
             sort,
             desc,
             grouped: settings.artists_grouped(),
         }
     }
+
+    fn grid(&self) -> bool {
+        self.layout == LibraryLayout::Grid
+    }
 }
 
 const ARTIST_ROW_HEIGHT: f32 = 56.;
 const AVATAR_SIZE: f32 = 40.;
+const PHOTO_RADIUS: f32 = 4.;
+const STACK_COVERS: usize = 3;
 
 pub struct ArtistsView {
     artists_all: Vec<music_library::ArtistSummary>,
     keys: Vec<ArtistKey>,
-    rows: Vec<ArtistRow>,
+    pub(super) rows: Vec<ArtistRow>,
     cover_ids: HashMap<i64, Vec<i64>>,
     search_haystacks: HashMap<i64, String>,
     grouping: ArtistGrouping,
@@ -105,10 +138,18 @@ pub struct ArtistsView {
     matcher: Matcher,
     is_scanning: bool,
     prefs: ArtistsPrefs,
+    pub(super) show_photos: bool,
+    pub(super) cards: Entity<ArtistCards>,
+    measured_width: Pixels,
+    columns: usize,
+    tile_width: f32,
+    rem_size: f32,
+    covers: GridCovers,
     scroll_handle: VirtualListScrollHandle,
     _subscription: Subscription,
     _lang_subscription: Subscription,
     _settings_observer: Subscription,
+    _cards_observer: Subscription,
 }
 
 impl ArtistsView {
@@ -117,11 +158,18 @@ impl ArtistsView {
         let library_event_bus = services.library_event_bus.clone();
         let lang_event_bus = services.lang_event_bus.clone();
         let library = services.library.clone();
-        let (grouping, prefs) = {
+        let cards = services.artist_cards.clone();
+        let (grouping, prefs, show_photos, rem_size) = {
             let settings = cx.global::<SettingsStore>();
-            (settings.artists_grouping(), ArtistsPrefs::read(settings))
+            (
+                settings.artists_grouping(),
+                ArtistsPrefs::read(settings),
+                settings.artists_show_photos(),
+                f32::from(settings.font_scale().px()),
+            )
         };
 
+        let library_access = library.library_access();
         let artists_all = library.artists(grouping);
         let keys: Vec<ArtistKey> = artists_all.iter().map(ArtistKey::of).collect();
         let cover_ids = library.artist_album_covers(grouping);
@@ -140,6 +188,7 @@ impl ArtistsView {
                         cx.notify();
                     }
                     LibraryEvent::CatalogChanged => {
+                        this.covers.reset();
                         this.reload_source(cx);
                         cx.notify();
                     }
@@ -156,22 +205,43 @@ impl ArtistsView {
         });
 
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
-            let (grouping, prefs) = {
+            let (grouping, prefs, show_photos, rem_size) = {
                 let settings = cx.global::<SettingsStore>();
-                (settings.artists_grouping(), ArtistsPrefs::read(settings))
+                (
+                    settings.artists_grouping(),
+                    ArtistsPrefs::read(settings),
+                    settings.artists_show_photos(),
+                    f32::from(settings.font_scale().px()),
+                )
             };
-            let prefs_changed = this.prefs != prefs;
-            this.prefs = prefs;
-            if grouping != this.grouping {
-                this.grouping = grouping;
-                this.reload_source(cx);
-            } else if prefs_changed {
-                this.recompute_visible(cx);
-            } else {
+            let grouping_changed = this.grouping != grouping;
+            let order_changed = grouping_changed || this.prefs != prefs;
+            let photos_changed = this.show_photos != show_photos;
+            let rem_changed = this.rem_size != rem_size;
+            if !order_changed && !photos_changed && !rem_changed {
                 return;
             }
-            cover_grid::scroll_to_top(&this.scroll_handle);
+            this.grouping = grouping;
+            this.prefs = prefs;
+            this.show_photos = show_photos;
+            this.rem_size = rem_size;
+            if grouping_changed {
+                this.reload_source(cx);
+            } else if order_changed || photos_changed {
+                this.recompute_visible(cx);
+            } else {
+                this.rebuild_items();
+            }
+            if order_changed {
+                cover_grid::scroll_to_top(&this.scroll_handle);
+            }
             cx.notify();
+        });
+
+        let cards_observer = cx.observe(&cards, |this, _, cx| {
+            if this.show_photos {
+                cx.notify();
+            }
         });
 
         let mut this = Self {
@@ -188,10 +258,18 @@ impl ArtistsView {
             matcher: Matcher::new(Config::DEFAULT),
             is_scanning: false,
             prefs,
+            show_photos,
+            cards,
+            measured_width: px(0.),
+            columns: 1,
+            tile_width: 0.,
+            rem_size,
+            covers: GridCovers::new(library_access),
             scroll_handle: VirtualListScrollHandle::new(),
             _subscription: subscription,
             _lang_subscription: lang_subscription,
             _settings_observer: settings_observer,
+            _cards_observer: cards_observer,
         };
         this.recompute_visible(cx);
         this
@@ -248,6 +326,8 @@ impl ArtistsView {
 
         let services = cx.global::<Services>();
         let library = services.library.clone();
+        let grid = prefs.grid();
+        let photos = self.show_photos;
         let mut cache = services.cover_art_cache.borrow_mut();
         self.rows = order
             .into_iter()
@@ -257,12 +337,90 @@ impl ArtistsView {
                     &self.cover_ids,
                     &mut cache,
                     &library,
+                    grid,
+                    photos,
                 )
             })
             .collect();
         drop(cache);
-        self.layout_items =
-            cover_grid::list_layout(&self.sections, self.rows.len(), ARTIST_ROW_HEIGHT + 1.);
+        self.rebuild_items();
+    }
+
+    fn rebuild_items(&mut self) {
+        self.layout_items = if self.prefs.grid() {
+            cover_grid::grid_layout(
+                &self.sections,
+                self.rows.len(),
+                self.columns,
+                artists_grid::row_height(self.tile_width, self.rem_size, self.show_photos),
+            )
+        } else {
+            cover_grid::list_layout(&self.sections, self.rows.len(), ARTIST_ROW_HEIGHT + 1.)
+        };
+    }
+
+    fn covers_mut(&mut self) -> &mut GridCovers {
+        &mut self.covers
+    }
+}
+
+impl MeasuredGrid for ArtistsView {
+    fn measured_width(&self) -> Pixels {
+        self.measured_width
+    }
+
+    fn set_grid_width(&mut self, width: Pixels) {
+        self.measured_width = width;
+        let (columns, tile_width) = cover_grid::grid_metrics(f32::from(width));
+        self.columns = columns;
+        self.tile_width = tile_width;
+        if self.prefs.grid() {
+            self.rebuild_items();
+        }
+    }
+}
+
+impl ArtistsView {
+    fn ensure_thumbs(
+        &mut self,
+        visible: std::ops::Range<usize>,
+        items: &[LibraryItem],
+        cx: &mut Context<Self>,
+    ) {
+        let ahead = visible.len();
+        let end = (visible.end + ahead).min(items.len());
+        let shown = visible.start.min(end)..visible.end.min(end);
+        let below = shown.end..end;
+        let above = visible.start.saturating_sub(ahead).min(shown.start)..shown.start;
+        let wanted = end - above.start;
+        let rows = &self.rows;
+        let names = [shown, below, above]
+            .into_iter()
+            .flat_map(|range| &items[range])
+            .filter_map(|item| match *item {
+                LibraryItem::Row(ix) => rows.get(ix),
+                _ => None,
+            })
+            .filter(|row| !row.is_no_metadata())
+            .map(|row| row.summary.name.as_str());
+        self.cards
+            .update(cx, |cards, cx| cards.ensure_thumbs(wanted, names, cx));
+    }
+
+    fn ensure_tiles(&mut self, span: std::ops::Range<usize>, cx: &mut Context<Self>) {
+        let rows = &self.rows[span];
+        if self.show_photos {
+            let names = rows
+                .iter()
+                .filter(|row| !row.is_no_metadata())
+                .map(|row| row.summary.name.as_str());
+            self.cards
+                .update(cx, |cards, cx| cards.ensure_photos(rows.len(), names, cx));
+        } else {
+            let count = rows.iter().map(|row| row.tile_covers.len()).sum();
+            let ids = rows.iter().flat_map(|row| row.tile_covers.iter().copied());
+            self.covers.ensure(count, ids, cx, Self::covers_mut);
+        }
     }
 }
 
@@ -297,12 +455,23 @@ impl Render for ArtistsView {
                 .child(div().px_4().child(tr().no_artists_match.clone()));
         }
 
-        let (header_height, header_pad) = cover_grid::header_metrics(false);
+        let grid = self.prefs.grid();
+        let list_area = v_flex().flex_1().min_h(px(0.)).relative().overflow_hidden();
+        let list_area = if grid {
+            list_area.child(cover_grid::width_probe(cx))
+        } else {
+            list_area
+        };
+        if grid && self.measured_width <= px(0.) {
+            return v_flex().size_full().child(list_area);
+        }
+
+        let (header_height, header_pad) = cover_grid::header_metrics(grid);
         let slot = cover_grid::section_slot(
             &self.layout_items,
             &self.section_labels,
             &self.scroll_handle,
-            false,
+            grid,
             cx,
         );
 
@@ -312,20 +481,36 @@ impl Render for ArtistsView {
             list_hover: Colors::list_hover(cx),
             muted_fg: Colors::muted_foreground(cx),
         };
+        let tiles = TileParams::new(
+            self.tile_width,
+            self.rem_size,
+            params.list_hover,
+            params.secondary,
+            params.muted_fg,
+        );
+        let columns = self.columns.max(1);
         let item_sizes = self.layout_items.sizes.clone();
         let items = self.layout_items.items.clone();
 
-        let list_area = v_flex()
-            .flex_1()
-            .min_h(px(0.))
-            .relative()
-            .overflow_hidden()
+        let list_area = list_area
             .child(
                 v_virtual_list(
                     cx.entity().clone(),
                     "artists_list",
                     item_sizes,
                     move |view, visible_range, _window, cx| {
+                        if grid {
+                            if let Some(span) = cover_grid::cover_span(
+                                &items,
+                                visible_range.clone(),
+                                columns,
+                                view.rows.len(),
+                            ) {
+                                view.ensure_tiles(span, cx);
+                            }
+                        } else if view.show_photos {
+                            view.ensure_thumbs(visible_range.clone(), &items, cx);
+                        }
                         visible_range
                             .map(|ix| match items[ix] {
                                 LibraryItem::TopPadding => div().into_any_element(),
@@ -340,7 +525,9 @@ impl Render for ArtistsView {
                                     let ruled = !cover_grid::closes_section(&items, ix);
                                     artist_row(view, row_ix, ruled, &params, cx)
                                 }
-                                LibraryItem::Strip { .. } => div().into_any_element(),
+                                LibraryItem::Strip { start, end } => {
+                                    artists_grid::grid_strip(view, start, end, &tiles, cx)
+                                }
                             })
                             .collect::<Vec<_>>()
                     },
@@ -363,6 +550,22 @@ fn artist_row(
     cx: &mut Context<ArtistsView>,
 ) -> AnyElement {
     let row = &view.rows[row_ix];
+    let picture = if view.show_photos {
+        let photo = if row.is_no_metadata() {
+            None
+        } else {
+            view.cards.read(cx).thumb(&row.summary.name)
+        };
+        artist_tile(
+            photo.as_ref(),
+            AVATAR_SIZE,
+            PHOTO_RADIUS,
+            p.secondary,
+            p.muted_fg,
+        )
+    } else {
+        artist_avatar(&row.covers, AVATAR_SIZE, p.secondary, p.muted_fg)
+    };
     h_flex()
         .w_full()
         .h(px(ARTIST_ROW_HEIGHT))
@@ -371,12 +574,7 @@ fn artist_row(
         .gap_3()
         .when(ruled, |row| row.border_b(px(1.)).border_color(p.border))
         .hover(|style| style.bg(p.list_hover))
-        .child(artist_avatar(
-            &row.covers,
-            AVATAR_SIZE,
-            p.secondary,
-            p.muted_fg,
-        ))
+        .child(picture)
         .child(
             div()
                 .flex_1()

@@ -90,8 +90,8 @@ drive the `PlaybackQueue` on click.
   popular players offer. The geometry, the strip layout and the lazy cover loading it
   relies on live in `cover_grid.rs`, next to the section machinery both lists share;
   the notes below describe them here because the album wall is what they serve.
-- `cover_grid.rs` — the item machinery behind the Albums tab (both layouts) and the
-  Artists list: grid geometry, `LibraryItem` / `ItemLayout` (`list_layout`, `grid_layout`),
+- `cover_grid.rs` — the item machinery behind the Albums and Artists tabs (both layouts
+  each): grid geometry, `LibraryItem` / `ItemLayout` (`list_layout`, `grid_layout`),
   `strip_span` / `cover_span`, `header_metrics`, `section_header`, the measuring
   `width_probe` and the `GridCovers` lazy loader.
   **Sticky section header = a docked slot, not an overlay.** The virtual list has no
@@ -186,7 +186,8 @@ drive the `PlaybackQueue` on click.
   that unaffordable — roughly 1.5 GB for a fully browsed 2000-album library — and eagerly
   building `row_data` in grid mode read every album's blob on the main thread before the
   window appeared. So `CoverArtCache.large` is an LRU of *decoded* `Arc<RenderImage>`
-  that hands each eviction to `drop_atlas_tile`, and the
+  that hands each eviction to `drop_atlas_tile` (`cover_art_cache::TileLru<K>`, generic
+  over the key so the artist grid's photos, keyed by name, get the same bound), and the
   grid never fills `AlbumRowData::cover` at all: it keeps `cover_art_id`, reads the cache
   at render time through `peek_large`, and `GridCovers::ensure` loads what the visible
   range is missing — one row of margin either side — on the background executor, decoding
@@ -237,9 +238,58 @@ drive the `PlaybackQueue` on click.
   `small` stays an unbounded `HashMap<i64, Arc<Image>>` — a 128 px cover is ~6× cheaper,
   every list view uses it, and `cover_backdrop::from_thumbnail` needs the undecoded bytes.
   Note `decode_cover_tile` swaps R and B: gpui's `RenderImage` is BGRA, `to_rgba8` is not.
-- `artists_view.rs` — Artists tab, a list only: a `Grid` of round avatars was built and
-  removed at the user's request, so don't bring it back without asking. Same item machinery as the Albums list (`cover_grid::list_layout`, docked
-  headers); the order comes from
+- `artists_grid.rs` — the artist tile of the Artists tab's `Grid` layout (`grid_strip`,
+  `TileParams`), the album tile's geometry (`cover_grid` constants, tile width from
+  `grid_metrics`, `TILE_RADIUS`, caption = name + track count). The picture follows
+  `artists_picture`: Photo → `artist_tile` (photo or the person placeholder), square
+  like an album cover; Covers → a cover flow of the first three albums (oldest
+  first, like the list's stack): the first one in front, centred, 68 % of the tile
+  width, the second and third behind it on the left and right edges, 58 % and
+  vertically centred on the front one, at 55 % opacity, every layer with `shadow_lg`.
+  Geometry is the pure `flow(cover_size, count)` (unit-tested). One album is the
+  front cover alone, centred; none is the notes placeholder at the front's place.
+  **Two albums** are centred as a group — the second on the right, peeking out by
+  24 % of the tile (`FLOW_PAIR_PEEK`) instead of the triple's 16 %, front shifted left
+  by the same — so the margins match on both sides. The first cut kept the front
+  centred and only dropped the right card, which left the tile leaning left with an
+  empty right edge. Mocked up: the pair on the left (mirror image, matches the
+  triple's left card), on the right, a pair peeking only 16 % (the back cover barely
+  showed) and two equal covers overlapping (a different look from the triple); the
+  user picked the right-hand pair. The picture box is only as tall as
+  the front cover, so a Covers grid has shorter rows than a Photo grid
+  (`artists_grid::row_height(.., photos)`) and no empty band above the covers.
+  The sides are dimmed by **opacity**, not a dark overlay: gpui's `img` paints its
+  own style (shadow, opacity — `Interactivity::paint`), and an overlay would need a
+  hardcoded black, which the theme rule forbids; on a dark theme opacity reads as the
+  same darkening, on a light one the sides fade into the background. No rotation or
+  perspective (gpui has none for images), so the "fan" is offsets and sizes only.
+  This replaced a 2×2 mosaic of four covers (one cover below four albums), which the
+  user found ugly: it read as a collage, not as a pile. The options were mocked up
+  on real covers first (stack upward, cascade right like the list, diagonal pile,
+  full-width front with the stack peeking above, cover flow) and cover flow picked.
+  Not round avatars: a grid of round album-cover stacks was built once and removed at
+  the user's request; the photo wall came later with the artist photos and
+  square tiles, the shape the artist page uses.
+  All tile pictures are 320/300 px decodes behind bounded LRUs, never `Arc<Image>`:
+  covers through the album grid's `CoverArtCache.large` + a `GridCovers` of the view's
+  own (reset on `CatalogChanged`), photos through `ArtistCards::ensure_photos` /
+  `photo` (see "Artist photos" under `grouped_tracks_view.rs`). The visible-range closure
+  calls `ArtistsView::ensure_tiles` with `cover_span`, so loads follow the strips like
+  the album wall (the measuring `0..1` pass loads nothing). Who keeps the visible
+  pictures hot differs on purpose: a cover is touched by the tile's own read
+  (`peek_large`, as on the album wall — `GridCovers::ensure` only asks `holds_large`,
+  which does not touch, so reading with a non-touching getter would let on-screen
+  covers age into eviction), a photo by `ensure_photos`, which touches every visible
+  name, so the tile reads it with the non-touching `TileLru::get` through an immutable
+  `ArtistCards`. The strip takes the cache borrow and the `ArtistCards` read once,
+  not per tile.
+- `artists_view.rs` — Artists tab, `List` (default, `artists_layout`) or `Grid` (see
+  `artists_grid.rs`), switched in the view menu like the Albums tab. Same item machinery as the Albums tab
+  (`cover_grid::list_layout` / `grid_layout`, docked headers, `width_probe` +
+  `MeasuredGrid`, rem-sized captions); the layout is part of `ArtistsPrefs`, so
+  switching it rebuilds the rows and goes back to the top. Rows only load what their
+  layout draws: small covers for the list's stack (three), thumbnails for the list's
+  photo, the first three cover ids (`tile_covers`) for the grid's cover flow. The order comes from
   `view_order::order_artists` over `ArtistKey`s (`artists_sort`: Name, keyed on
   `ArtistSummary.sort_name`, or Track count, most first by default), and letter
   sections only exist for the Name sort. Which relation the
@@ -270,6 +320,25 @@ drive the `PlaybackQueue` on click.
   grouping until the next `CatalogChanged`.
   It re-fetches on every `CatalogChanged`, which a tag edit sends too: a tag edit
   re-derives every album's artist, so rows and counts here move with no scan.
+  **Picture** (`artists_picture`, the Photo / Covers switch in the view menu, Photo by
+  default): a list row shows either the artist's photo or the stack of up to three album
+  covers (`artist_avatar`). Photo applies only while the privacy switch
+  `artist_info_from_internet` is on (`SettingsStore::artists_show_photos`); off, the
+  list is covers and the menu hides the switch. A photo is a 40 px rounded square, not
+  a circle, the same shape as the artist page's photo; an artist without one (not
+  indexed yet, not found on MusicBrainz, no Deezer picture, "No metadata") gets the
+  person placeholder (`ui_components::cover_thumb::artist_tile`), never a fallback to
+  the covers, so one setting means one look for every row. In Photo mode the rows
+  skip the cover reads entirely. Photos come from `ArtistCards`' 80 px thumbnail store
+  (see "Artist photos" below), the same way the grid gets its 300 px ones: every frame
+  the virtual list's closure hands `ensure_thumbs` the names of the visible rows, then
+  the screen below, then the one above (that order, so what is on screen does not
+  wait for the margin's decodes — an iterator over the rows, nothing allocated), and
+  each row reads its thumbnail at render (`thumb`, one lookup). Rows hold no copy of
+  the photo: an earlier version kept one per row with a requested flag, and had to
+  walk every row on each `ArtistCards` notify to fill them in — quadratic while
+  scrolling a big library. Now the view just repaints on a notify while photos are
+  shown. Switching the picture rebuilds the rows without scrolling to the top.
 - `view_order.rs` — pure, unit-tested ordering and sectioning for the Albums and Artists
   tabs: `AlbumKey` / `ArtistKey`, `order_albums` / `order_artists`, `sections`,
   `SectionKey` and its label. Keys go through `music_library::compute_sort_name` (the
@@ -316,10 +385,13 @@ drive the `PlaybackQueue` on click.
   are `min_w_0` and wrap, the switch and the sort hint never shrink: "group by decade"
   in Russian and Ukrainian is wider than the menu and used to push the switch past its
   edge. Each menu
-  keeps its own settings; the Grid/List switch is Albums-only. These used to be the Settings → Appearance → Albums view group, which is
+  keeps its own settings; the Grid/List switch tops both the Albums and the Artists
+  menu (`layout_switch` takes the setter: `albums_layout` / `artists_layout`). The Artists menu's
+  Picture switch (Photo / Covers, `artists_picture`) sits between the grouping row and
+  the Tag switch and exists only while `artist_info_from_internet` is on. These used to be the Settings → Appearance → Albums view group, which is
   gone; `artists_grouping` (which tag defines an artist) followed later from Settings →
   Appearance → Artists view. Controls are ranked by distance from the trigger: what is
-  changed most sits on top, so the Grid/List switch opens the Albums menu while the
+  changed most sits on top, so the Grid/List switch opens the Albums and Artists menus while the
   Tag switch closes the Artists one. Strings live in their own table,
   `ui_resources::i18n::view_menu_strings`. The surface (`menu_surface`), `MenuColors`,
   `section_label` and `separator` are `pub(crate)`: the queue panel's similar-music
@@ -380,8 +452,9 @@ drive the `PlaybackQueue` on click.
   **Artist info block** (artist pages only, never "No metadata"): once the artist
   has a card, the page header turns into the album page's layout
   (`artist_card::card_header`, fixed `HEADER_HEIGHT` = album info's 12 + 170 px):
-  the photo as a 150 px `cover_tile` (placeholder tile when there is no photo,
-  like an album without a cover), the name to its right in the album title's
+  the photo as a 150 px `artist_tile` (the person placeholder, `icons/s1-artists.svg`
+  — the Artists tab's own icon — when there is no photo; it was the album's
+  notes placeholder before), the name to its right in the album title's
   style, under it up to three muted one-line facts, the header controls (save to
   cache, Full albums) at the right end. The facts are "since 1994 · Berlin, Germany" (years: since / born /
   "1964–2014", then begin area and area), the top three genres, and "Members: …"
@@ -465,6 +538,34 @@ drive the `PlaybackQueue` on click.
   the same delta so a scrolled list doesn't jump. Lines use `text_ellipsis()`;
   gpui-pre 0.3.8 copies the text runs when truncating, so the multibyte panic
   gpui 0.2.2 had there is gone (checked with Russian text).
+  **Artist photos** (the Artists tab's Photo picture, list and grid): two stores in
+  `ArtistCards`, `thumbs` (80 px, 2× the 40 px list tile) and `photos` (300 px, the
+  grid tile), both `crate::artist_photos::PhotoTiles`: the album wall's bounded LRU
+  (`cover_art_cache::TileLru<String>`, viewport-following capacity, `drop_atlas_tile`
+  on eviction) plus the load bookkeeping. Separate from the cards because a 300 px
+  card tile per list row would cost ~350 KB of atlas each, and the cards are kept for
+  the session while these must stay bounded (a scrolled-through 5 000-artist list
+  would otherwise pin every tile). `ensure_thumbs` / `ensure_photos(visible, names)`
+  are called from the visible-range closure every frame: they touch what the store
+  holds (that touch is what keeps on-screen tiles out of eviction — the tiles then
+  read with the non-touching `TileLru::get`), skip what is loading (`in_flight`) or
+  known to have no photo (`missing`, without which a photo-less artist would be
+  re-read every frame), and load the rest one by one on the background executor,
+  notifying per photo. The bookkeeping (`claim` / `settle` / `forget`) is
+  unit-tested without gpui.
+  **The indexer finding a photo later.** `refresh` (after the indexer saved an
+  artist) calls `forget` on both stores: a `missing` name is cleared and the view
+  repaints, so the next frame asks again. A name still *in flight* is marked `stale`
+  instead: its read may have run before the save and come back empty, and settling
+  that as `missing` would hide the photo for the rest of the session (a race a review
+  caught). A stale miss repaints rather than marking the artist missing.
+  **Privacy switch off** clears both stores (`clear`: tiles dropped from the atlas,
+  every set emptied) and bumps their `generation`; a load task checks the generation
+  on every result and stops at the first mismatch, so a quick off/on cannot have an
+  old batch fill the new store or keep decoding in the background. Unlike the cards,
+  nothing here is worth keeping: the LRUs refill lazily. Not shared with the card:
+  the page decodes its own 300 px copy on open (one 5 ms decode), and sharing would
+  make a card's never-dropped tile and the LRU's evictable one the same object.
   **Guest column**: a track credited to someone else than its album's artist(s)
   shows the credit in an artist column (`track_row::artist_column`, the playlist
   column's width), e.g. "Gorillaz & Lou Reed" on Plastic Beach, every performer on
