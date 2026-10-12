@@ -47,8 +47,14 @@ submits and waits.
   validation error scope) and whose probe agrees (below); the others are logged. None
   → `Failed` with every reason; no hardware adapter at all → `NoGpu`. A weights file
   that does not parse is `Err` (the caller treats it like a corrupt download).
-- Default limits except `max_storage_buffers_per_shader_stage: 8`. The largest buffer is
-  ~75 MB, under the default 128 MiB binding limit.
+- `Limits::downlevel_defaults()` except `max_storage_buffers_per_shader_stage: 8`:
+  only compute is used, and the downlevel set asks for nothing a compute device lacks
+  (4 colour attachments, 2048-pixel textures, 16 KiB uniform bindings — the parameter
+  slots are 256 bytes — and 16352 bytes of workgroup memory; the largest kernel,
+  depthwise, uses 15824). `Limits::default()` asked for 8 colour attachments, and a
+  Raspberry Pi 4's V3D 4.2 (4) refused the whole device. Storage bindings keep the
+  default 128 MiB: the PCM buffer is capped exactly there (`PCM_CAP`), the largest
+  other buffer is ~75 MB.
 - `on_uncaptured_error` and the device-lost callback record a fault; every later
   submit or wait returns it (and never panics — wgpu's default handler would).
 - DX12 uses FXC (wgpu's default; no `dxcompiler.dll` to ship). Windows and Linux are

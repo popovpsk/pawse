@@ -76,7 +76,7 @@ pub(crate) fn open(adapter: &Adapter) -> Result<Gpu, String> {
     let info = adapter.get_info();
     let limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 8,
-        ..wgpu::Limits::default()
+        ..wgpu::Limits::downlevel_defaults()
     };
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("audio embedding"),
