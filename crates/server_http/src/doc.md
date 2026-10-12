@@ -28,6 +28,13 @@ any server protocol and no dependency on `media_stream` or the library.
   retry quickly. `range_body` reads a `206` with its `Content-Range`; any other
   success means the server ignored the range and sends the whole file
   (`ranged: false`, total from `Content-Length`).
+- **Keep-alive.** The agents keep up to 8 idle connections per host
+  (`IDLE_PER_HOST`, ureq's default is 3): the sound analysis reads 4 server files
+  at a time in small ranges (`media_stream::RangeReader`, hundreds of requests per
+  track), and with 3 every fourth request opened a new connection (a TLS handshake
+  on an https server). ureq returns a connection to the pool only once a body has
+  been read to its end, so a reader that stops at the last byte it asked for must
+  still read once more and get 0.
 - **Certificates.** `agent()` trusts the bundled Mozilla roots. A user's own
   server is often signed by a CA only the OS knows (a private CA, a TLS-inspecting
   antivirus or proxy, a LAN DNS override), which fails as `UnknownIssuer`.

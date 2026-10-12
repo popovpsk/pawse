@@ -494,3 +494,232 @@ fn an_abandoned_wait_returns_and_lets_the_download_go() {
     }
     assert!(leftovers(&dest).is_empty());
 }
+
+const K32: u64 = 32 * 1024;
+
+fn open_ranges(fake: &Arc<Fake>) -> RangeReader {
+    RangeReader::open(Arc::clone(fake) as Arc<dyn RangeFetch>, Box::new(|| false)).unwrap()
+}
+
+#[test]
+fn a_ranged_reader_fetches_only_what_is_read_and_grows_while_reading_on() {
+    let fake = Arc::new(Fake::new(10 * 1024 * 1024 + 77));
+    let mut reader = open_ranges(&fake);
+    assert_eq!(reader.byte_len(), fake.data.len() as u64);
+    let at = 5 * 1024 * 1024 + 1000;
+    reader.seek(SeekFrom::Start(at)).unwrap();
+    let mut bytes = vec![0u8; 300 * 1024];
+    reader.read_exact(&mut bytes).unwrap();
+    assert_eq!(bytes, fake.data[at as usize..at as usize + bytes.len()]);
+    let b = at / K32 * K32;
+    assert_eq!(
+        fake.requests(),
+        vec![
+            (0, Some(K32)),
+            (b, Some(b + K32)),
+            (b + K32, Some(b + 3 * K32)),
+            (b + 3 * K32, Some(b + 7 * K32)),
+            (b + 7 * K32, Some(b + 15 * K32)),
+        ]
+    );
+}
+
+#[test]
+fn a_ranged_reader_reads_the_short_last_block_and_stops_at_the_end() {
+    let fake = Arc::new(Fake::new(3 * K32 as usize + 10));
+    let mut reader = open_ranges(&fake);
+    reader.seek(SeekFrom::End(-20)).unwrap();
+    let mut tail = Vec::new();
+    reader.read_to_end(&mut tail).unwrap();
+    assert_eq!(tail, fake.data[fake.data.len() - 20..]);
+    let small = Arc::new(Fake::new(100));
+    let mut whole = Vec::new();
+    open_ranges(&small).read_to_end(&mut whole).unwrap();
+    assert_eq!(whole, *small.data);
+    assert_eq!(small.requests(), vec![(0, Some(K32))]);
+}
+
+#[test]
+fn a_ranged_reader_forgets_old_blocks_past_its_cache() {
+    let fake = Arc::new(Fake::new(12 * 1024 * 1024));
+    let mut reader = open_ranges(&fake);
+    let mut all = Vec::new();
+    reader.read_to_end(&mut all).unwrap();
+    assert_eq!(all, *fake.data);
+    let before = fake.requests().len();
+    reader.seek(SeekFrom::Start(0)).unwrap();
+    let mut first = [0u8; 16];
+    reader.read_exact(&mut first).unwrap();
+    assert_eq!(first, fake.data[..16]);
+    assert_eq!(fake.requests()[before..], [(0, Some(K32))]);
+}
+
+#[test]
+fn a_server_that_ignores_ranges_or_hides_the_length_cannot_be_read_by_ranges() {
+    let mut whole = Fake::new(100_000);
+    whole.ranged = false;
+    let mut hidden = Fake::new(100_000);
+    hidden.report_total = false;
+    for fake in [whole, hidden] {
+        let opened = RangeReader::open(Arc::new(fake), Box::new(|| false));
+        assert_eq!(opened.err(), Some(RangeError::Unsupported));
+    }
+}
+
+#[test]
+fn a_ranged_open_retries_briefly_then_fails() {
+    let busy_once = Fake::new(100_000);
+    busy_once.retry_first.store(2, Ordering::SeqCst);
+    assert!(RangeReader::open(Arc::new(busy_once), Box::new(|| false)).is_ok());
+    let busy = Fake::new(100_000);
+    busy.retry_first.store(3, Ordering::SeqCst);
+    let opened = RangeReader::open(Arc::new(busy), Box::new(|| false));
+    assert_eq!(opened.err(), Some(RangeError::Failed("busy".into())));
+}
+
+struct GoneAfterFirst(Arc<Fake>);
+
+impl RangeFetch for GoneAfterFirst {
+    fn fetch(&self, start: u64, end: Option<u64>) -> Result<Fetched, FetchError> {
+        match start {
+            0 => self.0.fetch(start, end),
+            _ => {
+                self.0.requests.lock().unwrap().push((start, end));
+                Err(FetchError::Fatal("gone".into()))
+            }
+        }
+    }
+}
+
+#[test]
+fn a_failed_ranged_read_keeps_its_reason_and_fails_every_later_read_at_once() {
+    let fake = Arc::new(Fake::new(1024 * 1024));
+    let gone = GoneAfterFirst(Arc::clone(&fake));
+    let mut reader = RangeReader::open(Arc::new(gone), Box::new(|| false)).unwrap();
+    let failure = reader.failure();
+    reader.seek(SeekFrom::Start(500_000)).unwrap();
+    assert!(reader.read(&mut [0u8; 10]).is_err());
+    assert_eq!(failure.get(), Some("gone".into()));
+    let asked = fake.requests().len();
+    reader.seek(SeekFrom::Start(0)).unwrap();
+    assert!(reader.read(&mut [0u8; 10]).is_err());
+    reader.seek(SeekFrom::Start(800_000)).unwrap();
+    assert!(reader.read(&mut [0u8; 10]).is_err());
+    assert_eq!(fake.requests().len(), asked);
+}
+
+struct Halves {
+    fake: Fake,
+    calls: AtomicU32,
+}
+
+impl RangeFetch for Halves {
+    fn fetch(&self, start: u64, end: Option<u64>) -> Result<Fetched, FetchError> {
+        let mut fetched = self.fake.fetch(start, end)?;
+        let len = end.map_or(0, |end| end - start);
+        if len >= 2 * K32 && self.calls.fetch_add(1, Ordering::SeqCst).is_multiple_of(2) {
+            let half = len / 2 + 1;
+            fetched.body = Box::new(fetched.body.take(half));
+        }
+        Ok(fetched)
+    }
+}
+
+#[test]
+fn a_broken_answer_that_made_progress_is_resumed_without_waiting() {
+    let halves = Halves {
+        fake: Fake::new(2 * 1024 * 1024),
+        calls: AtomicU32::new(0),
+    };
+    let data = Arc::clone(&halves.fake.data);
+    let mut reader = RangeReader::open(Arc::new(halves), Box::new(|| false)).unwrap();
+    let started = Instant::now();
+    let mut all = Vec::new();
+    reader.read_to_end(&mut all).unwrap();
+    assert_eq!(all, *data);
+    assert!(started.elapsed() < Duration::from_millis(200));
+}
+
+#[test]
+fn a_stopped_ranged_read_does_not_wait_out_its_retries() {
+    let mut fake = Fake::new(1024 * 1024);
+    fake.cut_always_at = Some(40_000);
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let mut reader = RangeReader::open(
+        Arc::new(fake),
+        Box::new(move || flag.load(Ordering::SeqCst)),
+    )
+    .unwrap();
+    let failure = reader.failure();
+    let stopper = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        stop.store(true, Ordering::SeqCst);
+    });
+    let started = Instant::now();
+    reader.seek(SeekFrom::Start(K32)).unwrap();
+    assert!(reader.read(&mut [0u8; 10]).is_err());
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(failure.get(), None);
+    stopper.join().unwrap();
+}
+
+struct Ends {
+    inner: io::Cursor<Vec<u8>>,
+    ends: Arc<AtomicU32>,
+}
+
+impl Read for Ends {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n == 0 && !buf.is_empty() {
+            self.ends.fetch_add(1, Ordering::SeqCst);
+        }
+        Ok(n)
+    }
+}
+
+struct EndCounting {
+    data: Vec<u8>,
+    ends: Arc<AtomicU32>,
+    answers: AtomicU32,
+}
+
+impl RangeFetch for EndCounting {
+    fn fetch(&self, start: u64, end: Option<u64>) -> Result<Fetched, FetchError> {
+        self.answers.fetch_add(1, Ordering::SeqCst);
+        let len = self.data.len();
+        let stop = end.map_or(len, |end| (end as usize).min(len));
+        Ok(Fetched {
+            body: Box::new(Ends {
+                inner: io::Cursor::new(self.data[start as usize..stop].to_vec()),
+                ends: Arc::clone(&self.ends),
+            }),
+            offset: start,
+            total: Some(len as u64),
+            ranged: true,
+        })
+    }
+}
+
+#[test]
+fn every_ranged_answer_is_read_to_its_end_so_the_connection_is_reused() {
+    let ends = Arc::new(AtomicU32::new(0));
+    let fetch = Arc::new(EndCounting {
+        data: vec![7; 300_000],
+        ends: Arc::clone(&ends),
+        answers: AtomicU32::new(0),
+    });
+    let mut reader = RangeReader::open(
+        Arc::clone(&fetch) as Arc<dyn RangeFetch>,
+        Box::new(|| false),
+    )
+    .unwrap();
+    reader.seek(SeekFrom::Start(200_000)).unwrap();
+    let mut rest = Vec::new();
+    reader.read_to_end(&mut rest).unwrap();
+    assert_eq!(rest.len(), 100_000);
+    let answers = fetch.answers.load(Ordering::SeqCst);
+    assert!(answers > 1);
+    assert_eq!(ends.load(Ordering::SeqCst), answers);
+}

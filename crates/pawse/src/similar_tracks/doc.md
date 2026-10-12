@@ -30,8 +30,10 @@ failed download is not cancellable and runs to its own timeout.
 - `worker.rs` — the analysis: the pass thread (model, candidates, saving) and the
   prepare / model pipeline it runs for each pass.
 - `fetch.rs` — the server half of a pass: `ServerFile`, the `Board` of per-source
-  queues (order, per-source and total limits, a source given up), and `Fetcher`, the
-  download threads that fill `ready` from it.
+  queues (order, `Mode` per file, per-source and total limits, a source given up or
+  without ranges), `Fetcher`, the threads that fill `ready` from it (ranged reads or
+  whole downloads), and `RangeStream`, the decoder's `MediaStream` over a
+  `RangeReader`.
 - `neighbors.rs` — `Neighbors`: the cached library mean, a track's vector, the mean of
   several tracks' vectors, and `search`, which answers any number of
   `audio_embedding::similarity::Query`s in one streaming pass.
@@ -157,29 +159,58 @@ failed download is not cancellable and runs to its own timeout.
     short tracks also resampled to 16 kHz) and puts the `Prepared` into `ready`, a
     channel bounded at `READY` (4 tracks, two runs), so prepared tracks (~4–12 MB each,
     more for hi-res) never pile up; a failure goes straight to the collector.
-- Every other server track is downloaded, by the owner's decision, whole: the same
-  vectors as a local copy and no new audio code, at the cost of the full file
-  (~27 MB for four minutes of 16/44.1 FLAC). Reading only the 32 windows over the
-  network (`audio_embedding` already decodes only them from a local lossless file)
-  would save about 3× for lossless, with a sparse range reader — a later step; MP3,
-  AAC and Opus files are small enough to stay whole. The server tracks are grouped by
-  their remote file (`ServerFile`: a cue image is downloaded once for all its tracks)
-  and keep the candidates' order.
+- Every other server track is read over the network, two ways (`Mode`):
+  - **Ranges** (FLAC, WAV and AIFF on Subsonic/Navidrome, Jellyfin, DLNA:
+    `read_in_part`): the decoder runs on a `media_stream::RangeReader`
+    (`RemoteMedia::read_ranges`, `Decoder::open_stream` through `RangeStream`), so
+    only what `prepare` reads crosses the network — the 32 windows plus Symphonia's
+    seek probes; a short track is decoded whole, sequentially, in a few large
+    requests. The vectors are
+    the same as from a local copy (`prepare_with` runs the same `prepare`; a test
+    compares the patches bit for bit). Measured (24 music-test FLACs, 733 MB, served
+    through a throttling proxy): at 5 MB/s with 15 ms per request whole downloads
+    two at a time took 148 s, ranges four at a time 73 s (340 MB, 46%; two at a
+    time 108 s — the requests wait on latency); at 60 MB/s and 1 ms, 13.0 s against
+    6.6 s. A 3–5 minute CD track reads 35–60% of its file in ~280 requests, a
+    96 kHz one 33–44%, a track under ~2.5 minutes 70–100%, a long file under a cue
+    sheet a few percent per track. Without any network (a server on the same
+    machine) the many requests make it slower than one download (1.4 s against
+    0.8 s for the 24 files) — not a case worth a switch.
+  - **Whole**: torrents (a piece is 1–4 MB, so scattered reads would fetch more than
+    the file); lossy formats and M4A (decoded whole anyway — the file is read to the
+    end either way, and a whole download keeps the CPU-heavy decode behind the
+    `Gate`; an M4A may be ALAC, but telling it from AAC needs the file); APE and DSD
+    (file-only formats); and every file of a source that answered a first range
+    request without a range (`RangeError::Unsupported`: the file goes back to the
+    front of its queue with the tracks not done yet, `Board::no_ranges` switches the
+    source to whole downloads — logged once per pass — and `take` hands it out again
+    under the whole-download limit) — downloaded as before, then decoded from the
+    scratch file.
+  The server tracks are grouped by their remote file (`ServerFile`: a cue image is
+  read once per track by ranges, downloaded once for all its tracks whole) and keep
+  the candidates' order.
 - **Local first, then the network.** The `similar-fetch` thread joins the prepare
   threads before it starts: local files go through at full speed (prepare is
   CPU-bound), and the network phase does not take CPU from them. Then every source
-  downloads at once, `PER_SOURCE` (2) files at a time each, `MAX_DOWNLOADS` (8) in
-  all (`Board::workers`: no more threads than files to give them). Each download
-  thread takes the next file from the first source in order that has one and is
-  under its limit (`Board::take`); sources are in the candidates' order with torrents
-  last (`RemoteMedia::is_torrent`), so when the total limit binds, servers come
-  before torrents (fetching a torrent's track from peers may be slow or never
-  finish). The limits are for the network, not the CPU: each thread prepares the file
-  it downloaded, but only `prepare_threads()` of them prepare at a time (`Gate`;
-  `prepare_slots`), so the network phase takes no more CPU than the local one — on a
-  four-core machine one decode, not eight, next to playback. The bounded `ready`
-  channel holds them back when the GPU is the bottleneck. Up to
-  `MAX_DOWNLOADS` downloaded files can be on disk at once.
+  works at once: a source read by ranges `PER_SOURCE_RANGED` (4) files at a time
+  (owner's choice: the requests are small, and four tracks hide each other's
+  latency), of which at most `PER_SOURCE` (2) whole downloads; torrents and sources
+  without ranges 2; `MAX_DOWNLOADS` (8) in all (`Board::workers`: no more threads
+  than files to give them; a thread that finds nothing under the limits ends, the
+  ones still busy take the rest). Each thread takes the first file that fits from the
+  first source in order that has one under its limit (`Board::take`); sources are in
+  the candidates' order with torrents last (`RemoteMedia::is_torrent`), so when the
+  total limit binds, servers come before torrents (fetching a torrent's track from
+  peers may be slow or never finish). The limits are for the network, not the CPU: a
+  thread prepares the file it downloaded whole only when one of `prepare_threads()`
+  slots is free (`Gate`; `prepare_slots`), so the network phase takes no more CPU
+  than the local one — on a four-core machine one decode, not eight, next to
+  playback. A ranged read takes no slot: it decodes only the windows of a lossless
+  file (or a whole short one) and mostly waits on the network, and a slot held
+  through that would cut the reads to the number of cores. The bounded `ready`
+  channel holds them back when the GPU is the bottleneck. Up to `MAX_DOWNLOADS`
+  downloaded files can be on disk at once; a ranged read keeps at most 8 MB in
+  memory (`RangeReader`'s cache).
 - A download thread fetches with `RemoteMedia::download_to` (`SourceMedia::fetch_whole`,
   the same `media_stream` download playback uses) into `scratch_dir` —
   `<cache dir>/pawse/analysis/<pid>-<instance>/<first track id>.<suffix>`, outside the
@@ -198,7 +229,11 @@ failed download is not cancellable and runs to its own timeout.
   candidates, since those already include whatever the requests were about; without
   that, the second of two back-to-back events (a sync with changes sends
   `CatalogChanged` and `RemoteSyncFinished`) would make the pass skip its downloads.
-- A download that fails is followed by a `ping` of its source. A source that answers
+- A download or a ranged read that fails is followed by a `ping` of its source
+  (`network_failure`; a ranged read's network error is told from a decode error by
+  the reader's `ReadFailure` — checked even when `prepare` succeeded, so a vector
+  from a fallback path that ran after a network error is never saved — and the
+  file's remaining tracks share its fate). A source that answers
   had a problem with this file (gone, refused): its tracks fail like a broken file
   (`EmbedError::Network`, remembered for the session; a file the server serves but
   that does not decode is downloaded again on the next launch, like a broken local
@@ -210,7 +245,9 @@ failed download is not cancellable and runs to its own timeout.
   already in another thread finishes on its own). Torrents are never pinged: their `ping` only looks at local
   state, so a torrent without seeders would answer and each of its files would wait
   out its read timeouts in turn.
-- Stopping aborts a download in progress (`wait_while` polls the stop flag); its
+- Stopping aborts a ranged read at its next request or block (`Fetcher::stopped`, the
+  stop and halt flags behind an `Arc`, since the reader inside the decoder must be
+  `'static`) and a download in progress (`wait_while` polls the stop flag); its
   `.partial` is deleted once `media_stream`'s current request returns, and a file
   that completed right then can stay behind. Each running instance has its own folder
   (`<pid>-<n>`, `INSTANCES`), so a quick off/on cannot have the old instance clean up

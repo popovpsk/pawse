@@ -14,6 +14,7 @@ pub use transport::Transport;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 const BODY_TIMEOUT: Duration = Duration::from_secs(600);
+const IDLE_PER_HOST: usize = 8;
 const RANGE_TIMEOUT: Duration = Duration::from_secs(15);
 const RANGE_BODY_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -52,6 +53,7 @@ fn agent_with(tls: TlsConfig) -> ureq::Agent {
             .timeout_recv_response(Some(RESPONSE_TIMEOUT))
             .timeout_recv_body(Some(BODY_TIMEOUT))
             .http_status_as_error(false)
+            .max_idle_connections_per_host(IDLE_PER_HOST)
             .tls_config(tls)
             .build(),
     )

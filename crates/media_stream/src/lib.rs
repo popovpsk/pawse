@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
+mod ranges;
+
+pub use ranges::{RangeError, RangeReader, ReadFailure, StopCheck};
+
 const CHUNK_BYTES: u64 = 4 * 1024 * 1024;
 const LOOKAHEAD_BYTES: u64 = 1024 * 1024;
 const READ_BUFFER: usize = 64 * 1024;

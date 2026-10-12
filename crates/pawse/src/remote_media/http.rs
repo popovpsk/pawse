@@ -67,6 +67,13 @@ impl SourceMedia for HttpMedia {
     fn lyrics(&self, reference: &RemoteRef) -> Result<Option<lyrics::Lyrics>, RemoteError> {
         self.client.lyrics(&reference.key)
     }
+
+    fn range_fetch(&self, reference: &RemoteRef) -> Option<Arc<dyn RangeFetch>> {
+        Some(Arc::new(ServerFetch {
+            client: self.client.clone(),
+            key: reference.key.clone(),
+        }))
+    }
 }
 
 struct ServerFetch {

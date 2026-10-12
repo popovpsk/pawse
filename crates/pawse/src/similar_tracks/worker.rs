@@ -11,7 +11,7 @@ use audio_embedding_gpu::{Availability, Device, Submitted};
 use music_library::Track;
 use music_library::remote::RemoteRef;
 
-use super::fetch::{Fetcher, MAX_DOWNLOADS, PER_SOURCE, ServerFile};
+use super::fetch::{Fetcher, MAX_DOWNLOADS, PER_SOURCE, PER_SOURCE_RANGED, ServerFile, Stopped};
 use super::{Phase, Shared};
 use crate::remote_media::RemoteMedia;
 
@@ -240,7 +240,11 @@ impl Worker {
              servers, {preparing} preparing"
         );
         let started = Instant::now();
-        let halt = AtomicBool::new(false);
+        let halt = Arc::new(AtomicBool::new(false));
+        let stopped: Stopped = {
+            let (shared, halt) = (self.shared.clone(), halt.clone());
+            Arc::new(move || shared.stop.load(Ordering::Relaxed) || halt.load(Ordering::Relaxed))
+        };
         let (jobs_tx, jobs) = flume::unbounded();
         for job in todo {
             let _ = jobs_tx.send(job);
@@ -282,7 +286,9 @@ impl Worker {
                     scratch,
                     unreachable: &shared.progress.unreachable,
                     superseded: &superseded,
+                    stopped: stopped.clone(),
                     per_source: PER_SOURCE,
+                    per_source_ranged: PER_SOURCE_RANGED,
                     max_downloads: MAX_DOWNLOADS,
                     prepare_slots: preparing,
                 };
@@ -661,8 +667,15 @@ fn range_of(track: &Track) -> Option<TrackRange> {
 }
 
 pub(super) fn prepare(path: &Path, track: &Track) -> Result<Prepared, EmbedError> {
+    prepare_with(|| Decoder::open(path), track)
+}
+
+pub(super) fn prepare_with<E: std::fmt::Display>(
+    open: impl FnOnce() -> Result<Decoder, E>,
+    track: &Track,
+) -> Result<Prepared, EmbedError> {
     let run = || {
-        let decoder = Decoder::open(path).map_err(|e| EmbedError::Decode(e.to_string()))?;
+        let decoder = open().map_err(|e| EmbedError::Decode(e.to_string()))?;
         audio_embedding::prepare(Job {
             source: Box::new(decoder),
             range: range_of(track),

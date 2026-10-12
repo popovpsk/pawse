@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use audio_engine::TrackResolver;
+use media_stream::{RangeError, RangeFetch, RangeReader, StopCheck};
 use music_library::remote::{self, Location, RemoteRef};
 
 use crate::servers::{RemoteConfig, RemoteError, ServerKind};
@@ -49,6 +50,9 @@ pub trait SourceMedia: Send + Sync {
     fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError>;
     fn lyrics(&self, _reference: &RemoteRef) -> Result<Option<lyrics::Lyrics>, RemoteError> {
         Ok(None)
+    }
+    fn range_fetch(&self, _reference: &RemoteRef) -> Option<Arc<dyn RangeFetch>> {
+        None
     }
 }
 
@@ -234,6 +238,19 @@ impl RemoteMedia {
     ) -> Result<PathBuf, String> {
         self.source(reference)?
             .fetch_whole(reference, dest, abandoned)
+    }
+
+    pub fn read_ranges(
+        &self,
+        reference: &RemoteRef,
+        stop: StopCheck,
+    ) -> Result<RangeReader, RangeError> {
+        let fetch = self
+            .source(reference)
+            .map_err(RangeError::Failed)?
+            .range_fetch(reference)
+            .ok_or(RangeError::Unsupported)?;
+        RangeReader::open(fetch, stop)
     }
 
     pub fn open_stream(&self, path: &Path) -> Result<PendingStream, String> {

@@ -56,6 +56,11 @@ same streams to the device through the same `LibraryBackend`); behind it each so
   `is_torrent(source_id)` comes from the kinds `set_servers` was given (sources set
   with `set_sources`, as in tests, are never torrents); the analysis downloads
   torrent tracks last.
+- **Reading parts of a file.** `read_ranges(reference, stop)` opens a
+  `media_stream::RangeReader` on the source's `SourceMedia::range_fetch` (the same
+  `ServerFetch` the downloads use; `None`, the default, is
+  `RangeError::Unsupported`). Nothing reaches the cache: the sound analysis reads
+  the windows it needs and drops the reader.
 - **A source that is not configured** (removed server, stale locator) is an
   error on open and `None` from `ping`; a file already in the cache still plays.
 - **Retries.** `ServerFetch` retries only `RemoteError::Unreachable`; a wrong
