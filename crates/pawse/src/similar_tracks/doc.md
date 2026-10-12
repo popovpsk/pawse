@@ -367,11 +367,18 @@ already taken) − repeat × (same artist as the previous pick)`
 
 ## Radio
 
-`SimilarTracks::radio(seed, skip, familiarity, rng_seed)` (blocking; background executor)
-returns `None` when the seed is not in the catalog or has no vector, otherwise up to
-`LENGTH` (100) tracks, the seed not included. One pass answers two queries: the
-`ANY_ARTIST_POOL` (100) nearest overall, and the `OTHER_ARTISTS_POOL` (400) nearest
-without any track of the seed's first artist (`same_artist_track_ids`). Without the second one a big
+`SimilarTracks::radio(seeds, skip, familiarity, rng_seed)` (blocking; background
+executor) starts from one track (the menu) or several (the queue continuation): one
+seed is searched from its own vector, several from the mean of their vectors
+(`mean_of`, one more streaming pass); seeds not in the catalog or without a vector are
+left out, and `None` comes back when none is left. Otherwise up to `LENGTH` (100)
+tracks, the seeds not included. One pass answers two queries: the `ANY_ARTIST_POOL`
+(100) nearest overall, and the `OTHER_ARTISTS_POOL` (400) nearest without any track of
+the seeds' first artists (`same_artist_track_ids`). `Taken` starts with the seeds
+(`seeds_taken`, `Taken::seed`): their songs are taken, each artist counts once however
+many seeds it has (five tracks of one album must not push that artist five penalties
+down, the menu's single seed gives the same count as before), and the last seed's
+artist is the "previous pick" for the repeat penalty. Without the second one a big
 discography fills the whole pool and the re-ranking has no one else to pick. `skip`
 takes ids out of both queries: empty for the menu's radio, the whole queue for the
 continuation. The length was 30 at first; the weights were tuned on 12 picks, so
@@ -435,9 +442,21 @@ automatic action does not notify; what goes wrong is logged.
   then changed the queue under "add to queue", repeat and the playlist source for
   the whole last track, and holding the list aside only to save that pause was not
   worth the code.
-- The seed is the last track only; one without a vector continues nothing. The
-  whole queue is the radio's `skip`, so an album that ended does not come back;
-  familiarity is the menu's setting.
+- The seeds are the last `SEEDS` (5) tracks of the queue up to the one that ended, in
+  play order (`QueueSnapshot::played_tail`: with shuffle on that is what was really
+  heard; a track repeated in the tail counts once; a shorter queue gives all its
+  tracks, a single track itself). Starting from their mean rather than the last track
+  alone, because albums often end on an outlier (an outro, an acoustic or hidden
+  track): on `music-test`, 45% of the 132 albums with 6+ tracks ended on a track less
+  like its album than three quarters of their tracks, and the 20 nearest tracks of
+  other albums resembled the album by a centred cosine of 0.56 on average from the
+  last track (0.14 for the worst tenth of albums), 0.69 from the last 3 and 0.72 from
+  the last 5 (0.58 for the worst tenth); weighting toward the last track gave 0.71.
+  A last track without a vector no longer ends the queue when the ones before it
+  have vectors; none with a vector continues nothing. If the snapshot's tail does not
+  hold the track that ended (the queue moved meanwhile), the seed is that track
+  alone. The whole queue is the radio's `skip`, so an album that ended does not come
+  back; familiarity is the menu's setting.
 - `PlaybackQueue::continue_with(snapshot, tracks)` appends only if the queue still
   matches the `QueueSnapshot` taken at the end (ids, no current track), and returns
   where the continuation starts; a click on another track meanwhile drops it. A

@@ -4,7 +4,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use super::SimilarTracks;
-use super::pool::{Pool, now_secs, seed_taken};
+use super::pool::{Pool, now_secs, seeds_taken};
 use super::rerank::{Familiarity, Rerank, Weights};
 
 pub const ANY_ARTIST_POOL: usize = 100;
@@ -14,30 +14,39 @@ pub const LENGTH: usize = 100;
 impl SimilarTracks {
     pub fn radio(
         &self,
-        seed_id: i64,
+        seeds: &[i64],
         skip: &[i64],
         familiarity: Familiarity,
         rng_seed: u64,
     ) -> music_library::Result<Option<Vec<Track>>> {
         let repo = self.shared.repo.as_ref();
         let neighbors = &self.shared.neighbors;
-        let Some(seed) = repo.track(seed_id)? else {
+        let mut tracks = Vec::with_capacity(seeds.len());
+        for &id in seeds {
+            if let Some(track) = repo.track(id)? {
+                tracks.push(track);
+            }
+        }
+        let ids: Vec<i64> = tracks.iter().map(|track| track.id).collect();
+        let vector = match ids.as_slice() {
+            [] => None,
+            [one] => neighbors.vector(repo, *one)?,
+            many => neighbors.mean_of(repo, many)?,
+        };
+        let Some(vector) = vector else {
             return Ok(None);
         };
-        let Some(vector) = neighbors.vector(repo, seed_id)? else {
-            return Ok(None);
-        };
-        let own = repo.same_artist_track_ids(&[seed_id])?;
+        let own = repo.same_artist_track_ids(&ids)?;
+        let excluded = || skip.iter().chain(&ids).copied();
         let found = neighbors.search(
             repo,
             vec![
-                Query::nearest(vector.clone(), ANY_ARTIST_POOL)
-                    .excluding(skip.iter().copied().chain([seed_id])),
+                Query::nearest(vector.clone(), ANY_ARTIST_POOL).excluding(excluded()),
                 Query::nearest(vector, OTHER_ARTISTS_POOL)
-                    .excluding(own.into_iter().chain(skip.iter().copied()).chain([seed_id])),
+                    .excluding(own.into_iter().chain(excluded())),
             ],
         )?;
-        let taken = seed_taken(repo, &seed)?;
+        let taken = seeds_taken(repo, &tracks)?;
         let rerank = Rerank {
             count: LENGTH,
             familiarity,
@@ -101,20 +110,20 @@ pub(super) mod tests {
 
         assert_eq!(
             ids(&similar
-                .radio(seed, &[], Familiarity::Any, 1)
+                .radio(&[seed], &[], Familiarity::Any, 1)
                 .unwrap()
                 .unwrap()),
             vec![twin]
         );
         assert!(
             similar
-                .radio(unanalysed, &[], Familiarity::Any, 1)
+                .radio(&[unanalysed], &[], Familiarity::Any, 1)
                 .unwrap()
                 .is_none()
         );
         assert!(
             similar
-                .radio(12345, &[], Familiarity::Any, 1)
+                .radio(&[12345], &[], Familiarity::Any, 1)
                 .unwrap()
                 .is_none()
         );
@@ -142,7 +151,7 @@ pub(super) mod tests {
         let similar = similar(Arc::new(lib));
 
         let all = ids(&similar
-            .radio(seed, &[], Familiarity::Any, 1)
+            .radio(&[seed], &[], Familiarity::Any, 1)
             .unwrap()
             .unwrap());
         assert!(
@@ -152,10 +161,57 @@ pub(super) mod tests {
         );
         assert_eq!(
             ids(&similar
-                .radio(seed, &[same_artist, heard, seed], Familiarity::Any, 1)
+                .radio(&[seed], &[same_artist, heard, seed], Familiarity::Any, 1)
                 .unwrap()
                 .unwrap()),
             vec![fresh]
+        );
+    }
+
+    #[test]
+    fn a_radio_from_several_tracks_starts_from_their_mean() {
+        let (_dir, lib) = library();
+        let left = add_track(&lib, "left", "A", 200_000);
+        let right = add_track(&lib, "right", "B", 200_000);
+        let silent = add_track(&lib, "silent", "C", 200_000);
+        let middle = add_track(&lib, "middle", "D", 200_000);
+        let near_left = add_track(&lib, "near left", "E", 200_000);
+        let far = add_track(&lib, "far", "F", 200_000);
+        lib.save_embeddings(
+            EMBEDDING_VERSION,
+            &[
+                (left, vector(&[1.0, 0.0, 0.0])),
+                (right, vector(&[0.0, 1.0, 0.0])),
+                (middle, vector(&[0.7, 0.7, 0.0])),
+                (near_left, vector(&[1.0, -0.4, 0.0])),
+                (far, vector(&[-1.0, -1.0, 0.0])),
+            ],
+        )
+        .unwrap();
+        let similar = similar(Arc::new(lib));
+
+        let from_one = ids(&similar
+            .radio(&[left], &[], Familiarity::Any, 1)
+            .unwrap()
+            .unwrap());
+        assert_eq!(from_one.first(), Some(&near_left));
+        let from_tail = ids(&similar
+            .radio(&[left, silent, right], &[], Familiarity::Any, 1)
+            .unwrap()
+            .unwrap());
+        assert_eq!(from_tail.first(), Some(&middle));
+        assert!(!from_tail.contains(&left) && !from_tail.contains(&right));
+        assert!(
+            similar
+                .radio(&[silent, 12345], &[], Familiarity::Any, 1)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            similar
+                .radio(&[], &[], Familiarity::Any, 1)
+                .unwrap()
+                .is_none()
         );
     }
 
@@ -197,7 +253,7 @@ pub(super) mod tests {
         let similar = similar(Arc::new(lib));
 
         let radio = ids(&similar
-            .radio(seed, &[], Familiarity::Any, 3)
+            .radio(&[seed], &[], Familiarity::Any, 3)
             .unwrap()
             .unwrap());
         assert_eq!(radio.len(), LENGTH);

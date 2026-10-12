@@ -68,6 +68,17 @@ impl Taken {
         self.last_artist = Some(artist.to_string());
     }
 
+    pub fn seed(&mut self, artist: &str, title: &str) {
+        if artist.is_empty() {
+            self.last_artist = None;
+            return;
+        }
+        let count = self.artists.entry(artist.to_string()).or_default();
+        *count = (*count).max(1);
+        self.songs.insert(song_key(artist, title));
+        self.last_artist = Some(artist.to_string());
+    }
+
     fn penalty(&self, artist: &str, weights: &Weights) -> f32 {
         if artist.is_empty() {
             return 0.0;
@@ -207,6 +218,24 @@ mod tests {
 
     fn run(rerank: &Rerank, candidates: Vec<Candidate>, taken: Taken) -> Vec<i64> {
         rerank.run(candidates, taken, &mut StdRng::seed_from_u64(7))
+    }
+
+    #[test]
+    fn seeding_an_artist_several_times_counts_it_once() {
+        let weights = Weights::default();
+        let mut once = Taken::default();
+        once.seed("a", "x");
+        let mut thrice = Taken::default();
+        for title in ["x", "y", "z"] {
+            thrice.seed("a", title);
+        }
+        assert_eq!(once.penalty("a", &weights), thrice.penalty("a", &weights));
+        thrice.seed("b", "w");
+        assert_eq!(thrice.penalty("a", &weights), weights.artist);
+        assert_eq!(
+            thrice.penalty("b", &weights),
+            weights.artist + weights.repeat
+        );
     }
 
     #[test]

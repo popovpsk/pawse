@@ -61,13 +61,16 @@ impl Pool {
     }
 }
 
-pub fn seed_taken(repo: &dyn LibraryRepository, seed: &Track) -> music_library::Result<Taken> {
-    let artists = repo.track_artists_map(&[seed.id])?;
+pub fn seeds_taken(repo: &dyn LibraryRepository, seeds: &[Track]) -> music_library::Result<Taken> {
+    let ids: Vec<i64> = seeds.iter().map(|seed| seed.id).collect();
+    let artists = repo.track_artists_map(&ids)?;
     let mut taken = Taken::default();
-    taken.add(
-        &first_artist(&artists, seed.id),
-        &normalize_tag(&seed.title),
-    );
+    for seed in seeds {
+        taken.seed(
+            &first_artist(&artists, seed.id),
+            &normalize_tag(&seed.title),
+        );
+    }
     Ok(taken)
 }
 

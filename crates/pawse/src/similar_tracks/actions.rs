@@ -37,7 +37,7 @@ pub fn start_radio(on_applied: OnApplied, cx: &mut App) {
     let familiarity = cx.global::<SettingsStore>().similar_familiarity();
     let rng_seed: u64 = rand::random();
     let task =
-        cx.background_spawn(async move { similar.radio(seed_id, &[], familiarity, rng_seed) });
+        cx.background_spawn(async move { similar.radio(&[seed_id], &[], familiarity, rng_seed) });
     cx.spawn(async move |cx| {
         let built = task.await;
         cx.update(|cx| apply_radio(seed_id, built, &on_applied, cx));

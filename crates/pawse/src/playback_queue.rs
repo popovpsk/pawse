@@ -59,6 +59,21 @@ impl QueueSnapshot {
     pub fn ids(&self) -> &[i64] {
         &self.ids
     }
+
+    pub fn played_tail(&self, count: usize) -> Vec<i64> {
+        let end = self.current.map_or(self.ids.len(), |current| current + 1);
+        let mut tail: Vec<i64> = Vec::with_capacity(count);
+        for &id in self.ids[..end.min(self.ids.len())].iter().rev() {
+            if tail.len() == count {
+                break;
+            }
+            if !tail.contains(&id) {
+                tail.push(id);
+            }
+        }
+        tail.reverse();
+        tail
+    }
 }
 
 pub struct QueueRestore {
@@ -636,6 +651,22 @@ fn playable(tracks: Vec<Rc<Track>>) -> Vec<Rc<Track>> {
 mod tests {
     use super::*;
     use music_library::Track;
+
+    #[rstest::rstest]
+    #[case::the_last_five(vec![1, 2, 3, 4, 5, 6, 7], Some(6), vec![3, 4, 5, 6, 7])]
+    #[case::one_track(vec![9], Some(0), vec![9])]
+    #[case::fewer_than_five(vec![1, 2, 3], Some(2), vec![1, 2, 3])]
+    #[case::a_repeat_counts_once(vec![1, 2, 7, 3, 7], Some(4), vec![1, 2, 3, 7])]
+    #[case::only_up_to_the_current(vec![1, 2, 3, 4], Some(1), vec![1, 2])]
+    #[case::no_current_track(vec![1, 2, 3], None, vec![1, 2, 3])]
+    #[case::empty(vec![], None, vec![])]
+    fn the_played_tail_ends_at_the_current_track(
+        #[case] ids: Vec<i64>,
+        #[case] current: Option<usize>,
+        #[case] tail: Vec<i64>,
+    ) {
+        assert_eq!(QueueSnapshot { ids, current }.played_tail(5), tail);
+    }
 
     fn track(id: i64, path: &str) -> Rc<Track> {
         Rc::new(Track {

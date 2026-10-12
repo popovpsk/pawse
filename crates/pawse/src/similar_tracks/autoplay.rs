@@ -10,6 +10,8 @@ use crate::settings_store::SettingsStore;
 
 type Built = music_library::Result<Option<Vec<Track>>>;
 
+const SEEDS: usize = 5;
+
 pub fn set_queue_refresh(refresh: OnApplied, cx: &mut App) {
     if cx.has_global::<State>() {
         cx.global_mut::<State>().queue_refresh = Some(refresh);
@@ -25,10 +27,14 @@ pub fn continue_ended_queue(last_id: i64, cx: &mut App) {
     };
     let snapshot = cx.global::<Services>().playback_queue.borrow().snapshot();
     let queue = snapshot.ids().to_vec();
+    let mut seeds = snapshot.played_tail(SEEDS);
+    if !seeds.contains(&last_id) {
+        seeds = vec![last_id];
+    }
     let familiarity = cx.global::<SettingsStore>().similar_familiarity();
     let rng_seed: u64 = rand::random();
     let task =
-        cx.background_spawn(async move { similar.radio(last_id, &queue, familiarity, rng_seed) });
+        cx.background_spawn(async move { similar.radio(&seeds, &queue, familiarity, rng_seed) });
     cx.spawn(async move |cx| {
         let built = task.await;
         cx.update(|cx| apply(&snapshot, built, cx));
@@ -47,7 +53,7 @@ fn apply(snapshot: &QueueSnapshot, built: Built, cx: &mut App) {
             return;
         }
         Ok(None) => {
-            log::info!("similar tracks: the queue ended on a track without a vector");
+            log::info!("similar tracks: none of the queue's last tracks has a vector");
             return;
         }
         Err(e) => {
