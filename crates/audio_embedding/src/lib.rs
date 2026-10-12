@@ -19,7 +19,7 @@ pub use frontend::{
     hann_window, mel_filters, mel_value,
 };
 
-pub const EMBEDDING_VERSION: &str = "effnet-multi-gpu-1:7de20391:gpu1:spread32";
+pub const EMBEDDING_VERSION: &str = "effnet-multi-gpu-1:7de20391:gpu1:spread32:flacbytes";
 pub const DIM: usize = 1280;
 
 pub struct Job {

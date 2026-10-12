@@ -194,4 +194,8 @@ pub trait AudioSource: Send {
             "this source cannot seek to frame {frame}"
         )))
     }
+
+    fn seek_near(&mut self, _fraction: f64, _span: u64) -> Result<Option<u64>, AudioError> {
+        Ok(None)
+    }
 }

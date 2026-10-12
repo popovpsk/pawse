@@ -1,7 +1,7 @@
 # audio_decoder
 
 Turns a file or a network stream into `AudioBatch`es for the engine. The lib root is
-`decoder.rs`; everything lives in that one file.
+`decoder.rs`; `splice.rs` holds the byte-level FLAC access behind `seek_near` (below).
 
 ## Responsibilities
 
@@ -42,6 +42,44 @@ Turns a file or a network stream into `AudioBatch`es for the engine. The lib roo
   STREAMINFO, the WAV data size, the MP4 sample table). Symphonia's MP4 reader cannot
   seek once it read to the end of the file (`isomp4: no atom pending read`); a
   fresh reader seeks exactly.
+
+## `seek_near` (FLAC by bytes)
+
+`AudioSource::seek_near(fraction, span)` (default `None`) lands on the first FLAC frame
+at or after `fraction` of the audio bytes and returns the exact frame it starts with;
+the next buffers decode from there. `audio_embedding` places a whole FLAC's windows
+this way: Symphonia's FLAC seek is a binary search over bytes (6–11 scattered reads
+per seek), which over the network cost ~290 requests a track; this is one.
+
+- Only for tracks with `exact_frames` whose codec is FLAC and whose STREAMINFO came
+  in `extra_data` (`Splicer::new`); everything else answers `None` and keeps
+  `seek_frame`.
+- **Splicing.** A fresh Symphonia FLAC reader is opened on a virtual stream: a
+  minimal header (`fLaC` + the STREAMINFO block, flagged last — no tags, pictures or
+  seek table) followed by the file's bytes from the chosen offset. The reader skips
+  the partial frame there (its CRC fails) and the first packet it returns is the next
+  real frame, numbered from the stream start, so its `pts` is the exact frame. The
+  decoder is reset and that packet is kept `pending`. Decoding after it is bit for
+  bit an exact seek to the same frame (`seek_near_lands_on_a_frame_and_decodes_like_an_exact_seek`,
+  from a file and from a stream).
+- **Where the audio starts.** `splice::audio_start` walks the metadata block headers
+  (4 bytes each, seeking over the bodies, so a large embedded picture is not read),
+  after an ID3v2 tag if one precedes `fLaC` (12 of 1640 `music-test` FLACs have one;
+  Symphonia skips it on open).
+- **The offset** is kept at least `slack` before the end so a whole frame follows it;
+  `slack` is two of STREAMINFO's maximum frame size (14–34 KB for CD), 64 KB when
+  unknown.
+- **`MediaStream::will_need(start, len)`** (default no-op) tells a network stream what
+  is about to be read: `span` frames at the file's average bytes per frame, ×1.25 for
+  louder-than-average stretches, plus `slack`. `pawse`'s ranged reader fetches it in
+  one request.
+- **Byte access.** A file is reopened per splice (`Origin::File`). A stream given to
+  `open_stream` is shared behind a mutex (`Origin::Shared`, `Handle`): Symphonia reads
+  through one handle and every splice through another, each with its own position.
+- **Back to the whole file.** After a splice the reader sees only the bytes after the
+  offset, so `seek_frame` and `seek` first reopen at the audio start (`unsplice`):
+  the windows path's fallback seeks to frame 0 and gets the whole file
+  (`an_exact_seek_after_seek_near_sees_the_whole_file_again`).
 
 ## Opus
 

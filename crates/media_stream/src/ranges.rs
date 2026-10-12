@@ -90,6 +90,32 @@ impl RangeReader {
         self.failure.clone()
     }
 
+    pub fn prefetch(&mut self, start: u64, len: u64) {
+        let file_len = self.byte_len();
+        let end = start.saturating_add(len).min(file_len);
+        if self.broken.is_some() || start >= end {
+            return;
+        }
+        let last = end.div_ceil(BLOCK);
+        let Some(missing) = (start / BLOCK..last).find(|b| !self.blocks.contains_key(b)) else {
+            return;
+        };
+        let until = (last * BLOCK)
+            .min(missing * BLOCK + CACHE_BYTES / 2)
+            .min(file_len);
+        match self.request(missing * BLOCK, until, MAX_FAILURES) {
+            Ok(()) => {
+                self.run_end = until.div_ceil(BLOCK);
+                self.run = 1;
+            }
+            Err(RangeError::Failed(message)) => {
+                self.failure.set(message.clone());
+                self.broken = Some(message);
+            }
+            Err(_) => {}
+        }
+    }
+
     fn load(&mut self, index: u64) -> Result<(), RangeError> {
         let len = self.byte_len();
         let wanted = if index == self.run_end {

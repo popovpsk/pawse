@@ -18,6 +18,7 @@ use crate::remote_media::RemoteMedia;
 pub(super) const PER_SOURCE: usize = 2;
 pub(super) const PER_SOURCE_RANGED: usize = 4;
 pub(super) const MAX_DOWNLOADS: usize = 8;
+const SHORT_TRACK_MS: i64 = 70_000;
 const GATE_POLL: Duration = Duration::from_millis(250);
 
 pub(super) type Stopped = Arc<dyn Fn() -> bool + Send + Sync>;
@@ -44,11 +45,19 @@ struct Queue {
 
 impl Queue {
     fn mode(&self, file: &ServerFile) -> Mode {
-        match self.ranges && read_in_part(&file.reference.suffix) {
+        match self.ranges && read_in_part(&file.reference.suffix) && !short(file) {
             true => Mode::Ranges,
             false => Mode::Whole,
         }
     }
+}
+
+fn short(file: &ServerFile) -> bool {
+    file.tracks
+        .iter()
+        .map(|track| track.duration_ms)
+        .sum::<Option<i64>>()
+        .is_some_and(|ms| ms < SHORT_TRACK_MS)
 }
 
 fn read_in_part(suffix: &str) -> bool {
@@ -494,6 +503,10 @@ impl MediaStream for RangeStream {
     fn byte_len(&self) -> Option<u64> {
         Some(self.0.byte_len())
     }
+
+    fn will_need(&mut self, start: u64, len: u64) {
+        self.0.prefetch(start, len);
+    }
 }
 
 struct Scratch(PathBuf);
@@ -535,6 +548,38 @@ mod tests {
 
     fn file(source_id: i64, key: &str, ids: &[i64]) -> ServerFile {
         file_of(source_id, key, "flac", ids)
+    }
+
+    fn lasting(mut file: ServerFile, ms: i64) -> ServerFile {
+        for track in &mut file.tracks {
+            track.duration_ms = Some(ms);
+        }
+        file
+    }
+
+    #[test]
+    fn a_track_known_to_be_short_is_downloaded_whole() {
+        let mut board = Board::new(
+            vec![
+                lasting(file(1, "short", &[1]), 69_000),
+                lasting(file(1, "long", &[2]), 71_000),
+                file(1, "unknown", &[3]),
+                lasting(file(1, "image", &[4, 5]), 40_000),
+            ],
+            |_| false,
+            2,
+            4,
+        );
+        let (r, w) = (Mode::Ranges, Mode::Whole);
+        assert_eq!(
+            keys(&mut board),
+            vec![
+                (0, "short".into(), w),
+                (0, "long".into(), r),
+                (0, "unknown".into(), r),
+                (0, "image".into(), r),
+            ]
+        );
     }
 
     fn file_of(source_id: i64, key: &str, suffix: &str, ids: &[i64]) -> ServerFile {

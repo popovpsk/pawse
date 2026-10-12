@@ -32,7 +32,6 @@ pub struct SimilarStrings {
     pub status_failed: SharedString,
     pub failed_t: SharedString,
     pub unreachable_t: SharedString,
-    pub refresh: SharedString,
     pub close: SharedString,
     pub about: SharedString,
 }
@@ -124,7 +123,6 @@ static EN: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Tracks on unreachable servers: {}. They are tried again at the next library update.",
     ),
-    refresh: SharedString::new_static("Refresh"),
     close: SharedString::new_static("Close"),
     about: SharedString::new_static(
         "Each track is analysed to learn how it sounds; tracks from servers are downloaded for this. While the analysis runs, the app uses more memory and puts more load on the processor and graphics card.",
@@ -165,7 +163,6 @@ static ZH: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "无法连接的服务器上的歌曲：{}。会在下次更新音乐库时重试。",
     ),
-    refresh: SharedString::new_static("刷新"),
     close: SharedString::new_static("关闭"),
     about: SharedString::new_static(
         "每首歌曲都会被分析其声音特征，服务器上的歌曲需要为此下载。分析期间，应用会占用更多内存，处理器和显卡的负载也会更高。",
@@ -218,7 +215,6 @@ static PT: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Faixas em servidores inacessíveis: {}. Serão tentadas de novo na próxima atualização da biblioteca.",
     ),
-    refresh: SharedString::new_static("Atualizar"),
     close: SharedString::new_static("Fechar"),
     about: SharedString::new_static(
         "Cada faixa é analisada para saber como soa; as faixas dos servidores são baixadas para isso. Durante a análise, o app usa mais memória e exige mais do processador e da placa de vídeo.",
@@ -267,7 +263,6 @@ static RU: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Треки на недоступных серверах: {}. Повторная попытка — при следующем обновлении медиатеки.",
     ),
-    refresh: SharedString::new_static("Обновить"),
     close: SharedString::new_static("Закрыть"),
     about: SharedString::new_static(
         "Каждый трек анализируется, чтобы понять, как он звучит; треки с серверов для этого скачиваются. Пока идёт анализ, приложение занимает больше памяти и сильнее нагружает процессор и видеокарту.",
@@ -318,7 +313,6 @@ static JA: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "接続できないサーバーの曲：{}。次回のライブラリ更新時に再試行します。",
     ),
-    refresh: SharedString::new_static("更新"),
     close: SharedString::new_static("閉じる"),
     about: SharedString::new_static(
         "各曲を分析して、どのように聞こえるかを調べます。サーバーの曲はそのためにダウンロードされます。分析中はメモリの使用量が増え、プロセッサとグラフィックスの負荷も高くなります。",
@@ -373,7 +367,6 @@ static DE: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Titel auf nicht erreichbaren Servern: {}. Beim nächsten Bibliotheksupdate wird es erneut versucht.",
     ),
-    refresh: SharedString::new_static("Aktualisieren"),
     close: SharedString::new_static("Schließen"),
     about: SharedString::new_static(
         "Jeder Titel wird analysiert, um zu erfassen, wie er klingt; Titel von Servern werden dafür heruntergeladen. Während der Analyse braucht die App mehr Arbeitsspeicher und belastet Prozessor und Grafikkarte stärker.",
@@ -424,7 +417,6 @@ static FR: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Titres sur des serveurs injoignables : {}. Nouvel essai à la prochaine actualisation de la bibliothèque.",
     ),
-    refresh: SharedString::new_static("Actualiser"),
     close: SharedString::new_static("Fermer"),
     about: SharedString::new_static(
         "Chaque titre est analysé pour savoir comment il sonne ; les titres des serveurs sont téléchargés pour cela. Pendant l’analyse, l’app utilise plus de mémoire et sollicite davantage le processeur et la carte graphique.",
@@ -475,7 +467,6 @@ static KO: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "연결할 수 없는 서버의 곡: {}. 다음 라이브러리 업데이트 때 다시 시도합니다.",
     ),
-    refresh: SharedString::new_static("새로 고침"),
     close: SharedString::new_static("닫기"),
     about: SharedString::new_static(
         "각 곡을 분석해 어떤 소리인지 파악합니다. 서버의 곡은 이를 위해 다운로드됩니다. 분석하는 동안 앱이 메모리를 더 많이 쓰고 프로세서와 그래픽 카드 부하도 커집니다.",
@@ -530,7 +521,6 @@ static IT: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Brani su server non raggiungibili: {}. Verranno ritentati al prossimo aggiornamento della libreria.",
     ),
-    refresh: SharedString::new_static("Aggiorna"),
     close: SharedString::new_static("Chiudi"),
     about: SharedString::new_static(
         "Ogni brano viene analizzato per capire come suona; i brani dei server vengono scaricati per farlo. Durante l’analisi l’app usa più memoria e impegna di più il processore e la scheda grafica.",
@@ -583,7 +573,6 @@ static TR: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Erişilemeyen sunuculardaki parçalar: {}. Bir sonraki kitaplık güncellemesinde yeniden denenecek.",
     ),
-    refresh: SharedString::new_static("Yenile"),
     close: SharedString::new_static("Kapat"),
     about: SharedString::new_static(
         "Her parça nasıl tınladığını anlamak için analiz edilir; sunuculardaki parçalar bunun için indirilir. Analiz sürerken uygulama daha fazla bellek kullanır, işlemciyi ve ekran kartını daha çok yorar.",
@@ -636,7 +625,6 @@ static PL: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Utwory na niedostępnych serwerach: {}. Kolejna próba przy następnej aktualizacji biblioteki.",
     ),
-    refresh: SharedString::new_static("Odśwież"),
     close: SharedString::new_static("Zamknij"),
     about: SharedString::new_static(
         "Każdy utwór jest analizowany, by poznać jego brzmienie; utwory z serwerów są w tym celu pobierane. Podczas analizy aplikacja zajmuje więcej pamięci i mocniej obciąża procesor oraz kartę graficzną.",
@@ -689,7 +677,6 @@ static NL: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Nummers op onbereikbare servers: {}. Ze worden opnieuw geprobeerd bij de volgende bibliotheekupdate.",
     ),
-    refresh: SharedString::new_static("Vernieuwen"),
     close: SharedString::new_static("Sluiten"),
     about: SharedString::new_static(
         "Elk nummer wordt geanalyseerd om te bepalen hoe het klinkt; nummers van servers worden daarvoor gedownload. Tijdens de analyse gebruikt de app meer geheugen en belast ze de processor en de videokaart zwaarder.",
@@ -738,7 +725,6 @@ static UK: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Треки на недоступних серверах: {}. Повторна спроба — під час наступного оновлення медіатеки.",
     ),
-    refresh: SharedString::new_static("Оновити"),
     close: SharedString::new_static("Закрити"),
     about: SharedString::new_static(
         "Кожен трек аналізується, щоб зрозуміти, як він звучить; треки із серверів для цього завантажуються. Поки триває аналіз, застосунок займає більше пам’яті й сильніше навантажує процесор і відеокарту.",
@@ -789,7 +775,6 @@ static VI: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Bài trên máy chủ không truy cập được: {}. Sẽ thử lại ở lần cập nhật thư viện tiếp theo.",
     ),
-    refresh: SharedString::new_static("Làm mới"),
     close: SharedString::new_static("Đóng"),
     about: SharedString::new_static(
         "Mỗi bài được phân tích để biết nó nghe như thế nào; các bài trên máy chủ sẽ được tải xuống để làm việc này. Trong lúc phân tích, ứng dụng dùng nhiều bộ nhớ hơn và khiến bộ xử lý và card đồ họa phải làm việc nặng hơn.",
@@ -840,7 +825,6 @@ static ID: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Lagu di server yang tidak dapat dijangkau: {}. Akan dicoba lagi pada pembaruan pustaka berikutnya.",
     ),
-    refresh: SharedString::new_static("Segarkan"),
     close: SharedString::new_static("Tutup"),
     about: SharedString::new_static(
         "Setiap lagu dianalisis untuk mengetahui bagaimana suaranya; lagu dari server diunduh untuk itu. Selama analisis berjalan, aplikasi memakai lebih banyak memori dan lebih membebani prosesor dan kartu grafis.",
@@ -885,7 +869,6 @@ static TH: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "เพลงบนเซิร์ฟเวอร์ที่เชื่อมต่อไม่ได้: {} จะลองใหม่ตอนอัปเดตคลังเพลงครั้งถัดไป",
     ),
-    refresh: SharedString::new_static("รีเฟรช"),
     close: SharedString::new_static("ปิด"),
     about: SharedString::new_static(
         "แต่ละเพลงจะถูกวิเคราะห์เพื่อดูว่ามีเสียงแบบไหน เพลงจากเซิร์ฟเวอร์จะถูกดาวน์โหลดเพื่อการนี้ ระหว่างการวิเคราะห์ แอปจะใช้หน่วยความจำมากขึ้นและใช้งานโปรเซสเซอร์กับการ์ดจอหนักขึ้น",
@@ -938,7 +921,6 @@ static CS: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Skladby na nedostupných serverech: {}. Znovu se zkusí při další aktualizaci knihovny.",
     ),
-    refresh: SharedString::new_static("Obnovit"),
     close: SharedString::new_static("Zavřít"),
     about: SharedString::new_static(
         "Každá skladba se analyzuje, aby se zjistilo, jak zní; skladby ze serverů se kvůli tomu stahují. Během analýzy aplikace zabírá více paměti a víc vytěžuje procesor a grafickou kartu.",
@@ -989,7 +971,6 @@ static SV: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Spår på servrar som inte går att nå: {}. De provas igen vid nästa biblioteksuppdatering.",
     ),
-    refresh: SharedString::new_static("Uppdatera"),
     close: SharedString::new_static("Stäng"),
     about: SharedString::new_static(
         "Varje spår analyseras för att ta reda på hur det låter; spår från servrar laddas ned för det. Medan analysen pågår använder appen mer minne och belastar processorn och grafikkortet mer.",
@@ -1040,7 +1021,6 @@ static HI: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "पहुँच से बाहर सर्वरों के ट्रैक: {}। लाइब्रेरी के अगले अपडेट पर फिर से कोशिश होगी।",
     ),
-    refresh: SharedString::new_static("रीफ़्रेश करें"),
     close: SharedString::new_static("बंद करें"),
     about: SharedString::new_static(
         "हर ट्रैक का विश्लेषण किया जाता है ताकि पता चले कि वह कैसा सुनाई देता है; सर्वर के ट्रैक इसके लिए डाउनलोड किए जाते हैं। विश्लेषण के दौरान ऐप ज़्यादा मेमोरी लेता है और प्रोसेसर व ग्राफ़िक्स कार्ड पर ज़्यादा भार डालता है।",
@@ -1093,7 +1073,6 @@ static ES: SimilarStrings = SimilarStrings {
     unreachable_t: SharedString::new_static(
         "Pistas en servidores inaccesibles: {}. Se volverá a intentar en la próxima actualización de la biblioteca.",
     ),
-    refresh: SharedString::new_static("Actualizar"),
     close: SharedString::new_static("Cerrar"),
     about: SharedString::new_static(
         "Cada pista se analiza para saber cómo suena; las pistas de los servidores se descargan para ello. Mientras dura el análisis, la app usa más memoria y exige más al procesador y a la tarjeta gráfica.",

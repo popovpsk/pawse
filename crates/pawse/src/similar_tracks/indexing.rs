@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use gpui::{
     App, AppContext, Context, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled,
-    Window, div, prelude::FluentBuilder, px,
+    Task, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     WindowExt,
@@ -14,38 +16,40 @@ use ui_resources::i18n::similar_strings;
 use super::{Phase, Status};
 use crate::theme_colors::Colors;
 
+const REFRESH_EVERY: Duration = Duration::from_secs(1);
+
 pub fn open(window: &mut Window, cx: &mut App) {
     let view = cx.new(|cx| {
         let mut view = IndexingView {
             shown: None,
             loading: false,
+            _poll: Task::ready(()),
         };
         view.refresh(cx);
+        view._poll = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(REFRESH_EVERY).await;
+                if this.update(cx, |view, cx| view.refresh(cx)).is_err() {
+                    break;
+                }
+            }
+        });
         view
     });
     window.open_dialog(cx, move |dialog, _window, _cx| {
         let s = similar_strings();
-        let refresh = view.clone();
         dialog
             .w(px(460.))
             .close_button(false)
             .title(s.indexing.clone())
             .child(view.clone())
             .footer(
-                DialogFooter::new()
-                    .child(
-                        Button::new("similar-indexing-refresh")
-                            .label(s.refresh.clone())
-                            .on_click(move |_, _, cx| {
-                                refresh.update(cx, |view, cx| view.refresh(cx));
-                            }),
-                    )
-                    .child(
-                        Button::new("similar-indexing-close")
-                            .label(s.close.clone())
-                            .primary()
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
-                    ),
+                DialogFooter::new().child(
+                    Button::new("similar-indexing-close")
+                        .label(s.close.clone())
+                        .primary()
+                        .on_click(|_, window, cx| window.close_dialog(cx)),
+                ),
             )
     });
 }
@@ -53,6 +57,7 @@ pub fn open(window: &mut Window, cx: &mut App) {
 struct IndexingView {
     shown: Option<Shown>,
     loading: bool,
+    _poll: Task<()>,
 }
 
 struct Shown {

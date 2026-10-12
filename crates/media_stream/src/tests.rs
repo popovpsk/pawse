@@ -723,3 +723,21 @@ fn every_ranged_answer_is_read_to_its_end_so_the_connection_is_reused() {
     assert!(answers > 1);
     assert_eq!(ends.load(Ordering::SeqCst), answers);
 }
+
+#[test]
+fn a_prefetched_span_arrives_in_one_request_and_is_then_read_from_memory() {
+    let fake = Arc::new(Fake::new(4 * 1024 * 1024));
+    let mut reader = open_ranges(&fake);
+    let at = 2 * 1024 * 1024 + 100;
+    reader.prefetch(at, 300_000);
+    let b = at / K32 * K32;
+    let end = (at + 300_000).div_ceil(K32) * K32;
+    assert_eq!(fake.requests(), vec![(0, Some(K32)), (b, Some(end))]);
+    reader.seek(SeekFrom::Start(at)).unwrap();
+    let mut span = vec![0u8; 300_000];
+    reader.read_exact(&mut span).unwrap();
+    assert_eq!(span, fake.data[at as usize..at as usize + 300_000]);
+    assert_eq!(fake.requests().len(), 2);
+    reader.prefetch(at + 1000, 1000);
+    assert_eq!(fake.requests().len(), 2);
+}

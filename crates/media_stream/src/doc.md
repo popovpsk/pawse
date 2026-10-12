@@ -94,6 +94,11 @@ requested on the reading thread.
 - **The reason survives.** A failed read records its message in a `ReadFailure`
   the caller took before handing the reader to the decoder, which may report the
   I/O error as its own decode error.
+- **`prefetch(start, len)`** fetches a span in one request (from the first missing
+  block to the end of the span, at most half the cache): `audio_decoder`'s
+  `seek_near` says how much a window needs (`MediaStream::will_need`), so a window is
+  one request, not a 32 KB block and its growth. After it the next sequential miss
+  starts small again.
 - **Keep-alive.** After the last byte it asked for, the reader reads the body once
   more (and gets 0): ureq returns a connection to its pool only after a body was
   read to its end. Without it every request opened a new connection — 1057

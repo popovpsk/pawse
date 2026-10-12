@@ -2,7 +2,7 @@ use audio_common::{
     AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, I24, Metadata, StreamParams,
 };
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -20,6 +20,12 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::packet::Packet;
 use symphonia::core::units::{Time, Timestamp};
+
+mod splice;
+
+use splice::{Handle, Origin, Splicer};
+
+const SPLICE_MARGIN: f64 = 1.25;
 
 // ============================================================================
 // APE source — uses ape-decoder crate for Monkey's Audio (.ape) files
@@ -267,6 +273,8 @@ struct SymphoniaDecoder {
     opus: bool,
     gain: Option<f32>,
     pending: Option<Packet>,
+    splicer: Option<Splicer>,
+    spliced_at: Option<u64>,
 }
 
 impl SymphoniaDecoder {
@@ -275,12 +283,14 @@ impl SymphoniaDecoder {
         Self::from_source(
             Box::new(file),
             path.extension().and_then(|ext| ext.to_str()),
+            Origin::File(path.to_path_buf()),
         )
     }
 
     fn from_source(
         source: Box<dyn symphonia::core::io::MediaSource>,
         extension: Option<&str>,
+        origin: Origin,
     ) -> Result<Self, AudioError> {
         let mss = MediaSourceStream::new(source, Default::default());
 
@@ -349,6 +359,11 @@ impl SymphoniaDecoder {
             .make_audio_decoder(&codec_params, &decoder_opts)
             .map_err(|e| AudioError::Decoder(e.to_string()))?;
 
+        let splicer = exact_frames
+            .filter(|_| codec_params.codec == CODEC_ID_FLAC)
+            .and(codec_params.extra_data.as_deref())
+            .and_then(|stream_info| Splicer::new(origin, stream_info));
+
         let opus = codec_params.codec == CODEC_ID_OPUS;
         let gain = if opus {
             opus_output_gain(&codec_params)
@@ -367,7 +382,80 @@ impl SymphoniaDecoder {
             opus,
             gain,
             pending,
+            splicer,
+            spliced_at: None,
         })
+    }
+
+    fn splice(
+        &self,
+        start: u64,
+    ) -> Result<Box<dyn symphonia::core::formats::FormatReader>, AudioError> {
+        let Some(splicer) = &self.splicer else {
+            return Err(AudioError::Decoder(
+                "this track cannot be spliced".to_string(),
+            ));
+        };
+        let source = splicer.open_at(start).map_err(AudioError::Io)?;
+        let mut hint = Hint::new();
+        hint.with_extension("flac");
+        symphonia::default::get_probe()
+            .probe(
+                &hint,
+                MediaSourceStream::new(Box::new(source), Default::default()),
+                FormatOptions::default(),
+                MetadataOptions::default(),
+            )
+            .map_err(|e| AudioError::Decoder(e.to_string()))
+    }
+
+    fn unsplice(&mut self) -> Result<(), AudioError> {
+        let Some(audio_start) = self.splicer.as_ref().map(|s| s.audio().0) else {
+            return Ok(());
+        };
+        if self.spliced_at.is_none_or(|at| at == audio_start) {
+            return Ok(());
+        }
+        self.format = self.splice(audio_start)?;
+        self.spliced_at = Some(audio_start);
+        self.pending = None;
+        self.decoder.reset();
+        Ok(())
+    }
+
+    fn seek_near(&mut self, fraction: f64, span: u64) -> Result<Option<u64>, AudioError> {
+        let (Some(splicer), Some(total)) = (&self.splicer, self.exact_frames) else {
+            return Ok(None);
+        };
+        let (audio_start, audio_len) = splicer.audio();
+        if total == 0 {
+            return Ok(None);
+        }
+        let slack = splicer.slack();
+        let into = (fraction.clamp(0.0, 1.0) * audio_len as f64) as u64;
+        let start = audio_start + into.min(audio_len.saturating_sub(slack));
+        let bytes = (span as f64 * audio_len as f64 / total as f64 * SPLICE_MARGIN) as u64 + slack;
+        splicer.will_need(start, bytes);
+        let mut format = self.splice(start)?;
+        let packet = loop {
+            match format.next_packet() {
+                Ok(Some(packet)) if packet.track_id == self.track_id => break packet,
+                Ok(Some(_)) => continue,
+                Ok(None) => {
+                    return Err(AudioError::Decoder(
+                        "no FLAC frame after the requested position".to_string(),
+                    ));
+                }
+                Err(e) => return Err(AudioError::Decoder(e.to_string())),
+            }
+        };
+        let landed = u64::try_from(packet.pts.get())
+            .map_err(|_| AudioError::Decoder("a FLAC frame before the start".to_string()))?;
+        self.format = format;
+        self.spliced_at = Some(start);
+        self.decoder.reset();
+        self.pending = Some(packet);
+        Ok(Some(landed))
     }
 
     fn discard_before(&mut self, target: Timestamp) -> Result<Option<Timestamp>, AudioError> {
@@ -481,6 +569,7 @@ impl AudioSource for SymphoniaDecoder {
             target
         };
 
+        self.unsplice()?;
         let seeked = self
             .format
             .seek(
@@ -529,6 +618,7 @@ impl AudioSource for SymphoniaDecoder {
                 "this track cannot seek to an exact frame".to_string(),
             ));
         }
+        self.unsplice()?;
         let ts = i64::try_from(frame)
             .map(Timestamp::new)
             .map_err(|_| AudioError::Decoder("Seek position out of range".to_string()))?;
@@ -559,30 +649,8 @@ pub trait MediaStream: Read + Seek + Send + Sync {
     fn byte_len(&self) -> Option<u64>;
 
     fn give_up_waiting_when(&mut self, _superseded: Superseded) {}
-}
 
-struct StreamSource(Box<dyn MediaStream>);
-
-impl Read for StreamSource {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl Seek for StreamSource {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.0.seek(pos)
-    }
-}
-
-impl symphonia::core::io::MediaSource for StreamSource {
-    fn is_seekable(&self) -> bool {
-        true
-    }
-
-    fn byte_len(&self) -> Option<u64> {
-        self.0.byte_len()
-    }
+    fn will_need(&mut self, _start: u64, _len: u64) {}
 }
 
 pub fn can_stream(extension: &str) -> bool {
@@ -638,9 +706,11 @@ impl Decoder {
                 extension.unwrap_or_default()
             )));
         }
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(stream));
         Ok(Decoder::Symphonia(Box::new(SymphoniaDecoder::from_source(
-            Box::new(StreamSource(stream)),
+            Box::new(Handle::new(std::sync::Arc::clone(&shared))),
             extension,
+            Origin::Shared(shared),
         )?)))
     }
 }
@@ -716,6 +786,13 @@ impl AudioSource for Decoder {
             Decoder::Dsd(d) => d.seek_frame(frame),
         }
     }
+
+    fn seek_near(&mut self, fraction: f64, span: u64) -> Result<Option<u64>, AudioError> {
+        match self {
+            Decoder::Symphonia(d) => d.seek_near(fraction, span),
+            Decoder::Ape(_) | Decoder::Dsd(_) => Ok(None),
+        }
+    }
 }
 
 // ============================================================================
@@ -764,6 +841,7 @@ fn map_audio_buffer_ref(decoded: GenericAudioBufferRef<'_>) -> AudioSamples {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::io::SeekFrom;
     use std::path::PathBuf;
 
     fn fixture_path(filename: &str) -> PathBuf {
@@ -1178,6 +1256,102 @@ mod tests {
         Box::new(MemoryStream(std::io::Cursor::new(
             std::fs::read(fixture_path(filename)).unwrap(),
         )))
+    }
+
+    fn open_either(filename: &str, streamed: bool) -> Decoder {
+        match streamed {
+            true => Decoder::open_stream(memory_stream(filename), Some("flac")).unwrap(),
+            false => Decoder::open(&fixture_path(filename)).unwrap(),
+        }
+    }
+
+    fn next_samples(decoder: &mut Decoder, buffers: usize) -> Vec<String> {
+        (0..buffers)
+            .map_while(|_| decoder.next_buffer().unwrap())
+            .map(|batch| format!("{:?}", batch.data))
+            .collect()
+    }
+
+    #[rstest]
+    #[case::from_a_file(false)]
+    #[case::from_a_stream(true)]
+    fn seek_near_lands_on_a_frame_and_decodes_like_an_exact_seek(#[case] streamed: bool) {
+        for fraction in [0.0, 0.1, 0.5, 0.93, 1.0] {
+            let mut near = open_either("long_44_stereo.flac", streamed);
+            let total = near.exact_frames().unwrap();
+            let landed = near.seek_near(fraction, 100_000).unwrap().unwrap();
+            let aimed = fraction * total as f64;
+            assert!(
+                (landed as f64 - aimed).abs() < 0.05 * total as f64,
+                "{fraction}: landed on {landed} of {total}"
+            );
+            let mut exact = open_either("long_44_stereo.flac", streamed);
+            assert_eq!(exact.seek_frame(landed).unwrap(), landed);
+            let got = next_samples(&mut near, 6);
+            assert!(!got.is_empty());
+            assert_eq!(got, next_samples(&mut exact, 6), "{fraction}");
+        }
+    }
+
+    #[rstest]
+    #[case::wav("long_22_mono.wav")]
+    #[case::alac("long_44_stereo.m4a")]
+    #[case::flac_cut_from_another("long_44_cut.flac")]
+    fn seek_near_is_only_for_flac_that_starts_at_frame_zero(#[case] filename: &str) {
+        let mut decoder = Decoder::open(&fixture_path(filename)).unwrap();
+        assert_eq!(decoder.seek_near(0.5, 100_000).unwrap(), None);
+    }
+
+    #[test]
+    fn seek_near_skips_an_id3_tag_in_front_of_the_flac() {
+        let mut bytes = b"ID3\x04\x00\x00\x00\x00\x01\x05".to_vec();
+        bytes.extend(std::iter::repeat_n(0u8, 133));
+        bytes.extend(std::fs::read(fixture_path("long_44_stereo.flac")).unwrap());
+        let tagged = || -> Box<dyn MediaStream> {
+            Box::new(MemoryStream(std::io::Cursor::new(bytes.clone())))
+        };
+        let mut near = Decoder::open_stream(tagged(), Some("flac")).unwrap();
+        let landed = near.seek_near(0.5, 100_000).unwrap().unwrap();
+        let mut exact = Decoder::open_stream(tagged(), Some("flac")).unwrap();
+        assert_eq!(exact.seek_frame(landed).unwrap(), landed);
+        assert_eq!(next_samples(&mut near, 4), next_samples(&mut exact, 4));
+    }
+
+    struct Unsized(std::io::Cursor<Vec<u8>>);
+
+    impl Read for Unsized {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Seek for Unsized {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            self.0.seek(pos)
+        }
+    }
+
+    impl MediaStream for Unsized {
+        fn byte_len(&self) -> Option<u64> {
+            None
+        }
+    }
+
+    #[test]
+    fn a_stream_of_unknown_length_still_seeks_from_its_end() {
+        let bytes = std::fs::read(fixture_path("long_44_stereo.m4a")).unwrap();
+        let stream = Box::new(Unsized(std::io::Cursor::new(bytes)));
+        let mut decoder = Decoder::open_stream(stream, Some("m4a")).unwrap();
+        assert!(decoder.next_buffer().unwrap().is_some());
+    }
+
+    #[test]
+    fn an_exact_seek_after_seek_near_sees_the_whole_file_again() {
+        let mut spliced = open_either("long_44_stereo.flac", true);
+        spliced.seek_near(0.8, 100_000).unwrap().unwrap();
+        assert_eq!(spliced.seek_frame(0).unwrap(), 0);
+        let mut fresh = open_either("long_44_stereo.flac", true);
+        assert_eq!(next_samples(&mut spliced, 4), next_samples(&mut fresh, 4));
     }
 
     #[test]

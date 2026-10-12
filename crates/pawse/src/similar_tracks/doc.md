@@ -163,19 +163,28 @@ failed download is not cancellable and runs to its own timeout.
   - **Ranges** (FLAC, WAV and AIFF on Subsonic/Navidrome, Jellyfin, DLNA:
     `read_in_part`): the decoder runs on a `media_stream::RangeReader`
     (`RemoteMedia::read_ranges`, `Decoder::open_stream` through `RangeStream`), so
-    only what `prepare` reads crosses the network — the 32 windows plus Symphonia's
-    seek probes; a short track is decoded whole, sequentially, in a few large
-    requests. The vectors are
-    the same as from a local copy (`prepare_with` runs the same `prepare`; a test
-    compares the patches bit for bit). Measured (24 music-test FLACs, 733 MB, served
-    through a throttling proxy): at 5 MB/s with 15 ms per request whole downloads
-    two at a time took 148 s, ranges four at a time 73 s (340 MB, 46%; two at a
-    time 108 s — the requests wait on latency); at 60 MB/s and 1 ms, 13.0 s against
-    6.6 s. A 3–5 minute CD track reads 35–60% of its file in ~280 requests, a
-    96 kHz one 33–44%, a track under ~2.5 minutes 70–100%, a long file under a cue
-    sheet a few percent per track. Without any network (a server on the same
-    machine) the many requests make it slower than one download (1.4 s against
-    0.8 s for the 24 files) — not a case worth a switch.
+    only what `prepare` reads crosses the network. For a FLAC that is the 32 windows,
+    each placed by bytes and fetched in one request (`seek_near` +
+    `RangeStream::will_need` → `RangeReader::prefetch`; see `audio_embedding/src/doc.md`,
+    "A whole FLAC"), about 35 requests a track; a track up to ~110 s is decoded whole,
+    sequentially, in a few large requests. The vectors are the same as from a local
+    copy (`prepare_with` runs the same `prepare`; a test compares the patches bit for
+    bit; on Navidrome 1729 tracks matched their local copies to cosine 1.000000000).
+    Measured on live servers (2026-10-12): Navidrome on the same Mac, 40 FLACs
+    (1538 MB): whole downloads two at a time 1.7 s, ranges four at a time 1.2 s
+    (37% of the bytes, 1507 requests, Navidrome ~134% CPU); MiniDLNA on a Raspberry Pi
+    over Wi-Fi, 21 FLACs (566 MB): 45.7 s against 26.6 s (43%, 743 requests); two
+    54-minute cue images there (705 MB): 57 s against 3.4 s (3%). The first version
+    let Symphonia's FLAC seek run over the network (6–11 scattered reads per window,
+    ~290 requests a track): Navidrome spends ~3.3 ms of CPU on each range request, so
+    the same 40 files took 12.5 s with Navidrome at 309% CPU, and the Pi was twice as
+    slow as whole downloads — the request count, not the bytes, is what a server
+    feels.
+  - **Short files** — whose tracks together last under 70 s by the library
+    (`SHORT_TRACK_MS`, owner's choice; a cue image counts its tracks' sum) — are
+    downloaded whole: the 32 windows would cover the whole track anyway.
+    A track between 70 s and ~110 s goes by ranges but is decoded whole (the
+    windows' 60% coverage rule), sequentially, in a few growing requests.
   - **Whole**: torrents (a piece is 1–4 MB, so scattered reads would fetch more than
     the file); lossy formats and M4A (decoded whole anyway — the file is read to the
     end either way, and a whole download keeps the CPU-heavy decode behind the
@@ -456,9 +465,11 @@ instead of loading forever. The count line avoids plural agreement ("Tracks anal
 N of M") so no language needs plural forms. An unreachable server does not start a
 pass when it comes back by itself, so the note says its tracks are tried again at the
 next library update. The
-coverage moves in steps of `SAVE_BATCH` during a pass. Nothing updates by itself: the
-snapshot is read on the background executor when the dialog opens and on "Refresh",
-and its texts are built then (`Shown`), not per frame.
+coverage moves in steps of `SAVE_BATCH` during a pass. The dialog refreshes itself
+every second while it is open (`REFRESH_EVERY`, a task the view owns, so closing the
+dialog ends it; there is no "Refresh" button, owner's choice): the snapshot is read on
+the background executor, a read still running skips the tick, and the texts are built
+then (`Shown`), not per frame.
 
 ## The menu
 

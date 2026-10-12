@@ -9,6 +9,9 @@ use crate::frontend::{
 use crate::{EmbedError, Prepared, TrackRange};
 
 const MAX_COVERAGE: f64 = 0.6;
+const NEAR_ATTEMPTS: usize = 3;
+const CALIBRATED: f64 = 0.01;
+const REAIM: f64 = 0.02;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Chosen {
@@ -107,13 +110,120 @@ pub(crate) fn prepare(
     let Some(available) = total.checked_sub(first) else {
         return Ok(None);
     };
-    let Some(layout) = plan(available.min(analysed_limit(range, rate)), rate) else {
+    let analysed = available.min(analysed_limit(range, rate));
+    let Some(layout) = plan(analysed, rate) else {
         return Ok(None);
     };
+    if range.is_none() {
+        match near(source, total, analysed, rate, &layout) {
+            Ok(Some(prepared)) => return Ok(Some(prepared)),
+            Ok(None) => {}
+            Err(_) => return restore(source, range),
+        }
+    }
     match windowed(source, first, total, rate, &layout) {
         Ok(Some(prepared)) => Ok(Some(prepared)),
         Ok(None) | Err(_) => restore(source, range),
     }
+}
+
+fn near(
+    source: &mut dyn AudioSource,
+    total: u64,
+    len: u64,
+    rate: u32,
+    plan: &Layout,
+) -> Result<Option<Prepared>, EmbedError> {
+    let resampled = plan.resampled;
+    let last_first = frame_count(resampled).saturating_sub(PATCH);
+    let count = plan.patches.len();
+    let one = source_range(0, resampled, len, rate);
+    let span = (one.end - one.start) + (HOP as f64 * step_for(rate)) as u64 + 8;
+    let mut share = len as f64 / total as f64;
+    if share < 1.0 {
+        for _ in 0..NEAR_ATTEMPTS {
+            let landed = match source.seek_near(share, span) {
+                Ok(Some(landed)) => landed,
+                Ok(None) => return Ok(None),
+                Err(_) => {
+                    share *= 1.0 - REAIM;
+                    continue;
+                }
+            };
+            let off = len as f64 / landed.max(1) as f64;
+            if (off - 1.0).abs() < CALIBRATED {
+                break;
+            }
+            share = (share * off).min(1.0);
+        }
+    }
+    let room = 2.0 * span as f64 / total as f64;
+    let mut layout = Layout {
+        resampled,
+        patches: Vec::with_capacity(count),
+        needed: Vec::with_capacity(count),
+        ranges: Vec::with_capacity(count),
+    };
+    let mut windows = Vec::with_capacity(count);
+    for k in 0..count {
+        let aimed = ((k as f64 + 0.5) / count as f64 * share).min(share - room);
+        let previous = layout.patches.last().map(|p| p.first + 1);
+        let latest = source_range(last_first, resampled, len, rate).start;
+        let mut fraction = aimed;
+        let mut found = None;
+        let mut failure = None;
+        for _ in 0..NEAR_ATTEMPTS {
+            let landed = match source.seek_near(fraction.max(0.0), span) {
+                Ok(Some(landed)) => landed,
+                Ok(None) => return Ok(None),
+                Err(e) => {
+                    failure = Some(decode_error(e));
+                    fraction -= room.max(REAIM * share);
+                    continue;
+                }
+            };
+            let first = first_from(landed, resampled, len, rate).max(previous.unwrap_or(0));
+            let needed = source_range(first, resampled, len, rate);
+            if first <= last_first && needed.start >= landed {
+                found = Some((landed, first, needed));
+                break;
+            }
+            fraction = fraction * latest as f64 / landed.max(1) as f64 - room;
+        }
+        let Some((landed, first, needed)) = found else {
+            return Err(failure
+                .unwrap_or_else(|| EmbedError::Decode("a window does not fit the track".into())));
+        };
+        let Some(samples) = read_on(source, landed, needed.start, needed.end - needed.start)?
+        else {
+            return Err(EmbedError::Decode(
+                "a window ends before its samples".into(),
+            ));
+        };
+        layout.patches.push(Chosen {
+            first,
+            frames: PATCH,
+        });
+        layout.needed.push(needed.clone());
+        layout.ranges.push(needed);
+        windows.push(samples);
+    }
+    Prepared::new(rate, &layout, windows)
+        .map(Some)
+        .ok_or_else(|| EmbedError::Decode("the windows do not fit the signal".into()))
+}
+
+fn first_from(landed: u64, resampled: usize, len: u64, rate: u32) -> usize {
+    let (mut low, mut high) = (0, frame_count(resampled).saturating_sub(PATCH) + 1);
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if source_range(mid, resampled, len, rate).start < landed {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    low
 }
 
 fn restore(
@@ -172,6 +282,15 @@ fn ends_at(source: &mut dyn AudioSource, total: u64) -> Result<bool, EmbedError>
 
 fn read(source: &mut dyn AudioSource, from: u64, len: u64) -> Result<Option<Vec<f32>>, EmbedError> {
     let landed = source.seek_frame(from).map_err(decode_error)?;
+    read_on(source, landed, from, len)
+}
+
+fn read_on(
+    source: &mut dyn AudioSource,
+    landed: u64,
+    from: u64,
+    len: u64,
+) -> Result<Option<Vec<f32>>, EmbedError> {
     if landed > from {
         return Ok(None);
     }
@@ -217,6 +336,74 @@ mod tests {
         let mut source = FakeSource::mono(rate, samples);
         source.channels = channels;
         source
+    }
+
+    struct Skewed(FakeSource);
+
+    impl AudioSource for Skewed {
+        fn params(&self) -> audio_common::StreamParams {
+            self.0.params()
+        }
+
+        fn next_buffer(
+            &mut self,
+        ) -> Result<Option<audio_common::AudioBatch>, audio_common::AudioError> {
+            self.0.next_buffer()
+        }
+
+        fn seek(&mut self, position: f32) -> Result<Duration, audio_common::AudioError> {
+            self.0.seek(position)
+        }
+
+        fn duration(&self) -> Option<Duration> {
+            self.0.duration()
+        }
+
+        fn exact_frames(&self) -> Option<u64> {
+            self.0.exact_frames()
+        }
+
+        fn seek_frame(&mut self, frame: u64) -> Result<u64, audio_common::AudioError> {
+            self.0.seek_frame(frame)
+        }
+
+        fn seek_near(
+            &mut self,
+            fraction: f64,
+            _span: u64,
+        ) -> Result<Option<u64>, audio_common::AudioError> {
+            let total = self.0.exact_frames().unwrap_or(0) as f64;
+            self.0
+                .seek_frame((fraction.max(0.0).powf(0.8) * total) as u64)
+                .map(Some)
+        }
+    }
+
+    #[test]
+    fn byte_windows_of_a_long_track_stay_inside_the_analysed_part() {
+        let rate = 8_000;
+        let mono = signal(rate, rate as usize * 40 * 60);
+        let mut inner = FakeSource::mono(rate, mono.clone());
+        inner.seek_granule = 4096;
+        inner.exact = Some(mono.len() as u64);
+        let got = prepare(&mut Skewed(inner), None)
+            .unwrap()
+            .expect("windows apply");
+        assert_eq!(got.rate(), rate);
+        assert_eq!(got.patch_count(), crate::frontend::PATCHES);
+        let analysed = frame_count(resampled_len(30 * 60 * rate as usize, rate));
+        for ix in 0..got.patch_count() {
+            let patch = got.patch(ix);
+            assert!(patch.first_frame + PATCH <= analysed, "{ix}");
+            if ix > 0 {
+                assert!(patch.first_frame > got.patch(ix - 1).first_frame);
+            }
+            let start = patch.start as usize;
+            assert!(
+                patch.samples == &mono[start..start + patch.samples.len()],
+                "{ix}"
+            );
+        }
     }
 
     fn full(mut source: FakeSource, range: Option<TrackRange>) -> Prepared {
@@ -352,6 +539,7 @@ mod real_files {
     use rstest::rstest;
 
     use super::*;
+    use crate::frontend::PATCHES;
     use crate::{Job, prepare as prepare_job};
 
     struct Plain(Decoder);
@@ -382,7 +570,6 @@ mod real_files {
     }
 
     #[rstest]
-    #[case::flac("long_44_stereo.flac", None)]
     #[case::alac("long_44_stereo.m4a", None)]
     #[case::wav("long_22_mono.wav", None)]
     #[case::flac_cue_track("long_44_stereo.flac", Some(3_210))]
@@ -406,6 +593,74 @@ mod real_files {
         .unwrap();
         assert_eq!(got.patch_count(), full.patch_count());
         assert!(got.reference_mel() == full.reference_mel());
+    }
+
+    struct ByBytes {
+        inner: Decoder,
+        nears: usize,
+    }
+
+    impl AudioSource for ByBytes {
+        fn params(&self) -> StreamParams {
+            self.inner.params()
+        }
+
+        fn next_buffer(&mut self) -> Result<Option<AudioBatch>, AudioError> {
+            self.inner.next_buffer()
+        }
+
+        fn seek(&mut self, position: f32) -> Result<Duration, AudioError> {
+            self.inner.seek(position)
+        }
+
+        fn duration(&self) -> Option<Duration> {
+            self.inner.duration()
+        }
+
+        fn exact_frames(&self) -> Option<u64> {
+            self.inner.exact_frames()
+        }
+
+        fn seek_frame(&mut self, _frame: u64) -> Result<u64, AudioError> {
+            Err(AudioError::Decoder(
+                "windows by bytes never seek by time".into(),
+            ))
+        }
+
+        fn seek_near(&mut self, fraction: f64, span: u64) -> Result<Option<u64>, AudioError> {
+            self.nears += 1;
+            self.inner.seek_near(fraction, span)
+        }
+    }
+
+    #[test]
+    fn flac_windows_follow_the_bytes_and_hold_the_decoded_samples() {
+        let mut decoder = ByBytes {
+            inner: open("long_44_stereo.flac"),
+            nears: 0,
+        };
+        let got = prepare(&mut decoder, None).unwrap().expect("windows apply");
+        assert!(decoder.nears >= PATCHES);
+        let mut all = Vec::new();
+        let mut plain = open("long_44_stereo.flac");
+        while let Some(batch) = plain.next_buffer().unwrap() {
+            push_mono(&batch, &mut all);
+        }
+        assert_eq!(got.patch_count(), PATCHES);
+        let frames = frame_count(got.resampled_len());
+        assert!(got.patch(0).first_frame < frames / 10);
+        assert!(got.patch(PATCHES - 1).first_frame > frames * 8 / 10);
+        for ix in 0..got.patch_count() {
+            let patch = got.patch(ix);
+            if ix > 0 {
+                assert!(patch.first_frame > got.patch(ix - 1).first_frame);
+            }
+            let start = patch.start as usize;
+            assert!(
+                patch.samples == &all[start..start + patch.samples.len()],
+                "{ix}"
+            );
+        }
     }
 
     #[test]

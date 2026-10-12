@@ -108,6 +108,49 @@ places.
   CAF whose frame count leaves out the remainder frames is caught by `ends_at`.
 - Memory: the merged windows, ~27% of a four-minute track at its source rate.
 
+### A whole FLAC: windows at byte positions
+
+For a FLAC without a CUE range the source can `seek_near` (audio_decoder), and
+`windows::near` places the 32 windows by bytes instead of by time: window `k` aims at
+`(k + 0.5) / 32` of the audio bytes, lands on the next FLAC frame, takes the first
+patch (mel frame) whose source range starts at or after that frame, and decodes it
+from there. The same rule runs for a local file and for a server stream, so a
+recording gets the same vector wherever it is read from.
+
+- **Why.** Exact times need Symphonia's binary search over bytes for every window;
+  over the network that was ~290 requests a track and Navidrome spent ~1 s of CPU on
+  them (`pawse/src/similar_tracks/doc.md`). By bytes it is one request a window
+  (`seek_near` with a `span` hint). The positions only have to be spread, not exact:
+  on `music-test` (2184 tracks) the quality metric (same artist from other albums
+  in the top 10, centred) was 0.479 with exact times, 0.479 with every window moved
+  by up to ±3 s and 0.478 with this placement; vectors moved by a median centred
+  cosine of 0.993 (owner's choice: 32 windows by bytes, over 16 or 10 windows, which
+  cost 0.007–0.017 of the metric). Locally it is also faster: `prepare` of the 1640
+  FLACs of `music-test` on 7 threads took 18.0 s against 23.8 s.
+- **Fit.** A window that would start past the analysed part (the last ones, where
+  bytes and time drift apart) is aimed again, earlier by the ratio between where it
+  landed and the latest start that fits, up to `NEAR_ATTEMPTS` times. For a track
+  past the 30-minute cap (an unsplit cue image served as one file) the byte share of
+  the analysed part is calibrated first: `seek_near` at the time share, corrected by
+  where it landed, until within 1% (`CALIBRATED`). A window never starts before the
+  previous one ends its first frame (`first` strictly grows). A `seek_near` that
+  fails (no frame after the offset — a large tag after the audio, say) is aimed 2% of
+  the share earlier (`REAIM`) instead of sending the track to the full pass, which
+  over the network would read the whole file; a network failure fails every later
+  read at once (`RangeReader` keeps it), so those attempts cost nothing.
+- **Everything else is unchanged:** the `plan` (coverage rule, 32 patches, the 16 kHz
+  grid), WAV/ALAC and CUE ranges (time positions through `seek_frame`), lossy and
+  short tracks (full pass). A source without `seek_near` keeps time positions — that
+  includes `audio_embedding_gpu`'s probe input, so the probe rows in the weights file
+  still match. A window that does not fit or cannot be read falls back to the full
+  pass, as below; on `music-test` none does (1518 FLACs windowed, 122 short ones full,
+  0 fallbacks).
+- No `ends_at` check here: each window is read from its own landing, so a file whose
+  STREAMINFO overstates its length fails a window and takes the full pass. One that
+  understates it is analysed over the length it claims (the full pass, which
+  `ends_at` used to send it to, would decode past it); the vector is still that
+  file's sound.
+
 ## Decoding and the CUE range
 
 - Channels are averaged; S16 / 32768, S24 / 8388608, S32 / 2147483648, F32 as is,
@@ -171,12 +214,15 @@ including its quirks; "correct" DSP would drift from what the weights expect.
 
 ## `EMBEDDING_VERSION`
 
-`effnet-multi-gpu-1:7de20391:gpu1:spread32` = weights release + first 8 hex of its
-SHA-256 + front-end revision + patch selection. Any change that moves the numbers
-(model, resampler, mel, patch choice, averaging) must change the string; the app then
-drops the old rows and re-analyses everything. Refactors that keep the oracle tests bit
-for bit do not. The previous string, `effnet-multi-1:65cfde30:fe1:spread32`, was the
-tract path over the ONNX file; the GPU vectors agree with it to cosine 1.000000000 on
+`effnet-multi-gpu-1:7de20391:gpu1:spread32:flacbytes` = weights release + first 8 hex
+of its SHA-256 + front-end revision + patch selection (`flacbytes`: a whole FLAC's
+windows sit at byte positions, below). Any change that moves the numbers (model,
+resampler, mel, patch choice, averaging) must change the string; the app then drops the
+old rows and re-analyses everything. Refactors that keep the oracle tests bit for bit do
+not. `effnet-multi-gpu-1:7de20391:gpu1:spread32` was the same with time positions for
+every format; FLAC vectors moved by a centred cosine of ~0.993 (median), the quality
+metric did not (0.479 both). The string before it, `effnet-multi-1:65cfde30:fe1:spread32`,
+was the tract path over the ONNX file; the GPU vectors agree with it to cosine 1.000000000 on
 52 `music-test` tracks of every format, so the change only follows the new file (the
 plan's choice) — the numbers did not move.
 
