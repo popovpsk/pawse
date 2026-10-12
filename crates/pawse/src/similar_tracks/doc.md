@@ -7,8 +7,13 @@ track" and "mix other artists into the queue" — in a menu in the queue panel's
 header, and a queue that runs out continuing as a radio from its last track. The
 analysis' progress is in a dialog behind a button in Settings.
 
-The switch is in Settings → General, "Sound-based
-recommendations" (`similar_tracks_enabled`, off by default; `tr().similar_tracks`).
+The settings are a group of their own in Settings → General, "Recommendations"
+(`similar_group` in `settings_view.rs`, strings in `similar_strings()`): the switch
+"Sound-based recommendations" (`similar_tracks_enabled`, off by default;
+`tr().similar_tracks`) and under it "Continue the queue when it ends"
+(`similar_autoplay`, on by default — also for a `settings.json` written before it
+existed; greyed out and shown off while the feature is off or there is no graphics
+card, its own value kept).
 Its description talks about the result (similar-sounding tracks from the library), says
 the analysis is local and that the first pass can take a while; it does not mention the
 background thread or the one-time model download (16 MB). The analysis runs only on a
@@ -412,9 +417,10 @@ run out, the last anchors get nothing.
 
 ## Queue continuation
 
-While the analysis is running, a queue that runs out goes on as a radio from its
-last track, whatever was playing before (a radio mode with its own switch may come
-later). The queue changes only when it has really ended: until then "add to queue",
+While the analysis is running and `similar_autoplay` is on (the default), a queue
+that runs out goes on as a radio from its last track, whatever was playing before;
+`continue_ended_queue` reads the setting first, so turning it off takes effect at the
+next end of a queue. The queue changes only when it has really ended: until then "add to queue",
 repeat, shuffle and a playlist-backed source behave as without the feature. An
 automatic action does not notify; what goes wrong is logged.
 

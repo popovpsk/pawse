@@ -524,6 +524,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub similar_familiarity: Familiarity,
     #[serde(default = "default_true")]
+    pub similar_autoplay: bool,
+    #[serde(default = "default_true")]
     pub albums_show_year: bool,
     #[serde(default = "default_true")]
     pub albums_show_genre: bool,
@@ -637,6 +639,7 @@ impl Default for UserSettings {
             tag_editor_enabled: false,
             similar_tracks_enabled: false,
             similar_familiarity: Familiarity::default(),
+            similar_autoplay: true,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::default(),
@@ -1527,6 +1530,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn similar_autoplay(&self) -> bool {
+        self.settings.similar_autoplay
+    }
+
+    pub fn set_similar_autoplay(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.similar_autoplay = enabled;
+        self.save()
+    }
+
     pub fn similar_familiarity(&self) -> Familiarity {
         self.settings.similar_familiarity
     }
@@ -2014,6 +2026,7 @@ mod tests {
             tag_editor_enabled: false,
             similar_tracks_enabled: false,
             similar_familiarity: Familiarity::New,
+            similar_autoplay: false,
             albums_show_year: true,
             albums_show_genre: true,
             albums_artist_display: AlbumsArtistDisplay::Column,
@@ -2067,6 +2080,7 @@ mod tests {
         assert_eq!(back.albums_artist_display, AlbumsArtistDisplay::Column);
         assert_eq!(back.albums_layout, LibraryLayout::Grid);
         assert_eq!(back.similar_familiarity, Familiarity::New);
+        assert!(!back.similar_autoplay);
         assert!(!back.albums_show_artist);
         assert_eq!(back.albums_sort, AlbumsSort::Year);
         assert!(back.albums_sort_desc);
@@ -2096,6 +2110,16 @@ mod tests {
         assert_eq!(back.playback.source, QueueSourcePersist::Playlist(7));
         assert!(back.playback.custom);
         assert_eq!(back.sleep_timer, settings.sleep_timer);
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_queue_continuation_switch_keeps_it_on() {
+        let settings: UserSettings =
+            serde_json::from_str(r#"{"similar_tracks_enabled":true}"#).unwrap();
+        assert!(settings.similar_tracks_enabled);
+        assert!(settings.similar_autoplay);
+        assert!(UserSettings::default().similar_autoplay);
+        assert!(!UserSettings::default().similar_tracks_enabled);
     }
 
     #[test]

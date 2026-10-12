@@ -85,6 +85,7 @@ pub fn build_settings_pages(
     ];
     let general = SettingPage::new(tr().settings_general.clone())
         .group(general_group(remote_port_input))
+        .group(similar_group())
         .group(streaming_group())
         .group(crate::sleep_timer::settings::settings_group(
             sleep_timer_controls,
@@ -610,6 +611,83 @@ fn appearance_group(
         )
 }
 
+fn similar_group() -> SettingGroup {
+    let strings = similar_strings();
+    SettingGroup::new()
+        .title(strings.settings_title.clone())
+        .item(
+            SettingItem::new(
+                tr().similar_tracks.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let missing = crate::similar_tracks::gpu_missing(cx);
+                    let enabled = cx.global::<SettingsStore>().similar_tracks_enabled() && !missing;
+                    h_flex()
+                        .items_center()
+                        .justify_end()
+                        .gap_2()
+                        .when(missing, |row| {
+                            row.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(Colors::muted_foreground(cx))
+                                    .child(similar_strings().no_gpu_short.clone()),
+                            )
+                        })
+                        .when(crate::similar_tracks::is_running(cx), |row| {
+                            row.child(
+                                Button::new("similar-tracks-indexing")
+                                    .small()
+                                    .label(similar_strings().indexing.clone())
+                                    .on_click(|_, window, cx| {
+                                        crate::similar_tracks::open_indexing(window, cx)
+                                    }),
+                            )
+                        })
+                        .child(
+                            Switch::new("similar-tracks-toggle")
+                                .checked(enabled)
+                                .disabled(missing)
+                                .on_click(|new_val, _, cx| {
+                                    if let Err(e) = cx
+                                        .global_mut::<SettingsStore>()
+                                        .set_similar_tracks_enabled(*new_val)
+                                    {
+                                        notify_save_error(cx, e);
+                                    }
+                                    crate::similar_tracks::set_enabled(*new_val, cx);
+                                }),
+                        )
+                }),
+            )
+            .description(tr().similar_tracks_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                strings.autoplay.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let settings = cx.global::<SettingsStore>();
+                    let on = settings.similar_tracks_enabled()
+                        && !crate::similar_tracks::gpu_missing(cx);
+                    let autoplay = settings.similar_autoplay();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("similar-autoplay-toggle")
+                            .checked(autoplay && on)
+                            .disabled(!on)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_similar_autoplay(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(strings.autoplay_desc.clone()),
+        )
+}
+
 fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
     let mut group = SettingGroup::new().item(language_field());
 
@@ -705,53 +783,6 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
             }),
         )
         .description(artist_strings.setting_desc.clone()),
-    );
-
-    group = group.item(
-        SettingItem::new(
-            tr().similar_tracks.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let missing = crate::similar_tracks::gpu_missing(cx);
-                let enabled = cx.global::<SettingsStore>().similar_tracks_enabled() && !missing;
-                h_flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    .when(missing, |row| {
-                        row.child(
-                            div()
-                                .text_sm()
-                                .text_color(Colors::muted_foreground(cx))
-                                .child(similar_strings().no_gpu_short.clone()),
-                        )
-                    })
-                    .when(crate::similar_tracks::is_running(cx), |row| {
-                        row.child(
-                            Button::new("similar-tracks-indexing")
-                                .small()
-                                .label(similar_strings().indexing.clone())
-                                .on_click(|_, window, cx| {
-                                    crate::similar_tracks::open_indexing(window, cx)
-                                }),
-                        )
-                    })
-                    .child(
-                        Switch::new("similar-tracks-toggle")
-                            .checked(enabled)
-                            .disabled(missing)
-                            .on_click(|new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_similar_tracks_enabled(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                                crate::similar_tracks::set_enabled(*new_val, cx);
-                            }),
-                    )
-            }),
-        )
-        .description(tr().similar_tracks_desc.clone()),
     );
 
     group = group.item(

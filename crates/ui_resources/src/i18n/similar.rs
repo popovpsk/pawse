@@ -33,6 +33,9 @@ pub struct SimilarStrings {
     pub failed_t: SharedString,
     pub unreachable_t: SharedString,
     pub close: SharedString,
+    pub settings_title: SharedString,
+    pub autoplay: SharedString,
+    pub autoplay_desc: SharedString,
     pub about: SharedString,
 }
 
@@ -124,6 +127,11 @@ static EN: SimilarStrings = SimilarStrings {
         "Tracks on unreachable servers: {}. They are tried again at the next library update.",
     ),
     close: SharedString::new_static("Close"),
+    settings_title: SharedString::new_static("Recommendations"),
+    autoplay: SharedString::new_static("Continue the queue when it ends"),
+    autoplay_desc: SharedString::new_static(
+        "When the last track ends, similar-sounding tracks from your library keep playing.",
+    ),
     about: SharedString::new_static(
         "Each track is analysed to learn how it sounds; tracks from servers are downloaded for this. While the analysis runs, the app uses more memory and puts more load on the processor and graphics card.",
     ),
@@ -164,6 +172,9 @@ static ZH: SimilarStrings = SimilarStrings {
         "无法连接的服务器上的歌曲：{}。会在下次更新音乐库时重试。",
     ),
     close: SharedString::new_static("关闭"),
+    settings_title: SharedString::new_static("推荐"),
+    autoplay: SharedString::new_static("播放队列结束后继续播放"),
+    autoplay_desc: SharedString::new_static("最后一首播完后，继续播放媒体库中听起来相似的曲目。"),
     about: SharedString::new_static(
         "每首歌曲都会被分析其声音特征，服务器上的歌曲需要为此下载。分析期间，应用会占用更多内存，处理器和显卡的负载也会更高。",
     ),
@@ -216,6 +227,11 @@ static PT: SimilarStrings = SimilarStrings {
         "Faixas em servidores inacessíveis: {}. Serão tentadas de novo na próxima atualização da biblioteca.",
     ),
     close: SharedString::new_static("Fechar"),
+    settings_title: SharedString::new_static("Recomendações"),
+    autoplay: SharedString::new_static("Continuar a fila quando ela terminar"),
+    autoplay_desc: SharedString::new_static(
+        "Quando a última faixa terminar, faixas de som parecido da sua biblioteca continuam tocando.",
+    ),
     about: SharedString::new_static(
         "Cada faixa é analisada para saber como soa; as faixas dos servidores são baixadas para isso. Durante a análise, o app usa mais memória e exige mais do processador e da placa de vídeo.",
     ),
@@ -264,6 +280,11 @@ static RU: SimilarStrings = SimilarStrings {
         "Треки на недоступных серверах: {}. Повторная попытка — при следующем обновлении медиатеки.",
     ),
     close: SharedString::new_static("Закрыть"),
+    settings_title: SharedString::new_static("Рекомендации"),
+    autoplay: SharedString::new_static("Продолжать очередь, когда она закончится"),
+    autoplay_desc: SharedString::new_static(
+        "Когда доиграет последний трек, дальше заиграют похожие по звучанию треки из медиатеки.",
+    ),
     about: SharedString::new_static(
         "Каждый трек анализируется, чтобы понять, как он звучит; треки с серверов для этого скачиваются. Пока идёт анализ, приложение занимает больше памяти и сильнее нагружает процессор и видеокарту.",
     ),
@@ -314,6 +335,11 @@ static JA: SimilarStrings = SimilarStrings {
         "接続できないサーバーの曲：{}。次回のライブラリ更新時に再試行します。",
     ),
     close: SharedString::new_static("閉じる"),
+    settings_title: SharedString::new_static("おすすめ"),
+    autoplay: SharedString::new_static("キューが終わったら再生を続ける"),
+    autoplay_desc: SharedString::new_static(
+        "最後の曲が終わると、ライブラリから似たサウンドの曲を続けて再生します。",
+    ),
     about: SharedString::new_static(
         "各曲を分析して、どのように聞こえるかを調べます。サーバーの曲はそのためにダウンロードされます。分析中はメモリの使用量が増え、プロセッサとグラフィックスの負荷も高くなります。",
     ),
@@ -368,6 +394,11 @@ static DE: SimilarStrings = SimilarStrings {
         "Titel auf nicht erreichbaren Servern: {}. Beim nächsten Bibliotheksupdate wird es erneut versucht.",
     ),
     close: SharedString::new_static("Schließen"),
+    settings_title: SharedString::new_static("Empfehlungen"),
+    autoplay: SharedString::new_static("Warteschlange am Ende fortsetzen"),
+    autoplay_desc: SharedString::new_static(
+        "Wenn der letzte Titel endet, laufen ähnlich klingende Titel aus deiner Mediathek weiter.",
+    ),
     about: SharedString::new_static(
         "Jeder Titel wird analysiert, um zu erfassen, wie er klingt; Titel von Servern werden dafür heruntergeladen. Während der Analyse braucht die App mehr Arbeitsspeicher und belastet Prozessor und Grafikkarte stärker.",
     ),
@@ -418,6 +449,11 @@ static FR: SimilarStrings = SimilarStrings {
         "Titres sur des serveurs injoignables : {}. Nouvel essai à la prochaine actualisation de la bibliothèque.",
     ),
     close: SharedString::new_static("Fermer"),
+    settings_title: SharedString::new_static("Recommandations"),
+    autoplay: SharedString::new_static("Prolonger la file d'attente à la fin"),
+    autoplay_desc: SharedString::new_static(
+        "Quand le dernier morceau se termine, des morceaux au son proche de votre bibliothèque prennent le relais.",
+    ),
     about: SharedString::new_static(
         "Chaque titre est analysé pour savoir comment il sonne ; les titres des serveurs sont téléchargés pour cela. Pendant l’analyse, l’app utilise plus de mémoire et sollicite davantage le processeur et la carte graphique.",
     ),
@@ -468,6 +504,11 @@ static KO: SimilarStrings = SimilarStrings {
         "연결할 수 없는 서버의 곡: {}. 다음 라이브러리 업데이트 때 다시 시도합니다.",
     ),
     close: SharedString::new_static("닫기"),
+    settings_title: SharedString::new_static("추천"),
+    autoplay: SharedString::new_static("대기열이 끝나면 계속 재생"),
+    autoplay_desc: SharedString::new_static(
+        "마지막 곡이 끝나면 보관함에서 비슷한 소리의 곡을 이어서 재생합니다.",
+    ),
     about: SharedString::new_static(
         "각 곡을 분석해 어떤 소리인지 파악합니다. 서버의 곡은 이를 위해 다운로드됩니다. 분석하는 동안 앱이 메모리를 더 많이 쓰고 프로세서와 그래픽 카드 부하도 커집니다.",
     ),
@@ -522,6 +563,11 @@ static IT: SimilarStrings = SimilarStrings {
         "Brani su server non raggiungibili: {}. Verranno ritentati al prossimo aggiornamento della libreria.",
     ),
     close: SharedString::new_static("Chiudi"),
+    settings_title: SharedString::new_static("Consigli"),
+    autoplay: SharedString::new_static("Continua la coda quando finisce"),
+    autoplay_desc: SharedString::new_static(
+        "Quando l'ultimo brano finisce, continuano brani dal suono simile della tua libreria.",
+    ),
     about: SharedString::new_static(
         "Ogni brano viene analizzato per capire come suona; i brani dei server vengono scaricati per farlo. Durante l’analisi l’app usa più memoria e impegna di più il processore e la scheda grafica.",
     ),
@@ -574,6 +620,11 @@ static TR: SimilarStrings = SimilarStrings {
         "Erişilemeyen sunuculardaki parçalar: {}. Bir sonraki kitaplık güncellemesinde yeniden denenecek.",
     ),
     close: SharedString::new_static("Kapat"),
+    settings_title: SharedString::new_static("Öneriler"),
+    autoplay: SharedString::new_static("Kuyruk bitince çalmaya devam et"),
+    autoplay_desc: SharedString::new_static(
+        "Son parça bitince kitaplığındaki benzer sesli parçalar çalmaya devam eder.",
+    ),
     about: SharedString::new_static(
         "Her parça nasıl tınladığını anlamak için analiz edilir; sunuculardaki parçalar bunun için indirilir. Analiz sürerken uygulama daha fazla bellek kullanır, işlemciyi ve ekran kartını daha çok yorar.",
     ),
@@ -626,6 +677,11 @@ static PL: SimilarStrings = SimilarStrings {
         "Utwory na niedostępnych serwerach: {}. Kolejna próba przy następnej aktualizacji biblioteki.",
     ),
     close: SharedString::new_static("Zamknij"),
+    settings_title: SharedString::new_static("Rekomendacje"),
+    autoplay: SharedString::new_static("Kontynuuj kolejkę, gdy się skończy"),
+    autoplay_desc: SharedString::new_static(
+        "Gdy skończy się ostatni utwór, grają dalej podobnie brzmiące utwory z twojej biblioteki.",
+    ),
     about: SharedString::new_static(
         "Każdy utwór jest analizowany, by poznać jego brzmienie; utwory z serwerów są w tym celu pobierane. Podczas analizy aplikacja zajmuje więcej pamięci i mocniej obciąża procesor oraz kartę graficzną.",
     ),
@@ -678,6 +734,11 @@ static NL: SimilarStrings = SimilarStrings {
         "Nummers op onbereikbare servers: {}. Ze worden opnieuw geprobeerd bij de volgende bibliotheekupdate.",
     ),
     close: SharedString::new_static("Sluiten"),
+    settings_title: SharedString::new_static("Aanbevelingen"),
+    autoplay: SharedString::new_static("Wachtrij voortzetten als die afloopt"),
+    autoplay_desc: SharedString::new_static(
+        "Als het laatste nummer is afgelopen, spelen soortgelijk klinkende nummers uit je bibliotheek verder.",
+    ),
     about: SharedString::new_static(
         "Elk nummer wordt geanalyseerd om te bepalen hoe het klinkt; nummers van servers worden daarvoor gedownload. Tijdens de analyse gebruikt de app meer geheugen en belast ze de processor en de videokaart zwaarder.",
     ),
@@ -726,6 +787,11 @@ static UK: SimilarStrings = SimilarStrings {
         "Треки на недоступних серверах: {}. Повторна спроба — під час наступного оновлення медіатеки.",
     ),
     close: SharedString::new_static("Закрити"),
+    settings_title: SharedString::new_static("Рекомендації"),
+    autoplay: SharedString::new_static("Продовжувати чергу, коли вона закінчиться"),
+    autoplay_desc: SharedString::new_static(
+        "Коли дограє останній трек, далі гратимуть схожі за звучанням треки з медіатеки.",
+    ),
     about: SharedString::new_static(
         "Кожен трек аналізується, щоб зрозуміти, як він звучить; треки із серверів для цього завантажуються. Поки триває аналіз, застосунок займає більше пам’яті й сильніше навантажує процесор і відеокарту.",
     ),
@@ -776,6 +842,11 @@ static VI: SimilarStrings = SimilarStrings {
         "Bài trên máy chủ không truy cập được: {}. Sẽ thử lại ở lần cập nhật thư viện tiếp theo.",
     ),
     close: SharedString::new_static("Đóng"),
+    settings_title: SharedString::new_static("Đề xuất"),
+    autoplay: SharedString::new_static("Tiếp tục hàng đợi khi phát hết"),
+    autoplay_desc: SharedString::new_static(
+        "Khi bài cuối kết thúc, các bài có âm thanh tương tự trong thư viện sẽ tiếp tục phát.",
+    ),
     about: SharedString::new_static(
         "Mỗi bài được phân tích để biết nó nghe như thế nào; các bài trên máy chủ sẽ được tải xuống để làm việc này. Trong lúc phân tích, ứng dụng dùng nhiều bộ nhớ hơn và khiến bộ xử lý và card đồ họa phải làm việc nặng hơn.",
     ),
@@ -826,6 +897,11 @@ static ID: SimilarStrings = SimilarStrings {
         "Lagu di server yang tidak dapat dijangkau: {}. Akan dicoba lagi pada pembaruan pustaka berikutnya.",
     ),
     close: SharedString::new_static("Tutup"),
+    settings_title: SharedString::new_static("Rekomendasi"),
+    autoplay: SharedString::new_static("Lanjutkan antrean saat habis"),
+    autoplay_desc: SharedString::new_static(
+        "Setelah lagu terakhir selesai, lagu dengan suara serupa dari pustaka Anda terus diputar.",
+    ),
     about: SharedString::new_static(
         "Setiap lagu dianalisis untuk mengetahui bagaimana suaranya; lagu dari server diunduh untuk itu. Selama analisis berjalan, aplikasi memakai lebih banyak memori dan lebih membebani prosesor dan kartu grafis.",
     ),
@@ -870,6 +946,11 @@ static TH: SimilarStrings = SimilarStrings {
         "เพลงบนเซิร์ฟเวอร์ที่เชื่อมต่อไม่ได้: {} จะลองใหม่ตอนอัปเดตคลังเพลงครั้งถัดไป",
     ),
     close: SharedString::new_static("ปิด"),
+    settings_title: SharedString::new_static("คำแนะนำ"),
+    autoplay: SharedString::new_static("เล่นต่อเมื่อคิวจบ"),
+    autoplay_desc: SharedString::new_static(
+        "เมื่อเพลงสุดท้ายจบ จะเล่นเพลงที่มีเสียงคล้ายกันจากคลังเพลงของคุณต่อ",
+    ),
     about: SharedString::new_static(
         "แต่ละเพลงจะถูกวิเคราะห์เพื่อดูว่ามีเสียงแบบไหน เพลงจากเซิร์ฟเวอร์จะถูกดาวน์โหลดเพื่อการนี้ ระหว่างการวิเคราะห์ แอปจะใช้หน่วยความจำมากขึ้นและใช้งานโปรเซสเซอร์กับการ์ดจอหนักขึ้น",
     ),
@@ -922,6 +1003,11 @@ static CS: SimilarStrings = SimilarStrings {
         "Skladby na nedostupných serverech: {}. Znovu se zkusí při další aktualizaci knihovny.",
     ),
     close: SharedString::new_static("Zavřít"),
+    settings_title: SharedString::new_static("Doporučení"),
+    autoplay: SharedString::new_static("Pokračovat ve frontě, když skončí"),
+    autoplay_desc: SharedString::new_static(
+        "Když dohraje poslední skladba, budou dál hrát podobně znějící skladby z vaší knihovny.",
+    ),
     about: SharedString::new_static(
         "Každá skladba se analyzuje, aby se zjistilo, jak zní; skladby ze serverů se kvůli tomu stahují. Během analýzy aplikace zabírá více paměti a víc vytěžuje procesor a grafickou kartu.",
     ),
@@ -972,6 +1058,11 @@ static SV: SimilarStrings = SimilarStrings {
         "Spår på servrar som inte går att nå: {}. De provas igen vid nästa biblioteksuppdatering.",
     ),
     close: SharedString::new_static("Stäng"),
+    settings_title: SharedString::new_static("Rekommendationer"),
+    autoplay: SharedString::new_static("Fortsätt kön när den tar slut"),
+    autoplay_desc: SharedString::new_static(
+        "När det sista spåret är slut fortsätter liknande spår från ditt bibliotek att spelas.",
+    ),
     about: SharedString::new_static(
         "Varje spår analyseras för att ta reda på hur det låter; spår från servrar laddas ned för det. Medan analysen pågår använder appen mer minne och belastar processorn och grafikkortet mer.",
     ),
@@ -1022,6 +1113,11 @@ static HI: SimilarStrings = SimilarStrings {
         "पहुँच से बाहर सर्वरों के ट्रैक: {}। लाइब्रेरी के अगले अपडेट पर फिर से कोशिश होगी।",
     ),
     close: SharedString::new_static("बंद करें"),
+    settings_title: SharedString::new_static("सुझाव"),
+    autoplay: SharedString::new_static("कतार ख़त्म होने पर चलाना जारी रखें"),
+    autoplay_desc: SharedString::new_static(
+        "आख़िरी ट्रैक ख़त्म होने पर आपकी लाइब्रेरी के मिलती-जुलती आवाज़ वाले ट्रैक चलते रहेंगे।",
+    ),
     about: SharedString::new_static(
         "हर ट्रैक का विश्लेषण किया जाता है ताकि पता चले कि वह कैसा सुनाई देता है; सर्वर के ट्रैक इसके लिए डाउनलोड किए जाते हैं। विश्लेषण के दौरान ऐप ज़्यादा मेमोरी लेता है और प्रोसेसर व ग्राफ़िक्स कार्ड पर ज़्यादा भार डालता है।",
     ),
@@ -1074,6 +1170,11 @@ static ES: SimilarStrings = SimilarStrings {
         "Pistas en servidores inaccesibles: {}. Se volverá a intentar en la próxima actualización de la biblioteca.",
     ),
     close: SharedString::new_static("Cerrar"),
+    settings_title: SharedString::new_static("Recomendaciones"),
+    autoplay: SharedString::new_static("Continuar la cola cuando termine"),
+    autoplay_desc: SharedString::new_static(
+        "Cuando termine la última pista, seguirán sonando pistas de sonido parecido de tu biblioteca.",
+    ),
     about: SharedString::new_static(
         "Cada pista se analiza para saber cómo suena; las pistas de los servidores se descargan para ello. Mientras dura el análisis, la app usa más memoria y exige más al procesador y a la tarjeta gráfica.",
     ),

@@ -17,6 +17,9 @@ pub fn set_queue_refresh(refresh: OnApplied, cx: &mut App) {
 }
 
 pub fn continue_ended_queue(last_id: i64, cx: &mut App) {
+    if !cx.global::<SettingsStore>().similar_autoplay() {
+        return;
+    }
     let Some(similar) = super::current(cx) else {
         return;
     };
