@@ -53,7 +53,7 @@ submits and waits.
   slots are 256 bytes — and 16352 bytes of workgroup memory; the largest kernel,
   depthwise, uses 15824). `Limits::default()` asked for 8 colour attachments, and a
   Raspberry Pi 4's V3D 4.2 (4) refused the whole device. Storage bindings keep the
-  default 128 MiB: the PCM buffer is capped exactly there (`PCM_CAP`), the largest
+  default 128 MiB: the PCM buffer is capped just under it (`PCM_CAP`, 32 million samples = 128,000,000 bytes), the largest
   other buffer is ~75 MB.
 - `on_uncaptured_error` and the device-lost callback record a fault; every later
   submit or wait returns it (and never panics — wgpu's default handler would).

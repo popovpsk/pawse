@@ -4,7 +4,7 @@ Tracks that sound alike, from `audio_embedding` vectors: background analysis of 
 library, a nearest-neighbour search, a re-ranking step that turns neighbours into a
 list worth listening to, two queue actions built on them — "radio from this
 track" and "mix other artists into the queue" — in a menu in the queue panel's
-header, and a queue that runs out continuing as a radio from its last track. The
+header, and a queue that runs out continuing as a radio from the last tracks it played. The
 analysis' progress is in a dialog behind a button in Settings.
 
 The settings are a group of their own in Settings → General, "Recommendations"
@@ -342,7 +342,7 @@ one pick at a time. A candidate's value is
 `score + familiarity bonus − recent penalty + noise − artist × (tracks of its artist
 already taken) − repeat × (same artist as the previous pick)`
 
-- `Taken` starts with the seed (radio) or empty (mix) and grows with every pick, so the
+- `Taken` starts with the seeds (radio, `Taken::seed`) or empty (mix) and grows with every pick, so the
   artist penalty spreads an artist through the list instead of capping it; there is no
   hard per-artist limit. Album is not a signal: the artist term already covers it.
 - The same first artist + normalised title is taken once (single and album version);
@@ -425,7 +425,7 @@ run out, the last anchors get nothing.
 ## Queue continuation
 
 While the analysis is running and `similar_autoplay` is on (the default), a queue
-that runs out goes on as a radio from its last track, whatever was playing before;
+that runs out goes on as a radio from the last tracks it played, whatever they were;
 `continue_ended_queue` reads the setting first, so turning it off takes effect at the
 next end of a queue. The queue changes only when it has really ended: until then "add to queue",
 repeat, shuffle and a playlist-backed source behave as without the feature. An
@@ -442,10 +442,14 @@ automatic action does not notify; what goes wrong is logged.
   then changed the queue under "add to queue", repeat and the playlist source for
   the whole last track, and holding the list aside only to save that pause was not
   worth the code.
-- The seeds are the last `SEEDS` (5) tracks of the queue up to the one that ended, in
-  play order (`QueueSnapshot::played_tail`: with shuffle on that is what was really
-  heard; a track repeated in the tail counts once; a shorter queue gives all its
-  tracks, a single track itself). Starting from their mean rather than the last track
+- The seeds are the last `SEEDS` (5) tracks this queue really played, ending with the
+  one that ended (`QueueSnapshot::played_tail`). `PlaybackQueue` keeps the ids of the
+  tracks that became current (`heard`, the last 16: the next track, a jump, "previous",
+  the track that took a removed current one's place, the current one after a
+  restore) and forgets them with a new queue, so starting the last row of a long list
+  seeds with that row alone, not with four neighbours nobody heard; positions are not
+  used, so moving, removing and shuffling cannot shift it. A track heard twice counts
+  once; fewer heard tracks give what there is, a single one itself. Starting from their mean rather than the last track
   alone, because albums often end on an outlier (an outro, an acoustic or hidden
   track): on `music-test`, 45% of the 132 albums with 6+ tracks ended on a track less
   like its album than three quarters of their tracks, and the 20 nearest tracks of
@@ -453,9 +457,9 @@ automatic action does not notify; what goes wrong is logged.
   last track (0.14 for the worst tenth of albums), 0.69 from the last 3 and 0.72 from
   the last 5 (0.58 for the worst tenth); weighting toward the last track gave 0.71.
   A last track without a vector no longer ends the queue when the ones before it
-  have vectors; none with a vector continues nothing. If the snapshot's tail does not
-  hold the track that ended (the queue moved meanwhile), the seed is that track
-  alone. The whole queue is the radio's `skip`, so an album that ended does not come
+  have vectors; none with a vector continues nothing. A tail that does not hold the
+  track that ended — a guard for a way of changing the current track that does not
+  note it — falls back to that track alone. The whole queue is the radio's `skip`, so an album that ended does not come
   back; familiarity is the menu's setting.
 - `PlaybackQueue::continue_with(snapshot, tracks)` appends only if the queue still
   matches the `QueueSnapshot` taken at the end (ids, no current track), and returns

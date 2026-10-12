@@ -176,6 +176,7 @@ pub(super) mod tests {
         let silent = add_track(&lib, "silent", "C", 200_000);
         let middle = add_track(&lib, "middle", "D", 200_000);
         let near_left = add_track(&lib, "near left", "E", 200_000);
+        let near_right = add_track(&lib, "near right", "G", 200_000);
         let far = add_track(&lib, "far", "F", 200_000);
         lib.save_embeddings(
             EMBEDDING_VERSION,
@@ -184,6 +185,7 @@ pub(super) mod tests {
                 (right, vector(&[0.0, 1.0, 0.0])),
                 (middle, vector(&[0.7, 0.7, 0.0])),
                 (near_left, vector(&[1.0, -0.4, 0.0])),
+                (near_right, vector(&[-0.4, 1.0, 0.0])),
                 (far, vector(&[-1.0, -1.0, 0.0])),
             ],
         )
@@ -195,6 +197,11 @@ pub(super) mod tests {
             .unwrap()
             .unwrap());
         assert_eq!(from_one.first(), Some(&near_left));
+        let from_last = ids(&similar
+            .radio(&[right], &[], Familiarity::Any, 1)
+            .unwrap()
+            .unwrap());
+        assert_eq!(from_last.first(), Some(&near_right));
         let from_tail = ids(&similar
             .radio(&[left, silent, right], &[], Familiarity::Any, 1)
             .unwrap()

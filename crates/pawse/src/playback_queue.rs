@@ -41,7 +41,10 @@ pub struct PlaybackQueue {
     source: QueueSource,
     custom: bool,
     mixed: HashSet<i64>,
+    heard: Vec<i64>,
 }
+
+const HEARD_KEPT: usize = 16;
 
 pub struct MixPlan {
     pub basis: Vec<i64>,
@@ -53,6 +56,7 @@ pub struct MixPlan {
 pub struct QueueSnapshot {
     ids: Vec<i64>,
     current: Option<usize>,
+    heard: Vec<i64>,
 }
 
 impl QueueSnapshot {
@@ -61,9 +65,8 @@ impl QueueSnapshot {
     }
 
     pub fn played_tail(&self, count: usize) -> Vec<i64> {
-        let end = self.current.map_or(self.ids.len(), |current| current + 1);
         let mut tail: Vec<i64> = Vec::with_capacity(count);
-        for &id in self.ids[..end.min(self.ids.len())].iter().rev() {
+        for &id in self.heard.iter().rev() {
             if tail.len() == count {
                 break;
             }
@@ -121,6 +124,23 @@ impl PlaybackQueue {
             source: QueueSource::Unknown,
             custom: false,
             mixed: HashSet::new(),
+            heard: Vec::new(),
+        }
+    }
+
+    fn note_current(&mut self) {
+        let Some(id) = self
+            .current_index
+            .and_then(|i| self.tracks.get(i))
+            .map(|t| t.id)
+        else {
+            return;
+        };
+        if self.heard.last() != Some(&id) {
+            self.heard.push(id);
+            if self.heard.len() > HEARD_KEPT {
+                self.heard.remove(0);
+            }
         }
     }
 
@@ -135,6 +155,7 @@ impl PlaybackQueue {
         self.source = source;
         self.custom = false;
         self.mixed.clear();
+        self.heard.clear();
         if self.shuffle {
             self.apply_shuffle();
         }
@@ -245,6 +266,7 @@ impl PlaybackQueue {
     pub fn play_track_at(&mut self, index: usize) -> Option<&Rc<Track>> {
         if index < self.tracks.len() {
             self.current_index = Some(index);
+            self.note_current();
             self.tracks.get(index)
         } else {
             None
@@ -261,12 +283,14 @@ impl PlaybackQueue {
         let next = current + 1;
         if next < self.tracks.len() {
             self.current_index = Some(next);
+            self.note_current();
             return self.tracks.get(next);
         }
 
         match self.repeat {
             RepeatMode::All if !self.tracks.is_empty() => {
                 self.current_index = Some(0);
+                self.note_current();
                 self.tracks.first()
             }
             _ => {
@@ -291,6 +315,7 @@ impl PlaybackQueue {
         match self.current_index {
             Some(current) if current > 0 => {
                 self.current_index = Some(current - 1);
+                self.note_current();
                 PreviousAction::PreviousTrack(self.tracks.get(current - 1).unwrap().as_ref())
             }
             _ => PreviousAction::SeekToStart,
@@ -384,6 +409,8 @@ impl PlaybackQueue {
         self.source = state.source;
         self.custom = state.custom;
         self.mixed.clear();
+        self.heard.clear();
+        self.note_current();
     }
 
     pub fn set_track_liked(&mut self, track_id: i64, liked: bool) {
@@ -444,6 +471,7 @@ impl PlaybackQueue {
                 // index == cur: removed the currently-playing track.
                 if index < self.tracks.len() {
                     // The next track shifted into `index`; current_index stays.
+                    self.note_current();
                     RemoveOutcome::PlayNext(self.tracks[index].clone())
                 } else {
                     self.current_index = None;
@@ -553,6 +581,7 @@ impl PlaybackQueue {
         QueueSnapshot {
             ids: self.tracks.iter().map(|t| t.id).collect(),
             current: self.current_index,
+            heard: self.heard.clone(),
         }
     }
 
@@ -652,20 +681,54 @@ mod tests {
     use super::*;
     use music_library::Track;
 
-    #[rstest::rstest]
-    #[case::the_last_five(vec![1, 2, 3, 4, 5, 6, 7], Some(6), vec![3, 4, 5, 6, 7])]
-    #[case::one_track(vec![9], Some(0), vec![9])]
-    #[case::fewer_than_five(vec![1, 2, 3], Some(2), vec![1, 2, 3])]
-    #[case::a_repeat_counts_once(vec![1, 2, 7, 3, 7], Some(4), vec![1, 2, 3, 7])]
-    #[case::only_up_to_the_current(vec![1, 2, 3, 4], Some(1), vec![1, 2])]
-    #[case::no_current_track(vec![1, 2, 3], None, vec![1, 2, 3])]
-    #[case::empty(vec![], None, vec![])]
-    fn the_played_tail_ends_at_the_current_track(
-        #[case] ids: Vec<i64>,
-        #[case] current: Option<usize>,
-        #[case] tail: Vec<i64>,
-    ) {
-        assert_eq!(QueueSnapshot { ids, current }.played_tail(5), tail);
+    fn heard_queue(len: i64) -> PlaybackQueue {
+        let mut queue = PlaybackQueue::new();
+        queue.set_tracks(
+            (1..=len)
+                .map(|id| track(id, &format!("/{id}.flac")))
+                .collect(),
+        );
+        queue
+    }
+
+    #[test]
+    fn the_played_tail_holds_only_tracks_that_were_current() {
+        let mut queue = heard_queue(7);
+        queue.play_track_at(6);
+        assert_eq!(queue.snapshot().played_tail(5), vec![7]);
+
+        let mut queue = heard_queue(7);
+        queue.play_track_at(1);
+        while queue.next_track().is_some() {}
+        assert_eq!(queue.snapshot().played_tail(5), vec![3, 4, 5, 6, 7]);
+
+        let mut queue = heard_queue(7);
+        queue.play_track_at(0);
+        queue.next_track();
+        queue.play_track_at(5);
+        assert_eq!(queue.snapshot().played_tail(5), vec![1, 2, 6]);
+        queue.previous(0.0);
+        queue.play_track_at(5);
+        assert_eq!(queue.snapshot().played_tail(5), vec![1, 2, 5, 6]);
+    }
+
+    #[test]
+    fn a_new_queue_forgets_what_the_old_one_played() {
+        let mut queue = heard_queue(3);
+        queue.play_track_at(0);
+        queue.next_track();
+        queue.set_tracks(vec![track(9, "/9.flac")]);
+        assert!(queue.snapshot().played_tail(5).is_empty());
+        queue.play_track_at(0);
+        assert_eq!(queue.snapshot().played_tail(5), vec![9]);
+    }
+
+    #[test]
+    fn removing_the_current_track_counts_the_one_that_takes_its_place() {
+        let mut queue = heard_queue(4);
+        queue.play_track_at(1);
+        queue.remove_track_at(1);
+        assert_eq!(queue.snapshot().played_tail(5), vec![2, 3]);
     }
 
     fn track(id: i64, path: &str) -> Rc<Track> {
