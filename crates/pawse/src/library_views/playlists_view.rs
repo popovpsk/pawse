@@ -26,6 +26,7 @@ use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 use crate::track_list::LIKE_ROW_GROUP;
+use ui_components::tooltip::NativeTooltip;
 
 #[derive(Clone, Debug)]
 pub struct PlaylistSelectedEvent {
@@ -442,7 +443,7 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
                 .ghost()
                 .rounded_full()
                 .icon(Icon::default().path("icons/sparkles.svg"))
-                .tooltip(strings.ai_tooltip.clone())
+                .native_tooltip(strings.ai_tooltip.clone())
                 .on_click(|_, window, cx| {
                     window.dispatch_action(Box::new(crate::tools::OpenAiPlaylist), cx);
                 }),

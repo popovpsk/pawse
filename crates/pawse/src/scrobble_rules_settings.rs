@@ -16,6 +16,7 @@ use gpui_component::{
 };
 use scrobble::rewrite::{self, CustomRule, Field, PRESETS, Preview, Rewriter, Sample};
 use ui_components::settings::{SettingField, SettingGroup, SettingItem};
+use ui_components::tooltip::NativeTooltip;
 
 use crate::library_service::LibraryEvent;
 use crate::localization::{LangChanged, tr};
@@ -728,7 +729,7 @@ fn rules_list(rules: Entity<ScrobbleRules>, cx: &mut App) -> AnyElement {
                     Button::new(("scrobble-rule-edit", ix))
                         .small()
                         .icon(Icon::default().path("icons/s1-pencil.svg"))
-                        .tooltip(tr().rule_edit.clone())
+                        .native_tooltip(tr().rule_edit.clone())
                         .selected(editing == Some(ix))
                         .on_click(move |_, window, cx| {
                             edit_rules.update(cx, |rules, cx| rules.start_edit(ix, window, cx));
@@ -738,7 +739,7 @@ fn rules_list(rules: Entity<ScrobbleRules>, cx: &mut App) -> AnyElement {
                     Button::new(("scrobble-rule-remove", ix))
                         .small()
                         .icon(Icon::default().path("icons/s1-trash.svg"))
-                        .tooltip(tr().delete.clone())
+                        .native_tooltip(tr().delete.clone())
                         .on_click(move |_, window, cx| {
                             remove_rules.update(cx, |rules, cx| rules.remove(ix, window, cx));
                         }),

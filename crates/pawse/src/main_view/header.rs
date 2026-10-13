@@ -17,6 +17,7 @@ use crate::library_views::view_menu::{self, view_menu};
 use crate::localization::tr;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
+use ui_components::tooltip::NativeTooltip;
 
 pub(super) const HEIGHT: f32 = 44.;
 pub(super) const TITLE_BAR_HEIGHT: f32 = 52.;
@@ -226,7 +227,7 @@ fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElem
                 .path("icons/settings.svg")
                 .size(px(20. * scale)),
         )
-        .tooltip(tr().settings.clone())
+        .native_tooltip(tr().settings.clone())
         .on_click(cx.listener(|this, _, window, cx| this.open_settings(0, window, cx)))
 }
 
@@ -242,7 +243,7 @@ fn tools_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
                 .path("icons/tools.svg")
                 .size(px(20. * scale)),
         )
-        .tooltip(crate::tools::title())
+        .native_tooltip(crate::tools::title())
         .on_click(cx.listener(|this, _, window, cx| this.open_tools_page(0, window, cx)))
 }
 
@@ -258,7 +259,7 @@ fn update_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {
                 .path("icons/update.svg")
                 .size(px(20. * scale)),
         )
-        .tooltip(tr().restart_to_update.clone())
+        .native_tooltip(tr().restart_to_update.clone())
         .on_click(cx.listener(|_, _, _, cx| updater::apply_and_restart(cx)))
 }
 

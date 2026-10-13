@@ -4,3 +4,4 @@ pub mod cover_thumb;
 pub mod scrollbar_metrics;
 pub mod settings;
 pub mod slider;
+pub mod tooltip;

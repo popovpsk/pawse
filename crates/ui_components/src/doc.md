@@ -14,6 +14,21 @@ can depend on it without cycles.
   (`icons/s1-artists.svg`, drawn a bit larger: the figure is thinner than the notes) for a missing artist photo.
 - `cover_thumb.rs` — `cover_thumb` (`Arc<Image>`, falls back to the placeholder on a decode failure), `cover_tile`
   (`Arc<RenderImage>` or the notes placeholder) and `artist_tile` (`Arc<RenderImage>` or the person placeholder).
+- `tooltip.rs` — `NativeTooltip::native_tooltip(text)` on a gpui-component `Button`: puts gpui's own tooltip (with
+  gpui-component's `Tooltip` view) on the button's element, in place of `Button::tooltip`. Use it for a button that
+  **disappears on its own click** (the header's Settings / Tools / Update, the Playlists tab's AI button that opens
+  Tools, a scrobble rule's delete — the last rule's goes with its row) and for a button sharing a row with one (the
+  rule's edit), so a row's tooltips look alike. `Button::tooltip` in gpui-component 0.7.1 is a "managed" tooltip:
+  one overlay per window (`gpui_base::TooltipOverlay`), shown 500 ms after the button's `on_hover(true)` and hidden
+  only by that button's `on_hover(false)` or mouse down. Clicking while moving the mouse leaves it stuck: a move
+  during the press makes gpui report the pressed button as not hovered, and a move right after the release, before
+  the next frame, reaches the old frame's listeners, which report it hovered again and ask for the tooltip; the
+  next frame no longer has the button, so nothing ever hides it (seen on the Settings gear: "Settings" stayed over
+  the opened settings). gpui's own tooltip lives in the element's state and is painted only while the element is,
+  so it goes away with it. It sits on the button itself, not on a wrapper, so the button's pending click hides it
+  for the whole press. Unlike the managed one it comes back after a click when the mouse moves over the button
+  again, is placed at the cursor rather than centred under the trigger, and has no slide animation — the look the
+  header's tab buttons already had. Implemented for `Button` only: gpui's tooltip needs an element with an id.
 
 ---
 
