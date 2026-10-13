@@ -103,7 +103,7 @@ fn a_torrent_file_is_listed_and_stored() {
 }
 
 #[test]
-fn a_probe_fetches_only_the_asked_ranges_and_is_thrown_away() {
+fn a_probe_fetches_the_asked_ranges_and_is_thrown_away() {
     let seeder = seeder();
     let root = tempfile::tempdir().unwrap();
     let engine = engine(&seeder, root.path());
@@ -148,8 +148,12 @@ fn a_probe_fetches_only_the_asked_ranges_and_is_thrown_away() {
         std::fs::read(probe.root().join("album.cue")).unwrap(),
         seeder.files[2].1
     );
-    let middle = len as usize / 2;
-    assert!(bytes[middle..middle + 4096].iter().all(|b| *b == 0));
+    let untouched = std::fs::read(probe.root().join("02.flac")).unwrap_or_default();
+    let middle = seeder.files[1].1.len() / 2;
+    assert!(
+        untouched.iter().skip(middle).take(4096).all(|b| *b == 0),
+        "a file no probe asked for is not downloaded"
+    );
     let dir = probe.root().to_path_buf();
     drop(probe);
     assert!(wait_until(|| !dir.exists() && engine.loaded().is_empty()));

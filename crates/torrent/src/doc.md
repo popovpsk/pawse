@@ -72,7 +72,11 @@ tags from. It knows nothing about audio, the library or the media cache.
 - **Lookahead.** Each stream asks for up to 32 MB ahead of its position
   (hardcoded in librqbit), so a fast swarm delivers more than a probe asked
   for: probing 11 FLAC heads of a real album fetched about 160 MB before the
-  probe was dropped. It is deleted with the probe.
+  probe was dropped. It is deleted with the probe. The lookahead stops at the
+  end of the stream's file, so only a file no probe asked for is guaranteed to
+  stay empty — the probe test checks that one. It used to check the middle of
+  the probed file, which the loopback seeder sometimes delivered in time under
+  a parallel test run.
 - **`swarm`** reports the peers of a loaded torrent: connected now, and known
   (seen). librqbit keeps whether a peer has the whole torrent to itself, so
   seeds cannot be counted; an unloaded torrent reports nothing.
