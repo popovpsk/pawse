@@ -630,9 +630,10 @@ index.
 - `genres(sound)` — one row per `key` over the union of the tag links and the
   genre rows with `score >= min_score` on catalog tracks; `track_count`
   counts distinct tracks (a track tagged and heard as the same genre counts once), the
-  name is the tag's spelling when there is one, `tagged` says whether any tag links to
-  it. A genre only heard is listed when it has at least `min_tracks` tracks. Tagged
-  genres first, then heard ones, each by key. "On catalog tracks" is
+  name is the tag's spelling when there is one. A genre no tag links to is listed when
+  it has at least `min_tracks` tracks; a tag genre is listed however few. One order by
+  key for all of them: nothing in the row says where it came from (see `pawse`'s
+  `similar_tracks/doc.md`, "Genres by sound", for why). "On catalog tracks" is
   `s.item_id IN (SELECT +id FROM tracks)`: the `+` makes SQLite build the set from a
   scan of a `tracks` index instead of one rowid lookup in `tracks` per genre row — the
   same rows, a third of the pages on 47k tracks (926 instead of 2783), which is what a

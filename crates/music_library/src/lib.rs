@@ -6059,33 +6059,39 @@ mod tests {
         let quiet = seed_track(&lib, "Quiet", "Album", "Artist");
         lib.set_track_genres(tagged, &["ambient".into()]).unwrap();
         lib.set_track_genres(both, &["ambient".into()]).unwrap();
-        analysed(&lib, VERSION, heard, &[(AMBIENT, 0.4), (SHOEGAZE, 0.3)]);
+        analysed(
+            &lib,
+            VERSION,
+            heard,
+            &[(AMBIENT, 0.4), (SHOEGAZE, 0.3), (ALT_ROCK, 0.2)],
+        );
         analysed(&lib, VERSION, both, &[(AMBIENT, 0.5)]);
         analysed(&lib, VERSION, quiet, &[(SHOEGAZE, 0.05)]);
 
-        let summary: Vec<(String, String, i64, bool)> = lib
+        let summary: Vec<(String, String, i64)> = lib
             .genres(Some(&SOUND))
             .unwrap()
             .into_iter()
-            .map(|g| (g.key, g.name, g.track_count, g.tagged))
+            .map(|g| (g.key, g.name, g.track_count))
             .collect();
 
         assert_eq!(
             summary,
             vec![
-                ("ambient".into(), "ambient".into(), 3, true),
-                ("shoegaze".into(), "Shoegaze".into(), 1, false),
+                ("alternative rock".into(), "Alternative Rock".into(), 1),
+                ("ambient".into(), "ambient".into(), 3),
+                ("shoegaze".into(), "Shoegaze".into(), 1),
             ]
         );
-        let tags_only: Vec<(String, i64, bool)> = lib
+        let tags_only: Vec<(String, i64)> = lib
             .genres(None)
             .unwrap()
             .into_iter()
-            .map(|g| (g.key, g.track_count, g.tagged))
+            .map(|g| (g.key, g.track_count))
             .collect();
-        assert_eq!(tags_only, vec![("ambient".into(), 2, true)]);
+        assert_eq!(tags_only, vec![("ambient".into(), 2)]);
         let stricter = SoundGenres {
-            min_tracks: 2,
+            min_tracks: 4,
             ..SOUND
         };
         let keys: Vec<String> = lib

@@ -226,8 +226,6 @@ impl Render for GenresView {
         let secondary = Colors::secondary(cx);
         let list_hover = Colors::list_hover(cx);
         let muted_fg = Colors::muted_foreground(cx);
-        let foreground = Colors::foreground(cx);
-        let heard = genres::dimmed(cx);
 
         if self.is_scanning && self.genres_all.is_empty() {
             return v_flex()
@@ -290,11 +288,6 @@ impl Render for GenresView {
                                             .flex_1()
                                             .overflow_hidden()
                                             .text_ellipsis()
-                                            .text_color(if row.summary.tagged {
-                                                foreground
-                                            } else {
-                                                heard
-                                            })
                                             .child(row.name.clone()),
                                     )
                                     .child(

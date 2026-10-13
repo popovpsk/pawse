@@ -135,7 +135,6 @@ pub struct GenreSummary {
     pub key: String,
     pub name: String,
     pub track_count: i64,
-    pub tagged: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

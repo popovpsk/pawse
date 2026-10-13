@@ -2183,12 +2183,11 @@ impl LibraryRepository for SqliteLibrary {
                 key: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
-                tagged: row.get(3)?,
             })
         };
         let Some(sound) = sound else {
             let mut stmt = conn.prepare_cached(
-                "SELECT g.key, g.name, COUNT(*), 1 FROM genres g \
+                "SELECT g.key, g.name, COUNT(*) FROM genres g \
                  JOIN track_genres tg ON tg.genre_id = g.id \
                  GROUP BY g.id \
                  ORDER BY g.key",
@@ -2201,7 +2200,7 @@ impl LibraryRepository for SqliteLibrary {
         let mut stmt = conn.prepare_cached(
             "WITH sg(id, key, name) AS (SELECT value->>0, value->>1, value->>2 FROM json_each(?1)) \
              SELECT key, COALESCE(MAX(CASE WHEN tagged THEN name END), MAX(name)), \
-                    COUNT(DISTINCT track_id), MAX(tagged) \
+                    COUNT(DISTINCT track_id) \
              FROM ( \
                  SELECT g.key AS key, g.name AS name, tg.track_id AS track_id, 1 AS tagged \
                  FROM genres g JOIN track_genres tg ON tg.genre_id = g.id \
@@ -2212,7 +2211,7 @@ impl LibraryRepository for SqliteLibrary {
              ) \
              GROUP BY key \
              HAVING MAX(tagged) = 1 OR COUNT(DISTINCT track_id) >= ?3 \
-             ORDER BY MAX(tagged) DESC, key",
+             ORDER BY key",
         )?;
         let rows = stmt.query_map(
             rusqlite::params![sound_names(sound.names), sound.min_score, sound.min_tracks],

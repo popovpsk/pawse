@@ -543,9 +543,14 @@ Off, the views run their tag-only queries exactly as before.
   shows its first genre by sound in a dimmer colour than the tag genres
   (`muted_foreground` at 60%); one with tags shows its first tag as before, and the
   tooltip lists the tags, then the heard genres dimmed. The album header lists the
-  heard genres after the tag ones, dimmed. On the Genres tab a genre that is only
-  heard comes after all tagged ones, its name dimmed; a genre both tagged and heard
-  is one row, and its page holds the tracks of both (`music_library`'s union).
+  heard genres after the tag ones, dimmed. On the Genres tab tags and genres by
+  sound are one list by name, all alike: a genre both tagged and heard is one row,
+  and its page holds the tracks of both (`music_library`'s union). The tab used to
+  dim (and list last) a genre no tag names, but a row there gathers tracks from the
+  whole library, so a heard genre whose name matched a single tag looked tagged
+  while a heard one without a match looked apart — the mark said "no tag happens to
+  share the name", not "from the analysis". An album's genres are about that one
+  album, so there the dimming stays honest.
 - **Which ones** (`genres.rs`, measured on `music-test` against its tags): an album's
   genres are those whose mean score over its analysed tracks is at least `ALBUM_MIN`
   (0.12), at most `PER_ALBUM` (3), its tag genres left out by name (case-insensitive) —

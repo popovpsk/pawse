@@ -422,8 +422,8 @@ drive the `PlaybackQueue` on click.
   the same `artist_avatar`), the name and the track count. Filter matches the name.
   Reloads on `CatalogChanged` (tag edits included). With genres by sound shown
   (`genres::filter`) the list, the covers and the counts come from the union of tags and
-  heard genres (`music_library`, "Genres by sound"); genres only heard follow the
-  tagged ones with a dimmed name (`GenreSummary::tagged`). It reloads on
+  heard genres (`music_library`, "Genres by sound"), one list by name with no mark
+  of where a genre came from (`similar_tracks/doc.md`, "Genres by sound"). It reloads on
   `SoundGenresChanged` and when the filter changes (`observe_global`). No "No genre"
   pseudo-row by
   decision: in a poorly tagged library it would be the biggest row and a copy of All
