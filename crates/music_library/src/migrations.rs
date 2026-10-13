@@ -494,24 +494,6 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             photo_pending INTEGER NOT NULL DEFAULT 0,
             fetched_at INTEGER NOT NULL
         );
-        "#,
-    ),
-    (
-        13,
-        r#"
-        CREATE TABLE track_embeddings (
-            item_id    INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
-            version    TEXT    NOT NULL,
-            vector     BLOB    NOT NULL,
-            created_at INTEGER NOT NULL,
-            PRIMARY KEY (item_id, version)
-        );
-        "#,
-    ),
-    (
-        14,
-        r#"
-        DROP TABLE track_embeddings;
 
         CREATE TABLE track_embeddings (
             item_id    INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,

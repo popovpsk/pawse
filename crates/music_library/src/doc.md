@@ -667,11 +667,12 @@ wipe. `run_migrations`:
   catalog (a dangling `track_artists` row) must not turn every launch into a
   failed open.
 
-Migration 13 only creates `track_embeddings` (see "Sound vectors" above). Migration 14
-drops and recreates it with the `styles` column and adds `track_sound_genres`: the
-vectors of 13 had no style scores, an analysed track must have both, and the version
-that wrote them is gone anyway (`EMBEDDING_VERSION` changed with the weights), so the
-analysis simply runs again — derived data, no user data touched.
+Migration 12 adds what the release after 0.8.7 adds: `artist_info` (see "Artist info
+cache"), `track_embeddings` with its `styles` column (see "Sound vectors") and
+`track_sound_genres`. They were three steps during development (12–14), folded into
+one before the release; a development database that ran them is reset to 11 by
+dropping the three tables — all three hold derived rows, which come back as the
+artist lookups and the analysis run again.
 
 Everything this release adds to the schema — identity, sources, bindings,
 adoptions, `remote_tracks` — is one step, migration 9: a user upgrades once,

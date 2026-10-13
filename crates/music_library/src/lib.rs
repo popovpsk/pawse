@@ -5854,44 +5854,6 @@ mod tests {
     }
 
     #[test]
-    fn migration_to_v14_restarts_the_analysis_and_keeps_the_catalog() {
-        let path = fresh_db_path();
-        {
-            let conn = rusqlite::Connection::open(&path).unwrap();
-            for (version, sql) in migrations::MIGRATIONS.iter().filter(|(v, _)| *v <= 13) {
-                conn.execute_batch(sql).unwrap();
-                conn.pragma_update(None, "user_version", version).unwrap();
-            }
-            conn.pragma_update(None, "foreign_keys", "ON").unwrap();
-            conn.execute_batch(
-                "INSERT INTO media_items (id, title, created_at, updated_at)
-                     VALUES (5, 'Kept', 0, 0);
-                 INSERT INTO tracks (id, path, title, duration_ms)
-                     VALUES (5, '/m/kept.flac', 'Kept', 1000);
-                 INSERT INTO track_embeddings (item_id, version, vector, created_at)
-                     VALUES (5, 'old', x'0000803f', 0);",
-            )
-            .unwrap();
-        }
-        assert_eq!(user_version(&path), 13);
-
-        let lib = SqliteLibrary::open_at(&path).unwrap();
-
-        assert_eq!(user_version(&path), 14);
-        assert_eq!(lib.track(5).unwrap().unwrap().title, "Kept");
-        assert_eq!(
-            count_rows(&path, "SELECT COUNT(*) FROM track_embeddings"),
-            0
-        );
-        assert_eq!(
-            lib.save_embeddings(VERSION, &analyses(&[(5, floats(1.0, 4))]))
-                .unwrap(),
-            1
-        );
-        assert_eq!(lib.embedding(5, VERSION).unwrap(), Some(floats(1.0, 4)));
-    }
-
-    #[test]
     fn a_vector_comes_back_bit_for_bit() {
         let (lib, _path) = create_test_db();
         let id = seed_track(&lib, "Song", "Album", "Artist");
