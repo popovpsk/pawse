@@ -13,7 +13,7 @@ use ui_components::cover_thumb::artist_tile;
 use ui_resources::i18n::{ArtistCardStrings, active, artist_card_strings_for};
 
 use crate::artist_photos::PhotoTiles;
-use crate::cover_art_cache::render_tile;
+use crate::cover_art_cache::{drop_atlas_tile, render_tile};
 use crate::library_service::{LibraryEvent, LibraryService};
 use crate::localization::{LangChanged, LangEventBus};
 use crate::services::LibraryEventsBus;
@@ -39,6 +39,15 @@ enum Slot {
         facts: Box<ArtistFacts>,
         card: Option<Rc<Card>>,
     },
+}
+
+fn slot_photo(slot: &Slot) -> Option<Arc<RenderImage>> {
+    match slot {
+        Slot::Ready {
+            card: Some(card), ..
+        } => card.photo.clone(),
+        _ => None,
+    }
 }
 
 enum Step {
@@ -240,7 +249,12 @@ impl ArtistCards {
                     },
                     None => Slot::Missing,
                 };
-                this.cards.insert(name, slot);
+                let photo = slot_photo(&slot);
+                if let Some(old) = this.cards.insert(name, slot).as_ref().and_then(slot_photo)
+                    && !photo.as_ref().is_some_and(|new| Arc::ptr_eq(new, &old))
+                {
+                    drop_atlas_tile(old, cx);
+                }
                 cx.notify();
             })
             .ok();

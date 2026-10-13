@@ -180,6 +180,7 @@ impl PlaybackQueue {
         self.source = source;
         self.custom = false;
         self.mixed.clear();
+        self.heard.clear();
         self.current_index = tracks
             .get(index)
             .filter(|track| track.available)
@@ -188,6 +189,7 @@ impl PlaybackQueue {
         if self.shuffle {
             self.apply_shuffle();
         }
+        self.note_current();
         self.current_index.and_then(|i| self.tracks.get(i))
     }
 
@@ -721,6 +723,20 @@ mod tests {
         assert!(queue.snapshot().played_tail(5).is_empty());
         queue.play_track_at(0);
         assert_eq!(queue.snapshot().played_tail(5), vec![9]);
+    }
+
+    #[test]
+    fn clicking_a_track_of_a_new_list_starts_the_tail_from_it() {
+        let mut queue = heard_queue(5);
+        queue.play_track_at(2);
+        queue.next_track();
+        let list: Vec<Rc<Track>> = (20..23)
+            .map(|id| track(id, &format!("/{id}.flac")))
+            .collect();
+        queue.set_tracks_and_play_at(list, 1, QueueSource::Unknown);
+        assert_eq!(queue.snapshot().played_tail(5), vec![21]);
+        queue.next_track();
+        assert_eq!(queue.snapshot().played_tail(5), vec![21, 22]);
     }
 
     #[test]

@@ -162,6 +162,13 @@ impl Worker {
                 return Err(Model::Unavailable(Phase::NoGpu));
             }
             Ok(Availability::Failed(reason)) => {
+                if let Ok(true) = audio_embedding::model_file::discard_if_corrupt(&self.model_dir) {
+                    log::warn!(
+                        "similar tracks: the GPU check failed on a corrupt model file, which is \
+                         removed: {reason}"
+                    );
+                    return Err(Model::Missing);
+                }
                 log::error!("similar tracks: no graphics adapter passed the check: {reason}");
                 return Err(Model::Unavailable(Phase::GpuFailed));
             }

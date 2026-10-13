@@ -108,9 +108,12 @@ failed download is not cancellable and runs to its own timeout.
   event, so starting offline only postpones the analysis. `ensure` trusts a file of the
   right size without hashing it; when such a file does not parse, `discard_if_corrupt`
   hashes it and deletes it if the SHA is wrong, so the next pass downloads it again (a
-  genuine file is kept, not re-downloaded on every pass). No hardware adapter
-  (`Phase::NoGpu`) or no adapter that passes the probe (`Phase::GpuFailed`) is final for
-  the session: every later pass only sets the phase. The log says which adapter the
+  genuine file is kept, not re-downloaded on every pass). A probe that fails on every
+  adapter also hashes the file first: a file of the right size with damaged bytes parses
+  but computes garbage, so a wrong SHA deletes it and the phase is `NoModel` (downloaded
+  again at the next attempt) rather than `GpuFailed`. No hardware adapter
+  (`Phase::NoGpu`) or no adapter that passes the probe with a genuine file
+  (`Phase::GpuFailed`) is final for the session: every later pass only sets the phase. The log says which adapter the
   model runs on and how well the probe agreed.
 - `CatalogChanged` and `RemoteSyncFinished` queue another pass. The queue is a
   `bounded(1)` channel: passes never overlap, and any number of events during a pass
@@ -460,7 +463,9 @@ automatic action does not notify; what goes wrong is logged.
   one that ended (`QueueSnapshot::played_tail`). `PlaybackQueue` keeps the ids of the
   tracks that became current (`heard`, the last 16: the next track, a jump, "previous",
   the track that took a removed current one's place, the current one after a
-  restore) and forgets them with a new queue, so starting the last row of a long list
+  restore, the clicked row of a list that replaces the queue — `set_tracks_and_play_at`,
+  also the radio's kept track) and forgets them with a new queue, so starting the last
+  row of a long list
   seeds with that row alone, not with four neighbours nobody heard; positions are not
   used, so moving, removing and shuffling cannot shift it. A track heard twice counts
   once; fewer heard tracks give what there is, a single one itself. Starting from their mean rather than the last track
@@ -522,7 +527,9 @@ extra pass, no second download and no switch of its own for the analysis. What t
 user switches is the display: "Genres by sound" under the queue continuation
 (`sound_genres_shown`, off by default; `genres::shown` also needs the main switch and
 a graphics card — the views agree with the switch, which shows off and greyed out
-without one, even when an earlier session left genre rows in the database).
+without one, even when an earlier session left genre rows in the database; when the
+startup GPU check finds none, `check_gpu` touches `SettingsStore` so the views'
+settings observers drop what they loaded before the answer).
 Off, the views run their tag-only queries exactly as before.
 
 - **Where they show.** In the album list's genre column, an album without tag genres

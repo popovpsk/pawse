@@ -543,7 +543,9 @@ drive the `PlaybackQueue` on click.
   **Card cache**: `load(name)` reads the row and decodes the photo (cut to 300 px,
   2× the tile, `cover_art_cache::render_tile`) on the background executor; the
   slot keeps the facts, the photo and the built `Rc<Card>` for the session (photo
-  atlas tile ~350 KB, stable id, never dropped). A language switch only rebuilds the text
+  atlas tile ~350 KB, stable id). A card read again (`refresh` after the indexer saved
+  the artist) gets a new photo, so the old one's tile is released (`drop_atlas_tile`,
+  deferred); otherwise it is never dropped. A language switch only rebuilds the text
   lines from the kept facts (`relabel`), synchronously: same photo, same tile,
   no reload and no flicker. Sizes are fixed px like the album page's (title plus
   three `text_sm` lines still fit in 150 px at `FontScale::Large`). Whenever the

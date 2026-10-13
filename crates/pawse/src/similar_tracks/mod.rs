@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use audio_embedding::EMBEDDING_VERSION;
 
-use gpui::{App, AppContext, Global};
+use gpui::{App, AppContext, BorrowAppContext, Global};
 use music_library::LibraryRepository;
 
 use crate::library_service::LibraryEvent;
@@ -164,12 +164,16 @@ fn check_gpu(cx: &mut App) {
                     "similar tracks: no hardware graphics adapter, sound analysis is unavailable"
                 ),
             }
+            let missing = adapter.is_none();
             cx.global_mut::<State>().gpu = match adapter {
                 Some(_) => Gpu::Found,
                 None => Gpu::Missing,
             };
             if cx.global::<SettingsStore>().similar_tracks_enabled() {
                 start(cx);
+            }
+            if missing {
+                cx.update_global::<SettingsStore, _>(|_, _| {});
             }
             cx.refresh_windows();
         });
