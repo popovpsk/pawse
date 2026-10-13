@@ -43,6 +43,11 @@ every server that serves byte ranges).
   Any progress resets the count. Until the first byte arrives only two retries
   are made (under a second): a server that refuses the very first request is
   down, and the user is waiting on a click. `FetchError::Fatal` fails at once.
+  A failed or cancelled download has already deleted its `.partial`, so
+  `Download::reader` checks the outcome first and returns that error; opening the
+  file would give a bare "No such file or directory" instead of the server's reason
+  whenever the worker failed before the caller asked (a fast 404 when opening a
+  server track; also what made the fatal-error test flaky on CI).
   `AbortHandle::failure` gives the reason to whoever holds the handle, since a
   decoder probing the format may hide the read error behind its own.
 - **Partial names** carry the process id and a counter

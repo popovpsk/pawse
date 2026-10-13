@@ -286,11 +286,17 @@ fn a_fatal_error_fails_readers_and_leaves_nothing_behind() {
     let fake = Arc::new(fake);
     let dest = temp_dest("fatal.flac");
     let download = start(&fake, &dest);
-    let mut reader = download.reader().unwrap();
-    let mut buf = [0u8; 10];
-    let error = reader.read(&mut buf).unwrap_err();
-    assert!(error.to_string().contains("gone"));
+    let error = match download.reader() {
+        Ok(mut reader) => reader.read(&mut [0u8; 10]).unwrap_err(),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("gone"), "{error}");
     assert!(download.wait().is_err());
+    let late = download
+        .reader()
+        .err()
+        .expect("a failed download opens no reader");
+    assert!(late.to_string().contains("gone"), "{late}");
     assert!(!dest.exists());
     assert!(leftovers(&dest).is_empty());
 }

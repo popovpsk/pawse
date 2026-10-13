@@ -100,6 +100,16 @@ enum Outcome {
     Cancelled,
 }
 
+impl Outcome {
+    fn ended(&self) -> Option<io::Error> {
+        match self {
+            Outcome::Failed(message) => Some(io::Error::other(message.clone())),
+            Outcome::Cancelled => Some(io::Error::other("the download was cancelled")),
+            Outcome::Running | Outcome::Complete => None,
+        }
+    }
+}
+
 struct State {
     location: PathBuf,
     total: Option<u64>,
@@ -220,6 +230,9 @@ impl Download {
 
     pub fn reader(&self) -> io::Result<StreamReader> {
         let mut state = self.shared.lock();
+        if let Some(error) = state.outcome.ended() {
+            return Err(error);
+        }
         let file = File::open(&state.location)?;
         state.interest += 1;
         Ok(StreamReader {
@@ -327,10 +340,8 @@ impl StreamReader {
             if let Some(value) = ready(&state) {
                 return Ok(value);
             }
-            match &state.outcome {
-                Outcome::Failed(message) => return Err(io::Error::other(message.clone())),
-                Outcome::Cancelled => return Err(io::Error::other("the download was cancelled")),
-                Outcome::Running | Outcome::Complete => {}
+            if let Some(error) = state.outcome.ended() {
+                return Err(error);
             }
             if self
                 .superseded
