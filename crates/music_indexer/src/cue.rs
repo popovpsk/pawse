@@ -1,11 +1,12 @@
 //! CUE-sheet business logic: expanding one `.cue` file into the individual
-//! tracks it describes, resolving the referenced audio file, and inferring
+//! tracks it describes, resolving the referenced audio files, and inferring
 //! disc/album metadata from multi-disc folder layouts. This module is pure
 //! parsing logic with no knowledge of threading — the pipeline drives it.
 
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
+use cue_parser::{CueSheet, CueTrack};
 use lofty::file::AudioFile;
 use lofty::prelude::TaggedFileExt;
 
@@ -25,32 +26,86 @@ pub fn read_cue_text(cue_path: &Path) -> std::io::Result<String> {
     }
 }
 
-pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
+pub struct ResolvedCue {
+    pub sheet: CueSheet,
+    pub audio: BTreeMap<usize, PathBuf>,
+}
+
+pub fn read_cue(cue_path: &Path) -> anyhow::Result<Option<ResolvedCue>> {
     let content = read_cue_text(cue_path)?;
     let sheet = cue_parser::parse(&content)?;
+    if is_split_rip(&sheet) {
+        return Ok(None);
+    }
+
     let cue_dir = cue_path.parent().unwrap_or(Path::new("."));
+    let mut audio = BTreeMap::new();
+    for track in &sheet.tracks {
+        if audio.contains_key(&track.file) {
+            continue;
+        }
+        let name = &sheet.files[track.file].name;
+        let Some(path) = resolve_audio_file(cue_dir, name) else {
+            anyhow::bail!(
+                "referenced audio file not found: {}",
+                cue_dir.join(name).display()
+            );
+        };
+        audio.insert(track.file, path);
+    }
+    Ok(Some(ResolvedCue { sheet, audio }))
+}
 
-    let audio_path = match resolve_audio_file(cue_dir, &sheet.file.name) {
-        Some(path) => path,
-        None => anyhow::bail!(
-            "referenced audio file not found: {}",
-            cue_dir.join(&sheet.file.name).display()
-        ),
-    };
+fn is_split_rip(sheet: &CueSheet) -> bool {
+    let files: HashSet<usize> = sheet.tracks.iter().map(|track| track.file).collect();
+    sheet.tracks.len() > 1 && files.len() == sheet.tracks.len()
+}
 
-    let tagged_file = lofty::read_from_path(&audio_path)?;
-    let file_duration_ms = tagged_file.properties().duration().as_millis() as u64;
+struct CueAudio {
+    path: PathBuf,
+    duration_ms: u64,
+    bitrate: Option<u32>,
+    cover_art: Option<(Vec<u8>, PathBuf, bool)>,
+}
+
+fn read_cue_audio(path: PathBuf) -> anyhow::Result<CueAudio> {
+    let tagged_file = lofty::read_from_path(&path)?;
+    let duration_ms = tagged_file.properties().duration().as_millis() as u64;
     let bitrate = tagged_file.properties().audio_bitrate();
 
     let cover_art = tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag())
         .and_then(embedded_cover)
-        .map(|data| (data, audio_path.clone(), true))
+        .map(|data| (data, path.clone(), true))
         .or_else(|| {
-            find_external_cover_art(&audio_path)
-                .map(|(data, source_path)| (data, source_path, false))
+            find_external_cover_art(&path).map(|(data, source_path)| (data, source_path, false))
         });
+
+    Ok(CueAudio {
+        path,
+        duration_ms,
+        bitrate,
+        cover_art,
+    })
+}
+
+fn start_ms(track: &CueTrack) -> u64 {
+    track
+        .start()
+        .map_or(0, |start| start.position.as_millis() as u64)
+}
+
+pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
+    let Some(ResolvedCue { sheet, audio }) = read_cue(cue_path)? else {
+        return Ok(Vec::new());
+    };
+    let cue_dir = cue_path.parent().unwrap_or(Path::new("."));
+
+    let mut files = BTreeMap::new();
+    for (index, path) in audio {
+        files.insert(index, read_cue_audio(path)?);
+    }
 
     // Multi-disc rips lay each disc out in a `CD1`/`CD2` (or `Disc N`) subfolder. The
     // CUE format has no disc field and these whole-disc files usually carry no tags, so
@@ -76,28 +131,16 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
     let disc_number = Some(folder_disc.unwrap_or(1));
 
     let mut tracks = Vec::new();
-    let track_count = sheet.tracks.len();
 
     for (i, cue_track) in sheet.tracks.iter().enumerate() {
-        let index_01 = cue_track
-            .indices
-            .iter()
-            .find(|idx| idx.number == 1)
-            .map(|idx| idx.position)
-            .unwrap_or(Duration::ZERO);
+        let file = &files[&cue_track.file];
+        let start_offset_ms = start_ms(cue_track);
 
-        let start_offset_ms = index_01.as_millis() as u64;
-
-        let duration_ms = if i + 1 < track_count {
-            let next_index_01 = sheet.tracks[i + 1]
-                .indices
-                .iter()
-                .find(|idx| idx.number == 1)
-                .map(|idx| idx.position)
-                .unwrap_or(Duration::ZERO);
-            next_index_01.saturating_sub(index_01).as_millis() as u64
-        } else {
-            file_duration_ms.saturating_sub(start_offset_ms)
+        let duration_ms = match sheet.tracks.get(i + 1) {
+            Some(next) if next.file == cue_track.file => {
+                start_ms(next).saturating_sub(start_offset_ms)
+            }
+            _ => file.duration_ms.saturating_sub(start_offset_ms),
         };
 
         let title = Some(cue_track.title.clone());
@@ -112,7 +155,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
         let year = sheet.date.as_ref().and_then(|d| d.parse::<i32>().ok());
 
         tracks.push(ScannedTrack {
-            path: audio_path.clone(),
+            path: file.path.clone(),
             title,
             artist_names,
             album_artist_names,
@@ -122,15 +165,15 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             year,
             genres: music_library::normalize_genres(sheet.genre.as_deref().into_iter()),
             duration_ms: Some(duration_ms),
-            cover_art: cover_art
-                .clone()
-                .map(|(data, source_path, embedded)| CoverArt::Bytes {
+            cover_art: file.cover_art.clone().map(|(data, source_path, embedded)| {
+                CoverArt::Bytes {
                     data,
                     source_path,
                     embedded,
-                }),
+                }
+            }),
             start_offset_ms: Some(start_offset_ms),
-            bitrate,
+            bitrate: file.bitrate,
             is_cue: true,
             lyrics: Vec::new(),
         });

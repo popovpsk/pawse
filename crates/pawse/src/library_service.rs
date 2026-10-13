@@ -41,6 +41,7 @@ struct ScanState {
     watch_pending: AtomicBool,
     last_change: Mutex<Option<Instant>>,
     last_finished: Mutex<Option<Instant>>,
+    reported_scan_errors: Mutex<HashSet<(PathBuf, String)>>,
 }
 
 pub struct RescanHold(Arc<ScanState>);
@@ -1507,7 +1508,15 @@ impl LibraryService {
             let first = !state.warned_unavailable.swap(true, Ordering::AcqRel);
             (manual || first).then_some(folder)
         };
-        Self::scan_available(repo, event_tx.clone(), inner_executor, scope, manual).await;
+        Self::scan_available(
+            repo,
+            event_tx.clone(),
+            inner_executor,
+            scope,
+            manual,
+            &state.reported_scan_errors,
+        )
+        .await;
         if let Some(folder) = warning {
             let _ = event_tx.send(LibraryEvent::ScanFolderUnavailable { folder });
         }
@@ -1519,6 +1528,7 @@ impl LibraryService {
         inner_executor: gpui::BackgroundExecutor,
         scope: ScanScope,
         manual: bool,
+        reported_errors: &Mutex<HashSet<(PathBuf, String)>>,
     ) {
         // Cheap walk + fingerprint. Fast path: if nothing on disk changed
         // since the last successful scan, skip all DB work entirely. This
@@ -1538,6 +1548,9 @@ impl LibraryService {
 
         let _ = event_tx.send(LibraryEvent::ScanStarted);
         let fingerprint = sources.fingerprint.clone();
+        if manual {
+            reported_errors.lock().unwrap().clear();
+        }
 
         if let Err(e) = repo.reconcile_local_sources(&scope.local_folders()) {
             log::error!("Failed to reconcile library folders: {}", e);
@@ -1626,7 +1639,12 @@ impl LibraryService {
                     let _ = event_tx.send(LibraryEvent::ScanProgress { scanned });
                 }
                 Ok(ScanEvent::Error { path, error }) => {
-                    log::error!("Scan error for {}: {}", path.display(), error);
+                    let mut reported = reported_errors.lock().unwrap();
+                    let key = (path, error);
+                    if !reported.contains(&key) {
+                        log::warn!("Scan error for {}: {}", key.0.display(), key.1);
+                        reported.insert(key);
+                    }
                 }
                 Ok(ScanEvent::Complete) => {
                     completed = true;

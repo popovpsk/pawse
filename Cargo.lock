@@ -5767,6 +5767,7 @@ dependencies = [
  "lofty",
  "log",
  "music_library",
+ "rstest",
 ]
 
 [[package]]

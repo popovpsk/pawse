@@ -139,18 +139,15 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
     }
 }
 
-/// Audio referenced by a cue is expanded via the cue, so drop it from the
+/// Audio a cue expands (see [`cue::read_cue`]) is dropped from the
 /// standalone set to avoid double-indexing. Kept out of the stat-only
 /// [`collect_sources`] (and thus the fast path) — it parses every cue and
 /// canonicalizes paths, which only a real scan should pay for.
 fn drop_cue_referenced_audio(cue_files: &[PathBuf], audio_files: &mut Vec<PathBuf>) {
     let mut skip = HashSet::<PathBuf>::new();
     for cue_path in cue_files {
-        if let Ok(content) = cue::read_cue_text(cue_path)
-            && let Ok(sheet) = cue_parser::parse(&content)
-        {
-            let cue_dir = cue_path.parent().unwrap_or(Path::new("."));
-            if let Some(audio) = cue::resolve_audio_file(cue_dir, &sheet.file.name) {
+        if let Ok(Some(cue)) = cue::read_cue(cue_path) {
+            for audio in cue.audio.into_values() {
                 let canonical = std::fs::canonicalize(&audio).unwrap_or(audio);
                 skip.insert(canonical);
             }

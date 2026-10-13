@@ -1176,6 +1176,339 @@ FILE \"disc2.flac\" WAVE
         );
     }
 
+    fn scanned(dir: &Path) -> (Vec<crate::PreparedTrack>, Vec<(PathBuf, String)>) {
+        let mut tracks = Vec::new();
+        let mut errors = Vec::new();
+        for event in collect_scan_events(dir) {
+            match event {
+                ScanEvent::Track(track) => tracks.push(track),
+                ScanEvent::Error { path, error } => errors.push((path, error)),
+                _ => {}
+            }
+        }
+        tracks.sort_by(|a, b| (&a.path, a.start_offset_ms).cmp(&(&b.path, b.start_offset_ms)));
+        (tracks, errors)
+    }
+
+    fn file_names(tracks: &[crate::PreparedTrack]) -> Vec<String> {
+        tracks
+            .iter()
+            .map(|t| t.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    const SPLIT_RIP_CUE: &str = "\
+PERFORMER \"Soundgarden\"
+TITLE \"Superunknown\"
+FILE \"01 - One.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"Two\"
+    INDEX 00 00:00:30
+FILE \"02 - Two.flac\" WAVE
+    INDEX 01 00:00:00
+";
+
+    const SPLIT_RIP_CUE_WITH_DATA_TRACK: &str = "\
+PERFORMER \"Linkin Park\"
+TITLE \"Meteora\"
+FILE \"01 - One.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+FILE \"02 - Two.wav\" WAVE
+  TRACK 02 AUDIO
+    TITLE \"Two\"
+    INDEX 01 00:00:00
+  TRACK 03 MODE1/2352
+    TITLE \"DATA\"
+    INDEX 01 00:00:20
+";
+
+    #[rstest::rstest]
+    #[case::gaps_appended(SPLIT_RIP_CUE)]
+    #[case::enhanced_cd(SPLIT_RIP_CUE_WITH_DATA_TRACK)]
+    fn test_scanner_split_rip_cue_leaves_tracks_to_their_tags(#[case] cue: &str) {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("01 - One.flac"));
+        copy_fixture("tagged_basic.flac", &dir.join("02 - Two.flac"));
+        std::fs::write(dir.join("album.cue"), cue).unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert!(
+            errors.is_empty(),
+            "a split-rip cue is not an error: {errors:?}"
+        );
+        assert_eq!(file_names(&tracks), ["01 - One.flac", "02 - Two.flac"]);
+        for track in &tracks {
+            assert!(!track.is_cue, "split files must index standalone");
+            assert_eq!(track.start_offset_ms, None);
+            assert_eq!(
+                track.title.as_deref(),
+                Some("Test Track"),
+                "titles come from the files' tags, not the cue"
+            );
+            assert_eq!(track.duration_ms, Some(500));
+        }
+    }
+
+    #[test]
+    fn test_scanner_split_rip_cue_with_missing_files_is_silent() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("01 - One.flac"));
+        std::fs::write(dir.join("album.cue"), SPLIT_RIP_CUE).unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert!(
+            errors.is_empty(),
+            "a split-rip cue is never resolved, so a missing file is not its error: {errors:?}"
+        );
+        assert_eq!(file_names(&tracks), ["01 - One.flac"]);
+        assert!(!tracks[0].is_cue);
+    }
+
+    #[test]
+    fn test_scanner_cue_over_two_images() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("CD1.flac"));
+        copy_fixture("tagged_basic.flac", &dir.join("CD2.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "\
+PERFORMER \"Artist\"
+TITLE \"Double\"
+FILE \"CD1.wav\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"A\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"B\"
+    INDEX 01 00:00:15
+FILE \"CD2.wav\" WAVE
+  TRACK 03 AUDIO
+    TITLE \"C\"
+    INDEX 01 00:00:00
+  TRACK 04 AUDIO
+    TITLE \"D\"
+    INDEX 00 00:00:20
+    INDEX 01 00:00:30
+",
+        )
+        .unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            file_names(&tracks),
+            ["CD1.flac", "CD1.flac", "CD2.flac", "CD2.flac"],
+            "every image expands via the cue and none is also indexed standalone"
+        );
+        let titles: Vec<_> = tracks.iter().map(|t| t.title.as_deref()).collect();
+        assert_eq!(titles, [Some("A"), Some("B"), Some("C"), Some("D")]);
+        let numbers: Vec<_> = tracks.iter().map(|t| t.track_number).collect();
+        assert_eq!(numbers, [Some(1), Some(2), Some(3), Some(4)]);
+        let offsets: Vec<_> = tracks.iter().map(|t| t.start_offset_ms).collect();
+        assert_eq!(offsets, [Some(0), Some(200), Some(0), Some(400)]);
+        let durations: Vec<_> = tracks.iter().map(|t| t.duration_ms).collect();
+        assert_eq!(
+            durations,
+            [Some(200), Some(300), Some(400), Some(100)],
+            "a file's last track runs to that file's end, not into the next file"
+        );
+        assert!(tracks.iter().all(|t| t.is_cue));
+        assert!(
+            tracks
+                .iter()
+                .all(|t| t.album_title.as_deref() == Some("Double") && t.disc_number == Some(1))
+        );
+    }
+
+    #[test]
+    fn test_scanner_cue_with_one_multi_track_file_expands_every_file() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("01.flac"));
+        copy_fixture("tagged_basic.flac", &dir.join("02.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "\
+TITLE \"Hidden\"
+FILE \"01.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"Opener\"
+    INDEX 01 00:00:00
+FILE \"02.flac\" WAVE
+  TRACK 02 AUDIO
+    TITLE \"Closer\"
+    INDEX 01 00:00:00
+  TRACK 03 AUDIO
+    TITLE \"Hidden Track\"
+    INDEX 01 00:00:15
+",
+        )
+        .unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        let titles: Vec<_> = tracks.iter().map(|t| t.title.as_deref()).collect();
+        assert_eq!(
+            titles,
+            [Some("Opener"), Some("Closer"), Some("Hidden Track")],
+            "one file holding two tracks makes the cue authoritative for the whole album"
+        );
+        assert!(tracks.iter().all(|t| t.is_cue));
+        assert_eq!(tracks[0].start_offset_ms, Some(0));
+        assert_eq!(tracks[0].duration_ms, Some(500));
+    }
+
+    #[test]
+    fn test_scanner_cue_track_without_index_01_fails_the_cue() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("01 - One.flac"));
+        copy_fixture("tagged_basic.flac", &dir.join("02 - Two.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "\
+FILE \"01 - One.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"Two\"
+    INDEX 00 00:00:30
+",
+        )
+        .unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].1.contains("no INDEX 01"), "{}", errors[0].1);
+        assert_eq!(
+            file_names(&tracks),
+            ["01 - One.flac", "02 - Two.flac"],
+            "a track with no start must not land on offset 0 next to track 1"
+        );
+        assert!(tracks.iter().all(|t| !t.is_cue));
+    }
+
+    #[test]
+    fn test_scanner_cue_over_two_images_with_missing_image() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("CD1.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "\
+FILE \"CD1.flac\" WAVE
+  TRACK 01 AUDIO
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    INDEX 01 00:00:15
+FILE \"CD2.flac\" WAVE
+  TRACK 03 AUDIO
+    INDEX 01 00:00:00
+  TRACK 04 AUDIO
+    INDEX 01 00:00:15
+",
+        )
+        .unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].0.ends_with("album.cue"));
+        assert!(
+            errors[0].1.contains("CD2.flac"),
+            "the error names the missing image: {}",
+            errors[0].1
+        );
+        assert_eq!(
+            file_names(&tracks),
+            ["CD1.flac"],
+            "an unusable cue must not hide the image that is there"
+        );
+        assert!(!tracks[0].is_cue);
+    }
+
+    #[test]
+    fn test_scanner_cue_repeating_file_per_track_expands_the_image() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("album.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "\
+FILE \"album.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+FILE \"album.flac\" WAVE
+  TRACK 02 AUDIO
+    TITLE \"Two\"
+    INDEX 01 00:00:15
+",
+        )
+        .unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        let titles: Vec<_> = tracks.iter().map(|t| t.title.as_deref()).collect();
+        assert_eq!(
+            titles,
+            [Some("One"), Some("Two")],
+            "not mistaken for a split rip and indexed as one whole-image track"
+        );
+        let durations: Vec<_> = tracks.iter().map(|t| t.duration_ms).collect();
+        assert_eq!(durations, [Some(200), Some(300)]);
+    }
+
+    #[test]
+    fn test_scanner_cue_image_with_data_track() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture("tagged_basic.flac", &dir.join("album.flac"));
+        std::fs::write(
+            dir.join("album.cue"),
+            "\
+FILE \"album.flac\" WAVE
+  TRACK 01 AUDIO
+    TITLE \"One\"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE \"Two\"
+    INDEX 01 00:00:15
+  TRACK 03 MODE1/2352
+    TITLE \"DATA\"
+    INDEX 01 00:00:30
+",
+        )
+        .unwrap();
+
+        let (tracks, errors) = scanned(dir);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        let titles: Vec<_> = tracks.iter().map(|t| t.title.as_deref()).collect();
+        assert_eq!(titles, [Some("One"), Some("Two")]);
+        assert!(tracks.iter().all(|t| t.is_cue));
+        assert_eq!(
+            tracks[1].duration_ms,
+            Some(300),
+            "the data track does not cut the last audio track short"
+        );
+    }
+
     // ── pipeline: cover dedup / known hashes ──────────────────────────
 
     #[test]

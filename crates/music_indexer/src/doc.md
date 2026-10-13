@@ -36,7 +36,9 @@ own *parsing rules*. Either can change without touching the other.
   `is_artwork_dir_name`), so a caller that only has a file list — the torrent
   source in `pawse` — picks the same cover the scan would, without reading any
   image.
-- `cue.rs` — CUE-sheet business logic: `process_cue_file` (one `.cue` → many
+- `cue.rs` — CUE-sheet business logic: `read_cue` (parse, split-rip check and
+  resolution of every audio file the tracks live in — the one decision both `run`'s
+  de-dup pass and `process_cue_file` take), `process_cue_file` (one `.cue` → many
   `ScannedTrack`), audio-file resolution, multi-disc folder inference, and
   `read_cue_text` (encoding-tolerant CUE reader).
 - `scanner.rs` — `DirectoryScanner::scan`, a one-shot convenience wrapper
@@ -71,20 +73,54 @@ own *parsing rules*. Either can change without touching the other.
 - **CUE files may not be UTF-8.** EAC and similar rippers write Windows-1252
   (e.g. a `0x92` curly apostrophe in "I'm Alive"), which `std::fs::read_to_string`
   rejects. Always read CUE text via `cue::read_cue_text` (UTF-8 first, then a
-  Windows-1252 fallback that never fails). It is used in **both** `process_cue_file`
-  and `run`'s de-dup pass — they must agree, or the CUE's audio file is dropped
-  from the skip set and gets double-indexed.
+  Windows-1252 fallback that never fails). Both `process_cue_file` and `run`'s
+  de-dup pass reach it through `cue::read_cue` — they must agree, or the CUE's
+  audio file is dropped from the skip set and gets double-indexed.
 
-- **CUE de-duplication.** Audio referenced by a `.cue` is expanded via the cue, so
-  `run` (not the stat-only `collect_sources`) removes it from the standalone audio
+- **CUE de-duplication.** Audio a `.cue` expands (`read_cue`'s resolved files) is
+  removed by `run` (not the stat-only `collect_sources`) from the standalone audio
   set (compared by `canonicalize`d path) to avoid indexing the whole-album file
   twice. Keeping this in `run` means the fast path never parses cues or
-  canonicalizes; only a real scan pays for it.
+  canonicalizes; only a real scan pays for it. A cue that fails (parse error, a
+  referenced file missing) expands nothing and drops nothing, so its audio is still
+  indexed standalone next to the `ScanEvent::Error`.
 
-- **CUE track durations / offsets.** Each track's start is its `INDEX 01`; its
-  duration is the next track's `INDEX 01` minus its own, and the last track runs to
-  the audio file's full duration (read once via `lofty`). CUE tracks share one
-  `path`, distinguished by `start_offset_ms`.
+- **Split-rip cues are skipped, silently.** EAC and friends write a cue next to a
+  rip with one file per track (`FILE` per `TRACK`, the gap before a track often
+  written as an `INDEX 00` at the end of the previous file). When more than one
+  track exists and no file holds two of them (a `FILE` line repeated with the same
+  name is the same file — some tools write one before every track of an image),
+  `read_cue` returns `None`: the cue adds nothing over the files' own tags, and
+  indexing the files standalone keeps them first-class (lyrics, tag edits, casting
+  the original). No tracks, no error, files not dropped, and no file resolution —
+  so missing files in such a cue are not reported either. A one-track single-file
+  cue still expands via the cue, as before.
+
+- **Cues over several files.** Once any file holds two or more tracks (one cue for
+  `CD1.flac` + `CD2.flac`, vinyl sides, a hidden track inside the last split file)
+  the cue is authoritative for every file it names: all of them expand via the cue
+  and all are dropped from the standalone set, so the album is not split between
+  cue tracks and tag tracks. Every referenced file must resolve, otherwise the
+  whole cue is an error. Disc number still comes only from the folder; the cue's
+  track numbers run on across files.
+
+- **Data tracks.** `TRACK nn MODE1/2352` and other non-`AUDIO` tracks (enhanced
+  CDs) are skipped by `cue_parser`; their `INDEX` lines never attach to the
+  preceding audio track. Before this they failed the whole sheet with
+  "no AUDIO tracks found". The multi-file and data-track handling did not bump
+  `INDEXER_FORMAT_VERSION` (by decision): it only changes cues that used to fail
+  outright, and those pick up the new expansion on the next real rescan.
+
+- **CUE track durations / offsets.** Each track's start is its `INDEX 01` (in the
+  file that `INDEX 01` is written under); its duration is the next track's
+  `INDEX 01` minus its own when the next track is in the same file, otherwise the
+  track runs to the end of its own file (each file's duration read once via
+  `lofty`). CUE tracks of one file share its `path`, distinguished by
+  `start_offset_ms`; the cover is read per file. A track with no `INDEX 01` (only
+  an `INDEX 00`, e.g. a truncated split-rip cue) fails the whole sheet in
+  `cue_parser` instead of landing on offset 0 next to track 1, where it would hit
+  the `(path, start_offset_ms)` unique index. The start rule lives in one place,
+  `CueTrack::start`.
 
 - **Multi-disc CUE albums.** The CUE format has no disc field. When a cue sits in a
   `CD1`/`Disc 2`/etc. folder (`parse_disc_folder`), the disc number comes from the
