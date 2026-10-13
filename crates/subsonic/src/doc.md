@@ -79,10 +79,14 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   scaled yet, so when the file its artwork record points at is gone or changed
   (music folder moved, file rewritten) the 320 px copy still comes back and a
   bigger size is the placeholder; the failed request queues a re-resolution, so
-  the next one usually works. `is_placeholder_cover` recognises the picture by
-  length and MD5: the same 69 228-byte WebP since 0.55.2 (earlier versions had a
-  different one and are not recognised). `cover_art` still returns it as is; the
-  caller decides.
+  the next one usually works. Navidrome sends the resource file unscaled whatever
+  size was asked for, so `is_placeholder_cover` recognises it by length and MD5
+  against the three files it has shipped: `placeholder.png` (0.50–0.53), the
+  first `album-placeholder.webp` (0.54–0.55.1) and the current one (0.55.2 on). A
+  future picture we do not know yet reads as real art. `Cache-Control: no-store`
+  (0.64 sets it on the placeholder) is not used: a proxy in front of the server
+  can send it for real covers too. `cover_art` still returns the picture as is;
+  the caller decides.
 - **Audio.** `fetch_range` asks `download` (the original file, never a
   transcode) for a byte range and reports where the body starts and the file's
   total size from `Content-Range`. A `200` reply means the server ignored the

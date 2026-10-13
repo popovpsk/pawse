@@ -18,8 +18,11 @@ const ERROR_WRONG_CREDENTIALS: i64 = 40;
 const ERROR_TOKEN_AUTH_UNSUPPORTED: i64 = 41;
 const ERROR_NOT_AUTHORIZED: i64 = 50;
 const ERROR_NOT_FOUND: i64 = 70;
-const NAVIDROME_PLACEHOLDER_LEN: usize = 69_228;
-const NAVIDROME_PLACEHOLDER_MD5: &str = "83d193cefca2810f217cffd533241508";
+const NAVIDROME_PLACEHOLDERS: [(usize, &str); 3] = [
+    (300_162, "7aa122cd523ed1f6a77aa512df21644d"),
+    (17_464, "4b0f367782816e4fc2f30c1fb2ecbf06"),
+    (69_228, "83d193cefca2810f217cffd533241508"),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -511,8 +514,9 @@ impl ServerFailure {
 }
 
 pub fn is_placeholder_cover(bytes: &[u8]) -> bool {
-    bytes.len() == NAVIDROME_PLACEHOLDER_LEN
-        && hex(&Md5::digest(bytes)) == NAVIDROME_PLACEHOLDER_MD5
+    NAVIDROME_PLACEHOLDERS
+        .iter()
+        .any(|(len, md5)| bytes.len() == *len && hex(&Md5::digest(bytes)) == *md5)
 }
 
 fn list_at<T: for<'de> Deserialize<'de>>(
