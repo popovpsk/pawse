@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, Context, ElementId, Hsla, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, RenderImage, StatefulInteractiveElement, Styled, StyledImage, div, img, px,
+    ParentElement, RenderImage, StatefulInteractiveElement, Styled, StyledImage, div, img,
+    prelude::FluentBuilder, px,
 };
 use gpui_component::{h_flex, v_flex};
 use ui_components::cover_thumb::{artist_tile, cover_tile};
@@ -232,6 +233,7 @@ fn grid_tile(
         .gap(px(TILE_TEXT_GAP))
         .rounded(px(TILE_RADIUS + TILE_PAD))
         .hover(|style| style.bg(p.list_hover))
+        .when(!view.show_photos, |tile| tile.text_center())
         .child(picture)
         .child(
             div()

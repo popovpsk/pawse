@@ -265,6 +265,13 @@ drive the `PlaybackQueue` on click.
   user picked the right-hand pair. The picture box is only as tall as
   the front cover, so a Covers grid has shorter rows than a Photo grid
   (`artists_grid::row_height(.., photos)`) and no empty band above the covers.
+  **In Covers the caption is centred** (`text_center` on the tile), in Photo it stays
+  left like the album grid. A left caption lined up only with the triple, whose left
+  card reaches the tile edge; under one cover or a pair it started left of the
+  picture. Mocked up on real covers: centred caption, caption starting at the front
+  cover's left edge (narrower, more ellipsis), single/pair pushed left (front covers
+  in a row no longer line up) and grey placeholders in the empty flow slots (read as
+  missing albums); the user picked the centred caption.
   The sides are dimmed by **opacity**, not a dark overlay: gpui's `img` paints its
   own style (shadow, opacity — `Interactivity::paint`), and an overlay would need a
   hardcoded black, which the theme rule forbids; on a dark theme opacity reads as the
