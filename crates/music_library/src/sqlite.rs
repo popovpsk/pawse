@@ -1659,19 +1659,21 @@ impl LibraryRepository for SqliteLibrary {
             .map_err(LibraryError::Database)
     }
 
-    fn artists_pending_photo(&self) -> Result<Vec<(String, ArtistInfoRow)>> {
+    fn artists_pending_photo(&self) -> Result<Vec<(i64, String, ArtistInfoRow)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT name, facts, fetched_at FROM artist_info WHERE photo_pending = 1 ORDER BY name",
+            "SELECT a.id, i.name, i.facts, i.fetched_at FROM artist_info i \
+             JOIN artists a ON a.name = i.name WHERE i.photo_pending = 1 ORDER BY i.name",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get(0)?,
+                row.get(1)?,
                 ArtistInfoRow {
-                    facts: row.get(1)?,
+                    facts: row.get(2)?,
                     photo: None,
                     photo_pending: true,
-                    fetched_at: row.get(2)?,
+                    fetched_at: row.get(3)?,
                 },
             ))
         })?;

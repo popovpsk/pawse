@@ -312,14 +312,15 @@ mod tests {
     fn artist_info_outlives_the_catalog() {
         let (lib, _path) = create_test_db();
         scan(&lib, vec![scan_track("/m/a.flac", "Song")]);
+        let without_info = lib.artists_without_info().unwrap();
         assert_eq!(
-            lib.artists_without_info()
-                .unwrap()
-                .into_iter()
-                .map(|(_, name)| name)
+            without_info
+                .iter()
+                .map(|(_, name)| name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Artist".to_string()]
+            vec!["Artist"]
         );
+        let artist_id = without_info[0].0;
         let row = ArtistInfoRow {
             facts: Some("{}".into()),
             photo: Some(vec![1, 2, 3]),
@@ -327,15 +328,17 @@ mod tests {
             fetched_at: i64::MAX,
         };
         let waiting = ArtistInfoRow {
-            facts: Some("{\"deezer\":\"1\"}".into()),
+            facts: Some("{\"deezer_ids\":[\"1\"]}".into()),
             photo: None,
             photo_pending: true,
             fetched_at: 7,
         };
         lib.save_artist_info("Waiting", &waiting).unwrap();
+        assert!(lib.artists_pending_photo().unwrap().is_empty());
+        lib.save_artist_info("Artist", &waiting).unwrap();
         assert_eq!(
             lib.artists_pending_photo().unwrap(),
-            vec![("Waiting".to_string(), waiting.clone())]
+            vec![(artist_id, "Artist".to_string(), waiting.clone())]
         );
         lib.save_artist_info("Artist", &row).unwrap();
         let nobody = ArtistInfoRow {

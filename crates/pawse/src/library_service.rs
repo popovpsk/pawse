@@ -1035,7 +1035,7 @@ impl LibraryService {
         self.repo.artists_without_info().unwrap_or_default()
     }
 
-    pub fn artists_pending_photo(&self) -> Vec<(String, music_library::ArtistInfoRow)> {
+    pub fn artists_pending_photo(&self) -> Vec<(i64, String, music_library::ArtistInfoRow)> {
         self.repo.artists_pending_photo().unwrap_or_default()
     }
 

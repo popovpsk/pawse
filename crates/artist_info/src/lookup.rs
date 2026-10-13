@@ -5,14 +5,14 @@ use cover_search::matching::normalize;
 use cover_search::{Error, agent, get_bytes, musicbrainz_turn};
 use ureq::Agent;
 
-use crate::deezer;
-use crate::musicbrainz::{self, ArtistFacts, Candidate, VARIOUS_ARTISTS};
+use crate::musicbrainz::{self, ArtistFacts, VARIOUS_ARTISTS};
+use crate::{Candidate, TitlePage, deezer};
 
 const BUSY_RETRIES: u32 = 2;
 const BUSY_PAUSE: Duration = Duration::from_secs(2);
 const SEARCH_LIMIT: usize = 10;
 const MAX_CANDIDATES: usize = 4;
-const MAX_RELEASE_GROUP_PAGES: usize = 3;
+const MAX_TITLE_PAGES: usize = 3;
 const WEAK_HITS_NEEDED: usize = 2;
 
 pub struct Query<'a> {
@@ -45,14 +45,17 @@ impl Lookup {
     }
 
     pub fn find(&self, query: &Query) -> Result<Option<Found>, Error> {
-        let Some(artist_id) = self.identify(query)? else {
+        let local = LocalTitles::new(query.name, query.albums, query.tracks);
+        if local.is_empty() {
+            return Ok(None);
+        }
+        let Some(artist_id) = self.identify(query.name, &local)? else {
             return Ok(None);
         };
-        let facts = self.musicbrainz(|agent| musicbrainz::details(agent, &artist_id))?;
-        let (photo, photo_pending) = match facts.deezer.as_deref().map(|id| self.photo(id)) {
-            None => (None, false),
-            Some(Ok(photo)) => (photo, false),
-            Some(Err(e)) => {
+        let mut facts = self.musicbrainz(|agent| musicbrainz::details(agent, &artist_id))?;
+        let (photo, photo_pending) = match self.photo(query, &mut facts) {
+            Ok(photo) => (photo, false),
+            Err(e) => {
                 log::warn!("artist info: photo failed for {}: {e}", query.name);
                 (None, true)
             }
@@ -64,50 +67,37 @@ impl Lookup {
         }))
     }
 
-    pub fn photo(&self, deezer_id: &str) -> Result<Option<Vec<u8>>, Error> {
-        match deezer::picture_url(&self.agent, deezer_id)? {
+    pub fn photo(&self, query: &Query, facts: &mut ArtistFacts) -> Result<Option<Vec<u8>>, Error> {
+        if facts.deezer_ids.is_empty() {
+            let local = LocalTitles::new(query.name, query.albums, query.tracks);
+            facts
+                .deezer_ids
+                .extend(self.deezer_by_name(query.name, &local)?);
+        }
+        let pages = facts
+            .deezer_ids
+            .iter()
+            .map(|id| deezer::page(&self.agent, id))
+            .collect::<Result<Vec<_>, _>>()?;
+        match deezer::best_picture(pages) {
             Some(url) => get_bytes(&self.agent, &url).map(Some),
             None => Ok(None),
         }
     }
 
-    fn identify(&self, query: &Query) -> Result<Option<String>, Error> {
-        let local = LocalTitles::new(query.name, query.albums, query.tracks);
-        if local.is_empty() {
-            return Ok(None);
-        }
-        let found =
-            self.musicbrainz(|agent| musicbrainz::search(agent, query.name, SEARCH_LIMIT))?;
-        let candidates = found
-            .iter()
-            .filter(|candidate| {
-                candidate.id != VARIOUS_ARTISTS && names_match(query.name, candidate)
-            })
-            .take(MAX_CANDIDATES);
-        for candidate in candidates {
-            if self.confirm(&local, &candidate.id)? {
-                return Ok(Some(candidate.id.clone()));
-            }
-        }
-        Ok(None)
+    fn identify(&self, name: &str, local: &LocalTitles) -> Result<Option<String>, Error> {
+        let mut found = self.musicbrainz(|agent| musicbrainz::search(agent, name, SEARCH_LIMIT))?;
+        found.retain(|candidate| candidate.id != VARIOUS_ARTISTS);
+        first_confirmed(name, local, &found, |id, offset| {
+            self.musicbrainz(|agent| musicbrainz::release_group_titles(agent, id, offset))
+        })
     }
 
-    fn confirm(&self, local: &LocalTitles, artist_id: &str) -> Result<bool, Error> {
-        let mut seen: Vec<String> = Vec::new();
-        for _ in 0..MAX_RELEASE_GROUP_PAGES {
-            let offset = seen.len();
-            let page = self
-                .musicbrainz(|agent| musicbrainz::release_group_titles(agent, artist_id, offset))?;
-            let last = page.titles.is_empty();
-            seen.extend(page.titles);
-            if local.confirmed_by(&seen) {
-                return Ok(true);
-            }
-            if last || seen.len() >= page.total {
-                break;
-            }
-        }
-        Ok(false)
+    fn deezer_by_name(&self, name: &str, local: &LocalTitles) -> Result<Option<String>, Error> {
+        let found = deezer::search(&self.agent, name, SEARCH_LIMIT)?;
+        first_confirmed(name, local, &found, |id, offset| {
+            deezer::album_titles(&self.agent, id, offset)
+        })
     }
 
     fn musicbrainz<T>(&self, call: impl Fn(&Agent) -> Result<T, Error>) -> Result<T, Error> {
@@ -123,6 +113,43 @@ impl Lookup {
             }
         }
     }
+}
+
+fn first_confirmed(
+    name: &str,
+    local: &LocalTitles,
+    found: &[Candidate],
+    page: impl Fn(&str, usize) -> Result<TitlePage, Error>,
+) -> Result<Option<String>, Error> {
+    let candidates = found
+        .iter()
+        .filter(|candidate| names_match(name, candidate))
+        .take(MAX_CANDIDATES);
+    for candidate in candidates {
+        if confirm(local, |offset| page(&candidate.id, offset))? {
+            return Ok(Some(candidate.id.clone()));
+        }
+    }
+    Ok(None)
+}
+
+fn confirm(
+    local: &LocalTitles,
+    page: impl Fn(usize) -> Result<TitlePage, Error>,
+) -> Result<bool, Error> {
+    let mut seen: Vec<String> = Vec::new();
+    for _ in 0..MAX_TITLE_PAGES {
+        let page = page(seen.len())?;
+        let last = page.titles.is_empty();
+        seen.extend(page.titles);
+        if local.confirmed_by(&seen) {
+            return Ok(true);
+        }
+        if last || seen.len() >= page.total {
+            break;
+        }
+    }
+    Ok(false)
 }
 
 pub fn names_match(name: &str, candidate: &Candidate) -> bool {

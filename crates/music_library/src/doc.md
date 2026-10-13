@@ -456,7 +456,9 @@ time: the tab's first load grew quadratically — 3.8 s on 47k tracks and 2.2k a
 `artist_info` (migration 12) is the app's artist index: one row per artist
 **name** with `facts` (JSON the app writes, opaque here), `photo` (original
 image bytes), `photo_pending` (the photo download failed; the app retries just
-that, `artists_pending_photo()`) and `fetched_at`. A row with `facts` NULL means
+that, `artists_pending_photo()`, which joins `artists` by name for the id the
+retry reads titles with, so a row whose artist left the catalog waits until
+it is back) and `fetched_at`. A row with `facts` NULL means
 "looked up, not found". Nothing here deletes it — not `clear()` /
 `CLEAR_CATALOG`, not the orphan cleanup — which is why it is keyed by name and
 has no foreign key. `artists_without_info()` lists the artists to look up: those

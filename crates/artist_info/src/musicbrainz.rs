@@ -2,17 +2,12 @@ use cover_search::{Error, get_text};
 use serde::{Deserialize, Serialize};
 use ureq::Agent;
 
+use crate::{Candidate, TitlePage};
+
 const ROOT: &str = "https://musicbrainz.org/ws/2";
 pub const RELEASE_GROUP_PAGE: usize = 100;
 const GENRES_KEPT: usize = 5;
 pub const VARIOUS_ARTISTS: &str = "89ad4ac3-39f7-470e-963a-56509c546377";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Candidate {
-    pub id: String,
-    pub name: String,
-    pub aliases: Vec<String>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Kind {
@@ -35,7 +30,7 @@ pub struct ArtistFacts {
     pub genres: Vec<String>,
     pub members: Vec<Membership>,
     pub member_of: Vec<Membership>,
-    pub deezer: Option<String>,
+    pub deezer_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,12 +58,6 @@ struct SearchArtist {
 struct Named {
     #[serde(default)]
     name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReleaseGroupPage {
-    pub titles: Vec<String>,
-    pub total: usize,
 }
 
 #[derive(Deserialize)]
@@ -156,7 +145,7 @@ pub fn release_group_titles(
     agent: &Agent,
     artist_id: &str,
     offset: usize,
-) -> Result<ReleaseGroupPage, Error> {
+) -> Result<TitlePage, Error> {
     let body = get_text(
         agent
             .get(format!("{ROOT}/release-group"))
@@ -203,10 +192,10 @@ pub fn parse_search(body: &str) -> Result<Vec<Candidate>, Error> {
         .collect())
 }
 
-pub fn parse_release_groups(body: &str) -> Result<ReleaseGroupPage, Error> {
+pub fn parse_release_groups(body: &str) -> Result<TitlePage, Error> {
     let response: BrowseResponse =
         serde_json::from_str(body).map_err(|e| Error::Parse(e.to_string()))?;
-    Ok(ReleaseGroupPage {
+    Ok(TitlePage {
         titles: response
             .release_groups
             .into_iter()
@@ -230,7 +219,7 @@ pub fn parse_details(body: &str) -> Result<ArtistFacts, Error> {
     genres.sort_by_key(|genre| std::cmp::Reverse(genre.count));
     let mut members = Vec::new();
     let mut member_of = Vec::new();
-    let mut deezer = None;
+    let mut deezer_ids: Vec<String> = Vec::new();
     for relation in &response.relations {
         if let Some(artist) = &relation.artist
             && relation.kind == "member of band"
@@ -240,10 +229,13 @@ pub fn parse_details(body: &str) -> Result<ArtistFacts, Error> {
                 _ => &mut member_of,
             };
             add_membership(list, &artist.name, !relation.ended);
-        } else if let Some(url) = &relation.url
-            && deezer.is_none()
+        } else if let Some(id) = relation
+            .url
+            .as_ref()
+            .and_then(|url| deezer_artist_id(&url.resource))
+            && !deezer_ids.contains(&id)
         {
-            deezer = deezer_artist_id(&url.resource);
+            deezer_ids.push(id);
         }
     }
     let name = |area: Option<Named>| area.map(|a| a.name).filter(|n| !n.is_empty());
@@ -263,7 +255,7 @@ pub fn parse_details(body: &str) -> Result<ArtistFacts, Error> {
             .collect(),
         members,
         member_of,
-        deezer,
+        deezer_ids,
     })
 }
 
@@ -329,6 +321,8 @@ mod tests {
             "relations":[
                 {"type":"free streaming","url":{"resource":"https://open.spotify.com/artist/6wWV"}},
                 {"type":"free streaming","url":{"resource":"https://www.deezer.com/artist/464"}},
+                {"type":"free streaming","url":{"resource":"https://www.deezer.com/en/artist/1477045"}},
+                {"type":"streaming","url":{"resource":"https://www.deezer.com/artist/464"}},
                 {"type":"member of band","direction":"backward","ended":false,
                  "artist":{"name":"Till Lindemann"}},
                 {"type":"member of band","direction":"backward","ended":true,
@@ -361,7 +355,7 @@ mod tests {
             ]
         );
         assert!(facts.member_of.is_empty());
-        assert_eq!(facts.deezer.as_deref(), Some("464"));
+        assert_eq!(facts.deezer_ids, vec!["464", "1477045"]);
     }
 
     #[test]
@@ -389,7 +383,7 @@ mod tests {
         assert_eq!(facts.begin_year, None);
         assert_eq!(facts.area, None);
         assert!(facts.genres.is_empty());
-        assert_eq!(facts.deezer, None);
+        assert!(facts.deezer_ids.is_empty());
     }
 
     #[test]

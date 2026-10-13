@@ -501,8 +501,9 @@ drive the `PlaybackQueue` on click.
   the first batch after it commits, so a read that saw one always finds the flag
   set; a check before the read would leave a window between the two. `ScanIdle`
   comes after the flag is cleared, so it is the resume trigger (`ScanComplete`
-  would race the flag). Photo retries don't read
-  the catalog but end with the run anyway. Server syncs need no pause: they
+  would race the flag). Photo retries read the
+  titles too (a Deezer search that failed runs again) and check the flag the
+  same way. Server syncs need no pause: they
   write a listing in one transaction. A run
   collects its steps (`pending_steps`: every artist from `artists_without_info()`,
   then every row from `artists_pending_photo()`) and walks them one at a time on
@@ -525,7 +526,8 @@ drive the `PlaybackQueue` on click.
   the run (offline), so a dead network costs one request per trigger, not one
   per artist. A failed photo download does not throw the facts away: the row is
   saved with `photo_pending`, and the photo steps of the next runs retry only the
-  photo (one Deezer call each, no MusicBrainz) until it arrives, Deezer says
+  photo (Deezer only, no MusicBrainz; the facts are saved again, since a search
+  may have filled in `deezer_ids`) until it arrives, Deezer says
   there is none, or answers a 4xx other than 429 (a removed image never comes
   back — without that a 404 would cost two requests per run forever). The rows
   are keyed by artist **name**, not id, so they survive rescans and the orphan

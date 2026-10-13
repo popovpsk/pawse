@@ -13,18 +13,26 @@ data, the photo from Deezer.
 
 ## Files
 
-- `lib.rs` — re-exports.
+- `lib.rs` — re-exports and the two types both services return: `Candidate`
+  (a search result) and `TitlePage` (one page of an artist's release titles).
 - `lookup.rs` — `Lookup::find(query)`: the whole chain and the match rule
-  (`names_match`, `LocalTitles`). Returns `Found` (`ArtistFacts`, photo bytes,
+  (`names_match`, `LocalTitles`, `first_confirmed` — the same rule on either
+  service's search results and title pages). Returns `Found` (`ArtistFacts`, photo bytes,
   `photo_pending`). `Lookup` is `Clone` and holds nothing but the HTTP agent —
   the rate limit lives in `cover_search` — so callers clone it per task.
 - `musicbrainz.rs` — artist search (`artist:"…" OR alias:"…"`), release-group
   browse (titles plus the total, 100 per page), artist lookup with
-  `inc=url-rels+genres+artist-rels` → `Details { facts: ArtistFacts, deezer }`.
+  `inc=url-rels+genres+artist-rels` → `ArtistFacts`.
   `ArtistFacts` is serde (`#[serde(default)]` on every field) because the app
   stores it as JSON and never refetches; a field added later reads as its
   default from old rows. Parsers are pure and tested.
-- `deezer.rs` — `api.deezer.com/artist/{id}` → `picture_big` (500 px).
+- `deezer.rs` — `api.deezer.com/artist/{id}` → `Page` (fan count and
+  `picture_big`, 500 px); `best_picture` chooses among several pages. Artist
+  search and the artist's album list (titles plus the total, 100 per page) for
+  artists MusicBrainz links no Deezer page to. Deezer answers errors with HTTP
+  200 and an `{"error":…}` object: code 800 ("no data") reads as no picture / an
+  empty list, any other (the quota, code 4) is a failure, so it is retried
+  instead of being stored as "no photo".
 
 ## The chain
 
@@ -52,14 +60,26 @@ data, the photo from Deezer.
    them), genres by vote count (top 5 kept), "member of band" relations split by
    direction — `members` (backward: who is in this group) and `member_of`
    (forward: groups this artist is in), each name once, `current` if any of its
-   periods is open — and the Deezer id from the URL relations, kept in the facts
-   so a caller can fetch the photo again later without MusicBrainz.
-4. Deezer picture → bytes (`Lookup::photo(deezer_id)`, also public for that
-   retry). Deezer serves an empty-hash placeholder (`/images/artist//`) for
-   artists without a photo; that counts as no photo (`Ok(None)`).
+   periods is open — and every Deezer artist id from the URL relations, each
+   once (`deezer_ids`), kept in the facts so a caller can fetch the photo again
+   later without MusicBrainz.
+4. Only when MusicBrainz links no Deezer page: Deezer artist search by the
+   library name and the same confirmation as step 2, with the artist's Deezer
+   album list in place of release groups (singles and EPs are in it too). Unlike
+   step 1, candidates match by their one name: Deezer search results carry no
+   aliases, so a library name that is only an alias ("KoЯn" for Korn) finds no
+   page here. The first confirmed page becomes `deezer_ids`; none = no photo.
+5. Every Deezer page in `deezer_ids` is read, and the picture of the one with the most
+   fans among those that have a picture → bytes. Deezer serves an empty-hash placeholder
+   (`/images/artist//`) for artists without a photo; that counts as no picture.
 
-Step 4 is optional: its failure is logged, leaves the photo empty and sets
-`Found::photo_pending`. Only a MusicBrainz failure is an `Err`.
+Steps 4–5 are `Lookup::photo(query, facts)`, also public for the retry: they
+are optional, their failure is logged, leaves the photo empty and sets
+`Found::photo_pending`. The retry passes the stored facts and the library titles
+again. A search that failed runs again; if a lookup's search found a page and
+only the download failed, the page is already in the stored `deezer_ids`, so the
+retry only reads it. A retry that searches and then fails stores nothing and
+searches again next time. Only a MusicBrainz failure is an `Err`.
 
 ## Non-obvious behavior
 
@@ -70,5 +90,17 @@ Step 4 is optional: its failure is logged, leaves the photo empty and sets
   still answers 503 under load even at that pace (seen on 3 of ~150 requests),
   so a 503 is retried twice after 2 s and 4 s. A found artist costs 3–4
   MusicBrainz requests; the 108-artist library above took ~4.7 min.
-- The Deezer id comes from MusicBrainz's own link, not from a Deezer search, so
-  the photo never needs a second matching step.
+- **Deezer search.** MusicBrainz's own links need no second matching step, so
+  they come first. 1 of 45 found artists in the library above had none (Ashes
+  Divide, written "ASHES dIVIDE" on Deezer); Deezer has namesakes too (three
+  "Tool" pages), hence the same confirmation. The search costs one request plus
+  one per candidate album page. The album list follows Deezer's regional
+  catalogue: from Kazakhstan Linkin Park's list is empty, so an artist blocked
+  in the user's country cannot be confirmed and stays without a photo.
+- **Several Deezer pages.** MusicBrainz often links more than one Deezer page
+  for an artist: the main one plus duplicates and junk uploads, in no useful
+  order (8 of 45 found artists in the library above). Daft Punk's first link is
+  "Daft Punk - Stardust" (0 albums, no picture), Radiohead's a 505-fan
+  duplicate whose picture is Deezer's grey silhouette. Taking the first link
+  lost or spoiled such photos, so all pages are compared by fan count; it costs
+  one Deezer request per linked page.

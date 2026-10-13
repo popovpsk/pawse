@@ -66,7 +66,7 @@ pub trait LibraryRepository: Send + Sync {
     fn album_artists(&self, album_id: i64) -> Result<Vec<String>>;
     fn known_album_artists_map(&self, album_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
     fn artists_without_info(&self) -> Result<Vec<(i64, String)>>;
-    fn artists_pending_photo(&self) -> Result<Vec<(String, ArtistInfoRow)>>;
+    fn artists_pending_photo(&self) -> Result<Vec<(i64, String, ArtistInfoRow)>>;
     fn artist_titles(&self, artist_id: i64) -> Result<ArtistTitles>;
     fn artist_info(&self, name: &str) -> Result<Option<ArtistInfoRow>>;
     fn save_artist_info(&self, name: &str, row: &ArtistInfoRow) -> Result<()>;

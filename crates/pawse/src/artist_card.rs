@@ -52,7 +52,7 @@ fn slot_photo(slot: &Slot) -> Option<Arc<RenderImage>> {
 
 enum Step {
     Lookup(i64, String),
-    Photo(String, ArtistInfoRow),
+    Photo(i64, String, ArtistInfoRow),
 }
 
 enum Indexed {
@@ -350,14 +350,14 @@ fn pending_steps(library: &LibraryService) -> Vec<Step> {
     let photos = library
         .artists_pending_photo()
         .into_iter()
-        .map(|(name, row)| Step::Photo(name, row));
+        .map(|(artist_id, name, row)| Step::Photo(artist_id, name, row));
     lookups.chain(photos).collect()
 }
 
 fn run_step(lookup: &Lookup, library: &LibraryService, step: Step) -> Indexed {
     match step {
         Step::Lookup(artist_id, name) => index_one(lookup, library, artist_id, name),
-        Step::Photo(name, row) => retry_photo(lookup, library, name, row),
+        Step::Photo(artist_id, name, row) => retry_photo(lookup, library, artist_id, name, row),
     }
 }
 
@@ -401,17 +401,32 @@ fn index_one(lookup: &Lookup, library: &LibraryService, artist_id: i64, name: St
 fn retry_photo(
     lookup: &Lookup,
     library: &LibraryService,
+    artist_id: i64,
     name: String,
     mut row: ArtistInfoRow,
 ) -> Indexed {
-    let deezer = row
+    let facts = row
         .facts
         .as_deref()
-        .and_then(|json| serde_json::from_str::<ArtistFacts>(json).ok())
-        .and_then(|facts| facts.deezer);
-    if let Some(id) = deezer {
-        match lookup.photo(&id) {
-            Ok(photo) => row.photo = photo,
+        .and_then(|json| serde_json::from_str::<ArtistFacts>(json).ok());
+    if let Some(mut facts) = facts {
+        let titles = library.artist_titles(artist_id);
+        if library.is_scanning() {
+            return Indexed::Scanning;
+        }
+        if titles.albums.is_empty() && titles.tracks.is_empty() {
+            return Indexed::Skipped;
+        }
+        let query = Query {
+            name: &name,
+            albums: &titles.albums,
+            tracks: &titles.tracks,
+        };
+        match lookup.photo(&query, &mut facts) {
+            Ok(photo) => {
+                row.photo = photo;
+                row.facts = serde_json::to_string(&facts).ok();
+            }
             Err(Error::Status(code)) if is_permanent(code) => {
                 log::info!("artist info: giving up on the photo of {name}: HTTP {code}");
             }
