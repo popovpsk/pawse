@@ -63,8 +63,10 @@ failed download is not cancellable and runs to its own timeout.
   "Indexing" button in Settings → General.
 - `genres.rs` — the display side of the genres by sound, for the library views:
   `shown` (the two switches), `filter` (the `music_library::SoundGenres` of a genre
-  list or page, `None` while not shown), `albums` (an album's genres by sound, minus its
-  tag genres), `dimmed` (their colour) and `tooltip` (tags, then heard genres dimmed).
+  list or page, `None` while not shown; its `names` are `NAMES`, every genre number with
+  its name from `audio_embedding::styles::genre_names`, built once), `albums` (an album's
+  genres by sound — the database returns numbers, named here — minus its tag genres),
+  `dimmed` (their colour) and `tooltip` (tags, then heard genres dimmed).
 
 ## Lifecycle
 
@@ -91,12 +93,17 @@ failed download is not cancellable and runs to its own timeout.
   downloads (or finds the file) itself.
 - The model lives in `dirs::data_dir()/pawse/models/` — not the cache dir, which users
   and the OS clear.
+- The thread first drops the vectors of other versions (`prune_embeddings`, which takes
+  their genres by sound too), once, before any pass: it needs no model, so a new version
+  that cannot download its weights or pass the GPU check still does not leave the old
+  version's genres on screen — they carry numbers the new labels may name differently.
+  When it dropped something it signals `saved`, so the views reload.
 - A pass lists the candidates first; with nothing to analyse it ends there, without
   touching the GPU or the network. Otherwise it checks the adapter again (the worker
   cannot see GPUI's state), downloads the weights if needed
   (`audio_embedding::model_file::ensure`, blocking, on this thread), opens the GPU
-  (`audio_embedding_gpu::open`: kernels, weights, the probe; ~0.1–0.4 s) and drops
-  vectors of other versions (`prune_embeddings`), analyses, and **drops the `Device` at
+  (`audio_embedding_gpu::open`: kernels, weights, the probe; ~0.1–0.4 s), analyses, and
+  **drops the `Device` at
   the end of the pass**: its buffers are ~220 MB of GPU memory, and passes are rare
   (library changes), so the app does not hold them in between. `Model` is `Unloaded`
   (closed; the next pass with work opens it), `Missing` (the last attempt failed: the
@@ -553,10 +560,10 @@ Off, the views run their tag-only queries exactly as before.
 - The Genres tab, the album list and an open album header reload on
   `SoundGenresChanged` (only while shown) and follow the switch; an open genre page
   follows the switch only, as it does not reload on catalog changes either. The album
-  list's map (every album; ~12 ms on 2196 tracks, so ~60 ms on 10k) is read on the
+  list's map (every album; ~8 ms on 2.3k tracks, ~140 ms on 47k, M3 Max) is read on the
   background executor and swapped in when ready, keeping the old one meanwhile; the
-  header's one album (~1 ms), the Genres list (~3 ms) and its covers (~4 ms) are read
-  in place, like their tag-only queries.
+  header's one album (~0 ms), the Genres list (~3 ms on 2.3k, ~65 ms on 47k) and its
+  covers (~4 ms, ~95 ms) are read in place, like their tag-only queries.
 
 ## The menu
 

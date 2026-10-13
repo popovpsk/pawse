@@ -438,6 +438,19 @@ the same way; only albums with `artist_known = 1` are in it — for the others t
 `album_artists` row is a placeholder (the first track's artist), not who the
 album is by.
 
+## Artist lists
+
+`artists`, `artist_album_covers` and `artist_search_haystacks` (the Artists tab) build
+the grouping's memberships as CTEs — `m`, who is listed (for the album-artist grouping
+the three paths: per-track album-artist tags, `album_artists` of `artist_known` albums,
+track artists otherwise), and `u`, `m` plus every track credit — and keep the artists in
+`m` with `a.id IN (SELECT artist_id FROM m)`, a set SQLite builds once. The correlated
+`EXISTS (SELECT 1 FROM m WHERE m.artist_id = …)` they had re-ran the union per artist,
+and per membership row in the covers query, scanning the `artist_known` albums each
+time: the tab's first load grew quadratically — 3.8 s on 47k tracks and 2.2k artists
+(the covers 2.9 s), 0.3 s now, the same rows. `artist_summary` (one artist) keeps the
+`EXISTS`: it runs once there.
+
 ## Artist info cache
 
 `artist_info` (migration 12) is the app's artist index: one row per artist
@@ -540,23 +553,36 @@ the GPU.
 
 ### Genres by sound (`track_sound_genres`)
 
-`(item_id, version, key, name, score)`, the genres `pawse` derived from a track's style
-scores (`audio_embedding::styles::genres`: every genre scoring at least 0.05), saved in
-the same transaction as the vector. `key` is `name.to_lowercase()`, the same rule as
-`genres.key`, so the two meet in one join. It is a materialised view of the analysis:
+`(item_id, genre, score)`, `WITHOUT ROWID`, primary key `(item_id, genre)`: the genres
+`pawse` derived from a track's style scores (`audio_embedding::styles::genres`: every
+genre scoring at least 0.05), saved in the same transaction as the vector. `genre` is a
+number the code owns (`audio_embedding::styles::genre_id`, the index of the style's first
+Discogs label); the names live in the code, not in a table, and the queries that need
+them get them from the caller (`SoundGenres::names`). It is a materialised view of the
+analysis:
 
-- Its foreign key is `(item_id, version) → track_embeddings` with `ON DELETE
-  CASCADE`, so a pruned version or a swept item (which cascades into
-  `track_embeddings`) takes its genres with it. `save_embeddings` deletes a track's row
-  of that version first, then inserts — the explicit delete is what clears the old
-  genres; `INSERT OR REPLACE` would not reliably fire the cascade.
+- Only numbers in a row — no version, key or name. The first layout repeated the
+  66-character version, the key and the name in the table, its primary key and a
+  `(version, key, score)` index: 2.8 KB a track (9 rows), 6.5 MB for 2.3k tracks and
+  131 MB for 47k, and every genre query read it scattered over the file. Now it is
+  0.8 MB and 18 MB, and the queries below read 5–9× fewer pages (measured on a copy of
+  a real library and on the same copy grown 20×, by tracing the reads).
+- No version, so no foreign key to `track_embeddings`: the rows belong to the one
+  version kept, which holds once `prune_embeddings` has run (the app runs it when its
+  analysis thread starts, before it needs a model). `save_embeddings` deletes the item's genre rows together with its
+  vector, `prune_embeddings` deletes the rows of every item left without a vector of
+  the kept version (only when it dropped vectors — otherwise there are none), and
+  `item_id → media_items` `ON DELETE CASCADE` takes them with a swept item, like the
+  vectors. Two binaries of different versions saving into one database at once could
+  leave one's genres under the other's vector — the "two versions running" case nothing
+  else supports either.
 - Kept apart from `genres` / `track_genres` on purpose: those are the tags. A scan and
   the tag editor rewrite them and sweep `genres` rows nothing links to, and the tag
   editor is prefilled from `album_genres`; genres by sound in there would be swept by
   the next scan or written into the user's files.
-- Index `(version, key, score)`: a genre page's track ids and the Genres list's counts
-  come straight from it. Display thresholds are query parameters, so changing them
-  needs no re-analysis.
+- Index `(genre, score)`, covering with the primary key's `item_id`: a genre page's
+  track ids and the Genres list's counts are range reads of it. Display thresholds are
+  query parameters, so changing them needs no re-analysis.
 
 All of it runs on its own connection (`embedding_conn`), like `plays` on the
 scrobble one: the analysis thread saves every few seconds for as long as a first
@@ -569,9 +595,8 @@ Methods:
   wanted first: liked, then by the last play (newest first, from `plays`), then the
   rest in the library's album order.
 - `save_embeddings(version, rows)` — `TrackAnalysis` rows (item, vector, styles,
-  genres) in one `BEGIN IMMEDIATE` transaction: delete the item's row of `version`
-  (cascading to its genres), insert the analysis, then its genres (blank names
-  skipped). A row whose item disappeared meanwhile (a scan swept it) is skipped through
+  `(genre, score)` pairs) in one `BEGIN IMMEDIATE` transaction: delete the item's row of
+  `version` and its genre rows, insert the analysis, then its genres. A row whose item disappeared meanwhile (a scan swept it) is skipped through
   an `INSERT … SELECT … FROM media_items`, so it cannot fail the batch on the foreign
   key, and gets no genres; the return value counts the rows written.
 - `embedding(item_id, version)` — one vector.
@@ -589,27 +614,38 @@ Methods:
   differs from the first one are skipped with a warning. `f` runs while the embedding
   connection is locked: it must not call back into the embedding methods.
 - `prune_embeddings(keep_version)` — deletes every other version (a model or
-  front-end change) and, by the cascade, its genres; the next pass recomputes.
+  front-end change) and then the genre rows of the items left without a vector; the
+  next pass recomputes.
 
-Genres by sound in the library queries (`SoundGenres { version, min_score,
-min_tracks }`; `None` keeps the tag-only SQL exactly as it was):
+Genres by sound in the library queries (`SoundGenres { names, min_score, min_tracks }`,
+`names` being every `(genre, name)` the code knows; `None` keeps the tag-only SQL exactly
+as it was). The tags and the genres by sound meet by `key` (`name.to_lowercase()`, the
+rule of `genres.key`), so `genres` and `genre_album_covers` bind `names` as one JSON
+parameter, `[[genre, key, name], …]` read with `json_each` (as the id lists under
+"Unavailable tracks"), and SQLite walks it genre by genre into the `(genre, score)`
+index.
 
 - `genres(sound)` — one row per `key` over the union of the tag links and the
-  genre rows of `version` with `score >= min_score` on catalog tracks; `track_count`
+  genre rows with `score >= min_score` on catalog tracks; `track_count`
   counts distinct tracks (a track tagged and heard as the same genre counts once), the
   name is the tag's spelling when there is one, `tagged` says whether any tag links to
   it. A genre only heard is listed when it has at least `min_tracks` tracks. Tagged
-  genres first, then heard ones, each by key.
+  genres first, then heard ones, each by key. "On catalog tracks" is
+  `s.item_id IN (SELECT +id FROM tracks)`: the `+` makes SQLite build the set from a
+  scan of a `tracks` index instead of one rowid lookup in `tracks` per genre row — the
+  same rows, a third of the pages on 47k tracks (926 instead of 2783), which is what a
+  cold start pays on a hard disk.
 - `genre_album_covers(sound)` — the same union, three covers per key as before.
 - `tracks_by_genre(key, sort, desc, sound)` — tracks tagged with `key` or heard as it
-  above `min_score`, in the same orders.
-- `album_sound_genres(version, min_score, per_album, album_id)` — per album, the genres
-  whose sum of scores over the album's analysed tracks, divided by the number of those
-  tracks, reaches `min_score` (a track without a row for a genre counts as 0), best
-  first, at most `per_album`; one album or all. The query starts from the albums'
-  tracks and finds their rows by the primary key (`+s.version` keeps SQLite off the
-  `(version, …)` index, which would read every genre row of the version even for one
-  album): ~1 ms for one album, ~12 ms for every album of 2196 tracks.
+  above `min_score`, in the same orders. `key` is looked up in `names` here; a key no
+  genre by sound has runs the tag-only query.
+- `album_sound_genres(version, min_score, per_album, album_id)` — per album, the genre
+  numbers (the app names them) whose sum of scores over the album's analysed tracks
+  (vectors of `version`), divided by the number of those tracks, reaches `min_score` (a
+  track without a row for a genre counts as 0), best first, at most `per_album`; one
+  album or all. The query starts from the albums' tracks and reads each track's rows by
+  the primary key, one contiguous range: ~0 ms for one album, ~8 ms for every album of
+  2.3k tracks, ~140 ms for 47k.
 
 ## Migrations
 

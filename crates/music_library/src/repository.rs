@@ -123,7 +123,7 @@ pub trait LibraryRepository: Send + Sync {
         min_score: f32,
         per_album: usize,
         album_id: Option<i64>,
-    ) -> Result<HashMap<i64, Vec<String>>>;
+    ) -> Result<HashMap<i64, Vec<u16>>>;
     fn track(&self, id: i64) -> Result<Option<Track>>;
     fn liked_tracks(&self) -> Result<Vec<Track>>;
     fn all_tracks(&self) -> Result<Vec<Track>>;

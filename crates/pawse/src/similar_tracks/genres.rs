@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use audio_embedding::EMBEDDING_VERSION;
 use gpui::{
@@ -16,14 +17,24 @@ const PER_ALBUM: usize = 3;
 const MIN_TRACKS: i64 = 5;
 const DIMMED: f32 = 0.6;
 
+static NAMES: LazyLock<Vec<(u16, &'static str)>> =
+    LazyLock::new(|| audio_embedding::styles::genre_names().collect());
+
+fn name(genre: u16) -> Option<&'static str> {
+    NAMES
+        .binary_search_by_key(&genre, |(id, _)| *id)
+        .ok()
+        .map(|ix| NAMES[ix].1)
+}
+
 pub fn shown(cx: &App) -> bool {
     let settings = cx.global::<SettingsStore>();
     settings.similar_tracks_enabled() && settings.sound_genres_shown() && !super::gpu_missing(cx)
 }
 
 pub fn filter(cx: &App) -> Option<SoundGenres<'static>> {
-    shown(cx).then_some(SoundGenres {
-        version: EMBEDDING_VERSION,
+    shown(cx).then(|| SoundGenres {
+        names: NAMES.as_slice(),
         min_score: TRACK_MIN,
         min_tracks: MIN_TRACKS,
     })
@@ -34,23 +45,31 @@ pub fn albums(
     tags: &HashMap<i64, Vec<String>>,
     album_id: Option<i64>,
 ) -> HashMap<i64, Vec<String>> {
-    let mut map = repo
+    let ids = repo
         .album_sound_genres(EMBEDDING_VERSION, ALBUM_MIN, 2 * PER_ALBUM, album_id)
         .unwrap_or_else(|e| {
             log::warn!("sound genres of albums: {e}");
             HashMap::new()
         });
-    for (album, names) in &mut map {
+    let mut map = HashMap::with_capacity(ids.len());
+    for (album, genres) in ids {
         let tagged: Vec<String> = tags
-            .get(album)
+            .get(&album)
             .into_iter()
             .flatten()
             .map(|t| t.to_lowercase())
             .collect();
-        names.retain(|name| !tagged.contains(&name.to_lowercase()));
-        names.truncate(PER_ALBUM);
+        let names: Vec<String> = genres
+            .into_iter()
+            .filter_map(name)
+            .filter(|name| !tagged.contains(&name.to_lowercase()))
+            .take(PER_ALBUM)
+            .map(str::to_string)
+            .collect();
+        if !names.is_empty() {
+            map.insert(album, names);
+        }
     }
-    map.retain(|_, names| !names.is_empty());
     map
 }
 

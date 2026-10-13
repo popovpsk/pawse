@@ -415,19 +415,44 @@ fn parent(label: &str) -> &str {
     label.split_once("---").map_or("", |(parent, _)| parent)
 }
 
-pub fn genres(scores: &[f32]) -> Vec<(&'static str, f32)> {
-    let mut out: Vec<(&'static str, f32)> = Vec::new();
-    for (label, &score) in LABELS.iter().zip(scores) {
-        if score.is_nan() || score < GENRE_FLOOR || parent(label) == NOT_GENRES {
+pub fn genre_id(label: usize) -> Option<u16> {
+    let full = LABELS.get(label)?;
+    if parent(full) == NOT_GENRES {
+        return None;
+    }
+    let name = style_name(full);
+    LABELS
+        .iter()
+        .position(|l| parent(l) != NOT_GENRES && style_name(l) == name)
+        .map(|ix| ix as u16)
+}
+
+pub fn genre_name(id: u16) -> Option<&'static str> {
+    (genre_id(id.into()) == Some(id)).then(|| style_name(LABELS[usize::from(id)]))
+}
+
+pub fn genre_names() -> impl Iterator<Item = (u16, &'static str)> {
+    (0..STYLES as u16).filter_map(|id| Some((id, genre_name(id)?)))
+}
+
+pub fn genres(scores: &[f32]) -> Vec<(u16, f32)> {
+    let mut out: Vec<(u16, f32)> = Vec::new();
+    for (label, &score) in scores.iter().enumerate() {
+        if score.is_nan() || score < GENRE_FLOOR {
             continue;
         }
-        let name = style_name(label);
-        match out.iter_mut().find(|(n, _)| *n == name) {
+        let Some(id) = genre_id(label) else {
+            continue;
+        };
+        match out.iter_mut().find(|(genre, _)| *genre == id) {
             Some(entry) => entry.1 = entry.1.max(score),
-            None => out.push((name, score)),
+            None => out.push((id, score)),
         }
     }
-    out.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(b.0)));
+    out.sort_by(|a, b| {
+        b.1.total_cmp(&a.1)
+            .then_with(|| genre_name(a.0).cmp(&genre_name(b.0)))
+    });
     out
 }
 
@@ -437,6 +462,13 @@ mod tests {
 
     fn score_of(label: &str) -> usize {
         LABELS.iter().position(|l| *l == label).unwrap()
+    }
+
+    fn named(genres: Vec<(u16, f32)>) -> Vec<(&'static str, f32)> {
+        genres
+            .into_iter()
+            .map(|(id, score)| (genre_name(id).unwrap(), score))
+            .collect()
     }
 
     #[test]
@@ -455,7 +487,7 @@ mod tests {
         scores[score_of("Rock---Alternative Rock")] = 0.5;
         scores[score_of("Electronic---Techno")] = GENRE_FLOOR / 2.0;
         assert_eq!(
-            genres(&scores),
+            named(genres(&scores)),
             vec![("Alternative Rock", 0.5), ("Grunge", 0.3)]
         );
     }
@@ -465,7 +497,7 @@ mod tests {
         let mut scores = vec![0.0f32; STYLES];
         scores[score_of("Electronic---Disco")] = 0.2;
         scores[score_of("Funk / Soul---Disco")] = 0.4;
-        assert_eq!(genres(&scores), vec![("Disco", 0.4)]);
+        assert_eq!(named(genres(&scores)), vec![("Disco", 0.4)]);
     }
 
     #[test]
@@ -473,13 +505,42 @@ mod tests {
         let mut scores = vec![0.0f32; STYLES];
         scores[score_of("Non-Music---Spoken Word")] = 0.6;
         scores[score_of("Hip Hop---Conscious")] = 0.2;
-        assert_eq!(genres(&scores), vec![("Conscious", 0.2)]);
+        assert_eq!(named(genres(&scores)), vec![("Conscious", 0.2)]);
     }
 
     #[test]
     fn nan_scores_are_dropped() {
         let mut scores = vec![f32::NAN; STYLES];
         scores[0] = 0.9;
-        assert_eq!(genres(&scores), vec![("Boogie Woogie", 0.9)]);
+        assert_eq!(named(genres(&scores)), vec![("Boogie Woogie", 0.9)]);
+    }
+
+    #[test]
+    fn a_genre_is_the_first_label_of_its_style() {
+        let disco = score_of("Electronic---Disco") as u16;
+        assert_eq!(genre_id(score_of("Electronic---Disco")), Some(disco));
+        assert_eq!(genre_id(score_of("Funk / Soul---Disco")), Some(disco));
+        assert_eq!(genre_name(disco), Some("Disco"));
+        assert_eq!(genre_name(score_of("Funk / Soul---Disco") as u16), None);
+        assert_eq!(genre_id(score_of("Non-Music---Spoken Word")), None);
+        assert_eq!(genre_id(STYLES), None);
+        assert_eq!(genre_name(STYLES as u16), None);
+    }
+
+    #[test]
+    fn every_genre_is_named_once() {
+        let names: Vec<(u16, &str)> = genre_names().collect();
+        let mut distinct: Vec<&str> = LABELS
+            .iter()
+            .filter(|l| parent(l) != NOT_GENRES)
+            .map(|l| style_name(l))
+            .collect();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(names.len(), distinct.len());
+        for (id, name) in names {
+            assert_eq!(genre_id(id.into()), Some(id));
+            assert_eq!(style_name(LABELS[usize::from(id)]), name);
+        }
     }
 }

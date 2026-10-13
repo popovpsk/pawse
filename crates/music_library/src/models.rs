@@ -140,7 +140,7 @@ pub struct GenreSummary {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SoundGenres<'a> {
-    pub version: &'a str,
+    pub names: &'a [(u16, &'a str)],
     pub min_score: f32,
     pub min_tracks: i64,
 }
@@ -150,7 +150,7 @@ pub struct TrackAnalysis {
     pub item_id: i64,
     pub vector: Vec<f32>,
     pub styles: Vec<f32>,
-    pub genres: Vec<(String, f32)>,
+    pub genres: Vec<(u16, f32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

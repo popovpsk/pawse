@@ -44,6 +44,7 @@ pub(super) fn spawn(
                 model: Model::Unloaded,
                 failed: HashSet::new(),
             };
+            worker.prune();
             loop {
                 let next = match worker.model {
                     Model::Missing => inbox.recv_timeout(LOAD_RETRY),
@@ -92,6 +93,18 @@ struct Work {
 impl Worker {
     fn stopped(&self) -> bool {
         self.shared.stop.load(Ordering::Relaxed)
+    }
+
+    fn prune(&self) {
+        match self.shared.repo.prune_embeddings(EMBEDDING_VERSION) {
+            Ok(0) => {}
+            Ok(dropped) => {
+                log::info!("similar tracks: dropped {dropped} vectors of older versions");
+                self.shared.neighbors.invalidate();
+                let _ = self.shared.saved.try_send(());
+            }
+            Err(e) => log::error!("similar tracks: could not drop old vectors: {e}"),
+        }
     }
 
     fn run_pass(&mut self, inbox: &flume::Receiver<()>) {
@@ -190,17 +203,6 @@ impl Worker {
             started.elapsed().as_millis(),
             device.agreement()
         );
-        match self.shared.repo.prune_embeddings(EMBEDDING_VERSION) {
-            Ok(0) => {}
-            Ok(dropped) => {
-                log::info!("similar tracks: dropped {dropped} vectors of older versions");
-                self.shared.neighbors.invalidate();
-            }
-            Err(e) => {
-                log::error!("similar tracks: could not drop old vectors: {e}");
-                return Err(Model::Missing);
-            }
-        }
         Ok(device)
     }
 
@@ -618,10 +620,7 @@ fn collect(
 }
 
 fn analysis(item_id: i64, embedding: Embedding) -> TrackAnalysis {
-    let genres = audio_embedding::styles::genres(&embedding.styles)
-        .into_iter()
-        .map(|(name, score)| (name.to_string(), score))
-        .collect();
+    let genres = audio_embedding::styles::genres(&embedding.styles);
     TrackAnalysis {
         item_id,
         vector: embedding.vector.into_vec(),

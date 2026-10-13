@@ -523,17 +523,13 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
 
         CREATE TABLE track_sound_genres (
-            item_id INTEGER NOT NULL,
-            version TEXT    NOT NULL,
-            key     TEXT    NOT NULL,
-            name    TEXT    NOT NULL,
+            item_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+            genre   INTEGER NOT NULL,
             score   REAL    NOT NULL,
-            PRIMARY KEY (item_id, version, key),
-            FOREIGN KEY (item_id, version)
-                REFERENCES track_embeddings(item_id, version) ON DELETE CASCADE
-        );
+            PRIMARY KEY (item_id, genre)
+        ) WITHOUT ROWID;
 
-        CREATE INDEX idx_track_sound_genres_key ON track_sound_genres(version, key, score);
+        CREATE INDEX idx_track_sound_genres_genre ON track_sound_genres(genre, score);
         "#,
     ),
 ];

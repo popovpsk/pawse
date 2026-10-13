@@ -2026,7 +2026,7 @@ impl LibraryRepository for SqliteLibrary {
              SELECT a.id, a.name, a.sort_name, COUNT(DISTINCT u.track_id) AS track_count \
              FROM artists a \
              JOIN u ON u.artist_id = a.id \
-             WHERE EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id) \
+             WHERE a.id IN (SELECT artist_id FROM m) \
              GROUP BY a.id \
              HAVING track_count > 0 \
              ORDER BY a.sort_name COLLATE NOCASE, a.name COLLATE NOCASE"
@@ -2108,7 +2108,7 @@ impl LibraryRepository for SqliteLibrary {
             ArtistGrouping::TrackArtist => format!(
                 "WITH {ctes} \
                  SELECT a.id, a.name FROM artists a \
-                 WHERE EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id)"
+                 WHERE a.id IN (SELECT artist_id FROM m)"
             ),
             ArtistGrouping::AlbumArtist => format!(
                 "WITH {ctes} \
@@ -2122,7 +2122,7 @@ impl LibraryRepository for SqliteLibrary {
                      WHERE art.id != u.artist_id \
                      GROUP BY u.artist_id \
                  ) names ON names.artist_id = a.id \
-                 WHERE EXISTS (SELECT 1 FROM m WHERE m.artist_id = a.id)"
+                 WHERE a.id IN (SELECT artist_id FROM m)"
             ),
         };
         let mut stmt = conn.prepare_cached(&sql)?;
@@ -2197,22 +2197,23 @@ impl LibraryRepository for SqliteLibrary {
                 .map_err(LibraryError::Database);
         };
         let mut stmt = conn.prepare_cached(
-            "SELECT key, COALESCE(MAX(CASE WHEN tagged THEN name END), MAX(name)), \
+            "WITH sg(id, key, name) AS (SELECT value->>0, value->>1, value->>2 FROM json_each(?1)) \
+             SELECT key, COALESCE(MAX(CASE WHEN tagged THEN name END), MAX(name)), \
                     COUNT(DISTINCT track_id), MAX(tagged) \
              FROM ( \
                  SELECT g.key AS key, g.name AS name, tg.track_id AS track_id, 1 AS tagged \
                  FROM genres g JOIN track_genres tg ON tg.genre_id = g.id \
                  UNION ALL \
-                 SELECT s.key, s.name, s.item_id, 0 FROM track_sound_genres s \
-                 JOIN tracks t ON t.id = s.item_id \
-                 WHERE s.version = ?1 AND s.score >= ?2 \
+                 SELECT sg.key, sg.name, s.item_id, 0 FROM sg \
+                 JOIN track_sound_genres s ON s.genre = sg.id AND s.score >= ?2 \
+                 WHERE s.item_id IN (SELECT +id FROM tracks) \
              ) \
              GROUP BY key \
              HAVING MAX(tagged) = 1 OR COUNT(DISTINCT track_id) >= ?3 \
              ORDER BY MAX(tagged) DESC, key",
         )?;
         let rows = stmt.query_map(
-            rusqlite::params![sound.version, sound.min_score, sound.min_tracks],
+            rusqlite::params![sound_names(sound.names), sound.min_score, sound.min_tracks],
             map,
         )?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -2237,12 +2238,13 @@ impl LibraryRepository for SqliteLibrary {
             }
             Some(sound) => {
                 stmt = conn.prepare_cached(
-                    "SELECT x.key, al.cover_art_id FROM ( \
+                    "WITH sg(id, key) AS (SELECT value->>0, value->>1 FROM json_each(?1)) \
+                     SELECT x.key, al.cover_art_id FROM ( \
                          SELECT g.key AS key, tg.track_id AS track_id FROM track_genres tg \
                          JOIN genres g ON g.id = tg.genre_id \
                          UNION \
-                         SELECT s.key, s.item_id FROM track_sound_genres s \
-                         WHERE s.version = ?1 AND s.score >= ?2 \
+                         SELECT sg.key, s.item_id FROM sg \
+                         JOIN track_sound_genres s ON s.genre = sg.id AND s.score >= ?2 \
                      ) x \
                      JOIN tracks t ON t.id = x.track_id \
                      JOIN albums al ON al.id = t.album_id \
@@ -2250,7 +2252,7 @@ impl LibraryRepository for SqliteLibrary {
                      GROUP BY x.key, al.id \
                      ORDER BY x.key, COUNT(*) DESC, al.title COLLATE NOCASE, al.id",
                 )?;
-                stmt.query(rusqlite::params![sound.version, sound.min_score])?
+                stmt.query(rusqlite::params![sound_names(sound.names), sound.min_score])?
             }
         };
         let mut map: HashMap<String, Vec<i64>> = HashMap::new();
@@ -2274,7 +2276,14 @@ impl LibraryRepository for SqliteLibrary {
     ) -> Result<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let order = genre_track_order(sort, desc);
-        let Some(sound) = sound else {
+        let heard = sound.and_then(|sound| {
+            let (genre, _) = sound
+                .names
+                .iter()
+                .find(|(_, name)| name.to_lowercase() == key)?;
+            Some((*genre, sound.min_score))
+        });
+        let Some((genre, min_score)) = heard else {
             let sql = format!(
                 "SELECT {TRACK_COLUMNS_T} FROM genres g \
                  JOIN track_genres tg ON tg.genre_id = g.id \
@@ -2301,15 +2310,12 @@ impl LibraryRepository for SqliteLibrary {
                  JOIN genres g ON g.id = tg.genre_id WHERE g.key = ?1 \
                  UNION \
                  SELECT s.item_id FROM track_sound_genres s \
-                 WHERE s.version = ?2 AND s.key = ?1 AND s.score >= ?3 \
+                 WHERE s.genre = ?2 AND s.score >= ?3 \
              ) \
              ORDER BY {order}",
         );
         let mut stmt = conn.prepare_cached(&sql)?;
-        let rows = stmt.query_map(
-            rusqlite::params![key, sound.version, sound.min_score],
-            map_track_row,
-        )?;
+        let rows = stmt.query_map(rusqlite::params![key, genre, min_score], map_track_row)?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
     }
@@ -2320,7 +2326,7 @@ impl LibraryRepository for SqliteLibrary {
         min_score: f32,
         per_album: usize,
         album_id: Option<i64>,
-    ) -> Result<HashMap<i64, Vec<String>>> {
+    ) -> Result<HashMap<i64, Vec<u16>>> {
         let conn = self.conn.lock().unwrap();
         let album = if album_id.is_some() {
             "t.album_id = ?3"
@@ -2334,22 +2340,22 @@ impl LibraryRepository for SqliteLibrary {
                  WHERE e.version = ?1 AND {album} \
                  GROUP BY t.album_id \
              ) \
-             SELECT t.album_id, MAX(s.name), SUM(s.score) / a.n AS mean \
+             SELECT t.album_id, s.genre, SUM(s.score) / a.n AS mean \
              FROM analysed a \
              JOIN tracks t ON t.album_id = a.album_id \
-             JOIN track_sound_genres s ON s.item_id = t.id AND +s.version = ?1 \
+             JOIN track_sound_genres s ON s.item_id = t.id \
              WHERE {album} \
-             GROUP BY t.album_id, s.key \
+             GROUP BY t.album_id, s.genre \
              HAVING mean >= ?2 \
-             ORDER BY t.album_id, mean DESC, s.key",
+             ORDER BY t.album_id, mean DESC, s.genre",
         );
         let mut stmt = conn.prepare_cached(&sql)?;
         let mut rows = stmt.query(rusqlite::params![version, min_score, album_id])?;
-        let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+        let mut map: HashMap<i64, Vec<u16>> = HashMap::new();
         while let Some(row) = rows.next()? {
-            let names = map.entry(row.get(0)?).or_default();
-            if names.len() < per_album {
-                names.push(row.get(1)?);
+            let genres = map.entry(row.get(0)?).or_default();
+            if genres.len() < per_album {
+                genres.push(row.get(1)?);
             }
         }
         Ok(map)
@@ -2802,7 +2808,7 @@ impl LibraryRepository for SqliteLibrary {
              JOIN tracks t ON t.id = u.track_id \
              JOIN albums al ON al.id = t.album_id \
              WHERE al.cover_art_id IS NOT NULL \
-             AND EXISTS (SELECT 1 FROM m WHERE m.artist_id = u.artist_id) \
+             AND u.artist_id IN (SELECT artist_id FROM m) \
              GROUP BY u.artist_id, al.id \
              ORDER BY u.artist_id, sort_year ASC, al.title COLLATE NOCASE"
         );
@@ -3455,14 +3461,17 @@ impl LibraryRepository for SqliteLibrary {
                 "INSERT INTO track_embeddings (item_id, version, vector, styles, created_at) \
                  SELECT id, ?2, ?3, ?4, ?5 FROM media_items WHERE id = ?1",
             )?;
+            let mut clear_genres =
+                tx.prepare_cached("DELETE FROM track_sound_genres WHERE item_id = ?1")?;
             let mut genre = tx.prepare_cached(
-                "INSERT OR REPLACE INTO track_sound_genres (item_id, version, key, name, score) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO track_sound_genres (item_id, genre, score) \
+                 VALUES (?1, ?2, ?3)",
             )?;
             let mut vector = Vec::new();
             let mut styles = Vec::new();
             for row in rows {
                 clear.execute(rusqlite::params![row.item_id, version])?;
+                clear_genres.execute([row.item_id])?;
                 vector.clear();
                 vector.extend(row.vector.iter().flat_map(|v| v.to_le_bytes()));
                 styles.clear();
@@ -3473,18 +3482,8 @@ impl LibraryRepository for SqliteLibrary {
                     continue;
                 }
                 saved += 1;
-                for (name, score) in &row.genres {
-                    let name = name.trim();
-                    if name.is_empty() {
-                        continue;
-                    }
-                    genre.execute(rusqlite::params![
-                        row.item_id,
-                        version,
-                        name.to_lowercase(),
-                        name,
-                        score
-                    ])?;
+                for (id, score) in &row.genres {
+                    genre.execute(rusqlite::params![row.item_id, id, score])?;
                 }
             }
         }
@@ -3569,12 +3568,34 @@ impl LibraryRepository for SqliteLibrary {
     }
 
     fn prune_embeddings(&self, keep_version: &str) -> Result<usize> {
-        let conn = self.embedding_conn.lock().unwrap();
-        Ok(conn.execute(
+        let mut conn = self.embedding_conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let dropped = tx.execute(
             "DELETE FROM track_embeddings WHERE version <> ?1",
             [keep_version],
-        )?)
+        )?;
+        if dropped > 0 {
+            tx.execute(
+                "DELETE FROM track_sound_genres WHERE item_id NOT IN \
+                 (SELECT item_id FROM track_embeddings WHERE version = ?1)",
+                [keep_version],
+            )?;
+        }
+        tx.commit()?;
+        Ok(dropped)
     }
+}
+
+fn sound_names(names: &[(u16, &str)]) -> String {
+    serde_json::Value::Array(
+        names
+            .iter()
+            .map(|&(id, name)| {
+                serde_json::Value::Array(vec![id.into(), name.to_lowercase().into(), name.into()])
+            })
+            .collect(),
+    )
+    .to_string()
 }
 
 fn push_f32s(bytes: &[u8], out: &mut Vec<f32>) {

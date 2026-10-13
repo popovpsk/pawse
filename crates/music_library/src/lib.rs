@@ -6045,18 +6045,36 @@ mod tests {
         assert_eq!(lib.embedding(id, VERSION).unwrap(), Some(floats(2.0, 2)));
     }
 
-    fn analysed(lib: &SqliteLibrary, version: &str, item_id: i64, genres: &[(&str, f32)]) {
+    fn analysed(lib: &SqliteLibrary, version: &str, item_id: i64, genres: &[(u16, f32)]) {
         let row = TrackAnalysis {
             item_id,
             vector: floats(1.0, 2),
             styles: vec![0.25; 3],
-            genres: genres.iter().map(|(n, s)| (n.to_string(), *s)).collect(),
+            genres: genres.to_vec(),
         };
         assert_eq!(lib.save_embeddings(version, &[row]).unwrap(), 1);
     }
 
+    const AMBIENT: u16 = 3;
+    const SHOEGAZE: u16 = 10;
+    const GRUNGE: u16 = 11;
+    const PUNK: u16 = 12;
+    const TECHNO: u16 = 20;
+    const HOUSE: u16 = 21;
+    const ALT_ROCK: u16 = 30;
+    const JAZZ: u16 = 40;
+
     const SOUND: SoundGenres = SoundGenres {
-        version: VERSION,
+        names: &[
+            (AMBIENT, "Ambient"),
+            (SHOEGAZE, "Shoegaze"),
+            (GRUNGE, "Grunge"),
+            (PUNK, "Punk"),
+            (TECHNO, "Techno"),
+            (HOUSE, "House"),
+            (ALT_ROCK, "Alternative Rock"),
+            (JAZZ, "Jazz"),
+        ],
         min_score: 0.1,
         min_tracks: 1,
     };
@@ -6074,11 +6092,11 @@ mod tests {
         let heard = seed_track(&lib, "Heard", "Album", "Artist");
         let both = seed_track(&lib, "Both", "Album", "Artist");
         let quiet = seed_track(&lib, "Quiet", "Album", "Artist");
-        lib.set_track_genres(tagged, &["Ambient".into()]).unwrap();
-        lib.set_track_genres(both, &["Ambient".into()]).unwrap();
-        analysed(&lib, VERSION, heard, &[("ambient", 0.4), ("Shoegaze", 0.3)]);
-        analysed(&lib, VERSION, both, &[("Ambient", 0.5)]);
-        analysed(&lib, VERSION, quiet, &[("Shoegaze", 0.05)]);
+        lib.set_track_genres(tagged, &["ambient".into()]).unwrap();
+        lib.set_track_genres(both, &["ambient".into()]).unwrap();
+        analysed(&lib, VERSION, heard, &[(AMBIENT, 0.4), (SHOEGAZE, 0.3)]);
+        analysed(&lib, VERSION, both, &[(AMBIENT, 0.5)]);
+        analysed(&lib, VERSION, quiet, &[(SHOEGAZE, 0.05)]);
 
         let summary: Vec<(String, String, i64, bool)> = lib
             .genres(Some(&SOUND))
@@ -6090,7 +6108,7 @@ mod tests {
         assert_eq!(
             summary,
             vec![
-                ("ambient".into(), "Ambient".into(), 3, true),
+                ("ambient".into(), "ambient".into(), 3, true),
                 ("shoegaze".into(), "Shoegaze".into(), 1, false),
             ]
         );
@@ -6123,15 +6141,17 @@ mod tests {
         assert_eq!(by("shoegaze", Some(&SOUND)), vec!["Heard"]);
         assert_eq!(by("ambient", None), vec!["Both", "Tagged"]);
         assert!(by("shoegaze", None).is_empty());
+        assert_eq!(by("jazz", Some(&SOUND)), Vec::<String>::new());
     }
 
     #[test]
-    fn sound_genres_of_another_version_or_off_the_catalog_are_not_listed() {
+    fn sound_genres_of_a_pruned_version_or_off_the_catalog_are_not_listed() {
         let (lib, path) = create_test_db();
         let kept = seed_track(&lib, "Kept", "Album", "Artist");
         let lost = seed_track(&lib, "Lost", "Album", "Artist");
-        analysed(&lib, "old", kept, &[("Techno", 0.9)]);
-        analysed(&lib, VERSION, lost, &[("House", 0.9)]);
+        analysed(&lib, "old", kept, &[(TECHNO, 0.9)]);
+        analysed(&lib, VERSION, lost, &[(HOUSE, 0.9)]);
+        assert_eq!(lib.prune_embeddings(VERSION).unwrap(), 1);
         let conn = rusqlite::Connection::open(&path).unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
         conn.execute("DELETE FROM tracks WHERE id = ?1", [lost])
@@ -6139,6 +6159,11 @@ mod tests {
 
         assert!(lib.genres(Some(&SOUND)).unwrap().is_empty());
         assert!(lib.genre_album_covers(Some(&SOUND)).unwrap().is_empty());
+        assert!(
+            lib.tracks_by_genre("house", GenreSort::Artist, false, Some(&SOUND))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -6147,10 +6172,10 @@ mod tests {
         let id = seed_track(&lib, "Song", "Album", "Artist");
         let other = seed_track(&lib, "Other", "Album", "Artist");
         let genre_rows = || count_rows(&path, "SELECT COUNT(*) FROM track_sound_genres");
-        analysed(&lib, VERSION, id, &[("Grunge", 0.4), ("Punk", 0.2)]);
-        analysed(&lib, VERSION, id, &[("Grunge", 0.3)]);
+        analysed(&lib, VERSION, id, &[(GRUNGE, 0.4), (PUNK, 0.2)]);
+        analysed(&lib, VERSION, id, &[(GRUNGE, 0.3)]);
         assert_eq!(genre_rows(), 1, "saving again replaces the genres");
-        analysed(&lib, "old", other, &[("Techno", 0.5)]);
+        analysed(&lib, "old", other, &[(TECHNO, 0.5)]);
 
         assert_eq!(lib.prune_embeddings(VERSION).unwrap(), 1);
         assert_eq!(genre_rows(), 1, "pruning takes the old version's genres");
@@ -6158,7 +6183,7 @@ mod tests {
             item_id: 999_999,
             vector: floats(1.0, 2),
             styles: vec![0.5],
-            genres: vec![("Jazz".into(), 0.9)],
+            genres: vec![(JAZZ, 0.9)],
         };
         assert_eq!(lib.save_embeddings(VERSION, &[gone]).unwrap(), 0);
         assert_eq!(genre_rows(), 1, "a vanished item gets no genres either");
@@ -6178,27 +6203,22 @@ mod tests {
         let second = seed_track(&lib, "Two", "Album", "Artist");
         let _unanalysed = seed_track(&lib, "Three", "Album", "Artist");
         let elsewhere = seed_track(&lib, "Else", "Other", "Artist");
-        analysed(
-            &lib,
-            VERSION,
-            first,
-            &[("Grunge", 0.4), ("Alternative Rock", 0.3)],
-        );
-        analysed(&lib, VERSION, second, &[("Grunge", 0.2)]);
-        analysed(&lib, VERSION, elsewhere, &[("Techno", 0.6)]);
+        analysed(&lib, VERSION, first, &[(GRUNGE, 0.4), (ALT_ROCK, 0.3)]);
+        analysed(&lib, VERSION, second, &[(GRUNGE, 0.2)]);
+        analysed(&lib, VERSION, elsewhere, &[(TECHNO, 0.6)]);
         let album = lib.upsert_album("Album", Some(2020), None).unwrap();
         let other = lib.upsert_album("Other", Some(2020), None).unwrap();
 
         let all = lib.album_sound_genres(VERSION, 0.1, 3, None).unwrap();
-        assert_eq!(all[&album], vec!["Grunge", "Alternative Rock"]);
-        assert_eq!(all[&other], vec!["Techno"]);
+        assert_eq!(all[&album], vec![GRUNGE, ALT_ROCK]);
+        assert_eq!(all[&other], vec![TECHNO]);
         let strict = lib.album_sound_genres(VERSION, 0.2, 3, None).unwrap();
-        assert_eq!(strict[&album], vec!["Grunge"]);
+        assert_eq!(strict[&album], vec![GRUNGE]);
         let one = lib
             .album_sound_genres(VERSION, 0.1, 1, Some(album))
             .unwrap();
         assert_eq!(one.len(), 1);
-        assert_eq!(one[&album], vec!["Grunge"]);
+        assert_eq!(one[&album], vec![GRUNGE]);
         assert!(
             lib.album_sound_genres("old", 0.1, 3, None)
                 .unwrap()
@@ -6215,7 +6235,7 @@ mod tests {
         let artist = lib.upsert_artist("Band").unwrap();
         let album = lib.upsert_album("A", Some(2000), Some(cover)).unwrap();
         let id = insert_album_track(&lib, "/m/1.flac", Some(album), Some(1), &[(artist, 0)]);
-        analysed(&lib, VERSION, id, &[("Shoegaze", 0.5)]);
+        analysed(&lib, VERSION, id, &[(SHOEGAZE, 0.5)]);
 
         assert_eq!(
             lib.genre_album_covers(Some(&SOUND))

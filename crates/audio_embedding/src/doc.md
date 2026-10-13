@@ -223,11 +223,16 @@ including its quirks; "correct" DSP would drift from what the weights expect.
 outputs, one score in 0..1 per Discogs style. Scores are low by nature (400 classes,
 several plausible at once): on 196 tracks of `music-test` the best style of a track
 scored 0.1–0.7, typically 0.2–0.4. `genres(scores)` turns them into what the app stores
-as genre rows:
+as genre rows, `(genre, score)` pairs:
 
-- the style name without its parent (`Rock---Grunge` → `Grunge`); a name under two
-  parents (16 of them: `Disco`, `Dub`, `Industrial`, `Hardcore`, …) is one genre with
-  the higher score;
+- a genre is the style name without its parent (`Rock---Grunge` → `Grunge`); a name
+  under two parents (16 of them: `Disco`, `Dub`, `Industrial`, `Hardcore`, …) is one
+  genre with the higher score;
+- a genre is stored as a number, `genre_id(label)`: the index in `LABELS` of the first
+  label with that style name (`Electronic---Disco` for both Discos). `genre_name(id)`
+  and `genre_names()` give the names back; the database holds only the numbers. They
+  are fixed by `LABELS`, which come with the weights, so they change only with the
+  model, and `EMBEDDING_VERSION` with it;
 - scores under `GENRE_FLOOR` (0.05) are left out — the app's display thresholds (0.12
   for an album's mean, 0.2 for a track on a genre page) are above it, so they can be
   tuned without a re-analysis;
