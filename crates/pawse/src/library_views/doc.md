@@ -334,8 +334,11 @@ drive the `PlaybackQueue` on click.
   grouping until the next `CatalogChanged`.
   It re-fetches on every `CatalogChanged`, which a tag edit sends too: a tag edit
   re-derives every album's artist, so rows and counts here move with no scan.
-  **Picture** (`artists_picture`, the Photo / Covers switch in the view menu, Photo by
-  default): a list row shows either the artist's photo or the stack of up to three album
+  **Picture** (`artists_picture`, the Photo / Covers switch in the view menu, Covers by
+  default, the owner's call: the look the list had before artist photos, so users
+  updating from 0.8.7, whose `settings.json` has no such key, see no change; a file
+  saved by a dev build from when Photo was the default keeps `photo`): a list row shows
+  either the artist's photo or the stack of up to three album
   covers (`artist_avatar`). Photo applies only while the privacy switch
   `artist_info_from_internet` is on (`SettingsStore::artists_show_photos`); off, the
   list is covers and the menu hides the switch. A photo is a 40 px rounded square, not

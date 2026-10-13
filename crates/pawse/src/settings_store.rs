@@ -285,8 +285,8 @@ impl ArtistsSort {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtistPicture {
-    #[default]
     Photo,
+    #[default]
     Covers,
 }
 
@@ -2093,7 +2093,7 @@ mod tests {
             artists_sort: ArtistsSort::Tracks,
             artists_sort_desc: true,
             artists_grouped: true,
-            artists_picture: ArtistPicture::Covers,
+            artists_picture: ArtistPicture::Photo,
             artists_layout: LibraryLayout::Grid,
             auto_update: true,
             lyrics_from_internet: true,
@@ -2145,7 +2145,7 @@ mod tests {
         assert_eq!(back.artists_sort, ArtistsSort::Tracks);
         assert!(back.artists_sort_desc);
         assert!(back.artists_grouped);
-        assert_eq!(back.artists_picture, ArtistPicture::Covers);
+        assert_eq!(back.artists_picture, ArtistPicture::Photo);
         assert_eq!(back.artists_layout, LibraryLayout::Grid);
         assert_eq!(back.network_cache_gb, 8);
         assert!(back.header_in_title_bar);
