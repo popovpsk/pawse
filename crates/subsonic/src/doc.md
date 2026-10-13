@@ -72,6 +72,17 @@ into `music_library::RemoteSong`s. Blocking `ureq` on the caller's thread, like
   original embedded picture for every track — ~470 MB for a 1.7k-song test library
   against ~31 MB scaled. Navidrome ignores the `_<timestamp>` suffix of a cover id
   when looking it up, so an older id still returns the current picture.
+- **Navidrome's placeholder.** A cover Navidrome knows but cannot serve right now
+  comes back as HTTP 200 with its placeholder picture (a blue vinyl, transparent
+  around the disc), not as an error. Since 0.64 it serves scaled copies from its
+  image cache by content hash and opens the original only for a size it has not
+  scaled yet, so when the file its artwork record points at is gone or changed
+  (music folder moved, file rewritten) the 320 px copy still comes back and a
+  bigger size is the placeholder; the failed request queues a re-resolution, so
+  the next one usually works. `is_placeholder_cover` recognises the picture by
+  length and MD5: the same 69 228-byte WebP since 0.55.2 (earlier versions had a
+  different one and are not recognised). `cover_art` still returns it as is; the
+  caller decides.
 - **Audio.** `fetch_range` asks `download` (the original file, never a
   transcode) for a byte range and reports where the body starts and the file's
   total size from `Content-Range`. A `200` reply means the server ignored the

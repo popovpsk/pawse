@@ -54,6 +54,10 @@ impl ServerClient for Subsonic {
         self.0.cover_art(key, max_size).map_err(error)
     }
 
+    fn is_placeholder_cover(&self, bytes: &[u8]) -> bool {
+        subsonic::is_placeholder_cover(bytes)
+    }
+
     fn scrobble(&self, key: &str, played_at: u64) -> Result<(), RemoteError> {
         self.0
             .scrobble(key, played_at.saturating_mul(1000))

@@ -208,6 +208,9 @@ pub trait ServerClient: Send + Sync {
         start: u64,
         end: Option<u64>,
     ) -> Result<server_http::RangeBody, RemoteError>;
+    fn is_placeholder_cover(&self, _bytes: &[u8]) -> bool {
+        false
+    }
     fn scrobble(&self, _key: &str, _played_at: u64) -> Result<(), RemoteError> {
         Err(unsupported())
     }

@@ -69,6 +69,17 @@ to `subsonic::` or `jellyfin::` directly.
   local track whose cover row came from a server), else the thumbnail stays and
   a warning is logged. A torrent stores only its thumbnails, so it hands back
   the same 320 px picture.
+- **A server's placeholder is no answer.** Navidrome answers a cover it cannot
+  read right now with its own placeholder picture and HTTP 200, while its cached
+  320 px copy still works (see `subsonic/src/doc.md`). Drawn over the thumbnail,
+  its transparent corners looked like two covers merged into one (issue #11).
+  `HttpMedia::cover` asks `ServerClient::is_placeholder_cover` (only the Subsonic
+  adapter knows one) and turns that answer into `NotFound`, so the file fallback
+  runs, else the thumbnail stays. With no full-size layer the view asks again at
+  the next track of the same album, by which time Navidrome has usually
+  re-resolved the picture (the failed request queues that). The sync does not
+  ask: a key the server has no picture for keeps the server's placeholder as its
+  thumbnail, as in the server's own UI.
 - **What differs between kinds is asked, not compared.** `ServerKind` answers
   `manual_sync`, `imports_favorites`, `imports_playlists`, `reports_plays` / `sends_favorites` (what
   `server_scrobble` may send back: plays to Subsonic, likes to Subsonic and

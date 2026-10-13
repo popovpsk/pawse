@@ -61,7 +61,13 @@ impl SourceMedia for HttpMedia {
     }
 
     fn cover(&self, key: &str, max_size: u32) -> Result<Vec<u8>, RemoteError> {
-        self.client.cover_art(key, max_size)
+        let bytes = self.client.cover_art(key, max_size)?;
+        if self.client.is_placeholder_cover(&bytes) {
+            return Err(RemoteError::NotFound(
+                "the server sent its placeholder instead of the picture".into(),
+            ));
+        }
+        Ok(bytes)
     }
 
     fn lyrics(&self, reference: &RemoteRef) -> Result<Option<lyrics::Lyrics>, RemoteError> {
@@ -148,8 +154,11 @@ mod tests {
         fn favorite_keys(&self) -> Result<Vec<String>, RemoteError> {
             Ok(Vec::new())
         }
-        fn cover_art(&self, _: &str, _: u32) -> Result<Vec<u8>, RemoteError> {
-            Ok(Vec::new())
+        fn cover_art(&self, key: &str, _: u32) -> Result<Vec<u8>, RemoteError> {
+            Ok(key.as_bytes().to_vec())
+        }
+        fn is_placeholder_cover(&self, bytes: &[u8]) -> bool {
+            bytes == b"placeholder"
         }
         fn fetch_range(
             &self,
@@ -187,6 +196,21 @@ mod tests {
         assert!(matches!(auth.fetch(0, None), Err(FetchError::Fatal(_))));
         let other = fetch(vec![Err(RemoteError::Other("404".into()))]);
         assert!(matches!(other.fetch(0, None), Err(FetchError::Fatal(m)) if m == "404"));
+    }
+
+    #[test]
+    fn a_placeholder_from_the_server_is_no_cover() {
+        let media = HttpMedia::new(
+            Arc::new(Scripted {
+                replies: Mutex::new(Vec::new()),
+            }),
+            Arc::new(CacheStore::new(std::env::temp_dir().join("pawse-unused"))),
+        );
+        assert_eq!(media.cover("art", 2048), Ok(b"art".to_vec()));
+        assert!(matches!(
+            media.cover("placeholder", 2048),
+            Err(RemoteError::NotFound(_))
+        ));
     }
 
     #[test]
