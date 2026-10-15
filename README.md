@@ -38,7 +38,8 @@ macOS · Windows · Linux
 - **Bit-perfect playback** — **exclusive output** on Windows and macOS, **native sample rate** on Linux, with automatic sample-rate / bit-depth matching and a live bit-perfect indicator.
 - **Fluid, minimal UI** — smooth at 120+ fps, 20+ themes plus an adaptive one that follows the cover art, 20 UI languages; hide any control, label or column you never use.
 - **One library, many sources** — local files, Subsonic/Navidrome, Jellyfin, DLNA/UPnP servers and torrents, mixed into one library.
-- **Cast anywhere** — AirPlay 1 & 2, Chromecast and DLNA renderers; switch outputs mid-track without losing your place.
+- **Cast anywhere** — AirPlay 1 & 2, Chromecast and DLNA renderers, switchable mid-track.
+- **Sound-based radio** — optional on-device analysis finds tracks that sound alike, for radio, queue mixes and genres detected from the audio.
 - **Remote control** — a built-in web remote for any phone or browser on your network: player, queue and full library browsing.
 - **Scrobbling** — Last.fm, Libre.fm, ListenBrainz and a local CSV log, all at once, with rewrite rules and loved-track sync.
 
