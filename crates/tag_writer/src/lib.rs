@@ -396,7 +396,9 @@ fn set_year(tag: &mut Tag, year: Option<i32>) {
     }
     tag.remove_key(&ItemKey::Year);
     tag.remove_key(&ItemKey::OriginalReleaseDate);
-    tag.remove_key(&ItemKey::ReleaseDate);
+    if year.is_none() {
+        tag.remove_key(&ItemKey::ReleaseDate);
+    }
     set_text(
         tag,
         ItemKey::RecordingDate,
@@ -1268,6 +1270,32 @@ mod tests {
             music_indexer::metadata::read_metadata(&path).unwrap().year,
             None,
             "read_year walks four keys, so all four have to go"
+        );
+    }
+
+    #[test]
+    fn a_new_year_keeps_the_release_date() {
+        let dir = TempDir::new();
+        let path = copy_fixture(&dir, "tagged_basic.flac");
+
+        {
+            let mut tagged = lofty::read_from_path(&path).unwrap();
+            let tag = tagged.primary_tag_mut().unwrap();
+            tag.insert_text(ItemKey::ReleaseDate, "1990".into());
+            tag.insert_text(ItemKey::RecordingDate, "1977".into());
+            tagged.save_to_path(&path, WriteOptions::default()).unwrap();
+        }
+
+        let mut edits = full_edits();
+        edits.year = Some(1978);
+        write_metadata(&path, &edits).unwrap();
+
+        let read = music_indexer::metadata::read_metadata(&path).unwrap();
+        assert_eq!(read.year, Some(1978));
+        assert_eq!(
+            read.release_year,
+            Some(1990),
+            "the release date keys the album, so a track year edit must not move it"
         );
     }
 

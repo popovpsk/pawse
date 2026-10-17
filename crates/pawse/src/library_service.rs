@@ -18,7 +18,7 @@ use crate::settings_store::{AlbumsSort, ArtistsSort};
 pub struct AlbumTagEdits {
     pub album: Option<String>,
     pub album_artists: Vec<String>,
-    pub year: Option<i32>,
+    pub year: Option<Option<i32>>,
     pub genres: Vec<String>,
     /// Applied to every file of the album, since the cover is what the album screens
     /// show and one file disagreeing would surface as art that changes on rescan.
@@ -1832,7 +1832,15 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     let artist_ids = resolve_artists(repo, &artist_names)?;
 
     let album_id = match scanned.album_title.as_deref() {
-        Some(title) => Some(repo.upsert_album(title, scanned.year, None)?),
+        Some(title) => Some(repo.upsert_album(
+            &music_library::AlbumKey {
+                title,
+                release_id: scanned.release_id.as_deref(),
+                release_year: scanned.release_year,
+            },
+            scanned.year,
+            None,
+        )?),
         None => None,
     };
 
@@ -1918,7 +1926,7 @@ fn apply_track_tags(
 }
 
 /// The same for a whole album: write the shared fields into every track, then settle
-/// the `albums` row the new `(title, year)` key landed on. Returns how many files
+/// the `albums` row the new key landed on. Returns how many files
 /// actually changed; the error carries the file it stopped on.
 fn apply_album_tags(
     repo: &dyn LibraryRepository,
@@ -1945,8 +1953,14 @@ fn apply_album_tags(
 /// the point update is only an optimisation over a rescan, so any step one takes and
 /// the other skips shows up as a library that changes when it is re-indexed.
 fn settle_derived_rows(repo: &dyn LibraryRepository, what: &str) {
+    if let Err(e) = repo.regroup_albums() {
+        log::error!("Failed to regroup albums after {}: {}", what, e);
+    }
     if let Err(e) = repo.resolve_album_covers() {
         log::error!("Failed to resolve album covers after {}: {}", what, e);
+    }
+    if let Err(e) = repo.resolve_album_years() {
+        log::error!("Failed to resolve album years after {}: {}", what, e);
     }
     if let Err(e) = repo.resolve_album_artists() {
         log::error!("Failed to resolve album artists after {}: {}", what, e);
@@ -1995,7 +2009,7 @@ fn write_album_fields(
 ) -> anyhow::Result<bool> {
     let current = music_indexer::metadata::read_metadata(path)?;
     if current.album_title == edits.album
-        && current.year == edits.year
+        && edits.year.is_none_or(|year| current.year == year)
         && current.album_artist_names == edits.album_artists
         && current.genres == edits.genres
         && cover_already_matches(&current, &edits.cover)
@@ -2009,7 +2023,7 @@ fn write_album_fields(
         album_artists: edits.album_artists.clone(),
         track_number: current.track_number,
         disc_number: current.disc_number,
-        year: edits.year,
+        year: edits.year.unwrap_or(current.year),
         genres: edits.genres.clone(),
         removed_tags: Vec::new(),
         added_tags: Vec::new(),
@@ -2086,6 +2100,8 @@ fn to_scan_track(track: PreparedTrack) -> ScanTrack {
         track_number: track.track_number,
         disc_number: track.disc_number,
         year: track.year,
+        release_id: track.release_id,
+        release_year: track.release_year,
         genres: track.genres,
         duration_ms: track.duration_ms,
         cover_hash: track.cover_hash,
@@ -2270,6 +2286,8 @@ mod tests {
                     track_number: Some(1),
                     disc_number: Some(1),
                     year: Some(1999),
+                    release_id: None,
+                    release_year: None,
                     genres: vec!["Rock".into()],
                     duration_ms: Some(1000),
                     cover_hash: None,
@@ -2696,7 +2714,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Comp".into()),
             album_artists: Vec::new(),
-            year: None,
+            year: Some(None),
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2736,7 +2754,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Kid A".into()),
             album_artists: Vec::new(),
-            year: Some(2000),
+            year: Some(Some(2000)),
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2753,28 +2771,67 @@ mod tests {
     }
 
     #[test]
-    fn a_per_track_year_edit_would_split_the_album() {
+    fn a_per_track_year_edit_keeps_the_album_whole() {
         let ws = Workspace::new();
         let stay = ws.add_file("stay.flac", "tagged_basic.flac");
         let move_me = ws.add_file("move.flac", "tagged_basic.flac");
-        for path in [&stay, &move_me] {
-            tag_writer::write_metadata(path, &edits_titled("T")).unwrap();
-        }
+        let numbered = |number: u32| tag_writer::TrackTagEdits {
+            track_number: Some(number),
+            ..edits_titled("T")
+        };
+        tag_writer::write_metadata(&stay, &numbered(1)).unwrap();
+        tag_writer::write_metadata(&move_me, &numbered(2)).unwrap();
         ws.scan();
         let moved_id = ws.track_id(&move_me);
-        assert_eq!(ws.repo.albums().unwrap().len(), 1);
+        let before = ws.repo.albums().unwrap();
+        assert_eq!(before.len(), 1);
 
-        let mut edits = edits_titled("T");
-        edits.year = Some(2002);
+        let mut edits = numbered(2);
+        edits.year = Some(2030);
         tag_writer::write_metadata(&move_me, &edits).unwrap();
         reindex_one(&ws.repo, moved_id, &move_me).unwrap();
+        settle_derived_rows(&ws.repo, "test");
 
-        assert_eq!(
-            ws.repo.albums().unwrap().len(),
-            2,
-            "albums are keyed on (title, year), which is why the form locks the year \
-             for a track that has siblings"
-        );
+        let after = ws.repo.albums().unwrap();
+        assert_eq!(after.len(), 1, "{after:?}");
+        assert_eq!(after[0].id, before[0].id);
+        assert_eq!(after[0].year, Some(2030));
+    }
+
+    #[test]
+    fn an_album_save_without_a_year_keeps_every_song_its_own_year() {
+        let ws = Workspace::new();
+        let early = ws.add_file("01.flac", "tagged_basic.flac");
+        let late = ws.add_file("02.flac", "tagged_basic.flac");
+        for (path, number, year) in [(&early, 1, 1972), (&late, 2, 1989)] {
+            tag_writer::write_metadata(
+                path,
+                &tag_writer::TrackTagEdits {
+                    track_number: Some(number),
+                    year: Some(year),
+                    ..edits_titled("Hits")
+                },
+            )
+            .unwrap();
+        }
+        ws.scan();
+        let albums = ws.repo.albums().unwrap();
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        let tracks = ws.repo.tracks_for_album(albums[0].id).unwrap();
+
+        let edits = AlbumTagEdits {
+            album: Some("Seed Album".into()),
+            album_artists: Vec::new(),
+            year: None,
+            genres: vec!["Disco".into()],
+            cover: tag_writer::CoverEdit::Keep,
+        };
+        assert_eq!(apply_album_tags(&ws.repo, &tracks, &edits).unwrap(), 2);
+
+        let year_of = |path: &Path| music_indexer::metadata::read_metadata(path).unwrap().year;
+        assert_eq!(year_of(&early), Some(1972));
+        assert_eq!(year_of(&late), Some(1989));
+        assert_eq!(ws.repo.albums().unwrap()[0].year, Some(1989));
     }
 
     #[test]
@@ -2789,7 +2846,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
-            year: Some(2001),
+            year: Some(Some(2001)),
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2837,7 +2894,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Renamed".into()),
             album_artists: vec!["Band & Friends".into()],
-            year: Some(2000),
+            year: Some(Some(2000)),
             genres: vec!["Post-Rock".into()],
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -3080,7 +3137,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
-            year: Some(2001),
+            year: Some(Some(2001)),
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Replace { bytes: embedded },
         };
@@ -3127,7 +3184,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
-            year: Some(2001),
+            year: Some(Some(2001)),
             genres: ws.repo.album_genres(album_id).unwrap(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -3157,7 +3214,7 @@ mod tests {
         let edits = AlbumTagEdits {
             album: Some("Brand New Name".into()),
             album_artists: Vec::new(),
-            year: Some(2001),
+            year: Some(Some(2001)),
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -3233,6 +3290,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             genres: Vec::new(),
             duration_ms: Some(1000),
             cover_hash: None,
@@ -3333,6 +3392,35 @@ mod tests {
     }
 
     #[test]
+    fn a_track_number_edit_merges_two_releases_back_without_a_rescan() {
+        let ws = Workspace::new();
+        let first = ws.add_file("01.flac", "tagged_basic.flac");
+        let second = ws.add_file("02.flac", "tagged_basic.flac");
+        let edits = |n: u32, year: i32| tag_writer::TrackTagEdits {
+            title: Some(format!("Track {year}")),
+            artists: vec!["Performer".into()],
+            album: Some("Twice".into()),
+            track_number: Some(n),
+            year: Some(year),
+            ..Default::default()
+        };
+        tag_writer::write_metadata(&first, &edits(1, 2001)).unwrap();
+        tag_writer::write_metadata(&second, &edits(1, 2002)).unwrap();
+        ws.scan();
+        assert_eq!(ws.repo.albums().unwrap().len(), 2);
+
+        let track_id = ws.track_id(&second);
+        assert!(apply_track_tags(&ws.repo, track_id, &second, &edits(2, 2002)).is_ok());
+        let albums = ws.repo.albums().unwrap();
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].year, Some(2002));
+
+        let after_edit = ws.snapshot();
+        ws.scan();
+        assert_eq!(after_edit, ws.snapshot());
+    }
+
+    #[test]
     fn the_remote_reader_follows_the_configured_grouping() {
         use pawse_remote::LibraryReader;
 
@@ -3347,7 +3435,9 @@ mod tests {
 
         let headliner = repo.upsert_artist("Headliner").unwrap();
         let guest = repo.upsert_artist("Guest").unwrap();
-        let album = repo.upsert_album("Record", Some(2020), None).unwrap();
+        let album = repo
+            .upsert_album(&music_library::AlbumKey::titled("Record"), Some(2020), None)
+            .unwrap();
         let track = repo
             .upsert_track(
                 &NewTrack {
@@ -3420,8 +3510,16 @@ mod tests {
         std::fs::create_dir_all(&folder).unwrap();
         let repo = SqliteLibrary::open_at(folder.join("library.db")).unwrap();
 
-        let older = repo.upsert_album("The Zebra", Some(1999), None).unwrap();
-        let newer = repo.upsert_album("Apple", Some(2010), None).unwrap();
+        let older = repo
+            .upsert_album(
+                &music_library::AlbumKey::titled("The Zebra"),
+                Some(1999),
+                None,
+            )
+            .unwrap();
+        let newer = repo
+            .upsert_album(&music_library::AlbumKey::titled("Apple"), Some(2010), None)
+            .unwrap();
         for (album, album_title, title, path) in [
             (older, "The Zebra", "Stripes", "/m/z.flac"),
             (newer, "Apple", "Core", "/m/a.flac"),

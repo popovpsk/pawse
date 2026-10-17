@@ -651,9 +651,14 @@ Integrations:
 
 ## Tag editing (`tag_editor_view.rs`, `library_service.rs`)
 
-- Album, album artist and year are locked in the per-track modal: `albums` is keyed
-  `(title, year)`, so editing them from a track with siblings re-keys and splits the
-  album. They unlock in the album editor, or for a track in no album.
+- Album and album artist are locked in the per-track modal: `albums` is keyed on the
+  title and split on the album artist, so editing them from a track with siblings
+  re-keys or splits the album. They unlock in the album editor, or for a track in no
+  album. Year is a track field (the album shows its newest track year) and is editable
+  in both. The album editor shows an album whose tracks disagree on the year with an
+  empty field and the range as placeholder, and writes the year only if the field was
+  changed (`AlbumTagEdits::year` `None`): otherwise one save would stamp the first
+  track's year onto every song of a compilation.
 - Read-only: a cue track, a file that is the current queue track (checked on open and
   on save), an album with no own files. Server tracks get no editor; the album save
   skips server and cue tracks (`Track::own_file`).
@@ -664,10 +669,10 @@ Integrations:
   a failed re-index, or an album write that stops midway, forces a rescan. The album
   save skips files already equal (an untouched mtime keeps the watcher quiet) and
   overwrites every track's genres.
-- `settle_derived_rows` (album covers, album artists, item snapshots, orphan sweep) is
-  the one place scan and point update both call: the point update is only an
-  optimisation over a rescan, so a step one skips shows up as a library that changes
-  when re-indexed. A renamed album's new row is born coverless; the re-resolve fills
+- `settle_derived_rows` (album regroup, covers, years, album artists, item snapshots,
+  orphan sweep) is the one place scan and point update both call: the point update is
+  only an optimisation over a rescan, so a step one skips shows up as a library that
+  changes when re-indexed. A renamed album's new row is born coverless; the re-resolve fills
   it. Derivation rules: `music_library/src/doc.md`. Tests apply an edit through
   `apply_track_tags` / `apply_album_tags`, rescan with the real pipeline and compare
   `snapshot()` (every column, so forgotten ones show up).

@@ -151,6 +151,38 @@ mod tests {
     }
 
     #[test]
+    fn test_read_metadata_release_id_and_release_year() {
+        use lofty::file::TaggedFileExt;
+        use lofty::prelude::{Accessor, AudioFile, ItemKey};
+
+        let tmp = TempDir::new();
+        let target = tmp.path().join("release.flac");
+        copy_fixture("tagged_basic.flac", &target);
+        let mut file = lofty::read_from_path(&target).unwrap();
+        let tag = file.primary_tag_mut().unwrap();
+        tag.insert_text(
+            ItemKey::MusicBrainzReleaseId,
+            "0B4E5C61-2E3E-4A1F-9B53-3D1A2C4F5E6D".into(),
+        );
+        tag.insert_text(ItemKey::ReleaseDate, "1990-11-05".into());
+        tag.set_year(1977);
+        file.save_to_path(&target, lofty::config::WriteOptions::default())
+            .unwrap();
+
+        let track = read_metadata(&target).unwrap();
+        assert_eq!(
+            track.release_id.as_deref(),
+            Some("0B4E5C61-2E3E-4A1F-9B53-3D1A2C4F5E6D")
+        );
+        assert_eq!(track.release_year, Some(1990));
+        assert_eq!(track.year, Some(1977));
+
+        let plain = read_tagged_fixture("tagged_basic.flac");
+        assert_eq!(plain.release_id, None);
+        assert_eq!(plain.release_year, None);
+    }
+
+    #[test]
     fn test_read_metadata_tagged_flac_with_embedded_cover() {
         let track = read_tagged_fixture("tagged_with_cover.flac");
         assert_eq!(track.title.as_deref(), Some("Cover Track"));

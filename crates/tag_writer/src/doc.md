@@ -60,9 +60,10 @@ from the files.
   `current_number`) and do nothing on a match; they duplicate `read_year` and the `/` split
   in `music_indexer`, so change them together. Track `5/12` would survive anyway (`lofty`
   splits the total into its own `TRACKTOTAL` row); `DISCNUMBER=2/3` stays one string.
-- A changed year removes `Year`, `OriginalReleaseDate`, `ReleaseDate` and writes
-  `RecordingDate`; clearing it empties all four keys, or an old value returns from a
-  fallback.
+- A changed year removes `Year`, `OriginalReleaseDate` and writes `RecordingDate`, which
+  the reader takes first; `ReleaseDate` stays, since it is part of the album's identity
+  (`music_library/src/doc.md`, "Album identity"). Clearing the year empties all four
+  keys, or an old value returns from a fallback.
 
 ## Multi-value
 

@@ -51,6 +51,12 @@ pub(crate) fn read_metadata_cached(
     read_metadata_inner(path, Some(cache))
 }
 
+fn read_release_year(tag: &Tag) -> Option<i32> {
+    tag.get(&ItemKey::ReleaseDate)
+        .and_then(|item| item.value().text())
+        .and_then(year_from_str)
+}
+
 fn read_year(tag: &Tag) -> Option<i32> {
     [
         ItemKey::RecordingDate,
@@ -121,6 +127,8 @@ fn read_dsd_metadata(path: &Path, cache: Option<&CoverCache>) -> anyhow::Result<
         track_number: tags.track_number,
         disc_number: tags.disc_number,
         year: tags.year,
+        release_id: None,
+        release_year: None,
         genres: normalize_genres(tags.genres.iter().map(String::as_str)),
         duration_ms: tags.duration_ms,
         cover_art,
@@ -153,6 +161,8 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
     let mut track_number = None;
     let mut disc_number = None;
     let mut year = None;
+    let mut release_id = None;
+    let mut release_year = None;
     let mut genres = Vec::new();
     let mut embedded = None;
     let mut embedded_lyrics = None;
@@ -196,6 +206,10 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
         }
 
         year = read_year(tag);
+        release_year = read_release_year(tag);
+        release_id = tag
+            .get_string(&ItemKey::MusicBrainzReleaseId)
+            .map(|s| s.to_string());
         genres = normalize_genres(tag.get_strings(&ItemKey::Genre));
 
         embedded = embedded_cover(tag);
@@ -233,6 +247,8 @@ fn read_metadata_inner(path: &Path, cache: Option<&CoverCache>) -> anyhow::Resul
         track_number,
         disc_number,
         year,
+        release_id,
+        release_year,
         genres,
         duration_ms: Some(duration_ms),
         cover_art,

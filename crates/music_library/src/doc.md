@@ -102,9 +102,11 @@ has no `add_cover` yet waits, or is inserted cover-less at `finish`), `flush()`,
   and a server listing slipping in while held arrivals settle would mint a second item
   for a song whose local copy is about to be written. It runs only after the indexer
   reported `Complete`; a dropped session retires nothing and records no fingerprint.
-- The session writes no album cover and only each track's own album-artist tag; the app
-  settles the rest after every write (`settle_derived_rows`), item snapshots before
-  `delete_orphaned_albums_and_artists`, which keeps any cover a snapshot references. An
+- The session writes no album cover, only each track's own album-artist tag and a
+  provisional album year (the first track's); the app settles the rest after every
+  write (`settle_derived_rows`:
+  `regroup_albums`, covers, years, album artists, item snapshots before
+  `delete_orphaned_albums_and_artists`, which keeps any cover a snapshot references). An
   album's cover is its lowest `(disc, track, path)` track with one.
 - A file whose `(path, offset)` has a binding in any local source (placeholder and
   disabled included) keeps its item and is re-pointed to the longest enabled root
@@ -179,7 +181,12 @@ A refilled catalog would get ids from 1 again in whatever order the parallel ind
 delivered files, so a screen holding an old id would land on another album.
 
 - `ScanSession::clear` snapshots the ids first (`StableIds`): an album gets its old id
-  back by `(title, year)` (the key `resolve_album` merges on), an artist by name.
+  back by `identity` (see "Album identity"), an artist by name.
+- Rows from before migration 13 have no identity. On the first rescan after it, an album
+  whose identity is not in the snapshot takes the old id of the track that created it,
+  if no other album took it yet (`legacy_albums`): the seven albums a compilation used to
+  split into become one that keeps one of their ids. Which one depends on delivery
+  order, once.
 - A new one gets an id above everything ever handed out (`allocate_catalog_id`; the
   high-water marks live in `scan_meta`). Every writer allocates through it, the tag
   editor's `upsert_album` / `get_or_insert_artist` included, so a tag edit between two
@@ -188,7 +195,48 @@ delivered files, so a screen holding an old id would land on another album.
   genre holds its `key` (the lowercased name) and every genre query takes the key.
 - Artists are keyed by the lowercased name (`artist_key`), shown under the spelling met
   first. Lowercasing is Rust's (Unicode), not SQLite's ASCII-only `NOCASE`, so
-  `get_or_insert_artist` compares in Rust too. Albums merge on the exact title and year.
+  `get_or_insert_artist` compares in Rust too.
+
+## Album identity
+
+Albums are grouped close to Navidrome's default album id (`musicbrainz_albumid |
+album, releasedate`) and MusicBee: the track's own year is not part of it. A compilation
+whose tracks carry each song's year (`DATE` 1972, 1977, …) used to split into one album
+per year (issue #13).
+
+- `albums.identity` (migration 13): `mb␟<id>␟<exact title>` when the track has a
+  MusicBrainz album id (trimmed, lowercased; years ignored), else `tag␟<exact
+  title>␟<release year>`, where the release year is the `RELEASEDATE` / `TDRL` tag only,
+  empty without one. `albums.release_year` keeps it for the display year. The title
+  stays in the `mb` key so a rename lands the same way in a tag edit and a rescan:
+  neither path stores the album title per track.
+- The album artist is not part of the key: a track without the tag stays with siblings
+  that have one (`album_artists.rs`). It is evidence for a split instead.
+- `regroup_releases` looks at every `tag` family (the plain row plus rows split off it)
+  that has two tracks with different years on one `(disc, track)`, or two different
+  first album-artist tags. Different first album-artist tags split it by that tag (an
+  untagged track is a group of its own); a group with such a collision then splits by
+  the track year, which is the old `(title, year)` rule for two releases under one name.
+  Same-year collisions are copies (FLAC beside MP3) and split nothing, so copies of a
+  per-song-year compilation stay one album. One group left means the family merges back
+  into the plain row.
+- The largest group keeps the plain identity, ties go to the smallest key; the others
+  get `<plain>␝a<artist>␝y<year>` (an empty part means that split did not apply).
+  `mb` albums never split: two copies of one release are one album.
+- It runs at the end of the scan's `finish`, where split rows get their old ids back
+  from `StableIds`, and as `regroup_albums` in `settle_derived_rows` (new ids), so a tag
+  edit and a rescan agree. Until `finish`, a family sits in its plain row.
+- `upsert_album` (the tag editor's re-index) finds or creates the plain row; the regroup
+  then moves the track to the row a scan would give it.
+- `resolve_album_years`: an album's year is its `release_year`, else the newest track
+  year, since a release is no older than its newest recording.
+- Known gaps: the plain row (and its id) goes to the larger release, so it
+  moves to the other one when their sizes cross. A two-disc compilation without disc
+  numbers collides on every position and still splits by year. Server tracks carry no
+  MusicBrainz id, so server-only songs of an album whose local files have one form a
+  `tag` album of their own beside it.
+
+(`␟` is U+001F, `␝` U+001D.)
 
 ## Artists, albums and genres
 
@@ -394,6 +442,8 @@ Owner's calls; ask before changing.
   that is for a manual screen.
 - Artist names match case-insensitively, album titles exactly: tags differ in case far
   more often than two real artists do.
+- Album identity follows Navidrome's default with the track year out of the key; the
+  album artist and position collisions split, they do not key (2026-10-17).
 - Not-found artists are retried only when the item snapshot's `updated_at` moves;
   credits the snapshot does not hold (a second track artist, an album-artist tag added
   to existing tracks) trigger nothing: catching them would need per-row state and a

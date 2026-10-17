@@ -514,4 +514,12 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_track_sound_genres_genre ON track_sound_genres(genre, score);
         "#,
     ),
+    (
+        13,
+        r#"
+        ALTER TABLE albums ADD COLUMN identity TEXT;
+        ALTER TABLE albums ADD COLUMN release_year INTEGER;
+        CREATE INDEX idx_albums_identity ON albums(identity);
+        "#,
+    ),
 ];

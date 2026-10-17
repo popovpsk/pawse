@@ -327,6 +327,8 @@ pub struct ScanTrack {
     pub track_number: Option<u32>,
     pub disc_number: Option<u32>,
     pub year: Option<i32>,
+    pub release_id: Option<String>,
+    pub release_year: Option<i32>,
     pub genres: Vec<String>,
     pub duration_ms: Option<u64>,
     pub cover_hash: Option<String>,
@@ -335,6 +337,22 @@ pub struct ScanTrack {
     pub is_cue: bool,
     pub lyrics: Vec<ScanLyrics>,
     pub file_size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AlbumKey<'a> {
+    pub title: &'a str,
+    pub release_id: Option<&'a str>,
+    pub release_year: Option<i32>,
+}
+
+impl<'a> AlbumKey<'a> {
+    pub fn titled(title: &'a str) -> Self {
+        Self {
+            title,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

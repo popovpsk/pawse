@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
-    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
-    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
-    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
+    AlbumKey, AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary,
+    ArtistTitles, CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove,
+    NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay,
+    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
     StoredLyrics, Track, TrackAnalysis, TrackListing,
 };
 
@@ -37,7 +37,7 @@ pub trait LibraryRepository: Send + Sync {
     fn upsert_artist(&self, name: &str) -> Result<i64>;
     fn upsert_album(
         &self,
-        title: &str,
+        key: &AlbumKey<'_>,
         year: Option<i32>,
         cover_art_id: Option<i64>,
     ) -> Result<i64>;
@@ -88,12 +88,14 @@ pub trait LibraryRepository: Send + Sync {
     fn get_cover_art_large(&self, id: i64) -> Result<Option<Vec<u8>>>;
     fn get_cover_art_source(&self, id: i64) -> Result<Option<(String, bool)>>;
     fn get_track_path_for_cover(&self, id: i64) -> Result<Option<String>>;
+    fn regroup_albums(&self) -> Result<()>;
     /// Point every album at the cover of its lowest-numbered track that carries one,
     /// and at nothing when none does. The order is fully specified, so a scan and a
     /// point update land on the same row no matter which track either happened to
     /// process first — without that, an album whose tracks hold different art would
     /// change its cover between rescans.
     fn resolve_album_covers(&self) -> Result<()>;
+    fn resolve_album_years(&self) -> Result<()>;
     fn resolve_album_artists(&self) -> Result<()>;
     fn album_artist_known(&self, album_id: i64) -> Result<bool>;
     fn artists(&self, grouping: ArtistGrouping) -> Result<Vec<ArtistSummary>>;

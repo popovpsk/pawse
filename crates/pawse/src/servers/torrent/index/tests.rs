@@ -212,6 +212,8 @@ fn a_track_becomes_a_song_keyed_by_its_file_with_cue_offsets() {
         track_number: Some(1997),
         disc_number: Some(1),
         year: None,
+        release_id: None,
+        release_year: None,
         genres: vec!["Rock".into(), "Pop".into()],
         duration_ms: Some(60_000),
         cover_hash: Some("ab".into()),

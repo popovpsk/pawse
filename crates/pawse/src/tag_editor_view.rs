@@ -66,6 +66,7 @@ pub struct TagEditorView {
     track_number: Entity<InputState>,
     disc_number: Entity<InputState>,
     year: Entity<InputState>,
+    loaded_year: String,
     genres: Vec<SharedString>,
     genre_input: Entity<InputState>,
     raw_tags: Vec<(SharedString, SharedString)>,
@@ -137,6 +138,16 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     };
     loaded.album_artists = library.album_artists(album_id);
     loaded.genres = library.album_genres(album_id);
+    let years: std::collections::BTreeSet<Option<i32>> = local.iter().map(|t| t.year).collect();
+    if years.len() > 1 {
+        let known: Vec<i32> = years.iter().flatten().copied().collect();
+        loaded.year = None;
+        loaded.year_range = Some(match (known.first(), known.last()) {
+            (Some(first), Some(last)) if first != last => format!("{first}–{last}"),
+            (Some(first), _) => first.to_string(),
+            _ => String::new(),
+        });
+    }
     let view = cx.new(|cx| {
         TagEditorView::new(
             Target::Album { album_id },
@@ -165,6 +176,7 @@ struct Loaded {
     track_number: Option<u32>,
     disc_number: Option<u32>,
     year: Option<i32>,
+    year_range: Option<String>,
     genres: Vec<String>,
     raw_tags: Vec<(SharedString, SharedString)>,
     custom_tags: tag_writer::CustomTags,
@@ -214,6 +226,7 @@ fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> 
         track_number: scanned.track_number,
         disc_number: scanned.disc_number,
         year: scanned.year,
+        year_range: None,
         genres: scanned.genres,
         raw_tags,
         custom_tags,
@@ -262,6 +275,7 @@ fn from_library(
         track_number: track.track_number.map(|n| n as u32),
         disc_number: Some(track.disc_number as u32),
         year: track.year,
+        year_range: None,
         // A cue sheet carries one genre for the whole disc, so the album's set is
         // exactly what this track was indexed with.
         genres: album_id
@@ -325,7 +339,11 @@ impl TagEditorView {
         let album_artists = input_field(loaded.album_artists.join(LIST_SEPARATOR), window, cx);
         let track_number = input_field(opt_number(loaded.track_number), window, cx);
         let disc_number = input_field(opt_number(loaded.disc_number), window, cx);
-        let year = input_field(opt_number(loaded.year), window, cx);
+        let loaded_year = opt_number(loaded.year);
+        let year = match loaded.year_range {
+            Some(range) => cx.new(|cx| InputState::new(window, cx).placeholder(range)),
+            None => input_field(loaded_year.clone(), window, cx),
+        };
 
         let genre_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr().tag_add_genre.clone()));
@@ -361,6 +379,7 @@ impl TagEditorView {
             track_number,
             disc_number,
             year,
+            loaded_year,
             genres: loaded.genres.into_iter().map(SharedString::from).collect(),
             genre_input,
             original_raw: to_raw_tags(&loaded.raw_tags),
@@ -449,11 +468,11 @@ impl TagEditorView {
         }
     }
 
-    /// Album, album artist and year all describe the shared `albums` row — the row
-    /// is keyed on `(title, year)`, so editing either from a track that has siblings
-    /// re-keys the album and splits it in two. Editable in the album editor, and in
-    /// the track editor only for a track that belongs to no album at all: there is
-    /// no shared row to break, and no album editor it could be reached from.
+    /// Album and album artist describe the shared `albums` row — the row is keyed on
+    /// them, so editing either from a track that has siblings re-keys the album and
+    /// splits it in two. Editable in the album editor, and in the track editor only
+    /// for a track that belongs to no album at all: there is no shared row to break,
+    /// and no album editor it could be reached from.
     fn album_fields_editable(&self) -> bool {
         match self.target {
             Target::Album { .. } => !self.read_only(),
@@ -567,7 +586,7 @@ impl TagEditorView {
                 let edits = AlbumTagEdits {
                     album: text_of(&self.album, cx),
                     album_artists: split_list(&self.album_artists.read(cx).value()),
-                    year,
+                    year: (self.year.read(cx).value().trim() != self.loaded_year).then_some(year),
                     genres,
                     cover: self.cover.clone(),
                 };
@@ -793,11 +812,6 @@ impl TagEditorView {
                     .disabled(!album_fields),
                 muted,
             ))
-            .child(field_row(
-                tr().tag_year.clone(),
-                Input::new(&self.year).small().disabled(!album_fields),
-                muted,
-            ))
             .when(is_track && !self.read_only() && !album_fields, |el| {
                 el.child(
                     div()
@@ -806,6 +820,13 @@ impl TagEditorView {
                         .child(tr().tag_album_fields_hint.clone()),
                 )
             })
+            .child(field_row(
+                tr().tag_year.clone(),
+                Input::new(&self.year)
+                    .small()
+                    .disabled(!album_fields && !track_fields),
+                muted,
+            ))
             .when(is_track, |el| {
                 el.child(field_row(
                     tr().tag_track_number.clone(),

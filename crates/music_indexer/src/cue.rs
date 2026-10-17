@@ -163,6 +163,8 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             track_number,
             disc_number,
             year,
+            release_id: None,
+            release_year: None,
             genres: music_library::normalize_genres(sheet.genre.as_deref().into_iter()),
             duration_ms: Some(duration_ms),
             cover_art: file.cover_art.clone().map(|(data, source_path, embedded)| {
