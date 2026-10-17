@@ -614,6 +614,10 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub lyrics_dim_inactive: bool,
     #[serde(default)]
+    pub lyrics_bold: bool,
+    #[serde(default)]
+    pub lyrics_italic: bool,
+    #[serde(default)]
     pub onboarding_complete: bool,
     #[serde(default)]
     pub sleep_timer: SleepTimerSettings,
@@ -695,6 +699,8 @@ impl Default for UserSettings {
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
+            lyrics_bold: false,
+            lyrics_italic: false,
             onboarding_complete: false,
             network_cache_gb: default_network_cache_gb(),
             sleep_timer: SleepTimerSettings::default(),
@@ -1746,6 +1752,20 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn lyrics_bold(&self) -> bool {
+        self.settings.lyrics_bold
+    }
+
+    pub fn lyrics_italic(&self) -> bool {
+        self.settings.lyrics_italic
+    }
+
+    pub fn set_lyrics_style(&mut self, bold: bool, italic: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_bold = bold;
+        self.settings.lyrics_italic = italic;
+        self.save()
+    }
+
     pub fn onboarding_complete(&self) -> bool {
         self.settings.onboarding_complete
     }
@@ -2117,6 +2137,8 @@ mod tests {
             lyrics_font_size: 20.,
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
+            lyrics_bold: false,
+            lyrics_italic: false,
             onboarding_complete: false,
             network_cache_gb: 8,
             sleep_timer: SleepTimerSettings {

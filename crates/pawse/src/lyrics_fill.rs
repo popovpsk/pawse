@@ -1,4 +1,7 @@
-use gpui::{Div, FontWeight, Hsla, ParentElement, Pixels, SharedString, Styled, Window, div, px};
+use gpui::prelude::FluentBuilder;
+use gpui::{
+    Div, FontStyle, FontWeight, Hsla, ParentElement, Pixels, SharedString, Styled, Window, div, px,
+};
 
 pub const ACTIVE_TOLERANCE_MS: u32 = 50;
 const FILL_LEAD: f32 = 0.92;
@@ -8,6 +11,15 @@ const OPEN_WORD_MS: u32 = 600;
 
 const FEATHER_PX: f32 = 12.;
 const FEATHER_ALPHA: [f32; 4] = [0.85, 0.6, 0.35, 0.12];
+const FILL_BLEED: f32 = 0.25;
+const BLEED_SNAP_PX: f32 = 0.5;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineFont {
+    pub size: Pixels,
+    pub weight: FontWeight,
+    pub style: FontStyle,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
@@ -261,8 +273,7 @@ pub fn shape_line(
     window: &mut Window,
     text: &SharedString,
     width: Pixels,
-    font_size: Pixels,
-    weight: FontWeight,
+    font: LineFont,
     words: &[lyrics::Word],
     line_end_ms: Option<u32>,
 ) -> Option<LineShape> {
@@ -271,13 +282,14 @@ pub fn shape_line(
     }
 
     let mut style = window.text_style();
-    style.font_size = font_size.into();
-    style.font_weight = weight;
+    style.font_size = font.size.into();
+    style.font_weight = font.weight;
+    style.font_style = font.style;
     let run = style.to_run(text.len());
 
     let lines = window
         .text_system()
-        .shape_text(text.clone(), font_size, &[run], Some(width), None)
+        .shape_text(text.clone(), font.size, &[run], Some(width), None)
         .ok()?;
     let wrapped = lines.into_iter().next()?;
     let layout = wrapped.unwrapped_layout.clone();
@@ -411,40 +423,45 @@ pub fn fill_rects(plan: &FillPlan) -> Vec<FillRect> {
 pub fn fill_children(
     plan: &FillPlan,
     text: &SharedString,
-    font_size: Pixels,
-    weight: FontWeight,
+    font: LineFont,
     color: Hsla,
 ) -> Vec<Div> {
     fill_rects(plan)
         .into_iter()
-        .map(|rect| layer(plan, rect, text, font_size, weight, color))
+        .map(|rect| layer(plan, rect, text, font, color))
         .collect()
 }
 
-fn layer(
-    plan: &FillPlan,
-    rect: FillRect,
-    text: &SharedString,
-    font_size: Pixels,
-    weight: FontWeight,
-    color: Hsla,
-) -> Div {
+fn layer(plan: &FillPlan, rect: FillRect, text: &SharedString, font: LineFont, color: Hsla) -> Div {
     let top = plan.pitch * rect.row as f32;
+    let bleed = font.size * FILL_BLEED;
+    let row_width = plan.rows.get(rect.row).copied().unwrap_or(rect.right);
+    let left = if rect.left <= px(BLEED_SNAP_PX) {
+        rect.left - bleed
+    } else {
+        rect.left
+    };
+    let right = if rect.right >= row_width - px(BLEED_SNAP_PX) {
+        rect.right + bleed
+    } else {
+        rect.right
+    };
     div()
         .absolute()
-        .left(rect.left)
+        .left(left)
         .top(top)
-        .w(rect.right - rect.left)
+        .w(right - left)
         .h(plan.pitch)
         .overflow_hidden()
         .child(
             div()
                 .absolute()
-                .left(-rect.left)
+                .left(-left)
                 .top(-top)
                 .w(plan.width)
-                .text_size(font_size)
-                .font_weight(weight)
+                .text_size(font.size)
+                .font_weight(font.weight)
+                .when(font.style == FontStyle::Italic, |d| d.italic())
                 .text_color(color.opacity(rect.alpha))
                 .child(text.clone()),
         )

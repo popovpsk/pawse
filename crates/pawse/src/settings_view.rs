@@ -1259,12 +1259,41 @@ fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
         .title(tr().lyrics.clone())
         .item(
             SettingItem::new(
-                tr().lyrics_text_size.clone(),
+                tr().lyrics_font.clone(),
                 SettingField::render(move |_window, cx: &mut App| {
+                    let settings = cx.global::<SettingsStore>();
+                    let (bold, italic) = (settings.lyrics_bold(), settings.lyrics_italic());
                     let size = slider.read(cx).value().start();
                     h_flex()
                         .items_center()
                         .gap_3()
+                        .child(
+                            ButtonGroup::new("lyrics-style-group")
+                                .small()
+                                .multiple(true)
+                                .child(
+                                    Button::new("lyrics-bold")
+                                        .icon(Icon::default().path("icons/bold.svg"))
+                                        .tooltip(tr().lyrics_bold.clone())
+                                        .selected(bold),
+                                )
+                                .child(
+                                    Button::new("lyrics-italic")
+                                        .icon(Icon::default().path("icons/italic.svg"))
+                                        .tooltip(tr().lyrics_italic.clone())
+                                        .selected(italic),
+                                )
+                                .on_click(|selected: &Vec<usize>, _, cx| {
+                                    let bold = selected.contains(&0);
+                                    let italic = selected.contains(&1);
+                                    if let Err(e) = cx
+                                        .global_mut::<SettingsStore>()
+                                        .set_lyrics_style(bold, italic)
+                                    {
+                                        notify_save_error(cx, e);
+                                    }
+                                }),
+                        )
                         .child(
                             div()
                                 .w(px(38.))
@@ -1275,7 +1304,7 @@ fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
                         .child(div().w(px(160.)).child(Slider::new(&slider)))
                 }),
             )
-            .description(tr().lyrics_text_size_desc.clone()),
+            .description(tr().lyrics_font_desc.clone()),
         )
         .item(
             SettingItem::new(

@@ -354,9 +354,12 @@ Integrations:
 
 - The active row is filled by drawing its text again in the primary color, clipped to the
   filled part; 4 alpha bands make the soft edge (gpui has no text masks). The unfilled
-  text is foreground, or muted when foreground is too close to primary.
-- A line is shaped once (`shape_line`, cached by text, width, size, line end) into its
-  wrapped rows. "Filled" is a distance along those rows laid end to end, which equals the
+  text is foreground, or muted when foreground is too close to primary. A layer within
+  `BLEED_SNAP_PX` of a row's start or end reaches `FILL_BLEED` font sizes past it, so
+  slanted italic glyphs that overhang their advance are filled too (the snap absorbs the
+  float error of a full row); `fill_rects` itself stays inside the row.
+- A line is shaped once (`shape_line`, cached by text, width, `LineFont`, line end) into
+  its wrapped rows. "Filled" is a distance along those rows laid end to end, which equals the
   x of a byte index in the unwrapped layout: how word ranges map to pixels.
 - A fill is drawn only when the measured box agrees with the shaped rows (row pitch
   0.9–2.2 font sizes), else it waits for the next measure. The measuring canvas defers its
@@ -372,14 +375,20 @@ Integrations:
   reached, so overlapping singers never pull it back; when all words are over the whole
   line is filled (trailing untimed punctuation included). If the line ends before the word
   starts, or the end is unknown, it gets `OPEN_WORD_MS` so it still shows filling.
-- **Backing line**: filled the same way by its own words, smaller, normal weight
-  (`FillSlot::Backing`, own measuring canvas); without words it stays unfilled.
+- **Backing line**: filled the same way by its own words, smaller, always normal weight
+  but italic with the main line (`backing_font`, `FillSlot::Backing`, own measuring
+  canvas); without words it stays unfilled.
 - **Lingering row**: word timings may outlast the next line's start (held note, duet
   partner early, backing "oh"s). The row before the active one stays lit and filling while
   any main or backing word is unfinished (`sung_until`), then dims; only that one row,
   and never rows without word timing. Fill state is per lit row (`LitRow`, by index), so
-  the old row lingers without a blank frame. Dimming drops the semibold weight, which can
-  change wrapping, so the next frame re-runs autoscroll (`resettle`).
+  the old row lingers without a blank frame.
+- A line's face never depends on it being lit: weight and slant come only from the Bold /
+  Italic settings (`lyrics_bold`, `lyrics_italic`; bold is `SEMIBOLD`, backing lines stay
+  normal weight). Lighting or dimming changes only the color, so a row never re-wraps or
+  changes height when it goes active. A changed `LineFont` (size or style setting)
+  re-wraps every line, so the next frame, once layout has the new bounds, re-centers the
+  active row (`recenter`).
 - **Frames**: repaints are scheduled only while something moves — during a word at its
   pixel rate (at most every `FRAME_MIN_MS`), in a gap exactly when the next word starts,
   never once every lit line is done. With `lyrics_karaoke_fill` off the panel repaints
@@ -1007,3 +1016,6 @@ Owner's calls; ask before changing.
 - No Telegram now-playing presence: Telegram has no presence API, and the only route is
   a userbot holding a full-account session, which we will not ask users for. Do not
   prototype it.
+- Lyrics lines all share one face: the active line is not made bolder (it re-wrapped
+  lines that only just fit). Bold and italic are opt-in buttons left of the size slider,
+  both off by default.
