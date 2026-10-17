@@ -1,594 +1,254 @@
 # similar_tracks
 
-Tracks that sound alike, from `audio_embedding` vectors: background analysis of the
-library, a nearest-neighbour search, a re-ranking step that turns neighbours into a
-list worth listening to, two queue actions built on them — "radio from this
-track" and "mix other artists into the queue" — in a menu in the queue panel's
-header, and a queue that runs out continuing as a radio from the last tracks it played. The
-same analysis also gives every track's genres by sound, shown (if the user wants) next
-to the tag genres in the library. The analysis' progress is in a dialog behind a button
-in Settings.
+Tracks that sound alike, built on `audio_embedding` vectors: a background analysis of the library
+(vector, style scores and genres by sound, saved per track), a streaming nearest-neighbour search,
+a re-ranking step, and on top of them "radio from this track" and "mix other artists into the
+queue" (menu in the queue panel header), a queue that runs out continuing as a radio, genres by
+sound in the library views, and a progress dialog in Settings.
 
-The settings are a group of their own in Settings → General, "Recommendations"
-(`similar_group` in `settings_view.rs`, strings in `similar_strings()`): the switch
-"Sound-based recommendations" (`similar_tracks_enabled`, off by default;
-`tr().similar_tracks`) and under it "Continue the queue when it ends"
-(`similar_autoplay`, on by default — also for a `settings.json` written before it
-existed; greyed out and shown off while the feature is off or there is no graphics
-card, its own value kept), then "Genres by sound" (`sound_genres_shown`, off by
-default, greyed out the same way; see "Genres by sound").
-Its description talks about the result (similar-sounding tracks from the library), says
-the analysis is local and that the first pass can take a while; it does not mention the
-background thread or the one-time model download (16 MB). The analysis runs only on a
-graphics card (`audio_embedding_gpu`; no CPU fallback, owner's decision): without a
-hardware adapter the switch is disabled and shown off, with "No graphics card found"
-left of it, the queue menu never shows, and the rest of the player works as usual. The
-setting itself is kept, so the same `settings.json` on a machine with a GPU turns the
-analysis on. Turning
-it off stops the analysis within one track, model run or server download (polled every
-250 ms) and cancels a model download in progress; a server check (`ping`) after a
-failed download is not cancellable and runs to its own timeout.
+Not here: decoding, windows and the model (`audio_embedding/src/doc.md`,
+`audio_embedding_gpu/src/doc.md`), the tables and their queries (`music_library/src/doc.md`, "Sound
+vectors"), cache, whole downloads and range reads (`pawse/src/remote_media/doc.md`,
+`media_stream/src/doc.md`), the queue itself (`playback_queue.rs`, `pawse/src/doc.md`), how the
+library views draw genres (`library_views/doc.md`).
 
 ## Files
 
-- `mod.rs` — `SimilarTracks` (a cheap `Clone` handle on the shared state), the `State`
-  global holding the running instance, `setup`, `set_enabled` (the switch), `current`
-  (the running handle, if any), `is_running` (the same without the clone, for render)
-  and `shutdown`.
-- `worker.rs` — the analysis: the pass thread (model, candidates, saving) and the
-  prepare / model pipeline it runs for each pass.
-- `fetch.rs` — the server half of a pass: `ServerFile`, the `Board` of per-source
-  queues (order, `Mode` per file, per-source and total limits, a source given up or
-  without ranges), `Fetcher`, the threads that fill `ready` from it (ranged reads or
-  whole downloads), and `RangeStream`, the decoder's `MediaStream` over a
-  `RangeReader`.
-- `neighbors.rs` — `Neighbors`: the cached library mean, a track's vector, the mean of
-  several tracks' vectors, and `search`, which answers any number of
-  `audio_embedding::similarity::Query`s in one streaming pass.
-- `rerank.rs` — `Rerank`, the pure re-ranking step (no database, no GPUI), `Candidate`,
-  `Taken` (what the list already holds), `Weights`, and `Familiarity` (the menu's
-  "familiar / any / new" choice, persisted as `similar_familiarity`).
-- `pool.rs` — `Pool`: turns search results into `Candidate`s (track rows, first
-  artist, play stats) and the re-ranked ids back into `Track`s.
-- `radio.rs` — `SimilarTracks::radio`: the queries and re-ranking for a radio.
-- `mix.rs` — `SimilarTracks::mix`: the same for mixing other artists into a queue, and
-  `GAP` (how many tracks go after each one).
-- `actions.rs` — `start_radio` / `mix_queue`: snapshot the queue, build the list on
-  the background executor, apply it to `PlaybackQueue` if the queue has not moved on
-  meanwhile, or show why nothing happened.
-- `menu.rs` — `queue_menu`, the popover in the queue panel's header.
-- `autoplay.rs` — the queue's continuation: `continue_ended_queue` (called by
-  `services::advance_on_track_end`) and `set_queue_refresh`.
-- `indexing.rs` — `open` (`open_indexing`), the progress dialog behind the
-  "Indexing" button in Settings → General.
-- `genres.rs` — the display side of the genres by sound, for the library views:
-  `shown` (the two switches), `filter` (the `music_library::SoundGenres` of a genre
-  list or page, `None` while not shown; its `names` are `NAMES`, every genre number with
-  its name from `audio_embedding::styles::genre_names`, built once), `albums` (an album's
-  genres by sound — the database returns numbers, named here — minus its tag genres),
-  `dimmed` (their colour) and `tooltip` (tags, then heard genres dimmed).
+- `mod.rs` — `SimilarTracks` (cheap `Clone` handle), the `State` global, `setup` / `set_enabled` /
+  `shutdown`, `Phase` / `Status`.
+- `worker.rs` — the `similar-tracks` thread: model, a pass, the prepare / GPU pipeline, the
+  collector that saves. `fetch.rs` — the server half of a pass (`Board`, `Fetcher`, `Gate`).
+- `neighbors.rs` — streaming search, cached mean. `rerank.rs` — pure re-ranking (no database, no
+  GPUI). `pool.rs` — search results to `Candidate`s and back to `Track`s.
+- `radio.rs`, `mix.rs`, `actions.rs` (`start_radio` / `mix_queue`), `menu.rs`, `autoplay.rs`,
+  `indexing.rs` (the dialog), `genres.rs` (display side of genres by sound).
+
+## Switches
+
+Settings → General, group "Recommendations" (`similar_group` in `settings_view.rs`).
+
+- `similar_tracks_enabled` (off by default) turns on the analysis and everything below. Its
+  description speaks of the result and says the analysis is local and the first pass can take a
+  while; no threads or model download.
+- `similar_autoplay` (on by default, also for a `settings.json` that predates it) is the queue
+  continuation; `sound_genres_shown` (off by default) is the display of genres by sound only. Both
+  are greyed out and shown off while the main switch is off or there is no GPU, their own values
+  kept.
+- The analysis needs a graphics card. Without a hardware adapter the main switch is disabled and
+  shown off and the queue menu never shows; the stored setting is kept, so the same `settings.json`
+  on a machine with a GPU turns the analysis on.
 
 ## Lifecycle
 
-- `setup` (after `Services`, next to the other bridges) installs the `State` global and
-  the library-event subscription, and starts the analysis if the setting is on.
-  `start` first needs a graphics adapter: the first time it runs (`State::gpu` is
-  `Unchecked`) it checks on the background executor (`audio_embedding_gpu::adapter_name`,
-  no weights, tens of ms) and returns; when the answer comes it is logged, the analysis
-  starts if the setting is still on and there is an adapter, and the windows refresh so
-  Settings shows the switch's real state. The check never runs while the feature is
-  off: it loads the platform's GPU drivers (Vulkan, DX12), which most users of a
-  disabled feature should not pay for, and a broken driver must not take the app down
-  for them. So a machine without a GPU learns it the first time the switch is turned
-  on, which then shows disabled with the note.
-  `set_enabled(true)` (the switch) starts it the same way: a new thread with its own
-  `Shared` and the first pass queued. `set_enabled(false)` and `shutdown` (from
-  `on_app_quit`) set that instance's stop flag and drop its request channel; each of
-  the pass's threads finishes the track or model run in hand (or the model download
-  is aborted between two reads) and the thread exits. Vectors already saved stay, so
-  turning it back on only analyses what is missing. A quick off/on can leave the old
-  pass finishing its runs in hand (two at most, on the GPU) next to
-  the new instance loading its model; both only add rows. Two threads never download at once: `ensure` lets one
-  download at a time, so the new thread waits for the old one to cancel and then
-  downloads (or finds the file) itself.
-- The model lives in `dirs::data_dir()/pawse/models/` — not the cache dir, which users
-  and the OS clear.
-- The thread first drops the vectors of other versions (`prune_embeddings`, which takes
-  their genres by sound too), once, before any pass: it needs no model, so a new version
-  that cannot download its weights or pass the GPU check still does not leave the old
-  version's genres on screen — they carry numbers the new labels may name differently.
-  When it dropped something it signals `saved`, so the views reload.
-- A pass lists the candidates first; with nothing to analyse it ends there, without
-  touching the GPU or the network. Otherwise it checks the adapter again (the worker
-  cannot see GPUI's state), downloads the weights if needed
-  (`audio_embedding::model_file::ensure`, blocking, on this thread), opens the GPU
-  (`audio_embedding_gpu::open`: kernels, weights, the probe; ~0.1–0.4 s), analyses, and
-  **drops the `Device` at
-  the end of the pass**: its buffers are ~220 MB of GPU memory, and passes are rare
-  (library changes), so the app does not hold them in between. `Model` is `Unloaded`
-  (closed; the next pass with work opens it), `Missing` (the last attempt failed: the
-  thread then wakes every `LOAD_RETRY` to try again, until a pass has nothing to do),
-  `Faulted` (the GPU failed mid-pass; the thread wakes after `GPU_RETRY`, see below) or
-  `Unavailable(phase)`. A failed download or a weights file that does not parse is
-  logged and retried every 5 minutes (`LOAD_RETRY`, the thread waits on its request
-  channel with that timeout while the model is missing) or sooner on the next library
-  event, so starting offline only postpones the analysis. `ensure` trusts a file of the
-  right size without hashing it; when such a file does not parse, `discard_if_corrupt`
-  hashes it and deletes it if the SHA is wrong, so the next pass downloads it again (a
-  genuine file is kept, not re-downloaded on every pass). A probe that fails on every
-  adapter also hashes the file first: a file of the right size with damaged bytes parses
-  but computes garbage, so a wrong SHA deletes it and the phase is `NoModel` (downloaded
-  again at the next attempt) rather than `GpuFailed`. No hardware adapter
-  (`Phase::NoGpu`) or no adapter that passes the probe with a genuine file
-  (`Phase::GpuFailed`) is final for the session: every later pass only sets the phase. The log says which adapter the
-  model runs on and how well the probe agreed.
-- `CatalogChanged` and `RemoteSyncFinished` queue another pass. The queue is a
-  `bounded(1)` channel: passes never overlap, and any number of events during a pass
-  collapse into one follow-up pass, which picks up whatever the catalog gained
-  meanwhile. Not `ScanComplete`: every window activation and folder-watcher event
-  rescans, and a rescan that finds nothing new sends `ScanComplete` alone
-  (`library_service`'s unchanged fast path) — as a trigger it restarted the server
-  downloads every time the user switched to the window (seen in the first full
-  re-analysis: 103 server tracks over four passes); a rescan that changed something
-  also sends `CatalogChanged`. A pass with nothing to do is the candidates query plus
-  a cache check per server track, and logs nothing. Server tracks that wait for their
-  server are tried again at the next pass, which comes with the next catalog change
-  or sync; a server coming back does not start one by itself.
-- The stop flag is checked between tracks and between model runs.
+- `start` needs a GPU verdict first (`Gpu::Unchecked` → `adapter_name`). The check never runs while
+  the feature is off: it loads the platform's GPU drivers, which users of a disabled feature should
+  not pay for, and a broken driver must not take the app down for them. So a machine without a GPU
+  learns it when the switch is first turned on; `check_gpu` then touches `SettingsStore` so the
+  views' settings observers drop what they loaded.
+- Each start is a new thread with its own `Shared`; stopping sets its stop flag and drops its request
+  channel. It ends the pass at the next track, model run, download poll or ranged request and
+  cancels a model download; the `ping` after a failed download is not cancellable. A quick off/on can
+  leave the old pass finishing next to the new instance; both only add rows, and
+  `model_file::ensure` allows one download at a time.
+- The model lives in `dirs::data_dir()/pawse/models/`, not the cache dir, which users and the OS
+  clear.
+- Before any pass the thread drops vectors of other `EMBEDDING_VERSION`s (`prune_embeddings`, genres
+  by sound included). It needs no model, so a new version that cannot get its weights or pass the GPU
+  check still does not leave the old version's genres on screen — new labels may number them
+  differently.
+- A pass with nothing to analyse ends after listing candidates (no GPU, no network). Otherwise it
+  **drops the `Device` at the end**: its GPU buffers are large and passes are rare.
+- `CatalogChanged` and `RemoteSyncFinished` queue a pass; the queue is `bounded(1)`, so passes never
+  overlap and events during a pass collapse into one follow-up. Not `ScanComplete`: every window
+  activation and watcher event rescans, and an unchanged rescan sends it alone — as a trigger it
+  restarted the server downloads each time the user switched to the window. A server coming back
+  does not start a pass either; its waiting tracks are tried at the next one.
+- `Model::Missing` (download or weights failed) is retried every `LOAD_RETRY` or at the next library
+  event; `Unavailable(NoGpu | GpuFailed)` is final for the session. A weights file that does not
+  parse, or a probe that fails on every adapter, first goes through `discard_if_corrupt`: a damaged
+  file becomes `Missing` and is downloaded again, not `GpuFailed`.
 
-## The analysis threads
+## The pipeline
 
-- Long CPU work owns its threads, like the indexer's pool. The `similar-tracks` thread
-  loads the model, lists the candidates, saves and logs; each pass runs a pipeline of
-  scoped threads under it (`std::thread::scope`, joined before the pass returns):
-  `prepare_threads()` `similar-prepare-N` threads — half the cores, at most
-  `MAX_PREPARE_THREADS` (8): not all of them, so the machine does not spin up
-  entirely, a plain rule chosen by the owner over a load-driven governor — one
-  `similar-gpu` thread that feeds the graphics card, and, when there are server tracks
-  to download, a `similar-fetch` thread that waits for the prepare threads and then
-  runs the download threads (`similar-fetch-N`). All at normal priority, by the owner's
-  decision: changing it needs OS calls (`unsafe`), and parking those in a crate only
-  because `unsafe` is allowed there is not worth it.
-- The GPU does resampling, mel and the model (~19 ms a run of two tracks on an M3 Max,
-  ~108 tracks/s), so the prepare threads — decoding — are the limit, as they already
-  were with Metal-tract (which ran ~38 tracks/s on three model threads). With tract
-  the earlier history was: three CPU model threads at ~550 MB of tract tensors each
-  (~1.5 GB peak, ~9 tracks/s), then Metal with three feeding threads.
-- Measured on `music-test` (2184 tracks, M3 Max, isolated `HOME`, release): 58 s
-  against 86 s with Metal-tract, 7 prepare threads at ~400–700% CPU, the GPU busy
-  ~25% of the time. Peak RSS ~1.32 GB (tract: ~1.36 GB). After the pass the footprint
-  stays ~940 MB (tract: ~750 MB) although the GPU buffers are gone: ~450 MB of it is
-  libmalloc's cache of freed large blocks (the PCM windows and the 16 kHz signals of the
-  full pass), which it gives back on the system's memory-pressure signal, not a leak
-  (`vmmap`: "MALLOC_LARGE (empty)"; live allocations ~390 MB). The slow spots are DSD
-  (~9 s per DSF track: DSD→PCM plus the full pass) and APE images with a CUE sheet
-  (~1.7 s per track).
-- On macOS an idle app in the background (no playback, window hidden) gets demoted by
-  the system (App Nap): its threads drop to the background band, the efficiency
-  cores, ~3.5× slower — 2.8 s a track on one thread was measured that way. Nothing
-  opts out of it; playing music keeps the app at normal speed.
-- A pass: `embedding_candidates(EMBEDDING_VERSION)` — liked first, then recently
-  played, then the rest by album — split by `source_of` into files and server files.
-  A local file (`Track::local_file`) and a server track whose file is already in the
-  media cache go into a queue (`jobs`) for the prepare threads. The cache is asked
-  with `RemoteMedia::peek_cached`, never `cached`: that one touches the file for the
-  LRU, and walking the library would reorder what gets evicted. For each such track a
-  prepare thread:
-  - opens the file with `audio_decoder::Decoder`;
-  - decodes a cue track over `start_offset_ms` .. `+ duration_ms` (`TrackRange`), a
-    plain file whole.
-  - runs `audio_embedding::prepare` (decode, patch choice, the PCM windows; lossy and
-    short tracks also resampled to 16 kHz) and puts the `Prepared` into `ready`, a
-    channel bounded at `READY` (4 tracks, two runs), so prepared tracks (~4–12 MB each,
-    more for hi-res) never pile up; a failure goes straight to the collector.
-- Every other server track is read over the network, two ways (`Mode`):
-  - **Ranges** (FLAC, WAV and AIFF on Subsonic/Navidrome, Jellyfin, DLNA:
-    `read_in_part`): the decoder runs on a `media_stream::RangeReader`
-    (`RemoteMedia::read_ranges`, `Decoder::open_stream` through `RangeStream`), so
-    only what `prepare` reads crosses the network. For a FLAC that is the 32 windows,
-    each placed by bytes and fetched in one request (`seek_near` +
-    `RangeStream::will_need` → `RangeReader::prefetch`; see `audio_embedding/src/doc.md`,
-    "A whole FLAC"), about 35 requests a track; a track up to ~110 s is decoded whole,
-    sequentially, in a few large requests. The vectors are the same as from a local
-    copy (`prepare_with` runs the same `prepare`; a test compares the patches bit for
-    bit; on Navidrome 1729 tracks matched their local copies to cosine 1.000000000).
-    Measured on live servers (2026-10-12): Navidrome on the same Mac, 40 FLACs
-    (1538 MB): whole downloads two at a time 1.7 s, ranges four at a time 1.2 s
-    (37% of the bytes, 1507 requests, Navidrome ~134% CPU); MiniDLNA on a Raspberry Pi
-    over Wi-Fi, 21 FLACs (566 MB): 45.7 s against 26.6 s (43%, 743 requests); two
-    54-minute cue images there (705 MB): 57 s against 3.4 s (3%). The first version
-    let Symphonia's FLAC seek run over the network (6–11 scattered reads per window,
-    ~290 requests a track): Navidrome spends ~3.3 ms of CPU on each range request, so
-    the same 40 files took 12.5 s with Navidrome at 309% CPU, and the Pi was twice as
-    slow as whole downloads — the request count, not the bytes, is what a server
-    feels.
-  - **Short files** — whose tracks together last under 70 s by the library
-    (`SHORT_TRACK_MS`, owner's choice; a cue image counts its tracks' sum) — are
-    downloaded whole: the 32 windows would cover the whole track anyway.
-    A track between 70 s and ~110 s goes by ranges but is decoded whole (the
-    windows' 60% coverage rule), sequentially, in a few growing requests.
-  - **Whole**: torrents (a piece is 1–4 MB, so scattered reads would fetch more than
-    the file); lossy formats and M4A (decoded whole anyway — the file is read to the
-    end either way, and a whole download keeps the CPU-heavy decode behind the
-    `Gate`; an M4A may be ALAC, but telling it from AAC needs the file); APE and DSD
-    (file-only formats); and every file of a source that answered a first range
-    request without a range (`RangeError::Unsupported`: the file goes back to the
-    front of its queue with the tracks not done yet, `Board::no_ranges` switches the
-    source to whole downloads — logged once per pass — and `take` hands it out again
-    under the whole-download limit) — downloaded as before, then decoded from the
-    scratch file.
-  The server tracks are grouped by their remote file (`ServerFile`: a cue image is
-  read once per track by ranges, downloaded once for all its tracks whole) and keep
-  the candidates' order.
-- **Local first, then the network.** The `similar-fetch` thread joins the prepare
-  threads before it starts: local files go through at full speed (prepare is
-  CPU-bound), and the network phase does not take CPU from them. Then every source
-  works at once: a source read by ranges `PER_SOURCE_RANGED` (4) files at a time
-  (owner's choice: the requests are small, and four tracks hide each other's
-  latency), of which at most `PER_SOURCE` (2) whole downloads; torrents and sources
-  without ranges 2; `MAX_DOWNLOADS` (8) in all (`Board::workers`: no more threads
-  than files to give them; a thread that finds nothing under the limits ends, the
-  ones still busy take the rest). Each thread takes the first file that fits from the
-  first source in order that has one under its limit (`Board::take`); sources are in
-  the candidates' order with torrents last (`RemoteMedia::is_torrent`), so when the
-  total limit binds, servers come before torrents (fetching a torrent's track from
-  peers may be slow or never finish). The limits are for the network, not the CPU: a
-  thread prepares the file it downloaded whole only when one of `prepare_threads()`
-  slots is free (`Gate`; `prepare_slots`), so the network phase takes no more CPU
-  than the local one — on a four-core machine one decode, not eight, next to
-  playback. A ranged read takes no slot: it decodes only the windows of a lossless
-  file (or a whole short one) and mostly waits on the network, and a slot held
-  through that would cut the reads to the number of cores. The bounded `ready`
-  channel holds them back when the GPU is the bottleneck. Up to `MAX_DOWNLOADS`
-  downloaded files can be on disk at once; a ranged read keeps at most 8 MB in
-  memory (`RangeReader`'s cache).
-- A download thread fetches with `RemoteMedia::download_to` (`SourceMedia::fetch_whole`,
-  the same `media_stream` download playback uses) into `scratch_dir` —
-  `<cache dir>/pawse/analysis/<pid>-<instance>/<first track id>.<suffix>`, outside the
-  media cache, so
-  a first pass over a big server does not evict what the user cached for listening —
-  then runs `prepare` for each of its tracks, then the file is deleted (`Scratch`, a
-  guard made before the download, so every way out removes it). A file already in the
-  cache is read from there; one that playback is downloading into the cache right now
-  (`RemoteMedia::is_downloading`) is joined through `resolve` instead of being
-  fetched twice, and lands in the cache. The downloads are not paused while a server
-  track plays.
-- Downloads can take hours on a big server, so the download threads give way between
-  files when a new pass is requested (the worker's inbox is not empty): the pass ends,
-  and the next one lists the candidates again — new local tracks first, the server
-  files not done yet after them. A pass empties the inbox right before it reads the
-  candidates, since those already include whatever the requests were about; without
-  that, the second of two back-to-back events (a sync with changes sends
-  `CatalogChanged` and `RemoteSyncFinished`) would make the pass skip its downloads.
-- A download or a ranged read that fails is followed by a `ping` of its source
-  (`network_failure`; a ranged read's network error is told from a decode error by
-  the reader's `ReadFailure` — checked even when `prepare` succeeded, so a vector
-  from a fallback path that ran after a network error is never saved — and the
-  file's remaining tracks share its fate). A source that answers
-  had a problem with this file (gone, refused): its tracks fail like a broken file
-  (`EmbedError::Network`, remembered for the session; a file the server serves but
-  that does not decode is downloaded again on the next launch, like a broken local
-  file is read again). A source that does not answer, is no longer configured, or is
-  a torrent is unreachable: the rest of its files are not tried this pass, their
-  tracks are counted in `Progress::unreachable` (the dialog's note; a scratch folder
-  that cannot be created counts every server track there too) and wait for the next
-  pass, not marked failed (`Board::give_up` drops the source's queue; a file of it
-  already in another thread finishes on its own). Torrents are never pinged: their `ping` only looks at local
-  state, so a torrent without seeders would answer and each of its files would wait
-  out its read timeouts in turn.
-- Stopping aborts a ranged read at its next request or block (`Fetcher::stopped`, the
-  stop and halt flags behind an `Arc`, since the reader inside the decoder must be
-  `'static`) and a download in progress (`wait_while` polls the stop flag); its
-  `.partial` is deleted once `media_stream`'s current request returns, and a file
-  that completed right then can stay behind. Each running instance has its own folder
-  (`<pid>-<n>`, `INSTANCES`), so a quick off/on cannot have the old instance clean up
-  the new one's downloads: the worker removes its own folder when it exits, and when
-  it starts every folder of another process id (`clear_leftovers`: a crash, an earlier
-  run). A panic while handling one file is caught for that file (`catch_unwind`;
-  `prepare` has its own), so its source keeps its download slot.
-- A torrent loaded for a download keeps the torrent session running, so it uploads
-  (per its upload setting) while the analysis downloads, even with nothing playing.
-- The `similar-gpu` thread takes the next prepared track and `gather`s more that are
-  ready, up to `Device::patches_per_run()` (64) patches — two full tracks — waiting for
-  them until one `FILL_WAIT` (300 ms) deadline for the whole batch, since a half-empty
-  run costs as much as a full one; a track that does not fit is carried into the next
-  batch. It submits the batch (the PCM is copied into GPU staging memory, the
-  `Prepared`s are dropped) and keeps up to `IN_FLIGHT` (2) submitted runs: while the
-  GPU computes one, the thread gathers and uploads the next. It waits for the oldest
-  run when more are in flight or nothing is ready, and sends its results to the
-  collector (the `similar-tracks` thread). A panic in `submit` re-runs the batch's
-  tracks one at a time, so only the track that panics fails (as a decode error,
-  remembered for the session) and the others get their vectors; a panic in `wait` is a
-  model error for the batch (`catch_unwind`).
-- On stop the collector keeps saving what still arrives until every thread has left
-  (each finishes the track or run in hand), so finished vectors are not thrown away.
-- Results are saved every 16 tracks (`save_embeddings`, which also skips items a scan
-  swept meanwhile, on `music_library`'s own embedding connection, so waiting for a
-  scan's write lock never blocks the UI's reads), and every save invalidates the
-  cached mean. A result is the vector, the 400 style scores and the genre rows derived
-  from them (`audio_embedding::styles::genres`), one `TrackAnalysis`, saved together:
-  a track with a vector always has its genres. After every `ANNOUNCE_EVERY` (512)
-  saved tracks and at the end of a pass that saved any, the collector sends on
-  `Shared::saved` (a `bounded(1)` channel, so a busy UI coalesces them); a task `start`
-  spawns turns that into `LibraryEvent::SoundGenresChanged`, which the library views
-  reload on. Not on every save: the album list re-reads its genre map on the event, and
-  a first pass saves every half second. Every pass invalidates it too when it starts: passes follow catalog
-  changes, and a scan that swept items took their vectors out of the mean.
-- A track that fails (decode error, under one second, an unsupported sample rate, a
-  non-finite vector whose re-check of the GPU passed, a panic in decoding — caught per
-  track in `prepare`; one broken file does not end the session's analysis) is logged
-  with
-  `warn!` and remembered in memory for this session only: no table of failures, the
-  next launch tries again. A model error or a database error stops the pass: the
-  collector raises `halt`, and every thread leaves at its next check (a prepare thread
-  blocked on a full `ready` gets an error once the GPU thread has dropped its
-  receiver). A database error leaves the phase at `Stopped` (resumes at the next
-  library event). A model error is a GPU fault, a failed wait, a probe that stops
-  agreeing (`audio_embedding_gpu` re-runs it every 64 runs) or a panic in the GPU
-  thread; that `Device` then refuses every later run, and `after_analysis` decides
-  (owner's rule: retry only a card that can pass the probe):
-  - the pass saved at least one vector → `Faulted` + `Phase::GpuRetry` ("trying again
-    in 30 seconds"): after `GPU_RETRY` (or sooner on a library event) the next pass
-    opens a new `Device`, whose load-time probe decides — a transient fault is gone, a
-    card that fails it makes the analysis `GpuFailed` for the session;
-  - nothing saved → `GpuFailed` for the session at once. Without this a card that
-    passes the probe but faults on real work (say a driver reset on one heavy batch,
-    which stays first in the queue) would be reopened every 30 s forever; with it every
-    retry follows progress, so the retries end with the library.
-  Vectors saved before a failed periodic check stay (owner: not now). There are no
-  pop-up notices in v1: the phase shows in the indexing dialog, and progress goes to
-  the log every 100 tracks and at the end of a pass.
+- A local file or a server track already in the media cache goes to the prepare threads; the cache is
+  asked with `peek_cached`, never `cached`, which touches the file for the LRU, and walking the
+  library would reorder what gets evicted. Other server tracks become `ServerFile`s, grouped by
+  remote file (a cue image is one file, many tracks).
+- A panic in `submit` re-runs the batch's tracks one at a time, so only the guilty track fails; a
+  panic in `wait` is a model error for the batch.
+- A result — vector, 400 style scores and the genre rows — is one `TrackAnalysis`, so a track with a
+  vector always has its genres.
+- `Shared::saved` (`bounded(1)`, a busy UI coalesces) becomes `LibraryEvent::SoundGenresChanged`,
+  sent every `ANNOUNCE_EVERY` saved tracks and at the end of a pass that saved any — not on every
+  save: the album list re-reads its genre map on the event, and a first pass saves every half second.
+- `stop` is the user or the app; `halt` is the pass ending itself (model or database error). After
+  either, the collector keeps saving what still arrives until every thread has left.
 
-## Search
+## Server tracks
 
-`Neighbors::search(repo, queries)` streams every vector of the current version
-through one `TopN` per query in `SCAN_CHUNK` (1024) rows (`scan_embeddings`); nothing
-but a ~5 MB buffer and the heaps is in memory, whatever the library size. A query
-knows only a vector, `n`, nearest or farthest, and ids to skip; deciding which ids
-and why is the caller's job. The centering mean (5 KB) is cached and computed the
-same streaming way on the first query after an invalidation. It is computed under its
-mutex, so `invalidate` (the worker, after a save and at the start of a pass) waits for
-a computation in flight and then clears it; a mean never outlives the save that made
-it stale, and deletions are caught up by the next pass. A track without a vector (or
-with one of the wrong length) has no `vector`. `mean_of` is one more streaming pass
-that sums the vectors of the given ids, so its cost does not grow with a long queue;
-`None` means none of them had one. Only catalog tracks are scanned
-(`scan_embeddings`), so vectors of tracks on an offline source never take places in
-a top-N.
+Local files go first: `similar-fetch` joins the prepare threads before it starts, so the network
+phase takes no CPU from CPU-bound local work. A server file is read one of two ways (`Mode`).
 
-## Re-ranking
+- **Ranges** — FLAC, WAV and AIFF on a source that serves byte ranges: the decoder runs on a
+  `RangeReader`, so only what `prepare` reads crosses the network; a FLAC's 32 windows are placed by
+  bytes, one request each (`audio_embedding/src/doc.md`, "A whole FLAC"). Not Symphonia's seek over
+  the network: servers pay per request, not per byte. The vector must equal the one from a local
+  copy; a test compares the patches bit for bit.
+- **Whole** — downloaded, then decoded from the file: files under `SHORT_TRACK_MS` in total (the
+  windows would cover the whole track; unknown durations do not count as short); torrents (pieces are
+  1–4 MB, scattered reads would fetch more than the file); lossy formats and M4A (decoded whole
+  anyway; an M4A may be ALAC, but telling it from AAC needs the file); APE and DSD; and every file of
+  a source that answered the first range request without a range (`RangeError::Unsupported`: the file
+  returns to its queue and `Board::no_ranges` switches the source to whole).
+- Limits are for the network, not the CPU: `PER_SOURCE_RANGED` per ranged source, at most
+  `PER_SOURCE` of them whole; torrents and sources without ranges `PER_SOURCE`; `MAX_DOWNLOADS` in
+  all. Torrents come last, so when the total binds servers go first. A torrent loaded for a download
+  keeps the torrent session running, so it uploads per its setting even with nothing playing.
+- A file downloaded whole is decoded only when a `Gate` slot (`prepare_threads()` of them) is free, so
+  the network phase takes no more CPU than the local one. A ranged read takes no slot: it mostly
+  waits on the network, and a slot held through that would cut the reads to the core count.
+- Whole downloads go into `<cache dir>/pawse/analysis/<pid>-<instance>/`, outside the media cache so
+  a first pass over a big server evicts nothing cached for listening; a `Scratch` guard deletes the
+  file on every exit. A folder per instance keeps a quick off/on from cleaning up the new one's
+  downloads; a starting worker removes folders left by other process ids.
+- Downloads can take hours, so threads give way between files when a new pass is requested
+  (`superseded`: the inbox is not empty). A pass empties the inbox right before it reads the
+  candidates; otherwise the second of two back-to-back events (a sync with changes sends
+  `CatalogChanged` and `RemoteSyncFinished`) would make it skip its downloads.
+- A failed download or ranged read is followed by a `ping` of its source (`network_failure`); a ranged
+  read's network error is told from a decode error by the reader's `ReadFailure`, checked even when
+  `prepare` succeeded, so a vector from a fallback that ran after a network error is never saved. A
+  source that answers had a problem with this file: its tracks fail (`EmbedError::Network`, session
+  only). A source that does not answer, is no longer configured, or is a torrent is unreachable: its
+  queue is dropped, its tracks count in `Progress::unreachable` and wait for the next pass, not
+  marked failed. Torrents are never pinged: their `ping` only looks at local state, so a torrent
+  without seeders would answer and each file would wait out its timeouts.
 
-Nearest neighbours alone are the seed's own artist: in the PoC (EffNet multi, 2184
-tracks, 49 artists) the median top 10 held 8 tracks of the same artist, and 74 seeds
-had no other artist at all in their top 40. So the candidates are re-ranked, greedily,
-one pick at a time. A candidate's value is
+## Failures
 
-`score + familiarity bonus − recent penalty + noise − artist × (tracks of its artist
-already taken) − repeat × (same artist as the previous pick)`
+- A track that fails (decode error, shorter than a second, a non-finite vector whose GPU re-check
+  passed) is remembered in memory for the session, no table; one broken file does not end the pass.
+- A model or database error halts the pass. A database error leaves the phase `Stopped`; the next
+  library event resumes. A model error (GPU fault, failed wait, a probe that stops agreeing) makes
+  that `Device` refuse every later run, and `after_analysis` decides:
+  - at least one vector saved in the pass → `Faulted` / `GpuRetry`: after `GPU_RETRY` (or a library
+    event) the next pass opens a new `Device`, whose load-time probe decides;
+  - nothing saved → `GpuFailed` for the session at once. Otherwise a card that passes the probe but
+    faults on real work would be reopened every 30 s forever; with this rule every retry follows
+    progress, so retries end with the library.
 
-- `Taken` starts with the seeds (radio, `Taken::seed`) or empty (mix) and grows with every pick, so the
-  artist penalty spreads an artist through the list instead of capping it; there is no
-  hard per-artist limit. Album is not a signal: the artist term already covers it.
-- The same first artist + normalised title is taken once (single and album version);
-  skits (under `MIN_DURATION_MS`, 60 s), unavailable tracks and tracks scoring below
-  `MIN_SCORE` (0: less alike than a random pair, whose median was −0.05 in the PoC)
-  are dropped, so a small library gives a shorter list rather than one padded with
-  the opposite sound; tracks without an artist are neither penalised nor
-  deduplicated.
-- History (`play_stats`): played within `RECENT_SECS` (a day) costs `recent`;
-  `Familiarity::Familiar` adds `familiarity` to tracks played or liked before, `New`
-  to the others, `Any` neither.
-- Noise is Gumbel, drawn once per candidate from an `StdRng` seeded by the caller:
-  the same seed gives the same list (tests), the app passes a random one, so pressing
-  again gives another list. Gumbel noise plus a greedy max is sampling from a softmax
-  of the values, with `noise` as the temperature.
-- `Weights::default()` (artist 0.1, repeat 0.1, recent 0.2, familiarity 0.15, noise
-  0.04) came from a simulation over the PoC's real neighbour lists: on 12 picks out of
-  40 neighbours the seed's artist fell from 8.0 to 3.9 tracks, distinct artists rose
-  from 3.0 to 6.0, the mean similarity only from 0.78 to 0.73, and two runs shared
-  about half their tracks. The gap between the best neighbour and the best one of
-  another artist is ~0.08 in the median, which is the scale the penalties work at.
+## Search and re-ranking
 
-## Radio
+`Neighbors::search` streams every vector of the current version through one `TopN` per query, so
+memory does not grow with the library. A query knows only a vector, a count, nearest or farthest, and
+ids to skip; choosing the ids is the caller's job. Scores are centred cosines over catalog tracks
+only, so an offline source takes no places in a top-N.
 
-`SimilarTracks::radio(seeds, skip, familiarity, rng_seed)` (blocking; background
-executor) starts from one track (the menu) or several (the queue continuation): one
-seed is searched from its own vector, several from the mean of their vectors
-(`mean_of`, one more streaming pass); seeds not in the catalog or without a vector are
-left out, and `None` comes back when none is left. Otherwise up to `LENGTH` (100)
-tracks, the seeds not included. One pass answers two queries: the `ANY_ARTIST_POOL`
-(100) nearest overall, and the `OTHER_ARTISTS_POOL` (400) nearest without any track of
-the seeds' first artists (`same_artist_track_ids`). `Taken` starts with the seeds
-(`seeds_taken`, `Taken::seed`): their songs are taken, each artist counts once however
-many seeds it has (five tracks of one album must not push that artist five penalties
-down, the menu's single seed gives the same count as before), and the last seed's
-artist is the "previous pick" for the repeat penalty. Without the second one a big
-discography fills the whole pool and the re-ranking has no one else to pick. `skip`
-takes ids out of both queries: empty for the menu's radio, the whole queue for the
-continuation. The length was 30 at first; the weights were tuned on 12 picks, so
-the far end of a 100-track list leans more on the penalties than on the sound.
+- The centring mean is cached and computed under its mutex, so `invalidate` (every save, the start of
+  a pass, a prune) waits for a computation in flight: a mean never outlives the save that made it
+  stale. `mean_of` is one streaming pass, so its cost does not grow with a long queue.
+- Nearest neighbours alone are mostly the seed's own artist, so candidates are re-ranked greedily, one
+  pick at a time: `score + familiarity bonus − recent penalty + noise − artist × (tracks of its artist
+  already taken) − repeat × (same artist as the previous pick)`. `Taken` grows with every pick, so the
+  penalty spreads an artist through the list; no hard per-artist limit. Album is not a signal.
+- Dropped: unavailable tracks, tracks under `MIN_DURATION_MS` (unknown length passes), tracks below
+  `MIN_SCORE` (less alike than a random pair; a small library gives a shorter list, not one padded
+  with the opposite sound) and a second copy of the same first artist + normalised title. Tracks
+  without an artist are neither penalised nor deduplicated.
+- Noise is Gumbel from an `StdRng` seeded by the caller: the same seed gives the same list (tests),
+  the app passes a random one so pressing again gives another list. `Weights::default()` was tuned on
+  about a dozen picks by simulation over real neighbour lists, so the far end of a 100-track radio
+  leans more on the penalties than on the sound.
 
-`start_radio` keeps the playing track's queue entry (read again when the radio is
-ready, so a refresh of that entry meanwhile is not undone) and replaces the queue with
-it and the radio (`set_tracks_and_play_at`, index 0, so playback is not touched and
-shuffle, if on, shuffles the radio). It asks nothing when the queue was custom: the
-user picked the action from the queue panel, looking at the queue. The radio queue is
-not custom. The result is dropped if another track started meanwhile.
+## Radio, mix, continuation
 
-## Mix
-
-`SimilarTracks::mix(basis, queue, count, …)` searches from the mean vector of `basis`
-(the queue's own tracks), skipping every track in `queue` and every track of the
-basis tracks' first artists, so what comes in is other artists only; `None` when no
-basis track has a vector. The pool is `count × POOL_PER_TRACK` (at least `MIN_POOL`),
-`count` is capped here at `MAX_MIXED` (400).
-
-`mix_queue` takes `PlaybackQueue::mix_plan()`: the basis, what stays in the queue, the
-number of anchors (the current track and every own track after it) and a snapshot of
-the ids. It draws `GAP` (1–3) per anchor — the owner wants the queue to become mostly
-new music, not the same queue with a few extra tracks — asks `mix` for the sum, and
-`mix_in` puts each anchor's block right after it, in the re-ranked order. History
-before the current track is not touched, and the queue is not shuffled. If the picks
-run out, the last anchors get nothing.
-
-- `PlaybackQueue` remembers the mixed-in ids for the session (`mixed`, not persisted;
-  cleared by a new queue or a restore). Mixing again first drops the mixed tracks
-  after the current one, so it re-rolls instead of mixing into a mixed queue; mixed
-  tracks already heard stay. They are not part of the basis.
-- With shuffle on, every block also goes after its anchor in `original_order`, so
-  turning shuffle off keeps each mixed track after the one it was mixed in for.
-- The custom flag is left as it was: a mixed album is, like a radio, a generated list
-  the next click on a track replaces without asking, while a hand-built queue stays
-  protected. The source becomes `Unknown`: the queue is no longer the playlist it came
-  from, and a playlist-backed queue is rebuilt from the playlist on every edit
-  (`sync_queue_with_playlist`), which would silently drop the mix.
-- `mix_in` refuses (and nothing changes) when the queue's ids or its current index
-  differ from the plan's `QueueSnapshot`: a track that ended meanwhile would shift every
-  block by one anchor and could put the now-current mixed track right after itself.
-
-## Queue continuation
-
-While the analysis is running and `similar_autoplay` is on (the default), a queue
-that runs out goes on as a radio from the last tracks it played, whatever they were;
-`continue_ended_queue` reads the setting first, so turning it off takes effect at the
-next end of a queue. The queue changes only when it has really ended: until then "add to queue",
-repeat, shuffle and a playlist-backed source behave as without the feature. An
-automatic action does not notify; what goes wrong is logged.
-
-- `advance_on_track_end` finds no next track and, unless the sleep timer's "stop at
-  the end of the track" is armed, calls `continue_ended_queue` with the last track.
-  The radio is built then, on the background executor, and its first track starts
-  with the usual fade-in (`play_track`). Not gapless, by the owner's decision: the
-  next track is another artist's, so a pause of one build is not heard — two or
-  three streaming passes over the vectors (~20 ms each on 10k tracks; more while
-  the analysis saves and the mean has to be recomputed) plus the rows of the pool.
-  Building it ahead, when the last track starts, was tried and dropped: appending
-  then changed the queue under "add to queue", repeat and the playlist source for
-  the whole last track, and holding the list aside only to save that pause was not
-  worth the code.
-- The seeds are the last `SEEDS` (5) tracks this queue really played, ending with the
-  one that ended (`QueueSnapshot::played_tail`). `PlaybackQueue` keeps the ids of the
-  tracks that became current (`heard`, the last 16: the next track, a jump, "previous",
-  the track that took a removed current one's place, the current one after a
-  restore, the clicked row of a list that replaces the queue — `set_tracks_and_play_at`,
-  also the radio's kept track) and forgets them with a new queue, so starting the last
-  row of a long list
-  seeds with that row alone, not with four neighbours nobody heard; positions are not
-  used, so moving, removing and shuffling cannot shift it. A track heard twice counts
-  once; fewer heard tracks give what there is, a single one itself. Starting from their mean rather than the last track
-  alone, because albums often end on an outlier (an outro, an acoustic or hidden
-  track): on `music-test`, 45% of the 132 albums with 6+ tracks ended on a track less
-  like its album than three quarters of their tracks, and the 20 nearest tracks of
-  other albums resembled the album by a centred cosine of 0.56 on average from the
-  last track (0.14 for the worst tenth of albums), 0.69 from the last 3 and 0.72 from
-  the last 5 (0.58 for the worst tenth); weighting toward the last track gave 0.71.
-  A last track without a vector no longer ends the queue when the ones before it
-  have vectors; none with a vector continues nothing. A tail that does not hold the
-  track that ended — a guard for a way of changing the current track that does not
-  note it — falls back to that track alone. The whole queue is the radio's `skip`, so an album that ended does not come
-  back; familiarity is the menu's setting.
-- `PlaybackQueue::continue_with(snapshot, tracks)` appends only if the queue still
-  matches the `QueueSnapshot` taken at the end (ids, no current track), and returns
-  where the continuation starts; a click on another track meanwhile drops it. A
-  result that arrives after the switch was turned off is dropped too.
-- Like a mix, the continuation keeps the custom flag as it was and makes the source
-  `Unknown` (a playlist-backed queue would be rebuilt from the playlist and drop
-  it); with shuffle on it also goes at the end of `original_order`. Unavailable
-  tracks are dropped.
-- The queue view is refreshed through its `OnApplied` (scrolled to the current
-  track; registered with `set_queue_refresh` in `QueueView::new`, kept in `State`)
-  before `queue_mutated`, so `QueueChanged` does not jump to the bottom.
-
-## Indexing dialog
-
-Settings → General shows an "Indexing" button left of the switch while it is on. It
-opens a dialog (`window.open_dialog`, like the torrents confirmation) that starts
-with a short note (`about`): every track is analysed to learn how it sounds, server
-tracks are downloaded for it, and the app loads the processor and the graphics card
-more and takes more memory while it runs (decoding on the CPU, everything else on the
-GPU). Below it comes
-`SimilarTracks::status()`: `embedding_coverage` (catalog tracks with a vector of the
-current version, out of all catalog tracks) plus what the worker publishes in
-`Shared::progress` — the phase (`Idle`, `LoadingModel`, `Analysing`, `NoModel`,
-`Stopped`, `NoGpu`, `GpuFailed`, `GpuRetry`; an `AtomicU8` with explicit discriminants and a
-round-trip test), the
-current candidates that failed this session (counted against the catalog, so a
-folder removed since does not inflate it) and the server tracks the current or last
-pass could not get because their server did not answer (`unreachable`). The button shows only while the analysis is running (`is_running`), so it
-never opens onto "off" next to a switch that is on. A failed read shows a message
-instead of loading forever. The count line avoids plural agreement ("Tracks analysed:
-N of M") so no language needs plural forms. An unreachable server does not start a
-pass when it comes back by itself, so the note says its tracks are tried again at the
-next library update. The
-coverage moves in steps of `SAVE_BATCH` during a pass. The dialog refreshes itself
-every second while it is open (`REFRESH_EVERY`, a task the view owns, so closing the
-dialog ends it; there is no "Refresh" button, owner's choice): the snapshot is read on
-the background executor, a read still running skips the tick, and the texts are built
-then (`Shown`), not per frame.
+- `radio(seeds, skip, …)`: one seed is searched from its own vector, several from the mean of theirs;
+  seeds without a vector are left out. One pass answers two queries: the nearest overall and the
+  nearest without any track of the seeds' first artists — without the second, a big discography fills
+  the pool and the re-ranking has no one else to pick. Each seed artist counts once in `Taken` however
+  many seeds it has (five tracks of one album must not push it five penalties down). `skip` is empty
+  for the menu's radio and the whole queue for the continuation.
+- `start_radio` replaces the queue with the playing track's entry (read again when the radio is
+  ready) and the radio, without asking even for a custom queue — the user picked it looking at the
+  queue. Playback is not touched; shuffle shuffles the radio.
+- `mix` searches from the mean of the queue's own tracks, skipping what stays in the queue and every
+  track of their first artists, so only other artists come in. `mix_queue` draws `GAP` per anchor (the
+  current track and every own track after it) and `mix_in` puts each block right after its anchor.
+  Mixing again re-rolls: it first drops the mixed tracks after the current one; mixed tracks already
+  heard stay and are never part of the basis.
+- Continuation: `services::advance_on_track_end` finds no next track and, unless the sleep timer's
+  "stop at the end of the track" is armed, calls `continue_ended_queue`. It needs the analysis running
+  and `similar_autoplay` on (read then). Until the queue has really ended, "add to queue", repeat,
+  shuffle and playlist-backed sources behave as without the feature. An automatic action does not
+  notify; what goes wrong is logged.
+- Its seeds are the last `SEEDS` tracks this queue really played (`QueueSnapshot::played_tail`),
+  searched from their mean: albums often end on an outlier (outro, acoustic or hidden track). A tail
+  without the track that ended falls back to that track alone.
+- Mix and continuation change the queue only through `mix_in` / `continue_with`, which compare a
+  `QueueSnapshot` (ids and current index) and change nothing on a mismatch: a track that ended
+  meanwhile would shift every block by one anchor and could put the now-current mixed track right
+  after itself. Both leave the custom flag as it was (a generated list is replaced by the next click
+  without asking, a hand-built queue stays protected) and set the source to `Unknown` (a
+  playlist-backed queue is rebuilt from the playlist on every edit and would silently drop the
+  additions).
+- The queue view refreshes through `OnApplied` (registered by `QueueView::new` via
+  `set_queue_refresh`; scrolls to the current track) before `queue_mutated`, so `QueueChanged` does
+  not jump to the bottom the way it does for "add to queue".
 
 ## Genres by sound
 
-Both networks run in every analysis run (`audio_embedding_gpu`): the GPU is not the
-limit on the owner's machine (the decoding is), so the style classifier costs no
-extra pass, no second download and no switch of its own for the analysis. What the
-user switches is the display: "Genres by sound" under the queue continuation
-(`sound_genres_shown`, off by default; `genres::shown` also needs the main switch and
-a graphics card — the views agree with the switch, which shows off and greyed out
-without one, even when an earlier session left genre rows in the database; when the
-startup GPU check finds none, `check_gpu` touches `SettingsStore` so the views'
-settings observers drop what they loaded before the answer).
-Off, the views run their tag-only queries exactly as before.
+Both networks run in every analysis run, so the analysis needs no extra pass, download or switch;
+the user switches only the display. `genres::shown` needs `sound_genres_shown`, the main switch and a
+GPU, so the views agree with the Settings switch even when an earlier session left genre rows in the
+database. Off, the views run their tag-only queries.
 
-- **Where they show.** In the album list's genre column, an album without tag genres
-  shows its first genre by sound in a dimmer colour than the tag genres
-  (`muted_foreground` at 60%); one with tags shows its first tag as before, and the
-  tooltip lists the tags, then the heard genres dimmed. The album header lists the
-  heard genres after the tag ones, dimmed. On the Genres tab tags and genres by
-  sound are one list by name, all alike: a genre both tagged and heard is one row,
-  and its page holds the tracks of both (`music_library`'s union). The tab used to
-  dim (and list last) a genre no tag names, but a row there gathers tracks from the
-  whole library, so a heard genre whose name matched a single tag looked tagged
-  while a heard one without a match looked apart — the mark said "no tag happens to
-  share the name", not "from the analysis". An album's genres are about that one
-  album, so there the dimming stays honest.
-- **Which ones** (`genres.rs`, measured on `music-test` against its tags): an album's
-  genres are those whose mean score over its analysed tracks is at least `ALBUM_MIN`
-  (0.12), at most `PER_ALBUM` (3), its tag genres left out by name (case-insensitive) —
-  about two per album, none for an album whose sound is vague (a varied soundtrack).
-  A track belongs to a genre page from `TRACK_MIN` (0.2) — about one genre a track:
-  pages hold tracks that clearly sound like it, so they can hold part of an album. A
-  genre only heard is listed when it has at least `MIN_TRACKS` (5) tracks.
-- Names are compared by `key` only (`to_lowercase`): a tag `Trip-Hop` and the heard
-  `Trip Hop` are two rows. No normalisation of names beyond that (owner's rule).
-- Never in the files or the tag editor: the rows live in their own table, and the
-  album export's genre stays the first tag genre.
-- The Genres tab, the album list and an open album header reload on
-  `SoundGenresChanged` (only while shown) and follow the switch; an open genre page
-  follows the switch only, as it does not reload on catalog changes either. The album
-  list's map (every album; ~8 ms on 2.3k tracks, ~140 ms on 47k, M3 Max) is read on the
-  background executor and swapped in when ready, keeping the old one meanwhile; the
-  header's one album (~0 ms), the Genres list (~3 ms on 2.3k, ~65 ms on 47k) and its
-  covers (~4 ms, ~95 ms) are read in place, like their tag-only queries.
+- The thresholds differ on purpose: an album gets the genres whose mean score over its analysed
+  tracks reaches `ALBUM_MIN` (at most `PER_ALBUM`, tag genres left out); a track belongs to a genre
+  page from the higher `TRACK_MIN` — pages hold tracks that clearly sound like the genre, so they can
+  hold part of an album. A genre only heard is listed with at least `MIN_TRACKS` tracks.
+- On the Genres tab tags and genres by sound are one list by name, all alike: a genre both tagged and
+  heard is one row, and its page holds the tracks of both. Not dimmed there: a row gathers tracks
+  from the whole library, so a heard genre whose name matched one tag looked tagged while one without
+  a match looked apart — the mark said "no tag happens to share the name", not "from the analysis".
+  An album's genres are about that one album, so there dimming (`dimmed`, `tooltip`) stays honest.
+- Never in the files or the tag editor: the rows live in their own table and the album export's genre
+  stays the first tag genre.
 
-## The menu
+## Dialog and menu
 
-`queue_menu` is a popover on the queue panel header, left of "save to playlist",
-shown only while the queue has tracks and the analysis is running. It is built like
-the library view menu (`library_views::view_menu`'s `menu_surface`, `MenuColors`,
-`section_label`, `separator`). Most used nearest to the trigger: radio (disabled with
-no current track), mix, then the "Tracks: familiar / any / new" switch. Picking an
-action closes the popover. When the list is ready, the queue view refreshes and
-scrolls to the current track (`OnApplied`, built once in `QueueView::new`) before
-`queue_mutated`, so the `QueueChanged` handler does not jump to the bottom the way it
-does for "add to queue". A seed or queue without vectors, an empty result and a
-database error each show a notification (`similar_strings()`).
+- The "Indexing" button shows only while the analysis is running, so the dialog never opens onto
+  "off". Failed candidates are counted against the catalog, so a removed folder does not inflate
+  them. The count line avoids plural agreement ("Tracks analysed: N of M"): no language needs plural
+  forms. The note on an unreachable server says its tracks are tried again at the next library
+  update, since its return starts nothing.
+- `queue_menu` shows only while the queue has tracks and the analysis is running; radio, the most
+  used, is nearest the trigger and disabled with no current track.
 
 ## Checking by hand
 
-Turn the switch on (or set `similar_tracks_enabled` in `settings.json`) in an isolated `HOME` (the real library and scrobbling stay out of it)
-with a small folder of music, and watch `logs/pawse.log` for `similar tracks:` lines.
-The quality check from the PoC is the share of "same artist in the top 10, other
-albums" over the vectors in `track_embeddings` (`.plans/smart-playlists-poc/scripts/
-analyze.py`), about 0.48 on `../music-test`; much lower means the audio preparation
-drifted. Analysing all of `music-test` (2184 tracks) on one background thread takes
-roughly 20–40 minutes.
+Turn the switch on in an isolated `HOME` with a small folder of music and watch `logs/pawse.log` for
+`similar tracks:` lines. The owner's quality gauge is `.plans/smart-playlists-poc/scripts/analyze.py`
+over `track_embeddings` (~0.48 on `../music-test`); much lower means the audio preparation drifted.
+On macOS an idle background app is slowed by App Nap, so speeds from a shell-launched build mislead.
+
+## Decisions
+
+Owner's calls; ask before changing.
+
+- GPU only, no CPU fallback.
+- Prepare threads are half the cores, at most `MAX_PREPARE_THREADS`: a plain rule, not a load-driven
+  governor. All analysis threads run at normal priority — raising it needs OS calls (`unsafe`), and
+  parking those in a crate only because `unsafe` is allowed there is not worth it.
+- Retry the GPU only for a card that can pass the probe. Vectors saved before a failed periodic check
+  are kept. No pop-up notices in v1: the phase shows in the dialog, progress goes to the log.
+- `SHORT_TRACK_MS` and `PER_SOURCE_RANGED` are the owner's choices (ranged requests are small and a
+  few tracks at once hide each other's latency).
+- `GAP` draws 1–3 per anchor: the queue should become mostly new music, not the same queue with a few
+  extra tracks.
+- Continuation is not gapless: the next track is another artist's, so the pause of one build is not
+  heard. Building it ahead was tried and dropped — appending then changed the queue under "add to
+  queue", repeat and the playlist source for the whole last track, and holding the list aside only to
+  save that pause was not worth the code.
+- No "Refresh" button in the dialog.
+- Genre names are compared by `to_lowercase` only (tag `Trip-Hop` and heard `Trip Hop` are two
+  rows); the Genres tab does not dim heard genres.

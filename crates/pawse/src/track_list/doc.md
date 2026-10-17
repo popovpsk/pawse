@@ -1,70 +1,48 @@
 # track_list
 
-Shared building blocks for every track-list row — the album/artist/liked/playlist
-views in `library_views` and the `queue_view`. One namespace (`crate::track_list::`)
-so call sites have a single import; `mod.rs` re-exports the submodule items.
+The shared pieces of a track row: the row data base, formatting, the per-row and
+album-header action buttons, the click that starts playback, and the current-row style.
+Used by the `library_views` track pages and by `queue_view.rs`; one namespace,
+`crate::track_list::`, re-exported from `mod.rs`.
+
+Not here: the columns and layout of each page (`library_views/doc.md`); the queue, tag
+editor, playlist popup, `cache_fill.rs` and `album_export.rs` (`pawse/src/doc.md`).
 
 ## Files
 
-- `mod.rs` — the row data base and formatting helpers, plus submodule declarations
-  and re-exports:
-  - `TrackRowBase { id, title, duration, liked }` + `from_track` — the fields every
-    row needs. Views embed it by composition (`base: TrackRowBase`) and add only the
-    extra fields they use, so a view never allocates a field it doesn't render.
-  - `fmt_duration` / `fmt_track_num` — `mm:ss` and `N.` as `SharedString`.
-  - `track_duration` — the fixed-width duration cell.
-  - `RowButtonColors { icon_hover, icon, accent }` + `from_cx` — theme colors the
-    per-row buttons need. Resolve once per render (views stash it in their row
-    `*Params`) and pass `&RowButtonColors` into the button builders, so they don't
-    re-read the theme for every visible row each frame.
-- `like_button.rs` — `like_button(track_id, liked, &RowButtonColors)` (heart toggle →
-  `LibraryService::set_liked`) and `LIKE_ROW_GROUP`, the hover-group name rows apply
-  so the heart/queue/playlist buttons fade in on row hover.
-- `cache_button.rs` — `move_to_local_button` (album header, `crate::album_export`,
-  same stop icon and bytes tooltip while running) and `save_to_cache_button`: the album/artist header button
-  that saves network tracks into the media cache (`crate::cache_fill`). Shown
-  only while something is missing from the cache or a save is running; while
-  running it shows a static stop icon (no spinner: an animation would repaint
-  the window every frame) and saved/total bytes in the tooltip — bytes, not
-  files, since one cue image is a whole disc — and a click stops it. Whether
-  anything is missing is computed by the owning view on load and when
-  `CacheFill`'s revision changes (a save finished, the cache was cleared), never
-  in render, with a stat-only check (`RemoteMedia::is_cached`) so opening an
-  album does not refresh its files in the LRU. Eviction by the LRU is not
+- `mod.rs` — `TrackRowBase` (views embed it and add only the fields they render), duration /
+  track-number formatting, `RowButtonColors`, and the private `row_icon_button` every button
+  is built on.
+- `like_button.rs` — the heart; `LIKE_ROW_GROUP`.
+- `queue_button.rs` — add a track / an album to the queue, `play_replacing_queue`.
+- `playlist_buttons.rs` — add to / remove from a playlist.
+- `edit_tags_button.rs` — the row pencil and the album-header pencil.
+- `cache_button.rs` — the album / artist header buttons for saving to the cache and moving
+  an album to local folders.
+- `row_style.rs` — `current_row`.
+
+## Rules
+
+- Everything per row is built when the data changes. Buttons take a `&RowButtonColors`
+  resolved once per render, and callers read flags such as `tag_editor_enabled` once per
+  frame, so the `v_virtual_list` closure does no per-row theme or settings reads.
+- Row buttons are built `opacity(0)` and show on `group_hover(LIKE_ROW_GROUP)`: a row must call
+  `.group(LIKE_ROW_GROUP)` or they stay hidden. A liked heart is always visible; the
+  album-header buttons never hide.
+- `play_replacing_queue` is every row's click; with a custom queue it asks first (add the
+  clicked track, cancel, replace).
+- `remove_from_playlist_button`: if the queue is backed by that playlist and the removed track
+  is playing, it moves one position forward (or pauses at the end) before the DB change. Not
+  `next_track()`: under repeat-one that stays on the removed track. Saving is left to
+  `sync_queue_with_playlist` after `PlaylistTracksChanged`; saving earlier would persist a
+  queue that still holds the removed track.
+- Pages show the row pencil only for rows with `TrackRowBase::local`. The album pencil writes
+  the album-shared fields to every file of the album.
+- A cache button shows a static stop icon while its job runs (an animation would repaint the
+  window every frame) and saved / total bytes in the tooltip (bytes, not files: a cue image
+  is a whole disc). The owning view decides visibility: "something is missing" is computed on
+  load and when `CacheFill`'s revision changes, never in render, with the stat-only
+  `RemoteMedia::is_cached` so opening a page does not touch cache mtimes. LRU eviction is not
   noticed until the view is opened again.
-- `queue_button.rs` — `add_to_queue_button(Rc<Track>, …, &RowButtonColors)` (append one
-  track; takes an `Rc` so the row clone is a refcount bump) and
-  `add_album_to_queue_button` (append a whole album); both emit `QueueChanged`. Also
-  `play_replacing_queue(tracks, index, source, window, cx)` — the shared click handler
-  for every track-list row: replaces the queue and plays, but when the queue is custom
-  (`PlaybackQueue::is_custom`) it first opens a three-button confirm dialog
-  (add the clicked track to the queue / cancel / replace). The dialog builder runs per
-  frame, so the track list is captured behind an `Rc`.
-- `playlist_buttons.rs` — `add_to_playlist_button` (opens the global playlist popup)
-  and `remove_from_playlist_button`.
-- `edit_tags_button.rs` — `edit_tags_button(Rc<Track>, &RowButtonColors)`, the pencil
-  that opens `crate::tag_editor_view` for one track, and
-  `edit_album_tags_button(album_id, …, cx)` for the album header (always visible, so
-  it resolves its own colors like `add_album_to_queue_button` does). Both are gated on
-  `SettingsStore::tag_editor_enabled`, which the *caller* reads once per frame — never
-  per row. The row button takes the whole `Rc<Track>` rather than an id because the
-  editor needs `path` and `is_cue`; the clone is a refcount bump.
-- `row_style.rs` — `current_row`, the styling applied to the currently-playing row.
-
-## Conventions & non-obvious behavior
-
-- **Why precompute**: the `from_track` constructors run when the queue/list changes,
-  not per frame. The `v_virtual_list` render closure runs at render rate (~120fps)
-  for every visible row, so it must not format strings, join artists, hit the cover
-  cache, or re-read theme colors — all of that is baked into `TrackRowBase` /
-  `RowButtonColors` / the view's row struct up front.
-- **Rc tracks**: the views keep `tracks_all: Vec<Rc<Track>>` and the queue stores
-  `Vec<Rc<Track>>` too, so the per-row "add to queue" clone and the whole-list clone
-  on click are pointer/refcount copies, not deep `Track` clones. Persistence still
-  needs owned `Track`, so `Services::snapshot_playback` deep-clones out of the `Rc`s
-  on save (rare).
-- **Group reveal**: action buttons start at `opacity(0.)` and rely on the row setting
-  `.group(LIKE_ROW_GROUP)` plus `.group_hover(LIKE_ROW_GROUP, …)`. A row that forgets
-  the group will render its action buttons permanently hidden.
-- `LIKE_BUTTON_SIZE` is internal to `like_button.rs`; `LIKE_ROW_GROUP` is the only
-  cross-module constant and is reached from sibling submodules via `super::like_button`.
+- `current_row` assumes rows with `pl_4` and a 1 px bottom border: the left accent border
+  replaces 1 px of left padding and the bottom border, so content stays aligned.

@@ -1,483 +1,93 @@
 # scrobble
 
-Self-contained scrobbling engine. No GPUI, no pawse dependencies — a pure
-library the app drives through `ScrobbleHandle`. The GPUI/event wiring lives in
-`pawse::scrobble_bridge`, the loved-tracks import in `pawse::scrobble_import`,
-and the UI in `pawse::scrobble_settings` — its own Settings tab, one
-`SettingGroup` per target. The two rule groups (`pawse::scrobble_rules_settings`)
-come first on the tab, since rules are what people come back to adjust while an
-account is connected once; "first artist only" lives in the rules group, as it
-is one more way of shaping what gets sent.
+Self-contained scrobbling engine: no GPUI, no pawse dependencies. It decides when a play counts, keeps every delivery owed to every destination in a store the app supplies, and sends from one worker thread with per-target retry. Every destination (Last.fm, Libre.fm, ListenBrainz, CSV log, media servers) is a `ScrobbleTarget`; the app drives the crate through `ScrobbleHandle`.
 
-The engine is service-agnostic: policy (when a play counts, what is queued, how
-failures are retried) lives here once, and every destination is a
-`ScrobbleTarget` implementation. One play fans out to every configured target.
-
-## Responsibilities
-
-- Decide *when* a play counts as a scrobble (Last.fm's 30s / half-or-4-minute
-  rule) from wall-clock playing time.
-- Fan a scrobble, a Now Playing update or a love/unlove out to every configured
-  target, each with its own batch size, error handling and retry schedule.
-- Never lose a scrobble: anything a target has not confirmed stays in the
-  store and is retried on a timer and on the next launch.
-- Keep the listening history. Every play past `HISTORY_MIN_SECS` is recorded
-  with how long it was actually played, whether or not it qualified as a
-  scrobble and whether or not any target is configured. The history is the
-  local record a future recommendations feature reads; the queue is derived
-  from it.
+Not here: turning engine events into plays, the Settings tab, the loved-tracks import and the media-server target (`crates/pawse/src/doc.md`: `scrobble_bridge.rs`, `scrobble_settings.rs`, `scrobble_rules_settings.rs`, `scrobble_import.rs`, `server_scrobble.rs`); the SQLite tables behind `ScrobbleStore` (`crates/music_library/src/doc.md`).
 
 ## Files
 
-- `lib.rs` — public data types (`Session`, `NowPlaying`, `Scrobble`), Last.fm
-  credential resolution (`creds` / `is_available`, runtime env then compile-time
-  `option_env!`), the client constructors, `primary_artist`, and re-exports.
-- `accumulator.rs` — `PlayAccumulator`: wall-clock playing-time accumulation
-  (`on_play`/`on_pause`/`played`), plus the `should_scrobble` policy. The clock
-  instant is passed in, so it is deterministic and rate-independent (position
-  ticks are irrelevant). Seeks are ignored; only real playing time counts.
-- `target.rs` — `TargetId`, the `ScrobbleTarget` trait, and `SubmitError`, the
-  four-way error classification every target maps its transport onto.
-- `store.rs` — the `ScrobbleStore` trait plus the types crossing it (`Play`,
-  `Love`, `Outcome`, `StoreError`). The engine defines the storage contract and
-  implements none of it: the crate stays free of rusqlite and of any path.
-  `pawse::scrobble_store::LibraryScrobbleStore` is the implementation, backed by
-  the `plays` / `loves` / `play_deliveries` / `love_deliveries` tables in
-  `library.db` (migration 8).
-- `worker.rs` — `ScrobbleHandle` + a dedicated worker thread owning the targets
-  and sending, fed `Msg`s over a `flume` channel and reporting back over a
-  `StatusEvent` channel (`AuthFailed` / `Rejected` carry the server's own text).
-  Holds the per-target backoff schedule. The store is shared with the handle,
-  which writes into it directly.
-- `targets/audioscrobbler.rs` — the AudioScrobbler 2.0 client over blocking
-  `ureq`, parameterized by `Profile` (endpoint, auth URL, key, secret) so
-  Last.fm and Libre.fm/GNU FM share one implementation. `sign` hashes the sorted
-  `key+value` pairs then the shared secret (`format`/`api_sig` excluded). Also
-  hosts the auth flow (`auth_url`/`get_session` over `SessionError`, plus the
-  loopback callback listener `bind_callback_listener`/`wait_for_callback` pawse
-  drives sign-in through) and `loved_tracks` for the like import.
-- `targets/listenbrainz.rs` — `submit-listens` over `Authorization: Token`, plus
-  `validate` for the login screen. Works against any ListenBrainz-compatible
-  root, so a self-hosted instance is just a different `api_root`.
-- `targets/csv_log.rs` — appends one RFC 4180 row per event to a local file.
-  The header matches Pano Scrobbler's file format, so its converter reads ours.
-  `is_pawse_log` is the guard the settings UI runs before pointing the log at a
-  file the user already has.
-- `targets/mod.rs` — the shared `ureq` agent config and response reader.
-- `rewrite/mod.rs` — rewrite rules: `RewriteConfig` (enabled preset ids +
-  `CustomRule`s, stored in `settings.json` under `scrobble.rewrite`),
-  `Rewriter` (compiled rules, `apply` / `apply_now_playing` / `apply_love`),
-  and `preview` for the settings screen. `rewrite/presets.rs` — the built-in
-  presets, `rewrite/tests.rs` — their cases.
+- `lib.rs` — `Session`, `NowPlaying`, `Scrobble`; `creds` / `is_available` (Last.fm key and secret: runtime env first, then the value baked in at compile time); client constructors; `primary_artist` (the first credited artist, or all joined by ", "); re-exports.
+- `build.rs` — bakes `LASTFM_API_KEY` / `LASTFM_API_SECRET` from the repo-root `.env` into the binary (same scheme as `discord/build.rs`).
+- `accumulator.rs` — `PlayAccumulator` and `should_scrobble`.
+- `target.rs` — `TargetId`, the `ScrobbleTarget` trait, `SubmitError`.
+- `store.rs` — the `ScrobbleStore` trait and the types crossing it. The crate defines the contract and implements none of it (no rusqlite, no paths); `pawse::scrobble_store::LibraryScrobbleStore` does.
+- `worker.rs` — `ScrobbleHandle`, the `scrobble` worker thread, backoff, `StatusEvent`.
+- `targets/mod.rs` — the shared `ureq` agent (HTTP error statuses are returned, not raised) and the response reader.
+- `targets/audioscrobbler.rs` — AudioScrobbler 2.0 client for Last.fm and Libre.fm (`Profile`), sign-in (`auth_url`, `get_session`, loopback callback listener) and `loved_tracks`.
+- `targets/listenbrainz.rs` — ListenBrainz client: `submit-listens`, `validate` for the login screen, `loved_tracks` (paged `get-feedback`).
+- `targets/csv_log.rs` — `CsvLog` and the `is_pawse_log` guard.
+- `rewrite/` — `mod.rs` (`RewriteConfig`, `Rewriter`, `preview`), `presets.rs` (the built-in presets), `tests.rs`, `LICENSE-metadata-filter`.
+
+## Plays, history, queue
+
+- A `plays` row is the fact that something was listened to; a `play_deliveries` row is one target's debt against it. The payload is stored once, so a scrobble that reached Last.fm is never resubmitted because ListenBrainz was down. Delivery state is pending / sent / dropped with an attempt count and the last error, so "did not arrive" differs from "was refused, and why".
+- `plays` and `loves` rows are never deleted — not on success, rejection or queue overflow. Only delivery rows change state.
+- `persist` records any play; an unqualified one gets no delivery rows, and recording does not depend on a target being configured. `scrobble` is `persist` plus a `Flush` poke when the play qualified. A love is recorded only when some target accepts loves.
+- `should_scrobble`: track at least 30 s, played at least half of it or 240 s. `PlayAccumulator` adds up wall-clock time between `on_play` and `on_pause` (the instant is passed in); seeks and position ticks do not count.
+- The same listen committed twice (early at a pause, then at the end) must land on one row: the store keys plays by `(started_at, artist, title)` and a repeat raises `played_secs`. The bridge relies on it.
+- Nothing that must survive goes through the channel. `scrobble` / `love` / `persist` write the store on the caller's thread and only then poke the worker, because a `Msg` still queued dies with the process and the worker can sit inside a long HTTP timeout. Each call is one transaction on the caller's thread — call them off the UI thread. `NowPlaying` stays a message: it is ephemeral.
+- The queue is bounded, the history is not. `trim(CAP)` counts items, not delivery rows (something owed to two services counts once), and marks the oldest as dropped with `queue overflow`. It runs at launch and after every flush.
+- Only configured targets count as pending. Deliveries left for a switched-off service stay pending (a re-login still delivers them) but are excluded from `pending_count` and never wake the worker. `pending_count` counts items.
+
+## Delivery
+
+- The worker owns the targets and the retry timer: `recv_timeout` against the earliest backoff deadline, so a queue filled offline drains without waiting for the next track. At start it trims and flushes the previous session's backlog before it reads its first message.
+- The initial `Rewriter` is an argument of `ScrobbleHandle::spawn`, not a `set_rewriter` afterwards: a rewriter queued behind that startup flush would let the whole offline backlog go out unrewritten.
+- A flush goes target by target: loves first, then scrobbles in batches of `max_batch`. A run is capped at `RUN_LIMIT` items per target and resumes `RESUME_SOON` later, so a big backlog cannot hold the thread.
+- Errors are classified so a global failure never eats the queue:
+  - `Transient` keeps the batch and backs the target off (60 s, doubling to 30 min, reset on that target's next success).
+  - `Auth` keeps the items, disables the target until the next `configure`, and raises `StatusEvent::AuthFailed`. It covers everything wrong with the account, key or signature, not only an expired session; re-login delivers the backlog.
+  - `Permanent` is for a payload the server will never take. The batch is dropped, `Rejected` is raised, the run stops and the target backs off — a systemic `Permanent` costs at most one batch per backoff window.
+  - `Unsupported` settles the item as `dropped`, never `sent`: the row must say the delivery never happened.
+- A delivery that cannot be recorded stops the run. If `settle` fails after the server took the batch, the worker backs off instead of re-reading the still-pending rows; looping would resubmit the same batch (duplicate CSV rows, abuse to Last.fm).
+- `configure` clears the backoff along with the disabled set: it only runs because the user changed a setting, and a standing 30-minute deadline would make the fix look like it did nothing. It also updates the handle's target lists at once, so a play recorded right after sees the new set.
+- `AuthFailed` and `Rejected` carry the server's own text, because the useful part is often an instruction ("verify your email"). `Transient` raises nothing.
+- Now Playing is never queued: it goes to every non-disabled target, fire-and-forget; an `Auth` failure there disables the target too. Loves are queued (idempotent, worth retrying) and carry the moment they happened; the CSV log writes that time, not the flush time.
+
+## Targets
+
+- `ScrobbleTarget`: `accepts_scrobbles` / `accepts_loves` — a target that accepts none of a kind gets no delivery rows for it, not rows that would all be dropped. A batch settles as one outcome, so a target that can lose single items (the media-server one) uses `max_batch` 1. `now_playing_track` / `submit_tracks` / `love_track` carry the library track id and by default forward to the id-less methods, so only server targets ever see it. `rewrites()` is false for a target that matches by id.
+- `TargetId::key()` strings are stored in the `target` column: `lastfm`, `librefm`, `listen_brainz`, `csv_log`, `server:<sources.id>`. Changing one orphans stored deliveries.
+
+### Last.fm and Libre.fm
+
+- One client, `Profile` picks endpoint, auth URL, key and secret. Libre.fm ships a constant key and secret (GNU FM does not validate them), so it works in builds without `LASTFM_API_KEY`. `with_loves(false)` makes `accepts_loves` false.
+- Signing hashes the sorted `key+value` pairs, then the secret; `format` and `api_sig` are not in it. Params live in a `BTreeMap`, which gives the lexicographic order the API requires, indexed batch keys included (`artist[0]`, `albumArtist[0]`). `scrobble_params` / `now_playing_params` / `love_params` are free functions so the wire shape is tested without a session.
+- Error codes: 6, 7 (invalid parameters) → `Permanent`; the account/key/signature family (4, 9, 10, 13, 14, 15, 26) → `Auth`, never a drop; any other code (rate limit included), an HTTP error without a JSON body and transport failures → `Transient`.
+- Sign-in is the API's web flow. `auth_url` sends only `api_key` and `cb=http://127.0.0.1:<port>/pawse-auth?state=<state>`; the service mints the token and returns it on the redirect, and `get_session` exchanges it. Never mix in a token from `auth.getToken` (the desktop flow): the redirect then silently never comes back.
+- The callback listener trusts only a request on `CALLBACK_PATH` whose `state` matches the random per-attempt one (two `RandomState` hashes — no `rand` dependency). Anything else is answered with the waiting page and ignored. A matching request without `token` is the service's denial redirect and fails at once (`SessionError::Denied`) rather than leaving the UI on "Connecting…" until `CALLBACK_TIMEOUT`.
+- Callback socket details that look like noise: the response is closed gracefully (`shutdown(Write)`, drain until EOF or `CALLBACK_DRAIN_TIMEOUT`), because dropping the socket with unread request bytes resets the connection and Windows then discards the page already delivered (macOS looks fine either way); `read_request_line` reads to `\r\n\r\n` for the same reason. The accepted socket is set to blocking explicitly — the listener is non-blocking so the wait can poll `cancel`, and whether `accept` passes that on is platform-dependent. `wait_for_callback_async` waits on its own OS thread, not GPUI's pool, so a sign-in left dangling for up to `CALLBACK_TIMEOUT` holds no shared worker; `wait_for_callback` stays synchronous and testable.
+- `Cancelled` / `TimedOut` come from the wait; `NotAuthorized` / `TokenExpired` (error codes 14 / 4, 15) only from `get_session`, which the ordinary path calls after the redirect already proved approval.
+
+### ListenBrainz
+
+- Works against any ListenBrainz-compatible root (self-hosted = another `api_root`; blank = default). Errors are classified by HTTP status: 401 / 403 → `Auth`; 400 / 404 / 413 → `Permanent`; the rest `Transient`.
+- It cannot love: feedback needs a recording MBID and the library stores none, so `accepts_loves` is false and `love` is `Unsupported`. Album artist is not sent.
+
+### CSV log
+
+- One RFC 4180 row per event (`scrobble`, `love`, `unlove`), timestamps in UTC; the header is Pano Scrobbler's file format so its converter reads ours. No Now Playing (`Unsupported`): an append-only listening log should not carry "currently playing".
+- Never overwrites and never adopts a stranger's file: create + append, header only when the file is missing or empty. `is_pawse_log` gates "use an existing file" — empty or the exact header passes, anything else is refused (it reads at most `HEADER.len() + 1` bytes) — so a mis-click on a document cannot get rows appended to it. A file damaged after it was chosen is not guarded against.
 
 ## Rewrite rules
 
-Rules that rewrite artist / title / album / album artist on the way to a
-service: built-in presets switched on one by one (all off by default), then the
-user's own find-and-replace rules. The UI is `pawse::scrobble_rules_settings`;
-`pawse::scrobble_bridge::apply_rewrite` compiles the config and hands the
-`Rewriter` to the worker (`ScrobbleHandle::set_rewriter`) without reconfiguring
-the targets, so editing a rule never resets a backoff. The initial `Rewriter` is
-an argument of `ScrobbleHandle::spawn`, not a `set_rewriter` right after it: the
-worker flushes the backlog left from the previous session before it reads its
-first message, and a rewriter still queued behind that flush would let the
-whole offline backlog go out unrewritten.
+Rules that rewrite artist / title / album / album artist on the way to a service: built-in presets switched on one by one (all off by default), then the user's find-and-replace rules. `RewriteConfig` lives in `settings.json` under `scrobble.rewrite`; unknown preset ids are ignored.
 
-- **Applied at delivery, not at recording.** `plays` / `loves` keep the text the
-  file has; the worker rewrites each item right before `submit_tracks` /
-  `love_track` / `now_playing_track`. The history stays a fact about the file
-  (and the `(started_at, artist, title)` key stays stable), and a rule changed
-  while items are queued applies to them too — what has not been sent is sent
-  the new way.
-- **Server targets are exempt.** `ScrobbleTarget::rewrites` is `false` for
-  `ServerTarget`: a server matches by its own song id, and the text it gets is
-  irrelevant. The CSV log is rewritten — it records what the services got.
-- **Order is fixed.** Presets run in `PRESETS` order regardless of the order
-  they were switched on, then custom rules in list order, so a custom rule sees
-  text already cleaned by the presets.
-- **Presets replace the first match, custom rules every match.** Presets are
-  ported from Web Scrobbler's `metadata-filter` (MIT, license in
-  `rewrite/LICENSE-metadata-filter`), where each rule is a JS `replace` without `/g`; porting that exactly is
-  what keeps their test cases valid. A custom rule is find-and-replace, where
-  "every occurrence" is what people expect. Non-regex patterns are escaped and
-  their replacement is taken literally (`NoExpand`), so `$1` in a plain rule is
-  two characters, not a group. The `regex` crate reads `$1abc` as a group named
-  `1abc` (empty, so the text silently vanishes); a regex rule's replacement is
-  therefore rewritten by `brace_group_numbers` — `$<digits>` becomes
-  `${<digits>}`, `$$` stays a literal dollar, `${…}` and `$name` pass through —
-  so `$1abc` means group 1 then `abc`, as in every other regex tool. While regex mode
-  is on, the form explains groups and `$1` / `$$` with a fixed example
-  (`^(.+), (.+)$` → `$2 $1`, `Bach, Johann Sebastian` → `Johann Sebastian
-  Bach`) rather than one from the library, so the mechanism is visible even
-  with an empty library; a pawse test runs that example through the engine so
-  the hint cannot drift from what the rule does. Presets are
-  written with `${1}` directly.
-- **Bracket rules stay inside one bracket.** metadata-filter's remastered rule
-  (`\s[(\[].*Re-?master….*[)\]]$`) and its reissue rules (`.*?` from the first
-  `(`) span across brackets, so `Song (feat. X) (2011 Remaster)` lost the feat
-  credit too. Ours use `[^()\[\]]*` inside the brackets; the double
-  `[Remastered] (Remastered Version)` case that the greedy form used to cover is
-  metadata-filter's own dedicated rule, kept and moved first.
-- **Loves are imported under both names.** `pawse::scrobble_import` indexes
-  every library track under its own artist/title and, when the current rules
-  change them, under the rewritten pair too (`Rewriter::artist_title`), so a
-  love that went out as `Let It Be` finds `Let It Be (Remastered 2009)` again.
-- **Known limitation: a love and its unlove use the rules of their own send.**
-  Rules apply at delivery, so a track loved with a preset on and unliked after
-  it was switched off sends the unlove under the other name, and the love
-  stays on the service. Fixing it would mean storing the sent name per love
-  delivery (a migration) for a case that needs a rules change between the two
-  clicks; editing a track's tags in between has always had the same effect.
-- **Fields never become empty.** A field a rule changed is trimmed. An artist
-  or title rewritten to nothing falls back to the original (every service
-  rejects an empty one); an album or album artist rewritten to nothing is sent
-  as absent. `preview` follows the same rule, so a rule that only empties an
-  artist or title shows no matches instead of promising a change that is never
-  sent.
-- **A broken custom rule is skipped, not fatal.** `Rewriter::compile` returns
-  the rules that failed next to the working set; the bridge logs them. The UI
-  refuses to save a pattern that does not compile, so this only guards a
-  hand-edited `settings.json`.
-- **Presets were picked from what others ship.** `metadata-filter` (the Web
-  Scrobbler browser extension's filters: remastered, version, reissue, live,
-  feat, suffix) and Pano Scrobbler's presets (the idea behind `single_ep`; its
-  code is GPL and none of it is copied). `explicit` joins metadata-filter's
-  clean/explicit rules with its `(Explicit Version)` rule; `edition` adds
-  `(Deluxe)` / `[Super Deluxe Edition]` on top of their exact
-  `(Deluxe Edition)`; `feat` also takes `ft.` and `featuring`; `live` also takes
-  `(Live at …)`. YouTube title parsing is left out: the library is files. A
-  typography preset (curly quotes, NBSP, zero-width, double spaces) was tried
-  and dropped as not worth a row: the fixes are invisible to most people, and
-  whoever cares about apostrophes can write a custom rule. A `settings.json`
-  that still lists its id is fine — unknown preset ids are ignored.
-- **The preview reads the library off the UI thread.** The settings screen
-  loads one `Sample` per track (`all_tracks` + `albums` + `track_artists_map`)
-  on a background task the first time the Scrobbling page renders, and drops
-  it on `CatalogChanged` / `TagsSaved` and when "first artist only" is toggled
-  (samples carry the artist as the bridge would send it), so it reloads the
-  next time. Preset
-  previews are computed once per load; the draft rule's preview is debounced
-  250 ms after typing.
-- **Examples highlight what changed.** A preview line is `before → after` with
-  a character-level diff (LCS; prefix/suffix only past 250k cells) drawn as
-  `theme.danger` / `theme.success` backgrounds, because a one-character fix (`’`
-  → `'`, a dropped double space — typical of custom rules) is otherwise invisible in a small proportional
-  font. Zero-width characters and NBSP are shown as `·` on the before side so
-  there is something to highlight. Diffs are computed when previews are built,
-  not per frame.
+- Applied at delivery, not at recording. `plays` / `loves` keep the text the file has, so the history stays a fact about the file, the `(started_at, artist, title)` key stays stable, and a rule changed while items are queued applies to them too.
+- `ScrobbleHandle::set_rewriter` swaps the compiled `Rewriter` without reconfiguring targets, so editing a rule never resets a backoff.
+- Server targets are exempt (`rewrites()` is false): a server matches by song id. The CSV log is rewritten — it records what the services got.
+- Order is fixed: presets in `PRESETS` order whatever order they were switched on, then custom rules in list order, so a custom rule sees text the presets already cleaned.
+- Presets replace the first match, custom rules every match. Presets are ported from Web Scrobbler's `metadata-filter` (MIT, `rewrite/LICENSE-metadata-filter`), where each rule is a JS `replace` without `/g`; porting that exactly keeps their test cases valid. `single_ep` follows Pano Scrobbler's presets, whose GPL code is not copied.
+- A non-regex custom rule is escaped and its replacement is literal (`NoExpand`), so `$1` is two characters. A regex rule's replacement goes through `brace_group_numbers` (`$<digits>` → `${<digits>}`, `$$` stays a dollar): the `regex` crate reads `$1abc` as a group named `1abc`, which is empty, and the text silently vanishes. Presets are written with `${1}`.
+- Bracket rules stay inside one bracket (`[^()\[\]]*`): `metadata-filter`'s greedy `.*` also removed `(feat. X)` from `Song (feat. X) (2011 Remaster)`. Its dedicated `[Remastered] (Remastered Version)` rule is kept and runs first.
+- Fields never become empty. A changed field is trimmed; an artist or title rewritten to nothing falls back to the original (every service rejects an empty one); an album or album artist rewritten to nothing is sent as absent. `preview` follows the same rule, so a rule that only empties an artist or title shows no matches instead of promising a change that is never sent.
+- A broken custom rule is skipped, not fatal: `Rewriter::compile` returns the failed rules next to the working set. The UI refuses to save a pattern that does not compile, so this only guards a hand-edited `settings.json`.
+- `Rewriter::artist_title` is what the likes import uses to find a library track under the name a love went out with.
 
-## Flow tests
+## Decisions
 
-`pawse/src/scrobble_flow_tests.rs` (a child module of `scrobble_bridge`, so it
-drives the bridge's own `captured_meta` / `love_meta` / `pending_play` /
-`deliver`) runs whole scenarios over real parts: a temp `SqliteLibrary` whose
-songs arrive through a server listing and a scan, `LibraryScrobbleStore`,
-`ScrobbleHandle` with its worker thread, `CsvLog`, and `ServerTarget` over a
-fake `ServerClient`. Only the internet services are stand-ins. Settings are
-parsed from JSON as `settings.json` would be. The scenarios pin the bugs that
-lived at the seams: rules missing from the startup flush after a restart, a
-like that would import back under the wrong name, the settings preview
-disagreeing with delivery, rules switched on while items are queued. Unit tests
-per crate stay the place for rule details (`$1` handling, each preset).
+Owner's calls; ask before changing.
 
-## Media servers as targets
-
-A Subsonic or Jellyfin server the user switched on (Settings → Scrobbling →
-Media servers, per server: plays and/or likes) is one more target,
-`TargetId::Server(source_id)`, stored in `target` as `server:<id>`. The id is the
-`sources` row, which is never deleted, so a key stays valid across renames and
-reconnects. The implementation, `pawse::server_scrobble::ServerTarget`, lives in
-the app because it needs the library and `ServerClient`; the crate only carries
-what it needs through the queue:
-
-- **The track id.** A server wants its own song id, not artist and title, so
-  the `track_id` already stored on `plays` / `loves` travels to the target:
-  `pending_scrobbles` returns it next to each item, and the worker calls
-  `submit_tracks` / `love_track` / `now_playing_track`. Their default bodies
-  forward to `submit` / `love` / `now_playing`, so the other targets never see
-  the id. The target looks the id up as the present binding of that source
-  (`LibraryRepository::remote_key_for_item`); a track the server does not have
-  — a local-only file, a server song that is gone — is `Unsupported` and settles
-  as `dropped`, like a love sent to ListenBrainz. A local file that the server
-  also has is reported: it is the same library item.
-- **One item per request** (`max_batch` 1). A batch settles as one outcome, and
-  a play the server does not have must not be marked sent because its neighbour
-  was.
-- **Plays and likes are switched separately.** `accepts_scrobbles` joins
-  `accepts_loves`: a server with only likes on gets no `play_deliveries` rows at
-  all, instead of rows that would all be dropped. Jellyfin only takes likes
-  (`ServerKind::reports_plays` is false), so its plays switch is not shown.
-- **Errors keep the usual split.** `Auth` disables the target until the next
-  `configure` and notifies, titled with the server's kind and address;
-  unreachable is `Transient` and heals itself; a song the server reports as
-  gone (`RemoteError::NotFound`: Subsonic error 70, Jellyfin 404) is
-  `Unsupported`, dropped quietly like a song that was never there — the
-  binding is only refreshed by the next sync; any other server error is
-  `Permanent`.
-- **Likes are recorded in order.** The bridge hands every like/unlike to one
-  background writer over a channel (`spawn_love_writer`) instead of a task per
-  click: two tasks could commit a quick like-then-unlike in reverse, and the
-  server would be left starred while the track is unliked here.
-- **Configured from the server list.** `scrobble_bridge::build_targets` reads
-  the configured servers and their source ids, so adding or removing a server
-  calls `apply_settings` (`remote_settings::added` / `remove_server`). At launch
-  `setup` runs before the window reconciles `sources`, so a server whose row
-  does not exist yet has no id there; `open_main_window` calls `apply_settings`
-  again right after `reconcile_sources`, or such a server would get nothing
-  until the next settings change.
-- **Double counting is the user's call.** A server that itself forwards plays
-  to Last.fm/ListenBrainz (Navidrome can) plus the same service switched on here
-  counts every play twice; nothing in either API tells us, so both switches are
-  off by default and turning them on is left to the user. The settings text is
-  one sentence by choice — no warning there.
-- **Likes imported from a server are not sent back to it.** The import button
-  in the same Media servers row (`LibraryService::import_remote_stars` →
-  `like_many`) emits `LikesImported`, which the bridge ignores, as for the
-  Last.fm import. Every import — Last.fm, Libre.fm, ListenBrainz, a server —
-  is on this tab and carries the same label; the server rows in Library only
-  link here.
-
-## Storage
-
-Migration 8 in `music_library`, in `library.db` next to the rest of the library
-so a future recommendations query can join `plays.track_id` against `tracks`
-directly. `track_id` is `ON DELETE SET NULL`: the history outlives the file it
-came from, and the artist/title text on the row is what survives.
-
-```
-plays            id, track_id?, artist, title, album?, album_artist?,
-                 track_number?, duration_secs?, played_secs?, started_at,
-                 qualified            unique (started_at, artist, title)
-loves            id, track_id?, artist, title, loved, at
-play_deliveries  (play_id, target) pk, state, attempts, last_error?, updated_at
-love_deliveries  (love_id, target) pk, state, attempts, last_error?, updated_at
-```
-
-`target` holds `TargetId::key()` verbatim (`lastfm`, `librefm`, `listen_brainz`,
-`csv_log`) — the same strings the old JSON file used, so the import needed no
-mapping table. `state` is 0 pending / 1 sent / 2 dropped, and every settle is
-guarded on `state = 0` so a finished row can never be reopened. `played_secs` is
-NULL only for rows imported from that file.
-
-Both `track_id` columns are foreign keys, so both need an index: a rescan deletes
-every track, and SQLite enforces `ON DELETE SET NULL` by looking for children of
-each deleted parent. Without `idx_loves_track` that is a full scan of `loves` per
-deleted track — 2.3s for 20k tracks against 0.15s with it, inside the scan
-writer's transaction with the UI waiting behind `busy_timeout`.
-
-The scrobble tables are reached through a **second `Connection`**
-(`SqliteLibrary::scrobble_conn`), the same trick `ScanSession` uses. The worker
-thread writes here while the UI thread reads `library.db` through `conn`; sharing
-one `Mutex<Connection>` would mean a settle that waits out the 5s `busy_timeout`
-against the scan writer holds the UI's mutex for those 5 seconds, which is a
-freeze rather than a dropped frame.
-
-One consequence of sharing `library.db`: the pre-migration schema probe in
-`SqliteLibrary::open` used to delete the database whenever it failed to find six
-expected artifacts. It now runs only when `user_version == 0`, because above
-that the migrations own the schema — and because the history, unlike tracks,
-cannot be rebuilt by rescanning the disk.
-
-## Non-obvious behavior
-
-- **The history and the queue are different things.** A `plays` row is the fact
-  that something was listened to; a `play_deliveries` row is one target's debt
-  against it. The payload is stored once and joined per target, so a scrobble
-  that reached Last.fm is never resubmitted there because ListenBrainz was down.
-  Delivery state is `pending` / `sent` / `dropped` with an attempt count and the
-  last error, so "did not arrive" can be told apart from "was refused, here is
-  why". **`plays` and `loves` rows are never deleted** — not on success, not on a
-  permanent rejection, not when the queue overflows. Only delivery rows change
-  state.
-- **Errors are classified so a global failure never eats the queue.** `Transient`
-  keeps the batch and backs the target off (60s, doubling, capped at 30 min,
-  reset on the next success). `Auth` — which covers everything that is wrong with
-  the account, the API key or the signature, not just an expired session — keeps
-  the items, disables the target until the next `configure`, and raises
-  `StatusEvent::AuthFailed`; re-logging in delivers the backlog. `Permanent` is
-  reserved for a payload the server will never take (Last.fm 6/7): the batch is
-  dropped, but the run stops and the target backs off, so a systemic `Permanent`
-  can cost at most one batch per backoff window instead of the whole queue.
-  `Unsupported` resolves the item for that target as `dropped`, not as `sent` —
-  the row has to say the delivery never happened, or the table lies about every
-  love ListenBrainz was asked for.
-- **A delivery that cannot be recorded stops the run.** The store is the one
-  thing in the send loop that can now fail *between* "the server took it" and
-  "the row says so". If `settle` errors, `flush_target` backs the target off and
-  returns instead of looping: re-reading the still-pending rows would resubmit
-  the same batch up to `RUN_LIMIT / max_batch` times per flush and then again
-  every `RESUME_SOON`, which duplicates rows in the CSV log and looks like abuse
-  to Last.fm. The old in-memory `resolve` could not fail, so this failure mode
-  is new with the store.
-- **The worker owns the retry timer.** Its loop is `recv_timeout` against the
-  earliest backoff deadline, so a queue filled while offline drains on its own,
-  without waiting for the next track to end. A run is capped at `RUN_LIMIT`
-  items per target and resumes `RESUME_SOON` later, so a large backlog cannot
-  hold the thread. `configure` clears the backoff along with the disabled set:
-  it only ever runs because the user changed a setting, and leaving a 30-minute
-  deadline standing would make the fix look like it did nothing.
-- **Nothing that must survive goes through the channel.** The store is an
-  `Arc<dyn ScrobbleStore>` shared with the handle, so `scrobble` / `love` /
-  `persist` write on the caller's thread and only then poke the worker with a
-  `Flush`. A `Msg` still in the channel dies with the process, and the worker can
-  sit inside a 35s HTTP timeout, so anything queued as a message could be lost on
-  quit. The cost is one `INSERT` plus one row per target in a single transaction
-  on the caller's thread (the UI thread) per track change or like — measured at
-  0.098 ms median / 0.148 ms p95 / 1.8 ms worst on an APFS SSD with three targets
-  configured. Against the JSON file it replaced (0.15 ms median / 0.33 ms worst)
-  the typical case is cheaper, because `library.db` runs `journal_mode = WAL`
-  with `synchronous = NORMAL` and a commit does not fsync; the tail is worse,
-  because a WAL checkpoint occasionally lands on one of these writes. That
-  trade is accepted for the same reason the fsync was: the alternative is the
-  loss window above. Decoding is not a fair comparison — opening the decoder is
-  a `Command` to the engine thread — so this remains the heaviest blocking call
-  on the UI thread at a track change, and a hitch there is the first thing to
-  look at. `NowPlaying` stays a message: it is ephemeral and losing it costs
-  nothing.
-- **Only the targets currently configured count as pending.** Deliveries left
-  over for a service the user switched off stay pending in the table (a re-login
-  should still deliver them) but are excluded from `pending_count` and never wake
-  the worker. `pending_count` counts items, not delivery rows: something owed to
-  two services counts once. Nothing surfaces it in the UI — a number that reads
-  zero almost always tells the user nothing, and the failures worth knowing about
-  arrive as notifications instead. It exists for the worker, which uses it to
-  decide whether a target is worth flushing and whether to arm the retry timer at
-  all.
-- **The queue is bounded, the history is not.** `trim` counts **items**, the
-  same unit `pending_count` does, and when there are more than `CAP`
-  pending it marks every delivery row of the oldest ones `dropped` with
-  `queue overflow` as the reason. Counting rows instead would silently divide
-  the capacity by the number of configured services. The `plays` row survives,
-  so an overflow costs the delivery, not the record that it happened — which is
-  what the old file-backed queue used to lose.
-- **A play is written once, at the end, but a qualified one is written early.**
-  Two different moments can commit it. `Paused` commits *only* if the play
-  already qualifies, so a scrobble survives a crash while paused — that is what
-  the old queue's pause handling bought and it is kept. Every terminal
-  transition (`Loaded` of the next track, `TrackEnded`, `Stopped`, quit) commits
-  whatever has not been committed yet, and if the early commit already happened
-  it simply commits again and the upsert raises `played_secs` to the real total
-  rather than leaving the figure at the pause. The distinction matters: marking the play
-  consumed at the 15s floor instead of at qualification silently destroys the
-  scrobble of every track the user pauses in its first half.
-- **History does not depend on scrobbling being set up.** `ScrobbleHandle` is
-  created unconditionally and `on_engine_event` no longer returns early when no
-  target is configured; only `qualified` (and therefore whether any delivery row
-  is written) is gated on it. `HISTORY_MIN_SECS` (15s, in
-  `pawse::scrobble_bridge`) is the floor that keeps click-throughs out of the
-  table — it is deliberately far below the scrobble threshold, because a track
-  that was started and skipped is signal worth keeping.
-- **Now Playing is never queued** — it is ephemeral, sent to every target
-  fire-and-forget. Loves *are* queued: they are idempotent and worth retrying,
-  and they carry the moment they happened. The CSV target writes that timestamp
-  rather than the flush time, so a like made offline does not land in the log
-  with the time the app next came online.
-- **ListenBrainz cannot love.** `feedback/recording-feedback` needs a recording
-  MBID and the library stores none, so `love` returns `Unsupported`. The CSV log
-  returns `Unsupported` for Now Playing instead, because a "currently playing"
-  line is not something an append-only listening log should carry.
-- **Libre.fm needs no configured keys.** GNU FM does not validate `api_key` /
-  `api_secret`, so `Profile::librefm` ships a constant — Libre.fm works in
-  builds with no `LASTFM_API_KEY`.
-- **Signature order matters.** Params live in a `BTreeMap`, so signing iterates
-  in the lexicographic order the API requires (including batch keys like
-  `artist[0]` and `albumArtist[0]`). `scrobble_params` / `now_playing_params` /
-  `love_params` are free functions precisely so the wire shape can be asserted
-  without a session or a network.
-- **Imported likes are not scrobbled back.** `pawse::scrobble_import` marks
-  matches with `LibraryService::like_many`, which emits one
-  `LibraryEvent::LikesImported`; the bridge only reacts to `TrackLikedChanged`,
-  so an import never bounces back out as a `track.love` — to Last.fm or to any
-  other target.
-- **Sign-in never calls `auth.getToken`.** `auth_url` only ever sends
-  `api_key` and `cb=http://127.0.0.1:<port>/pawse-auth?state=<state>` — no
-  pre-fetched token. Last.fm/Libre.fm mint the token themselves and hand it
-  back as a query param on the redirect to that loopback URL once the user
-  approves, which `wait_for_callback` is waiting on — this is the API's "web
-  application" flow, not its "desktop" one. Mixing this with a separately
-  fetched `auth.getToken` token (the previous, desktop-flow design) silently
-  breaks the redirect — the two flows aren't meant to be combined, and the
-  failure mode is the browser just never coming back, not an error.
-- **The callback listener trusts nothing that doesn't carry its own random
-  `state`.** `bind_callback_listener` mints one per sign-in attempt
-  (`random_state`, two independently-seeded `RandomState` hashes — no `rand`
-  dependency needed for a value that only has to be unguessable by another
-  local process for up to `CALLBACK_TIMEOUT`) and `handle_callback_connection`
-  only accepts a request whose path is `CALLBACK_PATH` *and* whose `state`
-  matches; anything else (a stray favicon fetch, another localhost process
-  probing the ephemeral port) is answered and ignored rather than treated as
-  the real callback. A matching request with no `token` is Last.fm/Libre.fm's
-  own denial redirect, not noise — it fails the sign-in immediately
-  (`SessionError::Denied`) instead of leaving the UI parked on "Connecting…"
-  for the full `CALLBACK_TIMEOUT`.
-  `SessionError::NotAuthorized`/`TokenExpired` still exist because
-  `get_session` can in principle report either, but the ordinary path never
-  hits them: `get_session` only runs after the redirect already proves
-  approval. `Cancelled` and `TimedOut` come from `wait_for_callback` itself
-  (a "Cancel" click, or nothing arriving inside `CALLBACK_TIMEOUT`) and reset
-  the UI to `AuthPhase::Idle` rather than staying stuck waiting; the settings
-  UI folds `NotAuthorized`/`Denied` into the same localized "link expired,
-  sign in again" message rather than leaving them as untranslated Rust text.
-- **The callback socket is closed gracefully, or Windows eats the page.**
-  `respond` ends in `close_gracefully`: `shutdown(Write)` to send a FIN, then
-  drain whatever is still in the receive buffer until EOF or
-  `CALLBACK_DRAIN_TIMEOUT`. Dropping the socket with unread request bytes still
-  queued makes the stack close abortively (RST) instead, and Windows then
-  discards the already-delivered response sitting in the browser's receive
-  buffer — the browser shows a connection error while the app has the token and
-  reports a successful sign-in. macOS hands buffered data to the app before
-  reporting the reset, which is why the same code looked fine there.
-  `read_request_line` reads to `\r\n\r\n` rather than the first `\r\n` for the
-  same reason (a real browser request does not fit in one 512-byte chunk), and
-  falls back to whatever it has on a read error so a truncated stray request is
-  still answered.
-- **The accepted socket is put back into blocking mode explicitly.** The
-  listener is non-blocking so `wait_for_callback` can poll `cancel`/the
-  deadline; whether `accept` hands that mode down to the connection is
-  platform-dependent, and an inherited non-blocking socket turns the
-  read-then-respond exchange into silently-swallowed `WouldBlock`s.
-- **The wait runs on its own OS thread, not gpui's background-executor
-  pool.** `wait_for_callback_async` spawns a plain `std::thread` and hands
-  the result back over a `flume` channel the caller `.recv_async().await`s,
-  so a sign-in attempt left dangling for up to five minutes never occupies a
-  pool worker that other incidental background work (thumbnail decode,
-  library scans) shares. `wait_for_callback` itself stays synchronous and
-  independently testable; only the call site changed.
-- **`apply_session` rechecks the cancel flag, not just the error.** The gap
-  between `wait_for_callback` returning a token and `get_session` completing
-  (up to `targets/mod.rs`'s `ureq` timeouts, tens of seconds in the worst
-  case) is a window where a "Cancel" click can't abort an in-flight request,
-  so `start_web_sign_in` checks `cancel` again right before applying the
-  result — a session that arrives after Cancel was pressed is discarded
-  locally rather than silently signing the account in.
-- **A failure the server explained reaches the user, once.** `AuthFailed` and
-  `Rejected` carry the server's message, not just a target id, because the useful
-  part is usually an instruction ("verify your email at metabrainz.org"). The
-  bridge raises it as a notification and remembers the text per target, so a
-  rejection repeating every backoff window notifies once, not every window; the
-  memory is cleared on `configure`, so a retry after the user changed something
-  speaks up again. `Transient` stays silent — it is the offline case and heals
-  itself.
-- **The CSV target never overwrites and never adopts a stranger's file.** It
-  opens with `create(true).append(true)` and writes the header only when the file
-  is missing or zero-length, so pointing it at a log from an earlier run just
-  continues that log. Because "open an existing file" therefore has to be
-  offered, `is_pawse_log` gates it: empty is fine, the exact header is fine,
-  anything else is refused, so a mis-click on a document cannot get scrobble rows
-  appended to it. It reads at most `HEADER.len() + 1` bytes, so picking a huge or
-  binary file costs nothing. A file that is damaged *after* it was chosen is not
-  a problem worth guarding: appending still works, and if it is deleted the next
-  write recreates it with a header.
-- **No artificial delay between batches.** Settling a batch is one small
-  transaction and nothing sleeps on the worker thread, so a flush is bounded by
-  the HTTP timeouts alone.
-- **The old JSON queue is imported once, and the file is claimed first.**
-  `pawse::scrobble_bridge` renames `<config>/pawse/scrobble_queue.json` to
-  `.json.imported` **before** inserting anything, and gives up without importing
-  if the rename fails. Inserting first would mean a failed rename (a stale
-  destination on Windows, an AV lock) re-imports the whole file on every launch,
-  i.e. N duplicate scrobbles per start. A file that parses to zero items is set
-  aside as `.json.unreadable` instead, so "imported" never names a file whose
-  contents were dropped, and one malformed entry only costs that entry rather
-  than the whole queue. Imported rows have a NULL `played_secs`: the file never
-  recorded how long anything was played, and guessing would poison the history.
+- A love and its unlove use the rules of their own send, so a track loved with a preset on and unliked after it was switched off sends the unlove under the other name. Not fixing: it would need the sent name stored per love delivery (a migration) for a case that needs a rules change between two clicks.
+- No typography preset (curly quotes, NBSP, zero-width, double spaces) — tried and dropped; the fixes are invisible to most people and a custom rule covers them. No YouTube title parsing: the library is files.
+- The pending count is not shown in the UI — a number that reads zero almost always tells nothing; failures that matter arrive as notifications. It exists for the worker.

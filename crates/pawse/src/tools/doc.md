@@ -1,193 +1,59 @@
 # tools
 
-The Tools screen: one-off utilities that sit next to the player rather than in
-Settings. `MainView` shows it as an overlay like Settings (`show_tools`, the
-wrench button left of the gear, back button closes it). The button can be
-hidden in Settings → Appearance (`SettingsStore::tools_enabled`, default off — also for a `settings.json` written before the key existed).
-Each tool is one `SettingPage` on the shared `ui_components::Settings` widget,
-so a new tool (e.g. playlist / likes importers from other players) is a new
-page in `build_pages`.
+The Tools screen: utilities that sit next to the player instead of in Settings. Each tool is one `SettingPage` on the shared `ui_components::Settings` widget, so a new tool is a new page in `ToolsView::build_pages`. Pages: AI prompt, Covers, Timer.
+
+Not here: the overlay switching (`MainView::open_tools`, `pawse/src/doc.md`); the sleep timer (`sleep_timer/doc.md`); the Covers page (`covers/doc.md`); the screen's strings (`ui_resources/src/doc.md`, `i18n/tools.rs`); the listening-history queries (`music_library/src/doc.md`, "Reading listening history").
 
 ## Files
 
-- `mod.rs` — `ToolsView` (the screen entity). Builds the pages once and caches
-  them; rebuilds on `LangChanged`, because page and item labels are baked in at
-  build time, and when the AI prompt mode changes, because the answer-import
-  group exists only for playlist modes, and when the Covers page gains or loses
-  its results / skipped items. Owns the long-lived state entities of every tool
-  (for the AI prompt: `AiPromptState` plus the `AiPromptInputs` text fields; for
-  covers: `CoversState`). The `OpenAiPlaylist` action (the AI button on the
-  Playlists screen, handled by `MainView`) opens the screen on the AI prompt page
-  via `show_ai_playlist`, which switches to From my library first when the current
-  mode builds no playlist (New music / New releases have no answer-import group).
-  It works with the Tools button hidden: `open_tools` never looks at
-  `tools_enabled`.
-- `ai_prompt/` — the AI prompt generator:
-  - `mod.rs` — `AiPromptState` (mode, period, count, detail, busy flag, the
-    finished prompt, its preview and size line, the answer-import status), the
-    page and its fields, and the `generate` / `copy` / `import_answer` actions.
-  - `options.rs` — `Mode` (with `counts()` and `builds_playlist()`), `Period`, `RELEASE_PERIODS`,
-    `Detail`, `ALBUM_COUNTS` / `PLAYLIST_COUNTS`, `PromptOptions`,
-    `language_name` (UI language code → English name for the prompt).
-  - `taste.rs` — `TasteSnapshot` and `gather`: every read the prompt needs, done
-    in one go on a background thread through `LibraryRepository`.
-  - `builder.rs` — `build_prompt`, a pure function from snapshot + options to
-    text. Prompt tests live here.
-  - `template.rs` — every sentence of the prompt. Nothing else holds prompt text.
-  - `answer.rs` — the way back: `TrackIndex` over the library's `TrackListing`s
-    and `parse_answer`, a pure function from the pasted model answer to track
-    ids in order + the lines it could not match. Parser tests live here.
-- `covers/` — cover search for albums without art (own `doc.md`).
-- `timer.rs` — the Timer page: status with +5 min / turn off, presets and
-  "end of track", a minutes field with Start for any other length, the
-  fade-out row (shared with Settings), and an "Automatic sleep timer" row
-  (its hours or "Off") whose Settings button jumps to Settings → General,
-  scrolled to the timer group (`OpenSleepTimerSettings`). The timer itself is `crate::sleep_timer`
-  (own `doc.md`); the page only reads it. The field and slider states come
-  from `sleep_timer::controls`, passed in by `MainView`. It is page `TIMER_PAGE`, which
-  `show_page` opens when the footer badge is clicked (`page_request` makes
-  the `Settings` widget switch tabs even if the screen was already open).
+- `mod.rs` — `ToolsView`: builds and caches the pages, owns the state of every tool, `show_page`, `show_ai_playlist`, the `OpenAiPlaylist` action.
+- `timer.rs` — the Timer page. It only reads `SleepTimer`; field and slider states come from `sleep_timer::controls` (passed in by `MainView`), `duration_field` / `fade_item` from `sleep_timer::settings`. Its automatic-timer row has a Settings button dispatching `OpenSleepTimerSettings`.
+- `ai_prompt/mod.rs` — `AiPromptState`, the page, the `generate` / `copy` / `import_answer` actions.
+- `ai_prompt/options.rs` — `Mode`, `Period`, `Detail`, counts, `PromptOptions`, `language_name`.
+- `ai_prompt/taste.rs` — `TasteSnapshot` and `gather`: every library read the prompt needs, in one background pass.
+- `ai_prompt/builder.rs` — `build_prompt`, pure: snapshot + options + now to text. Prompt tests live here.
+- `ai_prompt/template.rs` — every sentence of the prompt. Nothing else holds prompt text.
+- `ai_prompt/answer.rs` — the way back: `TrackIndex` and `parse_answer`, pure. Parser tests live here.
+- `covers/` — the Covers page, own `doc.md`.
+
+## Screen
+
+- The header Tools button opens page 0 and exists only with `tools_enabled` (Settings → Appearance, default off, also for a `settings.json` from before the key). The `OpenAiPlaylist` action (AI button on the Playlists screen) and the footer sleep-timer badge (`TIMER_PAGE`) open the screen with the button hidden: `open_tools` never reads `tools_enabled`.
+- The page index is the page's identity: `AI_PROMPT_PAGE` 0, Covers 1, `TIMER_PAGE` 2. Add pages after these or fix the constants. The Timer page exists only if the `SleepTimer` global does. `show_page` bumps `page_request` so the widget switches tabs even when the screen is already open.
+- Pages are built once. Labels are baked in at build time, so they are rebuilt on `LangChanged`, on an AI prompt mode change (the answer-import group exists only in playlist modes, the release-window item only in New releases) and when Covers gains or loses its results / skipped items. A new conditional item needs a trigger like these.
+- Tool state lives in `ToolsView`, so a running cover search or a built prompt survives closing the screen.
+- `show_ai_playlist` first switches to From my library when the current mode builds no playlist (New music and New releases have no answer import).
 
 ## AI prompt
 
-- **Counts** depend on the mode: New music and New releases offer 5 / 10 / 20
-  (a longer album list stops being useful), playlist modes add 50. Switching to a mode that
-  lacks the current count drops it to the largest one that fits.
-- **The answer-import group** ("paste the answer → playlist") is not on the page
-  in New music and New releases — that answer is albums to go find, not tracks
-  from the library.
-- **New releases** is the one mode that needs the model to browse. It carries
-  the same data as New music (taste, "Albums in my library", the full history)
-  and a different task: releases of the chosen window by the artists the user
-  listens to most, then by close ones. The window is its own selector,
-  "Release period" (Week / Month / 6 months, `RELEASE_PERIODS`, state
-  `release_window`), shown on the page only in this mode and independent of
-  "Current taste": the taste period may be All time while the window is a week.
-  The task states the window as dates
-  (`{from}`–`{to}`, today included) because a model without a clock cannot
-  resolve "the last 6 months"; it tells the model to search instead of
-  recalling (its training data ends before the window), to check every release
-  and its date against a source but keep links and citations out of the answer,
-  never to invent a release, to return fewer than asked rather than pad, and,
-  if it has no web access, to say so in its first line and stop — otherwise a
-  model without search answers from memory with plausible fake releases. Reissues, remasters
-  and deluxe editions of old albums are allowed but go after the genuinely new
-  releases and are typed `reissue`: some users want them, but unmarked they
-  crowd out the new releases within a window of a few months.
-  The mode description in the UI tells the user to pick a chat with web search
-  on. The answer is `Artist — Title (type, release date)` plus the explanation,
-  most relevant first, reissues last. The task's window dates are ISO because
-  they only inform the model, but the answer's date has no fixed format: the
-  prompt asks for it "the way it is usually written in the language of your
-  answer", so the model picks the local convention itself (no per-locale
-  date formatting in code).
-
-Pawse has no recommender of its own. Instead it writes a prompt describing the
-library and the listening history; the user pastes it into any LLM chat.
-Nothing is sent anywhere: the only output is the clipboard.
-
-- **The prompt is English on purpose**, independent of the UI language: models
-  follow English instructions best and the text stays one stable template.
-  Only the answer language follows the UI (`ANSWER_LANGUAGE`, filled from
-  `ui_resources::i18n::active()` at generation time). The prompt's own texts live
-  in `template.rs`, not in the i18n tables; the screen's UI labels live in their
-  own table, `ui_resources/src/i18n/tools.rs`.
-- **Nothing is trimmed** except the Forgotten candidate list
-  (`FORGOTTEN_CANDIDATES`) and the top-N lists. Current models take very large
-  contexts, and the exclusion lists are only useful when complete: "Albums in my
-  library" (everything the user owns or knows) and "Everything I have played in
-  this player" (the whole `plays` history, each track even if played once,
-  including server tracks and tracks no longer in the library). The full
-  history goes into New music only: From my library is limited to the library
-  anyway and gets its taste from "My taste right now". The character count
-  under the buttons gives a sense of the size.
-- Changing any option clears the finished prompt and bumps
-  `AiPromptState::generation`; a build still running for the old options is
-  dropped when it finishes instead of showing up under the new ones.
-- **Period** only shapes "My taste right now" (top artists / tracks). The
-  exclusion lists are always all-time. In Forgotten mode the period is also the
-  gap: a track is a candidate if it was never played or last played before the
-  cutoff; All time means never played. It does not set the New releases window
-  (that is `release_window`). Today's date is in the New releases task as
-  `today is {to}`, once before and once after the data.
-- **Forgotten ranking**: artist affinity = all-time plays of the artist (by
-  name, from `plays`) + `LIKED_AFFINITY` per liked track. Ranking happens here,
-  the model only picks and orders.
-- **Likes are a taste signal, never a pick.** Likes are often imported from
-  elsewhere (Last.fm, servers), so a liked track is one the user knows by heart
-  even with no plays here. Forgotten drops liked tracks from the candidates in
-  code; New music and From my library can't (the lists must stay complete), so
-  the task and the liked-section heading forbid recommending them. Without this
-  the model happily echoes the liked list back.
-- **The history is partial, and the prompt says so.** `plays` starts when the
-  user started using Pawse; everything heard in other players before is
-  missing. `DATA_NOTES` tells the model the history is from one player and
-  incomplete, and "never played" is phrased as "never played here". The prompt
-  never names Pawse. A "finish these partly heard albums" block was tried and
-  removed: "partly heard" from this history almost always meant "heard
-  elsewhere", so it recommended albums the user already knew. Partly heard
-  albums still stay out of New music as an exclusion, which a partial history
-  only makes less strict, never wrong.
-- **Answer format.** New music: each item starts on its own line with
-  `Artist — Album (year)`. Playlist modes (From my library, Forgotten): the
-  playlist comes first as a single code block, one `Artist — Title` per line
-  and nothing else; per-track reasons go after the block as `Artist — Title:
-  reason`. The block is what the answer import reads, and models keep a code
-  block clean far more reliably than a "no numbering" rule; reasons stay out
-  of it because code blocks don't wrap. **Detail** (low / medium / high) only
-  picks how much explanation follows: low is one short sentence per
-  recommendation and none per playlist track, medium 2–3 sentences / one per
-  track, high a paragraph / 2–3 per track. One `ANSWER_*` constant per mode ×
-  detail in `template.rs`.
+- Four modes: New music, New releases, From my library, Forgotten. The last two build a playlist and offer one larger count (a longer album list stops being useful).
+- Changing any option clears the finished prompt and bumps `AiPromptState::generation`; a build still running for the old options is dropped when it finishes.
+- **Period** only shapes "My taste right now"; the exclusion lists are always all-time. In Forgotten it is also the gap: a track is a candidate if never played or last played before the cutoff (All time: never played). The New releases window is a separate selector (`release_window`), independent of the period.
+- **English on purpose**, whatever the UI language: models follow English instructions best and the text stays one stable template. Only the answer language follows the UI (`ANSWER_LANGUAGE`). Prompt text lives in `template.rs`, not in the i18n tables.
+- **The task is stated twice**, before and after the data: with a long context in between, the model otherwise loses it.
+- **Nothing is trimmed** except the top-N lists and `FORGOTTEN_CANDIDATES`: the exclusion lists only work complete. New music and New releases carry "Albums in my library" and "Everything I have played in this player" (the whole `plays` history, even one play, including server tracks and tracks no longer in the library). From my library and Forgotten don't: they are bounded by the library and take their taste from "My taste right now".
+- Only artist, album, title, year, genre, like flags and play counts go in; never paths, server names or ids. Play counts count every `plays` row, qualified or not (an unqualified row is still at least `scrobble_bridge::HISTORY_MIN_SECS` of listening).
+- **The history is partial, and the prompt says so.** `plays` starts when the user started using Pawse, so "never played" reads "never played here" and `DATA_NOTES` calls the history incomplete. The prompt never names Pawse.
+- **Likes are a taste signal, never a pick.** Likes are often imported, so a liked track is one the user knows by heart with no plays here. Forgotten drops liked tracks in code; the other modes can't (their lists must stay complete), so the task and the liked-section heading forbid recommending them. Without it models echo the liked list back.
+- **Forgotten ranking** is done in code, the model only picks and orders: artist affinity = all-time plays of the artist (by name) + `LIKED_AFFINITY` per liked track. A track's last play is also looked up in `plays` by artist + title, so a play of another copy or of a server track counts.
+- **New releases** is the one mode that needs the model to browse. The window is given as ISO dates, because a model without a clock cannot resolve "the last 6 months". The task tells a model that cannot search to say so in its first line and stop; otherwise it answers from memory with plausible fake releases. Reissues are allowed but go after the genuinely new releases and are typed `reissue`; unmarked they crowd out the new ones within a window of a few months. The answer's date format is left to the model ("the way it is usually written in the language of your answer"): no per-locale date formatting in code. The mode description in the UI tells the user to pick a chat with web search on.
+- **Playlist answers come as one code block**, `Artist — Title` per line and nothing else; per-track reasons go after it. The answer import reads the block; models keep a code block clean far more reliably than a "no numbering" rule, and reasons stay out of it because code blocks don't wrap.
 
 ## Answer → playlist
 
-The second group on the page takes the model's answer pasted back, finds the
-tracks in the library and saves them as a playlist in the model's order
-(`create_playlist` + `add_tracks_to_playlist`). The name is the typed one,
-else the first line of the wishes (cut to `PLAYLIST_NAME_MAX_CHARS`), else a
-localized default — playlists can't be renamed yet, so the name matters.
+The pasted answer becomes a playlist in the model's order. The name is the typed one, else the first line of the wishes (cut to `PLAYLIST_NAME_MAX_CHARS`), else a localized default. An answer with no library tracks creates no playlist.
 
-`parse_answer` works by recognition, not grammar: every line is looked up in
-the library, and lines that match nothing (intros, prose, headings) are simply
-skipped. That makes it tolerant of whatever the model wraps around the list.
+`parse_answer` works by recognition, not grammar: every line is looked up in the library and lines that match nothing (intros, prose, headings) are skipped, so it tolerates whatever the model wraps around the list.
 
-- **Scope.** If the answer has a fenced code block (```` ``` ```` or `~~~`;
-  a one-line ```` ```…``` ```` counts as its content), only lines inside fences
-  are read (the reasons after the block would only repeat the same tracks). No
-  block, or a block with no library track in it (an empty block before the
-  list) — all lines are read.
-- **Line cleanup.** Non-breaking/thin spaces become spaces; leading `#`,
-  bullets (`-` `*` `•` `+` dashes), numbering (`1.` `1)`, also without a
-  space, but not `2.0`), backticks and `*` at the line edges are dropped.
-  Inner `*` stay for the first lookup (titles like `F**k You`); a second
-  lookup without any `*` catches markdown bold/italics. Lines without a
-  letter or digit are skipped.
-- **Splitting.** Every `—` / `–` / ` - ` / `: ` is a possible cut. For each cut
-  as the artist/title boundary, every later cut (and the line end) is tried as
-  the title end, longest title first. This survives titles with dashes
-  (`Glory Box - 2011 Remaster`), trailing reasons and artist names with
-  dashes. The reversed order (`Title — Artist`) is tried too. `Title by
-  Artist` is deliberately not: in free text it matched prose ("Stand by Me" →
-  a track `Stand` by `Me`).
-- **Keys.** Exact: `normalize_tag` after folding typographic quotes and
-  apostrophes and stripping surrounding double quotes. Loose fallback (only if
-  no exact match anywhere in the line): alphanumerics only, bracketed parts of
-  the title dropped (`(Remastered)`, `[Live]`). Both the track artist and the
-  album artist are indexed, since "My library" lists tracks under the album
-  artist; an empty artist is indexed as `UNKNOWN_ARTIST`, the same text the
-  prompt shows for it. On a name clash the first listing wins.
-- **No fuzzy/edit-distance matching** by design: a wrong track silently in the
-  playlist is worse than a visible miss.
-- **Misses.** In block mode every unmatched block line is reported. In
-  free-text mode only lines that look like a track (a dash separator, ≤
-  `MISSING_LINE_MAX_CHARS`, not ending in `:`) are, so prose isn't listed as
-  "not found". Duplicates keep their first position; a repeated miss is
-  reported once.
-- An answer with no library tracks creates no playlist.
-- The task is stated twice, before and after the data: with a long context in
-  between, the model otherwise loses it.
-- No file paths, server names or ids ever go into the prompt — only artist,
-  album, title, year, genre, like flags and play counts.
-- `recent_plays` and the top lists count every `plays` row, qualified or not:
-  an unqualified row still means at least `HISTORY_MIN_SECS` of listening.
+- **Scope.** If the answer has a fenced block (```` ``` ```` or `~~~`; a one-line ```` ```…``` ```` counts as its content), only lines inside fences are read: the reasons after the block repeat the same tracks. No block, or a block with no library track in it: all lines.
+- **Line cleanup.** Heading marks, bullets, numbering (`1.` `1)`, also without a space, but not `2.0`), backticks and edge `*` are dropped. Inner `*` stay for the first lookup (`F**k You`); a second lookup without any `*` catches markdown bold and italics.
+- **Splitting.** Every `—` / `–` / ` - ` / `: ` is a possible cut (a bare `-` is not, so `Jay-Z` survives). For each cut as the artist/title boundary, every later cut and the line end is tried as the title end, longest first: this survives titles with dashes (`Glory Box - 2011 Remaster`), trailing reasons and dashed artist names. `Title — Artist` is tried too.
+- **Keys.** Exact: `normalize_tag` after folding typographic quotes and stripping surrounding double quotes. Loose fallback, only if nothing in the line matched exactly: alphanumerics only, bracketed parts of the title dropped. Both the track artist and the album artist are indexed, since "My library" lists tracks under the album artist; an empty artist is indexed as `UNKNOWN_ARTIST`, the text the prompt shows. On a name clash the first listing wins.
+- **Misses.** In block mode every unmatched block line is reported. In free text only lines that look like a track (a dash separator, at most `MISSING_LINE_MAX_CHARS`, not ending in `:`) are, so prose isn't listed as "not found". Duplicates keep their first position; a repeated miss is reported once.
+
+## Decisions
+
+- A prompt generator, not an in-app recommender: nothing is sent anywhere, the only output is the clipboard.
+- No fuzzy / edit-distance matching in the answer import: a wrong track silently in the playlist is worse than a visible miss.
+- No `Title by Artist` form there: in free text it matched prose ("Stand by Me" became a track `Stand` by `Me`).
+- No "finish these partly heard albums" block: "partly heard" in this history almost always meant "heard elsewhere", so it recommended albums the user already knew. Partly heard albums stay out of New music as an exclusion, which a partial history only makes less strict, never wrong.

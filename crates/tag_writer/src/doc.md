@@ -1,220 +1,145 @@
 # tag_writer
 
-The write side of audio-file metadata, and the symmetric twin of `music_indexer`'s
-read side. `music_indexer` is read-only by contract and `music_library` is
-DB-only, so writing into the user's own files lives here — isolated, GPUI-free,
-with its own round-trip tests. It knows nothing about SQLite or the UI.
+The write side of audio-file metadata: `write_metadata` applies a `TrackTagEdits` (form
+fields, free-form rows, cover) to the file's tag, and the crate lists, diffs and validates
+the rows the tag editor shows. GPUI-free, no SQLite. Its contract: what it writes reads
+back unchanged through `music_indexer`.
 
-`pawse::library_service` is the only consumer.
+Not here: reading (`music_indexer/src/doc.md`); re-indexing the DB after a write and
+refusing cue tracks (`library_service.rs`) and the modal (`tag_editor_view.rs`), both in
+`pawse/src/doc.md`.
 
 ## Files
 
-- `lib.rs` — the whole crate. `TrackTagEdits` (the editable field set),
-  `write_metadata` (durable write), `CoverEdit` + `cover_bytes_ok` (the embedded
-  picture), `RawTag` + `read_raw_tags` (the read-only "everything else in this file"
-  list the tag-editor modal shows), and the round-trip tests. Fixtures cover flac,
-  ogg, mp3 and m4a (`make generate`); a container without one is called out as
-  unverified below rather than assumed. Cover tests use `fixtures/cover_alternate.png`
-  on purpose — `tagged_with_cover.flac` is built *from* `cover_front.png`, so replacing
-  a cover with that one is indistinguishable from not replacing it.
-- `tests/raw_bytes.rs` — the same writes, checked against the bytes with a
-  hand-written FLAC/ID3v2 parser instead of lofty. The round-trip tests in `lib.rs`
-  write and read through the same library, so anything lofty gets wrong
-  *symmetrically* passes them and still breaks every other player; this is the only
-  place that can catch that. Keep it dependency-free — no external tagger is
-  installed anywhere this repo builds, and adding one would make the suite
-  platform-dependent.
+- `lib.rs` — the whole crate: `TrackTagEdits`, `write_metadata`, `CoverEdit` +
+  `cover_bytes_ok`, `RawTag` + `read_raw_tags` + `diff_raw_tags`, `CustomTags` +
+  `KeyProblem` + `custom_tags_for`, and the round-trip tests (read back through
+  `music_indexer`, a dev-dependency).
+- `tests/raw_bytes.rs` — the same writes checked against the bytes with a hand-written
+  FLAC and ID3v2 parser. The `lib.rs` tests write and read through the same `lofty`, so a
+  mistake `lofty` makes symmetrically passes them and still breaks other players; only
+  this file catches it. Keep it dependency-free: no external tagger is installed anywhere
+  this repo builds, and one would make the suite platform-dependent. Ogg is not covered
+  (same Vorbis comments as FLAC, only the page framing differs).
 
-## Non-obvious behavior
+## Round-trip contract
 
-- **Round-trip alignment is the entire correctness contract.** Whatever this
-  crate writes must come back out of `music_indexer::metadata::read_metadata`
-  byte-identical, because a later full rescan re-derives the library from the
-  files. The tests assert exactly that, per container, and are the reason to
-  touch this crate carefully:
+Each field must read back equal per container, because a rescan re-derives the library
+from the files.
 
-  | Field | Written to | Read by `metadata.rs` |
-  |---|---|---|
-  | title | `TrackTitle` | `tag.title()` |
-  | album | `AlbumTitle` | `tag.album()` |
-  | artists | `TrackArtists` **and** `TrackArtist` | `get_strings(TrackArtists)`, falls back to `artist()` |
-  | album_artists | `AlbumArtist` | `get_strings(AlbumArtist)` |
-  | track_number / disc_number | `TrackNumber` / `DiscNumber` | `get(…)`, split on `/` |
-  | year | `RecordingDate` | `read_year`, which tries `RecordingDate` first |
-  | genres | `Genre` (multi) | `normalize_genres(get_strings(Genre))` |
+| Field | Written to | Read by `music_indexer` as |
+|---|---|---|
+| title, album | `TrackTitle`, `AlbumTitle` | `title()`, `album()` |
+| artists | `TrackArtists` and `TrackArtist` | `TrackArtists`, else `artist()` |
+| album_artists | `AlbumArtist` | `AlbumArtist` |
+| track / disc number | `TrackNumber` / `DiscNumber` | text before `/` |
+| year | `RecordingDate` | `read_year`: `RecordingDate`, then three fallbacks |
+| genres | `Genre`, multi-value | `normalize_genres` |
 
-- **The target tag mirrors the reader's choice.** `primary_tag` first, then
-  `first_tag`, and a fresh `Tag::new(primary_tag_type())` only when the file has
-  no tag at all. Writing to a *different* tag than the reader reads would make
-  every edit appear to be silently discarded. The tag is edited as an owned copy
-  and put back with `insert_tag` — the custom-row path has to rebuild it through
-  the container's own type anyway, and one copy keeps the whole function free of
-  the borrow dance that reading the tag type while holding `&mut` would need.
-  Saving goes through `AudioFile::save_to_path` on the whole `TaggedFile` (not
-  `TagExt::save_to_path` on the one tag) so the file's other containers survive.
+- Holds only for values the reader leaves alone: a genre containing `,` `;` or `/`, or a
+  junk name, does not survive `normalize_genres`.
+- Artists go to both keys: the reader prefers `TrackArtists`, third-party players show
+  `TrackArtist` (TPE1 / ARTIST / ©ART).
+- The target is `primary_tag`, else `first_tag`, else a fresh tag of `primary_tag_type()` —
+  the reader's choice, or edits would look discarded. The tag is saved through
+  `AudioFile::save_to_path` on the whole file so its other tags survive; ID3v1 is not
+  touched (the indexer reads the primary tag, so the library never diverges).
+- DSF/DFF are refused (`lofty` has no support): `write_metadata` errors, `read_raw_tags`
+  returns nothing, `custom_tags_for` says `Unsupported`.
+- Order in `write_metadata`: fields, removals, added rows, cover. Everything that can
+  refuse (custom rows, cover format, non-audio file) fails before the save and leaves the
+  file byte-identical.
+- Empty means remove: `set_text` / `set_multi` trim, drop blanks and remove the key when
+  nothing is left, so a cleared field reads back as `None`, not `Some("")`.
 
-- **Multi-value writing is container-dependent — this is the sharp edge.** lofty's
-  ID3v2 writer keeps one frame per key, so separately pushed items collapse to the
-  *last* value (observed: three artists in, one artist out). ID3v2.4's own
-  representation is a single NUL-separated frame, which lofty reads back as
-  distinct items — so `set_multi` NUL-joins for `TagType::Id3v2` and pushes
-  separate items for everything else. Vorbis Comments (flac, ogg) hold separate
-  fields natively, and MP4 ilst holds several data atoms per key.
-  `multi_values_survive_per_container` locks this down for flac, ogg, mp3 and m4a.
-  **APE is still unverified** — no fixture — so add one to the test loop before
-  trusting multi-value edits there.
+## Fields
 
-- **Embedded art survives an edit**, including the custom-row path, which is the
-  only one that ever rebuilt the tag. `embedded_cover_survives_a_custom_row` pins it
-  against `fixtures/tagged_with_cover.flac`: the failure mode would be silent.
+- An unchanged value is not rewritten. The form shows year and disc as integers, but the
+  file may say `2023-06-15` or `2/3`, and the rest is lost once dropped. `set_year` and
+  `set_number` read the file's value through the reader's rules (`current_year`,
+  `current_number`) and do nothing on a match; they duplicate `read_year` and the `/` split
+  in `music_indexer`, so change them together. Track `5/12` would survive anyway (`lofty`
+  splits the total into its own `TRACKTOTAL` row); `DISCNUMBER=2/3` stays one string.
+- A changed year removes `Year`, `OriginalReleaseDate`, `ReleaseDate` and writes
+  `RecordingDate`; clearing it empties all four keys, or an old value returns from a
+  fallback.
 
-- **The cover is the picture itself, never a path.** Every container stores the bytes
-  (`APIC`, `METADATA_BLOCK_PICTURE`, `covr`, `Cover Art (Front)`); none has a
-  "path to the artwork" tag. ID3v2 does allow a MIME of `-->` to mean the frame body
-  is a URL, but lofty has no notion of it — the string would become
-  `MimeType::Unknown("-->")` and the "data" would be read as image bytes — so that
-  door is shut. Embedding is therefore what overrides the external-file heuristic, and
-  it does so for free: `music_indexer` reads the embedded picture first and only falls
-  back to files on disk.
+## Multi-value
 
-- **`CoverEdit::Remove` clears every picture, not just the front one.** The reader
-  takes `CoverFront` and falls back to the *first* picture of any type, so leaving a
-  back cover or a booklet scan behind would silently promote it to album art instead
-  of clearing anything. `Replace` clears the same way before pushing, so a file ends
-  up with exactly one picture. `removing_the_cover_leaves_no_picture_of_any_type`
-  plants a `CoverBack` first — a fixture with only a front cover cannot tell the two
-  behaviours apart.
+- `lofty`'s ID3v2 writer keeps one frame per key, so separate items collapse to the last
+  value. `set_multi` NUL-joins for `TagType::Id3v2` (one ID3v2.4 frame that `lofty` reads
+  back as several values) and pushes separate items elsewhere: Vorbis comments repeat
+  fields, MP4 `ilst` holds several data atoms. `raw_bytes` asserts the tag is v2.4; in
+  v2.3 a NUL-joined value would read as one artist `First\0Second`.
+- Verified for flac, ogg, mp3, m4a. APE and other containers have no fixture.
+- `set_multi` uses `push_unchecked` / `insert_unchecked` for every key: `Tag::push` checks
+  the container's vocabulary and silently drops an `ItemKey::Unknown`. Keys are verified
+  again at write time, so an out-of-spec one is dropped, not written corrupt. This is what
+  lets free-form rows reuse `set_multi`.
 
-- **JPEG and PNG only, and that narrowing is ours.** `Picture::from_reader` sniffs the
-  format and rejects a non-image, but it accepts GIF, BMP and TIFF too and always
-  reports `PictureType::Other` (hence the `set_pic_type` after it). MP4's `covr` takes
-  only JPEG and PNG, and those are the only two every player renders, so accepting
-  more would make the outcome depend on the container. `cover_bytes_ok` is the same
-  question the UI asks the moment a file is picked — asking late would cost the user
-  every other edit in the save.
+## Free-form rows
 
-- **Pictures never reach the raw-row list.** `read_raw_tags` skips non-text values, so
-  a cover cannot be deleted through `removed_tags`; `CoverEdit::Remove` is the only
-  way. Do not "fix" this by surfacing `APIC` as a row — the value is binary and the
-  list is text.
+- Rows with the same key are written in one call, merged with what the tag holds under it:
+  `set_multi` replaces a key wholesale and on ID3v2 one key is one frame. Blank rows and
+  keys that name a form field are ignored.
+- On ID3v2 an unknown key becomes a `TXXX` frame (as does `ARTISTS`), on Vorbis a plain
+  field. A 4-character ID3v2 name is taken by `lofty` for a literal frame id and refused
+  at save time, which would abort the whole save.
+- Key validity is decided by the container before the dialog closes: the writer runs on
+  the background executor long after, and a refusal there costs every other edit.
+  `custom_tags_for(path)` gives a `CustomTags`; `CustomTags::check_key` is the one rule the
+  UI and `with_custom` both ask: trimmed, non-empty, ASCII `0x20..=0x7D` without `=`
+  (`VorbisComments::push` drops anything else silently, so it applies to every container);
+  not a form-field name in either vocabulary (`TITLE` and `TIT2` both); not 4 characters
+  on ID3v2. `supported()` is a separate question (`Unsupported.check_key` returns `None`);
+  the UI hides the add row when it is false.
+- Only Vorbis comments and ID3v2 take custom rows. MP4 is refused up front: `lofty`'s
+  generic-tag conversion never emits `----` freeform atoms, a 4-character key becomes a
+  literal atom no player knows and any other length is dropped with no error, and a silent
+  drop is what the UI cannot report. RIFF INFO takes field edits but not custom rows.
+  Every other tag type is `Unsupported` for custom rows and has no fixture for field edits.
 
-- **Custom rows need `push_unchecked`, not `push`.** `TrackTagEdits::added_tags`
-  carries hand-typed key/value pairs, which arrive as `ItemKey::Unknown`. `Tag::push`
-  *silently* refuses those — it checks `re_map` (does this key exist in the
-  container's vocabulary?) and returns `false`, dropping the item. `push_unchecked` /
-  `insert_unchecked` are lofty's documented way in for exactly this case, and keys
-  are verified again at write time, so an out-of-spec one is dropped rather than
-  corrupting the file. `set_multi` therefore uses the unchecked calls for *every*
-  key: for one that maps, `re_map` was only ever a predicate, so nothing changes; for
-  one that doesn't, the outcome is the same drop either way. That is what lets the
-  custom path reuse `set_multi` — multi-value handling included — instead of
-  rebuilding the tag through `VorbisComments` / `Id3v2Tag`, which is what an earlier
-  version did.
+## Raw rows
 
-- **Rows sharing a key are written in one call.** `set_multi` replaces a key
-  wholesale, so `with_custom` groups by key and folds in whatever the tag already
-  holds under it (`get_strings`) before writing. Doing otherwise loses values on
-  ID3v2, where one key is one frame: `two_custom_rows_can_share_a_key` and
-  `a_custom_row_joins_a_key_the_file_already_has` both failed that way.
+- `read_raw_tags` lists what the form does not show: it skips form-field keys (year
+  fallbacks and `Lyrics` included), non-text and blank values, and keys the container has
+  no name for. Keys are the container's own (`TPE1`, `ARTIST`), values trimmed, the list
+  sorted by key then value; encoder fields show up.
+- `removed_tags` carries whole rows as `read_raw_tags` returned them. `apply` maps the key
+  back with `ItemKey::from_key` (unmapped names become `Unknown`, so they stay removable)
+  and keeps everything except that exact (key, value). Not by key alone: Vorbis repeats
+  fields, so removing one `COMMENT` would delete both. Two identical rows are
+  indistinguishable and go together.
+- `diff_raw_tags(original, current)` returns `(removed, added)`, so the caller keeps no
+  bookkeeping: add-then-delete cancels, repeats match one for one, a reorder is no change,
+  an edited value is a removal plus an add. Removal then re-add in one save keeps the new
+  value.
 
-- **A custom row is a `TXXX` frame on ID3v2, a plain field on Vorbis.** lofty wraps
-  an unknown key in `TXXX` (user-defined text, keyed by description), which is the
-  portable spelling — other editors show those rows under the name the user typed.
-  `ARTISTS` rides the same slot, since ID3v2 has no frame for it.
-  `a_custom_row_becomes_a_txxx_frame_on_mp3` pins this from the bytes.
+## Cover
 
-- **ID3v2 cannot take a 4-character custom name.** Frame ids are exactly four
-  characters, so lofty treats a 4-character unknown key as a literal frame id — no
-  `TXXX` wrapping — and refuses it while writing (`Attempted to write an invalid
-  frame. ID: "MOOD"`), which would abort the save and take every other edit in it
-  down too. `CustomTags` catches it first, and the UI asks the same question when the
-  row is typed — see the note below. Vorbis has no such limit, which
-  `id3v2_refuses_a_four_character_custom_name` asserts from both sides;
-  `a_four_character_custom_name_is_refused_without_touching_the_file` adds that the
-  refused save leaves the file byte-identical.
+- The cover is the picture itself; no container has a "path to the artwork" tag. Embedding
+  overrides the external-file heuristic because the indexer reads the embedded picture
+  first. Embedded art survives every other edit, the free-form path included.
+- `Remove` clears every picture, not just the front: the reader falls back to the first
+  picture of any type, so a leftover back cover would become the album art. `Replace`
+  clears the same way, then pushes one `CoverFront`.
+- Pictures never reach the raw rows; `Remove` is the only way to delete one. Do not
+  surface `APIC` as a row — the value is binary and the list is text.
 
-- **Key validity is decided by the container, before the dialog closes.**
-  `custom_tags_for(path)` resolves a file to a `CustomTags`, and
-  `CustomTags::check_key` is the single rule both the UI and `with_custom` ask. This
-  matters for *when*, not just what: the writer runs on the background executor long
-  after the dialog is gone, so a refusal there costs the user every other edit in the
-  same save. The rule itself: `VorbisComments::push` drops a field whose name is
-  outside ASCII `0x20..=0x7D` or contains `=` — without a word — so that is applied
-  to every container; names the form already owns are refused too (checked against
-  *both* vocabularies, so `TITLE` and `TIT2` go equally, whatever the file is tagged
-  with); and `NoFrameIdLength` adds the ID3v2 rule above. `CustomTags::Unsupported`
-  makes the UI hide the add row entirely rather than offer an input that only ever
-  produces an error.
+## Decisions
 
-- **MP4 is `Unsupported`, and the reason is the mirror image of ID3v2's.** Not that
-  the container cannot hold a custom row — `----` freeform atoms exist — but that
-  lofty's generic-tag conversion never emits one. An ilst atom name is exactly four
-  bytes, so a 4-character key is written as a *literal* atom no player recognises,
-  and every other length is dropped **with no error at all**. Verified by probe: of
-  `MOOD`/`ENGINEER`/`MYTAG`/`ABCDE`/`AB`, only `MOOD` came back, and none of the
-  writes failed. A silent drop is the one outcome the UI cannot report, so the whole
-  container is refused up front —
-  `mp4_refuses_custom_rows_before_writing_anything`. Everything *else* about m4a is
-  verified and works: fields, multi-values, unicode, idempotence. APE and RIFF stay
-  `Unsupported` on the old grounds — no fixture to check against.
+Owner's calls; ask before changing.
 
-- **The edit lists are diffed, not tracked.** `diff_raw_tags(original, current)`
-  turns "the rows the file had" and "the rows on screen" into
-  `(removed_tags, added_tags)`. The caller therefore keeps no bookkeeping: a row
-  added and then deleted in the same dialog cancels out by construction, and
-  repeated key/value pairs are matched one for one, so deleting one of two identical
-  rows reports exactly one removal. (The *writer* still cannot tell those two apart
-  — see the deletion note above — but the arithmetic stays honest.)
+- JPEG and PNG only. `Picture::from_reader` also accepts GIF, BMP and TIFF, but MP4's
+  `covr` takes only the first two and they are the only two every player renders, so more
+  would make the result depend on the container. `cover_bytes_ok` is asked when a file is
+  picked, not at save.
 
-- **Artists are written twice on purpose.** The reader prefers `TrackArtists`, so
-  that key carries the exact list. `TrackArtist` (TPE1 / ARTIST / ©ART) gets the
-  same values so third-party players — which only know that key — don't show a
-  stale artist.
+## Tests
 
-- **Clearing a year has to clear four keys.** `read_year` walks `RecordingDate` →
-  `Year` → `OriginalReleaseDate` → `ReleaseDate`, so `set_year` removes the latter
-  three unconditionally. Otherwise clearing the year would silently resurrect an
-  old value from a fallback key.
-
-- **A field the user did not change is not rewritten.** The form shows a year and a
-  disc number as plain integers, but the file may spell them more richly —
-  `2023-06-15`, `2/3`. Writing the parsed value back would quietly throw the rest
-  away, and the month, day or disc total are not recoverable afterwards. So
-  `set_number` and `set_year` first read the file's own value *through the reader's
-  own rules* (`current_number` splits on `/`, `current_year` walks the same four keys
-  and takes the same leading four digits) and do nothing when it already matches.
-  A real edit still goes through the full path, four-key clear included.
-
-  The rule only applies to fields whose display form loses information. Track
-  numbers do not need it: lofty splits `TRACKNUMBER=5/12` into `TrackNumber` plus a
-  `TrackTotal` row on the way in, so the total is a row of its own and survives
-  anyway — `DISCNUMBER=2/3` stays one string, which is the asymmetry
-  `a_changed_number_is_written_plainly` records.
-
-- **Empty means remove, not empty string.** `set_text`/`set_multi` trim, drop
-  blanks, and `remove_key` when nothing is left — so a cleared field reads back as
-  `None`/empty rather than as `Some("")`.
-
-- **Deletion round-trips through the displayed row, key *and* value.**
-  `TrackTagEdits::removed_tags` holds whole `RawTag`s as `read_raw_tags` handed them
-  out — the *container* key name (`TPE1`, `ARTIST`, …) plus the trimmed value. `apply`
-  maps the key back with `ItemKey::from_key(tag_type, key)`, which falls back to
-  `ItemKey::Unknown(key)` so a tag lofty has no generic name for is still removable,
-  then `retain`s everything that is not that exact (key, value) pair. Matching on the
-  key alone would be wrong: Vorbis Comments hold repeated fields natively (that is what
-  `set_multi` relies on), so a file with two `COMMENT`s lists two rows under one key and
-  `remove_key` would delete both. Two rows with an identical key *and* value are
-  indistinguishable to the user and go together — the only case where one click removes
-  more than one item. Removals run last, after the field writes, so deleting a key can
-  never clobber a field the same save just set.
-
-- **`read_raw_tags` deliberately skips what the form already shows** (the table
-  above, plus `Lyrics`, which the lyrics view owns) and skips non-text values, so
-  pictures and binary blobs never reach the UI. Keys are rendered with
-  `ItemKey::map_key(tag_type, …)`, i.e. the container's own name (`TPE1`,
-  `ARTIST`), which is what a user comparing against another tag editor expects to
-  see. Encoder fields do show up — they are genuinely part of the file's tags.
-
-- **ID3v1 is not touched.** On an mp3 carrying both ID3v2 and ID3v1, only the
-  primary (ID3v2) tag is edited, so a strictly-ID3v1 reader keeps seeing the old
-  values. The indexer reads the primary tag, so the library never diverges.
+- Fixtures (`make generate`): flac (tagless, tagged, with cover, `5/12` form), ogg, mp3,
+  m4a, wav.
+- Cover tests use `cover_alternate.png`: `tagged_with_cover.flac` is built from
+  `cover_front.png`, so replacing a cover with that one looks like not replacing it. The
+  removal test plants a `CoverBack` first, since a lone front cover cannot tell "remove the
+  front" from "empty the list".

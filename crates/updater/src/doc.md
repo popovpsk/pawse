@@ -1,126 +1,90 @@
 # updater
 
-Self-contained auto-update for macOS (dmg) and Windows (nsis), modeled on Zed's
-`auto_update`. Checks GitHub Releases, downloads the right asset, stages an install,
-and applies it on the user's go-ahead. Pawse only calls `init` + wires the
-`CheckForUpdates` action; everything else (entity, polling, toast, install) lives here.
+Auto-update from GitHub Releases, modelled on Zed's `auto_update`, for macOS (dmg), Windows
+(NSIS installer) and Linux (AppImage): polls the latest release, downloads the asset for this
+OS and arch, stages it, applies it on the user's click or, on Windows, at quit. The
+`AutoUpdater` entity, polling, toasts and install live here; `pawse` only calls in.
+
+Not here: the Settings switch, the app-menu item and the header update button (`pawse`:
+`settings_view.rs`, `app_menu.rs`, `main_view/header.rs`, each gated on `is_supported()`);
+toast strings (`ui_resources/src/doc.md`, read at toast time — this crate's only use of it).
 
 ## Files
 
-- `lib.rs` — public API (`init`, `check_now`, `set_enabled`, `apply_and_restart`,
-  `handle` + `AutoUpdater::has_staged_update` for the header button, the
-  `CheckForUpdates` action) and the `AutoUpdater` GPUI entity. Holds a `Status`
-  state machine (`Idle/Checking/Downloading/Ready`), a poll loop (`POLL_INTERVAL`,
-  6h), and pushes a persistent "ready to install" toast via `gpui_component`
-  (`autohide(false)`; clicking it only dismisses — the no-op `on_click` exists so a
-  body click closes it, since the player often sits in the background and a timed
-  toast would be missed). The toast only notifies — applying is triggered separately
-  by pawse's header update button (`has_staged_update` gates it; click calls
-  `apply_and_restart`). State changes call `cx.notify()` so observers (the header)
-  re-render. Blocking
-  network/disk work is offloaded to `cx.background_executor()`; `app_path()` is read
-  on the main thread and passed into the installer.
-- `version.rs` — semver parse (strips a leading `v`) + `is_newer`. Unit-tested.
-- `github.rs` — `GET /repos/popovpsk/pawse/releases/latest` (blocking `ureq`,
-  rustls). Parses `tag_name` + picks the per-OS asset, carrying the asset's `digest`
-  (`sha256:…`) through to the downloader. The per-OS rules are split into
-  `macos_asset` / `windows_asset` / `linux_asset`, which take the arch as an argument
-  and are compiled under `cfg(any(<os>, test))` so every platform's rule is exercised
-  by `cargo test` on any host — the Windows rule in particular must not go untested,
-  see the asset naming contract below.
-- `install/` — platform install backends (see `install/doc.md`).
-- `disabled/` — API-compatible no-op `github` / `install` modules used when the
-  `self-update` feature is off (see `disabled/doc.md`).
+- `lib.rs` — public API (`init`, `check_now`, `set_enabled`, `apply_and_restart`, `handle`,
+  `is_supported`, the `CheckForUpdates` action), `AutoUpdater` with its `Status` and poll
+  loop (`POLL_INTERVAL`, 6 h), the toasts.
+- `github.rs` — `fetch_latest`: `releases/latest`, per-OS asset choice, the asset's `digest`.
+- `version.rs` — tag parsing (leading `v` stripped), `is_newer` (strictly greater).
+- `install/` — per-platform download and apply (`install/doc.md`).
+- `disabled/` — stand-ins when `self-update` is off (`disabled/doc.md`).
 
-## Non-obvious behavior / contract
+## Behavior
 
-- **No signing, but digest-checked.** Trust = our GitHub release over HTTPS. There
-  is no code-signature verification, but `install::download_file` stream-hashes the
-  download (SHA-256) and compares it against the release asset's `digest` from the
-  GitHub API: a mismatch is a hard failure and the partial file is removed. The check
-  is enforced only when the API reports a `sha256:` digest (older assets predate the
-  field); a missing or non-`sha256:` digest logs a warning and proceeds (fail-open by
-  design — the digest is defense-in-depth over HTTPS, so an unrecognized future format
-  must not brick the update channel, only fall back to the HTTPS-only posture). This is
-  not a substitute for signing; it only closes "bytes altered in transit / on the CDN".
-- **Apply contract.** macOS rsyncs the new bundle during download, so the bundle on
-  disk is already updated and apply is just a relaunch: `install::relaunch` spawns a
-  waiter that `open`s the bundle once LaunchServices has let go of us, then
-  `cx.quit()` (not `cx.restart()` — see `install/doc.md` for why). Windows downloads the
-  installer and runs it **once, in the `on_app_quit` handler** — never from
-  `apply_and_restart` directly (which only sets `apply_on_quit` then quits), so there
-  is no double-launch. The quit handler runs the installer only when the user
-  explicitly applied (clicked the header update button) **or** auto-update is enabled;
-  a manual check with auto-update off therefore never silently installs on a normal
-  quit.
-- **Current version must equal the release tag.** The version compared is the one
-  pawse passes to `init` (`env!("CARGO_PKG_VERSION")`). The release workflow must
-  stamp the crate version to match the tag, or every check sees a newer build.
-- **Only published releases are seen.** GitHub's `/releases/latest` ignores drafts
-  and prereleases, so a drafted release is invisible until published.
-- **Release asset naming contract — exactly one asset may end with `-setup.exe`, and
-  it must be the x64 installer.** GitHub returns release assets sorted by name (not by
-  upload order — verified on v0.5.6/0.5.7/0.5.8, where the ids are unordered but the
-  names are alphabetical), and `select_asset` takes the *first* match. Versions
-  shipped up to 0.5.8 match the Windows asset with a bare
-  `name.ends_with("-setup.exe")`. Adding a second `-setup.exe` therefore makes every
-  copy already in the field pick whichever sorts first: `arm64` sorts before `x64`, so
-  x64 users would silently download the arm64 installer, run it unattended from the
-  quit handler (`/S`), and end up with a binary their CPU cannot execute. The digest
-  check does not help — the wrong asset is a genuine asset. That is why the arm64
-  installer is renamed to `_arm64-installer.exe` in the release workflow's collect
-  step, and why `release.yml` fails the publish if a second `-setup.exe` (or a second
-  `.dmg`, which `macos_asset` matches by suffix alone) ever appears. Fixing the
-  matcher here only protects future versions; the copies already installed cannot be
-  fixed, so the naming is the real guarantee and must not be "tidied up" later.
-- **Windows portable builds are a separate compilation, not a runtime flag.** The
-  portable zip is built with `cargo build --release -p pawse --no-default-features`
-  in its own `portable` job of `release.yml`, parallel to the installer `bundle` job
-  (sequentially on one runner it re-ran the `pawse` compile + thin LTO and added
-  ~6 min to the slowest job of every release). Both jobs share one rust-cache key per
-  target: dependencies are identical apart from the updater's optional ones. The flag
-  drops pawse's `self-update` feature and with it `updater/self-update`:
-  `github.rs` and `install/` are swapped for the stubs in `src/disabled/`, and
-  `is_supported()` becomes a compile-time `false`. The public API is identical either
-  way, so `crates/pawse` carries no `#[cfg]` of its own. Inside this crate the feature
-  appears in exactly three places — the `mod github` / `mod install` declarations at
-  the top of `lib.rs`, the outer split in `is_supported()`, and the gate on
-  `managed_by_am` — so a change to one has to be checked against the other two.
-  The earlier design used a `portable.txt` marker next to the exe and was dropped for
-  being fail-open: deleting the file, or copying just `pawse.exe` out of the zip,
-  turned updating back on, and running the NSIS installer from an unpacked folder
-  installs a *second* copy into `%LOCALAPPDATA%` while the portable one keeps running
-  the old build and finds the same update again on every launch. Code that is not
-  compiled in cannot be switched back on from outside. The flip side is that Windows
-  no longer has any file-based opt-out at all: an installed copy always reports
-  supported, and the settings toggle is the only lever left for someone who wants a
-  package manager to own updating. That is deliberate — a marker a user can create is
-  also a marker a user can delete.
-- **The portable invariant is asserted, not assumed.** `release.yml` scans the built
-  binary for the `pawse-updater` user agent — it must be present in the installer
-  build and absent from the portable one — so a wrong feature flag fails the run
-  instead of shipping. The scan is `LC_ALL=C tr -c '[:print:]' '\n' | grep -c`, and
-  deliberately neither `findstr` nor a plain `grep -a` on the file: both read an
-  executable as lines. `findstr` gives up with exit code 2 on the long lines inside a
-  binary, and a guard that only asks "found or not found" reads that error as a pass.
-  `grep -a` is worse in practice — on 2026-09-15 it reported no match in the macOS
-  release binary on the runner while the identical grep finds the identical string in
-  the identical build locally, and the cause was never pinned down. Splitting on every
-  non-printable byte first removes the question, and both steps print the occurrence
-  count plus the resolved `updater` feature line, so a future failure says whether the
-  scan found zero or the feature was never enabled. `ci.yml` compiles the portable
-  configuration on every push to `main` and every pull request — clippy on ubuntu plus
-  `cargo check` on both Windows runners. The Windows leg is not redundant: the real
-  `install::Staged` carries an `installer` field only under `cfg(windows)`, so Windows
-  is where the stubs can drift structurally. Linux's `managed_by_am` stays a runtime
-  check — there the external owner only appears after the build.
-- **Toasts are localized.** Runtime update notices (`up_to_date`, `update_ready_t`,
-  `update_check_failed_t`) are read from `ui_resources::i18n::strings()` at toast
-  time, so they follow the active language (including a live language switch). This
-  is the one place the crate depends on `ui_resources`.
-- **Linux updates only the AppImage.** `is_supported()` is true there only when
-  `$APPIMAGE` is set *and* no `AM-updater` sits next to it, so a copy installed from
-  `.deb`, from the pacman/AUR package, or running inside Flatpak reports unsupported
-  and the whole update UI disappears — those are updated by whatever installed them.
-  This falls out of the `$APPIMAGE` check and needs no per-packaging-format code;
-  anything that changes the Linux branch must keep that property.
+- `check_now` works with auto-update off and, unlike automatic polls, toasts "up to date" and
+  errors. Once `Ready`, polls do nothing; a manual check re-shows the toast.
+- The "ready" toast is persistent with a no-op `on_click` so a click dismisses it: the player
+  often sits in the background and a timed toast would be missed. It only notifies; applying
+  is the header button, shown by `has_staged_update`.
+- Apply: macOS replaced the bundle during the download, so apply is `install::relaunch` then
+  `cx.quit()`. Linux likewise replaced the AppImage: apply sets the restart path to
+  `$APPIMAGE` and calls `cx.restart()`. Windows: `apply_and_restart` only sets `apply_on_quit`
+  and quits; the installer runs once, in the quit handler (`Staged::finalize_on_quit`), never
+  anywhere else, so it cannot launch twice. That handler runs it only if the user applied or
+  auto-update is on, so a manual check with auto-update off never installs silently, and it
+  relaunches the app only after an explicit apply.
+- `is_supported`: macOS and Windows installer builds always, the portable build never
+  (compile-time). Linux only when `$APPIMAGE` is set and no `AM-updater` file sits next to it
+  (`managed_by_am`), so `.deb`, pacman/AUR and Flatpak copies show no update UI and are left
+  to what installed them. That falls out of the `$APPIMAGE` check and needs no per-package
+  code; keep it so.
+
+## Release contract
+
+What the code and `release.yml` both rely on.
+
+- The current version is what `pawse` passes to `init` (`CARGO_PKG_VERSION`); the workflow
+  stamps the crate version to the tag (`scripts/stamp_version.py`), otherwise every check
+  sees a newer build. `/releases/latest` ignores drafts and prereleases.
+- The asset rules are per-OS functions taking the arch, compiled under `cfg(any(<os>, test))`
+  so `cargo test` covers every platform's rule on any host. macOS matches the `.dmg` suffix
+  alone; Windows `_x64-setup.exe` (x86_64) or `_arm64-installer.exe` (aarch64); Linux
+  `.AppImage` containing the arch.
+- Exactly one asset may end with `-setup.exe`, the x64 installer, and at most one `.dmg`.
+  Clients up to 0.5.8 match Windows by a bare `ends_with("-setup.exe")` and take the first
+  hit of GitHub's asset list, which is sorted by name; `arm64` sorts before `x64`, so a second
+  `-setup.exe` would make x64 users silently run the arm64 installer. The digest cannot catch
+  it: the wrong asset is genuine. Hence the arm64 installer is renamed `_arm64-installer.exe`
+  in the workflow's collect step, and the release job fails on a second `-setup.exe` or
+  `.dmg`. Installed copies cannot be fixed, so the naming is the guarantee: do not tidy it.
+- Trust is our release over HTTPS plus a SHA-256 check against the asset's `digest`
+  (`install/doc.md`); no code-signature verification.
+
+## Build variants
+
+- The Windows portable zip is built with `--no-default-features` in its own `portable` job.
+  `pawse`'s `self-update` feature forwards to `updater/self-update`; off, `disabled/` replaces
+  `github.rs` and `install/`, `is_supported()` is a compile-time `false`, and the optional
+  network, hashing and file dependencies are not linked. `crates/pawse` has no `#[cfg]` for it.
+- In this crate the feature appears in three places: the `mod github` / `mod install`
+  declarations in `lib.rs`, the outer split in `is_supported()`, the gate on `managed_by_am`.
+  Check all three when changing one.
+- `release.yml` scans every built binary for the `pawse-updater` user agent: required in
+  installer builds, forbidden in the portable one. Keep that string in the crate. The scan is
+  `LC_ALL=C tr -c '[:print:]' '\n' | grep -c`, not `findstr` (exits 2 on the long lines of a
+  binary, which a found-or-not guard reads as a pass) and not `grep -a` (once missed a string
+  the build contained). `ci.yml` also compiles the portable configuration (`disabled/doc.md`).
+
+## Decisions
+
+Owner's calls; ask before changing.
+
+- Portable is a separate compilation, not a runtime flag or marker file. A `portable.txt`
+  next to the exe was dropped as fail-open: deleting it, or copying just `pawse.exe` out of
+  the zip, re-enabled updating, and running the NSIS installer from an unpacked folder installs
+  a second copy into `%LOCALAPPDATA%` while the portable one keeps finding the same update.
+  Code that is not compiled in cannot be switched on from outside.
+- Windows has no file-based opt-out: an installed copy always reports supported and the
+  Settings switch is the only lever. A marker a user can create is one a user can delete.
+- The digest check is fail-open (a missing or non-`sha256:` digest warns and proceeds): it is
+  defense-in-depth over HTTPS, and an unrecognized future format must not brick the channel.

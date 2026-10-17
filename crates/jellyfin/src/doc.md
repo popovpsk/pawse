@@ -1,76 +1,76 @@
 # jellyfin
 
-A blocking client for the Jellyfin API. Like `subsonic`, it knows nothing about
-the library database; `pawse::remote_sync` turns its `Item`s into
-`music_library::RemoteSong`s. Blocking `ureq` on the caller's thread.
+A blocking client for the Jellyfin API. It knows nothing about the library database.
+
+Not here: `Item` → `RemoteSong`, `Error` → `RemoteError` and the lyrics conversion
+(`pawse/src/servers/doc.md`); agent, status classification, ranges, lenient JSON and `redact`
+(`server_http/src/doc.md`).
 
 ## Files
 
-- `lib.rs` — `authenticate`, `Client`, `Config`, `Item`, `Error`. Ranges,
-  status classification, lenient JSON and `redact` come from `server_http`.
-- `tests.rs` — a `TcpListener` stub server; no new dependencies.
+- `lib.rs` — `authenticate`, `Client`, `Config`, `Item`, `Playlist`, `Lyrics` (+ `LyricsLine`,
+  `LyricsCue`), `Error`.
+- `tests.rs` — a `TcpListener` stub server.
 
-## Behaviour worth knowing
+## Auth and errors
 
-- **Auth.** `authenticate` posts the username and password to
-  `/Users/AuthenticateByName` once and returns a `Config` with the access token
-  and user id; the password is never kept. Every request carries
-  `Authorization: MediaBrowser Client=…, Device=…, DeviceId=…, Version=…, Token=…`
-  — the token lives in a header, never in a URL. Jellyfin ties tokens to the
-  device id and may revoke a device's older tokens on a new login, so `pawse`
-  mints a fresh device id per added server (`jellyfin_settings::new_device_id`).
-  The session shows up in the Jellyfin dashboard as a "Pawse" device.
-- **Errors.** Same split as `subsonic`: `Auth` (HTTP 401/403 — a wrong password
-  or a revoked token), `Transient` (transport failures and HTTP 5xx), `Server`
-  (everything else, including "this is not a Jellyfin server").
-- **Ping** checks `/System/Info/Public` (is this Jellyfin at all?) and then
-  `/Users/Me` (is the token still valid?).
-- **Listing all songs.** `/Items?userId=…&IncludeItemTypes=Audio&Recursive=true`
-  in pages of 500 until `TotalRecordCount` or an empty page. A page that adds no
-  new ids means the server ignores `StartIndex`, which is an error. Paging sorts
-  by name, which can tie, so a paged listing that ends up with fewer unique ids
-  than the reported total is redone as one unpaged request rather than applied
-  short. Any failure fails the whole listing — the caller must never apply a
-  partial enumeration, or every song past the failure would be retired. An item
-  without an id is skipped.
-- **Favorites** are the same listing with `Filters=IsFavorite` — only the
-  favorites come back, so the import never walks the whole library. The main
-  listing does not ask for user data.
-- **Playlists.** `playlists` lists `IncludeItemTypes=Playlist` for the user —
-  their own, those shared with them, open-access ones, and `.m3u`/`.pls`/… files
-  found in music libraries (open access, no owner). The listing carries no owner,
-  so `owns_playlist` asks `/Playlists/{id}/Users`: 10.9+ answers it only for the
-  owner (403 otherwise); a 404 means a server without the route, where playlists
-  were never shared, so it counts as owned. `playlist_song_ids` reads
-  `/Playlists/{id}/Items` and keeps the `Id` of `Audio` entries in order, repeats
-  included (a playlist can mix in videos and episodes); a 404 or 403 is
-  `NotFound`, so one playlist the server will not show skips that playlist
-  instead of reading as a failed login.
-- **Lenient fields.** Numbers may come as floats or strings, lists and objects as
-  something else; an odd field becomes `None`/empty instead of failing the page.
-- **Covers.** `Item::cover_key` is the album id when the album has a primary
-  image, otherwise the item's own id — so an album's tracks share one download.
-  Fetched from `/Items/{id}/Images/Primary` with `maxWidth`/`maxHeight` set to the
-  caller's `max_size` (the sync asks for its largest thumbnail, 320), so the server
-  scales the picture instead of sending the original; capped at 32 MB.
-- **Audio.** `fetch_range` reads `/Audio/{id}/stream?static=true`: the original
-  file, never a transcode, and unlike `/Items/{id}/Download` it does not need the
-  download permission. A byte range is asked for and `Content-Range` gives where
-  the body starts and the file's total size; a `200` reply means the server
-  ignored the range (`ranged: false`). Range requests use a 15 s response and
-  30 s body timeout, as in `subsonic`.
-- **No secrets in errors.** `server_http::redact` strips query strings from
-  transport error texts anyway.
-- **Setting a favorite.** `set_favorite` posts (or deletes)
-  `/UserFavoriteItems/{id}?userId=…`, the 10.9+ route. A 404/405 there means an
-  older server, which gets `/Users/{userId}/FavoriteItems/{id}` instead; a 404 on
-  both is `NotFound` (the item is gone), any other refusal a `Server` error
-  carrying its own status. Called by `pawse::server_scrobble` when a like is
-  sent back.
-- **Lyrics.** `lyrics` reads `/Audio/{id}/Lyrics` (10.9+). A 404 — no lyrics,
-  or a server older than that route — is `Ok(None)`. `Start` is in ticks
-  (100 ns); `LyricsLine::start_ms` converts. `Cues` (word timing, from Enhanced
-  LRC) carry `Position`/`EndPosition` as UTF-16 indexes into `Text` (C# string
-  indexes), `Start`/`End` in ticks; the app converts the indexes to byte ranges.
-- **Not done:** reporting plays back to the server, picking individual music
-  libraries, Quick Connect, logging the session out when a server is removed.
+- `authenticate` posts the password to `/Users/AuthenticateByName` once and returns a `Config`
+  with the access token and user id; the password is never kept. Every request carries the
+  token in the `Authorization: MediaBrowser …` header, never in a URL.
+- Jellyfin ties tokens to the device id and may revoke a device's older tokens on a new login,
+  so the caller passes a fresh `device_id` for every added server
+  (`pawse/src/jellyfin_settings.rs`).
+- `Error`: `Auth` (HTTP 401/403: wrong password or revoked token), `Transient` (transport,
+  5xx), `NotFound` (a playlist or item the server will not show), `Server` (the rest, including
+  a non-JSON reply = "not a Jellyfin server"). The UI tells "wrong password" from "server is
+  down".
+- `ping` checks `/System/Info/Public` (is this Jellyfin at all?), then `/Users/Me` (is the token
+  still valid?).
+
+## Listing
+
+- `songs`: `/Items` with `IncludeItemTypes=Audio`, paged by `StartIndex` until
+  `TotalRecordCount` or an empty page. A page that adds no new ids means the server ignores
+  `StartIndex`: an error.
+- Paging sorts by name, which can tie across pages, so a paged listing that ends with fewer
+  unique ids than the reported total is redone as one unpaged request instead of applied short.
+- Any failure fails the whole listing: a partial enumeration applied by the caller would retire
+  every song past the failure. An item without an id is skipped and logged.
+- `favorites` is the same listing with `Filters=IsFavorite`, so the import never walks the whole
+  library; the main listing does not ask for user data.
+
+## Playlists and favorites
+
+- `playlists` lists the user's own, shared and open-access playlists, plus `.m3u` / `.pls` files
+  found in music libraries (open access, no owner).
+- The listing carries no owner, so `owns_playlist` asks `/Playlists/{id}/Users`: 10.9+ answers
+  only the owner (403 otherwise); a 404 is a server without the route, where playlists were
+  never shared, so it counts as owned.
+- `playlist_song_ids` keeps the `Id` of `Audio` entries in order, repeats included (a playlist
+  can mix in videos and episodes). A 404 or 403 is `NotFound`, so one playlist the server will
+  not show skips that playlist instead of reading as a failed login.
+- `set_favorite` uses `/UserFavoriteItems/{id}` (10.9+); a 404/405 means an older server, which
+  gets `/Users/{userId}/FavoriteItems/{id}`. A 404 on both is `NotFound`, any other refusal a
+  `Server` error carrying its status.
+
+## Lyrics
+
+- `lyrics` reads `/Audio/{id}/Lyrics` (10.9+); a 404 (no lyrics, or an older server) is
+  `Ok(None)`.
+- `Start` / `End` are ticks (100 ns). Cue `Position` / `EndPosition` are UTF-16 indexes into
+  `Text` (C# string indexes); the crate hands them out raw and the adapter converts them to byte
+  ranges.
+
+## Covers and audio
+
+- `Item::cover_key` is the album id when the album has a primary image, else the item's own id,
+  so an album's tracks share one download. `cover_art` sends `maxWidth` / `maxHeight` =
+  `max_size` so the server scales; capped at 32 MB.
+- `fetch_range` reads `/Audio/{id}/stream?static=true`: the original file, never a transcode,
+  and unlike `/Items/{id}/Download` it needs no download permission. A `200` means the range was
+  ignored (`ranged: false`). Timeouts are `server_http::with_range`'s.
+
+## Not implemented
+
+Reporting plays back to the server, picking individual music libraries, Quick Connect, logging
+the session out when a server is removed.

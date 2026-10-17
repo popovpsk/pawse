@@ -1,38 +1,36 @@
-# disabled
+# updater::disabled
 
-Stand-ins for `github.rs` and `install/` that are compiled in place of them when the
-`self-update` feature is off. They exist so that nothing else in the crate — and
-nothing at all in `crates/pawse` — needs a `#[cfg]` to build a binary with no updater
-in it. See the parent `../doc.md` for why the portable build is a separate
-compilation rather than a runtime flag.
+Stand-ins for `github.rs` and `install/`, compiled in their place (`#[path]` in `lib.rs`)
+when `self-update` is off (the Windows portable build), so that neither the crate nor
+`crates/pawse` needs a `#[cfg]` for a binary without an updater. Why the portable build is a
+separate compilation: `../doc.md`, "Decisions".
 
 ## Files
 
-- `github.rs` — `Found` + `fetch_latest()`. Returns an error; never called, because
-  `is_supported()` is a compile-time `false` in this configuration and `init()` bails
-  on it before any entity exists.
-- `install.rs` — `Staged` + `download_and_stage()` + `finalize_on_quit()`,
-  `appimage_path()` under `cfg(target_os = "linux")`, and `relaunch()` under
-  `cfg(target_os = "macos")`.
+- `github.rs` — `Found`, `fetch_latest()` returning an error. Never reached: `is_supported()`
+  is a compile-time `false` here and `init()` returns first.
+- `install.rs` — `Staged`, `download_and_stage()` (error), `finalize_on_quit()` (no-op),
+  `appimage_path()` on Linux only, `relaunch()` on macOS only.
 
-## Non-obvious behavior / contract
+## Rules
 
-- **These files are a hand-maintained mirror.** Every item here must keep the exact
-  name, signature and `cfg` of its counterpart in `../github.rs` / `../install/mod.rs`
-  — including `appimage_path()` being Linux-only and `relaunch()` macOS-only, since
-  `apply_and_restart()` calls them from per-OS `cfg` blocks that are *not*
-  feature-gated. Nothing type-checks the two trees against each other; drift shows up
-  only when the portable configuration is compiled, which `ci.yml` does on ubuntu
-  (clippy) and on both Windows runners (`cargo check`) for every push to `main` and
-  every pull request. No CI job builds it on macOS, so a change to `relaunch()` needs
-  a local `cargo check -p updater --no-default-features` there.
-- **Why a parallel tree instead of `#[cfg]` on the real bodies.** Putting
-  `#[cfg(not(feature = "self-update"))]` inside `install/mod.rs` would interleave
-  feature gates with the per-OS gates that file is already built out of, and would
-  spread the switch across four files instead of one directory. The cost is the
-  duplicated signatures documented above; the benefit is that the whole difference
-  between the two builds is readable in one place.
-- **They must carry no network or filesystem dependency.** The point of the feature is
-  that `ureq`, `sha2`, `serde`, `serde_json`, `tempfile` and `dirs` are not linked at
-  all — they are optional deps enabled only by `self-update`. Reaching for any of them
-  here would silently put them back into the portable binary.
+- A hand-maintained mirror: every item keeps the name, signature and `cfg` of its counterpart
+  in `../github.rs` and `../install/mod.rs`, including `appimage_path()` Linux-only and
+  `relaunch()` macOS-only, because `apply_and_restart()` calls them from per-OS blocks that
+  are not feature-gated. Nothing type-checks the two trees against each other.
+- Drift shows only when the portable configuration is compiled. CI does that on every push to
+  `main` and pull request: clippy on Ubuntu, `cargo check` on both Windows runners (the
+  Windows leg matters because the real `Staged` has its `installer` field only there). No CI
+  job builds it on macOS: after touching `relaunch()` run
+  `cargo check -p updater --no-default-features` on a Mac.
+- No network or filesystem dependencies here: `ureq`, `sha2`, `serde`, `serde_json`,
+  `tempfile` and `dirs` are optional and enabled only by `self-update`; using one would put
+  it back into the portable binary.
+
+## Decisions
+
+Owner's calls; ask before changing.
+
+- A parallel tree, not `#[cfg(not(feature = "self-update"))]` inside `install/mod.rs` — feature
+  gates would interleave with that file's per-OS gates and spread the switch over four files
+  instead of one directory. The cost is the duplicated signatures above.

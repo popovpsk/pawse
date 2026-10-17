@@ -1,57 +1,64 @@
 # server_http
 
-The HTTP pieces every media-server client needs, so `subsonic`, `jellyfin` (and
-a future DLNA client) do not each carry a copy. Blocking `ureq`, no knowledge of
-any server protocol and no dependency on `media_stream` or the library.
+The HTTP pieces the media-server clients (`subsonic`, `jellyfin`, `dlna`) share: the
+`ureq` agent, status classification, byte-range requests and replies, a TLS fallback and
+serde helpers for sloppy server JSON. Blocking; knows no server protocol, and nothing of
+`media_stream` or the library.
+
+Not here: each client's protocol and error type (`subsonic/src/doc.md`,
+`jellyfin/src/doc.md`, `dlna/src/doc.md`); the range reader built on these requests
+(`media_stream/src/doc.md`).
 
 ## Files
 
-- `lib.rs` — the shared agent, status classification, byte-range requests and
-  replies (`range_header`, `with_range`, `range_body`, `RangeBody`),
-  `parse_content_range`, `redact`, `read_capped`, `is_json`.
-- `transport.rs` — `Transport`: the pair of agents (bundled roots, system trust
-  store) a client calls through, and the retry between them.
-- `lenient.rs` — serde helpers that turn odd JSON (numbers as strings or floats,
-  a list that is not a list, an object that is not an object) into `None`/empty
-  instead of failing the whole record. `id` is the one strict helper: a record
-  without an id is an error, so the caller can skip it.
+- `lib.rs` — `agent()` and its timeouts, `classify` / `Status`, `range_header`,
+  `with_range`, `range_body` / `RangeBody`, `parse_content_range`, `read_capped`,
+  `is_json`, `redact`.
+- `transport.rs` — `Transport`: the pair of agents (bundled roots, OS trust store) a client
+  calls through, and the retry between them.
+- `lenient.rs` — serde helpers: an odd value becomes `None` / empty / default instead of
+  failing the record. `number` takes ints, floats (rounded) and numeric strings; a value
+  that does not fit the target type is `None`. `id` is the one strict helper: a missing or
+  empty id is an error, so the caller can skip that record.
 - `tests.rs`.
 
-## Behaviour worth knowing
+## Rules
 
-- **`classify`** is the one place that decides what an HTTP status means:
-  401/403 is `Auth`, 5xx is `Transient`, other non-2xx is `Failed`. Clients map
-  these onto their own error types; the split between "wrong password" and
-  "server is down" is what the UI shows.
-- **Ranges.** `with_range` gives a range request a 15 s response timeout and,
-  for a bounded range, a 30 s body timeout, so a stalled connection becomes a
-  retry quickly. `range_body` reads a `206` with its `Content-Range`; any other
-  success means the server ignored the range and sends the whole file
-  (`ranged: false`, total from `Content-Length`).
-- **Keep-alive.** The agents keep up to 8 idle connections per host
-  (`IDLE_PER_HOST`, ureq's default is 3): the sound analysis reads 4 server files
-  at a time in small ranges (`media_stream::RangeReader`, hundreds of requests per
-  track), and with 3 every fourth request opened a new connection (a TLS handshake
-  on an https server). ureq returns a connection to the pool only once a body has
-  been read to its end, so a reader that stops at the last byte it asked for must
-  still read once more and get 0.
-- **Certificates.** `agent()` trusts the bundled Mozilla roots. A user's own
-  server is often signed by a CA only the OS knows (a private CA, a TLS-inspecting
-  antivirus or proxy, a LAN DNS override), which fails as `UnknownIssuer`.
-  `Transport::call` runs the request on the bundled-roots agent first and, only
-  on `UnknownIssuer`, repeats it once on an agent that uses the OS verifier
-  (`RootCerts::PlatformVerifier`). The first attempt is therefore unchanged for
-  everyone it already worked for; on Linux the OS verifier has no bundled roots
-  of its own and fails when no CA bundle is installed, which is why it is the
-  fallback and not the default. The handshake fails before any request bytes are
-  sent, so the repeat cannot duplicate a scrobble or a star. After a fallback
-  success the `Transport` stays on the system agent (and logs that once). If
-  the fallback fails verification too, the error text carries both reasons,
-  `<first> (system store: <second>)`, and a warning is logged: a screenshot of
-  that text shows the system store was consulted, and why it refused (an
-  `UnknownIssuer` there, or "no CA certificates" on a Linux without a CA bundle).
-  Any other fallback error is returned as is. Verification is never turned
-  off. The closure given to `call` rebuilds the request on each attempt.
-  `dlna` keeps plain `agent()`: it speaks HTTP to the LAN.
-- **`redact`** strips query strings from error texts: some protocols (Subsonic)
-  carry credentials in the URL, and transport errors echo it.
+- `classify` is the one place that decides what a status means: 401/403 `Auth`, 5xx
+  `Transient`, other non-2xx `Failed`. Clients map these onto their own errors; the UI's
+  split between "wrong password" and "server is down" depends on it.
+- Agents are built with `http_status_as_error(false)`: a non-2xx reply is a `Response`, not
+  an `Err`, and the client must classify it.
+- `range_header(start, end)` takes an exclusive `end` and writes the inclusive HTTP form.
+- `with_range` sets a 15 s response timeout, and for a bounded range a 30 s body timeout, so
+  a stalled connection becomes a retry quickly. An open-ended range keeps the agent's body
+  timeout.
+- `range_body`: a `206` needs a parseable `Content-Range` (else an error); any other reply
+  means the server ignored the range and sends the whole file (`ranged: false`, `offset` 0,
+  total from `Content-Length`). The caller classifies the status first.
+- Agents keep up to 8 idle connections per host (`IDLE_PER_HOST`; ureq's default is 3): the
+  sound analysis reads 4 server files at once in small ranges, and with 3 every fourth
+  request opened a new connection. The reader's half of keep-alive (a body must be read to
+  its end to return the connection to the pool) is in `media_stream/src/doc.md`.
+- `redact` strips query strings from error texts: Subsonic carries credentials in the URL
+  and transport errors echo it. `subsonic` and `jellyfin` pass their transport errors
+  through it.
+- `read_capped` truncates silently at the cap; the caller decides what a short body means.
+
+## Certificates
+
+- `Transport::call` runs the request on the bundled-roots agent and, only on a rustls
+  `UnknownIssuer` (a private CA, a TLS-inspecting antivirus or proxy), repeats it once on an
+  agent that uses the OS verifier (`RootCerts::PlatformVerifier`). The OS verifier is the
+  fallback, not the default: on Linux it has no roots of its own and fails when no CA bundle
+  is installed.
+- The repeat is safe because the handshake fails before any request bytes are sent: it
+  cannot duplicate a scrobble or a star. The closure given to `call` rebuilds the request on
+  each attempt.
+- After a fallback success the `Transport` stays on the system agent (logged once).
+- If the fallback fails verification too, the error carries both reasons,
+  `<first> (system store: <second>)`, and a warning is logged. Any other fallback error is
+  returned as is; a first error other than `UnknownIssuer` is not retried.
+- Verification is never turned off.
+- `subsonic` and `jellyfin` call through a `Transport`; `dlna` uses plain `agent()` and
+  speaks HTTP to the LAN.

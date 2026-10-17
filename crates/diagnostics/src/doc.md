@@ -1,60 +1,57 @@
 # diagnostics
 
-The single error/diagnostics sink for the app. GPUI-free on purpose, so any crate
-(including the `#![forbid(unsafe_code)]` library crates) can route diagnostics here
-through the `log` facade without pulling in the UI framework.
+The single log sink of the app, behind the `log` facade: a rolling `pawse.log`, user-facing
+notices, and panics captured into the same file. GPUI-free on purpose, so any crate
+(including the `forbid(unsafe_code)` libraries) can log through `log` without pulling in the
+UI framework.
 
-## Responsibilities
-
-- Back the `log` facade: install a `log::Log` implementation that writes a rolling
-  log file on the client machine, so a user hitting a bug leaves an artifact.
-- Surface a subset of diagnostics to the user as notification toasts, via an
-  out-of-band channel the app drains and renders.
-- Capture panics (even the deliberately-kept fail-fast ones) into the same log file.
+Not here: showing a `Notice` as a toast and the other background-error path
+(`pawse/src/error_bridge.rs`, `pawse/src/doc.md`); what gets logged is up to each caller.
 
 ## Files
 
-- `lib.rs` — everything:
-  - `init(Config) -> Receiver<Notice>`: opens the log file, spawns the writer thread,
-    installs the logger + `log::set_max_level`, installs the panic hook, and returns
-    the receiver the app forwards into GPUI notifications.
-  - `notify_error` / `notify_warning`: log **and** push a user-facing `Notice`.
-  - `flush()`: bounded drain of the writer channel — the app calls it on `on_app_quit`
-    so shutdown-path log lines (e.g. CoreAudio teardown warnings) reach disk before
-    exit. Each pulled line is already flushed individually; this only closes the
-    in-flight-at-exit gap. Panics don't need it (`write_sync` is synchronous).
-  - `FileLogger` (`log::Log`): formats `{rfc3339} {LEVEL} {target}: {msg}` and sends
-    the line down a channel — no file lock on the caller, so the audio callback's
-    rare error path never blocks. `level_for` resolves the per-target override
-    before the global `Config.level`.
-  - writer thread (`spawn_writer` / `write_line`): owns the `BufWriter<File>`, flushes
-    every line, and does size-based rotation to `pawse.log.1`.
-  - panic hook (`install_panic_hook` / `format_panic` / `write_sync`): writes the
-    panic record **synchronously** (not via the async channel) so the artifact lands
-    on disk before the process dies, then chains the previous hook.
+- `lib.rs` — everything: config, `init` / `flush`, `notify_*`, `FileLogger`, the writer
+  thread, the panic hook.
 
-## Non-obvious behavior
+## Logging
 
-- The dedicated writer thread is a deliberate carve-out from the "use GPUI's
-  background pool" rule (this crate must not depend on GPUI). It mirrors the audio /
-  indexer thread carve-outs documented in `AGENTS.md`.
-- `Config.log_dir` is supplied by the caller (the app passes
-  `dirs::data_dir()/pawse/logs`) — the crate stays free of path conventions.
-- `also_stderr` defaults to `cfg!(debug_assertions)`: dev keeps a console echo,
-  release writes file-only.
-- `Config.target_levels` caps individual `log` targets below the global level, with
-  the longest matching `::`-boundary prefix winning. It defaults to `NOISY_TARGETS`,
-  currently just `gpui::window::a11y` at `Warn`: since the gpui 0.6 bump that module
-  logs at `Info` on every focus change to an element that has an `.id()` but no
-  `.role()`, and pawse sets no roles, so on Windows (where a11y actually activates)
-  it was ~77% of the log and pushed real records out through the 5 MB rotation.
-  Dropping it here rather than disabling a11y keeps `Application::new_inaccessible`
-  off the table and leaves gpui-component's own roles working.
-- `log::set_max_level` takes the *most permissive* of the global level and every
-  target override, otherwise an override above the global level would be filtered
-  out by the facade before `enabled` ever runs.
-- `log::set_boxed_logger` can only succeed once per process; `init` is a no-op for the
-  logger on a second call (tests exercise `write_line` directly rather than `init`).
-- The writer thread is never joined (the logger is intentionally `'static`/leaked);
-  `flush()` polls the send channel's queue instead of joining, so it stays decoupled
-  from the leaked logger.
+- `init(Config) -> Receiver<Notice>` opens the log, spawns the writer thread, installs the
+  logger and the panic hook, and returns the receiver the app forwards into notifications.
+  Call it once at startup: the statics are `OnceLock`s, so a second call installs no logger
+  and its receiver never gets a notice. Tests drive `write_line` directly instead of `init`.
+- `FileLogger::log` only formats the line and sends it down a channel, so the caller never
+  takes a file lock or does I/O: the audio callback's rare error path must not block.
+- The `pawse-diagnostics` writer thread owns the file and flushes every line. Rotation is
+  size-based: past `Config.max_bytes` the file becomes `pawse.log.1` (one generation).
+- The writer thread is a deliberate exception to "background work on GPUI's executor": this
+  crate cannot depend on GPUI. It is never joined (the logger is leaked); `flush()` polls
+  the channel until it is empty (bounded, about 200 ms) instead, and the app calls it on
+  quit so shutdown-path lines reach disk. Each line is already flushed on its own, so this
+  only closes the in-flight-at-exit gap.
+- `Config.log_dir` comes from the caller (the app passes `dirs::data_dir()/pawse/logs`): the
+  crate holds no path conventions. `also_stderr` defaults to `cfg!(debug_assertions)`:
+  console echo in dev, file only in release.
+
+## Levels
+
+- `Config.level` is the global level (Info by default). `Config.target_levels` caps single
+  targets; the longest prefix on a `::` boundary wins. The default is `NOISY_TARGETS`:
+  `gpui::window::a11y` at `Warn`, because gpui logs "focused element has no accessibility
+  node" at `Info` on every focus change and pawse sets no roles; it flooded the log on
+  Windows, where accessibility activates. Muted here rather than disabling accessibility
+  (`Application::new_inaccessible`), which would also drop gpui-component's own roles.
+- `log::set_max_level` is the most permissive of the global level and every override: an
+  override above the global level would otherwise be filtered out by the facade before
+  `enabled` runs.
+
+## Notices
+
+- `notify_error` / `notify_warning` log (`"{title}: {message}"`) **and** push a `Notice`
+  into an unbounded channel. Only these reach the user; a plain `log::error!` never does.
+  Title and message are the final user-facing text, so the caller localizes them.
+
+## Panics
+
+- The hook writes the record (location, payload, backtrace when captured) **synchronously**
+  to the log file and to stderr, bypassing the writer channel, so it lands before the process
+  dies; then it chains the previous hook.

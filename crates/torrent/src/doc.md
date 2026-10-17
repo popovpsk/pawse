@@ -1,144 +1,128 @@
 # torrent
 
-A BitTorrent source behind a small blocking interface. Nothing outside this
-crate sees `librqbit`, `tokio` or pieces: callers ask for a torrent's file list,
-for byte ranges of a file, or for a throwaway sparse copy of some ranges to read
-tags from. It knows nothing about audio, the library or the media cache.
+A BitTorrent source over `librqbit` behind a small blocking interface: a torrent's file list, byte
+ranges of one file, and throwaway sparse copies of some ranges for reading tags. Nothing outside
+the crate sees `librqbit`, `tokio` or pieces. It knows nothing about audio, the library or the
+media cache.
+
+Not here: turning a torrent into library tracks (index plan, `<hash>.view`, statuses, error
+mapping, the read timeout) — `pawse/src/servers/doc.md`; the cache a finished file lands in —
+`pawse/src/remote_media/doc.md`.
 
 ## Files
 
-- `lib.rs` — the public types: `Config`, `Upload`, `Network`, `Input`, `Meta`,
-  `FileEntry`, `Want`, `Swarm`, `Error`, `is_info_hash`.
-- `engine.rs` — `Engine`: its own tokio runtime, the lazily started `librqbit`
-  session, the loaded torrents (slots with lease counts), the janitor that
-  unloads idle torrents and stops an idle session.
-- `body.rs` — `Lease` (keeps a torrent loaded), `Probe` (a sparse tree that is
-  deleted when dropped, unless a read still holds the torrent), `Body` (`Read`
-  over a byte range, blocking on pieces).
-- `testing.rs` — `Seeder`: a real `librqbit` session seeding a folder on
-  loopback (no DHT, trackers or LSD), and an `Engine` wired to it. Public under
-  the `test-support` feature so `pawse` tests can index a real torrent.
+- `lib.rs` — public types (`Config`, `Upload`, `Network`, `Input`, `Meta`, `FileEntry`, `Want`,
+  `Swarm`, `Error`) and `is_info_hash`.
+- `engine.rs` — `Engine`: its own tokio runtime, the lazily started `librqbit` session, the loaded
+  torrents (slots with lease counts), the janitor (10 s tick).
+- `body.rs` — `Lease` (keeps a torrent loaded), `Probe`, `Body` (`Read` over a byte range).
+- `testing.rs` — `Seeder`: a real `librqbit` session seeding a folder on loopback, and an
+  `Engine` whose only peer it is. Public under `test-support` so `pawse` tests can index a real
+  torrent.
 - `tests.rs` — the engine against that seeder.
 
-## Behaviour worth knowing
+## Interface
 
-- **Blocking API, own runtime.** Every call blocks the caller on the engine's
-  runtime, so it must not be called from inside a tokio runtime.
-- **Patience follows the swarm, not the clock.** A piece is readable only once
-  it is complete and verified, and with 16 MiB pieces that can take minutes on
-  a slow swarm while bytes keep arriving. So `read` (opening, first byte) and
-  `Body::read` give up only after their quiet time — `read`'s timeout, 30 s for
-  `Body::read` — passes without the torrent receiving any byte from any peer
-  (`patient`, watching librqbit's `fetched_bytes`), and after 5 minutes in any
-  case. If no peer is connected at that moment the error is `NoPeers`, not
-  `Timeout`: `pawse` treats it as final instead of retrying, so a click on a
-  track while offline fails in one quiet time rather than after six retries.
-- **Helper streams.** librqbit's lookahead is 32 MB, not a number of pieces:
-  with 1 MiB pieces that keeps ~32 pieces (and as many peers) busy, with 16 MiB
-  pieces only 2. `read` therefore opens up to 3 extra streams parked 32 MB,
-  64 MB, … past its start (`helper_count`: enough for ~8 pieces in flight),
-  which only raise those pieces' priority and live as long as the `Body`.
-  They are opened only after the first byte arrived: librqbit interleaves
-  streams in random order, and on a thin swarm a helper's piece taken first
-  would delay the start of the track by a whole piece. A probe's
-  duration is a stall limit, not a deadline: it fails with `Timeout` only after
-  that long without a single new byte, so a slow swarm finishes and a dead one
-  gives up quickly. A probe also checks once a second that the `.torrent` file is
-  still there and fails with `Unknown` when `forget` removed it, so removing a
-  source ends its running sync at once instead of after the stall limit. The
-  file, not the loaded slot, is the signal: a probe fails with `Unknown` only
-  once the file is gone, so `is_stored` is already false, and it also catches a
-  `forget` that lands while the probe is still being acquired, before its slot
-  exists.
-- **One file descriptor per torrent file.** librqbit's filesystem storage opens
-  every file of a loaded torrent read/write (even with `only_files = []`) and
-  keeps it open for the torrent's life. An app started from Finder gets a soft
-  `RLIMIT_NOFILE` of 256, so a torrent of a few hundred files (artwork scans)
-  exhausted it and also broke a library scan running next to it. `pawse::main`
-  raises the soft limit to the hard one at startup, as the rqbit CLI does.
-- **Stream count is limited.** librqbit 9 gives every open file stream one
-  permit of its blocking-I/O semaphore for the stream's whole life, and writing
-  a received block to disk needs a permit from the same semaphore. With as many
-  open streams as permits (librqbit's default is 8) no block can be written and
-  every stream waits forever. So the session gets `BLOCKING_PERMITS` (64), a
-  probe opens at most `PROBE_STREAMS` (4) streams at a time, probe and helper
-  streams together stay under an engine-wide `SHARED_STREAMS` (24) — helpers
-  are skipped when it is exhausted — and `read` bounds opening its stream by
-  its timeout too.
-- **Idle peers wake up late.** A peer with nothing to fetch sleeps up to 5 s;
-  opening a stream or seeking does not wake it (librqbit only notifies when
-  pieces are released). A read that starts while the torrent is idle — a track
-  starting, a seek — can therefore wait a few seconds before its first byte.
-- **Lookahead.** Each stream asks for up to 32 MB ahead of its position
-  (hardcoded in librqbit), so a fast swarm delivers more than a probe asked
-  for: probing 11 FLAC heads of a real album fetched about 160 MB before the
-  probe was dropped. It is deleted with the probe. The lookahead stops at the
-  end of the stream's file, so only a file no probe asked for is guaranteed to
-  stay empty — the probe test checks that one. It used to check the middle of
-  the probed file, which the loopback seeder sometimes delivered in time under
-  a parallel test run.
-- **`swarm`** reports the peers of a loaded torrent: connected now, and known
-  (seen). librqbit keeps whether a peer has the whole torrent to itself, so
-  seeds cannot be counted; an unloaded torrent reports nothing.
-- **State vs work.** `state_dir` keeps `<info_hash>.torrent` (and `dht.json`):
-  a torrent is known once `resolve` stored it, and `meta` reads it back without
-  the network. `work_dir` holds piece data only, `<work>/<info_hash>/<path>`;
-  it is wiped when an `Engine` is created and owned by nobody else.
-- **Nothing is selected.** Torrents are added with `only_files = []`, so the
-  session never downloads a file on its own. Every byte comes from a stream
-  (`librqbit` gives a stream's pieces priority whether or not the file is
-  selected), which is how `probe` gets the head of a file without the rest.
-  Whole pieces are fetched (piece length is the torrent's, 256 KiB–16 MiB), and
-  a stream looks up to 32 MB ahead, so a probe of many files costs some extra
-  pieces in flight — it is dropped as soon as the wanted bytes are there.
-- **Leases.** `probe` and `read` hold a lease on the torrent; a torrent with no
-  lease is unloaded (session entry and its work data deleted) after
-  `idle_unload`, or at once when the last lease was a probe's. The work dir
-  limit (`work_limit_bytes`) is checked whenever a torrent's last lease is
-  released — back-to-back reads (a cache fill, playback with prefetch) leave a
-  torrent idle only for moments, which the janitor's 10 s tick would miss — and
-  by the janitor, which unloads idle torrents oldest first. Sizes are measured
-  on blocking threads and skip the indexer's `<hash>.view` hard links.
-  `unload` deletes a work root only when it unloaded a torrent (or `forget`
-  forces it), so a late unload never wipes a folder a new `acquire` is filling.
-- **Unloading is exclusive.** A hash being unloaded is in `unloading` until its
-  directory is gone; `acquire` waits for that instead of adding the torrent
-  again into a folder that is about to be deleted. A torrent whose start fails
-  is deleted again, so no session entry outlives a failed `acquire`.
-- **The session** starts on first use and stops when nothing is loaded, nothing
-  is in flight (`resolve`, `meta`, `acquire` count as busy) and nothing was
-  used for `idle_unload` — so no seeding happens while nothing plays or
-  downloads (the app's sound analysis downloads torrent tracks in the
-  background, which counts).
-- **Upload.** `WhileActive` uploads without a limit while a torrent is loaded,
-  `Limited` caps it (KiB/s, applied live). `Off` starts sessions with
-  uploading disabled. Turning it on or off while a session runs cannot change
-  that session: it is capped at 16 KiB/s (lower would stop librqbit's upload
-  scheduler, whose chunks are 16 KiB) and restarted as soon as it is idle.
-- **Sparse files, not full-length ones.** A probe's tree has zeros where nothing
-  arrived, but a file is only as long as the furthest piece written to it —
-  librqbit does not preallocate. Anything that needs the real length (tag
-  readers computing a bitrate) must use `FileEntry::len`, not the file on disk.
-  librqbit marks its files sparse on every platform, NTFS included.
-- **Info hashes** are 40 lowercase hex digits; anything else is `Unknown`, so a
-  hash never becomes a path outside `state_dir`/`work_dir`.
-- **Network.** `Public` runs DHT (its routing table in `state_dir/dht.json`),
-  trackers, local service discovery, and listens on TCP and uTP — many peers
-  are reachable only over uTP. `Local` is loopback-only with fixed peers, for
-  tests.
-- **No protocol encryption.** `librqbit` does not speak MSE/PE, so peers set
-  to require encryption drop the connection during the handshake; the rest of
-  the swarm still serves. A thin or slow swarm makes the first index slow and a
-  read time out (`Error::Timeout` → the source shows offline and is retried).
-- **TLS** (HTTPS trackers) is `rustls` on `aws-lc-rs`, which compiles C code:
-  it builds natively everywhere, but `cargo check --target
-  x86_64-pc-windows-msvc` from macOS fails for lack of MSVC headers.
+- Every call blocks the caller on the engine's runtime, so none may run inside a tokio runtime.
+- `resolve` lists a `.torrent` file or magnet and stores `<info_hash>.torrent` in `state_dir`;
+  a torrent is known once resolved, and `meta` reads it back without the network. `forget`
+  unloads it by force and deletes its work data and every `state_dir` entry starting with the hash.
+- `Meta::files` omits padding files; `FileEntry::index` is the index in the full list (what `Want`
+  and `read` take), so indices can skip.
+- `meta`, `probe` and `read` answer `Unknown` to anything but 40 lowercase hex digits, and `forget`
+  ignores it, so a hash never becomes a path outside `state_dir` / `work_dir` (`is_stored` is a
+  bare existence check).
+
+## Patience
+
+- A piece is readable only once complete and verified; with 16 MiB pieces that takes minutes on a
+  slow swarm while bytes keep arriving. So `read` (opening, first 64 KB) and `Body::read` give up
+  only after their quiet time — `read`'s `timeout`, 30 s for `Body::read` — passes without the
+  torrent receiving a byte from any peer (`patient`, watching `fetched_bytes`), or after 5 minutes
+  in any case.
+- With no peer connected at that moment the error is `NoPeers`, not `Timeout`. `pawse` retries
+  `Timeout` but treats `NoPeers` as final, so a click on a track while offline fails after one
+  quiet time.
+- A probe's `stall` is a limit, not a deadline: `Timeout` only after that long without a new byte
+  from its own streams.
+
+## Streams
+
+- librqbit's lookahead is 32 MB per stream, not a number of pieces: 1 MiB pieces keep ~32 pieces
+  (and peers) busy, 16 MiB pieces only 2. So `read` opens up to 3 helper streams parked 32 MB,
+  64 MB, … past its start (`helper_count`: enough for ~8 pieces in flight, none up to 4 MiB
+  pieces). They only raise those pieces' priority and live as long as the `Body`. They open after
+  the first byte arrived: librqbit interleaves streams in random order, and on a thin swarm a
+  helper's piece taken first would delay the start by a whole piece.
+- Every open file stream holds one permit of librqbit's blocking-I/O semaphore for its whole life,
+  and writing a received block needs a permit from the same semaphore. With as many open streams
+  as permits (default 8) no block can be written and every stream waits forever. So the session
+  gets `BLOCKING_PERMITS` (64), a probe opens at most `PROBE_STREAMS` (4) at a time, probe and
+  helper streams together stay under an engine-wide `SHARED_STREAMS` (24) (helpers are skipped
+  when it is used up), and `read` bounds opening its stream by its timeout.
+- An idle peer sleeps up to 5 s and opening a stream or seeking does not wake it (librqbit
+  notifies only when pieces are released), so a read on an idle torrent can wait a few seconds for
+  its first byte.
+
+## Probes
+
+- A probe fetches the asked ranges into `<work>/<hash>/<path>` and deletes the tree when dropped,
+  unless a read still holds the torrent; then the tree stays until that torrent is unloaded
+  (idle time or work limit).
+- Each stream looks up to 32 MB ahead, to the end of its file, so a probe can pull far more than
+  asked. Only a file no probe asked for is guaranteed to stay empty — the probe test checks that
+  one.
+- Files are sparse: zeros where nothing arrived, and a file is only as long as the furthest piece
+  written (no preallocation). Anything that needs the real length (a tag reader computing a
+  bitrate) must use `FileEntry::len`.
+- Once a second a probe checks that `<hash>.torrent` still exists and fails with `Unknown` when
+  `forget` removed it, so removing a source ends its running sync at once. The file, not the
+  loaded slot, is the signal: `is_stored` is already false by then, and a `forget` landing while
+  the probe is still being acquired is caught too.
+
+## Leases and unloading
+
+- `probe` and `read` hold a lease. A torrent with no lease is unloaded (session entry and work
+  data deleted) after `idle_unload`, or at once when the last lease released was a probe's.
+- `work_limit_bytes` (`u64::MAX` = none) is checked when a read's last lease is released —
+  back-to-back reads (a cache fill, playback with prefetch) leave a torrent idle only for moments
+  the janitor's tick would miss — and by the janitor, which unloads idle torrents oldest first.
+  Sizes are allocated blocks (Unix), skipping the indexer's `<hash>.view` hard links.
+- `unload` deletes a work root only when it unloaded a torrent (or `forget` forces it), so a late
+  unload never wipes a folder a new `acquire` is filling.
+- A hash being unloaded sits in `unloading` until its directory is gone; `acquire` waits for that
+  instead of adding the torrent again into a folder about to be deleted. A newly added torrent
+  whose start fails is deleted again, so no session entry outlives a failed `acquire`.
+- The session starts on first use and stops when nothing is loaded, nothing is in flight
+  (`resolve`, `meta`, `acquire` count as busy) and nothing was used for `idle_unload`, so nothing
+  seeds while nothing plays or downloads.
+
+## Storage and network
+
+- `state_dir` keeps `<info_hash>.torrent` and `dht.json`. `work_dir` holds piece data only and is
+  wiped when an `Engine` is created; nobody else may use it.
+- Nothing is selected: torrents are added with `only_files = []`, so the session never downloads a
+  file on its own. Every byte comes from a stream (librqbit prioritises a stream's pieces whether
+  or not the file is selected), which is how `probe` gets the head of a file without the rest.
+- librqbit opens every file of a loaded torrent read/write and keeps it open for the torrent's
+  life: one descriptor per file. The host must raise the soft open-file limit (`pawse`'s `main`
+  does); an app started from Finder has a soft limit of 256, which a torrent of a few hundred
+  files exhausts, breaking everything else that opens files.
+- `Public` runs DHT, trackers, local service discovery, and listens on TCP and uTP — many peers
+  are reachable only over uTP. `Local` is loopback-only with fixed peers, for tests.
+- `Upload::WhileActive` uploads without a limit while a torrent is loaded, `Limited` caps it
+  (KiB/s, applied live), `Off` starts sessions with uploading disabled. A running session cannot
+  change that: turning uploading off caps it at 16 KiB/s (lower would stop librqbit's upload
+  scheduler, whose chunks are 16 KiB) and the session is restarted as soon as it is idle.
+- `swarm` reports connected and known peers of a loaded torrent; librqbit does not say which are
+  seeds, so seeds cannot be counted.
+- No protocol encryption (MSE/PE): peers set to require it drop the connection during the
+  handshake, the rest of the swarm still serves.
 
 ## Audit exception
 
-`RUSTSEC-2026-0293` (ringbuf < 0.5.2: double free in `Consumer::skip` /
-`Consumer::clear` when an element's `Drop` panics) is ignored in
-`.cargo/audit.toml`. ringbuf 0.4 comes only through `librqbit-utp` 0.7, the
-latest release, which pins `^0.4.7`; 0.4 has no fixed release. Its only ring
-buffer is `SharedRb<Heap<u8>>`, and `u8` has no `Drop`, so the bug cannot
-trigger. Drop the exception once `librqbit-utp` moves to ringbuf 0.5.
+`RUSTSEC-2026-0293` (ringbuf < 0.5.2: double free in `Consumer::skip` / `Consumer::clear` when an
+element's `Drop` panics) is ignored in `.cargo/audit.toml`. ringbuf 0.4 comes only through
+`librqbit-utp` 0.7, which pins `^0.4.7`; 0.4 has no fixed release. Its only ring buffer is
+`SharedRb<Heap<u8>>`, and `u8` has no `Drop`, so the bug cannot trigger. Drop the exception once
+`librqbit-utp` moves to ringbuf 0.5.

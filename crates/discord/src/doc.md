@@ -1,67 +1,35 @@
 # discord
 
-Self-contained Discord Rich Presence ("now playing"). No GPUI, no pawse
-dependencies — a pure library the app drives through `DiscordHandle`. The
-GPUI/event wiring lives in `pawse::discord_bridge`.
+Self-contained Discord Rich Presence ("Listening to"): no GPUI, no pawse dependencies. The app drives it through `DiscordHandle`; one worker thread holds the Discord IPC socket, resolves album art to a public URL and publishes a `Presence`.
 
-## Responsibilities
-
-- Hold the Discord IPC socket and publish a `Presence` (title / artist / album /
-  cover / progress) via `discord-rich-presence`, reconnecting when the Discord
-  client is not running.
-- Resolve album art to a public URL **by lookup only** (Apple iTunes Search,
-  `artist album` → `artworkUrl100` upscaled to 512), cached on disk. Local files
-  are never uploaded.
+Not here: when to publish, pause/seek handling, the Settings switch and quit handling (`crates/pawse/src/doc.md`: `discord_bridge.rs`, `settings_view.rs`).
 
 ## Files
 
-- `lib.rs` — `Presence` data type, `client_id()` (runtime `DISCORD_CLIENT_ID`
-  env var, else the compile-time `option_env!` baked in by `build.rs` — same
-  precedence as `scrobble::creds()`), re-export of `DiscordHandle`. Resolved once
-  into a `OnceLock`, so `is_available()` is allocation-free and the id can't
-  change under a running process.
-- `build.rs` — reads the repo-root `.env` and injects `DISCORD_CLIENT_ID` via
-  `cargo:rustc-env` so `option_env!` bakes it into the binary (mirrors
-  `scrobble/build.rs`); reruns when `.env` or the env var changes.
-- `art.rs` — `ArtCache`: `resolve(artist, album)` over blocking `ureq`, backed by
-  a `"artist|album" -> url` JSON cache (empty string = negative cache, so a miss
-  is never re-queried). The iTunes request and response parsing are
-  `cover_search::itunes`; `lookup` takes the top result, asks for it at 512 px
-  and returns `Result<Option<_>, ()>`: only a **definitive** answer (HTTP
-  responded, JSON parsed) is cached — a request failure (offline / 5xx /
-  throttle) returns `Err` and is never persisted, so a transient outage can't
-  poison an album forever. URLs over 254 bytes (Discord's limit) count as a miss.
-- `ipc.rs` — `DiscordHandle` + a dedicated worker thread owning the IPC client
-  and art cache, fed `Msg`s over a `flume` channel. Builds the `Listening`
-  activity (details = title, state = artist, `large_image` = cover URL when
-  found — otherwise omitted so Discord shows the application icon). `Presence`
-  carries an absolute `started_at` (unix secs) computed by the bridge, so the
-  progress bar is correct even when the worker applies the update later (rate
-  limit / reconnect). `spawn` returns `None` if the worker thread can't start.
+- `lib.rs` — `Presence`, `client_id()` / `is_available()`: runtime `DISCORD_CLIENT_ID`, else the value baked in at compile time (same precedence as `scrobble::creds()`), resolved once.
+- `build.rs` — reads the repo-root `.env` and bakes `DISCORD_CLIENT_ID` in (mirrors `scrobble/build.rs`).
+- `art.rs` — `ArtCache::resolve(artist, album)`: iTunes lookup plus the on-disk cache.
+- `ipc.rs` — `DiscordHandle` and the `discord-rpc` worker thread (`Msg::Set` / `Clear` / `Shutdown`). `spawn` returns `None` if the thread cannot start.
 
-## Non-obvious behavior
+## Presence contract
 
-- **Progress is anchored, not ticked.** Discord rate-limits `set_activity`, so
-  the bridge sends a `Presence` only on real changes and the worker applies at
-  most once per `MIN_INTERVAL`; the progress bar is conveyed as
-  `start`/`end` timestamps the Discord client animates itself.
-- **Latest-wins coalescing.** The worker keeps only the newest desired presence
-  and dedupes identical ones (`Presence: Eq`); bursts collapse to one update.
-- **Discord-not-running is normal.** `connect` failures back off (~15s) and
-  retry while a presence is desired; the app is never blocked.
-- **Paused ⇒ status is cleared** (like Spotify's own integration). Discord
-  timestamps always animate client-side and can't be frozen, and a `Listening`
-  activity with no timestamps shows a bogus ticking counter — so the bridge
-  hides the presence while paused and re-publishes on resume. `Presence` is only
-  ever sent while playing. Cost of that choice: the clear spends the rate-limit
-  budget, so resuming after a long pause can leave the profile blank for up to
-  `MIN_INTERVAL` before the track reappears. Inherent to hide-on-pause — both
-  the clear and the re-publish are `set_activity` calls.
-- **Unavailable ⇒ no UI.** `pawse::settings_view` omits the Discord row (in
-  Settings → General, under the remote control rows) when `is_available()` is
-  false, rather than showing a dead toggle. Release
-  builds bake the id in, so this only affects local builds without a `.env`;
-  there is no user-facing "not configured" string to translate.
-- **Album required for art.** Art lookup needs a non-empty album; without one (or
-  on a lookup miss) `large_image` is omitted and Discord shows the application
-  icon (no `logo` asset needed, no network call).
+- Progress is anchored, not ticked. `Presence` carries an absolute `started_at` (unix seconds) computed by the caller and a `duration`; the worker turns them into start/end timestamps that the Discord client animates itself, so the bar is right even when the update is applied late (rate limit, reconnect). No end timestamp when the duration is unknown.
+- `Presence` is only sent while playing; pausing is `clear`. Discord timestamps always animate and cannot be frozen, and an activity with no timestamps shows a bogus ticking counter. Cost: the clear spends the rate-limit budget, so resuming after a long pause can leave the profile blank for up to `MIN_INTERVAL`.
+- The worker keeps only the newest desired state and drops an identical `Presence` (`Eq`); bursts collapse to one update, applied at most once per `MIN_INTERVAL`.
+- Discord not running is normal. A failed connect or a failed `set_activity` backs off (`RECONNECT_BACKOFF`) and retries while a presence is desired; with none desired nothing connects. The app is never blocked. `Shutdown` clears the activity and closes the socket.
+- Activity layout: details = title, state = artist, small image = the application's `play` asset ("Playing").
+
+## Album art
+
+- By lookup only: Apple iTunes Search (`cover_search::itunes`) for `artist` + `album`, top result, requested at 512 px. Local files are never uploaded.
+- Needs a non-empty artist and album. Without one, or on a miss, `large_image` is omitted and Discord shows the application icon (no network call, no `logo` asset). The lookup is blocking `ureq` on the worker thread.
+- The cache is a JSON map `"artist|album"` → URL, written atomically. An empty string is a negative entry, so a miss is not re-queried. Only a definitive answer (HTTP responded, JSON parsed) is stored: a request failure returns `Err` and is never persisted, so a transient outage cannot poison an album forever.
+- A URL over 254 bytes (Discord's limit) counts as a miss.
+
+## Decisions
+
+Owner's calls; ask before changing.
+
+- Hide the presence while paused, like Spotify's own integration, rather than show a frozen or bogus timer.
+- Art by lookup, never by uploading local files.
+- When no client id is baked in (local builds without `.env`), the Settings row is omitted rather than shown dead; there is no "not configured" string to translate.

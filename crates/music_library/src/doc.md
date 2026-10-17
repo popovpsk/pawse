@@ -1,691 +1,406 @@
 # music_library
 
-The SQLite-backed library: the catalog the screens browse, the user data that
-hangs off it (playlists, likes, fetched lyrics, listening history, scrobble
-deliveries), and the identity layer that keeps the two apart. Only this crate
-touches the database; `pawse::library_service` drives scans through
-[`ScanWrite`] and everything else goes through [`LibraryRepository`].
+The SQLite-backed library and the only crate that touches the database: the catalog the
+screens browse, the user data hanging off it (playlists, likes, fetched lyrics,
+listening history, scrobble deliveries) and the identity layer that keeps the two apart.
+`LibraryRepository` is the API for everything; scans go through `ScanWrite`
+(`ScanSession`).
+
+Not here: driving scans, probing folders, the scan fingerprint and server sync
+(`library_service.rs`, `remote_sync.rs` in `pawse/src/doc.md`); reading files
+(`music_indexer/src/doc.md`); server protocols (`pawse/src/servers/doc.md`); the
+scrobble engine (`scrobble/src/doc.md`); running the sound analysis
+(`pawse/src/similar_tracks/doc.md`).
 
 ## Files
 
-- `lib.rs` — crate root, re-exports, and the bulk of the tests (GUI-less,
-  against a temp database). The migration tests build a real schema-v8 database
-  by replaying `MIGRATIONS[..=8]` and seeding it, then open it through
-  `SqliteLibrary::open_at`.
-- `repository.rs` — the `LibraryRepository` and `ScanWrite` traits.
-- `sqlite.rs` — the only implementation: `SqliteLibrary` (main, scrobble and
-  embedding connections), `ScanSession` (the batched scan writer on its own connection),
-  the migration runner, and the SQL shared between them (`CLEAR_CATALOG`,
-  `RETIRE_UNSEEN_LOCAL_BINDINGS`, `SWEEP_UNREFERENCED_ITEMS`,
-  `REFRESH_ITEM_SNAPSHOTS`). `compute_sort_name` (leading "The " / "A " moved to
-  the end, the rule behind `artists.sort_name`) is public so the app's in-memory
-  sorts of albums and artists agree with the column.
-- `migrations.rs` — `MIGRATIONS`, the versioned schema steps.
-- `genres.rs` — `normalize_genres`, the one rule that turns raw genre values into
-  catalog genres (split on `,` `;` `/`, collapse whitespace, drop junk, dedup
-  case-insensitively). It lives here, not in `music_indexer`, because both sides
-  that fill `genres` need it: the indexer for file tags and
-  `project_remote_tracks` for server listings.
-- `models.rs` — row and transfer types (`Track`, `ScanTrack`, `LocalFolder`, …).
-- `remote.rs` — the locator format for server tracks (`pawse-source://…`) and
-  `location`, which tells a file path from a server track from a broken locator.
-  Code holding a `Track` asks the track instead of parsing its path:
-  `Track::location`, `remote`, `is_remote`, `local_file`, and `own_file` (a
-  local file that is this track's alone — not a cue piece — i.e. the one whose
-  tags and sidecar lyrics belong to it). Parsing a bare locator string is left to
-  the layers that only have strings (`pawse::remote_media`, playback's
-  `playback_locators` walk).
-  It also owns the `source_path` of a server cover,
-  `<kind>-cover://<source_id>/<key>` (`cover_source` / `parse_cover_source`):
-  the sync writes it, the cover view reads it to ask the server for the big
-  picture. A local path is never taken for one.
-- `adoption.rs` — the pure matching that decides which files are the same track
-  (`match_tracks`), plus `normalize_tag`, the one tag normalization shared with
-  the scrobble like-import.
-- `album_artists.rs` — deriving an album's credited artists from its tracks.
-- `thumbnail.rs` — cover thumbnail generation. A panic inside the image
-  decoder is caught and returned as an ordinary error: one broken picture (from
-  a file or from a server) costs that cover only, never the scan or sync that
-  asked for it. Every caller already treats an error as "no cover" and goes on.
-- `error.rs` — `LibraryError`.
+- `lib.rs` — re-exports, `NO_METADATA_ALBUM_ID` (-1) / `NO_METADATA_ARTIST_ID` (-2) (a
+  virtual album / artist for tracks without one, understood by the per-id queries) and
+  every test. Migration tests replay `MIGRATIONS[..=8]` into a v8 database.
+- `repository.rs` — the two traits. `sqlite.rs` — `SqliteLibrary`, `ScanSession`, the
+  migration runner, the SQL a scan shares; `compute_sort_name` is public so the app's
+  in-memory sorts agree with `artists.sort_name`. `thumbnail.rs` — a decoder panic comes
+  back as an error: one broken picture costs that cover only.
+- `remote.rs` — the server-track locator `pawse-source://<source_id>/<key>.<suffix>`,
+  `location`, and a server cover's `source_path` `<kind>-cover://<source_id>/<key>`.
+  Code holding a `Track` asks it (`location`, `remote`, `local_file`, `own_file` = a
+  local file that is this track's alone, not a cue piece), never parsing `path`.
+- `adoption.rs` — `match_tracks`, `normalize_tag` (shared with the scrobble like-import
+  and `similar_tracks`). `album_artists.rs` — `derive_album_artists`, `is_credit_of`.
+- `genres.rs` — `normalize_genres`, the one rule from raw genre values to catalog
+  genres: split on `,` `;` `/` (not `&`: `Drum & Bass`, `R&B` stay whole), drop junk and
+  bare numbers, dedup case-insensitively. The indexer and `project_remote_tracks` both
+  use it; changing it needs an `INDEXER_FORMAT_VERSION` bump
+  (`music_indexer/src/doc.md`).
 
-## Two kinds of rows
+## Rows
 
-**Catalog** — `tracks`, `albums`, `artists`, `genres`, `track_artists`,
-`track_album_artists`, `track_genres`, `album_artists`, `cover_art`, and
-disk-derived lyrics (`lrc` / `embedded`). Everything here is re-derivable from
-the files. A scan is still `clear()` + refill for this part, and that is fine:
-`clear()` touches nothing else.
+- **Catalog** (`tracks`, `albums`, `artists`, `genres`, link tables, disk lyrics) is
+  re-derivable: every scan clears and refills it and touches nothing else. `cover_art`
+  is kept: content-addressed by SHA-256, the first `source_path` for a hash wins.
+- **Identity and user data** (`media_items`, `media_bindings`, `sources`, `adoptions`,
+  `remote_tracks`, `playlist_tracks`, network lyrics, `plays`, `loves`, `*_deliveries`)
+  is not derivable: no scan deletes it. **Derived caches** (`track_embeddings`,
+  `track_sound_genres`, `artist_info`) are costly to re-derive, so a scan leaves them
+  alone.
+- `tracks.id` borrows `media_items.id`, so a rescan puts every row back under its id.
+  User tables reference `media_items`, never `tracks`.
 
-**Identity and user data** — `media_items`, `media_bindings`, `sources`,
-`playlist_tracks`, `lyrics` from the network, `plays`, `loves`, and their
-`*_deliveries`. None of it is derivable, so no scan deletes it.
+## Connections and locking
 
-**Derived cache** — `track_embeddings` (sound vectors and style scores) and
-`track_sound_genres` (genres by sound), see below. Re-derivable from the files, but
-expensive, so keyed by the item rather than the catalog row: a scan leaves them alone
-and they are not user data either.
-
-The link between them is the id. `media_items.id` is the durable identity of a
-track; `tracks.id` borrows it (`tracks.id REFERENCES media_items(id)`), so a
-rescan that deletes and refills `tracks` puts every row back under the id it
-had. Every user table references `media_items`, never `tracks`. The column is
-still called `track_id` in those tables — the values are identical and
-renaming would have been churn across every query for no behavioural gain.
+- Three connections behind mutexes (`conn` for the UI, `scrobble_conn`,
+  `embedding_conn`); `ScanSession` and each `apply_remote_listing` open their own. A
+  writer waiting for a scan batch's write lock must not hold the mutex the UI reads
+  through (hence `embedding_coverage` reads on `conn`). WAL with a 5 s busy timeout: a
+  UI write mid-scan waits instead of failing.
+- A writer that reads before it writes uses `BEGIN IMMEDIATE`: a deferred transaction
+  that reads, sees another commit, then writes fails with `SQLITE_BUSY_SNAPSHOT`, which
+  the busy timeout does not retry (a like was lost this way). Any new read-then-write
+  path must do the same.
 
 ## Identity: sources, bindings, items
 
-- `sources` — one row per library root. For now only `kind = 'local'`, one per
-  configured music folder (`uri` = the folder path). Source `1` is a disabled
-  placeholder that migration 9 hangs every pre-existing binding on, because the
-  migration cannot see `settings.json`.
-- `media_bindings` — "this item is available at this place": `(source_id,
-  source_key, start_offset_ms)` is unique, `source_key` is the absolute file
-  path. `present` and `last_seen_scan` record whether the last scan saw it.
-- `media_items` — the identity, plus a display snapshot (`title`, `artist`,
-  `album`, `duration_ms`, `cover_art_id`) used to render an item that has no
-  `tracks` row any more.
+- `sources` — one row per root, `(kind, uri)` unique: `local` or the app's server kind.
+  Source `1` is a disabled placeholder that migration 9 hangs every pre-existing binding
+  on (a migration cannot see `settings.json`); `sources()` hides it.
+- `media_items` carry a display snapshot, so an item without a `tracks` row still
+  renders; `updated_at` moves only when the snapshot really changes.
+- `reconcile_local_sources` disables every local source, then upserts one enabled row
+  per folder. A removed folder stays a disabled source with its bindings, so re-adding
+  it restores likes and playlist entries under their old ids.
 
-`reconcile_local_sources(folders)` makes `sources` match the configured folders:
-it disables every local source, then upserts one enabled row per folder with its
-`available` flag. A folder removed from settings therefore becomes a *disabled*
-source whose bindings stay put — re-adding the same folder re-enables it and
-every binding matches again by path, so likes and playlist entries come back
-under their old ids.
+## Matching across sources
 
-`ScanSession::resolve_item` looks a scanned file up by `(path, start_offset_ms)`
-across **all** local sources (placeholder and disabled ones included), re-points
-the binding to the longest matching enabled root, and only mints a new item when
-nothing matches. That is what makes the placeholder self-healing: the first real
-scan after migration moves every binding onto the right folder without a
-separate step. That scan must actually happen: `has_unplaced_media()` reports
-present bindings still on the placeholder, and `library_service` skips the
-fast path while it is true. So `finish` retires (`present = 0`) every placeholder
-binding that is under no enabled root, or under an available one (which this scan
-walked completely and did not find it in). Only bindings under an offline folder
-stay unplaced. A liked file deleted before the upgrade would otherwise keep the
-fast path off forever. Retiring loses nothing: the placeholder is disabled, so
-`present` there affects neither playback nor matching, and a file that comes back
-is still found by its key and moved onto its folder.
+- An item has at most one live binding per source: two files in one source are two items
+  (a copy beside its original), the same recording in different sources is one item.
+  Which binding plays and names the catalog row is priority, not identity: local folders
+  first, then servers (no kind outranks another), by source id.
+- Matching uses only database content, so offline, disabled or gone sources still take
+  part: `file_size` with the cue offset (same bytes, even untagged) and the
+  `media_items` snapshot. Not relative paths: a server's path is its own invention.
+- `match_tracks` tiers, strongest first, each over all arrivals before the next: `file`
+  (shared size and offset), `tags` (artist + title + album), `title` (artist + title,
+  duration required, only candidates with no live binding, so an offline item never
+  merges with a different recording that shares a title).
+- Tag tiers need a non-empty artist (untagged `01.flac`s match by size only) and accept
+  the arrival's aliases: Navidrome splits "A feat. B" where a file keeps one string.
+  Pairs are assigned best-first, so arrival order never decides.
+- A match only inserts a binding and an `adoptions` row; candidates are all items, live,
+  dead or offline. `revive_lost_items` runs the other way after retirement: items with
+  user data and no playable binding absorb a playable spare without any (rows move to
+  the lost id, foreign keys deferred): a copy made before the original went away.
 
-## Offline folders
+## Scans
 
-`library_service` probes every configured folder before a scan (`ScanScope`): a
-folder that cannot be listed, or is empty while bindings under it are still
-present (an unmounted mount point), is *unavailable*. The scan goes ahead over
-the rest. The unavailable folder's source gets `available = 0`, its bindings are
-not retired and its items are not swept — offline is not the same as deleted.
-They stay candidates for matching, though: the same file showing up somewhere
-else (the folder renamed on disk and added again, a backup copy) joins them. Its tracks drop out of the catalog (the scan did not
-re-add them), so they disappear from the library screens and show as unavailable
-in playlists and likes until the folder is back; then the next scan finds every
-binding by path and they return under the same ids.
+`ScanWrite`: `clear()`, `add_cover` / `add_track` in any order (a track whose cover hash
+has no `add_cover` yet waits, or is inserted cover-less at `finish`), `flush()`,
+`finish()`.
 
-With every folder offline the scan still runs and the catalog ends up empty:
-offline means hidden, whether one folder is gone or all of them. Likes and
-playlists keep their entries, shown as unavailable.
+- Batches open (`BEGIN IMMEDIATE`) only to write; the app calls `flush` whenever it has
+  caught up with the indexer, so the lock is not held while it parses.
+- `finish` is one transaction: absorbing an item moves rows under deferred foreign keys,
+  and a server listing slipping in while held arrivals settle would mint a second item
+  for a song whose local copy is about to be written. It runs only after the indexer
+  reported `Complete`; a dropped session retires nothing and records no fingerprint.
+- The session writes no album cover and only each track's own album-artist tag; the app
+  settles the rest after every write (`settle_derived_rows`), item snapshots before
+  `delete_orphaned_albums_and_artists`, which keeps any cover a snapshot references. An
+  album's cover is its lowest `(disc, track, path)` track with one.
+- A file whose `(path, offset)` has a binding in any local source (placeholder and
+  disabled included) keeps its item and is re-pointed to the longest enabled root
+  containing it, the placeholder only when none does: that heals the placeholder.
+- Other files are held until `finish` when the database has items or there is more than
+  one folder, then settled source by source in id order; a held file that fails to write
+  is logged and skipped, since failing `finish` would stop retire and sweep for good.
+- A second binding of an item already written this scan (the same file in another
+  folder) writes nothing unless its source has priority, which rewrites the row from
+  that file: the row never depends on which file the parallel indexer delivered first.
+- A second binding in a source the item was already placed in (`placed`: an adopted item
+  whose old file came back from the trash) gets a fresh item; `seen` drops the same
+  `(path, offset)` delivered twice (nested folders, two cue sheets for one image).
+- Retire sets `present = 0` on bindings of enabled, available local sources the scan did
+  not see; disabled and offline sources are left alone. Placeholder bindings under no
+  enabled root or an available one go too; the app skips its scan fast path while
+  `has_unplaced_media()` is true.
+- `SWEEP_UNREFERENCED_ITEMS` runs last: items with no `tracks` row, no present binding
+  on an enabled source and nothing user-side pointing at them go, which bounds growth.
+- Offline folders: the app passes `LocalFolder::available` through
+  `reconcile_local_sources` (`has_media_under(root)` tells an unmounted mount point from
+  an empty folder). An unavailable folder keeps its bindings and items, which stay match
+  candidates: offline is not deleted.
+- An unavailable folder's tracks leave the catalog and show as unavailable in playlists
+  and likes; with every folder offline the catalog ends up empty.
 
-The fast-path key (`scan_meta.folders`) marks offline folders with a `?` prefix,
-so going offline and coming back each force one real scan. With every folder
-online the key is the same plain sorted list it always was.
+## Server sources
 
-## Identity across sources
+A server is a `sources` row and its songs are bindings with `source_key` = the song id.
+Nothing here depends on the kind beyond `'local'` versus not.
 
-**The rule.** An item has at most one live binding per source. Two files in one
-source are two items (a copy next to its original stays a separate track); the
-same recording in different sources — two folders, a folder and a server, two
-servers — is one item with one binding in each. Which binding plays and names
-the catalog row is priority, not identity: local folders first, then every
-server (Subsonic, Jellyfin — no kind outranks another), each by source id
-(`project_remote_tracks`, `playback_locators`, `ScanSession::place`).
-
-**What a match needs.** Only what is in the database, so a source that is
-offline, disabled or gone still takes part:
-
-- `media_bindings.file_size` (from the indexer's stat, from the server's `size`)
-  with the cue offset — the same bytes, even untagged;
-- the `media_items` snapshot (first artist, title, album, duration), which
-  `refresh_item_snapshots` keeps current while an item is seen and which
-  freezes when it is not.
-
-Relative paths are not used: a server's path is its own invention, and anything
-a path found between folders the size finds too.
-
-`adoption::match_tracks` runs three tiers, strongest first, each over every
-unmatched track before the next starts:
-
-1. `file` — a shared `(size, cue offset)`, duration within 2 s when both are
-   known.
-2. `tags` — normalized first artist (or an alias) + title + album, duration
-   within 5 s when both are known. The same size wins among several, then the
-   closest duration, then the lowest id.
-3. `title` — normalized artist + title, duration within 5 s and required, and
-   only for a candidate with no present binding at all (truly dead). An offline
-   item is never merged with another recording that merely shares a title.
-
-A candidate that already has a live binding in the arriving track's source is
-skipped. Within a tier every passing pair is ranked first (same file, then
-closest duration, then lowest id) and assigned best-first, so the order tracks
-arrive in never decides who gets a candidate; a claimed candidate leaves the
-pool. Tag tiers need a non-empty
-artist, so untagged `01.flac`s only ever match by size.
-
-**When matching runs — two events.**
-
-- *Birth*: a file or song the source has no binding for. Local arrivals are held
-  until `finish` (the candidates are only known once the scan has seen
-  everything; on an empty database with one folder there is nothing to match and
-  they are inserted directly) and settled source by source in id order, so a
-  second new folder in the same scan sees the items the first one just created.
-  Server arrivals are matched in `apply_remote_listing`. Candidates are all
-  items, live, dead or offline. A match only inserts a binding and an
-  `adoptions` row.
-- *Death*: after local bindings are retired, `revive_lost_items` takes the items
-  that carry user data and have no playable binding left (file deleted, folder
-  offline or removed, server gone) and matches them against the playable items
-  that carry none. A match *absorbs* the spare item: its `tracks` row, catalog
-  links, disk lyrics and bindings move to the lost item's id (foreign keys
-  deferred for the move) and the empty item is deleted. Nothing user-side is
-  merged — the absorbed item had none. This covers a copy made before the
-  original went away, and a copy that only existed as a separate item because
-  its tags differed.
-
-Everything is loaded once per pass (`load_identities`: items, bindings with
-their source state, and the set with user data) and matched in memory, so a
-pass costs two queries whatever the library size.
-
-Two items that are both alive and both missed each other (older data, a tag
-edit that made them equal later) are never merged automatically; that is for a
-manual screen.
-
-**One row per item.** A second binding of an item already written this scan
-(the same file in another folder) does not write another row — unless its source
-has priority, and then the row is rewritten from that file entirely (tags, year,
-cover, `is_cue`, disk lyrics), so the row never depends on which file the
-parallel indexer delivered first. A second binding in a source the item was
-already placed in this scan (`placed`: an adopted item whose old file came back
-from the trash) gets its old binding dropped and a fresh item, so neither file
-disappears from the library. The same `(path, start_offset_ms)` delivered twice in
-one scan is not such a case: nested folders in the settings walk the file twice,
-and two cue sheets for one image yield the same tracks twice. `seen` drops the
-repeat before anything else, or it would split off a fresh item every scan and
-leave the catalog row on an item without a binding.
-
-A held arrival that fails to write is logged and skipped, as `add_track` errors
-always were; it must not fail `finish`, or retire, sweep and the fingerprint would
-never run again for as long as that file is there.
-
-The scan writer opens its batches with `BEGIN IMMEDIATE`. The matching passes
-start a batch with reads; in WAL mode a deferred transaction that reads, sees the
-UI commit a like, and then writes fails with `SQLITE_BUSY_SNAPSHOT`, which the
-busy timeout does not retry. Taking the write lock up front makes the UI wait
-instead. A batch opens only when there is something to write (a held arrival
-writes nothing) and closes after 256 writes or 250 ms, and `library_service`
-calls `flush` whenever it has caught up with the indexer (its channel is empty).
-So the lock is not held while the indexer parses the next files, and other
-writers — a like, a server listing — get in between batches. `finish` is one transaction: absorbing an item moves rows
-under deferred foreign keys, which only works inside one, and a server listing
-that got in while held arrivals are being settled would not see them and mint a
-second item for a song whose local copy is about to be written. The price is
-that `finish` holds the lock for as long as writing every held arrival takes —
-about 65 ms for 2000 new files, seconds for a first scan of tens of thousands,
-during which a like waits on the busy timeout.
-
-The UI-side writers that read before they write (`set_liked`, `like_many`,
-`add_tracks_to_playlist` — `add_track_to_playlist` is its one-track form —,
-`remove_track_from_playlist`, `move_track_in_playlist`)
-open their transaction with `BEGIN IMMEDIATE` for the same reason: a deferred
-transaction that already read is refused `SQLITE_BUSY` at once while a scan batch
-or a server listing holds the lock, without the busy timeout ever waiting, and the
-like was silently lost.
-
-`add_tracks_to_playlist` appends the whole batch in one transaction, in the given
-order, skipping tracks already in the playlist (and repeats within the batch) via
-the `(playlist_id, track_id)` unique index; ids with no `media_items` row (a queue
-can still hold the playing track after a rescan dropped it, or a queue restored from
-settings) are skipped too, so one stale entry cannot fail the whole batch on the
-foreign key. Positions advance only for rows that were actually inserted, so they
-stay contiguous, and that count is what it returns (the server playlist import
-reports it as "tracks added").
-
-## Server sources (Subsonic, Jellyfin, torrents)
-
-A server is a `sources` row with `kind = 'subsonic'`, `'jellyfin'` or `'torrent'` and
-`uri = user@url` (a torrent: `btih:<info hash>`) (`reconcile_remote_sources(kind, …)` enables the configured ones
-of that kind and disables the rest of that kind only, and returns whether any
-row of that kind was enabled or disabled). That flag matters because the scan's
-fast path only fingerprints local folders: a source that turns on or off changes
-what `project_remote_tracks` would write, so the caller must invalidate the
-fingerprint and rescan, or a removed server's tracks linger in the catalog and a
-re-added one's never come back. Nothing in this crate
-depends on the kind beyond `'local'` versus not; the protocol lives in `pawse`.
-Its songs are bindings like files, with `source_key` = the server's song id.
-
-`apply_remote_listing` records a full listing in one `BEGIN IMMEDIATE`
-transaction on its own connection (a deferred one that reads first fails with
-`SQLITE_BUSY_SNAPSHOT` whenever a scan batch or a like commits in between):
-covers arrive with the listing and are inserted in the same transaction, so the
-orphan-cover sweep of a concurrent scan cannot delete them before `remote_tracks`
-names them; known songs refresh their `remote_tracks` row (the upsert only writes
-when something differs, which is how `RemoteSyncReport::changed` knows whether a
-rescan is needed; `cover_key` is left out of that check and written by a
-separate uncounted `UPDATE`, because it never reaches the catalog but must stay
-current — Navidrome's cover ids carry the album's timestamp, and a stale key
-would make `remote_cover_hashes` miss and re-download the same image on every
-sync — and a `NULL` key is how the app marks a song whose new picture it has not
-fetched yet, so the next sync asks for it; `remote_song_cover_hashes` is the
-cover each song's row has now, which the app keeps on such a song meanwhile); songs no longer listed get `present = 0`; new songs are born
-against every item that has no binding this listing accounts for — so a song
-the server renamed (new id) finds its old item. An empty listing while the server still had present songs is refused, not
-applied: a server whose library is unmounted must not retire everything.
-
-Server songs carry artist aliases (the joined display name and the other
-credited artists), because Navidrome splits "A feat. B" into two artists that a
-local file keeps as one string. A server copy of a file you already have lands
-as a second binding on the same item — usually by size, since `download` serves
-the original bytes — and one item still means one catalog row.
-
-`remote_tracks` is the server listing cached per binding (tags, duration, suffix,
-the cover's content hash). The catalog is still cleared and refilled by every
-scan; `ScanSession::project_remote_tracks` runs at the end of each one and
-inserts a `tracks` row for every present server binding on an enabled, available
-server whose item did not get a row from a local file. So local always wins,
-a server going away hides only what it alone provided, and projecting needs no
-network. The listing's genre is cached raw (`remote_tracks.genre`, one string —
-a Subsonic server that does not split multi-value tags sends `Rock; Pop`, and the
-Subsonic (`genres[]`), Jellyfin, DLNA and torrent adapters join their genre lists
-with `; `) and
-goes through `normalize_genres` at projection, so a server copy lands on the same
-genres as the file would. Migration 11 is the one-time catch-up for that: it drops
-the scan fingerprint only when some cached server genre would come out different
-from `normalize_genres` — a separator, stray or repeated whitespace, a junk value
-(`Unknown`, `Other`, …) or a bare number (an ID3v1 code) — so those libraries
-re-project once and nobody else pays for a full rescan (bumping
-`INDEXER_FORMAT_VERSION` would have reindexed every library). The junk list is
-copied into the SQL on purpose: the migration is a snapshot of today's rule. Server rows use a locator path, `pawse-source://<source_id>/<key>.<suffix>`
-(`remote.rs`), for every kind of source: the source id says which one, so the
-locator carries no protocol. The suffix is there because the decoder picks a
-backend by extension.
-
-Servers that do not read cue sheets (Navidrome) list a whole-disc image as one
-song, while the local scan splits the same file into its cue tracks. Such a song
-never matches anything (no single track lasts a whole disc), so the projection
-skips a server binding whose item has no binding elsewhere and whose `file_size`
-equals a cue track's (`start_offset_ms > 0`) that is playable in another source
-(enabled, available, present). While that folder is offline, removed, or the cue
-image is gone, the server image shows up as one long track instead. A server that does
-split cues lists every track with the image's size and no offset, so file keys
-say whether they name a whole file or a cue piece (`WHOLE_FILE` vs the offset;
-a local binding is a piece when its file has any track at an offset). Media
-servers list whole files, so their songs never file-match a local cue track and
-join it by tags instead.
-
-A source that reads cue sheets itself (a torrent, indexed by `music_indexer`)
-lists every cue track as its own `RemoteSong` with `start_offset_ms = Some(…)`
-(`Some(0)` for the first track) and the image's key and size. The binding stores
-the offset, so a listing is matched to its bindings by `(key, offset)`, and one
-key with several offsets is several items, exactly like a local cue image.
-`None` means a whole file. A cue piece file-matches the local cue track of the
-same image by `(size, offset)`. The projection writes the binding's offset into
-`tracks.start_offset_ms` and marks it `is_cue` when the key has any track at an
-offset (`REMOTE_BINDING_IS_CUE`); cue pieces are never hidden by the
-whole-image rule above. No schema change: `media_bindings.start_offset_ms`
-already existed and was always 0 for servers.
-
-`playback_locators(item)` lists every place an item can play from right now —
-present bindings on enabled, available sources, local ones first, server ones as
-locators. The catalog row only names one of them and is refreshed by the next
-scan, so when a local file has vanished since, playback tries the next entry
-instead of failing.
-
-The local adoption pool (`ORPHANED_ITEMS`) looks only at **local** bindings: an
-item held only by a server is adoptable by a local file with the same path or
-tags (it is `live`, so not by title alone), which is the other direction of the
-same dedupe. Items held by an offline local folder are still excluded, and the
-revive pass only considers dead items.
-
-Covers from a server are stored like any other cover; the orphan-cover sweep
-keeps a cover while any `remote_tracks.cover_hash` names it, so an offline
-server does not lose its artwork.
-
-## What a scan does to identity
-
-`ScanSession::finish` (only after the indexer reported `Complete` — see below):
-
-0. Settles held arrivals (adoption, above).
-1. `RETIRE_UNSEEN_LOCAL_BINDINGS` — bindings of enabled, available local
-   sources that this scan did not see get `present = 0`. Disabled and offline
-   sources are left alone.
-2. `SWEEP_UNREFERENCED_ITEMS` — deletes items that have no `tracks` row, no
-   present binding on an enabled source, and nothing user-side pointing at them.
-   This bounds growth: removing a 50k-track folder leaves only the items somebody
-   liked, listened to, filed in a playlist or fetched lyrics for.
-
-`library_service::run_scan` drops the session without calling `finish` when the
-indexer stopped before `Complete` (a panicked worker closes the channel). A
-partial enumeration must never retire bindings or record a fingerprint.
+- `reconcile_remote_sources(kind, …)` enables the configured sources of that kind and
+  disables the rest of that kind only; if the enabled set changed (the return value),
+  the caller must drop the scan fingerprint and rescan (the fast path fingerprints only
+  local folders).
+- `apply_remote_listing` records a full listing in one `BEGIN IMMEDIATE` transaction on
+  its own connection; covers arrive with it, so a concurrent scan's orphan-cover cleanup
+  cannot delete them first. Its upsert writes only when something differs, which is how
+  `RemoteSyncReport::changed` says a rescan is needed.
+- Songs no longer listed get `present = 0`; new songs are born against every item with
+  no binding the listing accounts for, so a renamed song (new id) finds its old item. An
+  empty listing while the server had present songs is refused (an unmounted library).
+- `cover_key` stays out of that change check and is written by a separate uncounted
+  `UPDATE`: it never reaches the catalog, but `remote_cover_hashes` (key to stored
+  image) is how the app recognises an image it has, and Navidrome's cover ids carry the
+  album's timestamp, so a stale key would re-download the image every sync.
+- A NULL key marks a song whose picture is not fetched yet. The first `source_path`
+  stored for an image may carry an older key; Navidrome ignores the `_<timestamp>`
+  suffix, so it still works.
+- `project_remote_tracks`, at the end of every scan, inserts a `tracks` row from
+  `remote_tracks` for each present binding of an enabled, available server whose item
+  got none from a local file: local wins, and no network is needed.
+- The listing's genre is cached raw and normalized at projection. Changing that rule for
+  cached rows takes a migration like 11 (it drops the scan fingerprint only if some
+  cached genre would change; its junk list is a copy on purpose); bumping
+  `INDEXER_FORMAT_VERSION` would reindex every library.
+- Cue images: a server that does not read cue sheets (Navidrome) lists a whole-disc
+  image as one song that never matches, so the projection skips a server binding that
+  has no other binding and whose `file_size` equals a playable cue piece's in another
+  source (it shows as one long track while that folder is offline). A server that splits
+  cues lists tracks with the image's size and no offset, so they join local cue tracks
+  by tags.
+- A source that reads cue sheets itself (a torrent) lists each piece with
+  `start_offset_ms = Some(…)`: one key with several offsets is several items, and a
+  piece file-matches the local cue track by `(size, offset)`.
+- `playback_locators(item)` lists where an item can play now, local first; the catalog
+  row names only one, so playback falls back when its file vanished.
 
 ## Stable album and artist ids
 
-The catalog is cleared and refilled by every scan, and after a `DELETE` SQLite
-would hand out ids from 1 again in whatever order the parallel indexer delivered
-files — every scan reshuffled them, and a screen still holding an old id (an
-open artist page, the web remote) linked to a different album. So
-`ScanSession::clear` snapshots the ids first (`StableIds`): an album gets its
-old id back by `(title, year)` — the same key `resolve_album` merges on — and
-an artist by name. A new one gets an id above everything ever handed out
-(`allocate_catalog_id`); the high-water marks live in `scan_meta`
-(`album_id_high`, `artist_id_high`), so a removed album's id is not given to
-the next new one. The snapshot raises the marks to its own maximum before the
-clear, and every writer allocates through the same function — the scan and the
-tag editor's `upsert_album` / `get_or_insert_artist` — so a tag edit that lands
-between two scan batches can neither reuse a dead id nor take one the scan is
-about to hand back. Genres are not covered: their ids are
-reissued on every scan, so the one screen that holds a genre (the app's genre
-page) holds its `key` — the Rust-lowercased name, unique and stable — and every
-genre query takes the key.
+A refilled catalog would get ids from 1 again in whatever order the parallel indexer
+delivered files, so a screen holding an old id would land on another album.
 
-Artists are keyed by the lowercased name (`artist_key`): `Glass the Harbor`
-and `Glass The Harbor`, or `NOVA` and `Nova`, are one artist, shown under the
-name met first. Tags differ in case across sources and rips far more often than
-two real artists do. Lowercasing is Rust's (Unicode), not SQLite's `NOCASE`
-(ASCII only), so the tag editor's `get_or_insert_artist` compares in Rust too.
-Albums still merge on the exact title.
+- `ScanSession::clear` snapshots the ids first (`StableIds`): an album gets its old id
+  back by `(title, year)` (the key `resolve_album` merges on), an artist by name.
+- A new one gets an id above everything ever handed out (`allocate_catalog_id`; the
+  high-water marks live in `scan_meta`). Every writer allocates through it, the tag
+  editor's `upsert_album` / `get_or_insert_artist` included, so a tag edit between two
+  scan batches can neither reuse a dead id nor take one the scan is about to hand back.
+- Genres are not covered: their ids are reissued on every scan, so a screen holding a
+  genre holds its `key` (the lowercased name) and every genre query takes the key.
+- Artists are keyed by the lowercased name (`artist_key`), shown under the spelling met
+  first. Lowercasing is Rust's (Unicode), not SQLite's ASCII-only `NOCASE`, so
+  `get_or_insert_artist` compares in Rust too. Albums merge on the exact title and year.
 
-## Invariants and what enforces them
+## Artists, albums and genres
 
-- **Nothing user-side is lost to a scan.** `clear()` never touches user tables,
-  and the `media_items_guard_user_data` trigger makes it structural: deleting an
-  item referenced by `playlist_tracks`, network lyrics, `plays` or `loves`
-  aborts. `SWEEP_UNREFERENCED_ITEMS` mirrors the trigger's conditions exactly;
-  if the two ever diverge the sweep aborts the scan's last transaction instead of
-  deleting user data.
-- **Ids are stable across rescans and never reused.** `tracks.id` is borrowed,
-  not minted, and `media_items.id` is `AUTOINCREMENT`: once the sweep deletes an
-  item its number is retired. Without that SQLite hands out `max(rowid) + 1`, so
-  sweeping the newest item would give its id to the next new track, and anything
-  still holding the old id (the web remote before its refetch, a persisted queue)
-  would show a different song.
-- **Likes have one source of truth.** The hidden playlist (its id in
-  `scan_meta.liked_playlist_id`). `Track.liked` is computed through the
-  `liked_track_ids` view in `TRACK_COLUMNS`; there is no `liked` column.
-- **Lyrics keep one row per source** (`PRIMARY KEY (track_id, source)`, migration
-  10): a `.lrc` sidecar, the embedded tag and an LRCLIB result live side by side, so
-  a scan never overwrites fetched words and the user can switch between them.
-  `clear()` removes the disk rows (`lrc` / `embedded`) so a deleted `.lrc`
-  disappears; fetched rows (and LRCLIB `not_found` markers) survive. They go
-  only through `delete_lyrics_source`, when the user turns LRCLIB off; an item
-  kept only by them is swept by the next scan.
-  `lyrics_variants` returns every row; which one is shown is decided outside SQL by
-  `lyrics_source::choices` (the usable rows) and `pick` (a source name, given
-  which sources are available and the user's choice): default order
-  `server > lrc > embedded > lrclib`, or `lrclib > server > lrc > embedded` when
-  the user prefers LRCLIB; rows whose text equals a higher-ranked one are dropped,
-  so an exported `.lrc` hides the LRCLIB copy it came from. `server` is never a
-  row: a server track's own lyrics are fetched on the fly by the app and ranked
-  where a local file's `lrc`/`embedded` would be (a server track has neither). Migration 10 drops and recreates `media_items_guard_user_data`, because
-  `ALTER TABLE … RENAME` refuses while a trigger names the dropped `lyrics`.
+- `resolve_album_artists` rebuilds `album_artists` and `albums.artist_known` with
+  `derive_album_artists` over each album's tracks in `(disc, track, path)` order: the
+  first album-artist tag wins; with none, identical credits on every track are kept
+  whole, else the one first credit that every track's first credit equals or continues
+  with a join marker; anything else is `artist_known = 0` with the first track's artists
+  as a placeholder.
+- Join markers: `/ & , ; + ( [`, a spaced dash, or a whole word such as feat, ft, with.
+  A bare space is no marker ("Queen" must not swallow "Queen Latifah"), nor is an
+  unspaced hyphen ("Jay-Z").
+- `set_album_artists` sets the same flag, and the result does not depend on insertion
+  order, so a scan and a point update agree. `known_album_artists_map` lists only
+  `artist_known` albums (otherwise the row is a placeholder). `listed_artist_for_credit`
+  applies the marker rule to send "Samurai feat. Refused" to the listed "Samurai"; a
+  compilation guest keeps their own page.
+- `artists`, `artist_album_covers` and `artist_search_haystacks` build CTEs: `m`, who is
+  listed (track-artist grouping: `track_artists`; album-artist grouping: per-track
+  album-artist tags, else `album_artists` of `artist_known` albums, else track artists),
+  and `u`, `m` plus every track credit. Only artists in `m` are listed, get avatars or
+  are searchable; counts, an artist's page and search words use `u`.
+- The listed set is `a.id IN (SELECT artist_id FROM m)`, built once: a correlated
+  `EXISTS` re-ran the union per artist and made the first load quadratic
+  (`artist_summary` runs once and keeps it).
 
-## Unavailable tracks
+## Playlists and likes
 
-`track_artists_map` falls back to the item snapshot's artist for ids that have
-no `track_artists` rows (i.e. unavailable ones), so a greyed playlist row still
-shows who it is. It binds every id through one JSON parameter (`json_each`)
-rather than one placeholder per id: callers pass the whole library, and SQLite
-caps bound parameters at 32766. `known_album_artists_map` (each album's
-credited artists in `position` order, for the app's guest column) binds its ids
-the same way; only albums with `artist_known = 1` are in it — for the others the
-`album_artists` row is a placeholder (the first track's artist), not who the
-album is by.
+- Likes have one source of truth: a hidden playlist (id in
+  `scan_meta.liked_playlist_id`, created at open if missing). `Track.liked` comes from
+  the `liked_track_ids` view; there is no `liked` column. `playlists()` and
+  `playlists_containing_track` leave it out and `rename_playlist` refuses it.
+- `add_tracks_to_playlist` appends in one transaction, in order, skipping tracks already
+  present and ids with no `media_items` row (a stale queue after a rescan), so one stale
+  entry cannot fail the batch; it returns the number inserted. Positions stay dense: the
+  UI addresses entries by index.
+- `tracks_for_playlist` (and `liked_tracks`) returns every entry joined through
+  `media_items`: one without a `tracks` row comes back with `available = false` and its
+  fields from the snapshot. Positions must line up with what the UI shows, or
+  `move_track_in_playlist` moves the wrong row.
+- `track_artists_map` and `track_albums_map` fall back to the snapshot for ids with no
+  catalog row. They and `known_album_artists_map` bind ids as one JSON parameter:
+  callers pass the whole library and SQLite caps parameters.
 
-## Artist lists
+## Lyrics
 
-`artists`, `artist_album_covers` and `artist_search_haystacks` (the Artists tab) build
-the grouping's memberships as CTEs — `m`, who is listed (for the album-artist grouping
-the three paths: per-track album-artist tags, `album_artists` of `artist_known` albums,
-track artists otherwise), and `u`, `m` plus every track credit — and keep the artists in
-`m` with `a.id IN (SELECT artist_id FROM m)`, a set SQLite builds once. The correlated
-`EXISTS (SELECT 1 FROM m WHERE m.artist_id = …)` they had re-ran the union per artist,
-and per membership row in the covers query, scanning the `artist_known` albums each
-time: the tab's first load grew quadratically — 3.8 s on 47k tracks and 2.2k artists
-(the covers 2.9 s), 0.3 s now, the same rows. `artist_summary` (one artist) keeps the
-`EXISTS`: it runs once there.
+- One row per source, `PRIMARY KEY (track_id, source)`: a `.lrc` sidecar, the embedded
+  tag and an LRCLIB result live side by side, a scan never overwrites fetched words and
+  the user can switch. A `not_found` row is the "looked up, nothing" marker.
+- `clear()` removes the disk rows (`lrc`, `embedded`) so a deleted `.lrc` disappears;
+  fetched rows and markers go only through `delete_lyrics_source` (the user turns LRCLIB
+  off), and an item kept alive only by them is swept by the next scan.
+- Which row shows is decided outside SQL (`lyrics_source::choices`, `pick`): default
+  order `server > lrc > embedded > lrclib` (`lrclib` first if the user prefers it), a
+  row whose text equals a higher-ranked one is dropped (an exported `.lrc` hides the
+  LRCLIB copy it came from). `server` is never a row: the app fetches a server track's
+  own lyrics live.
 
 ## Artist info cache
 
-`artist_info` (migration 12) is the app's artist index: one row per artist
-**name** with `facts` (JSON the app writes, opaque here), `photo` (original
-image bytes), `photo_pending` (the photo download failed; the app retries just
-that, `artists_pending_photo()`, which joins `artists` by name for the id the
-retry reads titles with, so a row whose artist left the catalog waits until
-it is back) and `fetched_at`. A row with `facts` NULL means
-"looked up, not found". Nothing here deletes it — not `clear()` /
-`CLEAR_CATALOG`, not the orphan cleanup — which is why it is keyed by name and
-has no foreign key. `artists_without_info()` lists the artists to look up: those
-without a row, and the not-found ones with a credited track (same three paths as
-`artist_titles`) whose `media_items.updated_at` is at or after the row's
-`fetched_at` — a track appeared, or an existing one's snapshot changed (title,
-first artist, album, duration, cover), since the lookup, so it may confirm now.
-Credits the snapshot does not hold — a second track artist, an album-artist tag
-added to existing tracks — do not bump it and do not trigger a retry; catching
-those would need per-row state (a migration) for a rare case. Found rows are
-final: their facts come from MusicBrainz, not from the library. `updated_at`
-works as the signal because it is written when an item is created and bumped
-only when its snapshot really changes (`REFRESH_ITEM_SNAPSHOTS` compares first),
-so a plain rescan leaves it alone; a cover change also bumps it and costs a
-not-found artist one extra lookup. Items dated in the future (`updated_at` past
-now: the clock was ahead during a scan, then corrected) are ignored until their
-time comes — otherwise each lookup would save a `fetched_at` still below them
-and the artist would be re-sent on every run for hours. The query is set-based
-(`missing` → `credited` → one `IN`), not a correlated `EXISTS` per artist:
-`album_artists` has no index on `artist_id`, and the per-artist form scanned it,
-or every track, once per not-found artist — 0.27 s with planner statistics and
-4.8 s without them on a synthetic 50k-track library with 2000 not-found rows,
-under the connection mutex on every scan and tag edit; this one takes ~25 ms
-either way.
-`fetched_at` is whatever the row carries (`ArtistInfoRow::fetched_at`), and the
-app passes `ArtistTitles::read_at` — the moment `artist_titles(id)` read the
-titles, not the save — so a track written by a scan while the lookup was talking
-to MusicBrainz still counts as newer. `>=` because both are whole seconds: a
-change in the same second as the read costs at most one extra lookup instead of
-being missed. `artist_titles(id)` gives the album titles (albums they head, have a
-track credit on, or a per-track album-artist tag on) and track titles (credited,
-tagged as the track's album artist, or on an album they head) the lookup
-confirms identity with.
+- `artist_info` is the app's artist index: one row per artist **name** with `facts`
+  (JSON the app writes, opaque here), `photo`, `photo_pending` and `fetched_at`; `facts`
+  NULL means "looked up, not found". Nothing deletes a row (not `clear()`, not the
+  orphan cleanup), hence the name key with no foreign key.
+- `artists_without_info()` lists artists without a row, and not-found ones with a
+  credited track (same three paths as `artist_titles`) whose `media_items.updated_at` is
+  at or after the row's `fetched_at`. Found rows are final. The query is set-based, not
+  a correlated `EXISTS` per artist: `album_artists` has no index on `artist_id`.
+- The app saves `fetched_at` = `ArtistTitles::read_at`, when `artist_titles(id)` read
+  the titles, so a track written while the lookup waited still counts as newer (`>=`:
+  both are whole seconds). Items dated in the future are ignored until their time, or
+  each lookup would save a `fetched_at` still below them.
 
-`tracks_for_playlist` (and so `liked_tracks`) returns every entry, joined
-through `media_items`: an entry without a `tracks` row comes back with
-`available = false`, its title/duration/cover from the item snapshot and its
-path from a binding. Returning every entry is deliberate — positions in
-`playlist_tracks` must line up with what the UI shows, or
-`move_track_in_playlist` would move the wrong row. Catalog reads (`all_tracks`,
-albums, artists) only ever see `tracks`, so unavailable items never appear there.
+## Listening history and the scrobble queue
 
-`refresh_item_snapshots` copies the current catalog values into the snapshot. It
-runs in `settle_derived_rows` **before** the orphan sweep: the sweep keeps any
-cover a snapshot still references, so refreshing afterwards would keep a replaced
-cover alive forever.
+- Tables (migration 8, rebuilt onto `media_items` by 9): `plays` (`track_id` →
+  `media_items` `ON DELETE SET NULL`; unique `(started_at, artist, title)`), `loves`,
+  `play_deliveries` / `love_deliveries` (`state` 0 pending / 1 sent / 2 dropped),
+  `target` = `scrobble::TargetId::key()` verbatim. They live in `library.db` so queries
+  can join the catalog; all writes go through `scrobble_conn`.
+- `record_play` upserts on `(started_at, artist, title)`: `played_secs` and `qualified`
+  only grow, and delivery rows (`INSERT OR IGNORE`) are written only for a qualified
+  play, so an early commit at a pause and the final one share a row and a
+  later-qualifying play gets its deliveries then. A play with no target configured is
+  still history.
+- `record_love` always inserts. No scrobble path deletes `plays` / `loves` rows.
+  `settle_plays` / `settle_loves` touch only `state = 0` rows (Deferred only bumps
+  attempts and the error), so a finished row is never reopened.
+- `trim_pending_deliveries(cap)` counts items (plays plus loves), not delivery rows,
+  over all targets, configured or not (rows would divide the cap by the number of
+  services), and drops the oldest plays' pending deliveries with `queue overflow`, then
+  loves'.
+- Both `track_id` columns need an index (`idx_plays_track`, `idx_loves_track`; a test
+  guards it): with foreign keys on, SQLite looks for children of every deleted parent,
+  so without one each swept item costs a full scan of the history inside the scan
+  transaction. The `media_items_guard_user_data` trigger aborts deleting an item that
+  `plays` / `loves` reference, so `SET NULL` is only a backstop.
 
-## Reading listening history
+### Reading listening history
 
-`plays` is written only through `record_play` (scrobble connection) and read
-through three queries on the main connection, used by `pawse::tools::ai_prompt`:
-
-- `play_tallies(since)` — plays grouped by artist / title / album,
-  case-insensitively, with total and qualified counts and the last play. Counts
-  every row, qualified or not.
-- `recent_plays(limit)` — raw rows, newest first.
-- `track_listings()` — one row per catalog track with its first artist, album,
-  album artist, year, like flag and play stats joined on `plays.track_id`
-  (the item id). Plays of tracks that left the catalog are only visible through
-  `play_tallies`.
-- `play_stats(ids)` — the same play count and last play, but only for the given
-  item ids (`idx_plays_track`); ids never played are absent from the map. Used by
-  `pawse::similar_tracks` for its candidate pool, so it does not load the whole
-  catalog the way `track_listings` does.
-
-`same_artist_track_ids(ids)` — every track credited, in any position, to the
-first artist (lowest `track_artists.position`) of one of the given tracks, the
-given tracks included; tracks without `track_artists` rows add nothing. Used by
-`pawse::similar_tracks` to keep an artist's own tracks out of one of its queries.
+`pawse::tools::ai_prompt` and `similar_tracks` read `plays` on `conn`. `play_tallies`
+counts every row, qualified or not; `track_listings` covers catalog tracks only, so
+plays of tracks that left the catalog show only in the tallies;
+`same_artist_track_ids(ids)` returns every track credited, in any position, to the first
+artist of one of the given tracks.
 
 ## Sound vectors (`track_embeddings`)
 
-One row per `(item_id, version)`: one analysis of a track — the `audio_embedding`
-vector (`DIM` f32 little-endian, packed with `to_le_bytes`, 5 KB per track, ~50 MB for
-10k tracks), the style classifier's scores (`styles`, 400 f32 the same way, 1.6 KB) and
-the `EMBEDDING_VERSION` that made them. Both columns are `NOT NULL` and come from the
-same run, so an analysed track always has both. Written by `pawse::similar_tracks`;
-this crate knows neither the model nor the dimensions. Nothing reads `styles` yet: it
-keeps the whole model output, so the genre rows below can be derived again without
-the GPU.
+One row per `(item_id, version)`: the `audio_embedding` vector (`DIM` f32
+little-endian), the style scores (`styles`, 400 f32) and the `EMBEDDING_VERSION` that
+made them, both `NOT NULL`. Written by `pawse::similar_tracks`; this crate knows neither
+the model nor the dimensions. Nothing reads `styles` yet: it keeps the whole model
+output so the genre rows can be derived again without the GPU.
 
-- Keyed by `media_items.id`, not `tracks`: the item survives rescans (the catalog row
-  is cleared and refilled), and one recording held by several sources is one item,
-  analysed once.
-- Derived data, so it is **not** in `media_items_guard_user_data` and the sweep does
-  not look at it: `ON DELETE CASCADE` drops the vectors of swept items. When a lost
-  item absorbs a spare one, the spare is deleted and its vector with it; the lost
-  item keeps the vector it had from before its file went missing, or gets one on the
-  next analysis pass.
-- No extra index: the primary key `(item_id, version)` answers "has this item a
-  vector" and the candidates' `NOT EXISTS`; the streaming read is a full pass, and
-  after `prune_embeddings` the table holds one version anyway.
-- No table of failures: a track that fails analysis is simply tried again next session.
+- Keyed by `media_items.id`, not `tracks`: the item survives rescans, and one recording
+  held by several sources is analysed once. Not in `media_items_guard_user_data`, and
+  the sweep ignores it: `ON DELETE CASCADE` drops the vectors of swept items.
+- `embedding_candidates(version)` lists catalog tracks without a row for `version`:
+  liked first, then by last play, then library order. `save_embeddings` is one
+  `BEGIN IMMEDIATE` transaction replacing the item's row and genre rows; an item a scan
+  swept meanwhile is skipped, so it cannot fail the batch.
+- `scan_embeddings` streams the vectors of items in the catalog only: those of items
+  that left it stay for when they return but would only take places in a fixed-size
+  top-N that nothing can play. Its callback runs under the connection lock and must not
+  call back into the embedding methods.
+- `prune_embeddings(keep_version)` deletes every other version and, if it deleted any,
+  the genre rows of items left without a vector; the app runs it when its analysis
+  thread starts.
 
 ### Genres by sound (`track_sound_genres`)
 
-`(item_id, genre, score)`, `WITHOUT ROWID`, primary key `(item_id, genre)`: the genres
-`pawse` derived from a track's style scores (`audio_embedding::styles::genres`: every
-genre scoring at least 0.05), saved in the same transaction as the vector. `genre` is a
-number the code owns (`audio_embedding::styles::genre_id`, the index of the style's first
-Discogs label); the names live in the code, not in a table, and the queries that need
-them get them from the caller (`SoundGenres::names`). It is a materialised view of the
-analysis:
+`(item_id, genre, score)`, `WITHOUT ROWID`, index `(genre, score)`: the genres the app
+derived from a track's style scores, saved in the same transaction as the vector.
+`genre` is a number the code owns (`audio_embedding::styles::genre_id`); names live in
+code and queries get them from the caller (`SoundGenres::names`).
 
-- Only numbers in a row — no version, key or name. The first layout repeated the
-  66-character version, the key and the name in the table, its primary key and a
-  `(version, key, score)` index: 2.8 KB a track (9 rows), 6.5 MB for 2.3k tracks and
-  131 MB for 47k, and every genre query read it scattered over the file. Now it is
-  0.8 MB and 18 MB, and the queries below read 5–9× fewer pages (measured on a copy of
-  a real library and on the same copy grown 20×, by tracing the reads).
 - No version, so no foreign key to `track_embeddings`: the rows belong to the one
-  version kept, which holds once `prune_embeddings` has run (the app runs it when its
-  analysis thread starts, before it needs a model). `save_embeddings` deletes the item's genre rows together with its
-  vector, `prune_embeddings` deletes the rows of every item left without a vector of
-  the kept version (only when it dropped vectors — otherwise there are none), and
-  `item_id → media_items` `ON DELETE CASCADE` takes them with a swept item, like the
-  vectors. Two binaries of different versions saving into one database at once could
-  leave one's genres under the other's vector — the "two versions running" case nothing
-  else supports either.
-- Kept apart from `genres` / `track_genres` on purpose: those are the tags. A scan and
-  the tag editor rewrite them and sweep `genres` rows nothing links to, and the tag
-  editor is prefilled from `album_genres`; genres by sound in there would be swept by
-  the next scan or written into the user's files.
-- Index `(genre, score)`, covering with the primary key's `item_id`: a genre page's
-  track ids and the Genres list's counts are range reads of it. Display thresholds are
-  query parameters, so changing them needs no re-analysis.
-
-All of it runs on its own connection (`embedding_conn`), like `plays` on the
-scrobble one: the analysis thread saves every few seconds for as long as a first
-pass takes, and a save that waits for a scan batch's write lock (up to the busy
-timeout) must not hold the main connection's mutex the UI reads through.
-
-Methods:
-
-- `embedding_candidates(version)` — catalog tracks without a row for `version`, most
-  wanted first: liked, then by the last play (newest first, from `plays`), then the
-  rest in the library's album order.
-- `save_embeddings(version, rows)` — `TrackAnalysis` rows (item, vector, styles,
-  `(genre, score)` pairs) in one `BEGIN IMMEDIATE` transaction: delete the item's row of
-  `version` and its genre rows, insert the analysis, then its genres. A row whose item disappeared meanwhile (a scan swept it) is skipped through
-  an `INSERT … SELECT … FROM media_items`, so it cannot fail the batch on the foreign
-  key, and gets no genres; the return value counts the rows written.
-- `embedding(item_id, version)` — one vector.
-- `embedding_coverage(version)` — `(catalog tracks with a vector of version, catalog
-  tracks)`, for the indexing dialog in Settings. A plain read on the main connection,
-  not `embedding_conn`: the analysis holds that one through `save_embeddings`, which
-  can wait out a scan's write lock, and the dialog would wait with it.
-- `scan_embeddings(version, chunk, f)` — every vector of `version` whose item is in
-  the catalog (`JOIN tracks`) in chunks of `chunk` rows, handed to `f` as reused
-  buffers (ids + a flat `chunk × dim` matrix). Vectors of items that dropped out of
-  the catalog (an offline folder or server, a lost file) stay in the table for when
-  they come back, but a query never sees them: they would only take places in a
-  fixed-size top-N that nothing can play;
-  the BLOB is read through `get_ref` without a `Vec` per row. Rows whose length
-  differs from the first one are skipped with a warning. `f` runs while the embedding
-  connection is locked: it must not call back into the embedding methods.
-- `prune_embeddings(keep_version)` — deletes every other version (a model or
-  front-end change) and then the genre rows of the items left without a vector; the
-  next pass recomputes.
-
-Genres by sound in the library queries (`SoundGenres { names, min_score, min_tracks }`,
-`names` being every `(genre, name)` the code knows; `None` keeps the tag-only SQL exactly
-as it was). The tags and the genres by sound meet by `key` (`name.to_lowercase()`, the
-rule of `genres.key`), so `genres` and `genre_album_covers` bind `names` as one JSON
-parameter, `[[genre, key, name], …]` read with `json_each` (as the id lists under
-"Unavailable tracks"), and SQLite walks it genre by genre into the `(genre, score)`
-index.
-
-- `genres(sound)` — one row per `key` over the union of the tag links and the
-  genre rows with `score >= min_score` on catalog tracks; `track_count`
-  counts distinct tracks (a track tagged and heard as the same genre counts once), the
-  name is the tag's spelling when there is one. A genre no tag links to is listed when
-  it has at least `min_tracks` tracks; a tag genre is listed however few. One order by
-  key for all of them: nothing in the row says where it came from (see `pawse`'s
-  `similar_tracks/doc.md`, "Genres by sound", for why). "On catalog tracks" is
-  `s.item_id IN (SELECT +id FROM tracks)`: the `+` makes SQLite build the set from a
-  scan of a `tracks` index instead of one rowid lookup in `tracks` per genre row — the
-  same rows, a third of the pages on 47k tracks (926 instead of 2783), which is what a
-  cold start pays on a hard disk.
-- `genre_album_covers(sound)` — the same union, three covers per key as before.
-- `tracks_by_genre(key, sort, desc, sound)` — tracks tagged with `key` or heard as it
-  above `min_score`, in the same orders. `key` is looked up in `names` here; a key no
-  genre by sound has runs the tag-only query.
-- `album_sound_genres(version, min_score, per_album, album_id)` — per album, the genre
-  numbers (the app names them) whose sum of scores over the album's analysed tracks
-  (vectors of `version`), divided by the number of those tracks, reaches `min_score` (a
-  track without a row for a genre counts as 0), best first, at most `per_album`; one
-  album or all. The query starts from the albums' tracks and reads each track's rows by
-  the primary key, one contiguous range: ~0 ms for one album, ~8 ms for every album of
-  2.3k tracks, ~140 ms for 47k.
+  version kept, which holds once `prune_embeddings` has run. `item_id → media_items`
+  cascades.
+- Kept apart from `genres` / `track_genres`, which are the tags: a scan and the tag
+  editor rewrite and sweep those, and the tag editor is prefilled from `album_genres`,
+  so genres by sound there would be swept or written into the user's files.
+- Display thresholds are query parameters (`SoundGenres`; `None` keeps the tag-only
+  SQL), so changing them needs no re-analysis. Tags and genres by sound meet by `key`.
+  Why the app shows them as it does: `pawse/src/similar_tracks/doc.md`, "Genres by
+  sound".
+- `genres(sound)` is one row per `key` over the union of tag links and genre rows with
+  `score >= min_score` on catalog tracks (`s.item_id IN (SELECT +id FROM tracks)`: the
+  `+` makes SQLite scan a `tracks` index instead of one rowid lookup per genre row). A
+  genre no tag links to is listed at `min_tracks` tracks or more, a tag genre however
+  few; one order, by key, since nothing in the row says where it came from.
 
 ## Migrations
 
-There are users: schema changes are versioned steps in `MIGRATIONS`, never a
-wipe. `run_migrations`:
+There are real users: a schema change is a new versioned step in `MIGRATIONS` (bump
+`user_version`), never a wipe. Re-deriving track data from files is
+`INDEXER_FORMAT_VERSION`'s job, not a migration's.
 
-- backs the database up before crossing `IDENTITY_MIGRATION` (9), once:
-  `VACUUM INTO <db>.bak-v<old>.partial`, then an atomic rename to
-  `<db>.bak-v<old>`. An existing `.bak-v<old>` is kept; a leftover `.partial`
-  (crash mid-backup) is never trusted and gets rewritten;
-- turns `foreign_keys` **off** for the migration transaction. This is required,
-  not a shortcut: migration 9 rebuilds tables (`CREATE x_new`, copy, `DROP x`,
-  `RENAME`), and with foreign keys on, `DROP TABLE tracks` would cascade into
-  every child that references `tracks` by name — including the freshly copied
-  new tables. The pragma cannot change inside a transaction, so it is set before
-  `BEGIN` and restored after;
-- counts `pragma_foreign_key_check` rows before and after the steps and rolls
-  back only if the migration **added** violations. Pre-existing junk in someone's
-  catalog (a dangling `track_artists` row) must not turn every launch into a
-  failed open.
+- The probe in `SqliteLibrary::open` that deletes a database lacking old-schema
+  artifacts runs only while `user_version == 0`; above that the migrations own the
+  schema, and the history, unlike tracks, cannot be rebuilt by rescanning.
+- `run_migrations` backs the database up before crossing `IDENTITY_MIGRATION` (9) from a
+  version above 0, once: `VACUUM INTO <db>.bak-v<old>.partial`, then an atomic rename to
+  `<db>.bak-v<old>`. An existing `.bak-v<old>` is kept; a leftover `.partial` (crash
+  mid-backup) is never trusted and is rewritten. A fresh database gets no backup.
+- Pending steps run in one transaction with `foreign_keys` **off**: migration 9 rebuilds
+  tables (`CREATE x_new`, copy, `DROP x`, `RENAME`), and with foreign keys on
+  `DROP TABLE tracks` would cascade into every child that references `tracks` by name,
+  including the freshly copied tables. The pragma cannot change inside a transaction, so
+  it is set around it.
+- `pragma_foreign_key_check` rows are counted before and after; it rolls back only if
+  the migration **added** violations, so pre-existing junk cannot fail every launch.
+- Migration 9 keeps ids one-to-one (`media_items.id := tracks.id`), so user rows are
+  copied as-is and checked by counts and sums; child tables that reference a rebuilt
+  parent only by name are not rebuilt. `seed_liked_playlist_from_column` runs first and
+  builds the hidden liked playlist for databases that predate it.
+- A migration that rebuilds a table named by `media_items_guard_user_data`
+  (`playlist_tracks`, `lyrics`, `plays`, `loves`) must drop and recreate the trigger
+  around it, as 10 does: `ALTER TABLE … RENAME` refuses while a trigger names the
+  dropped table.
 
-Migration 12 adds what the release after 0.8.7 adds: `artist_info` (see "Artist info
-cache"), `track_embeddings` with its `styles` column (see "Sound vectors") and
-`track_sound_genres`. They were three steps during development (12–14), folded into
-one before the release; a development database that ran them is reset to 11 by
-dropping the three tables — all three hold derived rows, which come back as the
-artist lookups and the analysis run again.
+## Invariants
 
-Everything this release adds to the schema — identity, sources, bindings,
-adoptions, `remote_tracks` — is one step, migration 9: a user upgrades once,
-from 8. A development database that ran the earlier split steps (up to 12)
-has the same schema; set its `user_version` back to 9, or it would skip the
-next step.
+- **Nothing user-side is lost to a scan.** `clear()` never touches user tables, and the
+  `media_items_guard_user_data` trigger makes it structural: deleting an item referenced
+  by `playlist_tracks`, network lyrics, `plays` or `loves` aborts.
+  `SWEEP_UNREFERENCED_ITEMS` mirrors the trigger's conditions exactly; if they ever
+  diverge, the sweep aborts the scan's last transaction instead of deleting user data.
+- **Ids are stable across rescans and never reused.** `media_items.id` is
+  `AUTOINCREMENT`: without it SQLite hands out `max(rowid) + 1`, so sweeping the newest
+  item would give its id to the next new track, and anything holding the old id (the web
+  remote before its refetch, a persisted queue) would show a different song.
 
-Migration 9 keeps ids one-to-one (`media_items.id := tracks.id`), so user rows
-are copied as-is and can be verified by counts and sums. Child tables that
-reference a rebuilt parent only by name (`track_artists`, `play_deliveries`, …)
-are not rebuilt: after the rename they resolve to the new parent. Before the SQL
-runs, `seed_liked_playlist_from_column` covers databases old enough to have no
-hidden liked playlist, since the `liked` column they depend on is dropped.
+## Decisions
+
+Owner's calls; ask before changing.
+
+- The catalog is cleared and refilled by every scan, not diffed; ids and user data
+  survive through the identity layer.
+- User tables keep the column name `track_id` though it holds `media_items.id`: renaming
+  would touch every query for no gain.
+- Two items that are both alive and missed each other are never merged automatically;
+  that is for a manual screen.
+- Artist names match case-insensitively, album titles exactly: tags differ in case far
+  more often than two real artists do.
+- Not-found artists are retried only when the item snapshot's `updated_at` moves;
+  credits the snapshot does not hold (a second track artist, an album-artist tag added
+  to existing tracks) trigger nothing: catching them would need per-row state and a
+  migration.
+- No table for failed analyses and no persisted state beyond the rows above.
+- No compilation or Various Artists flag and no feat.-splitting of artist names; album
+  artists come from the tag, else the shared-primary inference in `album_artists.rs`,
+  whose marker list is closed: ask before extending name-based rules.
+
+

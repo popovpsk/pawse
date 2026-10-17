@@ -1,148 +1,107 @@
 # dlna
 
-A blocking client for UPnP/DLNA media servers (MiniDLNA/ReadyMedia, NAS and
-router media servers, Plex and Jellyfin in DLNA mode, Serviio, Gerbera, the
-Windows media-streaming service) and for media renderers (TVs, receivers,
-gmrender). It knows nothing about the library database;
-`pawse::servers::dlna` turns its `Item`s into `music_library::RemoteSong`s, and
-`cast` drives renderers through `Renderer`.
-Blocking `ureq` and plain UDP sockets on the caller's thread — no async runtime.
+A blocking client for UPnP/DLNA media servers (SSDP discovery, ContentDirectory listing, media
+bytes) and for media renderers (AVTransport / RenderingControl / ConnectionManager control,
+discovery, announcements). It knows nothing about the library database. Blocking `ureq` and
+plain UDP sockets.
+
+Not here: `Item` → `RemoteSong`, bitrate and extension rules, the Sync button
+(`pawse/src/servers/doc.md`, "DLNA"); what a cast session does with a `Renderer`
+(`cast/src/doc.md`); status classification, ranges and `read_capped` (`server_http/src/doc.md`).
 
 ## Files
 
-- `lib.rs` — `Client`, `Config`, `Device`, `Error`, `describe` (an address typed
-  by the user → `Device`), `discover` (SSDP → `Device`s), the listing (search,
-  browse, paging, de-duplication), ranges and covers.
-- `ssdp.rs` — M-SEARCH over every IPv4 interface (and to given hosts),
-  reply parsing, `NotifyListener` (announcements on port 1900).
-- `device.rs` — the device description: the device that carries a
-  ContentDirectory service (or, for a renderer, an AVTransport service with
-  RenderingControl and ConnectionManager next to it), its UDN, name, model and
-  control URLs.
-- `renderer.rs` — `Renderer` (AVTransport, RenderingControl,
-  ConnectionManager actions), `discover_renderers`, `track_didl` (the
-  DIDL-Lite metadata sent with `SetAVTransportURI`).
-- `soap.rs` — the SOAP envelope, out-arguments and UPnP faults.
-- `didl.rs` — DIDL-Lite → `Item`/`Res`, `Item::pick`, `parse_duration`.
+- `lib.rs` — `Client`, `Config`, `Device`, `Error`, `describe` (an address typed by the user →
+  `Device`), `discover` (SSDP → servers), the listing, ranges and covers.
+- `ssdp.rs` — M-SEARCH over every IPv4 interface (and to given hosts), reply parsing,
+  `NotifyListener` (announcements on port 1900).
+- `device.rs` — the description: the device carrying a ContentDirectory (for a renderer:
+  AVTransport, with RenderingControl and ConnectionManager beside it), UDN, name, control URLs.
+- `renderer.rs` — `Renderer`, `discover_renderers`, `describe_renderer`, `track_didl` (the
+  DIDL-Lite sent with `SetAVTransportURI`).
+- `soap.rs` — the SOAP envelope, out-arguments, UPnP faults.
+- `didl.rs` — DIDL-Lite → `Item` / `Res`, `Item::pick`, `parse_duration`.
 - `address.rs` — keys relative to the server's address, and back to URLs.
 - `xml.rs` — `roxmltree` helpers matching elements by local name.
-- `tests.rs` — a `TcpListener` stub server: description, SOAP and media;
-  `captured` checks responses saved from real servers (`testdata/<server>/`,
-  one `#[case]` per server).
+- `tests.rs` — a `TcpListener` stub server (description, SOAP, media); `captured` checks
+  responses saved from real servers in `testdata/<server>/`, one `#[case]` per server.
 
-## Behaviour worth knowing
+## A server is its UDN
 
-- **A server is its UDN, not its address.** `Config` keeps the UDN and the last
-  known description URL. `ping` always re-reads the description; when it does
-  not answer, or answers with another UDN, an SSDP search for that UDN (3 s)
-  finds where the server moved (a NAS or a router that got a new address from
-  DHCP, a server that picks a new port on restart). `Client::location` is where
-  it answers now; the app saves it after a sync (`ServerClient::moved`), so the
-  next start does not begin at a dead address — and a server whose multicast is
-  later filtered still starts from where it was last seen.
-  Any transport failure or 5xx drops the resolved endpoint, so the next request
-  resolves again.
-- **Keys are media paths plus the file size, not object ids.** A song's key
-  (`Res::id`) is the URL of the chosen `res` without scheme and host —
-  `/MediaItems/12.flac`, or `:10243/WMPNSSv4/…` when the media is served on
-  another port of the same host (the Windows service), or the whole URL when it
-  is on another host — followed by `#<size>`. So a key survives an address
-  change. The size is there because MiniDLNA *reuses* its numbers: after files
-  are added or removed and it rescans, `/MediaItems/455.flac` names another
-  song, and a plain path key would make the library refresh the old track's
-  tags in place — its likes, plays and playlist entries silently moving to a
-  different song. With the size a reused address is a new key: the old song is
-  gone, the new one is adopted by size (see `music_library`'s adoption). The
-  `#…` part is never requested (`address::path` strips it). Covers
-  (`Item::cover_id`) carry their track's size for the same reason: MiniDLNA's
-  `/AlbumArt/1-455.jpg` is numbered like the media.
-- **Listing.** `Search(upnp:class derivedfrom "object.item.audioItem")` from
-  the root when `GetSearchCapabilities` lists `upnp:class` (or `*`). Anything
-  else — no search, a UPnP error on any page, an empty result — falls back to a
-  breadth-first `Browse` of the whole tree, each container once. Items are kept
-  once per chosen media key: the same file shows up under folders, artists,
-  albums and genres. Paging follows `NumberReturned` (the entry count when a
-  server omits it) until an empty page or `TotalMatches`. A page that brings no
-  new entry means the server ignores `StartingIndex` and is an error. A
-  transport failure on any page fails the whole listing: a partial listing
-  would retire every song past the failure.
-- **Genres.** An item may carry several `upnp:genre` elements; `Item::genres`
-  keeps them all, and the app's adapter joins them into the one genre string it
-  hands the library.
-- **Which `res`.** Only `http-get` resources; raw PCM (`audio/L16`, …) never,
-  the decoder cannot read it without a container. The first one that is not a
-  transcode (`DLNA.ORG_CI=1`) wins; without one, the first transcode.
-- **Namespaces.** Servers use `dlna:`/`sec:`/`pv:` prefixes without declaring
-  them; `roxmltree` rejects that, so a DIDL that does not parse is parsed again
-  with the usual namespaces declared on its root.
-- **Discovery** sends two M-SEARCHes for ContentDirectory:1 and MediaServer:1 on
-  every non-loopback IPv4 interface (`IP_MULTICAST_IF` per socket, so a VPN or a
-  second network card does not swallow them) and describes each replying
-  location with a 3 s timeout. Devices without a ContentDirectory are dropped.
-  `search` can also send the same requests to `<host>:1900` of given hosts
-  (with `HOST: 239.255.255.250:1900` and `MX`, which Platinum-based devices
-  require); gmrender answers those, MiniDLNA does not.
-- **Announcements.** `NotifyListener` binds `0.0.0.0:1900` with
-  `SO_REUSEADDR` (and `SO_REUSEPORT` on unix) and joins 239.255.255.250 on
-  every IPv4 interface, skipping one that fails; it fails only when none
-  joined. `next` returns `ssdp:alive` (and `ssdp:update`), which must carry a
-  `LOCATION`, and `ssdp:byebye`, with the UDN from `USN`, the NT and the
-  sender's address.
-- **Addresses typed by hand** may be a full description URL or just
-  `host:port`; the latter tries `/rootDesc.xml`, `/description.xml` and
-  `/DeviceDescription.xml`.
-- **Ranges** ask the media URL with `Range` and `getcontentFeatures.dlna.org: 1`
-  (some servers refuse media requests without it); a `200` means the server
-  ignored the range. MiniDLNA answers `416` to a range whose end lies past the
-  file instead of clamping it — and `media_stream` asks for 4 MB at a time, so
-  every file under 4 MB would fail — so a `416` is asked again open-ended
-  (`bytes=start-`) and the body is cut to the length first asked for. Covers
-  are capped at 32 MB, SOAP bodies at 64 MB.
-- **Re-finding backs off.** A search for the UDN that finds nothing is not
-  repeated for 30 s by requests (`media_stream` retries would otherwise wait
-  3 s each); `ping` — sync and the offline watcher — always searches.
-- **MiniDLNA quirks seen live** (1.3.3 from Homebrew): `Search` fails with
-  708 (its own SQL uses a double-quoted string the bundled SQLite rejects), so
-  the listing browses; `bitrate` is bits per second, not bytes; requests
-  through `localhost` get `400` (it only answers on the LAN address); `.opus`
-  is not indexed; a folder shared as audio lists videos as `audio/mp4`; Ogg
-  files are served as `/MediaItems/N.dat` (the extension comes from the MIME
-  type). `testdata/minidlna/` holds real responses. MiniDLNA 1.3.3 on Debian
-  (`testdata/minidlna-pi/`) searches fine.
-- **CUE images come through whole.** MiniDLNA neither reads `.cue` sheets nor
-  serves them, so an album ripped as one FLAC + CUE is listed as one hour-long
-  item titled after the file, without artist or album. Nothing on the DLNA side
-  can split it; only a cuesheet embedded in the FLAC could be read from its
-  head, and the images seen so far keep theirs outside.
+- `Config` keeps the UDN and the last known description URL. `ping` always re-reads the
+  description; when it does not answer, or another UDN does, an SSDP search for that UDN (3 s)
+  finds where the server moved (new DHCP address, new port after a restart).
+- `Client::location` is where it answers now. The app saves it after a sync
+  (`ServerClient::moved`), so the next start does not begin at a dead address and a server whose
+  multicast is later filtered still starts from where it was last seen.
+- Any transport failure or 5xx drops the resolved endpoint; the next request resolves again.
+- A UDN search that found nothing is not repeated for 30 s by ordinary requests (`media_stream`
+  retries would each wait 3 s); `ping` (sync, the offline watcher) always searches.
+
+## Keys
+
+- A song's key (`Res::id`) is the chosen `res` URL without scheme and host (`/MediaItems/12.flac`;
+  `:10243/WMPNSSv4/…` for another port of the same host; the whole URL for another host) plus
+  `#<size>`. It survives an address change.
+- The size is in the key because MiniDLNA reuses its numbers: after a rescan
+  `/MediaItems/455.flac` names another song, and a plain path key would refresh the old track's
+  tags in place, moving its likes, plays and playlist entries onto a different song. With the size
+  a reused address is a new key; the new song is adopted by size (`music_library`'s adoption).
+- The `#…` part is never requested (`address::path` strips it). Covers (`Item::cover_id`) carry
+  their track's size for the same reason: `/AlbumArt/1-455.jpg` is numbered like the media.
+
+## Listing
+
+- `Search(upnp:class derivedfrom "object.item.audioItem")` from the root when
+  `GetSearchCapabilities` lists `upnp:class` (or `*`). Anything else (no search, a UPnP error on
+  any page, an empty result) falls back to a breadth-first `Browse` of the whole tree, each
+  container once.
+- Items are kept once per chosen media key: the same file shows up under folders, artists, albums
+  and genres.
+- Paging follows `NumberReturned` (the entry count when omitted) until an empty page or
+  `TotalMatches`. A page that brings no new entry means the server ignores `StartingIndex`: an
+  error.
+- A transport failure or an unparseable page fails the whole listing: a partial one would retire
+  every song past the failure.
+- Which `res`: only `http-get`; never raw PCM (`audio/L16`, … — the decoder cannot read it without
+  a container) and never `image/`, `video/` or `text/` resources. The first non-transcode
+  (`DLNA.ORG_CI=1`) wins, else the first transcode; an item with none is left out.
+- Servers use `dlna:` / `sec:` / `pv:` prefixes without declaring them, which `roxmltree`
+  rejects: a DIDL that does not parse is parsed again with the usual namespaces declared on its
+  root.
+- CUE images are not split: MiniDLNA neither reads `.cue` sheets nor serves them, so a FLAC + CUE
+  album is one hour-long item titled after the file, without artist or album.
+
+## Media bytes
+
+- Ranges ask the media URL with `Range` and `getcontentFeatures.dlna.org: 1` (some servers refuse
+  media requests without it); a `200` means the range was ignored.
+- A `416` on a bounded range is asked again open-ended (`bytes=start-`) and the body is cut to the
+  length first asked for: MiniDLNA answers `416` to a range whose end lies past the file instead
+  of clamping, and `media_stream` asks for up to 4 MB, so every smaller file would fail.
+- Covers are capped at 32 MB, SOAP and description bodies at 64 MB.
+- A SOAP fault is read before the HTTP status.
+
+## Discovery and announcements
+
+- `discover` sends M-SEARCH for ContentDirectory:1 and MediaServer:1 on every non-loopback IPv4
+  interface (`IP_MULTICAST_IF` per socket, so a VPN or a second network card does not swallow
+  them) and describes each replying location with a 3 s timeout. Devices are de-duplicated by
+  UDN; those without a ContentDirectory are dropped.
+- `search` can also send the requests unicast to `<host>:1900` of given hosts (renderer discovery
+  uses it). They keep the multicast `HOST` and `MX`, which Platinum-based devices require.
+- `NotifyListener::open` fails only when no interface joined the group. `next` returns
+  `ssdp:alive` / `ssdp:update` (they must carry a `LOCATION`) and `ssdp:byebye`, with the UDN from
+  `USN`, the NT and the sender's address.
 
 ## Renderers
 
-- `discover_renderers` searches for `AVTransport:1` and `MediaRenderer:1`
-  (also unicast to the hosts it is given) and keeps devices whose
-  description has an AVTransport service. `describe_renderer` reads one
-  description URL (`cast` checks a renderer is still there with it). A
-  renderer is addressed by its description URL only; `cast` keeps the list
-  by UDN and follows a renderer that moved.
-- SOAP calls to a renderer time out after 5 s (descriptions after 3 s); the
-  server agent's 60 s would freeze a session on a TV that went to sleep.
-- `Seek` uses `REL_TIME` with whole seconds (`H:MM:SS`), the form every
-  renderer accepts. `GetPositionInfo` times may carry fractions or be
-  `NOT_IMPLEMENTED` (unknown).
-- `GetProtocolInfo`'s `Sink` is the list of formats the renderer takes; it is
-  what `cast` uses to choose between the original file and PCM.
-- `mute`/`set_mute` and `volume`/`set_volume` are RenderingControl's Master
-  channel; `cast` uses them to keep a mid-track start silent. `GetMute`
-  values are `0`/`1` or `false`/`true`.
-- Renderers tested live:
-  - gmrender-resurrect 0.3 on the Pi (GStreamer): positions in whole seconds,
-    STOPPED (position 0) at the end of a track, a Seek while STOPPED is
-    accepted and ignored.
-  - HiBy R1 ("HiBy MediaRender 0.0.1", the same control URLs as gmrender):
-    whole seconds; paused with its own button it keeps answering PLAYING with
-    a frozen position and sends no event; it starts playing as soon as
-    `SetAVTransportURI` arrives, without a Play; `GetMute` faults (it asks for
-    `CurrentMute` as an input); `SetNextAVTransportURI` is accepted but the
-    next track is never fetched; its next/previous buttons change nothing a
-    controller can see; at the end of a track it answers PLAYING 0:00 for a
-    moment, then STOPPED. Events arrive only for its own transitions (STOPPED,
-    TRANSITIONING, PLAYING), never for its pause button.
+- `discover_renderers` searches `AVTransport:1` and `MediaRenderer:1` (also unicast to the hosts it
+  is given) and keeps devices whose description has an AVTransport service. A renderer is
+  addressed by its description URL only.
+- SOAP calls to a renderer time out after 5 s (descriptions after 3 s); the server agent's 60 s
+  would freeze a session on a TV that went to sleep.
+- `Seek` uses `REL_TIME` with whole seconds (`H:MM:SS`), the form every renderer accepts.
+  `GetPositionInfo` times may carry fractions or be `NOT_IMPLEMENTED` (unknown).
+- `sink_protocols` is `GetProtocolInfo`'s `Sink` list. Volume and mute are RenderingControl's
+  Master channel; `GetMute` answers `0` / `1` or `false` / `true`.

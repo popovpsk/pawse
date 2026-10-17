@@ -1,110 +1,81 @@
 # media_stream
 
-Progressive download of one remote file into a sparse local file, with readers
-that can start before the download ends. It is the streaming path and the cache
-at the same time: a file read to the end is renamed into place and is a cache
-hit from then on. It knows nothing about servers or audio — `RangeFetch` is the
-only thing a source implements (`pawse::remote_media::http::ServerFetch`, for
-every server that serves byte ranges).
+Progressive download of one remote file into a sparse local file, with readers that start before
+it ends. It is the streaming path and the cache entry at once: a file read to the end is renamed
+to its destination and is a cache hit from then on. `RangeReader` is the other mode, a
+`Read + Seek` that fetches only the blocks it is asked for and writes no file. A source implements
+only `RangeFetch` (`fetch(start, end)`: `end` exclusive, `None` = to the end; `Fetched` says where
+the body starts, the total if known, and whether the server honoured the range); the crate knows
+nothing about servers or audio.
+
+Not here: cache layout, limit and trimming, the one `RangeFetch` implementation
+(`pawse/src/remote_media/doc.md`); the HTTP range requests (`server_http/src/doc.md`); the sound
+analysis that uses `RangeReader` (`pawse/src/similar_tracks/doc.md`).
 
 ## Files
 
-- `lib.rs` — `Downloads` (registry), `Download` (handle), `StreamReader`
-  (`Read + Seek`), `AbortHandle`, the worker.
-- `ranges.rs` — `RangeReader`: reading parts of a file by ranges, without a
-  download (below).
-- `tests.rs` — an in-memory `RangeFetch` with throttling, dropped connections,
-  retries and a server that ignores ranges.
+- `lib.rs` — `RangeFetch`, `Downloads` (registry), `Download` (handle), `StreamReader`
+  (`Read + Seek`), `AbortHandle`, the worker (one `media-stream` thread per download).
+- `ranges.rs` — `RangeReader`, `RangeError`, `ReadFailure`, `StopCheck`.
+- `tests.rs` — an in-memory `RangeFetch` that throttles, cuts connections, answers `Retry` /
+  `Fatal`, ignores ranges or hides the length.
 
-## Behaviour worth knowing
+## Download
 
-- **One download per file.** `Downloads::start` joins a running (or finished)
-  download of the same destination instead of starting a second one, so the
-  prefetch of the next track and its playback share bytes.
-- **Interest.** Every `Download` and `StreamReader` counts. When the last one is
-  dropped before the file is complete, the worker stops and deletes its
-  `.partial`. A file that is already complete is kept even if every reader left
-  first — completion is checked before interest.
-- **Where to fetch next.** The first missing byte at or after the reader's
-  position; once everything after it is present, the holes before it. A reader
-  that jumps far outside what is downloaded (more than 1 MB past the byte being
-  received) makes the worker drop the connection and restart there — this is
-  what makes a seek in a large FLAC fast.
-- **Requests are 4 MB ranges.** Each request is short, so cancellation, seeks
-  and stalls are noticed quickly, and the source's per-request timeout bounds a
-  hung connection. Bytes received before a failure are kept; only the rest is
-  retried.
-- **Servers that ignore Range** (`Fetched::ranged == false`) are read once from
-  the start to the end.
-- **Unknown length** (no `Content-Length`/`Content-Range` total) ends where the
-  body ends.
-- **Retries.** `FetchError::Retry` backs off 0.25 s … 4 s, six times in a row
-  without progress, then the download fails and every reader gets the error.
-  Any progress resets the count. Until the first byte arrives only two retries
-  are made (under a second): a server that refuses the very first request is
-  down, and the user is waiting on a click. `FetchError::Fatal` fails at once.
-  A failed or cancelled download has already deleted its `.partial`, so
-  `Download::reader` checks the outcome first and returns that error; opening the
-  file would give a bare "No such file or directory" instead of the server's reason
-  whenever the worker failed before the caller asked (a fast 404 when opening a
-  server track; also what made the fatal-error test flaky on CI).
-  `AbortHandle::failure` gives the reason to whoever holds the handle, since a
-  decoder probing the format may hide the read error behind its own.
-- **Partial names** carry the process id and a counter
-  (`<dest>.<pid>-<n>.partial`), so a cancelled download that is still deleting
-  its file never races a new one for the same destination.
-- **A reader can be told to stop waiting.** `give_up_waiting_when` takes a
-  check that a waiting read polls; when it says a newer request is queued, the
-  read fails instead of waiting for missing bytes. Bytes that are already there
-  are still read, so the check never breaks a read that would not wait.
-- **Readers never return `Interrupted`.** An aborted reader returns a plain
-  error; `Interrupted` would make `read_exact` and Symphonia retry forever.
+- One download per destination: `Downloads::start` joins a running download that still has
+  interest, or a finished one whose file exists, so the prefetch of the next track and its
+  playback share bytes.
+- Every `Download` (clones too) and `StreamReader` is interest. When the last is dropped before
+  the file is complete, the worker stops and deletes its `.partial`. Completion is checked before
+  interest: a complete file is kept even if every reader left first.
+- The worker fetches the first missing byte at or after the reader's position (every read and
+  seek reports it), then the holes before it. A reader waiting for a byte that lies behind the
+  byte being received, or 1 MB or more ahead, makes the worker drop the connection and restart
+  there — this makes a seek in a large FLAC fast.
+- Requests are at most 4 MB, so cancellation, seeks and stalls are noticed quickly and the
+  source's per-request timeout bounds a hung connection.
+- A server that ignores Range (`ranged == false`) is read once, from byte 0 to the end; a retry
+  restarts at byte 0 and only new bytes count as progress, so a connection that keeps dropping at
+  the same byte fails. An unknown length ends where the body ends; a seek from the end waits for it.
+- `Retry` backs off 0.25 s doubling to 4 s, six times in a row without progress. Until the first
+  byte arrives only two retries (under a second): a server that refuses the very first request is
+  down and the user is waiting on a click. `Fatal` fails at once.
+- A failed download has already deleted its `.partial`, so `Download::reader` returns the outcome
+  first; opening the file would give a bare "No such file" instead of the server's reason.
+  `AbortHandle::failure` gives the reason to whoever holds the handle, since a decoder probing
+  the format may hide the read error behind its own.
+- Partial names carry the process id and a counter, so a cancelled download still deleting its
+  file never races a new one for the same destination.
+- `on_complete` runs on the worker thread, only after the rename to `dest`; if the rename fails
+  the `.partial` stays and `on_complete` is not called.
 
-## Reading parts of a file (`RangeReader`)
+## Readers
 
-The sound analysis (`pawse::similar_tracks::fetch`) needs only ~32 two-second
-windows of a server track plus whatever Symphonia reads to find them, so
-`RangeReader` is a `Read + Seek` that fetches only the bytes it is asked for: no
-file on disk, no worker thread, no `Downloads` entry — a missing block is
-requested on the reading thread.
+- `give_up_waiting_when` takes a check that a waiting read polls; when it says a newer request is
+  queued, the read fails instead of waiting. Bytes already present are still read, so the check
+  never breaks a read that would not wait.
+- Readers never return `Interrupted`: `read_exact` and Symphonia would retry it forever.
 
-- **Blocks of 32 KB.** A read of a missing block asks for that one block; a read
-  of the block right after the last request doubles the request (64 KB, 128 KB, …
-  up to 4 MB), so a sequential decode (a lossy track, decoded whole) costs a few
-  large requests and a seek costs one small one (a short lossless track that
-  `audio_embedding` decodes whole). Symphonia's FLAC seek is a binary
-  search over bytes with 6–11 small reads, which is why the blocks start small:
-  with 32 KB the analysis of a 3–5 minute CD track reads ~45% of the file in
-  ~280 requests, with 256 KB blocks ~75%, with 1 MB all of it (measured on 40
-  music-test FLACs, `windows` path).
-- **Cache.** The last 8 MB of blocks stay in memory, oldest out first; a pass
-  over one track re-reads almost nothing (the same 40 files: no difference
-  between 8 MB and unlimited).
-- **Opening** asks for the first block and needs a `206` from byte 0 with the
-  total length: a server that ignores ranges or hides the length is
-  `RangeError::Unsupported`, and the caller downloads the file whole instead.
-  Later answers must stay ranged, start where asked and keep the length
-  ("the file changed on the server" otherwise).
-- **Retries** follow the download's rules: `FetchError::Retry` backs off 0.25 s …
-  4 s, six times without progress (two when opening), `Fatal` fails at once;
-  bytes up to the last whole block of a broken answer are kept, and an answer that
-  brought at least one block is followed at once by a request for the rest.
-- **A failure is final.** Once a request has failed, every later read fails with
-  the same message without asking the server again: Symphonia and
-  `audio_embedding` answer a read error by trying another way (the windows path
-  falls back to a full decode of the same stream), and each of those reads would
-  otherwise wait out six more retries.
-- **Stopping.** A `StopCheck` is polled before every request, between blocks and
-  during back-off; a stopped read is `RangeError::Stopped`.
-- **The reason survives.** A failed read records its message in a `ReadFailure`
-  the caller took before handing the reader to the decoder, which may report the
-  I/O error as its own decode error.
-- **`prefetch(start, len)`** fetches a span in one request (from the first missing
-  block to the end of the span, at most half the cache): `audio_decoder`'s
-  `seek_near` says how much a window needs (`MediaStream::will_need`), so a window is
-  one request, not a 32 KB block and its growth. After it the next sequential miss
-  starts small again.
-- **Keep-alive.** After the last byte it asked for, the reader reads the body once
-  more (and gets 0): ureq returns a connection to its pool only after a body was
-  read to its end. Without it every request opened a new connection — 1057
-  connections for 1056 requests, with it 5 for 6361.
+## RangeReader
+
+Reads on the calling thread: no file, no worker, no `Downloads` entry.
+
+- Blocks of 32 KB; a miss right after the previous request doubles it, up to 4 MB. Blocks start
+  small because Symphonia's FLAC seek is a binary search of many small reads; a sequential decode
+  then costs a few large requests. The last 8 MB stay in memory, oldest inserted out first.
+- Opening needs a ranged answer from byte 0 with the total length, else `RangeError::Unsupported`
+  (the caller downloads the file whole). Later answers must stay ranged, start where asked and
+  keep the length.
+- Retries follow the download's rules (two when opening); an answer that brought a block is
+  followed at once by a request for the rest.
+- A failure is final: every later read fails with the same message without asking the server.
+  Symphonia and `audio_embedding` answer a read error by trying another way, and each of those
+  reads would otherwise wait out six more retries. The message also goes to a `ReadFailure` the
+  caller took before handing the reader to the decoder, which may report the I/O error as its own.
+- A `StopCheck` is polled before every request, between blocks and during back-off; a stopped
+  read is `RangeError::Stopped`, not final, and records no failure.
+- `prefetch(start, len)` fetches a span in one request (at most half the cache):
+  `audio_decoder`'s `seek_near` says how much a window needs (`MediaStream::will_need`), so a
+  window is one request instead of a block and its growth.
+- After the last byte it asked for, the reader reads on until the body ends (at most 4 KB): `ureq`
+  returns a connection to its pool only after the body was read to its end.
