@@ -1017,5 +1017,5 @@ Owner's calls; ask before changing.
   a userbot holding a full-account session, which we will not ask users for. Do not
   prototype it.
 - Lyrics lines all share one face: the active line is not made bolder (it re-wrapped
-  lines that only just fit). Bold and italic are opt-in buttons left of the size slider,
-  both off by default.
+  lines that only just fit). Bold and italic are toggle buttons left of the size slider;
+  bold is on by default, italic off.

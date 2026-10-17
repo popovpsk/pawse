@@ -613,7 +613,7 @@ pub struct UserSettings {
     pub lyrics_karaoke_fill: bool,
     #[serde(default = "default_true")]
     pub lyrics_dim_inactive: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub lyrics_bold: bool,
     #[serde(default)]
     pub lyrics_italic: bool,
@@ -699,7 +699,7 @@ impl Default for UserSettings {
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
-            lyrics_bold: false,
+            lyrics_bold: true,
             lyrics_italic: false,
             onboarding_complete: false,
             network_cache_gb: default_network_cache_gb(),
