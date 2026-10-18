@@ -20,12 +20,15 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
 ## Frame loop
 
 - `set_wanted(true)` starts a task that calls `tick` and sleeps what it returns: to the
-  next `frame_grid` tick while anything moves (`FAST` or `SLOW` by the Frame rate setting,
-  `SLOWEST` with reduce motion), 250 ms when the tap has nothing new and the analyzer has
-  settled. Karaoke wakes on the same `SLOW` ticks, so at 30 fps their frames coincide
-  instead of adding up, and at 60 every karaoke frame is a spectrum frame; position ticks
-  and the lyrics autoscroll animation still draw frames of their own. The ballistics run
-  on the measured `dt`, so the curve moves at the same speed at either rate.
+  next `frame_grid` tick while anything moves (`FASTEST`, `FAST` or `SLOW` by the Frame
+  rate setting, `SLOWEST` with reduce motion), 250 ms when the tap has nothing new and the
+  analyzer has settled. Karaoke wakes on the same `SLOW` ticks, so at 30 fps their frames
+  coincide instead of adding up, and at 60 or 120 every karaoke frame is a spectrum frame;
+  position ticks and the lyrics autoscroll animation still draw frames of their own. The
+  ballistics run on the measured `dt`, so the curve moves at the same speed at any rate.
+- The ticks are timers, not the display link: a frame is drawn on the first refresh after
+  its notify, so 120 fps shows only on a 120 Hz screen and on a 60 Hz one costs double for
+  nothing.
 - The settled poll does not notify, so a paused track costs no frames; "settled" ignores
   peaks and zone levels for the styles that do not draw them. `set_wanted(false)` drops
   the task, deactivates the tap and resets the curve.
@@ -101,5 +104,7 @@ Owner's calls; ask before changing.
   it landed on the cover); every other setting is a group in Appearance, right under
   Cover view, and its description does not say where the toggle is.
 - The toggle icon is static: animating it would redraw the whole window.
+- Frame rate defaults to 60 fps, marked as recommended in the description; 120 is an
+  opt-in for 120 Hz screens, and the description says what it costs.
 - Cover style curve is the accent as is, relit only when unreadable (2026-10-18, chosen on
   real covers over black/white, an accent-tinted near-white and the cover's own hue).

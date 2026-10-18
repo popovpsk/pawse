@@ -23,8 +23,11 @@ const TILTS: [SpectrumTilt; 3] = [
     SpectrumTilt::Gentle,
     SpectrumTilt::Standard,
 ];
-const FRAME_RATES: [SpectrumFrameRate; 2] =
-    [SpectrumFrameRate::Smooth, SpectrumFrameRate::Efficient];
+const FRAME_RATES: [SpectrumFrameRate; 3] = [
+    SpectrumFrameRate::HighRefresh,
+    SpectrumFrameRate::Smooth,
+    SpectrumFrameRate::Efficient,
+];
 const SMOOTHINGS: [SpectrumSmoothing; 4] = [
     SpectrumSmoothing::Auto,
     SpectrumSmoothing::Third,
@@ -61,6 +64,7 @@ fn smoothing_label(smoothing: SpectrumSmoothing) -> SharedString {
 
 fn frame_rate_label(rate: SpectrumFrameRate) -> SharedString {
     match rate {
+        SpectrumFrameRate::HighRefresh => SharedString::new_static("120 fps"),
         SpectrumFrameRate::Smooth => SharedString::new_static("60 fps"),
         SpectrumFrameRate::Efficient => SharedString::new_static("30 fps"),
     }

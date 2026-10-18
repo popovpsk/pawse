@@ -204,6 +204,7 @@ impl SpectrumView {
             release_seconds: release_seconds(style),
         };
         self.period = match store.spectrum_frame_rate() {
+            SpectrumFrameRate::HighRefresh => frame_grid::FASTEST,
             SpectrumFrameRate::Smooth => frame_grid::FAST,
             SpectrumFrameRate::Efficient => frame_grid::SLOW,
         };

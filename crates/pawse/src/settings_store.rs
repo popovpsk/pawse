@@ -268,6 +268,7 @@ impl SpectrumTilt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SpectrumFrameRate {
+    HighRefresh,
     #[default]
     Smooth,
     Efficient,

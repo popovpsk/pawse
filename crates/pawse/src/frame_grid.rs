@@ -1,9 +1,10 @@
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-pub const FAST: Duration = Duration::from_nanos(16_666_667);
-pub const SLOW: Duration = Duration::from_nanos(2 * 16_666_667);
-pub const SLOWEST: Duration = Duration::from_nanos(4 * 16_666_667);
+pub const FASTEST: Duration = Duration::from_nanos(8_333_334);
+pub const FAST: Duration = Duration::from_nanos(2 * 8_333_334);
+pub const SLOW: Duration = Duration::from_nanos(4 * 8_333_334);
+pub const SLOWEST: Duration = Duration::from_nanos(8 * 8_333_334);
 
 static ANCHOR: LazyLock<Instant> = LazyLock::new(Instant::now);
 
@@ -37,7 +38,7 @@ mod tests {
         let anchor = Instant::now();
         for offset_us in [0, 1, 4_000, 16_000, 16_667, 33_000, 1_000_123] {
             let now = anchor + Duration::from_micros(offset_us);
-            for period in [FAST, SLOW, SLOWEST] {
+            for period in [FASTEST, FAST, SLOW, SLOWEST] {
                 let tick = next_tick_from(anchor, now, period, Duration::ZERO);
                 assert_eq!(offset(anchor, tick) % period.as_nanos(), 0);
                 assert!(tick > now && tick <= now + period);
@@ -49,6 +50,8 @@ mod tests {
     fn slow_ticks_are_fast_ticks() {
         let anchor = Instant::now();
         let now = anchor + Duration::from_millis(41);
+        let fast = next_tick_from(anchor, now, FAST, Duration::ZERO);
+        assert_eq!(offset(anchor, fast) % FASTEST.as_nanos(), 0);
         let slow = next_tick_from(anchor, now, SLOW, Duration::ZERO);
         assert_eq!(offset(anchor, slow) % FAST.as_nanos(), 0);
         let slowest = next_tick_from(anchor, now, SLOWEST, Duration::ZERO);

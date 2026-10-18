@@ -79,7 +79,7 @@ static EN: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Frame rate"),
     frame_rate_desc: SharedString::new_static(
-        "60 frames per second move more smoothly; 30 halve the load on the processor and the battery.",
+        "60 frames per second (recommended) move smoothly. 120 only help on a 120 Hz screen and double the load on the processor and the battery; 30 halve it.",
     ),
 };
 
@@ -109,7 +109,7 @@ static RU: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Авто"),
     frame_rate: SharedString::new_static("Частота кадров"),
     frame_rate_desc: SharedString::new_static(
-        "60 кадров в секунду — плавнее; 30 — вдвое меньше нагрузка на процессор и батарею.",
+        "60 кадров в секунду (рекомендуется) — плавно. 120 помогают только на экране 120 Гц и вдвое повышают нагрузку на процессор и батарею; 30 — вдвое её снижают.",
     ),
 };
 
@@ -139,7 +139,7 @@ static UK: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Авто"),
     frame_rate: SharedString::new_static("Частота кадрів"),
     frame_rate_desc: SharedString::new_static(
-        "60 кадрів на секунду — плавніше; 30 — удвічі менше навантаження на процесор і батарею.",
+        "60 кадрів на секунду (рекомендовано) — плавно. 120 допомагають лише на екрані 120 Гц і вдвічі підвищують навантаження на процесор і батарею; 30 — удвічі його знижують.",
     ),
 };
 
@@ -171,7 +171,7 @@ static DE: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Bildrate"),
     frame_rate_desc: SharedString::new_static(
-        "60 Bilder pro Sekunde laufen flüssiger; 30 halbieren die Last für Prozessor und Akku.",
+        "60 Bilder pro Sekunde (empfohlen) laufen flüssig. 120 helfen nur auf einem 120-Hz-Bildschirm und verdoppeln die Last für Prozessor und Akku; 30 halbieren sie.",
     ),
 };
 
@@ -203,7 +203,7 @@ static FR: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Fréquence d'images"),
     frame_rate_desc: SharedString::new_static(
-        "60 images par seconde sont plus fluides ; 30 divisent par deux la charge du processeur et de la batterie.",
+        "60 images par seconde (recommandé) sont fluides. 120 ne servent que sur un écran 120 Hz et doublent la charge du processeur et de la batterie ; 30 la divisent par deux.",
     ),
 };
 
@@ -235,7 +235,7 @@ static ES: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Fotogramas por segundo"),
     frame_rate_desc: SharedString::new_static(
-        "60 fotogramas por segundo se ven más fluidos; 30 reducen a la mitad la carga del procesador y de la batería.",
+        "60 fotogramas por segundo (recomendado) se ven fluidos. 120 solo ayudan en una pantalla de 120 Hz y duplican la carga del procesador y de la batería; 30 la reducen a la mitad.",
     ),
 };
 
@@ -267,7 +267,7 @@ static PT: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Taxa de quadros"),
     frame_rate_desc: SharedString::new_static(
-        "60 quadros por segundo são mais fluidos; 30 reduzem pela metade a carga no processador e na bateria.",
+        "60 quadros por segundo (recomendado) são fluidos. 120 só ajudam numa tela de 120 Hz e dobram a carga no processador e na bateria; 30 a reduzem pela metade.",
     ),
 };
 
@@ -299,7 +299,7 @@ static IT: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Frequenza dei fotogrammi"),
     frame_rate_desc: SharedString::new_static(
-        "60 fotogrammi al secondo sono più fluidi; 30 dimezzano il carico su processore e batteria.",
+        "60 fotogrammi al secondo (consigliato) sono fluidi. 120 servono solo su uno schermo a 120 Hz e raddoppiano il carico su processore e batteria; 30 lo dimezzano.",
     ),
 };
 
@@ -331,7 +331,7 @@ static NL: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Beeldsnelheid"),
     frame_rate_desc: SharedString::new_static(
-        "60 beelden per seconde lopen vloeiender; 30 halveren de belasting van processor en batterij.",
+        "60 beelden per seconde (aanbevolen) lopen vloeiend. 120 helpen alleen op een 120Hz-scherm en verdubbelen de belasting van processor en batterij; 30 halveren die.",
     ),
 };
 
@@ -363,7 +363,7 @@ static SV: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Bildfrekvens"),
     frame_rate_desc: SharedString::new_static(
-        "60 bilder per sekund är mjukare; 30 halverar belastningen på processorn och batteriet.",
+        "60 bilder per sekund (rekommenderas) är mjukt. 120 hjälper bara på en 120 Hz-skärm och fördubblar belastningen på processorn och batteriet; 30 halverar den.",
     ),
 };
 
@@ -395,7 +395,7 @@ static PL: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Liczba klatek"),
     frame_rate_desc: SharedString::new_static(
-        "60 klatek na sekundę jest płynniejsze; 30 o połowę zmniejsza obciążenie procesora i baterii.",
+        "60 klatek na sekundę (zalecane) jest płynne. 120 pomaga tylko na ekranie 120 Hz i podwaja obciążenie procesora i baterii; 30 zmniejsza je o połowę.",
     ),
 };
 
@@ -425,7 +425,7 @@ static CS: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Auto"),
     frame_rate: SharedString::new_static("Snímková frekvence"),
     frame_rate_desc: SharedString::new_static(
-        "60 snímků za sekundu je plynulejších; 30 sníží zátěž procesoru a baterie na polovinu.",
+        "60 snímků za sekundu (doporučeno) je plynulých. 120 pomůže jen na displeji 120 Hz a zdvojnásobí zátěž procesoru a baterie; 30 ji sníží na polovinu.",
     ),
 };
 
@@ -455,7 +455,7 @@ static TR: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Otomatik"),
     frame_rate: SharedString::new_static("Kare hızı"),
     frame_rate_desc: SharedString::new_static(
-        "Saniyede 60 kare daha akıcıdır; 30 kare işlemci ve pil yükünü yarıya indirir.",
+        "Saniyede 60 kare (önerilen) akıcıdır. 120 kare yalnızca 120 Hz ekranda fark yaratır ve işlemci ile pil yükünü ikiye katlar; 30 kare bu yükü yarıya indirir.",
     ),
 };
 
@@ -485,7 +485,7 @@ static ZH: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("自动"),
     frame_rate: SharedString::new_static("帧率"),
     frame_rate_desc: SharedString::new_static(
-        "每秒 60 帧更流畅；30 帧可将处理器和电池的负担减半。",
+        "每秒 60 帧（推荐）已足够流畅。120 帧只在 120 Hz 屏幕上有效，并会让处理器和电池的负担翻倍；30 帧可将负担减半。",
     ),
 };
 
@@ -515,7 +515,7 @@ static JA: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("自動"),
     frame_rate: SharedString::new_static("フレームレート"),
     frame_rate_desc: SharedString::new_static(
-        "毎秒 60 フレームはより滑らかです。30 フレームではプロセッサとバッテリーへの負荷が半分になります。",
+        "毎秒 60 フレーム（推奨）で十分滑らかです。120 フレームは 120 Hz の画面でのみ効果があり、プロセッサとバッテリーへの負荷が倍になります。30 フレームでは負荷が半分になります。",
     ),
 };
 
@@ -545,7 +545,7 @@ static KO: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("자동"),
     frame_rate: SharedString::new_static("프레임 속도"),
     frame_rate_desc: SharedString::new_static(
-        "초당 60프레임은 더 부드럽고, 30프레임은 프로세서와 배터리 부담을 절반으로 줄입니다.",
+        "초당 60프레임(권장)이면 충분히 부드럽습니다. 120프레임은 120Hz 화면에서만 효과가 있고 프로세서와 배터리 부담이 두 배가 되며, 30프레임은 부담을 절반으로 줄입니다.",
     ),
 };
 
@@ -575,7 +575,7 @@ static VI: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Tự động"),
     frame_rate: SharedString::new_static("Tốc độ khung hình"),
     frame_rate_desc: SharedString::new_static(
-        "60 khung hình mỗi giây mượt hơn; 30 giảm một nửa tải cho bộ xử lý và pin.",
+        "60 khung hình mỗi giây (khuyến nghị) đã mượt. 120 chỉ có ích trên màn hình 120 Hz và tăng gấp đôi tải cho bộ xử lý và pin; 30 giảm tải đi một nửa.",
     ),
 };
 
@@ -605,7 +605,7 @@ static ID: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("Otomatis"),
     frame_rate: SharedString::new_static("Laju bingkai"),
     frame_rate_desc: SharedString::new_static(
-        "60 bingkai per detik lebih mulus; 30 memangkas beban prosesor dan baterai hingga separuh.",
+        "60 bingkai per detik (disarankan) sudah mulus. 120 hanya berguna di layar 120 Hz dan menggandakan beban prosesor dan baterai; 30 memangkasnya hingga separuh.",
     ),
 };
 
@@ -635,7 +635,7 @@ static TH: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("อัตโนมัติ"),
     frame_rate: SharedString::new_static("อัตราเฟรม"),
     frame_rate_desc: SharedString::new_static(
-        "60 เฟรมต่อวินาทีลื่นไหลกว่า ส่วน 30 เฟรมลดภาระของโปรเซสเซอร์และแบตเตอรี่ลงครึ่งหนึ่ง",
+        "60 เฟรมต่อวินาที (แนะนำ) ลื่นไหลอยู่แล้ว 120 เฟรมช่วยได้เฉพาะบนจอ 120 Hz และเพิ่มภาระของโปรเซสเซอร์และแบตเตอรี่เป็นสองเท่า ส่วน 30 เฟรมลดภาระลงครึ่งหนึ่ง",
     ),
 };
 
@@ -665,6 +665,6 @@ static HI: SpectrumStrings = SpectrumStrings {
     smoothing_auto: SharedString::new_static("स्वतः"),
     frame_rate: SharedString::new_static("फ़्रेम दर"),
     frame_rate_desc: SharedString::new_static(
-        "60 फ़्रेम प्रति सेकंड ज़्यादा सहज हैं; 30 प्रोसेसर और बैटरी पर भार आधा कर देते हैं।",
+        "60 फ़्रेम प्रति सेकंड (अनुशंसित) सहज हैं। 120 सिर्फ़ 120 Hz स्क्रीन पर फ़र्क लाते हैं और प्रोसेसर व बैटरी पर भार दोगुना कर देते हैं; 30 भार आधा कर देते हैं।",
     ),
 };

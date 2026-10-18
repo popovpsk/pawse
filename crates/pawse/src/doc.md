@@ -20,8 +20,9 @@ App shell:
 - `keyboard_shortcuts.rs` — key bindings. `app_menu.rs` — localized application menu.
   `localization.rs` — saved language to `tr()`. `pickers.rs` — theme and language
   dropdowns. `theme_colors.rs` — `Colors`, the theme lookups views use.
-- `frame_grid.rs` — the shared tick grid for frame loops (`FAST` 60 fps, `SLOW` = every
-  other tick, `SLOWEST` for reduce motion). Every notify redraws the whole window, so two
+- `frame_grid.rs` — the shared tick grid for frame loops (`FASTEST` 120 fps, `FAST` 60,
+  `SLOW` 30, `SLOWEST` for reduce motion; each is every other tick of the one before, so
+  slower ticks are always faster ones). Every notify redraws the whole window, so two
   loops at 30 fps out of phase would draw 60 frames; waking on the same ticks, their
   notifies land in one frame.
 - `single_instance.rs` — second-launch guard (Windows, Linux).
