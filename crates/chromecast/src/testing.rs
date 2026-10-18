@@ -28,6 +28,14 @@ pub struct Loaded {
     pub start: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LoadReply {
+    #[default]
+    Answered,
+    Never,
+    FailedAfter(Duration),
+}
+
 #[derive(Debug, Clone)]
 pub struct State {
     pub launched: bool,
@@ -39,6 +47,7 @@ pub struct State {
     pub position: f64,
     pub commands: Vec<String>,
     pub unreachable_media: Option<(&'static str, Option<&'static str>)>,
+    pub load_reply: LoadReply,
     playing_since: Option<Instant>,
 }
 
@@ -54,6 +63,7 @@ impl Default for State {
             position: 0.0,
             commands: Vec::new(),
             unreachable_media: None,
+            load_reply: LoadReply::Answered,
             playing_since: None,
         }
     }
@@ -149,6 +159,10 @@ impl FakeChromecast {
         lock(&self.state).unreachable_media = Some((player, idle_reason));
     }
 
+    pub fn reply_to_load(&self, reply: LoadReply) {
+        lock(&self.state).load_reply = reply;
+    }
+
     pub fn disconnect_everyone(&self) {
         self.drop_connections.store(true, Ordering::Release);
     }
@@ -196,6 +210,12 @@ fn serve(
             Err(e) => return Err(e),
         };
         let payload: Value = serde_json::from_str(&message.payload).unwrap_or(Value::Null);
+        if message.namespace == NS_MEDIA
+            && payload["type"] == "LOAD"
+            && let LoadReply::FailedAfter(delay) = lock(&state).load_reply
+        {
+            std::thread::sleep(delay);
+        }
         let replies = answer(&message, &payload, &state);
         for (namespace, reply) in replies {
             let frame = CastMessage {
@@ -301,6 +321,17 @@ fn answer(message: &CastMessage, payload: &Value, state: &Mutex<State>) -> Vec<(
                         start: payload["currentTime"].as_f64().unwrap_or(0.0),
                     };
                     state.position = loaded.start;
+                    if state.load_reply != LoadReply::Answered {
+                        state.fetched = None;
+                        state.loaded = Some(loaded);
+                        if state.load_reply == LoadReply::Never {
+                            return Vec::new();
+                        }
+                        return vec![(
+                            NS_MEDIA.into(),
+                            with_request(json!({"type": "LOAD_FAILED"}), payload),
+                        )];
+                    }
                     if let Some((player, idle_reason)) = state.unreachable_media {
                         state.fetched = None;
                         state.idle_reason = idle_reason;

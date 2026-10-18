@@ -31,7 +31,10 @@ fn launch_load_and_control_playback() {
         image: Some("http://127.0.0.1:9/cover.jpg".into()),
         duration: Some(30.0),
     };
-    let status = client.load(&app, &media, false, 12.5).unwrap().unwrap();
+    let status = client
+        .load(&app, &media, false, 12.5, &|| false)
+        .unwrap()
+        .unwrap();
     assert_eq!(status.state, PlayerState::Paused);
     let loaded = fake.state().loaded.unwrap();
     assert_eq!(loaded.content_type, "audio/flac");

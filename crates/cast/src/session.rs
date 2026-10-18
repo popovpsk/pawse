@@ -18,6 +18,8 @@ const FAILING_FOR: Duration = Duration::from_secs(4);
 const END_SLACK: Duration = Duration::from_secs(5);
 const START_WAIT: Duration = Duration::from_secs(15);
 const NEVER_STARTED: Duration = Duration::from_secs(30);
+const UNREACHED_AFTER: Duration = Duration::from_secs(20);
+const REFUSED_AT_ONCE: Duration = Duration::from_secs(3);
 const SETTLE_FOR: Duration = Duration::from_secs(4);
 const JITTER: Duration = Duration::from_millis(1500);
 const AGREE_BELOW: Duration = Duration::from_millis(300);
@@ -94,6 +96,7 @@ pub(crate) struct Loading<'a> {
     pub size: Option<u64>,
     pub start: Duration,
     pub autoplay: bool,
+    pub unreached: &'a dyn Fn() -> bool,
 }
 
 pub(crate) trait Driver: Send + Accepts {
@@ -150,6 +153,7 @@ impl Session {
             seen_playing: false,
             loaded_at: Instant::now(),
             patience,
+            unreached_after: patience.min(UNREACHED_AFTER),
             buffering: false,
             failures: 0,
             failing_since: None,
@@ -248,6 +252,7 @@ struct Worker {
     seen_playing: bool,
     loaded_at: Instant,
     patience: Duration,
+    unreached_after: Duration,
     buffering: bool,
     failures: u32,
     failing_since: Option<Instant>,
@@ -374,11 +379,22 @@ impl Worker {
     }
 
     fn never_fetched(&self) -> bool {
-        !self.published.is_empty()
-            && !self
-                .published
-                .iter()
-                .any(|path| self.server.was_requested(path))
+        never_fetched(&self.server, &self.published)
+    }
+
+    fn refused(&mut self, reason: String) -> SessionEvent {
+        if self.seen_playing || !self.never_fetched() {
+            return SessionEvent::Failed(reason);
+        }
+        if self.loaded_at.elapsed() < REFUSED_AT_ONCE.min(self.unreached_after) {
+            return SessionEvent::Failed(format!("{reason} (it never asked for the track)"));
+        }
+        if let Err(e) = self.driver.status() {
+            log::debug!("cast: the device does not answer a poll either: {e}");
+            return SessionEvent::Failed(reason);
+        }
+        log::warn!("cast: the device gave up without ever asking for the track: {reason}");
+        SessionEvent::NeverFetched
     }
 
     fn unpublish(&mut self) {
@@ -542,7 +558,8 @@ impl Worker {
             Err(e) => {
                 log::warn!("cast: starting a track failed: {e}");
                 self.state = State::Failed;
-                self.emit(SessionEvent::Failed(e));
+                let event = self.refused(e);
+                self.emit(event);
             }
         }
         Ok(())
@@ -557,6 +574,9 @@ impl Worker {
     ) -> Result<(), String> {
         self.loaded_at = Instant::now();
         let seek_later = !start.is_zero() && !self.driver.seeks_on_load();
+        let deadline = self.loaded_at + self.unreached_after;
+        let (server, published) = (&self.server, &self.published);
+        let unreached = || Instant::now() >= deadline && never_fetched(server, published);
         let loading = Loading {
             url: &sent.url,
             mime: &sent.mime,
@@ -567,6 +587,7 @@ impl Worker {
             size: sent.size,
             start,
             autoplay: autoplay && !seek_later,
+            unreached: &unreached,
         };
         if !(seek_later && autoplay) {
             self.driver.load(&loading)?;
@@ -620,10 +641,13 @@ impl Worker {
     }
 
     fn wait_until_started(&mut self) -> bool {
-        let deadline = Instant::now() + START_WAIT.min(self.patience);
+        let deadline = Instant::now() + START_WAIT.min(self.unreached_after);
         while Instant::now() < deadline {
             match self.driver.status() {
-                Ok(status) if matches!(status.state, Some(State::Playing | State::Paused)) => {
+                Ok(status)
+                    if matches!(status.state, Some(State::Playing | State::Paused))
+                        && !self.never_fetched() =>
+                {
                     return true;
                 }
                 Ok(_) => {}
@@ -660,14 +684,16 @@ impl Worker {
         if defer && let Err(e) = self.stop_ours() {
             log::warn!("cast: stopping the previous track failed: {e}");
         }
-        let loaded = self
-            .publish(&load)
-            .and_then(|(sent, sample_rate, bit_depth)| {
-                if !defer {
-                    self.send(&sent, &load.media.info, load.start, load.autoplay)?;
+        let loaded = self.publish(&load).map_err(SessionEvent::Failed).and_then(
+            |(sent, sample_rate, bit_depth)| {
+                if !defer
+                    && let Err(e) = self.send(&sent, &load.media.info, load.start, load.autoplay)
+                {
+                    return Err(self.refused(e));
                 }
                 Ok((sent, sample_rate, bit_depth))
-            });
+            },
+        );
         match loaded {
             Ok((sent, sample_rate, bit_depth)) => {
                 let duration = sent.duration;
@@ -697,11 +723,11 @@ impl Worker {
                     SessionEvent::Paused
                 });
             }
-            Err(e) => {
-                log::warn!("cast: loading a track failed: {e}");
+            Err(event) => {
+                log::warn!("cast: loading a track failed: {event:?}");
                 self.state = State::Failed;
                 self.unpublish();
-                self.emit(SessionEvent::Failed(e));
+                self.emit(event);
             }
         }
     }
@@ -829,7 +855,8 @@ impl Worker {
         let Some(reported) = status.state else {
             return Ok(());
         };
-        if reported == State::Playing {
+        let unfetched = !self.seen_playing && self.never_fetched();
+        if reported == State::Playing && !unfetched {
             self.seen_playing = true;
         }
         if self.state == State::Playing
@@ -839,30 +866,31 @@ impl Worker {
             self.end_reached = Some(Instant::now());
         }
         let previous = self.reported.map(|(position, ..)| position);
-        let state = self.device_state(reported, status.position);
+        let state = match self.device_state(reported, status.position) {
+            State::Playing | State::Paused if unfetched => State::Buffering,
+            state => state,
+        };
         if !self.seen_playing {
-            let out_of_patience =
-                !held && self.state == State::Playing && self.loaded_at.elapsed() > self.patience;
-            match state {
-                State::Idle | State::Finished => {
-                    if out_of_patience {
-                        self.state = State::Failed;
-                        self.clear_buffering();
-                        self.emit(if self.never_fetched() {
-                            SessionEvent::NeverFetched
-                        } else {
-                            SessionEvent::Failed("the device did not start playing".into())
-                        });
-                    }
-                    return Ok(());
+            let waited = (!held && self.state == State::Playing).then(|| self.loaded_at.elapsed());
+            let unreached = unfetched && waited.is_some_and(|waited| waited > self.unreached_after);
+            let verdict = match state {
+                State::Idle | State::Finished if unreached => Some(SessionEvent::NeverFetched),
+                State::Idle | State::Finished
+                    if waited.is_some_and(|waited| waited > self.patience) =>
+                {
+                    Some(SessionEvent::Failed(
+                        "the device did not start playing".into(),
+                    ))
                 }
-                State::Buffering | State::Loading if out_of_patience && self.never_fetched() => {
-                    self.state = State::Failed;
-                    self.clear_buffering();
-                    self.emit(SessionEvent::NeverFetched);
-                    return Ok(());
-                }
-                _ => {}
+                State::Idle | State::Finished => return Ok(()),
+                State::Buffering | State::Loading if unreached => Some(SessionEvent::NeverFetched),
+                _ => None,
+            };
+            if let Some(verdict) = verdict {
+                self.state = State::Failed;
+                self.clear_buffering();
+                self.emit(verdict);
+                return Ok(());
             }
         }
         match state {
@@ -933,18 +961,8 @@ impl Worker {
                     let reason = status
                         .error
                         .unwrap_or_else(|| "the device could not play this track".into());
-                    if self.seen_playing || !self.never_fetched() {
-                        self.emit(SessionEvent::Failed(reason));
-                    } else if self.loaded_at.elapsed() > self.patience {
-                        log::warn!(
-                            "cast: the device failed without ever fetching the track: {reason}"
-                        );
-                        self.emit(SessionEvent::NeverFetched);
-                    } else {
-                        self.emit(SessionEvent::Failed(format!(
-                            "{reason} (it never asked for the track)"
-                        )));
-                    }
+                    let event = self.refused(reason);
+                    self.emit(event);
                 }
             }
         }
@@ -960,6 +978,10 @@ impl Worker {
         }
         self.emit(SessionEvent::Ended);
     }
+}
+
+fn never_fetched(server: &MediaServer, published: &[String]) -> bool {
+    !published.is_empty() && !published.iter().any(|path| server.was_requested(path))
 }
 
 fn indexed_flac(path: &Path) -> Body {

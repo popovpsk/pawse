@@ -73,13 +73,18 @@ target being torn down (the local engine's `Stopped`, a closing session) never r
   `crates/cast/src/doc.md`). A failed connect is a notification and changes nothing;
   `disconnect` also drops a pending connect.
 - A lost receiver moves playback back to this computer, paused at the last position, with a
-  notification. `SessionEvent::NeverFetched` (the renderer answers every poll but never came for
-  the track) takes the same way back (`back_to_this_computer`) with a message box
-  (`explain_unreached`) instead: the cause is on this side, usually the firewall, and a toast
-  would read as the device dropping. The box gives the fix for the OS, on Linux as copyable
-  `ufw` / `firewalld` commands for `cast::PORTS`. The texts are `CastStrings::unreached*` in
-  every language, and the Linux sentence names the port range, so if `cast::PORTS` changes the
-  strings change with it.
+  notification. A receiver that answers but never connected back takes the same way back
+  (`unreached` → `back_to_this_computer`) with a message box (`explain_unreached`) instead:
+  the cause is on this side, usually the firewall, and a toast would read as the device
+  dropping. That is `SessionEvent::NeverFetched` (a renderer that never came for the track)
+  and `AirPlayOutput::unreached` (a speaker that never asked for our clock). An AirPlay
+  handshake that already fails that way (`cast::ConnectError::Unreached`: the Hisense TV does
+  not finish the `SETUP` without clock answers) gets the same box instead of the "could not
+  connect" toast, and nothing was switched. One text serves all of them, so it says only that
+  the device answers but never connected back. The box gives the fix for the OS, on Linux as
+  copyable `ufw` / `firewalld` commands for `cast::PORTS`. The texts are
+  `CastStrings::unreached*` in every language, and the Linux sentence names the port range, so
+  if `cast::PORTS` changes the strings change with it.
 
 ## Spectrum tap
 
@@ -133,4 +138,5 @@ Owner's calls; ask before changing.
   device volume mode off.
 - Discovery starts when the picker opens, not at launch: no multicast until the user looks
   for a device.
-- `NeverFetched` is a message box with the firewall fix, not a toast.
+- An unreached receiver (`NeverFetched`, AirPlay's `unreached`) is a message box with the
+  firewall fix, not a toast.

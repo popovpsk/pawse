@@ -23,6 +23,7 @@ const FEEDBACK_EVERY: Duration = Duration::from_secs(2);
 const UDP_POLL: Duration = Duration::from_millis(100);
 const MAX_LAG: i64 = SAMPLE_RATE as i64;
 const SEND_FAILURES_LIMIT: u32 = 200;
+const CLOCK_WAIT: Duration = Duration::from_secs(6);
 
 pub trait Render: Send + 'static {
     fn render(&mut self, out: &mut [i16]);
@@ -33,6 +34,7 @@ pub trait Render: Send + 'static {
 pub enum StreamEvent {
     Lost(String),
     Remote(RemoteCommand),
+    Unreached,
 }
 
 enum Control {
@@ -113,6 +115,16 @@ impl Stream {
         render: Box<dyn Render>,
         ports: RangeInclusive<u16>,
     ) -> Result<Self, Error> {
+        Self::start_with(device, volume, render, ports, CLOCK_WAIT)
+    }
+
+    pub(crate) fn start_with(
+        device: &Device,
+        volume: Option<f32>,
+        render: Box<dyn Render>,
+        ports: RangeInclusive<u16>,
+        clock_wait: Duration,
+    ) -> Result<Self, Error> {
         let link = match device.protocol {
             Protocol::Raop => handshake::raop(device, volume, &ports)?,
             Protocol::AirPlay2 => handshake::airplay2(device, volume, &ports)?,
@@ -136,6 +148,7 @@ impl Stream {
         let (events_tx, events) = flume::unbounded();
         let remote = events_tx.clone();
         let timing_stop = link.timing.stopper();
+        let clock_asked = link.timing.asked();
         let (control_tx, control_rx) = flume::unbounded();
         let resends = link
             .control
@@ -152,6 +165,9 @@ impl Stream {
             control_target: link.control_target,
             cipher: link.cipher,
             timing_stop,
+            clock_asked,
+            clock_wait: Some(clock_wait),
+            clock_check: None,
             last_progress: None,
             ahead: None,
             held: None,
@@ -295,6 +311,9 @@ struct Sender {
     control_target: SocketAddr,
     cipher: Option<AudioCipher>,
     timing_stop: Arc<AtomicBool>,
+    clock_asked: Arc<AtomicBool>,
+    clock_wait: Option<Duration>,
+    clock_check: Option<Instant>,
     last_progress: Option<(i64, i64)>,
     ahead: Option<i64>,
     held: Option<NowPlaying>,
@@ -343,6 +362,7 @@ impl Sender {
         let reason = loop {
             let mut wait = Duration::from_secs(1);
             if playing {
+                self.check_clock();
                 match self.pump() {
                     Ok(next) => wait = next,
                     Err(e) => break e,
@@ -365,6 +385,9 @@ impl Sender {
                     if !playing {
                         playing = true;
                         self.first = true;
+                        if let Some(wait) = self.clock_wait.take() {
+                            self.clock_check = Some(Instant::now() + wait);
+                        }
                         self.set_clock(Some(Clock {
                             anchor: Instant::now(),
                             anchor_frame: self.next_frame() - i64::from(LATENCY_FRAMES),
@@ -457,6 +480,19 @@ impl Sender {
         }
     }
 
+    fn check_clock(&mut self) {
+        if self.clock_check.is_none_or(|at| Instant::now() < at) {
+            return;
+        }
+        self.clock_check = None;
+        if !self.clock_asked.load(Ordering::Acquire) {
+            log::warn!(
+                "AirPlay: the device never asked for our clock; something blocks its connection to this computer"
+            );
+            let _ = self.events.send(StreamEvent::Unreached);
+        }
+    }
+
     fn keep_alive(&mut self) -> Result<Duration, Error> {
         let (every, method, target) = if self.feedback {
             (FEEDBACK_EVERY, "POST", "/feedback")
@@ -478,7 +514,7 @@ impl Sender {
 
     fn optional(&mut self, what: &str, outcome: Result<(), Error>) -> Result<(), Error> {
         match outcome {
-            Err(Error::Io(e)) => Err(Error::Io(e)),
+            Err(e @ (Error::Io(_) | Error::Timeout(_))) => Err(e),
             Err(e) => {
                 log::debug!("AirPlay: the device did not take {what}: {e}");
                 Ok(())
@@ -981,6 +1017,51 @@ mod tests {
         assert!(ports.contains(&control), "control {control} in {ports:?}");
         assert!(ports.contains(&timing), "timing {timing} in {ports:?}");
         assert_ne!(control, timing);
+    }
+
+    #[test]
+    fn a_speaker_that_never_asks_for_our_clock_is_reported_unreached_once_playing() {
+        let fake = FakeReceiver::cut_off_from_our_clock("3939");
+        let stream = Stream::start_with(
+            &fake_device(fake.address),
+            None,
+            Box::new(Ramp(0)),
+            ANY_PORT,
+            Duration::from_millis(800),
+        )
+        .unwrap();
+        let events = stream.events();
+        std::thread::sleep(Duration::from_millis(1000));
+        stream.play();
+        assert!(events.recv_timeout(Duration::from_millis(400)).is_err());
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(5)),
+            Ok(StreamEvent::Unreached)
+        );
+        assert!(fake.wait_for(|heard| heard.payloads.len() >= 20));
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn a_speaker_that_asked_for_our_clock_is_left_alone() {
+        let fake = FakeReceiver::start("3939");
+        let stream = Stream::start_with(
+            &fake_device(fake.address),
+            None,
+            Box::new(Ramp(0)),
+            ANY_PORT,
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        let events = stream.events();
+        stream.play();
+        assert!(fake.wait_for(|heard| heard.payloads.len() >= 20));
+        std::thread::sleep(Duration::from_millis(800));
+        assert!(
+            events.is_empty(),
+            "{:?}",
+            events.drain().collect::<Vec<_>>()
+        );
     }
 
     #[test]

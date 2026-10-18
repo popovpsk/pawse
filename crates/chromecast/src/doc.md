@@ -17,7 +17,10 @@ Not here: what to load, the media server, polling and end-of-track logic, mDNS b
 - `testing.rs` — `FakeChromecast` (feature `test-support`): a TLS receiver on loopback
   that answers the receiver and media namespaces and fetches the media URL it is given, so
   tests see what a device would download. `cannot_reach_media(player, idle_reason)` skips
-  that fetch and sits in the given player state instead (BUFFERING, or IDLE with a reason).
+  that fetch and sits in the given player state instead (BUFFERING, PLAYING, or IDLE with a
+  reason). `reply_to_load(LoadReply)` changes the answer to `LOAD` itself, also without a
+  fetch: none (`Never`, a receiver still trying to connect) or `LOAD_FAILED` after a delay
+  (`FailedAfter`, one whose own connection attempt failed).
 - `tests.rs` — the client against the fake.
 - `../testdata/fake.{crt,key}` — the fake's self-signed P-256 certificate. It must be
   X.509 v3 (webpki rejects the v1 certificates LibreSSL makes by default) and the key
@@ -45,6 +48,10 @@ Not here: what to load, the media server, polling and end-of-track logic, mDNS b
 
 - Requests time out after 10 s, `LOAD` and `LAUNCH` after 30 s (the device fetches the
   media before answering).
+- `load` also takes a `give_up` check, asked every 250 ms while its answer is awaited
+  (other requests wait in one piece); when it says so the `LOAD` ends as a timeout. `cast`
+  uses it to stop waiting on a receiver that has not asked for the media within its own
+  wait.
 - `LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`, `LAUNCH_ERROR` and
   `INVALID_PLAYER_STATE` replies are `Error::Rejected` for the waiting caller and
   `Event::LoadFailed` on the event channel.

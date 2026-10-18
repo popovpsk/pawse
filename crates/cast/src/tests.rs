@@ -423,6 +423,9 @@ struct Device {
     stuck: Option<crate::session::State>,
     url: Option<String>,
     cover_url: Option<String>,
+    refuses_after: Option<Duration>,
+    gone_after_refusing: bool,
+    gone: bool,
 }
 
 impl Device {
@@ -442,6 +445,19 @@ impl Device {
     }
 }
 
+fn touch(url: &str) {
+    let rest = url.strip_prefix("http://").unwrap();
+    let (authority, path) = rest.split_at(rest.find('/').unwrap());
+    let mut stream = TcpStream::connect(authority).unwrap();
+    write!(
+        stream,
+        "HEAD {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+}
+
 #[derive(Clone)]
 struct FakeRenderer(Arc<std::sync::Mutex<Device>>);
 
@@ -457,6 +473,9 @@ impl FakeRenderer {
             stuck: None,
             url: None,
             cover_url: None,
+            refuses_after: None,
+            gone_after_refusing: false,
+            gone: false,
         })))
     }
 
@@ -485,6 +504,17 @@ impl crate::session::Driver for FakeRenderer {
     }
 
     fn load(&mut self, loading: &crate::session::Loading) -> Result<(), String> {
+        let refusal = {
+            let device = self.device();
+            device
+                .refuses_after
+                .map(|after| (after, device.gone_after_refusing))
+        };
+        if let Some((after, gone)) = refusal {
+            std::thread::sleep(after);
+            self.device().gone = gone;
+            return Err("LOAD_FAILED".into());
+        }
         let mut device = self.device();
         device.calls.push(if loading.autoplay {
             "load and play"
@@ -501,6 +531,10 @@ impl crate::session::Driver for FakeRenderer {
         };
         device.url = Some(loading.url.to_string());
         device.cover_url = loading.cover_url.map(str::to_string);
+        drop(device);
+        if loading.autoplay && stuck.is_none() {
+            touch(loading.url);
+        }
         Ok(())
     }
 
@@ -510,6 +544,11 @@ impl crate::session::Driver for FakeRenderer {
         device.state = crate::session::State::Playing;
         let position = device.position();
         device.run_from(position);
+        let url = device.url.clone();
+        drop(device);
+        if let Some(url) = url {
+            touch(&url);
+        }
         Ok(())
     }
 
@@ -548,6 +587,9 @@ impl crate::session::Driver for FakeRenderer {
 
     fn status(&mut self) -> Result<crate::session::Status, String> {
         let mut device = self.device();
+        if device.gone {
+            return Err("no answer".into());
+        }
         let (state, position) = match device.queued.pop_front() {
             Some(scripted) => scripted,
             None => (device.state, device.position()),
@@ -929,6 +971,7 @@ fn dlna_session(
 #[rstest]
 #[case::hiby_r1_loading_forever(Mood::StuckLoading)]
 #[case::renderer_that_just_stops(Mood::Stopped)]
+#[case::gmrender_claiming_to_play(Mood::ClaimsPlaying)]
 fn a_dlna_renderer_that_answers_but_never_comes_for_the_track_is_unreached(#[case] mood: Mood) {
     let (fake, _server, session, events) = dlna_session(mood);
     let mut seen = Vec::new();
@@ -1008,6 +1051,7 @@ fn chromecast_that_cannot_reach_media(
 #[case::buffering_forever("BUFFERING", None)]
 #[case::idle("IDLE", None)]
 #[case::load_failed("IDLE", Some("ERROR"))]
+#[case::playing_without_the_track("PLAYING", None)]
 fn a_chromecast_that_never_comes_for_the_track_is_unreached(
     #[case] player: &'static str,
     #[case] idle_reason: Option<&'static str>,
@@ -1057,9 +1101,13 @@ fn a_renderer_that_fetched_only_the_cover_is_not_blamed_on_the_network() {
     assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
 }
 
-#[test]
-fn a_dlna_renderer_asked_to_start_mid_track_that_never_comes_for_it_is_unreached() {
-    let (fake, _server, session, events) = dlna_session(Mood::StuckLoading);
+#[rstest]
+#[case::loading(Mood::StuckLoading)]
+#[case::claiming_to_play(Mood::ClaimsPlaying)]
+fn a_dlna_renderer_asked_to_start_mid_track_that_never_comes_for_it_is_unreached(
+    #[case] mood: Mood,
+) {
+    let (fake, _server, session, events) = dlna_session(mood);
     let mut seen = Vec::new();
     session.load(minute_long(Duration::from_secs(30), true));
     expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
@@ -1070,11 +1118,114 @@ fn a_dlna_renderer_asked_to_start_mid_track_that_never_comes_for_it_is_unreached
         fake.actions()
     );
     assert!(
-        !seen
-            .iter()
-            .any(|e| matches!(e, SessionEvent::Failed(_) | SessionEvent::Lost(_))),
+        !seen.iter().any(|e| matches!(
+            e,
+            SessionEvent::Failed(_) | SessionEvent::Lost(_) | SessionEvent::Paused
+        )),
         "{seen:?}"
     );
+}
+
+fn chromecast_answering_load_with(
+    reply: chromecast::testing::LoadReply,
+    patience: Duration,
+) -> (FakeChromecast, Session, flume::Receiver<SessionEvent>) {
+    let fake = FakeChromecast::start();
+    fake.reply_to_load(reply);
+    let driver = ChromecastDriver::connect(fake.address).unwrap();
+    let session = Session::start_with(Box::new(driver), MediaServer::start().unwrap(), patience);
+    let events = session.events();
+    (fake, session, events)
+}
+
+#[rstest]
+#[case::load_never_answered(chromecast::testing::LoadReply::Never, PATIENCE)]
+#[case::load_failed_once_its_own_connection_timed_out(
+    chromecast::testing::LoadReply::FailedAfter(Duration::from_millis(3500)),
+    Duration::from_secs(5)
+)]
+fn a_chromecast_that_cannot_reach_us_is_unreached_without_waiting_out_its_load(
+    #[case] reply: chromecast::testing::LoadReply,
+    #[case] patience: Duration,
+) {
+    let (fake, session, events) = chromecast_answering_load_with(reply, patience);
+    let mut seen = Vec::new();
+    let asked = Instant::now();
+    session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
+    assert!(
+        asked.elapsed() < patience + Duration::from_secs(1),
+        "{:?}",
+        asked.elapsed()
+    );
+    assert!(fake.state().commands.iter().any(|c| c == "LOAD"));
+    assert_eq!(complaints(&seen), [&SessionEvent::NeverFetched], "{seen:?}");
+}
+
+#[rstest]
+#[case::still_answering(false, true)]
+#[case::gone_as_well(true, false)]
+fn a_device_that_refuses_the_track_late_is_unreached_only_while_it_still_answers(
+    #[case] gone: bool,
+    #[case] unreached: bool,
+) {
+    let fake = FakeRenderer::new();
+    fake.device().refuses_after = Some(Duration::from_millis(500));
+    fake.device().gone_after_refusing = gone;
+    let session = Session::start_with(
+        Box::new(fake.clone()),
+        MediaServer::start().unwrap(),
+        PATIENCE,
+    );
+    let events = session.events();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::NeverFetched | SessionEvent::Failed(_))
+    });
+    assert_eq!(
+        seen.contains(&SessionEvent::NeverFetched),
+        unreached,
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn a_chromecast_reporting_a_failure_right_after_the_load_keeps_its_own_error() {
+    let fake = FakeChromecast::start();
+    fake.cannot_reach_media("IDLE", Some("ERROR"));
+    let driver = ChromecastDriver::connect(fake.address).unwrap();
+    let session = Session::start_with(
+        Box::new(driver),
+        MediaServer::start().unwrap(),
+        Duration::from_secs(4),
+    );
+    let events = session.events();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    let Some(SessionEvent::Failed(reason)) = seen.last() else {
+        panic!("{seen:?}")
+    };
+    assert!(reason.contains("never asked for the track"), "{reason}");
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+#[test]
+fn a_chromecast_refusing_the_track_at_once_keeps_its_own_error() {
+    let (_fake, session, events) = chromecast_answering_load_with(
+        chromecast::testing::LoadReply::FailedAfter(Duration::ZERO),
+        Duration::from_secs(4),
+    );
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    let Some(SessionEvent::Failed(reason)) = seen.last() else {
+        panic!("{seen:?}")
+    };
+    assert!(reason.contains("LOAD_FAILED"), "{reason}");
+    assert!(reason.contains("never asked for the track"), "{reason}");
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
 }
 
 #[test]

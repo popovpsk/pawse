@@ -19,6 +19,32 @@ const QUEUE_SECONDS: f32 = 0.5;
 const WRITE_WAIT: Duration = Duration::from_millis(200);
 const RESAMPLE_CHUNK: usize = 1024;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectError {
+    Unreached,
+    Failed(String),
+}
+
+impl std::fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unreached => write!(f, "{}", airplay::Error::Unreached),
+            Self::Failed(reason) => write!(f, "{reason}"),
+        }
+    }
+}
+
+impl std::error::Error for ConnectError {}
+
+impl From<airplay::Error> for ConnectError {
+    fn from(error: airplay::Error) -> Self {
+        match error {
+            airplay::Error::Unreached => Self::Unreached,
+            other => Self::Failed(other.to_string()),
+        }
+    }
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -228,6 +254,8 @@ pub struct AirPlayOutput {
     route: Mutex<Option<crate::dacp::Route>>,
     lost: flume::Sender<String>,
     lost_events: flume::Receiver<String>,
+    unreached: flume::Sender<()>,
+    unreached_events: flume::Receiver<()>,
     remote: flume::Sender<RemoteCommand>,
     remote_commands: flume::Receiver<RemoteCommand>,
 }
@@ -237,8 +265,9 @@ impl AirPlayOutput {
         device: airplay::Device,
         volume: Option<f32>,
         gain: f32,
-    ) -> Result<Arc<Self>, String> {
+    ) -> Result<Arc<Self>, ConnectError> {
         let (lost, lost_events) = flume::unbounded();
+        let (unreached, unreached_events) = flume::unbounded();
         let (remote, remote_commands) = flume::unbounded();
         let output = Arc::new(Self {
             device,
@@ -260,6 +289,8 @@ impl AirPlayOutput {
             route: Mutex::new(None),
             lost,
             lost_events,
+            unreached,
+            unreached_events,
             remote,
             remote_commands,
         });
@@ -277,6 +308,10 @@ impl AirPlayOutput {
 
     pub fn lost(&self) -> flume::Receiver<String> {
         self.lost_events.clone()
+    }
+
+    pub fn unreached(&self) -> flume::Receiver<()> {
+        self.unreached_events.clone()
     }
 
     pub fn commands(&self) -> flume::Receiver<RemoteCommand> {
@@ -333,9 +368,9 @@ impl AirPlayOutput {
         );
     }
 
-    fn ensure_stream(&self) -> Result<(), String> {
+    fn ensure_stream(&self) -> Result<(), ConnectError> {
         if self.closed.load(Ordering::Acquire) {
-            return Err("the AirPlay output is closed".into());
+            return Err(ConnectError::Failed("the AirPlay output is closed".into()));
         }
         let stale = {
             let mut slot = lock(&self.stream);
@@ -352,10 +387,13 @@ impl AirPlayOutput {
         };
         let volume = *lock(&self.volume);
         let stream =
-            airplay::Stream::start(&self.device, volume, Box::new(renderer), crate::net::PORTS)
-                .map_err(|e| e.to_string())?;
+            airplay::Stream::start(&self.device, volume, Box::new(renderer), crate::net::PORTS)?;
         let events = stream.events();
-        let (lost, remote) = (self.lost.clone(), self.remote.clone());
+        let (lost, unreached, remote) = (
+            self.lost.clone(),
+            self.unreached.clone(),
+            self.remote.clone(),
+        );
         let _ = std::thread::Builder::new()
             .name("airplay-forward".into())
             .spawn(move || {
@@ -366,6 +404,9 @@ impl AirPlayOutput {
                         }
                         airplay::StreamEvent::Remote(command) => {
                             let _ = remote.send(command);
+                        }
+                        airplay::StreamEvent::Unreached => {
+                            let _ = unreached.send(());
                         }
                     }
                 }
@@ -378,7 +419,7 @@ impl AirPlayOutput {
         if self.closed.load(Ordering::Acquire) {
             let stream = lock(&self.stream).take();
             drop(stream);
-            return Err("the AirPlay output is closed".into());
+            return Err(ConnectError::Failed("the AirPlay output is closed".into()));
         }
         if let Some(stream) = lock(&self.stream).as_ref() {
             let old = lock(&self.route).take();
@@ -460,10 +501,21 @@ impl AudioOutput for AirPlayOutput {
 
     fn resume(&self) {
         self.intent.store(true, Ordering::SeqCst);
-        if let Err(e) = self.ensure_stream() {
-            log::warn!("AirPlay: reconnecting to {} failed: {e}", self.device.name);
-            let _ = self.lost.send(e);
-            return;
+        match self.ensure_stream() {
+            Ok(()) => {}
+            Err(ConnectError::Unreached) => {
+                log::warn!(
+                    "AirPlay: reconnecting to {} failed: it never asked for our clock",
+                    self.device.name
+                );
+                let _ = self.unreached.send(());
+                return;
+            }
+            Err(ConnectError::Failed(e)) => {
+                log::warn!("AirPlay: reconnecting to {} failed: {e}", self.device.name);
+                let _ = self.lost.send(e);
+                return;
+            }
         }
         if let Some(stream) = lock(&self.stream).as_ref() {
             stream.play();

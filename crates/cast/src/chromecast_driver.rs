@@ -135,6 +135,7 @@ impl Driver for ChromecastDriver {
                 &media,
                 loading.autoplay,
                 loading.start.as_secs_f64(),
+                loading.unreached,
             )
             .map_err(|e| e.to_string())?;
         self.media_session = status.map(|status| status.media_session_id);

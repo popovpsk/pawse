@@ -151,6 +151,7 @@ impl Rtsp {
             .map_err(|e| Error::Io(format!("{method}: {e}")))?;
         let response = self.read_response().map_err(|e| match e {
             Error::Io(message) => Error::Io(format!("{method}: {message}")),
+            Error::Timeout(_) => Error::Timeout(method.to_string()),
             other => other,
         })?;
         match response.status {
@@ -173,6 +174,9 @@ impl Rtsp {
         let closed = || Error::Io("the device closed the connection".into());
         let io = |e: std::io::Error| match e.kind() {
             std::io::ErrorKind::UnexpectedEof => closed(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+                Error::Timeout(String::new())
+            }
             _ => Error::Io(e.to_string()),
         };
         match &mut self.channel {

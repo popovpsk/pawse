@@ -10,6 +10,7 @@ pub(crate) enum Mood {
     StuckLoading,
     Stopped,
     FetchesThenStuck,
+    ClaimsPlaying,
 }
 
 #[derive(Default)]
@@ -18,6 +19,7 @@ struct State {
     playing_since: Option<Instant>,
     base: Duration,
     fetched: bool,
+    told_to_play: bool,
     actions: Vec<String>,
 }
 
@@ -234,6 +236,7 @@ fn transport(shared: &Arc<Shared>, state: &mut State, request: &Request) -> Stri
         "SetAVTransportURI" => {
             state.uri = arg(&request.body, "CurrentURI");
             state.playing_since = None;
+            state.told_to_play = false;
             state.base = Duration::ZERO;
         }
         "Seek" => {
@@ -256,8 +259,12 @@ fn transport(shared: &Arc<Shared>, state: &mut State, request: &Request) -> Stri
             if shared.mood == Mood::Plays {
                 state.playing_since = Some(Instant::now());
             }
+            state.told_to_play = true;
         }
-        "Stop" => state.playing_since = None,
+        "Stop" => {
+            state.playing_since = None;
+            state.told_to_play = false;
+        }
         _ => {}
     }
     let transport_state = match (shared.mood, state.uri.is_some(), state.playing_since) {
@@ -265,6 +272,8 @@ fn transport(shared: &Arc<Shared>, state: &mut State, request: &Request) -> Stri
         (Mood::Plays, true, Some(_)) => "PLAYING",
         (Mood::Plays, true, None) | (Mood::Stopped, ..) => "STOPPED",
         (Mood::StuckLoading | Mood::FetchesThenStuck, ..) => "TRANSITIONING",
+        (Mood::ClaimsPlaying, ..) if state.told_to_play => "PLAYING",
+        (Mood::ClaimsPlaying, ..) => "STOPPED",
     };
     let position = state.base
         + state

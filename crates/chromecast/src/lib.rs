@@ -1,6 +1,6 @@
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -22,6 +22,7 @@ const NS_RECEIVER: &str = "urn:x-cast:com.google.cast.receiver";
 const NS_MEDIA: &str = "urn:x-cast:com.google.cast.media";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(30);
+const GIVE_UP_POLL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -280,8 +281,19 @@ impl Client {
         &self,
         destination: &str,
         namespace: &str,
+        payload: Value,
+        timeout: Duration,
+    ) -> Result<Value, Error> {
+        self.request_unless(destination, namespace, payload, timeout, None)
+    }
+
+    fn request_unless(
+        &self,
+        destination: &str,
+        namespace: &str,
         mut payload: Value,
         timeout: Duration,
+        give_up: Option<&dyn Fn() -> bool>,
     ) -> Result<Value, Error> {
         if self.connection.is_closed() {
             return Err(Error::Io("the connection to the device is closed".into()));
@@ -295,7 +307,23 @@ impl Client {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(id, sender);
         self.connection.send(destination, namespace, payload);
-        let reply = answer.recv_timeout(timeout);
+        let slice = if give_up.is_some() {
+            GIVE_UP_POLL
+        } else {
+            timeout
+        };
+        let deadline = Instant::now() + timeout;
+        let reply = loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break Err(flume::RecvTimeoutError::Timeout);
+            }
+            match answer.recv_timeout(left.min(slice)) {
+                Err(flume::RecvTimeoutError::Timeout)
+                    if !give_up.is_some_and(|give_up| give_up()) => {}
+                other => break other,
+            }
+        };
         self.connection
             .pending
             .lock()
@@ -359,9 +387,16 @@ impl Client {
         media: &Media,
         autoplay: bool,
         start: f64,
+        give_up: &dyn Fn() -> bool,
     ) -> Result<Option<MediaStatus>, Error> {
         let payload = load_payload(app, media, autoplay, start);
-        let reply = self.request(&app.transport_id, NS_MEDIA, payload, LOAD_TIMEOUT)?;
+        let reply = self.request_unless(
+            &app.transport_id,
+            NS_MEDIA,
+            payload,
+            LOAD_TIMEOUT,
+            Some(give_up),
+        )?;
         Ok(media_statuses(&reply).into_iter().next())
     }
 

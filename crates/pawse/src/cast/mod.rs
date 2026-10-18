@@ -536,8 +536,10 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
             (Some(device), _) => {
                 cast::AirPlayOutput::connect(device.clone(), volume, gain).map(Connected::AirPlay)
             }
-            (None, Some(server)) => cast::connect(&wanted, server).map(Connected::Renderer),
-            (None, None) => Err("no media server".to_string()),
+            (None, Some(server)) => cast::connect(&wanted, server)
+                .map(Connected::Renderer)
+                .map_err(cast::ConnectError::Failed),
+            (None, None) => Err(cast::ConnectError::Failed("no media server".into())),
         }
     });
     cx.spawn(async move |cx| {
@@ -557,7 +559,15 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
             });
             match result {
                 Ok(connected) => activate(receiver, connected, volume, cx),
-                Err(e) => {
+                Err(cast::ConnectError::Unreached) => {
+                    log::warn!(
+                        "cast: {} answers but never asked for our clock; \
+                         something blocks its connection to this computer",
+                        receiver.name
+                    );
+                    explain_unreached(&receiver.name, cx);
+                }
+                Err(cast::ConnectError::Failed(e)) => {
                     log::warn!("cast: connecting to {} failed: {e}", receiver.name);
                     notify(
                         cx,
@@ -740,6 +750,14 @@ fn forward_airplay(
     cx.spawn(async move |cx| {
         if let Ok(reason) = lost.recv_async().await {
             cx.update(|cx| lose(id, &name, &reason, cx));
+        }
+    })
+    .detach();
+    let unreached_events = output.unreached();
+    let name = output.name().to_string();
+    cx.spawn(async move |cx| {
+        if unreached_events.recv_async().await.is_ok() {
+            cx.update(|cx| unreached(id, &name, cx));
         }
     })
     .detach();
@@ -956,8 +974,8 @@ fn unreached(id: u64, name: &str, cx: &mut App) {
         return;
     }
     log::warn!(
-        "cast: {name} answers commands but never fetched the track; \
-         something blocks its connection to this computer"
+        "cast: {name} answers commands but never reached this computer; \
+         something blocks its connection to us"
     );
     back_to_this_computer(cx);
     explain_unreached(name, cx);

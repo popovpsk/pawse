@@ -52,6 +52,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl FakeReceiver {
     pub fn start(password: &'static str) -> Self {
+        Self::start_with(password, true)
+    }
+
+    pub fn cut_off_from_our_clock(password: &'static str) -> Self {
+        Self::start_with(password, false)
+    }
+
+    fn start_with(password: &'static str, asks_for_clock: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let heard = Arc::new(Mutex::new(Heard::default()));
@@ -65,7 +73,7 @@ impl FakeReceiver {
         };
         std::thread::spawn(move || {
             if let Ok((stream, _)) = listener.accept() {
-                serve(stream, password, heard, events, stop);
+                serve(stream, password, asks_for_clock, heard, events, stop);
             }
         });
         fake
@@ -237,6 +245,7 @@ fn port(port: u16) -> Value {
 fn serve(
     stream: TcpStream,
     password: &str,
+    asks_for_clock: bool,
     heard: Arc<Mutex<Heard>>,
     event_side: Arc<Mutex<Option<EventSide>>>,
     stop: Arc<AtomicBool>,
@@ -309,7 +318,7 @@ fn serve(
                     .unwrap();
                 let answer = match setup.get("streams") {
                     Some(streams) => {
-                        if !clock_answers(timing_port) {
+                        if asks_for_clock && !clock_answers(timing_port) {
                             return;
                         }
                         let stream = streams.as_array().unwrap()[0].as_dictionary().unwrap();

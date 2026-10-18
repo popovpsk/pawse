@@ -98,7 +98,7 @@ static EN: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Streaming didn't start"),
     unreached_t: SharedString::new_static(
-        "{} accepted the track but never came to fetch it, so playback is back on this computer. Something is blocking the device's connection to Pawse. Most often it's a firewall on this computer; a VPN or a guest Wi-Fi network can do the same.",
+        "{} answers Pawse but never connected back to it, so nothing plays there. Something is blocking the device's connection to Pawse. Most often it's a firewall on this computer; a VPN or a guest Wi-Fi network can do the same.",
     ),
     unreached_windows: SharedString::new_static(
         "Open Windows Security → Firewall & network protection → Allow an app through firewall, find Pawse and tick Private (and Public if this network is set to Public). Then pick the device again.",
@@ -129,7 +129,7 @@ static ZH: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("串流未能开始"),
     unreached_t: SharedString::new_static(
-        "{} 接收了曲目，却一直没有来获取，因此已改回在本机播放。有东西阻止了设备连接到 Pawse。最常见的原因是这台电脑上的防火墙；VPN 或访客 Wi-Fi 网络也可能造成同样的问题。",
+        "{} 能响应 Pawse，却一直没有反向连接过来，因此无法播放。有东西阻止了设备连接到 Pawse。最常见的原因是这台电脑上的防火墙；VPN 或访客 Wi-Fi 网络也可能造成同样的问题。",
     ),
     unreached_windows: SharedString::new_static(
         "打开“Windows 安全中心”→“防火墙和网络保护”→“允许应用通过防火墙”，找到 Pawse，勾选“专用”（如果当前网络被设为公用，也勾选“公用”）。然后重新选择该设备。",
@@ -162,7 +162,7 @@ static PT: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("A transmissão não começou"),
     unreached_t: SharedString::new_static(
-        "{} aceitou a faixa, mas nunca veio buscá-la, por isso a reprodução voltou para este computador. Algo está bloqueando a conexão do dispositivo com o Pawse. Na maioria das vezes é um firewall neste computador; uma VPN ou uma rede Wi-Fi de convidados pode causar o mesmo.",
+        "{} responde ao Pawse, mas nunca se conectou de volta a ele, por isso nada toca nele. Algo está bloqueando a conexão do dispositivo com o Pawse. Na maioria das vezes é um firewall neste computador; uma VPN ou uma rede Wi-Fi de convidados pode causar o mesmo.",
     ),
     unreached_windows: SharedString::new_static(
         "Abra Segurança do Windows → Firewall e proteção de rede → Permitir um aplicativo pelo firewall, encontre o Pawse e marque Particular (e Pública, se esta rede estiver definida como pública). Depois escolha o dispositivo novamente.",
@@ -195,7 +195,7 @@ static RU: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Трансляция не началась"),
     unreached_t: SharedString::new_static(
-        "{} принял трек, но так и не пришёл за ним, поэтому воспроизведение вернулось на этот компьютер. Что-то блокирует подключение устройства к Pawse. Чаще всего это брандмауэр на этом компьютере; то же могут делать VPN или гостевая сеть Wi-Fi.",
+        "{} отвечает Pawse, но так и не подключился к нему в ответ, поэтому ничего не играет. Что-то блокирует подключение устройства к Pawse. Чаще всего это брандмауэр на этом компьютере; то же могут делать VPN или гостевая сеть Wi-Fi.",
     ),
     unreached_windows: SharedString::new_static(
         "Откройте «Безопасность Windows» → «Брандмауэр и защита сети» → «Разрешить работу с приложением через брандмауэр», найдите Pawse и отметьте «Частная» (и «Публичная», если сеть считается публичной). Затем выберите устройство снова.",
@@ -228,7 +228,7 @@ static JA: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("ストリーミングを開始できませんでした"),
     unreached_t: SharedString::new_static(
-        "{} はトラックを受け付けましたが、取得しに来ませんでした。そのため再生はこのコンピューターに戻りました。デバイスから Pawse への接続が何かにブロックされています。多くの場合、このコンピューターのファイアウォールが原因です。VPN やゲスト用 Wi-Fi でも同じことが起こります。",
+        "{} は Pawse に応答していますが、Pawse へ接続してこないため、何も再生できません。デバイスから Pawse への接続が何かにブロックされています。多くの場合、このコンピューターのファイアウォールが原因です。VPN やゲスト用 Wi-Fi でも同じことが起こります。",
     ),
     unreached_windows: SharedString::new_static(
         "「Windows セキュリティ」→「ファイアウォールとネットワーク保護」→「ファイアウォールによるアプリケーションの許可」を開き、Pawse を見つけて「プライベート」（ネットワークがパブリックの場合は「パブリック」も）にチェックを入れてください。その後、もう一度デバイスを選択してください。",
@@ -261,7 +261,7 @@ static DE: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Streaming wurde nicht gestartet"),
     unreached_t: SharedString::new_static(
-        "{} hat den Titel angenommen, ihn aber nie abgeholt, deshalb läuft die Wiedergabe wieder auf diesem Computer. Etwas blockiert die Verbindung des Geräts zu Pawse. Meistens ist es eine Firewall auf diesem Computer; auch ein VPN oder ein WLAN für Gäste kann das verursachen.",
+        "{} antwortet Pawse, hat aber nie eine Verbindung zurück aufgebaut, deshalb spielt dort nichts. Etwas blockiert die Verbindung des Geräts zu Pawse. Meistens ist es eine Firewall auf diesem Computer; auch ein VPN oder ein WLAN für Gäste kann das verursachen.",
     ),
     unreached_windows: SharedString::new_static(
         "Öffnen Sie Windows-Sicherheit → Firewall- & Netzwerkschutz → App durch die Firewall zulassen, suchen Sie Pawse und setzen Sie ein Häkchen bei Privat (und bei Öffentlich, wenn dieses Netzwerk als öffentlich eingestuft ist). Wählen Sie das Gerät danach erneut aus.",
@@ -294,7 +294,7 @@ static FR: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("La diffusion n'a pas démarré"),
     unreached_t: SharedString::new_static(
-        "{} a accepté le morceau mais n'est jamais venu le récupérer, la lecture est donc revenue sur cet ordinateur. Quelque chose bloque la connexion de l'appareil vers Pawse. Le plus souvent, c'est un pare-feu sur cet ordinateur ; un VPN ou un réseau Wi-Fi invité peut avoir le même effet.",
+        "{} répond à Pawse mais ne s'est jamais connecté en retour, donc rien n'y est lu. Quelque chose bloque la connexion de l'appareil vers Pawse. Le plus souvent, c'est un pare-feu sur cet ordinateur ; un VPN ou un réseau Wi-Fi invité peut avoir le même effet.",
     ),
     unreached_windows: SharedString::new_static(
         "Ouvrez Sécurité Windows → Pare-feu et protection du réseau → Autoriser une application via le pare-feu, trouvez Pawse et cochez Privé (et Public si ce réseau est défini comme public). Choisissez ensuite de nouveau l'appareil.",
@@ -327,7 +327,7 @@ static KO: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("스트리밍이 시작되지 않았습니다"),
     unreached_t: SharedString::new_static(
-        "{}이(가) 트랙을 받아들였지만 가져가지 않아 재생이 이 컴퓨터로 돌아왔습니다. 무언가가 기기에서 Pawse로의 연결을 막고 있습니다. 대개 이 컴퓨터의 방화벽이 원인이며, VPN이나 게스트 Wi-Fi 네트워크도 같은 문제를 일으킬 수 있습니다.",
+        "{}이(가) Pawse에 응답하지만 Pawse로 다시 연결하지 않아 아무것도 재생되지 않습니다. 무언가가 기기에서 Pawse로의 연결을 막고 있습니다. 대개 이 컴퓨터의 방화벽이 원인이며, VPN이나 게스트 Wi-Fi 네트워크도 같은 문제를 일으킬 수 있습니다.",
     ),
     unreached_windows: SharedString::new_static(
         "Windows 보안 → 방화벽 및 네트워크 보호 → 방화벽을 통해 앱 허용을 열고 Pawse를 찾아 '개인'(네트워크가 공용으로 설정되어 있다면 '공용'도)에 체크하세요. 그런 다음 기기를 다시 선택하세요.",
@@ -360,7 +360,7 @@ static IT: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Lo streaming non è partito"),
     unreached_t: SharedString::new_static(
-        "{} ha accettato il brano ma non è mai venuto a prenderlo, quindi la riproduzione è tornata su questo computer. Qualcosa blocca la connessione del dispositivo verso Pawse. Di solito è un firewall su questo computer; anche una VPN o una rete Wi-Fi ospiti può causare lo stesso problema.",
+        "{} risponde a Pawse ma non si è mai collegato a sua volta, quindi non riproduce nulla. Qualcosa blocca la connessione del dispositivo verso Pawse. Di solito è un firewall su questo computer; anche una VPN o una rete Wi-Fi ospiti può causare lo stesso problema.",
     ),
     unreached_windows: SharedString::new_static(
         "Apri Sicurezza di Windows → Firewall e protezione della rete → Consenti app attraverso il firewall, trova Pawse e seleziona Privata (e Pubblica se questa rete è impostata come pubblica). Poi scegli di nuovo il dispositivo.",
@@ -393,7 +393,7 @@ static TR: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Yayın başlamadı"),
     unreached_t: SharedString::new_static(
-        "{} parçayı kabul etti ancak onu almaya hiç gelmedi, bu yüzden oynatma bu bilgisayara geri döndü. Bir şey cihazın Pawse'a bağlanmasını engelliyor. Çoğunlukla bu bilgisayardaki bir güvenlik duvarıdır; VPN veya misafir Wi-Fi ağı da aynı sorunu yaratabilir.",
+        "{} Pawse'a yanıt veriyor ancak ona hiç geri bağlanmadı, bu yüzden hiçbir şey çalmıyor. Bir şey cihazın Pawse'a bağlanmasını engelliyor. Çoğunlukla bu bilgisayardaki bir güvenlik duvarıdır; VPN veya misafir Wi-Fi ağı da aynı sorunu yaratabilir.",
     ),
     unreached_windows: SharedString::new_static(
         "Windows Güvenliği → Güvenlik duvarı ve ağ koruması → Güvenlik duvarı üzerinden bir uygulamaya izin ver bölümünü açın, Pawse'u bulun ve Özel'i (ağ Genel olarak ayarlıysa Genel'i de) işaretleyin. Ardından cihazı yeniden seçin.",
@@ -426,7 +426,7 @@ static PL: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Strumieniowanie nie ruszyło"),
     unreached_t: SharedString::new_static(
-        "{} przyjęło utwór, ale nigdy po niego nie przyszło, więc odtwarzanie wróciło na ten komputer. Coś blokuje połączenie urządzenia z Pawse. Najczęściej jest to zapora sieciowa na tym komputerze; to samo może powodować VPN lub sieć Wi-Fi dla gości.",
+        "{} odpowiada Pawse, ale nigdy się z nim nie połączyło, więc nic na nim nie gra. Coś blokuje połączenie urządzenia z Pawse. Najczęściej jest to zapora sieciowa na tym komputerze; to samo może powodować VPN lub sieć Wi-Fi dla gości.",
     ),
     unreached_windows: SharedString::new_static(
         "Otwórz Zabezpieczenia Windows → Zapora i ochrona sieci → Zezwalaj aplikacji na dostęp przez zaporę, znajdź Pawse i zaznacz Prywatna (oraz Publiczna, jeśli ta sieć jest ustawiona jako publiczna). Potem wybierz urządzenie ponownie.",
@@ -459,7 +459,7 @@ static NL: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Streamen is niet gestart"),
     unreached_t: SharedString::new_static(
-        "{} heeft het nummer geaccepteerd maar kwam het nooit ophalen, daarom speelt het weer af op deze computer. Iets blokkeert de verbinding van het apparaat met Pawse. Meestal is dat een firewall op deze computer; een vpn of een gastnetwerk kan hetzelfde veroorzaken.",
+        "{} reageert op Pawse maar heeft nooit zelf verbinding teruggemaakt, dus er speelt niets af. Iets blokkeert de verbinding van het apparaat met Pawse. Meestal is dat een firewall op deze computer; een vpn of een gastnetwerk kan hetzelfde veroorzaken.",
     ),
     unreached_windows: SharedString::new_static(
         "Open Windows-beveiliging → Firewall en netwerkbeveiliging → Een app toestaan via de firewall, zoek Pawse en vink Privé aan (en Openbaar als dit netwerk als openbaar is ingesteld). Kies het apparaat daarna opnieuw.",
@@ -492,7 +492,7 @@ static UK: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Трансляція не почалася"),
     unreached_t: SharedString::new_static(
-        "{} прийняв трек, але так і не прийшов по нього, тому відтворення повернулося на цей комп'ютер. Щось блокує підключення пристрою до Pawse. Найчастіше це брандмауер на цьому комп'ютері; те саме можуть робити VPN або гостьова мережа Wi-Fi.",
+        "{} відповідає Pawse, але так і не підключився до нього у відповідь, тому нічого не грає. Щось блокує підключення пристрою до Pawse. Найчастіше це брандмауер на цьому комп'ютері; те саме можуть робити VPN або гостьова мережа Wi-Fi.",
     ),
     unreached_windows: SharedString::new_static(
         "Відкрийте «Безпека Windows» → «Брандмауер і захист мережі» → «Дозволити роботу з програмою через брандмауер», знайдіть Pawse і позначте «Приватна» (і «Загальнодоступна», якщо мережу позначено як загальнодоступну). Потім виберіть пристрій знову.",
@@ -525,7 +525,7 @@ static VI: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Phát trực tiếp chưa bắt đầu"),
     unreached_t: SharedString::new_static(
-        "{} đã nhận bài hát nhưng không bao giờ đến lấy, nên phát nhạc đã quay lại máy tính này. Có thứ gì đó đang chặn kết nối từ thiết bị đến Pawse. Thường là tường lửa trên máy tính này; VPN hoặc mạng Wi-Fi dành cho khách cũng có thể gây ra điều tương tự.",
+        "{} có phản hồi Pawse nhưng không bao giờ kết nối ngược lại, nên không phát được gì. Có thứ gì đó đang chặn kết nối từ thiết bị đến Pawse. Thường là tường lửa trên máy tính này; VPN hoặc mạng Wi-Fi dành cho khách cũng có thể gây ra điều tương tự.",
     ),
     unreached_windows: SharedString::new_static(
         "Mở Bảo mật Windows → Tường lửa và bảo vệ mạng → Cho phép ứng dụng đi qua tường lửa, tìm Pawse và chọn Riêng tư (và Công cộng nếu mạng này được đặt là công cộng). Sau đó chọn lại thiết bị.",
@@ -558,7 +558,7 @@ static ID: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Streaming tidak dimulai"),
     unreached_t: SharedString::new_static(
-        "{} menerima lagu tetapi tidak pernah datang mengambilnya, jadi pemutaran kembali ke komputer ini. Ada sesuatu yang memblokir koneksi perangkat ke Pawse. Paling sering penyebabnya firewall di komputer ini; VPN atau jaringan Wi-Fi tamu bisa menyebabkan hal yang sama.",
+        "{} merespons Pawse tetapi tidak pernah terhubung balik ke Pawse, jadi tidak ada yang diputar. Ada sesuatu yang memblokir koneksi perangkat ke Pawse. Paling sering penyebabnya firewall di komputer ini; VPN atau jaringan Wi-Fi tamu bisa menyebabkan hal yang sama.",
     ),
     unreached_windows: SharedString::new_static(
         "Buka Keamanan Windows → Firewall & perlindungan jaringan → Izinkan aplikasi melalui firewall, cari Pawse dan centang Pribadi (dan Publik jika jaringan ini diatur sebagai publik). Lalu pilih perangkat lagi.",
@@ -591,7 +591,7 @@ static TH: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("การสตรีมไม่เริ่มทำงาน"),
     unreached_t: SharedString::new_static(
-        "{} รับเพลงไว้แล้วแต่ไม่เคยมาดึงไป การเล่นจึงกลับมาที่คอมพิวเตอร์เครื่องนี้ มีบางอย่างกำลังบล็อกการเชื่อมต่อจากอุปกรณ์มายัง Pawse ส่วนใหญ่มักเป็นไฟร์วอลล์บนคอมพิวเตอร์เครื่องนี้ VPN หรือเครือข่าย Wi-Fi สำหรับแขกก็อาจทำให้เกิดอาการเดียวกันได้",
+        "{} ตอบสนอง Pawse แต่ไม่เคยเชื่อมต่อกลับมา จึงเล่นอะไรไม่ได้ มีบางอย่างกำลังบล็อกการเชื่อมต่อจากอุปกรณ์มายัง Pawse ส่วนใหญ่มักเป็นไฟร์วอลล์บนคอมพิวเตอร์เครื่องนี้ VPN หรือเครือข่าย Wi-Fi สำหรับแขกก็อาจทำให้เกิดอาการเดียวกันได้",
     ),
     unreached_windows: SharedString::new_static(
         "เปิดความปลอดภัยของ Windows → ไฟร์วอลล์และการป้องกันเครือข่าย → อนุญาตแอปผ่านไฟร์วอลล์ ค้นหา Pawse แล้วเลือก ส่วนตัว (และ สาธารณะ หากเครือข่ายนี้ตั้งเป็นสาธารณะ) จากนั้นเลือกอุปกรณ์อีกครั้ง",
@@ -624,7 +624,7 @@ static CS: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Streamování se nespustilo"),
     unreached_t: SharedString::new_static(
-        "{} přijalo skladbu, ale nikdy si pro ni nepřišlo, proto se přehrávání vrátilo na tento počítač. Něco blokuje připojení zařízení k Pawse. Nejčastěji jde o firewall na tomto počítači; totéž může způsobit VPN nebo hostovská síť Wi-Fi.",
+        "{} odpovídá aplikaci Pawse, ale nikdy se k ní zpět nepřipojilo, takže nic nehraje. Něco blokuje připojení zařízení k Pawse. Nejčastěji jde o firewall na tomto počítači; totéž může způsobit VPN nebo hostovská síť Wi-Fi.",
     ),
     unreached_windows: SharedString::new_static(
         "Otevřete Zabezpečení Windows → Brána firewall a ochrana sítě → Povolit aplikaci prostřednictvím brány firewall, najděte Pawse a zaškrtněte Soukromá (a Veřejná, pokud je tato síť nastavena jako veřejná). Poté zařízení vyberte znovu.",
@@ -657,7 +657,7 @@ static SV: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("Strömningen startade inte"),
     unreached_t: SharedString::new_static(
-        "{} godtog låten men kom aldrig och hämtade den, så uppspelningen är tillbaka på den här datorn. Något blockerar enhetens anslutning till Pawse. Oftast är det en brandvägg på den här datorn; ett VPN eller ett gästnätverk kan ge samma sak.",
+        "{} svarar Pawse men har aldrig anslutit tillbaka, så ingenting spelas upp. Något blockerar enhetens anslutning till Pawse. Oftast är det en brandvägg på den här datorn; ett VPN eller ett gästnätverk kan ge samma sak.",
     ),
     unreached_windows: SharedString::new_static(
         "Öppna Windows-säkerhet → Brandvägg och nätverksskydd → Tillåt en app genom brandväggen, hitta Pawse och markera Privat (och Offentligt om nätverket är inställt som offentligt). Välj sedan enheten igen.",
@@ -688,7 +688,7 @@ static HI: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("स्ट्रीमिंग शुरू नहीं हुई"),
     unreached_t: SharedString::new_static(
-        "{} ने ट्रैक स्वीकार किया, लेकिन उसे लेने कभी नहीं आया, इसलिए प्लेबैक इस कंप्यूटर पर लौट आया है। कोई चीज़ डिवाइस से Pawse तक के कनेक्शन को रोक रही है। अक्सर यह इस कंप्यूटर का फ़ायरवॉल होता है; VPN या गेस्ट Wi-Fi नेटवर्क भी यही समस्या पैदा कर सकता है।",
+        "{} Pawse को जवाब देता है, लेकिन कभी वापस कनेक्ट नहीं हुआ, इसलिए उस पर कुछ नहीं चल रहा। कोई चीज़ डिवाइस से Pawse तक के कनेक्शन को रोक रही है। अक्सर यह इस कंप्यूटर का फ़ायरवॉल होता है; VPN या गेस्ट Wi-Fi नेटवर्क भी यही समस्या पैदा कर सकता है।",
     ),
     unreached_windows: SharedString::new_static(
         "Windows सुरक्षा → फ़ायरवॉल और नेटवर्क सुरक्षा → फ़ायरवॉल के माध्यम से किसी ऐप को अनुमति दें खोलें, Pawse ढूँढें और निजी (और सार्वजनिक, यदि यह नेटवर्क सार्वजनिक के रूप में सेट है) चुनें। फिर डिवाइस दोबारा चुनें।",
@@ -721,7 +721,7 @@ static ES: CastStrings = CastStrings {
     ),
     unreached_title: SharedString::new_static("La transmisión no se inició"),
     unreached_t: SharedString::new_static(
-        "{} aceptó la pista pero nunca vino a buscarla, así que la reproducción ha vuelto a este equipo. Algo está bloqueando la conexión del dispositivo con Pawse. Lo más habitual es un firewall de este equipo; una VPN o una red Wi-Fi de invitados puede causar lo mismo.",
+        "{} responde a Pawse pero nunca se ha conectado de vuelta, así que no reproduce nada. Algo está bloqueando la conexión del dispositivo con Pawse. Lo más habitual es un firewall de este equipo; una VPN o una red Wi-Fi de invitados puede causar lo mismo.",
     ),
     unreached_windows: SharedString::new_static(
         "Abre Seguridad de Windows → Firewall y protección de red → Permitir una aplicación a través del firewall, busca Pawse y marca Privada (y Pública si esta red está configurada como pública). Después elige el dispositivo de nuevo.",

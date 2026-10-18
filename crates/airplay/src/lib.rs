@@ -42,6 +42,10 @@ pub enum Error {
     PasswordRequired,
     #[error("the device refused: {0}")]
     Refused(String),
+    #[error("{0}: the device did not answer in time")]
+    Timeout(String),
+    #[error("the device never asked for this computer's clock")]
+    Unreached,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -43,8 +43,9 @@ protobufs after pair-verify).
   retransmits have a thread each so a reply is never delayed behind the other socket.
 - A failed request while playing ends the stream with `StreamEvent::Lost`. While not
   playing the stream just ends (`is_alive` turns false) and the owner reconnects on play.
-  Optional requests (metadata, progress, keep-alive) end it only on an `Io` error; any
-  other status is logged.
+  Optional requests (metadata, progress, keep-alive) end it only on an `Io` or `Timeout`
+  error (a read timeout on the RTSP socket, naming the request); any other status is
+  logged.
 - Dropping a `Stream` sends `TEARDOWN` and joins every thread: it can block for the RTSP
   timeout, so drop it off the UI thread.
 - Volume, title and progress are coalesced: only the newest value is sent once the previous
@@ -117,6 +118,22 @@ play on third-party receivers; deviating breaks real devices.
 - A sync packet (control port) goes out with the first packet and then every second. The
   first after a start or flush has the extension bit, the first audio packet the marker
   bit. AirPlay 2 with NTP timing uses the same packet.
+- **A speaker that cannot reach us.** Its clock requests come in to our timing port, which
+  a firewall dropping incoming packets stops, and without answers neither shairport-sync nor
+  the Hisense TV plays (shairport-sync keeps the session and writes nothing). So
+  `TimingServer` notes whether it answered any request (`asked`):
+  - 6 s after the stream's first play (`CLOCK_WAIT`, a `start_with` argument for tests;
+    armed by the first `Control::Play`, so a stream set up while paused is not judged before
+    the speaker got any sync or audio) the sender thread sends `StreamEvent::Unreached` once
+    if nothing was asked. The stream goes on; its owner decides.
+  - An AirPlay 2 stream `SETUP` that times out with nothing asked fails the handshake with
+    `Error::Unreached`, since the TV answers it only after its clock requests were answered.
+    Earlier requests (the RAOP `SETUP` and `RECORD`, the session `SETUP`) are answered
+    before any clock request, so their timeouts say nothing about a firewall and are not
+    mapped; neither is a timeout once the clock was asked for.
+  - A receiver that plays without ever asking for our clock would be taken for an
+    unreached one. None is known: RAOP and NTP-timed AirPlay 2 receivers need the clock to
+    place the audio.
 - The control and timing sockets are the ones the speaker sends to: they take the first
   free ports of the range given to `Stream::start` (`0..=0` in tests means any) and fall
   back to a random port with a warning. The audio socket only sends and stays random.
@@ -206,7 +223,8 @@ Two ways in; the receiver chooses.
 
 - `stream.rs` runs whole AirPlay 2 sessions against `fake::FakeReceiver`. Like the Hisense
   TV, the fake answers the stream `SETUP` only after our timing port answered a clock
-  request.
+  request. `FakeReceiver::cut_off_from_our_clock` never asks and plays along, as
+  shairport-sync does, for the unreached report.
 - `srp.rs` and `secure.rs` check against vectors made with other implementations
   (`srptools` as pyatv uses it, Python `cryptography`).
 - RAOP has no fake; check it against a shairport-sync AirPlay 1 build. shairport-sync's

@@ -42,9 +42,9 @@ incoming connections leaves discovery working, so the device is listed and never
   stream; a reconnect or a switch between speakers can hold two streams for a moment). A
   taken range falls back to a random port with a warning. Same range on every platform: the
   macOS and Windows firewalls allow an app, not a port.
-- The user learns the range from the app's message box on `SessionEvent::NeverFetched`
-  (`crates/pawse/src/cast/doc.md`, "Switching"), whose Linux text names `PORTS`; change both
-  together.
+- The user learns the range from the app's message box on an unreached device
+  (`SessionEvent::NeverFetched`, `AirPlayOutput::unreached`; `crates/pawse/src/cast/doc.md`,
+  "Switching"), whose Linux text names `PORTS`; change both together.
 - Discovery replies are not covered (they come back to random ports); behind such a firewall
   discovery lives on multicast mDNS, SSDP NOTIFY and unicast queries to known hosts, whose
   answers connection tracking lets in.
@@ -130,9 +130,10 @@ waits for the position and restores the sound: the first moments of the track ar
   cannot play from 0:00. Restoring is tried three times; failing that, the next volume change
   also unmutes. If the app dies in between, the device stays silent until its volume or mute
   is touched.
-- If the wait for PLAYING runs out and the device never asked for the track, the seek is
-  skipped: a device stuck loading refuses it with a UPnP fault, which would turn
-  `NeverFetched` into `Failed`.
+- The wait for PLAYING (`START_WAIT`, 15 s, at most the unreached wait below) takes PLAYING or
+  PAUSED only from a device that has asked for the track. If it runs out and the device never
+  asked, the seek is skipped: a device stuck loading refuses it with a UPnP fault, which would
+  turn `NeverFetched` into `Failed`.
 
 ### Loading paused
 
@@ -166,17 +167,32 @@ changes win over the device's for 1.5 s.
   while loading). Then Chromecast IDLE/FINISHED, or a DLNA STOPPED within 5 s of the end (or
   without a duration), is `Ended`; an earlier STOPPED means someone stopped it on the device:
   shown as paused, and play reloads at that position.
-- A track that does not start within the patience (30 s; a `Worker` field,
-  `Session::start_with`, so tests do not wait) fails, told apart by whether the device ever
-  asked the media server:
-  - It did: `Failed("the device did not start playing")`; long buffering stays buffering.
-  - It never did although it answers every poll: `NeverFetched`, the firewall case (a VPN or a
-    guest network isolating clients does the same). After the wait idle, stopped, buffering
-    and loading all count: a device that cannot connect back does not necessarily sit idle. A
-    reported failed load counts too, but a Chromecast that rejects the media at once is an
-    ordinary `Failed` with "(it never asked for the track)", since it may dislike the format.
+- Whether the device ever asked the media server for the track decides how a start that does
+  not happen ends. The waits count from the moment the device was told (`loaded_at`, stamped
+  in `send` and again by play for a track loaded paused) and are `Worker` fields (`patience`,
+  and `unreached_after`, at most the patience; `Session::start_with`) so tests do not wait.
+  - It did, and still never played within 30 s (`NEVER_STARTED`):
+    `Failed("the device did not start playing")`; long buffering stays buffering.
+  - It never did within 20 s (`UNREACHED_AFTER`) although it answers every poll:
+    `NeverFetched`, the firewall case (a VPN or a guest network isolating clients does the
+    same). Idle, stopped, buffering and loading all count: a device that cannot connect back
+    does not necessarily sit idle (the HiBy R1 reports TRANSITIONING forever). Until it has
+    asked, its PLAYING and PAUSED count as `Buffering` too (`seen_playing` is set only by a
+    PLAYING after a request): gmediarender answers PLAYING at once without the track, and
+    believing it would make the session read the frozen position as a pause and stop there.
+  - A failed load without a request, reported by the device or a load command that fails or
+    times out on our side (`refused`): within the first 3 s (`REFUSED_AT_ONCE`, long enough
+    for the first poll after the 1.5 s hold) an ordinary `Failed` with "(it never asked for
+    the track)", since the device may dislike the format (a firewall that rejects instead of
+    dropping looks the same); later `NeverFetched`, the device having given up on its own
+    connection to us. Either way `NeverFetched` needs a device that still answers: `refused`
+    polls once more, and one that does not gets the plain `Failed`, then `Lost`.
+  - A Chromecast answers `LOAD` only once the media is loaded or has failed, so with the media
+    server out of reach the session thread would sit in `LOAD` for 30 s and end in a plain
+    `Failed`. `Loading::unreached` lets the driver stop waiting: `Client::load` gives up once
+    the 20 s have passed with nothing requested, and `refused` turns that into `NeverFetched`.
   - Not `Lost`: a device that is off stops answering polls and ends in `Lost` first.
-  - AirPlay has no such check: its media is not fetched.
+  - AirPlay is pushed, so nothing is fetched there; see AirPlay output for its check.
 - **Lost**: four failed polls in a row over at least 4 s, a closed Chromecast connection, or
   its receiver app closed or taken by another sender. The session does not talk to the device
   first. For DLNA only `GetTransportInfo` counts (some renderers fault on `GetPositionInfo`
@@ -216,6 +232,11 @@ changes win over the device's for 1.5 s.
 - A stream that died while paused is reconnected on resume; only a failure there, or losing
   the speaker while playing, goes to `lost()`. The handshake runs without the stream lock and a
   closed output never reconnects.
+- **A speaker that cannot reach us** (`crates/airplay/src/doc.md`, "A speaker that cannot
+  reach us"): `airplay::StreamEvent::Unreached` comes out as `unreached()`, and a handshake
+  failing with `airplay::Error::Unreached` as `ConnectError::Unreached` from `connect` or as
+  `unreached()` from a reconnect on resume, apart from `lost()`, so the app can explain the
+  firewall instead of reporting a lost speaker.
 
 ## DACP
 
@@ -284,9 +305,11 @@ prompt.
 
 The fake Chromecast fetches the media URL it is given, so a test sees the exact bytes a device
 gets. `FakeRenderer` (`tests.rs`) is a scripted `Driver` with whole-second positions for the
-renderer quirks above. `fake_dlna.rs` is a DLNA renderer on loopback with real SOAP in four
-moods (plays, stuck loading, stopped, fetches then stays loading); the unreached-device cases
-run on it and on `FakeChromecast::cannot_reach_media` with a short patience, since a firewall
+renderer quirks above; it asks for the track with a `HEAD` whenever it starts playing, as a
+real one would, or it would count as unreached. `fake_dlna.rs` is a DLNA renderer on loopback
+with real SOAP in five moods (plays, stuck loading, stopped, claims PLAYING without fetching,
+fetches then stays loading); the unreached-device cases run on it and on
+`FakeChromecast::cannot_reach_media` / `reply_to_load` with a short patience, since a firewall
 drop is indistinguishable from a device that never connects.
 
 ## Known limits

@@ -46,6 +46,7 @@ pub(crate) struct Link {
 pub(crate) struct TimingServer {
     port: u16,
     stop: Arc<AtomicBool>,
+    asked: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -55,7 +56,8 @@ impl TimingServer {
         socket.set_read_timeout(Some(TIMING_POLL)).ok();
         let port = port(&socket)?;
         let stop = Arc::new(AtomicBool::new(false));
-        let stopped = stop.clone();
+        let asked = Arc::new(AtomicBool::new(false));
+        let (stopped, answered) = (stop.clone(), asked.clone());
         let thread = std::thread::Builder::new()
             .name("airplay-timing".into())
             .spawn(move || {
@@ -65,6 +67,7 @@ impl TimingServer {
                         let received = rtp::ntp_now();
                         if let Some(reply) = rtp::timing_reply(&buffer[..len], received) {
                             let _ = socket.send_to(&reply, from);
+                            answered.store(true, Ordering::Release);
                         }
                     }
                 }
@@ -73,6 +76,7 @@ impl TimingServer {
         Ok(Self {
             port,
             stop,
+            asked,
             thread: Some(thread),
         })
     }
@@ -81,6 +85,21 @@ impl TimingServer {
 impl TimingServer {
     pub fn stopper(&self) -> Arc<AtomicBool> {
         self.stop.clone()
+    }
+
+    pub fn asked(&self) -> Arc<AtomicBool> {
+        self.asked.clone()
+    }
+
+    fn unreached(&self) -> impl Fn(Error) -> Error + use<> {
+        let asked = self.asked.clone();
+        move |e| {
+            if matches!(e, Error::Timeout(_)) && !asked.load(Ordering::Acquire) {
+                Error::Unreached
+            } else {
+                e
+            }
+        }
     }
 }
 
@@ -393,7 +412,8 @@ pub(crate) fn airplay2(
     let stream = setup(
         &mut rtsp,
         &stream_setup(session_id, &keys.audio, port(&audio)?, port(&control)?),
-    )?;
+    )
+    .map_err(timing.unreached())?;
     let described = stream
         .get("streams")
         .and_then(Value::as_array)
@@ -437,6 +457,33 @@ mod tests {
             .unwrap()
             .into_dictionary()
             .unwrap()
+    }
+
+    #[test]
+    fn a_timeout_counts_as_unreached_only_while_the_device_never_asked_for_our_clock() {
+        let timing = TimingServer::start(IpAddr::from([127, 0, 0, 1]), &(0..=0)).unwrap();
+        let unreached = timing.unreached();
+        assert_eq!(unreached(Error::Timeout("SETUP".into())), Error::Unreached);
+        assert_eq!(
+            unreached(Error::Io("reset".into())),
+            Error::Io("reset".into())
+        );
+
+        let device = UdpSocket::bind("127.0.0.1:0").unwrap();
+        device
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = [0u8; 32];
+        request[..4].copy_from_slice(&[0x80, 0xd2, 0, 7]);
+        device
+            .send_to(&request, ("127.0.0.1", timing.port))
+            .unwrap();
+        let mut reply = [0u8; 64];
+        assert_eq!(device.recv(&mut reply).unwrap(), 32);
+        assert_eq!(
+            unreached(Error::Timeout("SETUP".into())),
+            Error::Timeout("SETUP".into())
+        );
     }
 
     #[test]

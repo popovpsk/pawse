@@ -14,7 +14,7 @@ mod session;
 mod unicast_mdns;
 
 pub use airplay::RemoteCommand;
-pub use airplay_output::AirPlayOutput;
+pub use airplay_output::{AirPlayOutput, ConnectError};
 pub use discovery::{Discovery, Receiver, ReceiverKind};
 pub use media::{Cover, Media, Source, StreamOpener, TrackInfo};
 pub use net::PORTS;
