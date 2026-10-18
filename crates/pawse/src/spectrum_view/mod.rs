@@ -192,7 +192,7 @@ impl SpectrumView {
         self.readout_at = now;
         let hz = self.analyzer.frequencies()[index];
         let db = self.analyzer.levels()[index];
-        self.readout = Some((index, paint::readout_text(hz, db)));
+        self.readout = Some((index, paint::readout_text(self.style, hz, db)));
     }
 
     fn apply_settings(&mut self, cx: &mut Context<Self>) {

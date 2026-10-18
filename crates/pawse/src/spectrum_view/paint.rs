@@ -143,12 +143,17 @@ pub fn hover_index(
     Some(((t * (count - 1) as f32).round() as usize).min(count - 1))
 }
 
-pub fn readout_text(hz: f32, db: f32) -> SharedString {
+pub fn readout_text(style: SpectrumStyle, hz: f32, db: f32) -> SharedString {
+    let level = if db < range(style).1 {
+        "—".into()
+    } else {
+        db_value(db)
+    };
     format!(
         "{} · {} · {} dB · {}",
         hz_label(hz),
         note(hz),
-        db_value(db),
+        level,
         zone_of(hz).name
     )
     .into()
@@ -161,26 +166,34 @@ pub fn point_step(style: SpectrumStyle) -> f32 {
     }
 }
 
+fn range(style: SpectrumStyle) -> (f32, f32) {
+    match style {
+        SpectrumStyle::Cover => COVER_RANGE,
+        SpectrumStyle::Silhouette => SILHOUETTE_RANGE,
+        SpectrumStyle::Zones => ZONES_RANGE,
+        SpectrumStyle::Analyzer => ANALYZER_RANGE,
+    }
+}
+
 fn plot(style: SpectrumStyle, width: f32, height: f32) -> Plot {
     let edge = COVER_STROKE / 2.;
-    let (left, top, w, h, (top_db, bottom_db)) = match style {
-        SpectrumStyle::Cover => (edge, 0., width - edge * 2., height - edge, COVER_RANGE),
-        SpectrumStyle::Silhouette => (0., 0., width, height - SILHOUETTE_LABELS, SILHOUETTE_RANGE),
+    let (left, top, w, h) = match style {
+        SpectrumStyle::Cover => (edge, 0., width - edge * 2., height - edge),
+        SpectrumStyle::Silhouette => (0., 0., width, height - SILHOUETTE_LABELS),
         SpectrumStyle::Zones => (
             0.,
             ZONES_PLOT.0,
             width,
             height - ZONES_PLOT.0 - ZONES_PLOT.1,
-            ZONES_RANGE,
         ),
         SpectrumStyle::Analyzer => (
             0.,
             ANALYZER_PLOT.0,
             width - ANALYZER_GUTTER,
             height - ANALYZER_PLOT.0 - ANALYZER_PLOT.1,
-            ANALYZER_RANGE,
         ),
     };
+    let (top_db, bottom_db) = range(style);
     Plot {
         left,
         top,
@@ -996,6 +1009,18 @@ mod tests {
         assert_eq!(db_value(-38.44), "−38.4");
         assert_eq!(db_value(0.), "0.0");
         assert_eq!(db_value(-200.), "—");
+        assert_eq!(
+            readout_text(SpectrumStyle::Analyzer, 100., -96.).to_string(),
+            "100 Hz · G2 · −96.0 dB · BASS"
+        );
+        assert_eq!(
+            readout_text(SpectrumStyle::Analyzer, 100., -150.).to_string(),
+            "100 Hz · G2 · — dB · BASS"
+        );
+        assert_eq!(
+            readout_text(SpectrumStyle::Zones, 100., -90.).to_string(),
+            "100 Hz · G2 · — dB · BASS"
+        );
         assert_eq!(hz_label(56.3), "56.3 Hz");
         assert_eq!(hz_label(1_240.), "1.24 kHz");
         assert_eq!(hz_label(12_500.), "12.5 kHz");

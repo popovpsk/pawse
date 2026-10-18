@@ -88,6 +88,8 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
   The readout text is formatted on a new point or every 125 ms, like the zone levels, and
   only the hairline and dot follow the live curve: digits changing at frame rate cannot be
   read, and paint allocates no strings.
+- A readout level below the bottom of the style's dB scale shows "—": the curve is pinned to
+  the floor there, and leakage numbers like −170 dB only look like signal.
 - dB values use the theme's mono font; zone names, Hz, dB and the legend are not translated.
 
 ## Decisions
