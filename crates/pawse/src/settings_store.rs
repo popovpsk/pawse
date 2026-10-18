@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use gpui::{App, BackgroundExecutor, Global, Pixels, px};
@@ -339,6 +340,18 @@ pub struct PlaybackState {
     pub custom: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowPlacement {
+    #[serde(default)]
+    pub display: Option<String>,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SubsonicServer {
     pub url: String,
@@ -621,6 +634,8 @@ pub struct UserSettings {
     pub onboarding_complete: bool,
     #[serde(default)]
     pub sleep_timer: SleepTimerSettings,
+    #[serde(default)]
+    window: RefCell<Option<WindowPlacement>>,
 }
 
 impl Default for UserSettings {
@@ -704,6 +719,7 @@ impl Default for UserSettings {
             onboarding_complete: false,
             network_cache_gb: default_network_cache_gb(),
             sleep_timer: SleepTimerSettings::default(),
+            window: RefCell::new(None),
         }
     }
 }
@@ -1196,6 +1212,14 @@ impl SettingsStore {
     pub fn set_playback(&mut self, state: PlaybackState) -> anyhow::Result<()> {
         self.settings.playback = state;
         self.save()
+    }
+
+    pub fn window_placement(&self) -> Option<WindowPlacement> {
+        self.settings.window.borrow().clone()
+    }
+
+    pub fn remember_window_placement(&self, placement: WindowPlacement) {
+        self.settings.window.replace(Some(placement));
     }
 
     pub fn volume(&self) -> f32 {
@@ -1954,6 +1978,31 @@ mod tests {
     }
 
     #[test]
+    fn window_placement_is_written_by_the_next_save() {
+        let path = tmp_settings_path();
+        let placement = WindowPlacement {
+            display: Some("display".into()),
+            x: 120.,
+            y: 80.,
+            width: 1280.,
+            height: 720.,
+            maximized: true,
+        };
+
+        {
+            let store = SettingsStore::load_from(path.clone());
+            store.remember_window_placement(placement.clone());
+            assert!(!path.exists());
+            store.save().unwrap();
+        }
+
+        let reloaded = SettingsStore::load_from(path.clone());
+        assert_eq!(reloaded.window_placement(), Some(placement));
+
+        cleanup(&path);
+    }
+
+    #[test]
     fn add_music_folder_is_idempotent() {
         let path = tmp_settings_path();
         let folder = PathBuf::from("/Users/test/Music");
@@ -2149,9 +2198,18 @@ mod tests {
                 auto_until_min: 5 * 60,
                 auto_duration_min: 45,
             },
+            window: RefCell::new(Some(WindowPlacement {
+                display: None,
+                x: -1600.,
+                y: 40.,
+                width: 1000.,
+                height: 700.,
+                maximized: false,
+            })),
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.window, settings.window);
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
         assert_eq!(back.font_scale, FontScale::Large);
         assert_eq!(back.now_playing_details, NowPlayingDetails::Album);

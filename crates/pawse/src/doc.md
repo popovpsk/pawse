@@ -11,6 +11,7 @@ App shell:
 - `main.rs` — startup, window creation, app-level actions, launch restore, the quit hook.
 - `main_view.rs` — `MainView`, the root view (header: `main_view/header.rs`).
   `window_title_bar.rs` — `WindowTitleBar`. `onboarding_view.rs` — the first-run window.
+  `window_placement.rs` — main window size and position across launches.
 - `services.rs` — the `Services` global, transport functions (`play_next`, `seek_to_ms`,
   `set_volume`, …), `run_engine_events_bus`, prefetch, queue persistence, and the web
   remote's command/state half (`apply_remote_command`, `build_remote_state`).
@@ -99,6 +100,25 @@ Integrations:
 - `run_engine_events_bus` is spawned last, after every subscriber exists; earlier engine
   events wait in its channel. `Services` exist only after the Linux gate, which returns
   early after opening its window and installing the single-instance listener.
+
+## Window placement (`window_placement.rs`)
+
+- `MainView` observes its window's bounds and `remember` keeps the placement in
+  `UserSettings`' `window` without saving; the next settings save of any kind and the
+  quit save write it. The bounds are taken while the window lives, since on Windows and
+  Linux the quit comes after the last window has closed.
+- Shape follows Zed: `inner_window_bounds` (with client-side decorations `window_bounds`
+  includes the shadow inset, and the window would grow every launch) plus the display
+  uuid, because macOS bounds are relative to the window's display. Changes of an inactive
+  window are skipped: on screen lock and display sleep macOS shrinks inactive windows to
+  the built-in screen.
+- Only windowed bounds are recorded, and maximized ones on Windows. In fullscreen, and
+  while maximized on Linux, the last windowed placement stays. A minimized Windows
+  window (moved off its display) is skipped: it would report a maximized one as windowed.
+- `restore` applies only to the main window (not onboarding or the Linux gate). The
+  saved position is used when its display is connected and holds the window's center;
+  otherwise the saved size is centered on the primary display. Size is clamped to the
+  display's visible area and the window's minimum. Wayland ignores the position.
 
 ## Single instance (`single_instance.rs`, `Info.plist`)
 
@@ -189,6 +209,9 @@ Integrations:
   a temp file and renames it; before the writer starts it writes synchronously. Failures
   surface through `notify_save_error`. The playback state (queue, position, shuffle,
   repeat) lives in the same file.
+- `window` is a `RefCell` so the bounds observer can update it through `cx.global`: a
+  `global_mut` per resize frame would wake every `SettingsStore` observer (Settings
+  pages rebuild).
 - Any `cx.global_mut::<SettingsStore>()` notifies the global's observers; that is how
   views follow a setting.
 - Upgrades run in `load_from` on every load and stay idempotent: `migrate_scrobble`
@@ -463,7 +486,7 @@ Integrations:
   `popover_bg(color, veil_factor(cx))`, which never drops below `POPOVER_MIN_OPACITY`: a
   list of devices or playlists must stay readable.
 - `CoverVolume` drives the footer's `Volume` entity through a vertical popup slider; the
-  wheel nudges by `VOLUME_STEP`, a click outside collapses it.
+  wheel over it goes to `Volume::wheel` (Volume), a click outside collapses it.
 
 ## Volume (`volume.rs`)
 
@@ -473,6 +496,22 @@ Integrations:
   out of the signal path); the user's level is kept and returns afterwards.
 - `set_volume` goes to the cast device when it owns the volume (not saved), else to
   `Output` and the app gain, and is saved. `effective_volume` is what the slider shows.
+- The wheel over the icon and slider moves the volume by `VOLUME_STEP` through
+  `WheelSteps`; a step per event would turn one trackpad swipe into the whole range.
+  Line deltas on macOS come only from classic wheels, one event per notch, so each is a
+  step. On Windows and Linux a notch is 3 lines (gpui's Linux constant, the Windows
+  default), and touchpads and high-resolution wheels send fractions of it: lines
+  accumulate at `WHEEL_LINES_PER_STEP`, capped at one step per event (the Windows
+  page-scroll setting sends huge deltas). Pixels accumulate at `WHEEL_PIXELS_PER_STEP`; a
+  reversal drops what was pending. On macOS pixels count only inside a gesture whose
+  start reached the control: momentum after the fingers lift and a gesture begun over a
+  list are ignored. Wayland reports no phases (and no momentum), so it counts all.
+- On macOS the direction follows the fingers like the system sliders: with natural
+  scrolling (`com.apple.swipescrolldirection`, on when absent) the deltas come inverted,
+  so the step is flipped. gpui does not pass `isDirectionInvertedFromDevice`, so the
+  setting is read from `NSUserDefaults` (`objc2-foundation`, safe calls) on each event and
+  a change applies at once. Windows and Linux send the wheel as is, as their own volume
+  controls get it.
 
 ## Output picker and devices (`audio_settings.rs`, `bit_perfect_info.rs`, `main.rs`)
 
@@ -1019,3 +1058,7 @@ Owner's calls; ask before changing.
 - Lyrics lines all share one face: the active line is not made bolder (it re-wrapped
   lines that only just fit). Bold and italic are toggle buttons left of the size slider;
   bold is on by default, italic off.
+- The window placement is written with other settings saves and at quit, not on its
+  own debounce. Fullscreen is never restored; maximized only on Windows.
+- The wheel changes the volume only over the volume control, not over the whole window
+  or footer, where it would fire on list scrolls that drift onto it.

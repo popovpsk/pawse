@@ -160,6 +160,7 @@ pub struct MainView {
     _settings_observer: gpui::Subscription,
     _lang_subscription: Subscription,
     _activation_subscription: gpui::Subscription,
+    _window_bounds_subscription: gpui::Subscription,
     updater: Option<Entity<updater::AutoUpdater>>,
     _updater_observer: Option<gpui::Subscription>,
     _sleep_timer_controls_observe: Subscription,
@@ -592,6 +593,10 @@ impl MainView {
             }
         });
 
+        let window_bounds_subscription = cx.observe_window_bounds(window, |_, window, cx| {
+            crate::window_placement::remember(window, cx);
+        });
+
         let library_event_bus = cx
             .global::<crate::services::Services>()
             .library_event_bus
@@ -691,6 +696,7 @@ impl MainView {
             _settings_observer: settings_observer,
             _lang_subscription: lang_subscription,
             _activation_subscription: activation_subscription,
+            _window_bounds_subscription: window_bounds_subscription,
             updater,
             _updater_observer: updater_observer,
             _sleep_timer_controls_observe: sleep_timer_controls_observe,

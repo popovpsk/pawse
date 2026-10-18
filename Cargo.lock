@@ -6848,6 +6848,7 @@ dependencies = [
  "music_library",
  "notify",
  "nucleo-matcher",
+ "objc2-foundation 0.3.2",
  "pawse_remote",
  "rand 0.9.5",
  "raw-window-handle",

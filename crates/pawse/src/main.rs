@@ -79,6 +79,7 @@ pub mod torrent_settings;
 pub mod track_list;
 pub mod track_progress_slider;
 pub mod volume;
+pub mod window_placement;
 pub mod window_title_bar;
 
 fn restore_engine_state(cx: &mut App) {
@@ -150,7 +151,8 @@ pub(crate) fn build_window_options(cx: &mut App) -> WindowOptions {
 }
 
 fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
-    let options = build_window_options(cx);
+    let mut options = build_window_options(cx);
+    crate::window_placement::restore(&mut options, cx);
     cx.open_window(options, |window, cx| {
         let view = cx.new(|cx| MainView::new(window, cx));
         let root = cx.new(|cx| Root::new(view, window, cx));

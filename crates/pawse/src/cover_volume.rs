@@ -1,6 +1,6 @@
 use gpui::{
     AppContext, BoxShadow, ClickEvent, Context, DispatchPhase, Entity, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, ParentElement, Render, ScrollDelta, ScrollWheelEvent,
+    IntoElement, MouseButton, MouseDownEvent, ParentElement, Render, ScrollWheelEvent,
     StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, point,
     prelude::FluentBuilder, px, svg,
 };
@@ -11,7 +11,7 @@ use crate::cover_backdrop;
 use crate::localization::tr;
 use crate::services::Services;
 use crate::theme_colors::Colors;
-use crate::volume::{VOLUME_STEP, Volume, volume_icon};
+use crate::volume::{Volume, volume_icon};
 use ui_components::slider::{Slider, SliderEvent};
 
 const ICON_SIZE: f32 = 34.;
@@ -84,15 +84,7 @@ impl CoverVolume {
     }
 
     fn on_scroll(&mut self, e: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let dy = match e.delta {
-            ScrollDelta::Pixels(p) => f32::from(p.y),
-            ScrollDelta::Lines(p) => p.y,
-        };
-        if dy == 0. {
-            return;
-        }
-        let delta = if dy > 0. { VOLUME_STEP } else { -VOLUME_STEP };
-        self.volume.update(cx, |vol, cx| vol.nudge(delta, cx));
+        self.volume.update(cx, |vol, cx| vol.wheel(e, cx));
     }
 }
 
