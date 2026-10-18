@@ -6,7 +6,7 @@ styles into whatever box the cover view gives it. Also its group of settings.
 
 Not here: the analysis itself (`spectrum/src/doc.md`), the tap and its latency
 (`audio_output/src/doc.md`, "Signal tap"), where the box sits in the cover stack and how
-big it is (`pawse/src/doc.md`, "Cover mode and backdrop"), the toggle next to Full
+big it is (`pawse/src/doc.md`, "Cover mode and backdrop"), the toggle under Full
 screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
 
 ## Files
@@ -61,9 +61,15 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
   mitered ribbon (`MITER_MIN` limits the miter at sharp peaks), both pushed to `gpui::Path`
   as solid triangles.
 - Accent is the theme's primary (the cover skin's accent when the dynamic theme is on);
-  grid and labels use foreground and muted foreground. Cover style ink is black or white,
-  chosen by the cover view from the same bottom `COVER_FRACTION` of the thumbnail the
-  curve lies on (`bottom_edge_is_light`), once per thumbnail.
+  grid and labels use foreground and muted foreground. On the cover style the cover view
+  measures the mean luma of the same bottom `COVER_FRACTION` of the thumbnail the curve
+  lies on (`bottom_edge_luma`), once per thumbnail; above `COVER_LIGHT_LUMA` the ink is
+  dark, else light. The curve is the accent itself; only when it would not read on that
+  side is its OKLCh lightness moved, to at most `COVER_INK_DARK_MAX_L` or at least
+  `COVER_INK_LIGHT_MIN_L`, and always `COVER_INK_GAP` away from the bottom's own
+  lightness, so a mid-tone cover near the split still gets a near-white or near-black
+  curve. Hue is kept, chroma as far as sRGB allows (`cover_ink`, `cover_skin::color`). The
+  hover dividers and zone names stay black or white.
 - Cover style spans the whole cover width. Near the bottom corners every point is held
   above the corner arc (`Plot::floor`, `COVER_RADIUS` less half the stroke) and the fill's
   bottom edge follows the same arcs: gpui clips to rectangles only, and the curve stays
@@ -89,6 +95,9 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
 Owner's calls; ask before changing.
 
 - All four styles stay: On the cover, Silhouette (default), Zones, Analyzer.
-- The toggle lives in Cover view next to Full screen; every other setting is a group in
-  Appearance, right under Cover view.
+- The toggle lives in Cover view under Full screen (stacked, not side by side: beside it,
+  it landed on the cover); every other setting is a group in Appearance, right under
+  Cover view, and its description does not say where the toggle is.
 - The toggle icon is static: animating it would redraw the whole window.
+- Cover style curve is the accent as is, relit only when unreadable (2026-10-18, chosen on
+  real covers over black/white, an accent-tinted near-white and the cover's own hue).

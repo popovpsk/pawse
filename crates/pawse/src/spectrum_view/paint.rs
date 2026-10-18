@@ -7,9 +7,14 @@ use spectrum::{Analyzer, ZONES, position, zone_of};
 
 use super::SILHOUETTE_LABELS;
 use crate::cover_mode_view::COVER_RADIUS;
+use crate::cover_skin::color::{oklch, to_hsla, to_oklch};
 use crate::settings_store::SpectrumStyle;
 
 const COVER_STROKE: f32 = 1.6;
+const COVER_LIGHT_LUMA: f32 = 0.5;
+const COVER_INK_GAP: f32 = 0.3;
+const COVER_INK_DARK_MAX_L: f32 = 0.4;
+const COVER_INK_LIGHT_MIN_L: f32 = 0.72;
 const FLATNESS: f32 = 0.1;
 const MAX_STEPS: usize = 16;
 const MITER_MIN: f32 = 0.5;
@@ -47,7 +52,7 @@ pub struct Frame<'a> {
     pub analyzer: &'a Analyzer,
     pub style: SpectrumStyle,
     pub palette: Palette,
-    pub ink_dark: bool,
+    pub cover_luma: f32,
     pub hovered: bool,
     pub readout: Option<(usize, &'a SharedString)>,
     pub zone_text: &'a [SharedString],
@@ -215,12 +220,9 @@ fn cover(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let ink = if frame.ink_dark {
-        gpui::black()
-    } else {
-        gpui::white()
-    };
-    let (fill_top, fill_bottom, stroke) = if frame.ink_dark {
+    let dark = frame.cover_luma > COVER_LIGHT_LUMA;
+    let ink = if dark { gpui::black() } else { gpui::white() };
+    let (fill_top, fill_bottom, stroke) = if dark {
         (0.2, 0.04, 0.72)
     } else {
         (0.26, 0.06, 0.85)
@@ -230,7 +232,7 @@ fn cover(
         origin,
         plot,
         frame.analyzer.levels(),
-        ink,
+        cover_ink(frame.palette.accent, frame.cover_luma),
         Some((fill_top, fill_bottom)),
         Some((COVER_STROKE, stroke)),
         window,
@@ -254,6 +256,18 @@ fn cover(
             cx,
         );
     }
+}
+
+fn cover_ink(accent: Hsla, luma: f32) -> Hsla {
+    let bottom = oklch(luma, luma, luma).l;
+    let mut ink = to_oklch(accent);
+    ink.l = if luma > COVER_LIGHT_LUMA {
+        ink.l.min(COVER_INK_DARK_MAX_L).min(bottom - COVER_INK_GAP)
+    } else {
+        ink.l.max(COVER_INK_LIGHT_MIN_L).max(bottom + COVER_INK_GAP)
+    }
+    .clamp(0., 1.);
+    to_hsla(ink, accent.a)
 }
 
 fn silhouette(
@@ -975,6 +989,7 @@ fn note(hz: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cover_skin::color::Oklch;
 
     #[test]
     fn labels_read_like_the_scale() {
@@ -1054,6 +1069,59 @@ mod tests {
             let q = v.xy_position.map(f32::from);
             let distance = ((q.x - a.x) * dy - (q.y - a.y) * dx).abs() / len;
             assert!((distance - 1.).abs() < 1e-2, "{distance}");
+        }
+    }
+
+    #[test]
+    fn cover_ink_keeps_a_readable_accent_and_relights_only_its_lightness() {
+        let accent = to_hsla(
+            Oklch {
+                l: 0.75,
+                c: 0.1,
+                h: 265.,
+            },
+            1.,
+        );
+        let kept = to_oklch(cover_ink(accent, 0.1));
+        assert!((kept.l - 0.75).abs() < 0.01, "{kept:?}");
+        let dark = to_oklch(cover_ink(accent, 0.9));
+        assert!(dark.l <= COVER_INK_DARK_MAX_L + 0.01, "{dark:?}");
+        assert!(
+            (dark.h - 265.).abs() < 2. && (dark.c - 0.1).abs() < 0.02,
+            "{dark:?}"
+        );
+        let dim = to_hsla(
+            Oklch {
+                l: 0.5,
+                c: 0.1,
+                h: 30.,
+            },
+            0.5,
+        );
+        let light = cover_ink(dim, 0.1);
+        assert!((light.a - 0.5).abs() < 1e-6);
+        let light = to_oklch(light);
+        assert!(light.l >= COVER_INK_LIGHT_MIN_L - 0.01, "{light:?}");
+        assert!((light.h - 30.).abs() < 2., "{light:?}");
+    }
+
+    #[test]
+    fn cover_ink_keeps_its_distance_from_a_mid_tone_cover() {
+        let accent = to_hsla(
+            Oklch {
+                l: 0.75,
+                c: 0.1,
+                h: 265.,
+            },
+            1.,
+        );
+        for luma in [0.42, 0.48, 0.52, 0.58] {
+            let bottom = oklch(luma, luma, luma).l;
+            let ink = to_oklch(cover_ink(accent, luma));
+            assert!(
+                (ink.l - bottom).abs() >= COVER_INK_GAP - 0.01,
+                "{luma}: {ink:?}"
+            );
         }
     }
 }

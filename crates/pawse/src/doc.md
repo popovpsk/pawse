@@ -511,10 +511,13 @@ Integrations:
   never takes the cover below `COVER_MIN_SIDE`; when even its minimum does not fit, the
   block is left out and the spectrum is not run.
   Silhouette is as wide as the cover; zones and analyzer take the width up to
-  `WIDE_MAX_WIDTH` (never narrower than the cover), and the progress bar spans the block.
+  `WIDE_MAX_WIDTH` (never narrower than the cover). The progress bar and the control bar
+  take the width of what stands above them, the block or else the cover, the same way in
+  every style: progress `COVER_PROGRESS_W_FRAC` of it, the control bar all of it (at
+  least `COVER_BAR_MIN_W`, never wider than the cover's own width limit).
   With the spectrum on the vertical margins are `SPECTRUM_MARGIN_V` and the group is not
   dropped, so the cover keeps the height the block takes.
-- The spectrum toggle (`cover_spectrum_button` in `main_view.rs`) sits next to the Full
+- The spectrum toggle (`cover_spectrum_button` in `main_view.rs`) sits under the Full
   screen button and fades with it; it writes `spectrum_visible`, is dimmed with its own
   tooltip while there is no tap, and its icon is static.
 - `CoverVolume` drives the footer's `Volume` entity through a vertical popup slider; the

@@ -16,7 +16,8 @@ picker (`pickers.rs`); the small-cover cache (`cover_art_cache.rs`); the blurred
   restores when there is no track), `CatalogChanged` (re-evaluates even for the same cover)
   and settings; extracts the palette on the background executor, writes `Theme`, runs the
   crossfade.
-- `color.rs` — OKLCh ↔ `Hsla`, gamut mapping.
+- `color.rs` — OKLCh ↔ `Hsla`, gamut mapping; also used by the spectrum's cover-style ink
+  (`spectrum_view/doc.md`).
 - `palette.rs` — `CoverPalette`: median lightness, accent hue, confidence.
 - `scheme.rs` — `anchors`, `relit`, `tinted`, `mix`, `matches`.
 

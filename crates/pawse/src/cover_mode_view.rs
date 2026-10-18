@@ -142,14 +142,14 @@ fn image_aspect(bytes: &[u8]) -> Option<f32> {
     Some(w as f32 / h as f32)
 }
 
-fn bottom_edge_is_light(image: &RenderImage) -> bool {
+fn bottom_edge_luma(image: &RenderImage) -> f32 {
     let Some(bytes) = image.as_bytes(0) else {
-        return true;
+        return 1.;
     };
     let size = image.size(0);
     let (w, h) = (size.width.0.max(0) as usize, size.height.0.max(0) as usize);
     if w == 0 || h == 0 || bytes.len() < w * h * 4 {
-        return true;
+        return 1.;
     }
     let edge_rows = ((h as f32 * spectrum_view::COVER_FRACTION) as usize).clamp(1, h);
     let first_row = h - edge_rows;
@@ -158,7 +158,7 @@ fn bottom_edge_is_light(image: &RenderImage) -> bool {
         .iter()
         .map(|p| 0.0722 * f64::from(p[0]) + 0.7152 * f64::from(p[1]) + 0.2126 * f64::from(p[2]))
         .sum();
-    sum / pixels.len() as f64 / 255. > 0.5
+    (sum / pixels.len() as f64 / 255.) as f32
 }
 
 fn placeholder_icon_size(w: f32, h: f32) -> f32 {
@@ -669,8 +669,8 @@ impl CoverModeView {
             .map(|image| Arc::as_ptr(image) as usize);
         if thumb != self.ink_thumb {
             self.ink_thumb = thumb;
-            let ink_dark = self.large_cover.as_deref().is_none_or(bottom_edge_is_light);
-            self.spectrum.update(cx, |s, _| s.set_ink_dark(ink_dark));
+            let luma = self.large_cover.as_deref().map_or(1., bottom_edge_luma);
+            self.spectrum.update(cx, |s, _| s.set_cover_luma(luma));
         }
         cx.notify();
     }
@@ -941,12 +941,21 @@ impl Render for CoverModeView {
             inset: false,
         }];
 
+        let spectrum_w = match self.spectrum_style {
+            SpectrumStyle::Zones | SpectrumStyle::Analyzer => {
+                max_w.min(spectrum_view::WIDE_MAX_WIDTH).max(cover_w)
+            }
+            SpectrumStyle::Cover | SpectrumStyle::Silhouette => cover_w,
+        };
+        let column_w = if block.is_some() { spectrum_w } else { cover_w };
+        let progress_w = column_w * COVER_PROGRESS_W_FRAC;
+
         let bar = show_bar.then(|| {
             let row = self.controls_row(bar_colors, play_icon, play_label, show_controls, cx);
             div()
                 .relative()
                 .flex_shrink_0()
-                .w(px(cover_w.max(COVER_BAR_MIN_W).min(max_w)))
+                .w(px(column_w.max(COVER_BAR_MIN_W).min(max_w)))
                 .h(px(bar_reserve))
                 .child(
                     row.absolute()
@@ -957,17 +966,6 @@ impl Render for CoverModeView {
                 )
         });
 
-        let spectrum_w = match self.spectrum_style {
-            SpectrumStyle::Zones | SpectrumStyle::Analyzer => {
-                max_w.min(spectrum_view::WIDE_MAX_WIDTH).max(cover_w)
-            }
-            SpectrumStyle::Cover | SpectrumStyle::Silhouette => cover_w,
-        };
-        let progress_w = if block.is_some() {
-            spectrum_w
-        } else {
-            cover_w * COVER_PROGRESS_W_FRAC
-        };
         let spectrum_block = block.map(|(gap, height)| {
             div()
                 .flex_shrink_0()

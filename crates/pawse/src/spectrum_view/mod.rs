@@ -88,7 +88,7 @@ pub struct SpectrumView {
     legend: SharedString,
     tap: Option<Arc<SignalTap>>,
     wanted: bool,
-    ink_dark: bool,
+    cover_luma: f32,
     bounds: Bounds<Pixels>,
     hover: Option<f32>,
     readout: Option<(usize, SharedString)>,
@@ -116,7 +116,7 @@ impl SpectrumView {
             legend: SharedString::default(),
             tap: None,
             wanted: false,
-            ink_dark: true,
+            cover_luma: 1.,
             bounds: Bounds::default(),
             hover: None,
             readout: None,
@@ -135,8 +135,8 @@ impl SpectrumView {
         view
     }
 
-    pub fn set_ink_dark(&mut self, dark: bool) {
-        self.ink_dark = dark;
+    pub fn set_cover_luma(&mut self, luma: f32) {
+        self.cover_luma = luma;
     }
 
     pub fn set_wanted(&mut self, wanted: bool, cx: &mut Context<Self>) {
@@ -378,7 +378,7 @@ impl Render for SpectrumView {
                                 analyzer: &this.analyzer,
                                 style: this.style,
                                 palette,
-                                ink_dark: this.ink_dark,
+                                cover_luma: this.cover_luma,
                                 hovered: this.hover.is_some(),
                                 readout: this.readout.as_ref().map(|(i, text)| (*i, text)),
                                 zone_text: &this.zone_text,

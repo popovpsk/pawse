@@ -55,9 +55,7 @@ fn for_lang(lang: Lang) -> &'static SpectrumStrings {
 
 static EN: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Spectrum analyzer"),
-    about: SharedString::new_static(
-        "The spectrum is drawn in Cover view. The button next to Full screen shows and hides it.",
-    ),
+    about: SharedString::new_static("The spectrum is drawn in Cover view."),
     show: SharedString::new_static("Show spectrum"),
     hide: SharedString::new_static("Hide spectrum"),
     unavailable: SharedString::new_static("The spectrum isn't available while casting to a device"),
@@ -87,9 +85,7 @@ static EN: SpectrumStrings = SpectrumStrings {
 
 static RU: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Анализатор звука"),
-    about: SharedString::new_static(
-        "Спектр рисуется в режиме обложки. Кнопка рядом с кнопкой «Полный экран» показывает и прячет его.",
-    ),
+    about: SharedString::new_static("Спектр рисуется в режиме обложки."),
     show: SharedString::new_static("Показать спектр"),
     hide: SharedString::new_static("Скрыть спектр"),
     unavailable: SharedString::new_static("Спектр недоступен во время трансляции на устройство"),
@@ -119,9 +115,7 @@ static RU: SpectrumStrings = SpectrumStrings {
 
 static UK: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Аналізатор звуку"),
-    about: SharedString::new_static(
-        "Спектр малюється в режимі обкладинки. Кнопка поруч із кнопкою «Повний екран» показує й ховає його.",
-    ),
+    about: SharedString::new_static("Спектр малюється в режимі обкладинки."),
     show: SharedString::new_static("Показати спектр"),
     hide: SharedString::new_static("Сховати спектр"),
     unavailable: SharedString::new_static("Спектр недоступний під час трансляції на пристрій"),
@@ -151,9 +145,7 @@ static UK: SpectrumStrings = SpectrumStrings {
 
 static DE: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Spektrumanalysator"),
-    about: SharedString::new_static(
-        "Das Spektrum erscheint in der Cover-Ansicht. Die Taste neben „Vollbild“ blendet es ein und aus.",
-    ),
+    about: SharedString::new_static("Das Spektrum erscheint in der Cover-Ansicht."),
     show: SharedString::new_static("Spektrum einblenden"),
     hide: SharedString::new_static("Spektrum ausblenden"),
     unavailable: SharedString::new_static(
@@ -185,9 +177,7 @@ static DE: SpectrumStrings = SpectrumStrings {
 
 static FR: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Analyseur de spectre"),
-    about: SharedString::new_static(
-        "Le spectre s'affiche dans la vue pochette. Le bouton à côté de « Plein écran » l'affiche et le masque.",
-    ),
+    about: SharedString::new_static("Le spectre s'affiche dans la vue pochette."),
     show: SharedString::new_static("Afficher le spectre"),
     hide: SharedString::new_static("Masquer le spectre"),
     unavailable: SharedString::new_static(
@@ -219,9 +209,7 @@ static FR: SpectrumStrings = SpectrumStrings {
 
 static ES: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Analizador de espectro"),
-    about: SharedString::new_static(
-        "El espectro se dibuja en la vista de portada. El botón junto a «Pantalla completa» lo muestra y lo oculta.",
-    ),
+    about: SharedString::new_static("El espectro se dibuja en la vista de portada."),
     show: SharedString::new_static("Mostrar espectro"),
     hide: SharedString::new_static("Ocultar espectro"),
     unavailable: SharedString::new_static(
@@ -253,9 +241,7 @@ static ES: SpectrumStrings = SpectrumStrings {
 
 static PT: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Analisador de espectro"),
-    about: SharedString::new_static(
-        "O espectro aparece na visualização da capa. O botão ao lado de \"Tela cheia\" mostra e oculta o espectro.",
-    ),
+    about: SharedString::new_static("O espectro aparece na visualização da capa."),
     show: SharedString::new_static("Mostrar espectro"),
     hide: SharedString::new_static("Ocultar espectro"),
     unavailable: SharedString::new_static(
@@ -287,9 +273,7 @@ static PT: SpectrumStrings = SpectrumStrings {
 
 static IT: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Analizzatore di spettro"),
-    about: SharedString::new_static(
-        "Lo spettro viene disegnato nella vista copertina. Il pulsante accanto a «Schermo intero» lo mostra e lo nasconde.",
-    ),
+    about: SharedString::new_static("Lo spettro viene disegnato nella vista copertina."),
     show: SharedString::new_static("Mostra lo spettro"),
     hide: SharedString::new_static("Nascondi lo spettro"),
     unavailable: SharedString::new_static(
@@ -321,9 +305,7 @@ static IT: SpectrumStrings = SpectrumStrings {
 
 static NL: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Spectrumanalyse"),
-    about: SharedString::new_static(
-        "Het spectrum verschijnt in de hoesweergave. De knop naast ‘Volledig scherm’ toont en verbergt het.",
-    ),
+    about: SharedString::new_static("Het spectrum verschijnt in de hoesweergave."),
     show: SharedString::new_static("Spectrum tonen"),
     hide: SharedString::new_static("Spectrum verbergen"),
     unavailable: SharedString::new_static(
@@ -355,9 +337,7 @@ static NL: SpectrumStrings = SpectrumStrings {
 
 static SV: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Spektrumanalys"),
-    about: SharedString::new_static(
-        "Spektrumet visas i omslagsvyn. Knappen bredvid ”Helskärm” visar och döljer det.",
-    ),
+    about: SharedString::new_static("Spektrumet visas i omslagsvyn."),
     show: SharedString::new_static("Visa spektrum"),
     hide: SharedString::new_static("Dölj spektrum"),
     unavailable: SharedString::new_static(
@@ -389,9 +369,7 @@ static SV: SpectrumStrings = SpectrumStrings {
 
 static PL: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Analizator widma"),
-    about: SharedString::new_static(
-        "Widmo jest rysowane w widoku okładki. Przycisk obok „Pełny ekran” pokazuje je i ukrywa.",
-    ),
+    about: SharedString::new_static("Widmo jest rysowane w widoku okładki."),
     show: SharedString::new_static("Pokaż widmo"),
     hide: SharedString::new_static("Ukryj widmo"),
     unavailable: SharedString::new_static(
@@ -423,9 +401,7 @@ static PL: SpectrumStrings = SpectrumStrings {
 
 static CS: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Analyzátor spektra"),
-    about: SharedString::new_static(
-        "Spektrum se kreslí v zobrazení obalu. Tlačítko vedle „Celá obrazovka“ ho zobrazí a skryje.",
-    ),
+    about: SharedString::new_static("Spektrum se kreslí v zobrazení obalu."),
     show: SharedString::new_static("Zobrazit spektrum"),
     hide: SharedString::new_static("Skrýt spektrum"),
     unavailable: SharedString::new_static("Spektrum není dostupné při přenosu do zařízení"),
@@ -455,9 +431,7 @@ static CS: SpectrumStrings = SpectrumStrings {
 
 static TR: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Spektrum analizörü"),
-    about: SharedString::new_static(
-        "Spektrum kapak görünümünde çizilir. \"Tam ekran\" düğmesinin yanındaki düğme onu gösterir ve gizler.",
-    ),
+    about: SharedString::new_static("Spektrum kapak görünümünde çizilir."),
     show: SharedString::new_static("Spektrumu göster"),
     hide: SharedString::new_static("Spektrumu gizle"),
     unavailable: SharedString::new_static("Bir cihaza yayın yapılırken spektrum kullanılamaz"),
@@ -487,7 +461,7 @@ static TR: SpectrumStrings = SpectrumStrings {
 
 static ZH: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("频谱分析"),
-    about: SharedString::new_static("频谱显示在封面视图中。“全屏”旁边的按钮用于显示和隐藏频谱。"),
+    about: SharedString::new_static("频谱显示在封面视图中。"),
     show: SharedString::new_static("显示频谱"),
     hide: SharedString::new_static("隐藏频谱"),
     unavailable: SharedString::new_static("投放到设备时无法显示频谱"),
@@ -517,9 +491,7 @@ static ZH: SpectrumStrings = SpectrumStrings {
 
 static JA: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("スペクトラムアナライザー"),
-    about: SharedString::new_static(
-        "スペクトラムはカバー表示に描かれます。「全画面表示」の隣のボタンで表示と非表示を切り替えます。",
-    ),
+    about: SharedString::new_static("スペクトラムはカバー表示に描かれます。"),
     show: SharedString::new_static("スペクトラムを表示"),
     hide: SharedString::new_static("スペクトラムを隠す"),
     unavailable: SharedString::new_static("デバイスへのキャスト中はスペクトラムを表示できません"),
@@ -549,9 +521,7 @@ static JA: SpectrumStrings = SpectrumStrings {
 
 static KO: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("스펙트럼 분석기"),
-    about: SharedString::new_static(
-        "스펙트럼은 커버 보기에 그려집니다. '전체 화면' 옆의 버튼으로 보이거나 숨깁니다.",
-    ),
+    about: SharedString::new_static("스펙트럼은 커버 보기에 그려집니다."),
     show: SharedString::new_static("스펙트럼 보기"),
     hide: SharedString::new_static("스펙트럼 숨기기"),
     unavailable: SharedString::new_static("기기로 캐스팅하는 동안에는 스펙트럼을 볼 수 없습니다"),
@@ -581,9 +551,7 @@ static KO: SpectrumStrings = SpectrumStrings {
 
 static VI: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Phân tích phổ"),
-    about: SharedString::new_static(
-        "Phổ được vẽ trong chế độ xem bìa. Nút cạnh nút \"Toàn màn hình\" dùng để hiện và ẩn phổ.",
-    ),
+    about: SharedString::new_static("Phổ được vẽ trong chế độ xem bìa."),
     show: SharedString::new_static("Hiện phổ"),
     hide: SharedString::new_static("Ẩn phổ"),
     unavailable: SharedString::new_static("Không thể xem phổ khi đang truyền tới thiết bị"),
@@ -613,9 +581,7 @@ static VI: SpectrumStrings = SpectrumStrings {
 
 static ID: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("Penganalisis spektrum"),
-    about: SharedString::new_static(
-        "Spektrum digambar di tampilan sampul. Tombol di samping \"Layar penuh\" menampilkan dan menyembunyikannya.",
-    ),
+    about: SharedString::new_static("Spektrum digambar di tampilan sampul."),
     show: SharedString::new_static("Tampilkan spektrum"),
     hide: SharedString::new_static("Sembunyikan spektrum"),
     unavailable: SharedString::new_static("Spektrum tidak tersedia selama transmisi ke perangkat"),
@@ -645,7 +611,7 @@ static ID: SpectrumStrings = SpectrumStrings {
 
 static TH: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("ตัววิเคราะห์สเปกตรัม"),
-    about: SharedString::new_static("สเปกตรัมแสดงในมุมมองปก ปุ่มข้าง \"เต็มหน้าจอ\" ใช้แสดงและซ่อนสเปกตรัม"),
+    about: SharedString::new_static("สเปกตรัมแสดงในมุมมองปก"),
     show: SharedString::new_static("แสดงสเปกตรัม"),
     hide: SharedString::new_static("ซ่อนสเปกตรัม"),
     unavailable: SharedString::new_static("ไม่สามารถแสดงสเปกตรัมขณะส่งไปยังอุปกรณ์"),
@@ -675,9 +641,7 @@ static TH: SpectrumStrings = SpectrumStrings {
 
 static HI: SpectrumStrings = SpectrumStrings {
     title: SharedString::new_static("स्पेक्ट्रम विश्लेषक"),
-    about: SharedString::new_static(
-        "स्पेक्ट्रम कवर दृश्य में बनता है। \"पूर्ण स्क्रीन\" के बगल वाला बटन इसे दिखाता और छिपाता है।",
-    ),
+    about: SharedString::new_static("स्पेक्ट्रम कवर दृश्य में बनता है।"),
     show: SharedString::new_static("स्पेक्ट्रम दिखाएँ"),
     hide: SharedString::new_static("स्पेक्ट्रम छिपाएँ"),
     unavailable: SharedString::new_static("किसी डिवाइस पर कास्ट करते समय स्पेक्ट्रम उपलब्ध नहीं है"),
