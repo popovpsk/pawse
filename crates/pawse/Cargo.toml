@@ -27,6 +27,7 @@ audio_embedding_gpu = { path = "../audio_embedding_gpu" }
 audio_engine = { path = "../audio_engine" }
 cast = { path = "../cast" }
 audio_output = { path = "../audio_output" }
+spectrum = { path = "../spectrum" }
 music_library = { path = "../music_library" }
 music_indexer = { path = "../music_indexer" }
 tag_writer = { path = "../tag_writer" }

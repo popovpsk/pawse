@@ -4,6 +4,7 @@ mod default_watch;
 pub mod device;
 pub mod exclusive;
 pub mod ring_buffer;
+pub mod tap;
 pub mod thread_priority;
 
 use std::sync::Arc;
@@ -22,6 +23,7 @@ use device::DeviceManager;
 use parking_lot::{Mutex, RwLock};
 
 use crate::ring_buffer::AudioRingBuffer;
+pub use crate::tap::SignalTap;
 
 enum OutputMode {
     Shared(CpalOutputStream),
@@ -148,6 +150,7 @@ pub struct Output {
     play_intent: AtomicBool,
     last_reopen: Mutex<Option<Instant>>,
     transition: Mutex<()>,
+    tap: Arc<SignalTap>,
 }
 
 struct StreamSwap<'a> {
@@ -167,6 +170,14 @@ enum SelectionOpen {
     OpenFailed,
 }
 
+fn tap_ring(tap: &Arc<SignalTap>, config: &OutputConfig) -> Arc<AudioRingBuffer> {
+    tap.set_format(config.sample_rate, u16::from(config.channels));
+    Arc::new(AudioRingBuffer::with_tap(
+        calc_buffer_size(config),
+        tap.clone(),
+    ))
+}
+
 fn calc_buffer_size(cfg: &OutputConfig) -> usize {
     const BUFFER_DURATION_MS: u32 = 128;
     cfg.channels as usize * (cfg.sample_rate as usize * BUFFER_DURATION_MS as usize / 1000)
@@ -184,7 +195,8 @@ const DEFAULT_CONFIG: OutputConfig = OutputConfig {
 impl Output {
     pub fn new() -> Self {
         let host = Arc::new(cpal::default_host());
-        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&DEFAULT_CONFIG)));
+        let tap = Arc::new(SignalTap::new());
+        let buffer = tap_ring(&tap, &DEFAULT_CONFIG);
 
         let mut device_manager =
             DeviceManager::from_host(&host).unwrap_or_else(|_| DeviceManager::headless(&host));
@@ -221,7 +233,26 @@ impl Output {
             play_intent: AtomicBool::new(false),
             last_reopen: Mutex::new(None),
             transition: Mutex::new(()),
+            tap,
         }
+    }
+
+    pub fn signal_tap(&self) -> Arc<SignalTap> {
+        self.tap.clone()
+    }
+
+    pub fn refresh_tap_latency(&self) {
+        #[cfg(target_os = "macos")]
+        {
+            let uid = self.selected_device_uid();
+            if let Some(latency) = exclusive::output_latency(uid.as_deref()) {
+                self.tap.set_latency(latency);
+            }
+        }
+    }
+
+    fn ring(&self, config: &OutputConfig) -> Arc<AudioRingBuffer> {
+        tap_ring(&self.tap, config)
     }
 
     fn begin_swap(&self) -> StreamSwap<'_> {
@@ -334,7 +365,7 @@ impl Output {
         // we register a new one on the same device.
         let _ = self.take_current();
 
-        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&new_config)));
+        let buffer = self.ring(&new_config);
         match exclusive::ExclusiveOutput::new(buffer, new_config, &device_uid, Some(orig_rate)) {
             Ok(excl) => {
                 if was_playing {
@@ -374,7 +405,7 @@ impl Output {
             host: self.host.clone(),
             device,
         };
-        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&new_config)));
+        let buffer = self.ring(&new_config);
         match CpalOutputStream::new(buffer, new_config, selected) {
             Ok(stream) => {
                 if was_playing {
@@ -431,7 +462,7 @@ impl Output {
             host: self.host.clone(),
             device,
         };
-        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(config)));
+        let buffer = self.ring(config);
         match CpalOutputStream::new(buffer, *config, selected) {
             Ok(stream) => {
                 if resume_after {
@@ -460,7 +491,7 @@ impl Output {
             host: self.host.clone(),
             device: Arc::new(device),
         };
-        let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(config)));
+        let buffer = self.ring(config);
         match CpalOutputStream::new(buffer, *config, selected) {
             Ok(stream) => {
                 if resume_after {
@@ -490,7 +521,7 @@ impl Output {
                 dm.set_selected_uid(uid.clone());
                 uid
             };
-            let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
+            let buffer = self.ring(&config);
 
             // Drop the existing shared stream BEFORE acquiring hog mode on
             // the same device. Two clients (cpal HAL + our IOProc) on the
@@ -667,7 +698,7 @@ impl Output {
 
         if was_exclusive {
             let device_uid = self.device_manager.write().resolve_uid()?;
-            let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
+            let buffer = self.ring(&config);
             match exclusive::ExclusiveOutput::new(buffer, config, &device_uid, None) {
                 Ok(excl) => {
                     if was_playing {
@@ -688,7 +719,7 @@ impl Output {
                 host: self.host.clone(),
                 device,
             };
-            let buffer = Arc::new(AudioRingBuffer::new(calc_buffer_size(&config)));
+            let buffer = self.ring(&config);
             match CpalOutputStream::new(buffer, config, selected) {
                 Ok(stream) => {
                     if was_playing {

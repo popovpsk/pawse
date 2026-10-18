@@ -6,7 +6,8 @@ use std::time::Duration;
 use atomic_float::AtomicF32;
 use audio_common::{AudioBatch, AudioSamples};
 use audio_output::{
-    AudioOutput, EngineOutput, FadeEvent, FadeState, apply_fade_gain, calculate_volume_scaled,
+    AudioOutput, EngineOutput, FadeEvent, FadeState, SignalTap, apply_fade_gain,
+    calculate_volume_scaled,
 };
 use rubato::{FftFixedIn, Resampler};
 
@@ -26,6 +27,17 @@ fn queue_capacity() -> usize {
     (SAMPLE_RATE as f32 * QUEUE_SECONDS) as usize * CHANNELS
 }
 
+fn airplay_tap() -> Arc<SignalTap> {
+    let tap = SignalTap::new();
+    tap.set_format(SAMPLE_RATE, CHANNELS as u16);
+    tap.set_latency(frames_duration(LATENCY_FRAMES));
+    Arc::new(tap)
+}
+
+fn frames_duration(frames: u32) -> Duration {
+    Duration::from_secs_f64(f64::from(frames) / f64::from(SAMPLE_RATE))
+}
+
 fn history_capacity() -> usize {
     (LATENCY_FRAMES as usize + 4 * airplay::FRAMES_PER_PACKET) * CHANNELS
 }
@@ -36,6 +48,7 @@ struct Buffer {
     space: Condvar,
     fade: FadeState,
     gain: AtomicF32,
+    tap: Arc<SignalTap>,
 }
 
 struct Renderer {
@@ -58,6 +71,7 @@ impl airplay::Render for Renderer {
             self.scratch.extend(queue.drain(..take));
         }
         self.buffer.space.notify_all();
+        self.buffer.tap.push(&self.scratch);
         {
             let mut history = lock(&self.buffer.history);
             history.extend(self.scratch.iter().copied());
@@ -235,6 +249,7 @@ impl AirPlayOutput {
                 space: Condvar::new(),
                 fade: FadeState::new(),
                 gain: AtomicF32::new(calculate_volume_scaled(gain)),
+                tap: airplay_tap(),
             }),
             converter: Mutex::new(Converter::new()),
             intent: AtomicBool::new(false),
@@ -254,6 +269,10 @@ impl AirPlayOutput {
 
     pub fn name(&self) -> &str {
         &self.device.name
+    }
+
+    pub fn signal_tap(&self) -> Arc<SignalTap> {
+        self.buffer.tap.clone()
     }
 
     pub fn lost(&self) -> flume::Receiver<String> {
@@ -351,6 +370,9 @@ impl AirPlayOutput {
                     }
                 }
             });
+        self.buffer
+            .tap
+            .set_latency(frames_duration(stream.latency_frames()));
         let replaced = lock(&self.stream).replace(stream);
         drop(replaced);
         if self.closed.load(Ordering::Acquire) {
@@ -419,6 +441,7 @@ impl AudioOutput for AirPlayOutput {
         lock(&self.buffer.history).clear();
         lock(&self.converter).reset();
         self.buffer.space.notify_all();
+        self.buffer.tap.flush();
         if let Some(stream) = lock(&self.stream).as_ref() {
             stream.flush();
         }
@@ -427,6 +450,9 @@ impl AudioOutput for AirPlayOutput {
     fn pause(&self) {
         self.intent.store(false, Ordering::SeqCst);
         let flush = self.buffer.fade.is_frozen();
+        if flush {
+            self.buffer.tap.flush();
+        }
         if let Some(stream) = lock(&self.stream).as_ref() {
             stream.pause(flush);
         }
@@ -484,6 +510,7 @@ mod tests {
             space: Condvar::new(),
             fade: FadeState::new(),
             gain: AtomicF32::new(1.0),
+            tap: airplay_tap(),
         })
     }
 

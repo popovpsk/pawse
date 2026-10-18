@@ -238,6 +238,67 @@ pub enum AlbumsArtistDisplay {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum SpectrumStyle {
+    Cover,
+    #[default]
+    Silhouette,
+    Zones,
+    Analyzer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpectrumTilt {
+    Off,
+    Gentle,
+    #[default]
+    Standard,
+}
+
+impl SpectrumTilt {
+    pub fn db_per_octave(self) -> f32 {
+        match self {
+            SpectrumTilt::Off => 0.0,
+            SpectrumTilt::Gentle => 3.0,
+            SpectrumTilt::Standard => 4.5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpectrumFrameRate {
+    #[default]
+    Smooth,
+    Efficient,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpectrumSmoothing {
+    #[default]
+    Auto,
+    Third,
+    Sixth,
+    Twelfth,
+}
+
+impl SpectrumSmoothing {
+    pub fn octaves(self, style: SpectrumStyle) -> f32 {
+        match self {
+            SpectrumSmoothing::Auto => match style {
+                SpectrumStyle::Cover | SpectrumStyle::Silhouette => 1.0 / 3.0,
+                SpectrumStyle::Zones | SpectrumStyle::Analyzer => 1.0 / 6.0,
+            },
+            SpectrumSmoothing::Third => 1.0 / 3.0,
+            SpectrumSmoothing::Sixth => 1.0 / 6.0,
+            SpectrumSmoothing::Twelfth => 1.0 / 12.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum NowPlayingDetails {
     #[default]
     Specs,
@@ -532,6 +593,16 @@ pub struct UserSettings {
     pub cover_show_progress: bool,
     #[serde(default = "default_true")]
     pub cover_show_controls: bool,
+    #[serde(default)]
+    pub spectrum_visible: bool,
+    #[serde(default)]
+    pub spectrum_style: SpectrumStyle,
+    #[serde(default)]
+    pub spectrum_tilt: SpectrumTilt,
+    #[serde(default)]
+    pub spectrum_smoothing: SpectrumSmoothing,
+    #[serde(default)]
+    pub spectrum_frame_rate: SpectrumFrameRate,
     #[serde(default = "default_true")]
     pub header_in_title_bar: bool,
     #[serde(default)]
@@ -668,6 +739,11 @@ impl Default for UserSettings {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            spectrum_visible: false,
+            spectrum_style: SpectrumStyle::default(),
+            spectrum_tilt: SpectrumTilt::default(),
+            spectrum_smoothing: SpectrumSmoothing::default(),
+            spectrum_frame_rate: SpectrumFrameRate::default(),
             header_in_title_bar: true,
             blur_background: BlurBackground::default(),
             blur_intensity: BLUR_INTENSITY_DEFAULT,
@@ -1513,6 +1589,51 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn spectrum_visible(&self) -> bool {
+        self.settings.spectrum_visible
+    }
+
+    pub fn set_spectrum_visible(&mut self, visible: bool) -> anyhow::Result<()> {
+        self.settings.spectrum_visible = visible;
+        self.save()
+    }
+
+    pub fn spectrum_style(&self) -> SpectrumStyle {
+        self.settings.spectrum_style
+    }
+
+    pub fn set_spectrum_style(&mut self, style: SpectrumStyle) -> anyhow::Result<()> {
+        self.settings.spectrum_style = style;
+        self.save()
+    }
+
+    pub fn spectrum_tilt(&self) -> SpectrumTilt {
+        self.settings.spectrum_tilt
+    }
+
+    pub fn set_spectrum_tilt(&mut self, tilt: SpectrumTilt) -> anyhow::Result<()> {
+        self.settings.spectrum_tilt = tilt;
+        self.save()
+    }
+
+    pub fn spectrum_smoothing(&self) -> SpectrumSmoothing {
+        self.settings.spectrum_smoothing
+    }
+
+    pub fn set_spectrum_smoothing(&mut self, smoothing: SpectrumSmoothing) -> anyhow::Result<()> {
+        self.settings.spectrum_smoothing = smoothing;
+        self.save()
+    }
+
+    pub fn spectrum_frame_rate(&self) -> SpectrumFrameRate {
+        self.settings.spectrum_frame_rate
+    }
+
+    pub fn set_spectrum_frame_rate(&mut self, rate: SpectrumFrameRate) -> anyhow::Result<()> {
+        self.settings.spectrum_frame_rate = rate;
+        self.save()
+    }
+
     pub fn header_in_title_bar(&self) -> bool {
         self.settings.header_in_title_bar
     }
@@ -2140,6 +2261,11 @@ mod tests {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            spectrum_visible: true,
+            spectrum_style: SpectrumStyle::Analyzer,
+            spectrum_tilt: SpectrumTilt::Gentle,
+            spectrum_smoothing: SpectrumSmoothing::Twelfth,
+            spectrum_frame_rate: SpectrumFrameRate::Efficient,
             header_in_title_bar: true,
             blur_background: BlurBackground::default(),
             blur_intensity: 12.5,

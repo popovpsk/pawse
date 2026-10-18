@@ -2,6 +2,7 @@ pub(super) mod cf;
 pub(super) mod format;
 pub(super) mod hog;
 pub(super) mod ioproc;
+pub(super) mod latency;
 pub(super) mod listeners;
 pub(super) mod sample_rate;
 pub(super) mod sleep;

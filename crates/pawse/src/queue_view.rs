@@ -136,6 +136,7 @@ pub struct QueueView {
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
+    _settings_subscription: Subscription,
 }
 
 impl QueueView {
@@ -224,6 +225,8 @@ impl QueueView {
                 }
             });
 
+        let settings_subscription = cx.observe_global::<SettingsStore>(|_, cx| cx.notify());
+
         let mut result = Self {
             tracks: Vec::new(),
             current_index: None,
@@ -242,6 +245,7 @@ impl QueueView {
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
+            _settings_subscription: settings_subscription,
             item_sizes: Rc::new(Vec::new()),
         };
         similar_tracks::set_queue_refresh(result.on_similar_applied.clone(), cx);

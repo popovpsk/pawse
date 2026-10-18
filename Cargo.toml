@@ -32,7 +32,8 @@ members = [
     "crates/artist_info",
     "crates/cast",
     "crates/chromecast",
-    "crates/airplay"
+    "crates/airplay",
+    "crates/spectrum"
 ]
 
 default-members = ["crates/pawse"]

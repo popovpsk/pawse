@@ -1,11 +1,15 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rb::{RB, RbConsumer, RbError, RbInspector, RbProducer, SpscRb};
+
+use crate::tap::SignalTap;
 
 /// Lock-free SPSC ring buffer for audio samples
 pub struct AudioRingBuffer {
     rb: SpscRb<f32>,
     unexpected_error_logged: AtomicBool,
+    tap: Option<Arc<SignalTap>>,
 }
 
 impl AudioRingBuffer {
@@ -14,6 +18,14 @@ impl AudioRingBuffer {
         Self {
             rb,
             unexpected_error_logged: AtomicBool::new(false),
+            tap: None,
+        }
+    }
+
+    pub fn with_tap(capacity: usize, tap: Arc<SignalTap>) -> Self {
+        Self {
+            tap: Some(tap),
+            ..Self::new(capacity)
         }
     }
 
@@ -45,7 +57,11 @@ impl AudioRingBuffer {
     /// Pop samples from the buffer (consumer side)
     /// Returns the number of samples actually popped (may be less if buffer is empty)
     pub fn pop_slice(&self, dest: &mut [f32]) -> usize {
-        self.rb.consumer().read(dest).unwrap_or(0)
+        let read = self.rb.consumer().read(dest).unwrap_or(0);
+        if let Some(tap) = &self.tap {
+            tap.push(&dest[..read]);
+        }
+        read
     }
 
     /// Clear all samples from the buffer

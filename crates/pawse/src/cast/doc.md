@@ -81,6 +81,12 @@ target being torn down (the local engine's `Stopped`, a closing session) never r
   every language, and the Linux sentence names the port range, so if `cast::PORTS` changes the
   strings change with it.
 
+## Spectrum tap
+
+`Player::signal_tap` is the tap of whatever plays: the local `Output`'s (handed to
+`Player::new`), the AirPlay output's own, or `None` for a renderer, which plays the file
+itself so no samples pass through the app.
+
 ## Volume
 
 "Change the device's volume" (`cast_device_volume`, on by default) is kept in a `Cell` on the

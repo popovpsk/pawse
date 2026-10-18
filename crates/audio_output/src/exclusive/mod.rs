@@ -165,6 +165,11 @@ impl ExclusiveOutput {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn output_latency(device_uid: Option<&str>) -> Option<std::time::Duration> {
+    macos::latency::output_latency(device_uid)
+}
+
 /// Releases hog mode and restores the device sample rate after a failed exclusive
 /// recreate where `suppress_cleanup` was set on the old output before it was dropped.
 pub fn restore_device_state(device_uid: &str, original_rate: f64) {

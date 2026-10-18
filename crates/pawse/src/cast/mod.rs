@@ -129,6 +129,7 @@ fn engine_sink(engine: &AudioEngine) -> crate::playback_opener::Sink {
 
 pub struct Player {
     local: Rc<EngineManager>,
+    local_tap: Arc<audio_output::SignalTap>,
     local_opener: PlaybackOpener,
     backend: Arc<dyn OpenerBackend>,
     library: Arc<LibraryService>,
@@ -146,6 +147,7 @@ pub struct Player {
 impl Player {
     pub fn new(
         local: Rc<EngineManager>,
+        local_tap: Arc<audio_output::SignalTap>,
         backend: Arc<dyn OpenerBackend>,
         library: Arc<LibraryService>,
         resolver: TrackResolver,
@@ -173,6 +175,7 @@ impl Player {
         let device_volume = cx.global::<SettingsStore>().cast_device_volume();
         Rc::new(Self {
             local,
+            local_tap,
             local_opener,
             backend,
             library,
@@ -194,6 +197,18 @@ impl Player {
 
     pub fn local(&self) -> &EngineManager {
         &self.local
+    }
+
+    pub fn has_signal_tap(&self) -> bool {
+        !matches!(*self.target.borrow(), Target::Renderer(_))
+    }
+
+    pub fn signal_tap(&self) -> Option<Arc<audio_output::SignalTap>> {
+        match &*self.target.borrow() {
+            Target::Local => Some(self.local_tap.clone()),
+            Target::AirPlay(target) => Some(target.output.signal_tap()),
+            Target::Renderer(_) => None,
+        }
     }
 
     pub fn is_casting(&self) -> bool {

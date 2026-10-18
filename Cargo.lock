@@ -6859,6 +6859,7 @@ dependencies = [
  "serde",
  "serde_json",
  "server_http",
+ "spectrum",
  "subsonic",
  "sys-locale",
  "tag_writer",
@@ -8962,6 +8963,14 @@ dependencies = [
  "windows 0.44.0",
  "zbus 3.15.2",
  "zvariant 3.15.2",
+]
+
+[[package]]
+name = "spectrum"
+version = "1.0.0"
+dependencies = [
+ "realfft",
+ "rstest",
 ]
 
 [[package]]

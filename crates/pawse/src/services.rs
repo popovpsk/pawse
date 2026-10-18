@@ -155,6 +155,7 @@ impl Services {
 
         let player = crate::cast::Player::new(
             engine_manager,
+            output.signal_tap(),
             Arc::new(crate::playback_opener::LibraryBackend {
                 media: remote_media.clone(),
                 library: library.clone(),

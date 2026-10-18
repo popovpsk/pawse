@@ -39,6 +39,7 @@ mod playlist_import;
 mod pt;
 mod ru;
 mod similar;
+mod spectrum;
 mod sv;
 mod th;
 mod tools;
@@ -53,6 +54,7 @@ pub use bit_perfect::{BitPerfectStrings, bit_perfect_strings};
 pub use cast::{CastStrings, cast_strings};
 pub use playlist_import::{PlaylistImportStrings, playlist_import_strings};
 pub use similar::{SimilarStrings, similar_strings};
+pub use spectrum::{SpectrumStrings, spectrum_strings};
 pub use tools::{ToolsStrings, tools_strings};
 pub use view_menu::{ViewMenuStrings, view_menu_strings};
 

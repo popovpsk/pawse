@@ -2,7 +2,7 @@
 
 The GPUI app: the files directly in `crates/pawse/src` that have no folder of their own.
 Folder modules (`library_views`, `track_list`, `servers`, `remote_media`, `cast`,
-`similar_tracks`, `tools`, `sleep_timer`, `cover_skin`, `main_view`) have their own
+`similar_tracks`, `tools`, `sleep_timer`, `cover_skin`, `main_view`, `spectrum_view`) have their own
 `doc.md`; the library crates have theirs.
 
 ## Files
@@ -18,6 +18,10 @@ App shell:
 - `keyboard_shortcuts.rs` — key bindings. `app_menu.rs` — localized application menu.
   `localization.rs` — saved language to `tr()`. `pickers.rs` — theme and language
   dropdowns. `theme_colors.rs` — `Colors`, the theme lookups views use.
+- `frame_grid.rs` — the shared tick grid for frame loops (`FAST` 60 fps, `SLOW` = every
+  other tick, `SLOWEST` for reduce motion). Every notify redraws the whole window, so two
+  loops at 30 fps out of phase would draw 60 frames; waking on the same ticks, their
+  notifies land in one frame.
 - `single_instance.rs` — second-launch guard (Windows, Linux).
 - `settings_store.rs` — `SettingsStore` over `UserSettings` (`settings.json`).
   `settings_view.rs` — `build_settings_pages` (Appearance, General, Scrobbling, Library).
@@ -166,6 +170,12 @@ Integrations:
   window dragging. `on_action` handlers are on `#main_view`, so actions dispatched from
   the header still arrive. A blur of the search field reclaims focus only when nothing
   else holds it, so popups and pickers are not robbed.
+- The lyrics and queue panels are cached views (`.cached(size_full)`): a notify elsewhere
+  (the spectrum's frames, karaoke, position ticks) replays their last frame instead of
+  rebuilding them. The price is that each must notify itself for everything its render
+  reads: both observe `SettingsStore`; theme, language, dynamic accent and font scale
+  changes call `refresh_windows`, which bypasses every cache. A new panel input read in
+  render without such a notify shows stale until something else wakes the panel.
 - `WindowTitleBar` is `gpui_component::TitleBar` on macOS and Windows (in fullscreen a
   thin inset; the header then moves below it, `main_view/doc.md` "Placement"). On Linux
   it is ours: window buttons, double-click zoom, drag by `start_window_move`, window
@@ -371,7 +381,9 @@ Integrations:
 - Time is interpolated between `PositionChanged` ticks (frozen while not playing,
   including `Preparing` and buffering); a row goes active `ACTIVE_TOLERANCE_MS` early.
   Autoscroll centers the active row; the wheel disengages it, the locate button
-  re-engages. A hidden panel does not repaint on ticks.
+  re-engages. A hidden panel does not repaint on ticks. A size change is caught by
+  `viewport_canvas` in prepaint and recenters on the next frame: the panel is a cached
+  view, so its render cannot count on another frame following the one that resized it.
 
 ## Lyrics karaoke fill (`lyrics_fill.rs`, `lyrics_view.rs`)
 
@@ -413,8 +425,13 @@ Integrations:
   re-wraps every line, so the next frame, once layout has the new bounds, re-centers the
   active row (`recenter`).
 - **Frames**: repaints are scheduled only while something moves — during a word at its
-  pixel rate (at most every `FRAME_MIN_MS`), in a gap exactly when the next word starts,
-  never once every lit line is done. With `lyrics_karaoke_fill` off the panel repaints
+  pixel rate, in a gap when the next word starts, never once every lit line is done. Each
+  wake is the first `frame_grid::SLOW` tick (≤ 30 fps) at least the wake after the tick
+  the frame belongs to, not after render time, so a slow fill keeps every tick. Render
+  takes the deadline and the task turns it into a delay when it first runs, after the
+  frame is drawn; a delay taken in render would fire late by the rest of the frame. On
+  the grid the spectrum also ticks on, karaoke and spectrum notifies land in one window
+  redraw. Position ticks (`update_active`, every 200 ms) still notify off the grid. With `lyrics_karaoke_fill` off the panel repaints
   only when the active row changes.
 
 ## Now playing, footer and progress (`now_playing.rs`, `footer.rs`, `track_progress_slider.rs`)
@@ -485,6 +502,21 @@ Integrations:
   without a backdrop. Every new popover or dropdown must use
   `popover_bg(color, veil_factor(cx))`, which never drops below `POPOVER_MIN_OPACITY`: a
   list of devices or playlists must stay readable.
+- Spectrum (`spectrum_view/doc.md`): shown when `spectrum_visible`, a track is loaded and
+  `Player::signal_tap` has a tap (not while casting to a renderer). The stack is cover →
+  spectrum block → caption → progress → control bar. On the cover style the spectrum sits
+  over the cover's bottom `COVER_FRACTION` instead of taking a block. A block is its style's
+  share of the height left for cover and block (`Block::fit`, clamped), so it scales
+  with the window and grows while the control bar slides away, like the cover does. It
+  never takes the cover below `COVER_MIN_SIDE`; when even its minimum does not fit, the
+  block is left out and the spectrum is not run.
+  Silhouette is as wide as the cover; zones and analyzer take the width up to
+  `WIDE_MAX_WIDTH` (never narrower than the cover), and the progress bar spans the block.
+  With the spectrum on the vertical margins are `SPECTRUM_MARGIN_V` and the group is not
+  dropped, so the cover keeps the height the block takes.
+- The spectrum toggle (`cover_spectrum_button` in `main_view.rs`) sits next to the Full
+  screen button and fades with it; it writes `spectrum_visible`, is dimmed with its own
+  tooltip while there is no tap, and its icon is static.
 - `CoverVolume` drives the footer's `Volume` entity through a vertical popup slider; the
   wheel over it goes to `Volume::wheel` (Volume), a click outside collapses it.
 
@@ -1041,6 +1073,10 @@ Owner's calls; ask before changing.
   to raw ALSA cards (`audio_output/src/doc.md`, Decisions).
 - The sleep-timer badge lives in the footer volume row in every layout, not in the title
   bar or beside the search field.
+- With the spectrum on, Cover view does not reserve the control bar's slot: cover and
+  spectrum grow into it as the bar hides and give it back as it slides in, animated, as
+  without the spectrum. Zones and analyzer are wider than the cover, not the cover's
+  width.
 - The bit-perfect check/warning button and the exclusive-mode button keep their icons;
   redesigns of them were tried and rejected.
 - No `App::reduce_motion` guard on the cover colour crossfade or the backdrop crossfade

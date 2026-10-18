@@ -25,7 +25,6 @@ use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
 const SCROLL_ANIM: Duration = Duration::from_millis(360);
-const FRAME_MIN_MS: f32 = 30.;
 const CENTER_BIAS: f32 = 0.4;
 const SCROLL_EPS: Pixels = px(1.);
 const SERVER_GRACE: Duration = Duration::from_millis(1_500);
@@ -324,6 +323,7 @@ impl LyricsView {
     }
 
     fn settings_changed(&mut self, cx: &mut Context<Self>) {
+        cx.notify();
         let settings = cx.global::<SettingsStore>();
         let prefer_lrclib = settings.lyrics_prefer_lrclib();
         let online = settings.lyrics_from_internet();
@@ -969,12 +969,7 @@ impl Render for LyricsView {
             self.set_active(next, cx);
         }
 
-        let viewport = self.scroll_handle.bounds().size;
-        if self.viewport != viewport {
-            self.viewport = viewport;
-            self.recenter = true;
-        }
-        if self.recenter && viewport.height > px(0.) {
+        if self.recenter && self.viewport.height > px(0.) {
             self.recenter = false;
             if self.autoscroll
                 && let Some(ix) = self.active_ix
@@ -994,8 +989,12 @@ impl Render for LyricsView {
         if self.playing
             && let Some(wake) = self.fill_wake_ms
         {
-            let wait = Duration::from_millis(wake.max(FRAME_MIN_MS) as u64);
+            let tick = crate::frame_grid::next_tick(
+                crate::frame_grid::SLOW,
+                Duration::from_millis(wake as u64),
+            );
             self._frame_task = Some(cx.spawn(async move |this, cx| {
+                let wait = tick.saturating_duration_since(Instant::now());
                 cx.background_executor().timer(wait).await;
                 this.update(cx, |_, cx| cx.notify()).ok();
             }));
@@ -1206,8 +1205,30 @@ impl Render for LyricsView {
             centered_message(message, muted_foreground).into_any_element()
         };
 
-        v_flex().size_full().child(header).child(body)
+        v_flex()
+            .size_full()
+            .relative()
+            .child(header)
+            .child(body)
+            .child(viewport_canvas(cx.entity()))
     }
+}
+
+fn viewport_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
+    canvas(
+        move |bounds, window, cx| {
+            if entity.read(cx).viewport != bounds.size {
+                entity.update(cx, |this, _| {
+                    this.viewport = bounds.size;
+                    this.recenter = true;
+                });
+                window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full()
 }
 
 fn measure_canvas(entity: Entity<LyricsView>, ix: usize, slot: FillSlot) -> impl IntoElement {

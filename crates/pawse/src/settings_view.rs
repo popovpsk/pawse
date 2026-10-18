@@ -79,6 +79,7 @@ pub fn build_settings_pages(
                 sliders.blur_interface_opacity,
             ))
             .group(cover_view_group())
+            .group(crate::spectrum_view::settings::settings_group())
             .group(queue_group())
             .group(lyrics_group(sliders.lyrics))
             .group(now_playing_group()),

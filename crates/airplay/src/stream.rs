@@ -269,6 +269,10 @@ impl Stream {
         self.events.clone()
     }
 
+    pub fn latency_frames(&self) -> u32 {
+        LATENCY_FRAMES + self.shared.device_latency
+    }
+
     pub fn unheard_frames(&self) -> u64 {
         lock(&self.shared.timing).unheard(Instant::now(), self.shared.device_latency)
     }

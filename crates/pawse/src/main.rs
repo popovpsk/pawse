@@ -27,6 +27,7 @@ pub mod discord_bridge;
 pub mod dlna_settings;
 pub mod error_bridge;
 pub mod footer;
+pub mod frame_grid;
 pub mod jellyfin_settings;
 pub mod keyboard_shortcuts;
 pub mod library_scan_indicator;
@@ -71,6 +72,7 @@ pub mod similar_tracks;
 #[cfg(not(target_os = "macos"))]
 pub mod single_instance;
 pub mod sleep_timer;
+pub mod spectrum_view;
 pub mod subsonic_settings;
 pub mod tag_editor_view;
 pub mod theme_colors;

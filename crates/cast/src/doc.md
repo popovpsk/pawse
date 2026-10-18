@@ -191,6 +191,11 @@ changes win over the device's for 1.5 s.
 - The sender thread pulls packets through `Render` like a sound card pulls a callback: fades
   are applied there with `audio_output::FadeState`, and a finished fade-out renders silence
   without draining the queue, as `cpal_stream` does.
+- `Render` also feeds its own `SignalTap` (`signal_tap()`), before gain, at 44.1 kHz stereo.
+  Its latency is the stream's `latency_frames` (`LATENCY_FRAMES` plus the receiver's
+  device latency, set at each stream start): what is rendered is heard that much later, so
+  the app's spectrum follows the speaker. `clear` and a flushing pause `flush` the tap:
+  the receiver drops what it had buffered, so those frames are never heard.
 - **Two volumes.** `set_device_volume` is the speaker's own; `connect` takes an `Option`, and
   `None` starts without one so the speaker keeps its volume (also on a reconnect until one is
   set). `set_gain` (also `AudioOutput::set_volume`) scales samples in `Render` with the local

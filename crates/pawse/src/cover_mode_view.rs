@@ -22,11 +22,12 @@ use crate::localization::tr;
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
 use crate::playback_status::StatusChanged;
 use crate::services::Services;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{SettingsStore, SpectrumStyle};
+use crate::spectrum_view::{self, SpectrumView};
 use crate::theme_colors::Colors;
 use crate::track_progress_slider::TrackProgressSlider;
 
-const COVER_RADIUS: f32 = 12.;
+pub const COVER_RADIUS: f32 = 12.;
 const COVER_MARGIN: f32 = 40.;
 const COVER_MIN_SIDE: f32 = 120.;
 const COVER_TEXT_GAP: f32 = 16.;
@@ -50,6 +51,7 @@ const CONTROLS_SLIDE_OUT: Duration = Duration::from_millis(200);
 const COVER_SLIDE: Duration = Duration::from_millis(300);
 const COVER_SLIDE_GAP: f32 = 40.;
 const REMOTE_COVER_MAX: u32 = 2048;
+const SPECTRUM_MARGIN_V: f32 = 20.;
 
 pub struct CoverModeView {
     track_title: SharedString,
@@ -79,8 +81,12 @@ pub struct CoverModeView {
     show_artist: bool,
     show_progress: bool,
     show_controls: bool,
+    show_spectrum: bool,
+    spectrum_style: SpectrumStyle,
     show_lyrics: bool,
     show_queue: bool,
+    spectrum: Entity<SpectrumView>,
+    ink_thumb: Option<usize>,
     cover_volume: Entity<CoverVolume>,
     progress: Entity<TrackProgressSlider>,
     _full_cover_task: Option<Task<()>>,
@@ -134,6 +140,25 @@ fn image_aspect(bytes: &[u8]) -> Option<f32> {
         return None;
     }
     Some(w as f32 / h as f32)
+}
+
+fn bottom_edge_is_light(image: &RenderImage) -> bool {
+    let Some(bytes) = image.as_bytes(0) else {
+        return true;
+    };
+    let size = image.size(0);
+    let (w, h) = (size.width.0.max(0) as usize, size.height.0.max(0) as usize);
+    if w == 0 || h == 0 || bytes.len() < w * h * 4 {
+        return true;
+    }
+    let edge_rows = ((h as f32 * spectrum_view::COVER_FRACTION) as usize).clamp(1, h);
+    let first_row = h - edge_rows;
+    let (pixels, _) = bytes[first_row * w * 4..h * w * 4].as_chunks::<4>();
+    let sum: f64 = pixels
+        .iter()
+        .map(|p| 0.0722 * f64::from(p[0]) + 0.7152 * f64::from(p[1]) + 0.2126 * f64::from(p[2]))
+        .sum();
+    sum / pixels.len() as f64 / 255. > 0.5
 }
 
 fn placeholder_icon_size(w: f32, h: f32) -> f32 {
@@ -212,18 +237,36 @@ impl CoverModeView {
         let show_artist = settings.cover_show_artist();
         let show_progress = settings.cover_show_progress();
         let show_controls = settings.cover_show_controls();
+        let show_spectrum = settings.spectrum_visible();
+        let spectrum_style = settings.spectrum_style();
         let settings_subscription = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
             let settings = cx.global::<SettingsStore>();
             let vals = (
                 settings.cover_show_artist(),
                 settings.cover_show_progress(),
                 settings.cover_show_controls(),
+                settings.spectrum_visible(),
+                settings.spectrum_style(),
             );
-            if vals != (this.show_artist, this.show_progress, this.show_controls) {
-                (this.show_artist, this.show_progress, this.show_controls) = vals;
+            let current = (
+                this.show_artist,
+                this.show_progress,
+                this.show_controls,
+                this.show_spectrum,
+                this.spectrum_style,
+            );
+            if vals != current {
+                (
+                    this.show_artist,
+                    this.show_progress,
+                    this.show_controls,
+                    this.show_spectrum,
+                    this.spectrum_style,
+                ) = vals;
                 cx.notify();
             }
         });
+        let spectrum = cx.new(SpectrumView::new);
 
         let is_playing = cx
             .global::<Services>()
@@ -258,8 +301,12 @@ impl CoverModeView {
             show_artist,
             show_progress,
             show_controls,
+            show_spectrum,
+            spectrum_style,
             show_lyrics: false,
             show_queue: false,
+            spectrum,
+            ink_thumb: None,
             cover_volume,
             progress,
             _full_cover_task: None,
@@ -388,6 +435,8 @@ impl CoverModeView {
             self._full_cover_task = None;
             self.release_full_cover(cx);
             self.end_cover_slide(cx);
+            self.spectrum
+                .update(cx, |spectrum, cx| spectrum.set_wanted(false, cx));
         }
         cx.notify();
     }
@@ -598,6 +647,7 @@ impl CoverModeView {
         let (cache, library) = (services.cover_art_cache.clone(), services.library.clone());
         let new_thumb = cache.borrow_mut().get_large(cover, &library, cx);
         if self.cover_art_id != cover {
+            self.ink_thumb = None;
             if animate && (self.large_cover.is_some() || self.full_cover.is_some()) {
                 self.start_cover_slide(index, cx);
             } else {
@@ -613,6 +663,15 @@ impl CoverModeView {
             }
         }
         self.queue_index = index;
+        let thumb = self
+            .large_cover
+            .as_ref()
+            .map(|image| Arc::as_ptr(image) as usize);
+        if thumb != self.ink_thumb {
+            self.ink_thumb = thumb;
+            let ink_dark = self.large_cover.as_deref().is_none_or(bottom_edge_is_light);
+            self.spectrum.update(cx, |s, _| s.set_ink_dark(ink_dark));
+        }
         cx.notify();
     }
 
@@ -832,26 +891,46 @@ impl Render for CoverModeView {
         if !settled {
             window.request_animation_frame();
         }
+        let spectrum_on =
+            self.show_spectrum && has_track && cx.global::<Services>().player.has_signal_tap();
         let show_bar = !self.chrome_visible && controls_t > 0.;
         let bar_reserve = if show_bar {
             (COVER_BAR_GAP + COVER_BAR_H) * controls_t
         } else {
             0.
         };
-        let below = bar_reserve
-            + if show_text {
-                COVER_TEXT_GAP
-                    + COVER_TEXT_LINE
-                    + if show_progress_bar {
-                        COVER_PROGRESS_GAP + COVER_PROGRESS_H
-                    } else {
-                        0.
-                    }
-            } else {
-                0.
-            };
+        let text_h = if show_text {
+            COVER_TEXT_GAP
+                + COVER_TEXT_LINE
+                + if show_progress_bar {
+                    COVER_PROGRESS_GAP + COVER_PROGRESS_H
+                } else {
+                    0.
+                }
+        } else {
+            0.
+        };
+        let (margin_v, drop) = if spectrum_on {
+            (SPECTRUM_MARGIN_V, 0.)
+        } else if show_text {
+            (COVER_MARGIN, COVER_GROUP_DROP)
+        } else {
+            (COVER_MARGIN, 0.)
+        };
+        let stack_h = avail_h - margin_v * 2. - bar_reserve - text_h;
+        let block = spectrum_on
+            .then(|| spectrum_view::block(self.spectrum_style))
+            .flatten()
+            .and_then(|block| Some((block.gap, block.fit(stack_h, COVER_MIN_SIDE)?)));
+        let spectrum_drawn =
+            block.is_some() || (spectrum_on && self.spectrum_style == SpectrumStyle::Cover);
+        let wanted = self.active && spectrum_drawn;
+        self.spectrum
+            .update(cx, |spectrum, cx| spectrum.set_wanted(wanted, cx));
+        let spectrum_below = block.map_or(0., |(gap, height)| gap + height);
+        let below = bar_reserve + text_h + spectrum_below;
         let max_w = (avail_w - COVER_MARGIN * 2.).max(COVER_MIN_SIDE);
-        let max_h = (avail_h - COVER_MARGIN * 2. - below).max(COVER_MIN_SIDE);
+        let max_h = (avail_h - margin_v * 2. - below).max(COVER_MIN_SIDE);
         let (cover_w, cover_h) = fit_cover_box(self.cover_aspect, max_w, max_h);
 
         let shadow = vec![BoxShadow {
@@ -877,6 +956,36 @@ impl Render for CoverModeView {
                         .opacity(controls_t),
                 )
         });
+
+        let spectrum_w = match self.spectrum_style {
+            SpectrumStyle::Zones | SpectrumStyle::Analyzer => {
+                max_w.min(spectrum_view::WIDE_MAX_WIDTH).max(cover_w)
+            }
+            SpectrumStyle::Cover | SpectrumStyle::Silhouette => cover_w,
+        };
+        let progress_w = if block.is_some() {
+            spectrum_w
+        } else {
+            cover_w * COVER_PROGRESS_W_FRAC
+        };
+        let spectrum_block = block.map(|(gap, height)| {
+            div()
+                .flex_shrink_0()
+                .mt(px(gap))
+                .w(px(spectrum_w))
+                .h(px(height))
+                .child(self.spectrum.clone())
+        });
+        let spectrum_overlay =
+            (spectrum_on && self.spectrum_style == SpectrumStyle::Cover).then(|| {
+                div()
+                    .absolute()
+                    .left_0()
+                    .bottom_0()
+                    .w(px(cover_w))
+                    .h(px(cover_h * spectrum_view::COVER_FRACTION))
+                    .child(self.spectrum.clone())
+            });
 
         let cover_square = if self.sliding {
             let forward = self.slide_forward;
@@ -952,8 +1061,16 @@ impl Render for CoverModeView {
                     .flex_col()
                     .items_center()
                     .justify_center()
-                    .when(show_text, |d| d.pt(px(COVER_GROUP_DROP)))
-                    .child(cover_square)
+                    .pt(px(drop))
+                    .child(match spectrum_overlay {
+                        Some(overlay) => div()
+                            .relative()
+                            .flex_shrink_0()
+                            .child(cover_square)
+                            .child(overlay),
+                        None => cover_square,
+                    })
+                    .when_some(spectrum_block, |d, block| d.child(block))
                     .when(show_text, |d| {
                         let mut row = h_flex()
                             .px(px(COVER_MARGIN))
@@ -1027,7 +1144,7 @@ impl Render for CoverModeView {
                         if show_progress_bar {
                             group = group.child(
                                 div()
-                                    .w(px(cover_w * COVER_PROGRESS_W_FRAC))
+                                    .w(px(progress_w))
                                     .child(self.progress.read(cx).slider()),
                             );
                         }

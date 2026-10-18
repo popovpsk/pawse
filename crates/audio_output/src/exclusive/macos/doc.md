@@ -16,6 +16,8 @@ Not here: the facade, `render::fill`, swapping and fallback to shared
 - `ioproc.rs` — IOProc registration and the callback that calls `render::fill`.
 - `listeners.rs` — property listeners: stream format, is-alive, hardware volume, mute.
 - `sleep.rs` — the sleep assertion while playing. `cf.rs` — minimal CoreFoundation.
+- `latency.rs` — `output_latency`: the device's output latency for the signal tap, read
+  for shared and exclusive alike (`audio_output/src/doc.md`, "Signal tap").
 
 ## Init and tear-down
 

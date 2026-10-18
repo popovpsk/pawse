@@ -5,7 +5,8 @@ use gpui::{
     Animation, AnimationExt as _, App, AppContext, Context, DispatchPhase, DragMoveEvent, Empty,
     Entity, EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
+    StatefulInteractiveElement, StyleRefinement, Styled, Subscription, Window, canvas, div,
+    ease_out_quint, px, svg,
 };
 use gpui_component::{
     StyledExt,
@@ -1133,7 +1134,8 @@ impl Render for MainView {
                                         .left_0()
                                         .size_full()
                                         .when(!chrome_visible, |d| d.opacity(controls_t))
-                                        .child(cover_chrome_button(chrome_visible, tab_colors, cx)),
+                                        .child(cover_chrome_button(chrome_visible, tab_colors, cx))
+                                        .child(cover_spectrum_button(tab_colors, cx)),
                                 )
                             }),
                     )
@@ -1153,7 +1155,11 @@ impl Render for MainView {
                                             .h_full()
                                             .flex_shrink_0()
                                             .w(px(lyrics_width - PANEL_BORDER))
-                                            .child(self.lyrics_view.clone()),
+                                            .child(
+                                                self.lyrics_view
+                                                    .clone()
+                                                    .cached(StyleRefinement::default().size_full()),
+                                            ),
                                     ),
                                 )
                                 .child(
@@ -1206,7 +1212,11 @@ impl Render for MainView {
                                             .h_full()
                                             .flex_shrink_0()
                                             .w(px(queue_width - PANEL_BORDER))
-                                            .child(self.queue_view.clone()),
+                                            .child(
+                                                self.queue_view
+                                                    .clone()
+                                                    .cached(StyleRefinement::default().size_full()),
+                                            ),
                                     ),
                                 )
                                 .child(
@@ -1286,6 +1296,56 @@ impl Render for MainView {
             })
             .child(self.playlist_popup.clone())
     }
+}
+
+fn cover_spectrum_button(colors: TabColors, cx: &mut Context<MainView>) -> impl IntoElement {
+    let visible = cx.global::<SettingsStore>().spectrum_visible();
+    let available = cx
+        .global::<crate::services::Services>()
+        .player
+        .has_signal_tap();
+    let strings = ui_resources::i18n::spectrum_strings();
+    let label = if !available {
+        strings.unavailable.clone()
+    } else if visible {
+        strings.hide.clone()
+    } else {
+        strings.show.clone()
+    };
+    let fg = if visible && available {
+        colors.primary
+    } else {
+        colors.foreground
+    };
+    let hover_bg = colors.hover_bg;
+
+    div()
+        .id("cover_spectrum_toggle")
+        .absolute()
+        .top(px(12.))
+        .left(px(52.))
+        .size(px(36.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .when(!available, |d| d.opacity(0.45))
+        .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
+        .hover(move |s| s.bg(hover_bg))
+        .on_click(move |_, _, cx| {
+            if let Err(e) = cx
+                .global_mut::<SettingsStore>()
+                .set_spectrum_visible(!visible)
+            {
+                crate::settings_store::notify_save_error(cx, e);
+            }
+        })
+        .child(
+            svg()
+                .path("icons/s1-spectrum.svg")
+                .size(px(20.))
+                .text_color(fg),
+        )
 }
 
 fn cover_chrome_button(

@@ -19,7 +19,10 @@ picker and settings (`pawse/src/doc.md`), the per-platform exclusive paths
 - `device.rs` — `DeviceManager`: selection by UID, enumeration, the Linux PipeWire sink list
   (`pactl`) and the `PIPEWIRE_NODE` pin.
 - `default_watch.rs` — flag set when the system default output changes.
-- `ring_buffer.rs` — `AudioRingBuffer`, the SPSC f32 buffer between engine and callback.
+- `ring_buffer.rs` — `AudioRingBuffer`, the SPSC f32 buffer between engine and callback;
+  `with_tap` feeds every `pop_slice` to a `SignalTap`.
+- `tap.rs` — `SignalTap`, the lock-free mono copy of what the device plays, for the
+  spectrum.
 - `bit_perfect.rs` — `BitPerfectStatus` / `BitPerfectIssue`, `UNITY_VOLUME_TOLERANCE`.
 - `thread_priority.rs` — `RenderThreadPriority`, `boost_decoder_thread`.
 - `exclusive/` — `ExclusiveOutput` over a platform `Backend`; `render.rs` is the one render
@@ -157,6 +160,28 @@ to users as "Native sample rate") implement `Backend`; `Output` treats them alik
   device rate) and a bounded event queue (32, oldest dropped).
 - `suppress_cleanup`, `allow_cleanup` and `original_rate` matter on macOS only; the others
   change no persistent device state.
+
+## Signal tap (`tap.rs`)
+
+- `Output` owns one `SignalTap` for its whole life; every ring it builds (`Output::ring`,
+  all stream swaps, shared and exclusive) is `with_tap` and sets the tap's rate and
+  channels. The tap sees samples as the callback pops them, before fade and volume, so the
+  spectrum shows the file's level whatever the slider says and exclusive paths stay
+  untouched. A frozen or silenced callback pops nothing, so a pause reads as silence.
+- `push` runs on the real-time thread: nothing unless `set_active(true)`, then a mono mix
+  into a 2^18-frame ring of `AtomicU32` (f32 bits) and three atomic stores. No locks, no
+  allocation, no `unsafe`; a torn read only blurs one frame of a picture.
+- Timing: each push records when its first frame is heard (`now + latency`); `read` returns
+  the window that ends at the frame being heard now, so the picture follows the sound, not
+  the callback. More than 60 ms past the last pushed frame means nothing is playing and
+  `read` returns `None`. The ring holds the longest latency (AirPlay's 2 s) plus a window.
+- `flush` marks everything written so far as never heard (`read` returns `None` until the
+  frames after it are). Only AirPlay calls it, where a seek or pause drops the receiver's
+  buffer; a local `clear` keeps what the device already holds, so it does not flush.
+- Latency: `Output::refresh_tap_latency` (the UI calls it) reads the device's latency,
+  safety offset, buffer size and stream latency on macOS (`exclusive/macos/latency.rs`);
+  elsewhere it stays 0, so the picture leads by about one period and Bluetooth delay is
+  not compensated.
 
 ## Bit-perfect status
 
