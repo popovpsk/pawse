@@ -1,9 +1,10 @@
 # main_view
 
 Child modules of `main_view.rs`, the root view. Today that is the header: tabs, search
-field, view menu and the right-hand buttons. It is an `impl MainView` in a child module, not
-a standalone entity, because its buttons call `MainView`'s private methods and fields
-(`open_settings`, `leave_overlays`, `toggle_cover_mode`, `library_view`, …).
+field, view menu and the right-hand buttons. It lives in a child module of `main_view.rs`
+and renders with a `Context<MainView>`, because its buttons call `MainView`'s private
+methods and fields (`open_settings`, `leave_overlays`, `toggle_cover_mode`, `library_view`,
+…); `HeaderHost` is only the entity it is drawn under, so the header can be a cached block.
 
 Not here: the rest of the root view — screens, panels, footer, cover-mode chrome, key
 actions (`main_view.rs`, `pawse/src/doc.md`); the title bar widget (`window_title_bar.rs`);
@@ -12,9 +13,25 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
 
 ## Files
 
-- `header.rs` — `MainView::render_header(placement, …)`, `Placement`, `HEIGHT` (standalone
-  bar) and `TITLE_BAR_HEIGHT` (bar when the header lives in the title bar), both scaled by
-  the UI font scale, and the button helpers only the header uses.
+- `header.rs` — `HeaderState`, `HeaderParts`, `HeaderHost`, `MainView::header_block`,
+  `render_header`, `Placement`, `HEIGHT` (standalone bar) and `TITLE_BAR_HEIGHT` (bar when
+  the header lives in the title bar), both scaled by the UI font scale, and the button
+  helpers only the header uses.
+
+## Caching
+
+- `MainView::render` builds a `HeaderState` with everything the header takes from
+  `MainView` (screens, cover mode, tab, drill-in, view-menu tab, staged update) and from
+  its own render (placement, colours, veil, scale). `render_header` is a free function of
+  that state and `HeaderParts` (the child views: audio settings, search field, scan
+  indicator, whose notifies reach the block on their own), so it cannot read `MainView`
+  at render time; a value read there would stay stale while the block is replayed. A new
+  header input goes into `HeaderState`; only click handlers reach `MainView`.
+- `header_block` hands the state to `HeaderHost` and draws it uncached in the frame the
+  state changed, cached otherwise; settings and app events reach it through
+  `follow_app_events`. The slot style carries the placement's size (`HEIGHT` bar or
+  `flex_1` in the title bar) and the header root fills it. The contract for cached blocks
+  is in `pawse/src/doc.md`, "Cached blocks".
 
 ## Behaviour
 

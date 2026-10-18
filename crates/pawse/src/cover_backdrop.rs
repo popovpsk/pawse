@@ -34,7 +34,7 @@ fn blur_sigma(cx: &App) -> f32 {
     cx.global::<SettingsStore>().blur_intensity()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Veil {
     factor: f32,
     weight: f32,

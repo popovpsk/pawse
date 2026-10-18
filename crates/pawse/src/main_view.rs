@@ -5,8 +5,7 @@ use gpui::{
     Animation, AnimationExt as _, App, AppContext, Context, DispatchPhase, DragMoveEvent, Empty,
     Entity, EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render,
-    StatefulInteractiveElement, StyleRefinement, Styled, Subscription, Window, canvas, div,
-    ease_out_quint, px, svg,
+    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
 };
 use gpui_component::{
     StyledExt,
@@ -60,7 +59,7 @@ pub(crate) fn footer_height(cx: &App) -> f32 {
     FOOTER_HEIGHT * ui_scale(cx)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct TabColors {
     active_bg: Hsla,
     hover_bg: Hsla,
@@ -87,7 +86,6 @@ impl Render for DragLyricsResize {
 }
 
 pub struct MainView {
-    audio_settings: Entity<AudioSettings>,
     library_view: Entity<LibraryView>,
     footer: Entity<Footer>,
     queue_view: Entity<QueueView>,
@@ -165,7 +163,7 @@ pub struct MainView {
     updater: Option<Entity<updater::AutoUpdater>>,
     _updater_observer: Option<gpui::Subscription>,
     _sleep_timer_controls_observe: Subscription,
-    scan_indicator: Entity<crate::library_scan_indicator::LibraryScanIndicator>,
+    header: Entity<header::HeaderHost>,
     #[cfg(target_os = "macos")]
     traffic_light_y: f32,
     focus_handle: FocusHandle,
@@ -621,8 +619,17 @@ impl MainView {
             .as_ref()
             .map(|entity| cx.observe(entity, |_, _, cx| cx.notify()));
 
+        let header = {
+            let main_view = cx.weak_entity();
+            let parts = header::HeaderParts {
+                audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
+                search_input: search_input.clone(),
+                scan_indicator: crate::library_scan_indicator::indicator(cx),
+            };
+            cx.new(|cx| header::HeaderHost::new(main_view, parts, cx))
+        };
+
         Self {
-            audio_settings: cx.new(|cx| AudioSettings::new(window, cx)),
             library_view,
             footer,
             queue_view,
@@ -701,7 +708,7 @@ impl MainView {
             updater,
             _updater_observer: updater_observer,
             _sleep_timer_controls_observe: sleep_timer_controls_observe,
-            scan_indicator: crate::library_scan_indicator::indicator(cx),
+            header,
             #[cfg(target_os = "macos")]
             traffic_light_y: crate::window_title_bar::TRAFFIC_LIGHT_Y,
             focus_handle,
@@ -1003,32 +1010,36 @@ impl Render for MainView {
             },
         );
 
-        let header_below = (show_chrome && !header_in_bar).then(|| {
-            self.render_header(
-                header::Placement::Below(bar_bg),
-                tab_colors,
-                title_bar,
-                veil,
-                scale,
-                cx,
-            )
+        let header_state = show_chrome.then(|| header::HeaderState {
+            placement: if header_in_bar {
+                header::Placement::TitleBar
+            } else {
+                header::Placement::Below(bar_bg)
+            },
+            colors: tab_colors,
+            title_bar,
+            veil,
+            scale,
+            show_settings,
+            show_tools,
+            cover_mode,
+            is_drilled_in: self.is_drilled_in,
+            current_tab: self.current_tab,
+            view_menu_tab: self.view_menu_tab,
+            update_ready: self
+                .updater
+                .as_ref()
+                .is_some_and(|entity| entity.read(cx).has_staged_update()),
         });
+        let header_below = header_state
+            .filter(|_| !header_in_bar)
+            .map(|state| self.header_block(state, cx));
 
         let mut window_title_bar = crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg);
         if header_in_bar {
             window_title_bar = window_title_bar
                 .height(title_bar_height)
-                .content(show_chrome.then(|| {
-                    self.render_header(
-                        header::Placement::TitleBar,
-                        tab_colors,
-                        title_bar,
-                        veil,
-                        scale,
-                        cx,
-                    )
-                    .into_any_element()
-                }));
+                .content(header_state.map(|state| self.header_block(state, cx)));
         }
 
         div()
@@ -1124,7 +1135,7 @@ impl Render for MainView {
                             } else if show_tools {
                                 self.tools_view.clone().into_any_element()
                             } else {
-                                self.library_view.clone().into_any_element()
+                                crate::view_cache::full(&self.library_view)
                             })
                             .when(cover_mode && (chrome_visible || controls_t > 0.), |d| {
                                 d.relative().child(
@@ -1155,11 +1166,7 @@ impl Render for MainView {
                                             .h_full()
                                             .flex_shrink_0()
                                             .w(px(lyrics_width - PANEL_BORDER))
-                                            .child(
-                                                self.lyrics_view
-                                                    .clone()
-                                                    .cached(StyleRefinement::default().size_full()),
-                                            ),
+                                            .child(crate::view_cache::full(&self.lyrics_view)),
                                     ),
                                 )
                                 .child(
@@ -1212,11 +1219,7 @@ impl Render for MainView {
                                             .h_full()
                                             .flex_shrink_0()
                                             .w(px(queue_width - PANEL_BORDER))
-                                            .child(
-                                                self.queue_view
-                                                    .clone()
-                                                    .cached(StyleRefinement::default().size_full()),
-                                            ),
+                                            .child(crate::view_cache::full(&self.queue_view)),
                                     ),
                                 )
                                 .child(
@@ -1259,7 +1262,7 @@ impl Render for MainView {
                     .flex_shrink_0()
                     .h(px(footer_height(cx)))
                     .bg(bar_bg)
-                    .child(self.footer.clone());
+                    .child(crate::view_cache::full(&self.footer));
 
                 div()
                     .id("main_content")

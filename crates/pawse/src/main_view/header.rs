@@ -1,19 +1,22 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, Div, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, div, px, svg,
+    AnyElement, Context, Div, Entity, Hsla, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Render, StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window,
+    div, px, svg,
 };
 use gpui_component::{
     Icon, Sizable, Size,
     button::{Button, ButtonVariants},
-    input::Input,
+    input::{Input, InputState},
     tooltip::Tooltip,
 };
 
 use super::{MainView, TabColors};
+use crate::audio_settings::AudioSettings;
 use crate::cover_backdrop;
+use crate::library_scan_indicator::LibraryScanIndicator;
 use crate::library_views::library_view::LibraryRootTab;
-use crate::library_views::view_menu::{self, view_menu};
+use crate::library_views::view_menu::{self, ViewMenuTab, view_menu};
 use crate::localization::tr;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
@@ -25,10 +28,70 @@ const SEARCH_WIDTH: f32 = 200.;
 const VIEW_MENU_GAP: f32 = 6.;
 const INDICATOR_GAP: f32 = 4.;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(super) enum Placement {
     Below(Hsla),
     TitleBar,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct HeaderState {
+    pub placement: Placement,
+    pub colors: TabColors,
+    pub title_bar: Hsla,
+    pub veil: Option<cover_backdrop::Veil>,
+    pub scale: f32,
+    pub show_settings: bool,
+    pub show_tools: bool,
+    pub cover_mode: bool,
+    pub is_drilled_in: bool,
+    pub current_tab: LibraryRootTab,
+    pub view_menu_tab: Option<ViewMenuTab>,
+    pub update_ready: bool,
+}
+
+pub(super) struct HeaderParts {
+    pub audio_settings: Entity<AudioSettings>,
+    pub search_input: Entity<InputState>,
+    pub scan_indicator: Entity<LibraryScanIndicator>,
+}
+
+pub(super) struct HeaderHost {
+    main_view: WeakEntity<MainView>,
+    parts: HeaderParts,
+    state: Option<HeaderState>,
+    _app_events: crate::view_cache::AppEvents,
+}
+
+impl HeaderHost {
+    pub(super) fn new(
+        main_view: WeakEntity<MainView>,
+        parts: HeaderParts,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self {
+            main_view,
+            parts,
+            state: None,
+            _app_events: crate::view_cache::follow_app_events(cx),
+        }
+    }
+
+    fn set_state(&mut self, state: HeaderState) -> bool {
+        let changed = self.state != Some(state);
+        self.state = Some(state);
+        changed
+    }
+}
+
+impl Render for HeaderHost {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (Some(state), Some(main_view)) = (self.state, self.main_view.upgrade()) else {
+            return div();
+        };
+        let parts = &self.parts;
+        main_view.update(cx, |_, cx| render_header(state, parts, cx))
+    }
 }
 
 fn guard(el: Div) -> Div {
@@ -40,179 +103,188 @@ fn guard(el: Div) -> Div {
 }
 
 impl MainView {
-    pub(super) fn render_header(
-        &self,
-        placement: Placement,
-        colors: TabColors,
-        title_bar: Hsla,
-        veil: Option<cover_backdrop::Veil>,
-        scale: f32,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let in_title_bar = matches!(placement, Placement::TitleBar);
-        let show_screen = self.show_settings || self.show_tools;
-        let cover_mode = self.cover_mode;
-        let has_back = !cover_mode && (show_screen || self.is_drilled_in);
-        let active_tab = (!cover_mode).then_some(self.current_tab);
-        let muted = Colors::muted(cx);
-        let foreground = Colors::foreground(cx);
-        let update_ready = self
-            .updater
-            .as_ref()
-            .is_some_and(|entity| entity.read(cx).has_staged_update());
-
-        let settings = cx.global::<SettingsStore>();
-        let liked_enabled = settings.liked_enabled();
-        let playlists_enabled = settings.playlists_enabled();
-        let genres_enabled = settings.genres_enabled();
-        let tools_enabled = settings.tools_enabled();
-        let view_menu = self
-            .view_menu_tab
-            .filter(|_| !show_screen && !cover_mode)
-            .map(|tab| view_menu(tab, scale));
-
-        let left_buttons = div()
-            .flex()
-            .items_center()
-            .gap_1()
-            .when(in_title_bar, guard)
-            .when(has_back, |d| {
-                d.child(back_button(foreground, muted, scale, cx))
-            })
-            .when(!has_back, |d| {
-                d.child(tab_icon_button(
-                    "tab_albums",
-                    "icons/s1-albums.svg",
-                    active_tab == Some(LibraryRootTab::Albums),
-                    LibraryRootTab::Albums,
-                    colors,
-                    scale,
-                    cx,
-                ))
-                .child(tab_icon_button(
-                    "tab_artists",
-                    "icons/s1-artists.svg",
-                    active_tab == Some(LibraryRootTab::Artists),
-                    LibraryRootTab::Artists,
-                    colors,
-                    scale,
-                    cx,
-                ))
-                .when(genres_enabled, |d| {
-                    d.child(tab_icon_button(
-                        "tab_genres",
-                        "icons/s1-genres.svg",
-                        active_tab == Some(LibraryRootTab::Genres),
-                        LibraryRootTab::Genres,
-                        colors,
-                        scale,
-                        cx,
-                    ))
-                })
-                .when(liked_enabled, |d| {
-                    d.child(tab_icon_button(
-                        "tab_liked",
-                        "icons/s1-heart.svg",
-                        active_tab == Some(LibraryRootTab::Liked),
-                        LibraryRootTab::Liked,
-                        colors,
-                        scale,
-                        cx,
-                    ))
-                })
-                .when(playlists_enabled, |d| {
-                    d.child(tab_icon_button(
-                        "tab_playlists",
-                        "icons/s1-playlists.svg",
-                        active_tab == Some(LibraryRootTab::Playlists),
-                        LibraryRootTab::Playlists,
-                        colors,
-                        scale,
-                        cx,
-                    ))
-                })
-                .child(cover_mode_button(cover_mode, colors, scale, cx))
-            });
-        let left_group = div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .h_full()
-            .child(left_buttons);
-
-        let right_buttons = div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when(in_title_bar, guard)
-            .when(update_ready && !show_screen, |d| {
-                d.child(update_button(scale, cx))
-            })
-            .when(!show_screen && tools_enabled, |d| {
-                d.child(tools_button(scale, cx))
-            })
-            .when(!show_screen, |d| d.child(settings_gear_button(scale, cx)))
-            .child(self.audio_settings.clone());
-        let right_group = div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_end()
-            .h_full()
-            .child(right_buttons);
-
-        let root = div().flex().items_center().pl_2().pr_2();
-        let root = match placement {
-            Placement::Below(bg) => root.w_full().flex_shrink_0().h(px(HEIGHT * scale)).bg(bg),
-            Placement::TitleBar => root.flex_1().h_full(),
+    pub(super) fn header_block(&self, state: HeaderState, cx: &mut Context<Self>) -> AnyElement {
+        let changed = self.header.update(cx, |host, _| host.set_state(state));
+        let slot = match state.placement {
+            Placement::Below(_) => StyleRefinement::default()
+                .w_full()
+                .flex_shrink_0()
+                .h(px(HEIGHT * state.scale)),
+            Placement::TitleBar => StyleRefinement::default().flex_1().h_full(),
         };
-        root.child(left_group)
-            .when(!show_screen && !cover_mode, |d| {
-                let menu_slot = px(VIEW_MENU_GAP + view_menu::TRIGGER_SIZE * scale);
-                d.child(
-                    div()
-                        .flex()
-                        .flex_shrink_0()
-                        .items_center()
-                        .when(view_menu.is_some(), |d| d.child(div().w(menu_slot)))
-                        .child(
-                            div()
-                                .w(px(SEARCH_WIDTH))
-                                .relative()
-                                .when(in_title_bar, guard)
-                                .child(
-                                    Input::new(&self.search_input)
-                                        .with_size(Size::Medium)
-                                        .focus_bordered(false)
-                                        .rounded_full()
-                                        .bg(cover_backdrop::field_bg(title_bar, veil)),
-                                )
-                                .child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .h_full()
-                                        .left(px(-(INDICATOR_GAP
-                                            + crate::library_scan_indicator::WIDTH * scale)))
-                                        .flex()
-                                        .items_center()
-                                        .child(self.scan_indicator.clone()),
-                                ),
-                        )
-                        .when_some(view_menu, |d, menu| {
-                            d.child(
-                                div()
-                                    .w(menu_slot)
-                                    .flex()
-                                    .justify_end()
-                                    .when(in_title_bar, guard)
-                                    .child(menu),
-                            )
-                        }),
-                )
-            })
-            .child(right_group)
+        crate::view_cache::block(&self.header, slot, !changed)
     }
+}
+
+fn render_header(state: HeaderState, parts: &HeaderParts, cx: &mut Context<MainView>) -> Div {
+    let HeaderState {
+        placement,
+        colors,
+        title_bar,
+        veil,
+        scale,
+        ..
+    } = state;
+    let in_title_bar = matches!(placement, Placement::TitleBar);
+    let show_screen = state.show_settings || state.show_tools;
+    let cover_mode = state.cover_mode;
+    let has_back = !cover_mode && (show_screen || state.is_drilled_in);
+    let active_tab = (!cover_mode).then_some(state.current_tab);
+    let muted = Colors::muted(cx);
+    let foreground = Colors::foreground(cx);
+    let update_ready = state.update_ready;
+
+    let settings = cx.global::<SettingsStore>();
+    let liked_enabled = settings.liked_enabled();
+    let playlists_enabled = settings.playlists_enabled();
+    let genres_enabled = settings.genres_enabled();
+    let tools_enabled = settings.tools_enabled();
+    let view_menu = state
+        .view_menu_tab
+        .filter(|_| !show_screen && !cover_mode)
+        .map(|tab| view_menu(tab, scale));
+
+    let left_buttons = div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .when(in_title_bar, guard)
+        .when(has_back, |d| {
+            d.child(back_button(foreground, muted, scale, cx))
+        })
+        .when(!has_back, |d| {
+            d.child(tab_icon_button(
+                "tab_albums",
+                "icons/s1-albums.svg",
+                active_tab == Some(LibraryRootTab::Albums),
+                LibraryRootTab::Albums,
+                colors,
+                scale,
+                cx,
+            ))
+            .child(tab_icon_button(
+                "tab_artists",
+                "icons/s1-artists.svg",
+                active_tab == Some(LibraryRootTab::Artists),
+                LibraryRootTab::Artists,
+                colors,
+                scale,
+                cx,
+            ))
+            .when(genres_enabled, |d| {
+                d.child(tab_icon_button(
+                    "tab_genres",
+                    "icons/s1-genres.svg",
+                    active_tab == Some(LibraryRootTab::Genres),
+                    LibraryRootTab::Genres,
+                    colors,
+                    scale,
+                    cx,
+                ))
+            })
+            .when(liked_enabled, |d| {
+                d.child(tab_icon_button(
+                    "tab_liked",
+                    "icons/s1-heart.svg",
+                    active_tab == Some(LibraryRootTab::Liked),
+                    LibraryRootTab::Liked,
+                    colors,
+                    scale,
+                    cx,
+                ))
+            })
+            .when(playlists_enabled, |d| {
+                d.child(tab_icon_button(
+                    "tab_playlists",
+                    "icons/s1-playlists.svg",
+                    active_tab == Some(LibraryRootTab::Playlists),
+                    LibraryRootTab::Playlists,
+                    colors,
+                    scale,
+                    cx,
+                ))
+            })
+            .child(cover_mode_button(cover_mode, colors, scale, cx))
+        });
+    let left_group = div()
+        .flex_1()
+        .flex()
+        .items_center()
+        .h_full()
+        .child(left_buttons);
+
+    let right_buttons = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .when(in_title_bar, guard)
+        .when(update_ready && !show_screen, |d| {
+            d.child(update_button(scale, cx))
+        })
+        .when(!show_screen && tools_enabled, |d| {
+            d.child(tools_button(scale, cx))
+        })
+        .when(!show_screen, |d| d.child(settings_gear_button(scale, cx)))
+        .child(parts.audio_settings.clone());
+    let right_group = div()
+        .flex_1()
+        .flex()
+        .items_center()
+        .justify_end()
+        .h_full()
+        .child(right_buttons);
+
+    let root = div().flex().items_center().pl_2().pr_2();
+    let root = match placement {
+        Placement::Below(bg) => root.size_full().bg(bg),
+        Placement::TitleBar => root.size_full(),
+    };
+    root.child(left_group)
+        .when(!show_screen && !cover_mode, |d| {
+            let menu_slot = px(VIEW_MENU_GAP + view_menu::TRIGGER_SIZE * scale);
+            d.child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .when(view_menu.is_some(), |d| d.child(div().w(menu_slot)))
+                    .child(
+                        div()
+                            .w(px(SEARCH_WIDTH))
+                            .relative()
+                            .when(in_title_bar, guard)
+                            .child(
+                                Input::new(&parts.search_input)
+                                    .with_size(Size::Medium)
+                                    .focus_bordered(false)
+                                    .rounded_full()
+                                    .bg(cover_backdrop::field_bg(title_bar, veil)),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .h_full()
+                                    .left(px(-(INDICATOR_GAP
+                                        + crate::library_scan_indicator::WIDTH * scale)))
+                                    .flex()
+                                    .items_center()
+                                    .child(parts.scan_indicator.clone()),
+                            ),
+                    )
+                    .when_some(view_menu, |d, menu| {
+                        d.child(
+                            div()
+                                .w(menu_slot)
+                                .flex()
+                                .justify_end()
+                                .when(in_title_bar, guard)
+                                .child(menu),
+                        )
+                    }),
+            )
+        })
+        .child(right_group)
 }
 
 fn settings_gear_button(scale: f32, cx: &mut Context<MainView>) -> impl IntoElement {

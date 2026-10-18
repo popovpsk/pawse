@@ -137,6 +137,7 @@ pub struct QueueView {
     _status_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
+    _app_events: crate::view_cache::AppEvents,
 }
 
 impl QueueView {
@@ -246,6 +247,7 @@ impl QueueView {
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
+            _app_events: crate::view_cache::follow_app_events(cx),
             item_sizes: Rc::new(Vec::new()),
         };
         similar_tracks::set_queue_refresh(result.on_similar_applied.clone(), cx);

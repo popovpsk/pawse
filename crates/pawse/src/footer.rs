@@ -53,6 +53,7 @@ pub struct Footer {
     _np_album_subscription: Subscription,
     _np_artist_subscription: Subscription,
     _np_cover_subscription: Subscription,
+    _app_events: crate::view_cache::AppEvents,
 }
 
 impl Footer {
@@ -145,6 +146,7 @@ impl Footer {
             _np_album_subscription: np_album_subscription,
             _np_artist_subscription: np_artist_subscription,
             _np_cover_subscription: np_cover_subscription,
+            _app_events: crate::view_cache::follow_app_events(cx),
         }
     }
 }

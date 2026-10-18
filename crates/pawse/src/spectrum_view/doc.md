@@ -30,8 +30,8 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
   peaks and zone levels for the styles that do not draw them. `set_wanted(false)` drops
   the task, deactivates the tap and resets the curve.
 - Every notify redraws the window from the root down to this view: the main view, the
-  cover view and the spectrum render each frame, while the cached lyrics and queue panels
-  are replayed (`pawse/src/doc.md`, "Main view"). gpui has no visibility query, so the prepaint stamps `painted_at`: when
+  cover view and the spectrum render each frame, while the cached header, footer, lyrics
+  and queue panels are replayed (`pawse/src/doc.md`, "Cached blocks"). gpui has no visibility query, so the prepaint stamps `painted_at`: when
   no frame was painted for a second (minimized, covered, screen locked) the loop skips the
   analysis and only notifies every 250 ms, which draws as soon as the window is visible
   again. Leaving the settled poll restarts the stamp, so a resumed track is not taken for a

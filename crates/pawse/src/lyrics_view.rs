@@ -180,6 +180,7 @@ pub struct LyricsView {
     _status_subscription: Subscription,
     _library_subscription: Subscription,
     _settings_subscription: Subscription,
+    _app_events: crate::view_cache::AppEvents,
 }
 
 impl LyricsView {
@@ -299,6 +300,7 @@ impl LyricsView {
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _settings_subscription: settings_subscription,
+            _app_events: crate::view_cache::follow_app_events(cx),
         };
         if !online {
             result.forget_fetched(cx);

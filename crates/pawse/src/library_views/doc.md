@@ -76,9 +76,12 @@ trigger (`main_view/doc.md`).
 - Likes are patched into rows in place (`LibraryEvent::liked_update`); Liked itself
   reloads or drops the row.
 - Draw-only settings (liked / playlists / tag editor enabled) are read once per render
-  into the row `*Params`. Settings that change data are followed by the view's own
-  `observe_global::<SettingsStore>`, which compares a snapshot first: it fires on every
-  settings write.
+  into the row `*Params`; they reach the screen because `LibraryView` is a cached block
+  that every settings write notifies (`pawse/src/doc.md`, "Cached blocks"). Any other
+  render input of a view here must end in a notify of some view inside `LibraryView`, or
+  it stays stale while the block is replayed. Settings that change data are followed by
+  the view's own `observe_global::<SettingsStore>`, which compares a snapshot first: it
+  fires on every settings write.
 - Search: the trimmed query is fuzzy-matched against haystacks built at load, best
   first; the list scrolls to the top.
 

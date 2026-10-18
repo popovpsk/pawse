@@ -72,6 +72,7 @@ pub struct LibraryView {
     _all_tracks_subscription: Subscription,
     _settings_subscriptions: [Subscription; 2],
     _settings_observer: Subscription,
+    _app_events: crate::view_cache::AppEvents,
 }
 
 impl LibraryView {
@@ -157,6 +158,7 @@ impl LibraryView {
             _all_tracks_subscription: all_tracks_subscription,
             _settings_subscriptions: settings_subscriptions,
             _settings_observer: settings_observer,
+            _app_events: crate::view_cache::follow_app_events(cx),
         }
     }
 

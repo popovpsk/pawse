@@ -10,6 +10,8 @@ Folder modules (`library_views`, `track_list`, `servers`, `remote_media`, `cast`
 App shell:
 - `main.rs` — startup, window creation, app-level actions, launch restore, the quit hook.
 - `main_view.rs` — `MainView`, the root view (header: `main_view/header.rs`).
+- `view_cache.rs` — `block` / `full` (a view drawn as a cached block),
+  `follow_app_events` (the notifies every block takes).
   `window_title_bar.rs` — `WindowTitleBar`. `onboarding_view.rs` — the first-run window.
   `window_placement.rs` — main window size and position across launches.
 - `services.rs` — the `Services` global, transport functions (`play_next`, `seek_to_ms`,
@@ -170,12 +172,6 @@ Integrations:
   window dragging. `on_action` handlers are on `#main_view`, so actions dispatched from
   the header still arrive. A blur of the search field reclaims focus only when nothing
   else holds it, so popups and pickers are not robbed.
-- The lyrics and queue panels are cached views (`.cached(size_full)`): a notify elsewhere
-  (the spectrum's frames, karaoke, position ticks) replays their last frame instead of
-  rebuilding them. The price is that each must notify itself for everything its render
-  reads: both observe `SettingsStore`; theme, language, dynamic accent and font scale
-  changes call `refresh_windows`, which bypasses every cache. A new panel input read in
-  render without such a notify shows stale until something else wakes the panel.
 - `WindowTitleBar` is `gpui_component::TitleBar` on macOS and Windows (in fullscreen a
   thin inset; the header then moves below it, `main_view/doc.md` "Placement"). On Linux
   it is ours: window buttons, double-click zoom, drag by `start_window_move`, window
@@ -186,6 +182,39 @@ Integrations:
   next frame when the target changes, checked every render because the font scale
   changes the bar height. Windows caption buttons are `gpui_component`'s and follow the
   bar height (not checked on a real Windows machine).
+
+## Cached blocks (`view_cache.rs`)
+
+- The header (`main_view::header::HeaderHost`), the library (`LibraryView`), the footer
+  and the lyrics and queue panels are drawn through `view_cache::block`: a notify outside
+  them (the spectrum's frames, karaoke, `MainView` and cover-mode animations, hover
+  elsewhere) replays their last frame instead of rebuilding them. Position ticks rebuild
+  only the blocks that follow them: the footer (its progress slider) and the lyrics panel
+  (the active line, karaoke). A notify of the block or of any view inside it, a window
+  refresh (theme, language, font scale, resize, focus, drag) or new slot bounds rebuilds
+  the block with everything inside, cached children included, so caching inside a block
+  buys nothing.
+- A block must be notified for everything its subtree reads in render that is not a view
+  inside it. `follow_app_events` covers `SettingsStore`, `CastState`, every engine event
+  but `PositionChanged`, every library event but `ScanProgress` / `RemoteSyncProgress`,
+  and `StatusChanged`. A render input outside those (a `RefCell` or atomic in `Services`,
+  another entity's `read`) shows stale until something else wakes the block; subscribe
+  the block to it.
+- A notify sent while a parent renders is lost: gpui collects dirty views when a frame
+  starts and schedules no new frame for one sent mid-draw. So a block takes nothing from
+  `MainView::render`, except the header: `MainView::render` builds `HeaderState` (every
+  input the header gets from `MainView` and from render), and `header_block` draws the
+  header uncached in any frame where the state changed.
+- The slot size is the style given to `block`; the content is never measured, so the
+  view's root fills its slot.
+- No `window_control_area` inside a block: gpui does not replay window-control hitboxes,
+  so a cached drag area or caption button stops working on Windows. `WindowTitleBar`
+  stays outside; only the header content is cached.
+- A replayed frame still draws the atlas tiles it painted: whoever evicts a `TileLru`
+  entry a block shows must notify that block in the same turn, as `GridCovers::ensure`
+  does.
+- A missing notify shows as a block that stays stale until the pointer moves over it or
+  the window is resized (a hover change and a refresh both rebuild it).
 
 ## Shortcuts and app menu (`keyboard_shortcuts.rs`, `app_menu.rs`)
 
@@ -555,8 +584,11 @@ Integrations:
   popover (`show_device_picker`). While casting the first two are hidden: they describe
   the local output. On Linux the toggle is "native sample rate" (`NATIVE_RATE_WORDING`),
   also in the bit-perfect texts. Toggling republishes the remote state (volume lock).
-- `AudioSettings::render` is the only place `OutputEvent`s are drained: `Recovered` is a
-  warning toast, `Failure` an error toast.
+- `OutputEvent`s become toasts in `AudioSettings::render`: `Recovered` a warning,
+  `Failure` an error. The header is a cached block, so the output is also checked on
+  every engine event (position ticks while playing): pending events, or an exclusive
+  flag or bit-perfect status unlike the last render, are kept and notify the picker;
+  nothing else wakes it when the output changes on its own.
 - `show_device_picker` (off by default) decides whether the picker exists. `main` calls
   `Output::set_follow_default(!show_device_picker)` at startup and the Settings switch on
   every toggle, adding `follow_system_default()` when hiding it (drops any pinned
@@ -1094,6 +1126,8 @@ Owner's calls; ask before changing.
 - No Telegram now-playing presence: Telegram has no presence API, and the only route is
   a userbot holding a full-account session, which we will not ask users for. Do not
   prototype it.
+- View caching is coarse, as in Zed: a few large blocks (header, library, footer, lyrics
+  and queue panels), never single lists or rows.
 - Lyrics lines all share one face: the active line is not made bolder (it re-wrapped
   lines that only just fit). Bold and italic are toggle buttons left of the size slider;
   bold is on by default, italic off.

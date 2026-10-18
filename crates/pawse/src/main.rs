@@ -80,6 +80,7 @@ pub mod tools;
 pub mod torrent_settings;
 pub mod track_list;
 pub mod track_progress_slider;
+pub mod view_cache;
 pub mod volume;
 pub mod window_placement;
 pub mod window_title_bar;

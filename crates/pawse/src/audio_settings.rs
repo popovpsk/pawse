@@ -1,3 +1,4 @@
+use audio_engine::EngineEvent;
 use audio_output::{BitPerfectStatus, OutputEvent, native_mode_available};
 use gpui::prelude::FluentBuilder;
 use gpui::{
@@ -22,8 +23,11 @@ use ui_resources::i18n::cast_strings;
 
 pub struct AudioSettings {
     is_exclusive: bool,
+    seen_bit_perfect: Option<BitPerfectStatus>,
+    pending_events: Vec<OutputEvent>,
     pending_notification: Option<String>,
     bit_perfect_tooltip: Option<(BitPerfectStatus, gpui::SharedString)>,
+    _engine_subscription: gpui::Subscription,
     _settings_store_subscription: gpui::Subscription,
     _cast_subscription: gpui::Subscription,
     _lang_subscription: gpui::Subscription,
@@ -168,10 +172,29 @@ impl AudioSettings {
             this.bit_perfect_tooltip = None;
             cx.notify();
         });
+        let engine_bus = cx.global::<Services>().engine_event_bus.clone();
+        let engine_subscription = cx.subscribe(&engine_bus, |this, _, _: &EngineEvent, cx| {
+            let (events, is_exclusive, bit_perfect) = {
+                let output = &cx.global::<Services>().output;
+                let is_exclusive = output.is_exclusive();
+                let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
+                (output.drain_events(), is_exclusive, bit_perfect)
+            };
+            if !events.is_empty()
+                || is_exclusive != this.is_exclusive
+                || bit_perfect != this.seen_bit_perfect
+            {
+                this.pending_events.extend(events);
+                cx.notify();
+            }
+        });
         Self {
             is_exclusive,
+            seen_bit_perfect: None,
+            pending_events: Vec::new(),
             pending_notification: None,
             bit_perfect_tooltip: None,
+            _engine_subscription: engine_subscription,
             _settings_store_subscription: settings_store_subscription,
             _cast_subscription: cast_subscription,
             _lang_subscription: lang_subscription,
@@ -206,8 +229,11 @@ impl Render for AudioSettings {
             let output = &cx.global::<Services>().output;
             let is_exclusive = output.is_exclusive();
             let bit_perfect = is_exclusive.then(|| output.bit_perfect_status());
-            (output.drain_events(), is_exclusive, bit_perfect)
+            let mut events = std::mem::take(&mut self.pending_events);
+            events.extend(output.drain_events());
+            (events, is_exclusive, bit_perfect)
         };
+        self.seen_bit_perfect.clone_from(&bit_perfect);
         let casting = self.casting_to.is_some();
         let bit_perfect = bit_perfect.filter(|_| !casting).map(|status| {
             let is_perfect = status.is_bit_perfect();
