@@ -84,6 +84,7 @@ pub struct SpectrumView {
     style: SpectrumStyle,
     settings: Settings,
     period: Duration,
+    window_active: bool,
     rate: u32,
     legend: SharedString,
     tap: Option<Arc<SignalTap>>,
@@ -112,6 +113,7 @@ impl SpectrumView {
             style: SpectrumStyle::default(),
             settings: Settings::default(),
             period: frame_grid::FAST,
+            window_active: true,
             rate: 0,
             legend: SharedString::default(),
             tap: None,
@@ -321,8 +323,10 @@ impl SpectrumView {
         cx.notify();
         let period = if cx.reduce_motion() {
             frame_grid::SLOWEST
-        } else {
+        } else if self.window_active {
             self.period
+        } else {
+            self.period.max(frame_grid::FAST)
         };
         frame_grid::wait(period, Duration::ZERO)
     }
@@ -338,6 +342,7 @@ impl Drop for SpectrumView {
 
 impl Render for SpectrumView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.window_active = window.is_window_active();
         let palette = Palette {
             accent: Colors::primary(cx),
             fg: Colors::foreground(cx),

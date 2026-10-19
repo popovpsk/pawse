@@ -26,6 +26,10 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
   coincide instead of adding up, and at 60 or 120 every karaoke frame is a spectrum frame;
   position ticks and the lyrics autoscroll animation still draw frames of their own. The
   ballistics run on the measured `dt`, so the curve moves at the same speed at any rate.
+- An unfocused window takes `FAST` instead of `FASTEST`, matching the rest of the window:
+  gpui's unfocused cap (`main.rs`) throttles only `on_next_frame` requests, never a timer's
+  notify. Render records `is_window_active`; an activation change refreshes the window,
+  so the record follows even a settled spectrum.
 - The ticks are timers, not the display link: a frame is drawn on the first refresh after
   its notify, so 120 fps shows only on a 120 Hz screen and on a 60 Hz one costs double for
   nothing.

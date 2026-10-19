@@ -99,8 +99,10 @@ Integrations:
   the window after onboarding pass `false`; without `onboarding_complete` the first
   window is the onboarding one.
 - `build_window_options` caps an unfocused window at 60 fps (`inactive_frame_interval`)
-  instead of gpui's default ~30, which halves the spectrum and karaoke while another app
-  has focus; 60 rather than uncapped is the owner's call.
+  instead of gpui's default ~30, which stutters the lyrics autoscroll; 60 rather than
+  uncapped is the owner's call. gpui throttles only frames requested with `on_next_frame`
+  (`request_animation_frame`, `with_animation`); timer loops that notify are not capped,
+  so the spectrum lowers itself (`spectrum_view/doc.md`).
 - Closing the last window quits on Windows and Linux. On macOS the app stays (audio
   keeps playing, `on_reopen` opens a window); only Quit leaves.
 - The quit hook finalizes the scrobble, shuts Discord and the similar-tracks pipeline
