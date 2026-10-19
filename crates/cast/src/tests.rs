@@ -1228,6 +1228,55 @@ fn a_chromecast_refusing_the_track_at_once_keeps_its_own_error() {
     assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
 }
 
+const QUICK_REPLY: Duration = Duration::from_millis(500);
+
+fn chromecast_going_quiet_after_load(
+    fetches: bool,
+    patience: Duration,
+) -> (FakeChromecast, Session, flume::Receiver<SessionEvent>) {
+    let fake = FakeChromecast::start();
+    fake.reply_to_load(chromecast::testing::LoadReply::IdleThenSilent { fetches });
+    let driver = ChromecastDriver::connect(fake.address)
+        .unwrap()
+        .with_request_timeout(QUICK_REPLY);
+    let session = Session::start_with(Box::new(driver), MediaServer::start().unwrap(), patience);
+    let events = session.events();
+    (fake, session, events)
+}
+
+#[test]
+fn a_chromecast_that_stops_answering_its_status_without_asking_for_the_track_is_unreached() {
+    let (fake, session, events) = chromecast_going_quiet_after_load(false, PATIENCE);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| *e == SessionEvent::NeverFetched);
+    assert!(fake.state().fetched.is_none());
+    assert_eq!(complaints(&seen), [&SessionEvent::NeverFetched], "{seen:?}");
+}
+
+#[test]
+fn a_chromecast_that_stops_answering_its_status_after_fetching_is_not_blamed_on_the_network() {
+    let (fake, session, events) = chromecast_going_quiet_after_load(true, PATIENCE);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Lost(_)));
+    assert!(fake.state().fetched.is_some());
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+#[test]
+fn a_chromecast_that_stops_answering_altogether_is_lost_and_not_blamed_on_the_network() {
+    let (fake, session, events) = chromecast_going_quiet_after_load(false, Duration::from_secs(3));
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    fake.stop_answering();
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Lost(_)));
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
 #[test]
 fn a_healthy_dlna_renderer_started_mid_track_is_seeked_and_plays_quietly() {
     let (fake, _server, session, events) = dlna_session(Mood::Plays);

@@ -108,6 +108,9 @@ pub(crate) trait Driver: Send + Accepts {
     fn stop(&mut self) -> Result<(), String>;
     fn set_volume(&mut self, volume: f32) -> Result<(), String>;
     fn status(&mut self) -> Result<Status, String>;
+    fn still_answers(&mut self) -> bool {
+        false
+    }
     fn lost(&mut self) -> Option<String>;
     fn volume(&mut self) -> Option<f32>;
     fn seeks_on_load(&self) -> bool;
@@ -410,6 +413,25 @@ impl Worker {
 
     fn hold_state(&mut self) {
         self.hold_state_until = Some(Instant::now() + Duration::from_millis(1500));
+    }
+
+    fn held(&self) -> bool {
+        self.hold_state_until
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    fn waited(&self) -> Option<Duration> {
+        (!self.held() && self.state == State::Playing).then(|| self.loaded_at.elapsed())
+    }
+
+    fn unreached_in_silence(&mut self) -> bool {
+        self.on_device()
+            && !self.seen_playing
+            && self
+                .waited()
+                .is_some_and(|waited| waited > self.unreached_after)
+            && self.never_fetched()
+            && self.driver.still_answers()
     }
 
     fn freeze_position(&mut self) {
@@ -827,6 +849,15 @@ impl Worker {
                 let since = *self.failing_since.get_or_insert_with(Instant::now);
                 self.reported = None;
                 log::debug!("cast: status poll failed ({}): {e}", self.failures);
+                if self.unreached_in_silence() {
+                    log::warn!(
+                        "cast: the device answers but not its status, and never asked for the track: {e}"
+                    );
+                    self.state = State::Failed;
+                    self.clear_buffering();
+                    self.emit(SessionEvent::NeverFetched);
+                    return Ok(());
+                }
                 if self.failures >= FAILURES_UNTIL_LOST && since.elapsed() >= FAILING_FOR {
                     return Err(e);
                 }
@@ -849,9 +880,7 @@ impl Worker {
         {
             self.duration = Some(duration);
         }
-        let held = self
-            .hold_state_until
-            .is_some_and(|until| Instant::now() < until);
+        let held = self.held();
         let Some(reported) = status.state else {
             return Ok(());
         };
@@ -871,7 +900,7 @@ impl Worker {
             state => state,
         };
         if !self.seen_playing {
-            let waited = (!held && self.state == State::Playing).then(|| self.loaded_at.elapsed());
+            let waited = self.waited();
             let unreached = unfetched && waited.is_some_and(|waited| waited > self.unreached_after);
             let verdict = match state {
                 State::Idle | State::Finished if unreached => Some(SessionEvent::NeverFetched),

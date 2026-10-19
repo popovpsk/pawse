@@ -18,9 +18,11 @@ Not here: what to load, the media server, polling and end-of-track logic, mDNS b
   that answers the receiver and media namespaces and fetches the media URL it is given, so
   tests see what a device would download. `cannot_reach_media(player, idle_reason)` skips
   that fetch and sits in the given player state instead (BUFFERING, PLAYING, or IDLE with a
-  reason). `reply_to_load(LoadReply)` changes the answer to `LOAD` itself, also without a
-  fetch: none (`Never`, a receiver still trying to connect) or `LOAD_FAILED` after a delay
-  (`FailedAfter`, one whose own connection attempt failed).
+  reason). `reply_to_load(LoadReply)` changes the answer to `LOAD` itself: none (`Never`, a
+  receiver still trying to connect), `LOAD_FAILED` after a delay (`FailedAfter`, one whose own
+  connection attempt failed), both without a fetch, or IDLE at once and no answer to any
+  media request after it (`IdleThenSilent`, fetching or not). `stop_answering` leaves receiver
+  and media requests unanswered too; heartbeats still get theirs, so the connection stays.
 - `tests.rs` — the client against the fake.
 - `../testdata/fake.{crt,key}` — the fake's self-signed P-256 certificate. It must be
   X.509 v3 (webpki rejects the v1 certificates LibreSSL makes by default) and the key
@@ -46,8 +48,9 @@ Not here: what to load, the media server, polling and end-of-track logic, mDNS b
 
 ## Requests
 
-- Requests time out after 10 s, `LOAD` and `LAUNCH` after 30 s (the device fetches the
-  media before answering).
+- Requests time out after 10 s (`set_request_timeout`, feature `test-support`, shortens it
+  for tests), `LOAD` and `LAUNCH` after 30 s (a device may fetch the media before answering
+  `LOAD`; another answers at once and then leaves media requests unanswered while it tries).
 - `load` also takes a `give_up` check, asked every 250 ms while its answer is awaited
   (other requests wait in one piece); when it says so the `LOAD` ends as a timeout. `cast`
   uses it to stop waiting on a receiver that has not asked for the media within its own

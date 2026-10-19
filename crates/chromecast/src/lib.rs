@@ -258,6 +258,7 @@ fn load_payload(app: &Application, media: &Media, autoplay: bool, start: f64) ->
 pub struct Client {
     connection: Connection,
     next_request: AtomicU32,
+    request_timeout: Duration,
 }
 
 impl Client {
@@ -268,9 +269,15 @@ impl Client {
             Self {
                 connection,
                 next_request: AtomicU32::new(1),
+                request_timeout: REQUEST_TIMEOUT,
             },
             receiver,
         ))
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_request_timeout(&mut self, timeout: Duration) {
+        self.request_timeout = timeout;
     }
 
     pub fn is_closed(&self) -> bool {
@@ -346,7 +353,7 @@ impl Client {
             RECEIVER,
             NS_RECEIVER,
             json!({"type": "GET_STATUS"}),
-            REQUEST_TIMEOUT,
+            self.request_timeout,
         )?;
         Ok(receiver_status(&reply))
     }
@@ -411,7 +418,7 @@ impl Client {
         if let Some((key, value)) = extra {
             payload[key] = value;
         }
-        self.request(&app.transport_id, NS_MEDIA, payload, REQUEST_TIMEOUT)
+        self.request(&app.transport_id, NS_MEDIA, payload, self.request_timeout)
             .map(|_| ())
     }
 
@@ -446,7 +453,7 @@ impl Client {
             &app.transport_id,
             NS_MEDIA,
             json!({"type": "GET_STATUS"}),
-            REQUEST_TIMEOUT,
+            self.request_timeout,
         )?;
         Ok(media_statuses(&reply))
     }
@@ -456,7 +463,7 @@ impl Client {
             RECEIVER,
             NS_RECEIVER,
             json!({"type": "SET_VOLUME", "volume": {"level": level.clamp(0.0, 1.0)}}),
-            REQUEST_TIMEOUT,
+            self.request_timeout,
         )
         .map(|_| ())
     }
@@ -466,7 +473,7 @@ impl Client {
             RECEIVER,
             NS_RECEIVER,
             json!({"type": "STOP", "sessionId": app.session_id}),
-            REQUEST_TIMEOUT,
+            self.request_timeout,
         )
         .map(|_| ())
     }

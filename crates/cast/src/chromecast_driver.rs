@@ -90,6 +90,12 @@ impl ChromecastDriver {
         self.media_session
             .ok_or_else(|| "nothing is loaded on the device".to_string())
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.client.set_request_timeout(timeout);
+        self
+    }
 }
 
 impl Accepts for ChromecastDriver {
@@ -216,6 +222,22 @@ impl Driver for ChromecastDriver {
             volume: self.volume,
             error: self.load_error.take(),
         })
+    }
+
+    fn still_answers(&mut self) -> bool {
+        if self.lost().is_some() {
+            return false;
+        }
+        match self.client.receiver_status() {
+            Ok(status) => status
+                .applications
+                .iter()
+                .any(|app| app.session_id == self.app.session_id),
+            Err(e) => {
+                log::debug!("cast: the receiver does not answer either: {e}");
+                false
+            }
+        }
     }
 
     fn lost(&mut self) -> Option<String> {

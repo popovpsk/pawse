@@ -187,10 +187,18 @@ changes win over the device's for 1.5 s.
     dropping looks the same); later `NeverFetched`, the device having given up on its own
     connection to us. Either way `NeverFetched` needs a device that still answers: `refused`
     polls once more, and one that does not gets the plain `Failed`, then `Lost`.
-  - A Chromecast answers `LOAD` only once the media is loaded or has failed, so with the media
-    server out of reach the session thread would sit in `LOAD` for 30 s and end in a plain
-    `Failed`. `Loading::unreached` lets the driver stop waiting: `Client::load` gives up once
-    the 20 s have passed with nothing requested, and `refused` turns that into `NeverFetched`.
+  - A Chromecast may answer `LOAD` only once the media is loaded or has failed, so with the
+    media server out of reach the session thread would sit in `LOAD` for 30 s and end in a
+    plain `Failed`. `Loading::unreached` lets the driver stop waiting: `Client::load` gives up
+    once the 20 s have passed with nothing requested, and `refused` turns that into
+    `NeverFetched`.
+  - Another Chromecast answers `LOAD` at once with IDLE and then leaves every media status
+    request unanswered while its player tries to connect, so polls fail instead of reporting
+    a state. A failed poll is `NeverFetched` too (`unreached_in_silence`) once the same 20 s
+    have passed with nothing requested while we show playing, and only if
+    `Driver::still_answers` (Chromecast: the receiver status still lists our app; DLNA: never).
+    Otherwise failed polls count toward `Lost`: a device that fetched the track, or that
+    stops answering altogether, never gets the firewall message.
   - Not `Lost`: a device that is off stops answering polls and ends in `Lost` first.
   - AirPlay is pushed, so nothing is fetched there; see AirPlay output for its check.
 - **Lost**: four failed polls in a row over at least 4 s, a closed Chromecast connection, or
@@ -311,8 +319,10 @@ renderer quirks above; it asks for the track with a `HEAD` whenever it starts pl
 real one would, or it would count as unreached. `fake_dlna.rs` is a DLNA renderer on loopback
 with real SOAP in five moods (plays, stuck loading, stopped, claims PLAYING without fetching,
 fetches then stays loading); the unreached-device cases run on it and on
-`FakeChromecast::cannot_reach_media` / `reply_to_load` with a short patience, since a firewall
-drop is indistinguishable from a device that never connects.
+`FakeChromecast::cannot_reach_media` / `reply_to_load` / `stop_answering` with a short
+patience, since a firewall drop is indistinguishable from a device that never connects. A
+Chromecast whose requests go unanswered is tested with `ChromecastDriver::with_request_timeout`
+(test-only), or each failed poll would take 10 s.
 
 ## Known limits
 
@@ -330,6 +340,9 @@ drop is indistinguishable from a device that never connects.
 
 Owner's calls; ask before changing.
 
+- The unreached checks err on the side of silence: a missed firewall message is acceptable, a
+  working device interrupted by one is not. `NeverFetched` needs nothing requested for 20 s
+  and a device that still answers; do not loosen either without asking.
 - A device that can take the original file gets the original file; PCM only where it cannot
   (codec, limits, cue segments). Not the rest of the track as PCM cut from the position to
   avoid the audible 200–300 ms head of a DLNA mid-track start: tried, then reverted — raw PCM

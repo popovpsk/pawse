@@ -34,6 +34,9 @@ pub enum LoadReply {
     Answered,
     Never,
     FailedAfter(Duration),
+    IdleThenSilent {
+        fetches: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,8 @@ pub struct State {
     pub unreachable_media: Option<(&'static str, Option<&'static str>)>,
     pub load_reply: LoadReply,
     playing_since: Option<Instant>,
+    media_silent: bool,
+    silent: bool,
 }
 
 impl Default for State {
@@ -65,6 +70,8 @@ impl Default for State {
             unreachable_media: None,
             load_reply: LoadReply::Answered,
             playing_since: None,
+            media_silent: false,
+            silent: false,
         }
     }
 }
@@ -161,6 +168,10 @@ impl FakeChromecast {
 
     pub fn reply_to_load(&self, reply: LoadReply) {
         lock(&self.state).load_reply = reply;
+    }
+
+    pub fn stop_answering(&self) {
+        lock(&self.state).silent = true;
     }
 
     pub fn disconnect_everyone(&self) {
@@ -281,12 +292,18 @@ fn answer(message: &CastMessage, payload: &Value, state: &Mutex<State>) -> Vec<(
     match message.namespace.as_str() {
         NS_HEARTBEAT if kind == "PING" => vec![(NS_HEARTBEAT.into(), json!({"type": "PONG"}))],
         NS_CONNECTION => Vec::new(),
+        NS_RECEIVER | NS_MEDIA if state.silent => Vec::new(),
+        NS_MEDIA if state.media_silent => {
+            state.commands.push(kind.to_string());
+            Vec::new()
+        }
         NS_RECEIVER => {
             match kind {
                 "LAUNCH" => state.launched = true,
                 "STOP" => {
                     state.launched = false;
                     state.loaded = None;
+                    state.media_silent = false;
                 }
                 "SET_VOLUME" => {
                     if let Some(level) = payload["volume"]["level"].as_f64() {
@@ -321,6 +338,18 @@ fn answer(message: &CastMessage, payload: &Value, state: &Mutex<State>) -> Vec<(
                         start: payload["currentTime"].as_f64().unwrap_or(0.0),
                     };
                     state.position = loaded.start;
+                    if let LoadReply::IdleThenSilent { fetches } = state.load_reply {
+                        state.fetched = fetches.then(|| fetch(&loaded.url).ok()).flatten();
+                        state.player = "IDLE";
+                        state.idle_reason = None;
+                        state.playing_since = None;
+                        state.loaded = Some(loaded);
+                        state.media_silent = true;
+                        return vec![(
+                            NS_MEDIA.into(),
+                            with_request(media_status(&state), payload),
+                        )];
+                    }
                     if state.load_reply != LoadReply::Answered {
                         state.fetched = None;
                         state.loaded = Some(loaded);
