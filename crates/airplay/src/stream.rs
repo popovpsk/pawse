@@ -166,7 +166,7 @@ impl Stream {
             cipher: link.cipher,
             timing_stop,
             clock_asked,
-            clock_wait: Some(clock_wait),
+            clock_wait: (device.protocol == Protocol::AirPlay2).then_some(clock_wait),
             clock_check: None,
             last_progress: None,
             ahead: None,
@@ -749,7 +749,7 @@ fn serve_resends(socket: UdpSocket, audio: Option<UdpSocket>, shared: Arc<Shared
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fake::FakeReceiver;
+    use crate::fake::{FakeRaopReceiver, FakeReceiver};
 
     const ANY_PORT: RangeInclusive<u16> = 0..=0;
 
@@ -774,6 +774,7 @@ mod tests {
             address,
             protocol: Protocol::AirPlay2,
             shows: crate::Shows::ALL,
+            encryption: crate::RaopEncryption::Plain,
         }
     }
 
@@ -1057,6 +1058,27 @@ mod tests {
         stream.play();
         assert!(fake.wait_for(|heard| heard.payloads.len() >= 20));
         std::thread::sleep(Duration::from_millis(800));
+        assert!(
+            events.is_empty(),
+            "{:?}",
+            events.drain().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_raop_speaker_that_never_asks_for_our_clock_is_not_judged_by_it() {
+        let fake = FakeRaopReceiver::start(false);
+        let stream = Stream::start_with(
+            &fake.device(crate::RaopEncryption::Plain),
+            None,
+            Box::new(Ramp(0)),
+            ANY_PORT,
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        let events = stream.events();
+        stream.play();
+        std::thread::sleep(Duration::from_millis(1000));
         assert!(
             events.is_empty(),
             "{:?}",

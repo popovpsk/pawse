@@ -24,8 +24,9 @@ protobufs after pair-verify).
   responder); sender id, User-Agent, UDP port binding.
 - `pairing.rs`, `srp.rs` (SRP-6a client, 3072-bit group, SHA-512; a test-only server),
   `tlv.rs` (TLV8, 255-byte fragments) — transient pair-setup.
-- `secure.rs` — HKDF-SHA512, `FrameCipher` (control and event frames), `AudioCipher`;
-  ChaCha20-Poly1305.
+- `secure.rs` — HKDF-SHA512, `FrameCipher` (control and event frames), `AudioCipher`
+  (ChaCha20-Poly1305 on AirPlay 2, AES-128-CBC on RAOP).
+- `rsa.rs` — the AirPort Express public key and RSA-OAEP (SHA-1) for the RAOP stream key.
 - `rtsp.rs` — minimal RTSP client, plain or encrypted: one request at a time, bodies up to
   64 KiB, 5 s connect and I/O timeouts; answers may say `RTSP/1.0` or `HTTP/1.1`.
 - `events.rs` — `EventChannel`, the AirPlay 2 event connection (the device's requests to
@@ -34,7 +35,9 @@ protobufs after pair-verify).
   command from an event or a DACP path.
 - `rtp.rs` — audio, sync, timing and retransmit packets, NTP time. `alac.rs` — ALAC in the
   uncompressed ("escape") form.
-- `fake.rs` — test-only AirPlay 2 receiver on loopback.
+- `fake.rs` — test-only receivers on loopback: `FakeReceiver` (AirPlay 2) and
+  `FakeRaopReceiver` (the RAOP handshake only, optionally refusing a plain `ANNOUNCE`; it
+  never asks for our clock).
 
 ## Threads and errors
 
@@ -59,6 +62,20 @@ was given. The `SETUP` answer's `server_port` is the audio port and `control_por
 speaker's control port (audio port + 1 when absent); its timing port is not used. An
 `OPTIONS` every 15 s, playing or not, keeps the connection: Apple TV 4 and HomePod drop RAOP
 sessions that stay quiet on RTSP while playing (per OwnTone).
+
+**Encryption** (`Device::encryption`, from `et`: 0 plain, 1 RSA). A device that lists both
+gets a plain `ANNOUNCE` first; only when that is refused (any non-2xx but 401) is it sent
+again on the same connection with `a=rsaaeskey` and `a=aesiv`. Some receivers (old
+shairport builds) list 0 and still refuse a stream without a key, while plain is the path
+every other receiver was checked on, so it stays first. A device that does not list 0 stays
+left out even when it lists 1: discovery prefers a RAOP record over the same speaker's
+AirPlay 2 one, so taking it would move such speakers off AirPlay 2.
+
+- The AES-128 key and IV are random per stream and kept only in memory. The key goes out
+  sealed with the AirPort Express public key (RSA-OAEP, SHA-1, empty label; every RAOP
+  receiver holds the private half); key and IV are base64 without padding.
+- Each audio packet's ALAC payload is encrypted with AES-128-CBC from the same IV, whole
+  16-byte blocks only; the tail stays clear. Retransmits resend the stored encrypted packet.
 
 ## AirPlay 2 session
 
@@ -118,22 +135,21 @@ play on third-party receivers; deviating breaks real devices.
 - A sync packet (control port) goes out with the first packet and then every second. The
   first after a start or flush has the extension bit, the first audio packet the marker
   bit. AirPlay 2 with NTP timing uses the same packet.
-- **A speaker that cannot reach us.** Its clock requests come in to our timing port, which
-  a firewall dropping incoming packets stops, and without answers neither shairport-sync nor
-  the Hisense TV plays (shairport-sync keeps the session and writes nothing). So
-  `TimingServer` notes whether it answered any request (`asked`):
+- **An AirPlay 2 speaker that cannot reach us.** Its clock requests come in to our timing
+  port, which a firewall dropping incoming packets stops, and without answers the Hisense TV
+  does not play. So `TimingServer` notes whether it answered any request (`asked`):
   - 6 s after the stream's first play (`CLOCK_WAIT`, a `start_with` argument for tests;
     armed by the first `Control::Play`, so a stream set up while paused is not judged before
     the speaker got any sync or audio) the sender thread sends `StreamEvent::Unreached` once
     if nothing was asked. The stream goes on; its owner decides.
-  - An AirPlay 2 stream `SETUP` that times out with nothing asked fails the handshake with
+  - A stream `SETUP` that times out with nothing asked fails the handshake with
     `Error::Unreached`, since the TV answers it only after its clock requests were answered.
-    Earlier requests (the RAOP `SETUP` and `RECORD`, the session `SETUP`) are answered
-    before any clock request, so their timeouts say nothing about a firewall and are not
-    mapped; neither is a timeout once the clock was asked for.
-  - A receiver that plays without ever asking for our clock would be taken for an
-    unreached one. None is known: RAOP and NTP-timed AirPlay 2 receivers need the clock to
-    place the audio.
+    The session `SETUP` is answered before any clock request, so its timeout says nothing
+    about a firewall and is not mapped; neither is a timeout once the clock was asked for.
+  - RAOP streams are never judged: many receivers (old shairport builds, shairplay and so
+    Kodi, Shairport4w) never ask for our clock and play from the sync packets alone, and
+    nothing in their records or `SETUP` answers tells them from shairport-sync, which does
+    ask and stays silent without answers.
 - The control and timing sockets are the ones the speaker sends to: they take the first
   free ports of the range given to `Stream::start` (`0..=0` in tests means any) and fall
   back to a random port with a warning. The audio socket only sends and stays random.
@@ -205,8 +221,8 @@ Two ways in; the receiver chooses.
 ## Devices
 
 - **RAOP** (`Device::from_service`): instance names are `<MAC>@<name>`. Offered only when
-  the device takes this stream: no encryption (`et` lists 0), ALAC (`cn` lists 1), UDP,
-  44100/16/2, no password; missing keys count as yes.
+  the device takes this stream: plain (`et` lists 0; RSA, listed as 1, is only a fallback),
+  ALAC (`cn` lists 1), UDP, 44100/16/2, no password; missing keys count as yes.
 - **AirPlay 2** (`Device::from_airplay_service`): the id is `deviceid` without colons, the
   same id as the device's RAOP record. Offered when `features` (`0xLOW,0xHIGH`) has bit 9
   (audio), 38 or 48 (AirPlay 2) and 46 or 48 (HomeKit / CoreUtils pairing), and nothing
@@ -226,14 +242,23 @@ Two ways in; the receiver chooses.
   request. `FakeReceiver::cut_off_from_our_clock` never asks and plays along, as
   shairport-sync does, for the unreached report.
 - `srp.rs` and `secure.rs` check against vectors made with other implementations
-  (`srptools` as pyatv uses it, Python `cryptography`).
-- RAOP has no fake; check it against a shairport-sync AirPlay 1 build. shairport-sync's
-  AirPlay 2 build cannot be the AirPlay 2 test receiver: it handles only PTP sessions.
+  (`srptools` as pyatv uses it, Python `cryptography`, `openssl enc`); `rsa.rs` against a
+  test key pair, its fixed-seed vector opened by `openssl rsautl -oaep`.
+- `handshake.rs` runs the RAOP `ANNOUNCE` choice against `FakeRaopReceiver`, and `stream.rs`
+  checks that a RAOP stream on it is never judged by our clock. The fake has no
+  private key, so check RAOP audio against a real receiver: a shairport-sync AirPlay 1 build
+  takes plain and RSA streams, an old shairport build refuses plain ones.
+  shairport-sync's AirPlay 2 build cannot be the AirPlay 2 test receiver: it handles only
+  PTP sessions.
 
 ## Decisions
 
 Owner's calls; ask before changing.
 
+- The AirPort Express public key ships in the source (`rsa.rs`), as in OwnTone; never the
+  private half.
+- No firewall check for RAOP: too many receivers play without asking for our clock, and a
+  heuristic to tell them apart is not worth a message only shairport-sync setups would get.
 - The progress bar on the Hisense TV stays as it is: it keeps it for the first track of a
   session only and loses it after a seek or a track change. Every form tried (OwnTone's
   bundle, iTunes' order, `mper`/`astm`/`caps`, a progress re-sent after a seek) and Music

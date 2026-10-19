@@ -145,6 +145,9 @@ dependencies = [
 name = "airplay"
 version = "1.0.0"
 dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "cbc",
  "chacha20poly1305",
  "flume",
  "getrandom 0.3.4",
@@ -152,6 +155,7 @@ dependencies = [
  "log",
  "num-bigint",
  "plist",
+ "sha1",
  "sha2 0.10.9",
  "thiserror 2.0.19",
 ]

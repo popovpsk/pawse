@@ -1,3 +1,6 @@
+use aes::Aes128;
+use cbc::cipher::generic_array::GenericArray;
+use cbc::cipher::{BlockEncryptMut, KeyIvInit};
 use chacha20poly1305::aead::{AeadInPlace, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, Tag};
 use hkdf::Hkdf;
@@ -6,6 +9,7 @@ use sha2::Sha512;
 pub(crate) const TAG_LEN: usize = 16;
 pub(crate) const MAX_FRAME: usize = 1024;
 const AUDIO_NONCE_LEN: usize = 8;
+const AES_BLOCK: usize = 16;
 
 pub(crate) fn derive(secret: &[u8], salt: &str, info: &str) -> [u8; 32] {
     let mut out = [0u8; 32];
@@ -72,25 +76,48 @@ impl FrameCipher {
     }
 }
 
-pub(crate) struct AudioCipher(ChaCha20Poly1305);
+pub(crate) enum AudioCipher {
+    ChaCha(ChaCha20Poly1305),
+    AesCbc { key: [u8; 16], iv: [u8; 16] },
+}
 
 impl AudioCipher {
     pub fn new(key: &[u8; 32]) -> Self {
-        Self(ChaCha20Poly1305::new(Key::from_slice(key)))
+        Self::ChaCha(ChaCha20Poly1305::new(Key::from_slice(key)))
+    }
+
+    pub fn aes_cbc(key: [u8; 16], iv: [u8; 16]) -> Self {
+        Self::AesCbc { key, iv }
     }
 
     pub fn seal_packet(&self, header: &[u8; 12], seq: u16, payload: &[u8]) -> Vec<u8> {
-        let mut nonce = [0u8; 12];
-        nonce[4..6].copy_from_slice(&seq.to_le_bytes());
         let mut packet = Vec::with_capacity(12 + payload.len() + TAG_LEN + AUDIO_NONCE_LEN);
         packet.extend_from_slice(header);
         packet.extend_from_slice(payload);
-        let tag = self
-            .0
-            .encrypt_in_place_detached(Nonce::from_slice(&nonce), &header[4..], &mut packet[12..])
-            .expect("an audio packet always encrypts");
-        packet.extend_from_slice(&tag);
-        packet.extend_from_slice(&nonce[4..]);
+        match self {
+            Self::ChaCha(cipher) => {
+                let mut nonce = [0u8; 12];
+                nonce[4..6].copy_from_slice(&seq.to_le_bytes());
+                let tag = cipher
+                    .encrypt_in_place_detached(
+                        Nonce::from_slice(&nonce),
+                        &header[4..],
+                        &mut packet[12..],
+                    )
+                    .expect("an audio packet always encrypts");
+                packet.extend_from_slice(&tag);
+                packet.extend_from_slice(&nonce[4..]);
+            }
+            Self::AesCbc { key, iv } => {
+                let mut encryptor = cbc::Encryptor::<Aes128>::new(
+                    GenericArray::from_slice(key),
+                    GenericArray::from_slice(iv),
+                );
+                for block in packet[12..].as_chunks_mut::<AES_BLOCK>().0 {
+                    encryptor.encrypt_block_mut(GenericArray::from_mut_slice(block));
+                }
+            }
+        }
         packet
     }
 }
@@ -112,6 +139,7 @@ mod tests {
     const FIRST_FRAME: &str = "1f00188f8a29295e6be4973b195383c7d8806a5d140b063172a2207faeacdab872bf0aab0962802d6f5480b09b7df231d4";
     const SECOND_FRAME: &str = "1f00a3fef01891f69edfa20e7f1de423f81791bd21f63da6eb2108e0b5a34314f317ff96d79200e60df6de3b10e7e16b7c";
     const AUDIO_PACKET: &str = "8060123401020304050607086662b4b081ab5933d5109f3f0d889b692e290464e1158101911d0f496c36621cff4eb5bf8c5808349630690c651d6d0e05a013f2181f795e3412000000000000";
+    const AES_CBC_BLOCKS: &str = "753d5eacf88ed4c2c30496112e5f2221380449120c43e61d91c66cae5065cdad";
     const REQUEST: &[u8] = b"GET /info RTSP/1.0\r\nCSeq: 1\r\n\r\n";
 
     fn control_key(info: &str) -> [u8; 32] {
@@ -164,5 +192,19 @@ mod tests {
         let payload: Vec<u8> = (0..40).collect();
         let packet = AudioCipher::new(&key).seal_packet(&header, 0x1234, &payload);
         assert_eq!(packet, unhex(AUDIO_PACKET));
+    }
+
+    #[test]
+    fn a_raop_packet_has_its_whole_blocks_encrypted_as_openssl_does_and_the_tail_clear() {
+        let key: [u8; 16] = std::array::from_fn(|i| i as u8);
+        let iv: [u8; 16] = std::array::from_fn(|i| 0xf0 + i as u8);
+        let header = [0x80, 0x60, 0x12, 0x34, 1, 2, 3, 4, 5, 6, 7, 8];
+        let payload: Vec<u8> = (0..40).collect();
+        let cipher = AudioCipher::aes_cbc(key, iv);
+        let packet = cipher.seal_packet(&header, 0x1234, &payload);
+        assert_eq!(packet[..12], header);
+        assert_eq!(packet[12..44], unhex(AES_CBC_BLOCKS)[..]);
+        assert_eq!(packet[44..], payload[32..]);
+        assert_eq!(cipher.seal_packet(&header, 0x1235, &payload), packet);
     }
 }

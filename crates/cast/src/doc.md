@@ -176,10 +176,10 @@ changes win over the device's for 1.5 s.
   - It never did within 20 s (`UNREACHED_AFTER`) although it answers every poll:
     `NeverFetched`, the firewall case (a VPN or a guest network isolating clients does the
     same). Idle, stopped, buffering and loading all count: a device that cannot connect back
-    does not necessarily sit idle (the HiBy R1 reports TRANSITIONING forever). Until it has
-    asked, its PLAYING and PAUSED count as `Buffering` too (`seen_playing` is set only by a
-    PLAYING after a request): gmediarender answers PLAYING at once without the track, and
-    believing it would make the session read the frozen position as a pause and stop there.
+    does not necessarily sit idle (some report TRANSITIONING forever). Until it has asked,
+    its PLAYING and PAUSED count as `Buffering` too (`seen_playing` is set only by a PLAYING
+    after a request): some renderers answer PLAYING at once without the track, and believing
+    it would make the session read the frozen position as a pause and stop there.
   - A failed load without a request, reported by the device or a load command that fails or
     times out on our side (`refused`): within the first 3 s (`REFUSED_AT_ONCE`, long enough
     for the first poll after the 1.5 s hold) an ordinary `Failed` with "(it never asked for
@@ -232,11 +232,13 @@ changes win over the device's for 1.5 s.
 - A stream that died while paused is reconnected on resume; only a failure there, or losing
   the speaker while playing, goes to `lost()`. The handshake runs without the stream lock and a
   closed output never reconnects.
-- **A speaker that cannot reach us** (`crates/airplay/src/doc.md`, "A speaker that cannot
-  reach us"): `airplay::StreamEvent::Unreached` comes out as `unreached()`, and a handshake
-  failing with `airplay::Error::Unreached` as `ConnectError::Unreached` from `connect` or as
-  `unreached()` from a reconnect on resume, apart from `lost()`, so the app can explain the
-  firewall instead of reporting a lost speaker.
+- **An AirPlay 2 speaker that cannot reach us** (`crates/airplay/src/doc.md`, "An AirPlay 2
+  speaker that cannot reach us"; AirPlay 1 speakers are never judged):
+  `airplay::StreamEvent::Unreached` comes out as `unreached()`, and a handshake failing with
+  `airplay::Error::Unreached` as
+  `ConnectError::Unreached` from `connect` or as `unreached()` from a reconnect on resume,
+  apart from `lost()`, so the app can explain the firewall instead of reporting a lost
+  speaker.
 
 ## DACP
 

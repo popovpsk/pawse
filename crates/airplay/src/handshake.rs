@@ -6,14 +6,16 @@ use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD_NO_PAD;
 use plist::{Dictionary, Value};
 
 use crate::events::EventChannel;
 use crate::rtsp::{Rtsp, transport_ports};
 use crate::secure::{AudioCipher, FrameCipher};
 use crate::{
-    CHANNELS, Device, Error, FRAMES_PER_PACKET, LATENCY_FRAMES, SAMPLE_RATE, pairing, random, rtp,
-    volume_db,
+    CHANNELS, Device, Error, FRAMES_PER_PACKET, LATENCY_FRAMES, RaopEncryption, SAMPLE_RATE,
+    pairing, random, rsa, rtp, volume_db,
 };
 
 const RAOP_USER_AGENT: &str = "iTunes/7.6.2 (Windows; N;)";
@@ -201,6 +203,27 @@ fn send_volume(rtsp: &mut Rtsp, volume: Option<f32>) -> Result<(), Error> {
     .map(|_| ())
 }
 
+fn announce(rtsp: &mut Rtsp, sdp: &str, encrypted: bool) -> Result<Option<AudioCipher>, Error> {
+    let (sdp, cipher) = if encrypted {
+        let (key, iv) = (random::<16>(), random::<16>());
+        let sdp = format!(
+            "{sdp}a=rsaaeskey:{}\r\na=aesiv:{}\r\n",
+            STANDARD_NO_PAD.encode(rsa::encrypt_for_airport(&key)),
+            STANDARD_NO_PAD.encode(iv)
+        );
+        (sdp, Some(AudioCipher::aes_cbc(key, iv)))
+    } else {
+        (sdp.to_string(), None)
+    };
+    rtsp.request(
+        "ANNOUNCE",
+        None,
+        &[],
+        Some(("application/sdp", sdp.as_bytes())),
+    )?;
+    Ok(cipher)
+}
+
 fn raop_user_agent(model: Option<&str>) -> &'static str {
     let apple = model.is_some_and(|model| {
         let model = model.to_ascii_lowercase();
@@ -237,12 +260,19 @@ pub(crate) fn raop(
 m=audio 0 RTP/AVP 96\r\na=rtpmap:96 AppleLossless\r\n\
 a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n"
     );
-    rtsp.request(
-        "ANNOUNCE",
-        None,
-        &[],
-        Some(("application/sdp", sdp.as_bytes())),
-    )?;
+    let cipher = match device.encryption {
+        RaopEncryption::Plain => announce(&mut rtsp, &sdp, false)?,
+        RaopEncryption::PlainOrRsa => match announce(&mut rtsp, &sdp, false) {
+            Err(Error::Refused(reason)) => {
+                log::info!(
+                    "AirPlay: {} refused an unencrypted stream ({reason}), announcing it encrypted",
+                    device.name
+                );
+                announce(&mut rtsp, &sdp, true)?
+            }
+            other => other?,
+        },
+    };
     let transport = format!(
         "RTP/AVP/UDP;unicast;interleaved=0-1;mode=record;control_port={};timing_port={}",
         port(&control)?,
@@ -299,7 +329,7 @@ a=fmtp:96 {FRAMES_PER_PACKET} 0 16 40 10 14 {CHANNELS} 255 0 0 {SAMPLE_RATE}\r\n
         base_seq,
         base_ts,
         device_latency,
-        cipher: None,
+        cipher,
         events: None,
     })
 }
@@ -448,6 +478,51 @@ pub(crate) fn airplay2(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake::FakeRaopReceiver;
+
+    fn attribute<'a>(sdp: &'a str, name: &str) -> Option<&'a str> {
+        sdp.lines().find_map(|line| line.strip_prefix(name))
+    }
+
+    #[test]
+    fn a_speaker_that_refuses_a_plain_stream_is_announced_again_with_a_sealed_key() {
+        let fake = FakeRaopReceiver::start(true);
+        let device = fake.device(RaopEncryption::PlainOrRsa);
+        let link = raop(&device, None, &(0..=0)).unwrap();
+        let announced = fake.announced();
+        assert_eq!(announced.len(), 2);
+        assert_eq!(attribute(&announced[0], "a=rsaaeskey:"), None);
+        let sealed = attribute(&announced[1], "a=rsaaeskey:").unwrap();
+        let iv = attribute(&announced[1], "a=aesiv:").unwrap();
+        assert_eq!(STANDARD_NO_PAD.decode(sealed).unwrap().len(), 256);
+        let iv = STANDARD_NO_PAD.decode(iv).unwrap();
+        assert!(
+            matches!(link.cipher, Some(AudioCipher::AesCbc { iv: ours, .. }) if ours[..] == iv[..])
+        );
+    }
+
+    #[test]
+    fn a_speaker_that_takes_a_plain_stream_is_announced_once_in_the_clear() {
+        let fake = FakeRaopReceiver::start(false);
+        let device = fake.device(RaopEncryption::PlainOrRsa);
+        let link = raop(&device, None, &(0..=0)).unwrap();
+        let announced = fake.announced();
+        assert_eq!(announced.len(), 1);
+        assert_eq!(attribute(&announced[0], "a=rsaaeskey:"), None);
+        assert!(link.cipher.is_none());
+    }
+
+    #[test]
+    fn a_speaker_without_rsa_that_refuses_a_plain_stream_is_not_asked_again() {
+        let fake = FakeRaopReceiver::start(true);
+        let device = fake.device(RaopEncryption::Plain);
+        let refused = raop(&device, None, &(0..=0)).err();
+        assert_eq!(
+            refused,
+            Some(Error::Refused("ANNOUNCE answered 400".into()))
+        );
+        assert_eq!(fake.announced().len(), 1);
+    }
 
     fn decode(value: &Value) -> Dictionary {
         let mut bytes = Vec::new();

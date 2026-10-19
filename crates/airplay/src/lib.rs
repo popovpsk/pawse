@@ -7,6 +7,7 @@ mod fake;
 mod handshake;
 mod metadata;
 mod pairing;
+mod rsa;
 mod rtp;
 mod rtsp;
 mod secure;
@@ -54,6 +55,12 @@ pub enum Protocol {
     AirPlay2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RaopEncryption {
+    Plain,
+    PlainOrRsa,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Shows {
     pub text: bool,
@@ -77,6 +84,7 @@ pub struct Device {
     pub address: SocketAddr,
     pub protocol: Protocol,
     pub shows: Shows,
+    pub encryption: RaopEncryption,
 }
 
 pub(crate) fn random<const N: usize>() -> [u8; N] {
@@ -95,6 +103,18 @@ pub(crate) fn random<const N: usize>() -> [u8; N] {
 
 fn listed(txt: Option<&str>, wanted: &str) -> bool {
     txt.is_none_or(|list| list.split(',').any(|item| item.trim() == wanted))
+}
+
+fn raop_encryption(types: Option<&str>) -> Option<RaopEncryption> {
+    if !listed(types, "0") {
+        return None;
+    }
+    let rsa = types.is_some_and(|types| types.split(',').any(|item| item.trim() == "1"));
+    Some(if rsa {
+        RaopEncryption::PlainOrRsa
+    } else {
+        RaopEncryption::Plain
+    })
 }
 
 fn preferred_address(addresses: impl IntoIterator<Item = IpAddr>) -> Option<IpAddr> {
@@ -135,14 +155,14 @@ impl Device {
             return None;
         }
         let password = txt("pw").is_some_and(|pw| pw.eq_ignore_ascii_case("true"));
-        let plain = listed(txt("et"), "0");
+        let encryption = raop_encryption(txt("et"));
         let alac = listed(txt("cn"), "1");
         let udp =
             txt("tp").is_none_or(|transports| transports.to_ascii_uppercase().contains("UDP"));
         let format = txt("sr").is_none_or(|rate| rate.trim() == "44100")
             && txt("ss").is_none_or(|bits| bits.trim() == "16")
             && txt("ch").is_none_or(|channels| channels.trim() == "2");
-        if password || !plain || !alac || !udp || !format {
+        let Some(encryption) = encryption.filter(|_| !password && alac && udp && format) else {
             log::debug!(
                 "AirPlay: {name} is not supported (pw {:?}, et {:?}, cn {:?}, tp {:?})",
                 txt("pw"),
@@ -151,7 +171,7 @@ impl Device {
                 txt("tp")
             );
             return None;
-        }
+        };
         let model = txt("am")
             .map(str::trim)
             .filter(|model| !model.is_empty())
@@ -168,6 +188,7 @@ impl Device {
             },
             address: SocketAddr::new(address, port),
             protocol: Protocol::Raop,
+            encryption,
         })
     }
 
@@ -228,6 +249,7 @@ impl Device {
                 artwork: has(FEATURE_METADATA_ARTWORK),
                 progress: has(FEATURE_METADATA_PROGRESS),
             },
+            encryption: RaopEncryption::Plain,
         })
     }
 }
@@ -283,6 +305,19 @@ mod tests {
         assert_eq!(found.model.as_deref(), Some("ShairportSync"));
         assert_eq!(found.address, "192.168.3.22:7000".parse().unwrap());
         assert_eq!(found.shows, Shows::ALL);
+        assert_eq!(found.encryption, RaopEncryption::PlainOrRsa);
+    }
+
+    #[test]
+    fn a_raop_speaker_listing_rsa_besides_plain_can_fall_back_to_it() {
+        let encryption = |et: &str| device("AA@Speaker", &[("et", et)]).unwrap().encryption;
+        assert_eq!(encryption("0"), RaopEncryption::Plain);
+        assert_eq!(encryption("0,3,5"), RaopEncryption::Plain);
+        assert_eq!(encryption("0,1"), RaopEncryption::PlainOrRsa);
+        assert_eq!(
+            device("AA@Speaker", &[]).unwrap().encryption,
+            RaopEncryption::Plain
+        );
     }
 
     #[test]
@@ -306,6 +341,7 @@ mod tests {
     #[test]
     fn devices_that_need_encryption_or_a_password_are_left_out() {
         assert!(device("AA@Speaker", &[("et", "1,3")]).is_none());
+        assert!(device("AA@Speaker", &[("et", "3,5")]).is_none());
         assert!(device("AA@Speaker", &[("pw", "true")]).is_none());
         assert!(device("AA@Speaker", &[("cn", "0,2")]).is_none());
         assert!(device("AA@Speaker", &[("tp", "TCP")]).is_none());

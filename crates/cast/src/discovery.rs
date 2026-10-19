@@ -1110,6 +1110,7 @@ mod tests {
             address: SocketAddr::new(ip.parse().unwrap(), 7000),
             protocol,
             shows: airplay::Shows::ALL,
+            encryption: airplay::RaopEncryption::Plain,
         })
     }
 

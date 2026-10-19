@@ -143,6 +143,79 @@ impl Drop for FakeReceiver {
     }
 }
 
+pub(crate) struct FakeRaopReceiver {
+    pub address: SocketAddr,
+    announced: Arc<Mutex<Vec<String>>>,
+}
+
+impl FakeRaopReceiver {
+    pub fn start(refuses_plain: bool) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let announced = Arc::new(Mutex::new(Vec::new()));
+        let heard = announced.clone();
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                serve_raop(stream, refuses_plain, &heard);
+            }
+        });
+        Self { address, announced }
+    }
+
+    pub fn device(&self, encryption: crate::RaopEncryption) -> crate::Device {
+        crate::Device {
+            id: "FA4E00000002".into(),
+            name: "Fake RAOP".into(),
+            model: None,
+            address: self.address,
+            protocol: crate::Protocol::Raop,
+            shows: crate::Shows::default(),
+            encryption,
+        }
+    }
+
+    pub fn announced(&self) -> Vec<String> {
+        lock(&self.announced).clone()
+    }
+}
+
+fn serve_raop(stream: TcpStream, refuses_plain: bool, announced: &Mutex<Vec<String>>) {
+    let audio = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let audio_port = audio.local_addr().unwrap().port();
+    let timing = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let timing_port = timing.local_addr().unwrap().port();
+    let mut connection = Connection {
+        stream,
+        inbox: Vec::new(),
+        read: None,
+        write: None,
+    };
+    while let Some(request) = connection.next_request() {
+        let mut headers = Vec::new();
+        let status = match request.method.as_str() {
+            "ANNOUNCE" => {
+                let sdp = String::from_utf8_lossy(&request.body).into_owned();
+                let plain = !sdp.contains("a=rsaaeskey:");
+                lock(announced).push(sdp);
+                if refuses_plain && plain { 400 } else { 200 }
+            }
+            "SETUP" => {
+                headers.push((
+                    "Transport",
+                    format!(
+                        "RTP/AVP/UDP;unicast;mode=record;server_port={audio_port};\
+control_port={audio_port};timing_port={timing_port}"
+                    ),
+                ));
+                headers.push(("Session", "1".to_string()));
+                200
+            }
+            _ => 200,
+        };
+        connection.reply_with(&request, status, &headers, None);
+    }
+}
+
 struct Request {
     method: String,
     target: String,
@@ -211,7 +284,20 @@ impl Connection {
     }
 
     fn reply(&mut self, request: &Request, status: u16, body: Option<(&str, Vec<u8>)>) {
+        self.reply_with(request, status, &[], body);
+    }
+
+    fn reply_with(
+        &mut self,
+        request: &Request,
+        status: u16,
+        headers: &[(&str, String)],
+        body: Option<(&str, Vec<u8>)>,
+    ) {
         let mut head = format!("RTSP/1.0 {status} OK\r\nCSeq: {}\r\n", request.cseq);
+        for (name, value) in headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
         let body = match body {
             Some((kind, bytes)) => {
                 head.push_str(&format!(

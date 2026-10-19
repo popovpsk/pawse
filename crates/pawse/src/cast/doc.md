@@ -77,8 +77,8 @@ target being torn down (the local engine's `Stopped`, a closing session) never r
   (`unreached` → `back_to_this_computer`) with a message box (`explain_unreached`) instead:
   the cause is on this side, usually the firewall, and a toast would read as the device
   dropping. That is `SessionEvent::NeverFetched` (a renderer that never came for the track)
-  and `AirPlayOutput::unreached` (a speaker that never asked for our clock). An AirPlay
-  handshake that already fails that way (`cast::ConnectError::Unreached`: the Hisense TV does
+  and `AirPlayOutput::unreached` (an AirPlay 2 speaker that never asked for our clock). An
+  AirPlay 2 handshake that already fails that way (`cast::ConnectError::Unreached`: the Hisense TV does
   not finish the `SETUP` without clock answers) gets the same box instead of the "could not
   connect" toast, and nothing was switched. One text serves all of them, so it says only that
   the device answers but never connected back. The box gives the fix for the OS, on Linux as
