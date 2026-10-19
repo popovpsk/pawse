@@ -351,6 +351,8 @@ pub static ZH: Strings = lang! {
     lyrics_karaoke_desc: "随播放进度填充当前歌词行",
     lyrics_dim_inactive: "淡化其他行",
     lyrics_dim_inactive_desc: "让未播放的歌词行变暗",
+    lyrics_blur: "模糊远处的歌词行",
+    lyrics_blur_desc: "离当前行越远的歌词越模糊；悬停或滚动歌词时会重新变清晰",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",

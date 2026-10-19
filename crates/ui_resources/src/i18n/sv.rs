@@ -351,6 +351,8 @@ pub static SV: Strings = lang! {
     lyrics_karaoke_desc: "Fyll den aktuella raden medan den spelas",
     lyrics_dim_inactive: "Dämpa övriga rader",
     lyrics_dim_inactive_desc: "Tona ned rader som inte spelas",
+    lyrics_blur: "Gör avlägsna rader suddiga",
+    lyrics_blur_desc: "Ju längre en rad är från den aktuella, desto suddigare blir den; när du håller muspekaren över eller skrollar blir texten skarp igen",
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",

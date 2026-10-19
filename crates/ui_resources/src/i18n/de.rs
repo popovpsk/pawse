@@ -351,6 +351,8 @@ pub static DE: Strings = lang! {
     lyrics_karaoke_desc: "Die aktuelle Zeile während der Wiedergabe füllen",
     lyrics_dim_inactive: "Andere Zeilen abdunkeln",
     lyrics_dim_inactive_desc: "Zeilen abschwächen, die gerade nicht laufen",
+    lyrics_blur: "Entfernte Zeilen weichzeichnen",
+    lyrics_blur_desc: "Je weiter eine Zeile von der aktuellen entfernt ist, desto unschärfer wird sie; beim Überfahren oder Scrollen wird der Text wieder scharf",
 
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",

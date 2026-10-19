@@ -351,6 +351,8 @@ pub static ES: Strings = lang! {
     lyrics_karaoke_desc: "Rellenar la línea actual mientras suena",
     lyrics_dim_inactive: "Atenuar las demás líneas",
     lyrics_dim_inactive_desc: "Atenuar las líneas que no están sonando",
+    lyrics_blur: "Desenfocar las líneas lejanas",
+    lyrics_blur_desc: "Cuanto más lejos está una línea de la actual, más desenfocada se ve; al pasar el cursor o desplazar la letra vuelve a verse nítida",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} canción",

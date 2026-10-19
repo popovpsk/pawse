@@ -425,6 +425,8 @@ pub struct Strings {
     pub lyrics_karaoke_desc: SharedString,
     pub lyrics_dim_inactive: SharedString,
     pub lyrics_dim_inactive_desc: SharedString,
+    pub lyrics_blur: SharedString,
+    pub lyrics_blur_desc: SharedString,
 
     // --- Tag editor ---
     pub edit_tags: SharedString,

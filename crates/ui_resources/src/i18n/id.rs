@@ -351,6 +351,8 @@ pub static ID: Strings = lang! {
     lyrics_karaoke_desc: "Isi baris yang sedang diputar",
     lyrics_dim_inactive: "Redupkan baris lain",
     lyrics_dim_inactive_desc: "Buramkan baris yang tidak sedang diputar",
+    lyrics_blur: "Kaburkan baris yang jauh",
+    lyrics_blur_desc: "Makin jauh dari baris saat ini, makin kabur barisnya; saat kursor di atasnya atau lirik digulir, teks kembali tajam",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",

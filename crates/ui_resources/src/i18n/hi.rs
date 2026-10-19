@@ -351,6 +351,8 @@ pub static HI: Strings = lang! {
     lyrics_karaoke_desc: "चलने के साथ मौजूदा पंक्ति को भरें",
     lyrics_dim_inactive: "अन्य पंक्तियाँ मंद करें",
     lyrics_dim_inactive_desc: "जो पंक्तियाँ नहीं चल रहीं उन्हें फीका करें",
+    lyrics_blur: "दूर की पंक्तियाँ धुंधली करें",
+    lyrics_blur_desc: "मौजूदा पंक्ति से जितनी दूर, पंक्ति उतनी धुंधली; माउस ले जाने या स्क्रॉल करने पर बोल फिर साफ़ दिखते हैं",
 
     disc_t: "डिस्क {}",
     n_tracks_one: "{} ट्रैक",

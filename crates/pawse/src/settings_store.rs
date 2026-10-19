@@ -698,6 +698,8 @@ pub struct UserSettings {
     pub lyrics_karaoke_fill: bool,
     #[serde(default = "default_true")]
     pub lyrics_dim_inactive: bool,
+    #[serde(default)]
+    pub lyrics_blur: bool,
     #[serde(default = "default_true")]
     pub lyrics_bold: bool,
     #[serde(default)]
@@ -791,6 +793,7 @@ impl Default for UserSettings {
             lyrics_font_size: LYRICS_FONT_SIZE_DEFAULT,
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
+            lyrics_blur: false,
             lyrics_bold: true,
             lyrics_italic: false,
             onboarding_complete: false,
@@ -1924,6 +1927,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn lyrics_blur(&self) -> bool {
+        self.settings.lyrics_blur
+    }
+
+    pub fn set_lyrics_blur(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_blur = enabled;
+        self.save()
+    }
+
     pub fn lyrics_bold(&self) -> bool {
         self.settings.lyrics_bold
     }
@@ -2363,6 +2375,7 @@ mod tests {
             lyrics_font_size: 20.,
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
+            lyrics_blur: false,
             lyrics_bold: false,
             lyrics_italic: false,
             onboarding_complete: false,

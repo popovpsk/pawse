@@ -351,6 +351,8 @@ pub static CS: Strings = lang! {
     lyrics_karaoke_desc: "Vyplňovat aktuální řádek během přehrávání",
     lyrics_dim_inactive: "Ztlumit ostatní řádky",
     lyrics_dim_inactive_desc: "Zeslabit řádky, které právě nehrají",
+    lyrics_blur: "Rozmazat vzdálené řádky",
+    lyrics_blur_desc: "Čím dál je řádek od aktuálního, tím víc je rozmazaný; při najetí myší nebo posouvání se text znovu zaostří",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",

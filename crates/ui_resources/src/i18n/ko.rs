@@ -351,6 +351,8 @@ pub static KO: Strings = lang! {
     lyrics_karaoke_desc: "재생에 맞춰 현재 줄을 채웁니다",
     lyrics_dim_inactive: "다른 줄 흐리게",
     lyrics_dim_inactive_desc: "재생 중이 아닌 줄을 흐리게 표시합니다",
+    lyrics_blur: "먼 줄 흐리게",
+    lyrics_blur_desc: "현재 줄에서 멀수록 더 흐리게 표시합니다. 마우스를 올리거나 스크롤하면 다시 선명해집니다",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",

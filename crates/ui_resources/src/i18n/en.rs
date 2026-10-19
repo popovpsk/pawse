@@ -351,6 +351,8 @@ pub static EN: Strings = lang! {
     lyrics_karaoke_desc: "Fill the current line as it plays",
     lyrics_dim_inactive: "Dim other lines",
     lyrics_dim_inactive_desc: "Fade the lines that are not playing",
+    lyrics_blur: "Blur distant lines",
+    lyrics_blur_desc: "Lines farther from the current one get blurrier; hovering or scrolling the lyrics brings them back into focus",
 
     disc_t: "Disc {}",
     n_tracks_one: "{} track",

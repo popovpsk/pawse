@@ -880,6 +880,7 @@ impl MainView {
                 let _ = this.update(cx, |this, cx| {
                     this.lyrics_closing = false;
                     this._lyrics_close_task = None;
+                    this.lyrics_view.update(cx, |lv, cx| lv.release_blur(cx));
                     cx.notify();
                 });
             }));

@@ -351,6 +351,8 @@ pub static VI: Strings = lang! {
     lyrics_karaoke_desc: "Tô dần dòng đang phát",
     lyrics_dim_inactive: "Làm mờ các dòng khác",
     lyrics_dim_inactive_desc: "Làm mờ những dòng không phát",
+    lyrics_blur: "Làm nhòe các dòng ở xa",
+    lyrics_blur_desc: "Dòng càng xa dòng hiện tại càng nhòe; khi rê chuột hoặc cuộn lời bài hát, chữ sẽ rõ nét trở lại",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",

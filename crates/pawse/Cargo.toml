@@ -28,6 +28,7 @@ audio_engine = { path = "../audio_engine" }
 cast = { path = "../cast" }
 audio_output = { path = "../audio_output" }
 spectrum = { path = "../spectrum" }
+text_blur = { path = "../text_blur" }
 music_library = { path = "../music_library" }
 music_indexer = { path = "../music_indexer" }
 tag_writer = { path = "../tag_writer" }

@@ -2,7 +2,8 @@
 
 The GPUI app: the files directly in `crates/pawse/src` that have no folder of their own.
 Folder modules (`library_views`, `track_list`, `servers`, `remote_media`, `cast`,
-`similar_tracks`, `tools`, `sleep_timer`, `cover_skin`, `main_view`, `spectrum_view`) have their own
+`similar_tracks`, `tools`, `sleep_timer`, `cover_skin`, `main_view`, `spectrum_view`,
+`lyrics_blur`) have their own
 `doc.md`; the library crates have theirs.
 
 ## Files
@@ -39,7 +40,7 @@ Playback and now playing:
 - `queue_view.rs` — the queue panel (rows from `track_list`). `panel_header.rs` — the
   header row of the side panels. `playlist_popup.rs` — the add-to-playlist popup.
 - `lyrics_view.rs` — lyrics panel. `lyrics_fill.rs` — its pure half: rows, active row,
-  fill geometry.
+  fill geometry. Blurred rows are `lyrics_blur/`.
 - `now_playing.rs` — footer's left block. `footer.rs` — footer layout and toggles.
   `track_progress_slider.rs` — progress slider, labels, keyboard seek.
   `play_button.rs`, `prev_button.rs`, `next_button.rs`, `shuffle_button.rs`,
@@ -420,10 +421,25 @@ Integrations:
   reach the file; keep it so. Server tracks never export.
 - Time is interpolated between `PositionChanged` ticks (frozen while not playing,
   including `Preparing` and buffering); a row goes active `ACTIVE_TOLERANCE_MS` early.
-  Autoscroll centers the active row; the wheel disengages it, the locate button
-  re-engages. A hidden panel does not repaint on ticks. A size change is caught by
+  Render recomputes the active row whenever the lyrics are synced, paused too, so rows
+  that arrive while paused (another source tab, a late LRCLIB or server answer) light
+  the row at the paused position.
+- Autoscroll centers the active row; the wheel disengages it, the locate button
+  re-engages. The animation's own end timer sets the final offset, so a window that drew
+  no frames meanwhile (occluded, minimized, asleep) still lands on the active row; an
+  animation already cancelled (wheel, new rows, recenter) leaves the offset alone.
+- `centered_offset` reads row bounds from the last drawn frame. New rows clear
+  `viewport`, and autoscroll waits while it is unknown: the old rows' bounds would aim at
+  the wrong place (a new song would scroll back up from the old offset). The next
+  prepaint measures it and recenters on the active row without an animation.
+- A hidden panel does not repaint on ticks. A size change is caught by
   `viewport_canvas` in prepaint and recenters on the next frame: the panel is a cached
   view, so its render cannot count on another frame following the one that resized it.
+- Blur (`lyrics_blur/doc.md`): the view passes `LyricsBlur` a `Frame` each render and
+  redraws on its notifies. It follows the song while autoscroll is on and the pointer is
+  off the list. The pointer flag is cleared whenever the list is not drawn, because gpui
+  drops the list's hover state then and would not report the pointer again until it
+  moves.
 
 ## Lyrics karaoke fill (`lyrics_fill.rs`, `lyrics_view.rs`)
 
@@ -442,7 +458,10 @@ Integrations:
 - **Line fill** (no word timing): the interval to the next line sweeps the line evenly,
   done `FILL_LEAD` of the way. A blank timed line with a gap of at least
   `INTERLUDE_MIN_MS` shows as "♪ ♪ ♪" and fills its whole interval; consecutive ones
-  collapse.
+  collapse. A first line at `INTERLUDE_MIN_MS` or later gets one at 0:00 for the intro
+  (a blank line in the intro that would be an interlude itself folds into it): before a
+  first line nothing is being sung, while a long gap between lines without a blank line
+  may be a held line.
 - **Word fill** (Enhanced LRC, OpenSubsonic cues, Jellyfin cues): each word sweeps from
   the end of the previous word (or the line start) to its own end, between its start and
   end time; with no end it runs to the next word's start, for the last word to the line's

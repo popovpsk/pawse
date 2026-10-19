@@ -36,6 +36,7 @@ pub mod library_sources;
 pub mod library_views;
 pub mod library_watcher;
 pub mod localization;
+pub mod lyrics_blur;
 pub mod lyrics_fill;
 pub mod lyrics_view;
 pub mod main_view;
@@ -211,8 +212,9 @@ fn main() {
         single_instance::Acquire::First(listener) => listener,
     };
 
-    let app = Application::with_platform(gpui_platform::current_platform(false))
-        .with_assets(ui_resources::assets::Assets);
+    let platform = gpui_platform::current_platform(false);
+    let glyph_raster = crate::lyrics_blur::GlyphRaster(platform.text_system());
+    let app = Application::with_platform(platform).with_assets(ui_resources::assets::Assets);
 
     #[cfg(target_os = "macos")]
     app.on_reopen(|cx| {
@@ -242,6 +244,7 @@ fn main() {
         let settings_store = crate::settings_store::SettingsStore::load();
         crate::settings_store::apply_startup_theme(&settings_store, cx);
         cx.set_global(settings_store);
+        cx.set_global(glyph_raster);
         let save_executor = cx.background_executor().clone();
         cx.global_mut::<crate::settings_store::SettingsStore>()
             .start_background_writer(save_executor);

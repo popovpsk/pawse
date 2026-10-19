@@ -351,6 +351,8 @@ pub static IT: Strings = lang! {
     lyrics_karaoke_desc: "Riempi la riga corrente durante la riproduzione",
     lyrics_dim_inactive: "Attenua le altre righe",
     lyrics_dim_inactive_desc: "Sfuma le righe che non sono in riproduzione",
+    lyrics_blur: "Sfoca le righe lontane",
+    lyrics_blur_desc: "Più una riga è lontana da quella corrente, più è sfocata; passando il puntatore o scorrendo il testo torna nitido",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} brano",

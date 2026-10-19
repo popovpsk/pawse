@@ -1,0 +1,12 @@
+[package]
+name = "text_blur"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bench]]
+name = "bake"
+harness = false
+
+[lints]
+workspace = true

@@ -351,6 +351,8 @@ pub static NL: Strings = lang! {
     lyrics_karaoke_desc: "Vul de huidige regel tijdens het afspelen",
     lyrics_dim_inactive: "Andere regels dimmen",
     lyrics_dim_inactive_desc: "Regels die niet spelen vervagen",
+    lyrics_blur: "Verre regels vervagen",
+    lyrics_blur_desc: "Hoe verder een regel van de huidige, hoe waziger hij wordt; met de muis erboven of tijdens scrollen wordt de tekst weer scherp",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",

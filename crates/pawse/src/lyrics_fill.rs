@@ -111,7 +111,17 @@ pub fn build_rows(parsed: &lyrics::Lyrics, track_duration_ms: Option<u64>) -> Ve
     let nexts: Vec<Option<u32>> = (0..base.len())
         .map(|i| base.get(i + 1).and_then(|r| r.time_ms).or(track_end))
         .collect();
-    let mut out: Vec<LyricRow> = Vec::with_capacity(base.len());
+    let mut out: Vec<LyricRow> = Vec::with_capacity(base.len() + 1);
+    if base[0].time_ms.is_some_and(|ms| ms >= INTERLUDE_MIN_MS) {
+        out.push(LyricRow {
+            text: SharedString::new_static(INTERLUDE_TEXT),
+            words: Vec::new(),
+            background: None,
+            time_ms: Some(0),
+            label: Some(format_ms(0)),
+            kind: RowKind::Interlude,
+        });
+    }
     for (ix, mut row) in base.into_iter().enumerate() {
         let gap = nexts[ix].map(|next| next.saturating_sub(row.time_ms.unwrap_or(0)));
 
@@ -505,12 +515,13 @@ mod tests {
     }
 
     #[test]
-    fn only_blank_lines_become_interludes() {
+    fn between_lines_only_blank_lines_become_interludes() {
         let rows = build_rows(&halo(), Some(240_000));
         let kinds: Vec<RowKind> = rows.iter().map(|r| r.kind).collect();
         assert_eq!(
             kinds,
             vec![
+                RowKind::Interlude,
                 RowKind::Lyric,
                 RowKind::Lyric,
                 RowKind::Lyric,
@@ -520,9 +531,37 @@ mod tests {
                 RowKind::Lyric,
             ]
         );
-        assert_eq!(rows[5].time_ms, Some(209_170));
-        assert_eq!(rows[5].text.as_ref(), INTERLUDE_TEXT);
-        assert_eq!(rows.len(), 7);
+        assert_eq!(rows[6].time_ms, Some(209_170));
+        assert_eq!(rows[6].text.as_ref(), INTERLUDE_TEXT);
+        assert_eq!(rows.len(), 8);
+    }
+
+    #[test]
+    fn a_late_first_line_gets_an_intro_interlude() {
+        let rows = build_rows(&synced(&[(5_000, "one"), (9_000, "two")]), None);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].kind, RowKind::Interlude);
+        assert_eq!(rows[0].text.as_ref(), INTERLUDE_TEXT);
+        assert_eq!(rows[0].label.as_ref().map(|l| l.as_ref()), Some("00:00"));
+        assert_eq!(fill_span(&rows, 0, None), Some((0, 5_000)));
+        assert_eq!(active_row(&rows, 0), Some(0));
+        assert_eq!(active_row(&rows, 5_000), Some(1));
+    }
+
+    #[test]
+    fn an_early_first_line_gets_no_intro() {
+        let rows = build_rows(&synced(&[(INTERLUDE_MIN_MS - 1, "one")]), None);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, RowKind::Lyric);
+    }
+
+    #[test]
+    fn a_blank_line_inside_the_intro_folds_into_it() {
+        let rows = build_rows(&synced(&[(4_000, ""), (10_000, "one")]), None);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind, RowKind::Interlude);
+        assert_eq!(fill_span(&rows, 0, None), Some((0, 10_000)));
+        assert_eq!(rows[1].text.as_ref(), "one");
     }
 
     #[test]
@@ -567,7 +606,7 @@ mod tests {
     #[test]
     fn a_lyric_row_keeps_its_whole_interval_less_the_lead() {
         let rows = build_rows(&halo(), Some(240_000));
-        let (start, span) = fill_span(&rows, 0, Some(240_000)).unwrap();
+        let (start, span) = fill_span(&rows, 1, Some(240_000)).unwrap();
         assert_eq!(start, 188_260);
         assert_eq!(span, (6_570. * 0.92) as u32);
 
@@ -579,7 +618,7 @@ mod tests {
     #[test]
     fn an_interlude_row_keeps_its_interval_untouched() {
         let rows = build_rows(&halo(), Some(240_000));
-        assert_eq!(fill_span(&rows, 5, Some(240_000)), Some((209_170, 3_680)));
+        assert_eq!(fill_span(&rows, 6, Some(240_000)), Some((209_170, 3_680)));
     }
 
     #[test]
@@ -776,7 +815,7 @@ mod tests {
     #[test]
     fn two_rows_sharing_a_timestamp_have_no_span() {
         let rows = build_rows(&synced(&[(4_000, "one"), (4_000, "two")]), Some(9_000));
-        assert_eq!(fill_span(&rows, 0, Some(9_000)), None);
+        assert_eq!(fill_span(&rows, 1, Some(9_000)), None);
     }
 
     #[test]

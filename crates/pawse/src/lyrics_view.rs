@@ -14,6 +14,7 @@ use music_library::{StoredLyrics, lyrics_source};
 
 use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
+use crate::lyrics_blur::{self, BlurStyle, LyricsBlur};
 use crate::lyrics_fill::{self, FillPlan, LineFont, LineShape};
 use crate::panel_header::{
     panel_header, panel_header_actions, panel_header_button, panel_header_segment,
@@ -169,7 +170,10 @@ pub struct LyricsView {
     font: Option<LineFont>,
     viewport: Size<Pixels>,
     recenter: bool,
+    blur: Entity<LyricsBlur>,
+    list_hovered: bool,
     access: LyricsAccess,
+    _blur_subscription: Subscription,
     _scroll_task: Option<Task<()>>,
     _frame_task: Option<Task<()>>,
     _load_task: Option<Task<()>>,
@@ -250,6 +254,8 @@ impl LyricsView {
 
         let settings_subscription =
             cx.observe_global::<SettingsStore>(|this, cx| this.settings_changed(cx));
+        let blur = cx.new(|_| LyricsBlur::default());
+        let blur_subscription = cx.observe(&blur, |_, _, cx| cx.notify());
         let settings = cx.global::<SettingsStore>();
         let prefer_lrclib = settings.lyrics_prefer_lrclib();
         let online = settings.lyrics_from_internet();
@@ -289,7 +295,10 @@ impl LyricsView {
             font: None,
             viewport: Size::default(),
             recenter: false,
+            blur,
+            list_hovered: false,
             access,
+            _blur_subscription: blur_subscription,
             _scroll_task: None,
             _frame_task: None,
             _load_task: None,
@@ -380,7 +389,7 @@ impl LyricsView {
         let changed = self.current_track_id != Some(ctx.id);
         self.current_track_id = Some(ctx.id);
         if changed {
-            self.reset_display();
+            self.reset_display(cx);
             if let Some(locator) = ctx.locator.clone() {
                 self.server = Server::Unasked(locator);
             }
@@ -657,15 +666,17 @@ impl LyricsView {
         if rows_changed {
             self.active_ix = None;
             self.hovered_ix = None;
+            self.release_blur(cx);
             self.invalidate_fill();
             self.autoscroll = true;
             self.scroll_anim = None;
+            self.viewport = Size::default();
             self.scroll_handle.scroll_to_item(0);
         }
         cx.notify();
     }
 
-    fn clear_content(&mut self) {
+    fn clear_content(&mut self, cx: &mut Context<Self>) {
         self.rows.clear();
         self.synced = false;
         self.source.clear();
@@ -676,11 +687,12 @@ impl LyricsView {
         self.scroll_anim = None;
         self.pos_base_ms = 0;
         self.pos_base_at = Instant::now();
+        self.release_blur(cx);
         self.invalidate_fill();
     }
 
-    fn reset_display(&mut self) {
-        self.clear_content();
+    fn reset_display(&mut self, cx: &mut Context<Self>) {
+        self.clear_content(cx);
         self.not_found = false;
         self.fetching = false;
         self._fetch_task = None;
@@ -695,14 +707,14 @@ impl LyricsView {
     }
 
     fn set_empty(&mut self, cx: &mut Context<Self>) {
-        self.clear_content();
+        self.clear_content(cx);
         self.not_found = false;
         self.loading = false;
         cx.notify();
     }
 
     fn set_not_found(&mut self, cx: &mut Context<Self>) {
-        self.clear_content();
+        self.clear_content(cx);
         self.not_found = true;
         self.loading = false;
         cx.notify();
@@ -713,7 +725,7 @@ impl LyricsView {
         self.track_duration_ms = None;
         self.is_cue = false;
         self._load_task = None;
-        self.reset_display();
+        self.reset_display(cx);
         self.loading = false;
         cx.notify();
     }
@@ -747,6 +759,21 @@ impl LyricsView {
 
     fn invalidate_fill(&mut self) {
         self.lit = Default::default();
+    }
+
+    fn set_list_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if self.list_hovered != hovered {
+            self.list_hovered = hovered;
+            cx.notify();
+        }
+    }
+
+    fn is_lit(&self, ix: usize) -> bool {
+        self.active_ix == Some(ix) || self.lit.iter().any(|lit| lit.ix == Some(ix))
+    }
+
+    pub fn release_blur(&mut self, cx: &mut Context<Self>) {
+        self.blur.update(cx, |blur, cx| blur.release(cx));
     }
 
     fn now_ms(&self) -> u64 {
@@ -873,6 +900,9 @@ impl LyricsView {
     }
 
     fn start_autoscroll(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.viewport.height <= px(0.) {
+            return;
+        }
         let Some(to) = self.centered_offset(ix) else {
             return;
         };
@@ -887,7 +917,10 @@ impl LyricsView {
         self._scroll_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SCROLL_ANIM).await;
             this.update(cx, |this, cx| {
-                if this.scroll_seq == seq {
+                if this.scroll_seq == seq && this.scroll_anim.is_some() {
+                    let mut offset = this.scroll_handle.offset();
+                    offset.y = to;
+                    this.scroll_handle.set_offset(offset);
                     this.scroll_anim = None;
                     cx.notify();
                 }
@@ -964,9 +997,10 @@ impl Render for LyricsView {
         let backing_font = backing_font(font);
         let karaoke = settings.lyrics_karaoke_fill();
         let dim_inactive = settings.lyrics_dim_inactive();
+        let blur_enabled = settings.lyrics_blur();
         let synced = self.synced;
 
-        if synced && self.playing {
+        if synced {
             let next = self.active_for(self.now_ms());
             self.set_active(next, cx);
         }
@@ -1003,6 +1037,35 @@ impl Render for LyricsView {
         } else {
             self._frame_task = None;
         }
+
+        let blur_style = (blur_enabled && synced).then(|| BlurStyle {
+            font,
+            color: if dim_inactive {
+                muted_foreground
+            } else {
+                foreground
+            },
+            scale: window.scale_factor(),
+        });
+        if self.loading || self.rows.is_empty() {
+            self.list_hovered = false;
+        }
+        let following = self.autoscroll && !self.list_hovered;
+        let lit = |ix: usize| self.is_lit(ix);
+        let frame = lyrics_blur::Frame {
+            style: blur_style,
+            rows: &self.rows,
+            active: self.active_ix,
+            following,
+            lit: &lit,
+        };
+        if self.visible {
+            self.blur
+                .update(cx, |blur, cx| blur.sync(frame, window, cx));
+        }
+        let blur_entity = self.blur.clone();
+        let blur = self.blur.read(cx);
+        let blur_on = blur.is_on();
 
         let active_ix = self.active_ix;
         let hovered_ix = self.hovered_ix;
@@ -1084,6 +1147,9 @@ impl Render for LyricsView {
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll_handle)
                 .on_scroll_wheel(cx.listener(|this, _, _, cx| this.disengage(cx)))
+                .on_hover(
+                    cx.listener(|this, hovered: &bool, _, cx| this.set_list_hovered(*hovered, cx)),
+                )
                 .py_2()
                 .children(self.rows.iter().enumerate().map(|(ix, row)| {
                     let lit = lit_plans.iter().find(|plans| plans.ix == Some(ix));
@@ -1103,6 +1169,9 @@ impl Render for LyricsView {
                     } else {
                         foreground
                     };
+                    let row_blur = blur.row(ix);
+                    let backing_alpha =
+                        BACKGROUND_ALPHA * row_blur.as_ref().map_or(1., |b| b.backing_alpha);
                     let line = div()
                         .w_full()
                         .px_4()
@@ -1118,7 +1187,7 @@ impl Render for LyricsView {
                             .relative()
                             .text_size(backing_font.size)
                             .font_weight(backing_font.weight)
-                            .text_color(color.opacity(BACKGROUND_ALPHA))
+                            .text_color(color.opacity(backing_alpha))
                             .child(backing.text.clone())
                             .when(fills, |d| {
                                 d.child(measure_canvas(entity.clone(), ix, FillSlot::Backing))
@@ -1145,6 +1214,11 @@ impl Render for LyricsView {
                                     .id(("lyrics_line", ix))
                                     .max_w_full()
                                     .relative()
+                                    .when_some(
+                                        row_blur.as_ref().filter(|b| b.text_alpha < 1.),
+                                        |d, b| d.text_color(color.opacity(b.text_alpha)),
+                                    )
+                                    .children(row_blur.iter().flat_map(|b| b.layers()))
                                     .cursor_pointer()
                                     .when(Some(ix) == hovered_ix, |d| d.underline())
                                     .tooltip(move |window, cx| {
@@ -1157,6 +1231,9 @@ impl Render for LyricsView {
                                         this.seek_to_line(ix, time_ms, cx)
                                     }))
                                     .child(row.text.clone())
+                                    .when(blur_on, |d| {
+                                        d.child(lyrics_blur::measure(blur_entity.clone(), ix))
+                                    })
                                     .when(is_lit && karaoke, |d| {
                                         d.child(measure_canvas(entity.clone(), ix, FillSlot::Main))
                                     })

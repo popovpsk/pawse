@@ -351,6 +351,8 @@ pub static TH: Strings = lang! {
     lyrics_karaoke_desc: "ไล่สีบรรทัดปัจจุบันตามการเล่น",
     lyrics_dim_inactive: "หรี่บรรทัดอื่น",
     lyrics_dim_inactive_desc: "ทำให้บรรทัดที่ยังไม่เล่นจางลง",
+    lyrics_blur: "เบลอบรรทัดที่อยู่ไกล",
+    lyrics_blur_desc: "บรรทัดที่อยู่ห่างจากบรรทัดปัจจุบันจะเบลอมากขึ้น เมื่อวางเมาส์หรือเลื่อนเนื้อเพลง ข้อความจะกลับมาคมชัด",
 
     disc_t: "แผ่น {}",
     n_tracks_one: "{} เพลง",

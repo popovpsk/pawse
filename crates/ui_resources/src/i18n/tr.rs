@@ -351,6 +351,8 @@ pub static TR: Strings = lang! {
     lyrics_karaoke_desc: "Çalarken geçerli satırı doldur",
     lyrics_dim_inactive: "Diğer satırları soluklaştır",
     lyrics_dim_inactive_desc: "Çalmayan satırları soluklaştır",
+    lyrics_blur: "Uzak satırları bulanıklaştır",
+    lyrics_blur_desc: "Geçerli satırdan uzaklaştıkça satırlar bulanıklaşır; üzerine gelindiğinde veya kaydırıldığında metin yeniden netleşir",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",

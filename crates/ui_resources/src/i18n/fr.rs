@@ -351,6 +351,8 @@ pub static FR: Strings = lang! {
     lyrics_karaoke_desc: "Remplir la ligne en cours pendant la lecture",
     lyrics_dim_inactive: "Atténuer les autres lignes",
     lyrics_dim_inactive_desc: "Estomper les lignes qui ne sont pas jouées",
+    lyrics_blur: "Flouter les lignes éloignées",
+    lyrics_blur_desc: "Plus une ligne est loin de la ligne en cours, plus elle est floue ; survoler ou faire défiler les paroles les rend nettes",
 
     disc_t: "Disque {}",
     n_tracks_one: "{} titre",

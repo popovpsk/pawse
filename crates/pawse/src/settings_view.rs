@@ -1349,6 +1349,26 @@ fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
             )
             .description(tr().lyrics_dim_inactive_desc.clone()),
         )
+        .item(
+            SettingItem::new(
+                tr().lyrics_blur.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().lyrics_blur();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("lyrics-blur-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_lyrics_blur(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().lyrics_blur_desc.clone()),
+        )
 }
 
 fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) -> SettingGroup {

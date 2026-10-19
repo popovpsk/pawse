@@ -351,6 +351,8 @@ pub static JA: Strings = lang! {
     lyrics_karaoke_desc: "再生に合わせて現在の行を塗りつぶす",
     lyrics_dim_inactive: "他の行を暗くする",
     lyrics_dim_inactive_desc: "再生していない行を薄く表示する",
+    lyrics_blur: "離れた行をぼかす",
+    lyrics_blur_desc: "現在の行から離れた行ほど強くぼかします。ポインタを重ねるかスクロールすると、はっきり表示されます",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",
