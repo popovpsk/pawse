@@ -76,7 +76,12 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
 - Cover style spans the whole cover width. Near the bottom corners every point is held
   above the corner arc (`Plot::floor`, `COVER_RADIUS` less half the stroke) and the fill's
   bottom edge follows the same arcs: gpui clips to rectangles only, and the curve stays
-  inside the rounded image because every point it bends through is inside it.
+  inside the rounded image because every point it bends through is inside it. The
+  stroke skips the curve where it rests on an arc (`Plot::on_arc`: below the corner's
+  centre and within one stroke width of its circle, measured radially because the arc
+  turns vertical at the edge, where the flattening's sag is large in y): quiet ends would
+  otherwise trace the rounded corners as two hooks. The straight floor between them keeps
+  its line.
 - Silhouette draws its hover labels in the 16 px under its plot, which the block height
   includes.
 - The box height is the cover view's choice (`Block::fit`), so plot heights are what is

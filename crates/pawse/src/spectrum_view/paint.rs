@@ -91,14 +91,29 @@ impl Plot {
         self.left + self.width
     }
 
-    fn floor(&self, x: f32) -> f32 {
+    fn corner_center(&self, x: f32) -> Option<Point<f32>> {
         let r = self.corner;
-        let edge = (x - self.left).min(self.right() - x).max(0.);
-        if edge >= r {
+        let (edge, center_x) = if x - self.left < self.right() - x {
+            (x - self.left, self.left + r)
+        } else {
+            (self.right() - x, self.right() - r)
+        };
+        (edge < r).then(|| point(center_x, self.bottom() - r))
+    }
+
+    fn floor(&self, x: f32) -> f32 {
+        let Some(center) = self.corner_center(x) else {
             return self.bottom();
-        }
-        let dx = r - edge;
-        self.bottom() - r + (r * r - dx * dx).sqrt()
+        };
+        let r = self.corner;
+        let dx = (x - center.x).abs().min(r);
+        center.y + (r * r - dx * dx).sqrt()
+    }
+
+    fn on_arc(&self, p: Point<f32>) -> bool {
+        self.corner_center(p.x).is_some_and(|center| {
+            p.y >= center.y && (p.x - center.x).hypot(p.y - center.y) > self.corner - COVER_STROKE
+        })
     }
 
     fn bounds(&self, origin: Point<Pixels>) -> Bounds<Pixels> {
@@ -646,7 +661,7 @@ fn curve(
         );
     }
     if let Some((width, alpha)) = stroke
-        && let Some(path) = stroke_path(origin, &line, width)
+        && let Some(path) = stroke_path(origin, plot, &line, width)
     {
         window.paint_path(path, color.opacity(alpha));
     }
@@ -699,7 +714,28 @@ fn fill_path(origin: Point<Pixels>, plot: Plot, line: &[Point<f32>]) -> Path<Pix
     path
 }
 
-fn stroke_path(origin: Point<Pixels>, line: &[Point<f32>], width: f32) -> Option<Path<Pixels>> {
+fn stroked_runs(plot: Plot, line: &[Point<f32>]) -> impl Iterator<Item = &[Point<f32>]> {
+    let hidden = move |pair: &[Point<f32>]| plot.on_arc(pair[0]) && plot.on_arc(pair[1]);
+    let mut rest = line;
+    std::iter::from_fn(move || {
+        let skip = rest.windows(2).take_while(|pair| hidden(pair)).count();
+        rest = &rest[skip..];
+        if rest.len() < 2 {
+            return None;
+        }
+        let len = rest.windows(2).take_while(|pair| !hidden(pair)).count();
+        let run = &rest[..=len];
+        rest = &rest[len..];
+        Some(run)
+    })
+}
+
+fn stroke_path(
+    origin: Point<Pixels>,
+    plot: Plot,
+    line: &[Point<f32>],
+    width: f32,
+) -> Option<Path<Pixels>> {
     let half = width / 2.;
     let normal = |a: Point<f32>, b: Point<f32>| {
         let (dx, dy) = (b.x - a.x, b.y - a.y);
@@ -708,36 +744,38 @@ fn stroke_path(origin: Point<Pixels>, line: &[Point<f32>], width: f32) -> Option
     };
     let at = |x: f32, y: f32| point(origin.x + px(x), origin.y + px(y));
     let mut path: Option<Path<Pixels>> = None;
-    let mut last = None;
-    for (j, &q) in line.iter().enumerate() {
-        let incoming = j.checked_sub(1).and_then(|i| normal(line[i], q));
-        let outgoing = line.get(j + 1).and_then(|&b| normal(q, b));
-        let n = match (incoming, outgoing) {
-            (Some(a), Some(b)) => {
-                let (mx, my) = (a.x + b.x, a.y + b.y);
-                let len = mx.hypot(my);
-                if len < 1e-3 {
-                    b
-                } else {
-                    let scale = len / (mx * b.x + my * b.y).max(MITER_MIN * len);
-                    point(mx / len * scale, my / len * scale)
+    for run in stroked_runs(plot, line) {
+        let mut last = None;
+        for (j, &q) in run.iter().enumerate() {
+            let incoming = j.checked_sub(1).and_then(|i| normal(run[i], q));
+            let outgoing = run.get(j + 1).and_then(|&b| normal(q, b));
+            let n = match (incoming, outgoing) {
+                (Some(a), Some(b)) => {
+                    let (mx, my) = (a.x + b.x, a.y + b.y);
+                    let len = mx.hypot(my);
+                    if len < 1e-3 {
+                        b
+                    } else {
+                        let scale = len / (mx * b.x + my * b.y).max(MITER_MIN * len);
+                        point(mx / len * scale, my / len * scale)
+                    }
                 }
+                (Some(n), None) | (None, Some(n)) => n,
+                (None, None) => continue,
+            };
+            let left = at(q.x + n.x * half, q.y + n.y * half);
+            let right = at(q.x - n.x * half, q.y - n.y * half);
+            if let Some((left_0, right_0)) = last {
+                let path = path.get_or_insert_with(|| {
+                    let mut path = Path::new(left_0);
+                    path.vertices.reserve(line.len() * 6);
+                    path
+                });
+                path.push_triangle((left_0, right_0, left), SOLID);
+                path.push_triangle((right_0, right, left), SOLID);
             }
-            (Some(n), None) | (None, Some(n)) => n,
-            (None, None) => continue,
-        };
-        let left = at(q.x + n.x * half, q.y + n.y * half);
-        let right = at(q.x - n.x * half, q.y - n.y * half);
-        if let Some((left_0, right_0)) = last {
-            let path = path.get_or_insert_with(|| {
-                let mut path = Path::new(left_0);
-                path.vertices.reserve(line.len() * 6);
-                path
-            });
-            path.push_triangle((left_0, right_0, left), SOLID);
-            path.push_triangle((right_0, right, left), SOLID);
+            last = Some((left, right));
         }
-        last = Some((left, right));
     }
     path
 }
@@ -1086,7 +1124,7 @@ mod tests {
         let p = plot(SpectrumStyle::Zones, 600., 150.);
         let levels: Vec<f32> = (0..300).map(|i| -20. - i as f32 * 0.2).collect();
         let line = trace(p, &axis(300), &levels);
-        let path = stroke_path(point(px(0.), px(0.)), &line, 2.).unwrap();
+        let path = stroke_path(point(px(0.), px(0.)), p, &line, 2.).unwrap();
         let (a, b) = (line[0], line[line.len() - 1]);
         let (dx, dy) = (b.x - a.x, b.y - a.y);
         let len = dx.hypot(dy);
@@ -1095,6 +1133,28 @@ mod tests {
             let distance = ((q.x - a.x) * dy - (q.y - a.y) * dx).abs() / len;
             assert!((distance - 1.).abs() < 1e-2, "{distance}");
         }
+    }
+
+    #[test]
+    fn cover_stroke_leaves_the_corner_arcs_bare() {
+        let p = plot(SpectrumStyle::Cover, 300., 90.);
+        let stroke = |level: f32| {
+            let line = trace(p, &axis(100), &[level; 100]);
+            stroke_path(point(px(0.), px(0.)), p, &line, COVER_STROKE)
+                .unwrap()
+                .vertices
+                .iter()
+                .map(|v| v.xy_position.map(f32::from))
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            stroke(-200.)
+                .iter()
+                .all(|q| q.y > p.bottom() - COVER_STROKE * 2.)
+        );
+        let loud = stroke(-30.);
+        assert!(loud.iter().any(|q| q.x < p.left + 1.));
+        assert!(loud.iter().any(|q| q.x > p.right() - 1.));
     }
 
     #[test]

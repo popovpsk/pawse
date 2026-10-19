@@ -504,6 +504,8 @@ Integrations:
   full-size image once decoded. Never swap one for the other: the thumbnail keeps the
   square filled during the decode. Full-size images are `RenderImage`s released with
   `drop_atlas_tile`. The box takes the picture's real aspect ratio (square until known).
+  Each image layer is rounded by `COVER_RADIUS` itself: gpui clips children to
+  rectangles, so the box's own rounding only reaches its background and shadow.
 - Full-size source: a local cover is read from `cover_art.source_path`, falling back to
   the playing track's file when that yields nothing (`load_cover_from_source`). A server
   cover (`<kind>-cover://<source_id>/<key>`) is asked as
@@ -537,19 +539,22 @@ Integrations:
   list of devices or playlists must stay readable.
 - Spectrum (`spectrum_view/doc.md`): shown when `spectrum_visible`, a track is loaded and
   `Player::signal_tap` has a tap (not while casting to a renderer). The stack is cover →
-  spectrum block → caption → progress → control bar. On the cover style the spectrum sits
+  caption → spectrum block → progress → control bar: the narrow group (cover, caption) on
+  top, the wide one (block, progress, bar) under it. On the cover style the spectrum sits
   over the cover's bottom `COVER_FRACTION` instead of taking a block. A block is its style's
   share of the height left for cover and block (`Block::fit`, clamped), so it scales
   with the window and grows while the control bar slides away, like the cover does. It
   never takes the cover below `COVER_MIN_SIDE`; when even its minimum does not fit, the
   block is left out and the spectrum is not run.
-  Silhouette is as wide as the cover; zones and analyzer take the width up to
-  `WIDE_MAX_WIDTH` (never narrower than the cover). The progress bar and the control bar
-  take the width of what stands above them, the block or else the cover, the same way in
-  every style: progress `COVER_PROGRESS_W_FRAC` of it, the control bar all of it (at
-  least `COVER_BAR_MIN_W`, never wider than the cover's own width limit).
-  With the spectrum on the vertical margins are `SPECTRUM_MARGIN_V` and the group is not
-  dropped, so the cover keeps the height the block takes.
+  Every block (silhouette, zones, analyzer) takes the width up to `WIDE_MAX_WIDTH`, never
+  narrower than the cover. The progress bar is `COVER_PROGRESS_W_FRAC` of what stands
+  above it, the block or else the cover. The control bar always spans the view less
+  `COVER_MARGIN` on each side (`max_w`), with or without the spectrum: transport centred,
+  volume, lyrics and queue in the right corner.
+  `stack_layout` places all of it from one `SpectrumSlot`: only a block changes the
+  stack. With one the vertical margins are `SPECTRUM_MARGIN_V` and the group is not
+  dropped, so the cover keeps the height the block takes; with the overlay, or a block
+  that does not fit, cover, margins and widths are exactly those without the spectrum.
 - The spectrum toggle (`cover_spectrum_button` in `main_view.rs`) sits under the Full
   screen button and fades with it; it writes `spectrum_visible`, is dimmed with its own
   tooltip while there is no tap, and its icon is static.
@@ -1121,8 +1126,11 @@ Owner's calls; ask before changing.
   bar or beside the search field.
 - With the spectrum on, Cover view does not reserve the control bar's slot: cover and
   spectrum grow into it as the bar hides and give it back as it slides in, animated, as
-  without the spectrum. Zones and analyzer are wider than the cover, not the cover's
-  width.
+  without the spectrum. Every block (silhouette, zones, analyzer) is wider than the
+  cover, not the cover's width; the spectrum on the cover leaves the cover's size alone.
+  The caption stays with the cover and the progress with the block, so widths go narrow
+  then wide instead of alternating; the control bar's aux buttons sit in the view's
+  corner in every style and without the spectrum.
 - The bit-perfect check/warning button and the exclusive-mode button keep their icons;
   redesigns of them were tried and rejected.
 - No `App::reduce_motion` guard on the cover colour crossfade or the backdrop crossfade

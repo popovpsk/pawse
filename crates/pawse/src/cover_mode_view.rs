@@ -10,8 +10,8 @@ use gpui::{
     Subscription, Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px,
     quadratic, size, svg,
 };
+use gpui_component::h_flex;
 use gpui_component::tooltip::Tooltip;
-use gpui_component::{h_flex, v_flex};
 
 use crate::cover_art_cache::drop_atlas_tile;
 use crate::cover_backdrop;
@@ -44,7 +44,6 @@ const COVER_AUX_SIZE: f32 = 34.;
 const COVER_AUX_ICON: f32 = 22.;
 const COVER_BAR_H: f32 = 44.;
 const COVER_BAR_GAP: f32 = 16.;
-const COVER_BAR_MIN_W: f32 = 400.;
 const CONTROLS_HIDE_DELAY: Duration = Duration::from_secs(3);
 const CONTROLS_SLIDE_IN: Duration = Duration::from_millis(320);
 const CONTROLS_SLIDE_OUT: Duration = Duration::from_millis(200);
@@ -164,6 +163,63 @@ fn bottom_edge_luma(image: &RenderImage) -> f32 {
 fn placeholder_icon_size(w: f32, h: f32) -> f32 {
     const STEP: f32 = 24.;
     ((w.min(h) * 0.5 / STEP).round() * STEP).max(STEP)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SpectrumSlot {
+    Off,
+    Overlay,
+    Below { gap: f32, height: f32 },
+}
+
+#[derive(Debug, PartialEq)]
+struct StackLayout {
+    spectrum: SpectrumSlot,
+    drop: f32,
+    max_w: f32,
+    cover_w: f32,
+    cover_h: f32,
+    column_w: f32,
+}
+
+fn stack_layout(
+    avail_w: f32,
+    avail_h: f32,
+    aspect: Option<f32>,
+    spectrum: Option<SpectrumStyle>,
+    under: f32,
+    show_text: bool,
+) -> StackLayout {
+    let spectrum = match spectrum.map(spectrum_view::block) {
+        None => SpectrumSlot::Off,
+        Some(None) => SpectrumSlot::Overlay,
+        Some(Some(block)) => block
+            .fit(avail_h - SPECTRUM_MARGIN_V * 2. - under, COVER_MIN_SIDE)
+            .map_or(SpectrumSlot::Off, |height| SpectrumSlot::Below {
+                gap: block.gap,
+                height,
+            }),
+    };
+    let (margin_v, drop, block_h) = match spectrum {
+        SpectrumSlot::Below { gap, height } => (SPECTRUM_MARGIN_V, 0., gap + height),
+        _ if show_text => (COVER_MARGIN, COVER_GROUP_DROP, 0.),
+        _ => (COVER_MARGIN, 0., 0.),
+    };
+    let max_w = (avail_w - COVER_MARGIN * 2.).max(COVER_MIN_SIDE);
+    let max_h = (avail_h - margin_v * 2. - under - block_h).max(COVER_MIN_SIDE);
+    let (cover_w, cover_h) = fit_cover_box(aspect, max_w, max_h);
+    let column_w = match spectrum {
+        SpectrumSlot::Below { .. } => max_w.min(spectrum_view::WIDE_MAX_WIDTH).max(cover_w),
+        _ => cover_w,
+    };
+    StackLayout {
+        spectrum,
+        drop,
+        max_w,
+        cover_w,
+        cover_h,
+        column_w,
+    }
 }
 
 fn fit_cover_box(aspect: Option<f32>, max_w: f32, max_h: f32) -> (f32, f32) {
@@ -747,21 +803,33 @@ impl CoverModeView {
             .bg(placeholder_bg)
             .map(|d| match (thumb, full) {
                 (Some(thumb), Some(full)) => d
-                    .child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
+                    .child(
+                        img(thumb)
+                            .size_full()
+                            .rounded(px(COVER_RADIUS))
+                            .object_fit(gpui::ObjectFit::Cover),
+                    )
                     .child(
                         img(full)
                             .absolute()
                             .top_0()
                             .left_0()
                             .size_full()
+                            .rounded(px(COVER_RADIUS))
                             .object_fit(gpui::ObjectFit::Contain),
                     ),
-                (Some(thumb), None) => {
-                    d.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
-                }
-                (None, Some(full)) => {
-                    d.child(img(full).size_full().object_fit(gpui::ObjectFit::Contain))
-                }
+                (Some(thumb), None) => d.child(
+                    img(thumb)
+                        .size_full()
+                        .rounded(px(COVER_RADIUS))
+                        .object_fit(gpui::ObjectFit::Cover),
+                ),
+                (None, Some(full)) => d.child(
+                    img(full)
+                        .size_full()
+                        .rounded(px(COVER_RADIUS))
+                        .object_fit(gpui::ObjectFit::Contain),
+                ),
                 (None, None) => d.flex().items_center().justify_center().child(
                     svg()
                         .path("icons/placeholder-notes.svg")
@@ -891,8 +959,9 @@ impl Render for CoverModeView {
         if !settled {
             window.request_animation_frame();
         }
-        let spectrum_on =
-            self.show_spectrum && has_track && cx.global::<Services>().player.has_signal_tap();
+        let spectrum_style =
+            (self.show_spectrum && has_track && cx.global::<Services>().player.has_signal_tap())
+                .then_some(self.spectrum_style);
         let show_bar = !self.chrome_visible && controls_t > 0.;
         let bar_reserve = if show_bar {
             (COVER_BAR_GAP + COVER_BAR_H) * controls_t
@@ -910,28 +979,25 @@ impl Render for CoverModeView {
         } else {
             0.
         };
-        let (margin_v, drop) = if spectrum_on {
-            (SPECTRUM_MARGIN_V, 0.)
-        } else if show_text {
-            (COVER_MARGIN, COVER_GROUP_DROP)
-        } else {
-            (COVER_MARGIN, 0.)
-        };
-        let stack_h = avail_h - margin_v * 2. - bar_reserve - text_h;
-        let block = spectrum_on
-            .then(|| spectrum_view::block(self.spectrum_style))
-            .flatten()
-            .and_then(|block| Some((block.gap, block.fit(stack_h, COVER_MIN_SIDE)?)));
-        let spectrum_drawn =
-            block.is_some() || (spectrum_on && self.spectrum_style == SpectrumStyle::Cover);
-        let wanted = self.active && spectrum_drawn;
+        let StackLayout {
+            spectrum,
+            drop,
+            max_w,
+            cover_w,
+            cover_h,
+            column_w,
+        } = stack_layout(
+            avail_w,
+            avail_h,
+            self.cover_aspect,
+            spectrum_style,
+            bar_reserve + text_h,
+            show_text,
+        );
+        let progress_w = column_w * COVER_PROGRESS_W_FRAC;
+        let wanted = self.active && spectrum != SpectrumSlot::Off;
         self.spectrum
             .update(cx, |spectrum, cx| spectrum.set_wanted(wanted, cx));
-        let spectrum_below = block.map_or(0., |(gap, height)| gap + height);
-        let below = bar_reserve + text_h + spectrum_below;
-        let max_w = (avail_w - COVER_MARGIN * 2.).max(COVER_MIN_SIDE);
-        let max_h = (avail_h - margin_v * 2. - below).max(COVER_MIN_SIDE);
-        let (cover_w, cover_h) = fit_cover_box(self.cover_aspect, max_w, max_h);
 
         let shadow = vec![BoxShadow {
             color: gpui::black().opacity(0.5),
@@ -941,21 +1007,12 @@ impl Render for CoverModeView {
             inset: false,
         }];
 
-        let spectrum_w = match self.spectrum_style {
-            SpectrumStyle::Zones | SpectrumStyle::Analyzer => {
-                max_w.min(spectrum_view::WIDE_MAX_WIDTH).max(cover_w)
-            }
-            SpectrumStyle::Cover | SpectrumStyle::Silhouette => cover_w,
-        };
-        let column_w = if block.is_some() { spectrum_w } else { cover_w };
-        let progress_w = column_w * COVER_PROGRESS_W_FRAC;
-
         let bar = show_bar.then(|| {
             let row = self.controls_row(bar_colors, play_icon, play_label, show_controls, cx);
             div()
                 .relative()
                 .flex_shrink_0()
-                .w(px(column_w.max(COVER_BAR_MIN_W).min(max_w)))
+                .w(px(max_w))
                 .h(px(bar_reserve))
                 .child(
                     row.absolute()
@@ -966,24 +1023,26 @@ impl Render for CoverModeView {
                 )
         });
 
-        let spectrum_block = block.map(|(gap, height)| {
+        let spectrum_block = match spectrum {
+            SpectrumSlot::Below { gap, height } => Some(
+                div()
+                    .flex_shrink_0()
+                    .mt(px(gap))
+                    .w(px(column_w))
+                    .h(px(height))
+                    .child(self.spectrum.clone()),
+            ),
+            _ => None,
+        };
+        let spectrum_overlay = (spectrum == SpectrumSlot::Overlay).then(|| {
             div()
-                .flex_shrink_0()
-                .mt(px(gap))
-                .w(px(spectrum_w))
-                .h(px(height))
+                .absolute()
+                .left_0()
+                .bottom_0()
+                .w(px(cover_w))
+                .h(px(cover_h * spectrum_view::COVER_FRACTION))
                 .child(self.spectrum.clone())
         });
-        let spectrum_overlay =
-            (spectrum_on && self.spectrum_style == SpectrumStyle::Cover).then(|| {
-                div()
-                    .absolute()
-                    .left_0()
-                    .bottom_0()
-                    .w(px(cover_w))
-                    .h(px(cover_h * spectrum_view::COVER_FRACTION))
-                    .child(self.spectrum.clone())
-            });
 
         let cover_square = if self.sliding {
             let forward = self.slide_forward;
@@ -1068,7 +1127,6 @@ impl Render for CoverModeView {
                             .child(overlay),
                         None => cover_square,
                     })
-                    .when_some(spectrum_block, |d, block| d.child(block))
                     .when(show_text, |d| {
                         let mut row = h_flex()
                             .px(px(COVER_MARGIN))
@@ -1134,19 +1192,16 @@ impl Render for CoverModeView {
                             }
                             row = row.child(artists);
                         }
-                        let mut group = v_flex()
-                            .mt(px(COVER_TEXT_GAP))
-                            .items_center()
-                            .gap(px(COVER_PROGRESS_GAP))
-                            .child(row);
-                        if show_progress_bar {
-                            group = group.child(
-                                div()
-                                    .w(px(progress_w))
-                                    .child(self.progress.read(cx).slider()),
-                            );
-                        }
-                        d.child(group)
+                        d.child(row.mt(px(COVER_TEXT_GAP)))
+                    })
+                    .when_some(spectrum_block, |d, block| d.child(block))
+                    .when(show_progress_bar, |d| {
+                        d.child(
+                            div()
+                                .mt(px(COVER_PROGRESS_GAP))
+                                .w(px(progress_w))
+                                .child(self.progress.read(cx).slider()),
+                        )
                     })
                     .when_some(bar, |d, b| d.child(b)),
             )
@@ -1171,8 +1226,61 @@ impl Render for CoverModeView {
 
 #[cfg(test)]
 mod tests {
-    use super::sniff_image_format;
+    use super::{SpectrumSlot, sniff_image_format, spectrum_view, stack_layout};
+    use crate::settings_store::SpectrumStyle;
     use gpui::ImageFormat;
+
+    #[test]
+    fn cover_is_sized_as_without_spectrum_unless_a_block_takes_room() {
+        for show_text in [false, true] {
+            let off = stack_layout(1400., 900., Some(1.), None, 76., show_text);
+            let overlay = stack_layout(
+                1400.,
+                900.,
+                Some(1.),
+                Some(SpectrumStyle::Cover),
+                76.,
+                show_text,
+            );
+            assert_eq!(overlay.spectrum, SpectrumSlot::Overlay);
+            assert_eq!(
+                (
+                    overlay.drop,
+                    overlay.cover_w,
+                    overlay.cover_h,
+                    overlay.column_w
+                ),
+                (off.drop, off.cover_w, off.cover_h, off.column_w)
+            );
+            let cramped = stack_layout(
+                1400.,
+                300.,
+                Some(1.),
+                Some(SpectrumStyle::Analyzer),
+                76.,
+                show_text,
+            );
+            let cramped_off = stack_layout(1400., 300., Some(1.), None, 76., show_text);
+            assert_eq!(cramped, cramped_off);
+        }
+    }
+
+    #[test]
+    fn every_block_takes_the_same_width() {
+        for style in [
+            SpectrumStyle::Silhouette,
+            SpectrumStyle::Zones,
+            SpectrumStyle::Analyzer,
+        ] {
+            let layout = stack_layout(1400., 900., Some(1.), Some(style), 76., true);
+            assert!(
+                matches!(layout.spectrum, SpectrumSlot::Below { .. }),
+                "{style:?}"
+            );
+            assert_eq!(layout.column_w, spectrum_view::WIDE_MAX_WIDTH, "{style:?}");
+            assert!(layout.cover_w < layout.column_w, "{style:?}");
+        }
+    }
 
     #[test]
     fn sniffs_known_formats() {
