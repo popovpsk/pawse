@@ -68,15 +68,20 @@ pub fn write_metadata(path: &Path, edits: &TrackTagEdits) -> anyhow::Result<()> 
     }
     let mut tagged = lofty::read_from_path(path)?;
 
-    let mut tag = match tagged.primary_tag().or_else(|| tagged.first_tag()) {
-        Some(tag) => tag.clone(),
-        None => Tag::new(target_tag_type(&tagged)),
-    };
+    let mut tag = editable_tag(&tagged);
 
     apply(&mut tag, edits);
     let mut tag = with_custom(tag, &edits.added_tags)?;
     apply_cover(&mut tag, &edits.cover)?;
 
+    if let Some(text) = tagged.tag_mut(TagType::AiffText) {
+        set_text(text, ItemKey::TrackTitle, edits.title.as_deref());
+        set_text(
+            text,
+            ItemKey::TrackArtist,
+            edits.artists.first().map(String::as_str),
+        );
+    }
     tagged.insert_tag(tag);
     tagged.save_to_path(path, WriteOptions::default())?;
     Ok(())
@@ -191,7 +196,20 @@ fn target_tag_type(tagged: &lofty::file::TaggedFile) -> TagType {
         .primary_tag()
         .or_else(|| tagged.first_tag())
         .map(|tag| tag.tag_type())
+        .filter(|tag_type| *tag_type != TagType::AiffText)
         .unwrap_or_else(|| tagged.primary_tag_type())
+}
+
+fn editable_tag(tagged: &lofty::file::TaggedFile) -> Tag {
+    let tag_type = target_tag_type(tagged);
+    let Some(found) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
+        return Tag::new(tag_type);
+    };
+    let mut tag = found.clone();
+    if tag.tag_type() != tag_type {
+        tag.re_map(tag_type);
+    }
+    tag
 }
 
 fn group_by_key(rows: &[&RawTag]) -> Vec<(String, Vec<String>)> {
@@ -230,9 +248,7 @@ pub fn read_raw_tags(path: &Path) -> anyhow::Result<Vec<RawTag>> {
         return Ok(Vec::new());
     }
     let tagged = lofty::read_from_path(path)?;
-    let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
-        return Ok(Vec::new());
-    };
+    let tag = editable_tag(&tagged);
 
     let tag_type = tag.tag_type();
     let mut out: Vec<RawTag> = Vec::new();
@@ -617,6 +633,51 @@ mod tests {
     #[test]
     fn roundtrip_m4a() {
         roundtrip("tagged_m4a.m4a");
+    }
+
+    #[test]
+    fn roundtrip_aiff() {
+        roundtrip("tagged_aiff.aiff");
+    }
+
+    #[test]
+    fn roundtrip_aiff_text_chunks_only() {
+        roundtrip("text_chunks_aiff.aiff");
+    }
+
+    #[test]
+    fn aiff_text_chunks_go_to_id3_and_follow_the_edit() {
+        for fixture in ["tagged_aiff.aiff", "text_chunks_aiff.aiff"] {
+            let dir = TempDir::new();
+            let path = copy_fixture(&dir, fixture);
+            assert!(custom_tags_for(&path).supported(), "{fixture}");
+
+            write_metadata(&path, &full_edits()).unwrap();
+
+            let tagged = lofty::read_from_path(&path).unwrap();
+            let text = tagged.tag(TagType::AiffText).unwrap();
+            assert_eq!(
+                text.get_string(&ItemKey::TrackTitle),
+                Some("New Title"),
+                "{fixture}"
+            );
+            assert_eq!(
+                text.get_string(&ItemKey::TrackArtist),
+                Some("First Artist"),
+                "{fixture}"
+            );
+        }
+
+        let dir = TempDir::new();
+        let path = copy_fixture(&dir, "text_chunks_aiff.aiff");
+        write_metadata(&path, &full_edits()).unwrap();
+        let tagged = lofty::read_from_path(&path).unwrap();
+        assert_eq!(
+            tagged
+                .tag(TagType::Id3v2)
+                .and_then(|tag| tag.get_string(&ItemKey::CopyrightMessage)),
+            Some("Text Copyright")
+        );
     }
 
     #[test]
@@ -1417,6 +1478,8 @@ mod tests {
             "tagged_ogg.ogg",
             "tagged_mp3.mp3",
             "tagged_m4a.m4a",
+            "tagged_aiff.aiff",
+            "text_chunks_aiff.aiff",
         ] {
             let dir = TempDir::new();
             let path = copy_fixture(&dir, fixture);
@@ -1451,6 +1514,8 @@ mod tests {
             "tagged_ogg.ogg",
             "tagged_mp3.mp3",
             "tagged_m4a.m4a",
+            "tagged_aiff.aiff",
+            "text_chunks_aiff.aiff",
         ] {
             let dir = TempDir::new();
             let path = copy_fixture(&dir, fixture);

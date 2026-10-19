@@ -41,9 +41,13 @@ from the files.
 - Artists go to both keys: the reader prefers `TrackArtists`, third-party players show
   `TrackArtist` (TPE1 / ARTIST / ©ART).
 - The target is `primary_tag`, else `first_tag`, else a fresh tag of `primary_tag_type()` —
-  the reader's choice, or edits would look discarded. The tag is saved through
-  `AudioFile::save_to_path` on the whole file so its other tags survive; ID3v1 is not
-  touched (the indexer reads the primary tag, so the library never diverges).
+  the reader's choice, or edits would look discarded. AIFF text chunks (`AiffText`) are
+  the exception (`editable_tag`): they hold only title, author, copyright and comment, so
+  a file with nothing else gets an ID3v2 tag built from them, which the reader then
+  prefers; `read_raw_tags` and `custom_tags_for` see that same tag. The text chunks stay
+  and take the new title and first artist, so players that read them agree. The tag is
+  saved through `AudioFile::save_to_path` on the whole file so its other tags survive;
+  ID3v1 is not touched (the indexer reads the primary tag, so the library never diverges).
 - DSF/DFF are refused (`lofty` has no support): `write_metadata` errors, `read_raw_tags`
   returns nothing, `custom_tags_for` says `Unsupported`.
 - Order in `write_metadata`: fields, removals, added rows, cover. Everything that can

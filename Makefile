@@ -25,6 +25,7 @@ FIXTURES = \
 	$(FIXTURES_DIR)/late_start_opus.opus \
 	$(FIXTURES_DIR)/tagged_m4a.m4a \
 	$(FIXTURES_DIR)/tagged_aiff.aiff \
+	$(FIXTURES_DIR)/text_chunks_aiff.aiff \
 	$(FIXTURES_DIR)/long_44_stereo.flac \
 	$(FIXTURES_DIR)/long_44_stereo.m4a \
 	$(FIXTURES_DIR)/long_22_mono.wav \
@@ -208,6 +209,13 @@ $(FIXTURES_DIR)/tagged_aiff.aiff: | $(FIXTURES_DIR)
 		-metadata album="AIFF Album" \
 		-metadata track="2" \
 		-write_id3v2 1 -codec:a pcm_s16be "$@"
+
+$(FIXTURES_DIR)/text_chunks_aiff.aiff: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \
+		-metadata title="Text Title" \
+		-metadata author="Text Artist" \
+		-metadata copyright="Text Copyright" \
+		-codec:a pcm_s16be "$@"
 
 clean:
 	rm -f $(FIXTURES)
