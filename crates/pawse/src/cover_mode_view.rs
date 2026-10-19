@@ -1032,7 +1032,9 @@ impl Render for CoverModeView {
                 .flex_shrink_0()
                 .w(px(max_w))
                 .h(px(bar_reserve))
-                .when(strip_h.is_some(), |d| d.overflow_hidden())
+                .when(strip_h.is_some() && controls_t < 1., |d| {
+                    d.overflow_hidden()
+                })
                 .child(
                     row.absolute()
                         .left_0()

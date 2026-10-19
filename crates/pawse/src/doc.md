@@ -554,8 +554,9 @@ Integrations:
   Its height is its share of the view height (`Block::fit` with no gap), cut so the cover
   keeps `COVER_MIN_SIDE` with the control bar fully shown whenever the bar can appear
   (`under_max`), and the strip is left out below its minimum: the bar sliding in or out
-  never resizes or drops the strip. The sliding bar is clipped to its own slot, so it
-  rises from the strip's top edge instead of passing under its hover area. A block is
+  never resizes or drops the strip. The bar is clipped to its own slot only while it
+  slides, so it rises from the strip's top edge instead of passing under its hover area;
+  once settled the clip is off, since the volume popup rises out of the slot. A block is
   its style's share of the height left for cover and block (`Block::fit`, clamped), so
   it scales with the window and grows while the control bar slides away, like the cover
   does. It never takes the cover below `COVER_MIN_SIDE`; when even its minimum does not
