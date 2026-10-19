@@ -58,6 +58,7 @@ pub trait LibraryRepository: Send + Sync {
     fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>>;
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
     fn album_title(&self, album_id: i64) -> Result<Option<String>>;
+    fn album_release_year(&self, album_id: i64) -> Result<Option<i32>>;
     fn track_albums_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, String>>;
     fn album_genres(&self, album_id: i64) -> Result<Vec<String>>;
     /// The album's credited artists in `album_artists.position` order. Mirrors
@@ -199,7 +200,7 @@ pub trait LibraryRepository: Send + Sync {
     /// Persist the fingerprint + folder set after a successful scan.
     fn set_scan_meta(&self, fingerprint: &str, folders: &str) -> Result<()>;
 
-    fn vacuum(&self) -> Result<()>;
+    fn maintain_storage(&self) -> Result<()>;
 
     fn record_play(&self, play: &NewPlay, targets: &[&str]) -> Result<i64>;
     fn record_love(&self, love: &NewLove, targets: &[&str]) -> Result<i64>;

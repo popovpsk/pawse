@@ -237,6 +237,18 @@ fn a_track_becomes_a_song_keyed_by_its_file_with_cue_offsets() {
         song(track(true, Some(200)), &file).start_offset_ms,
         Some(200)
     );
+
+    let on_disc_two = FileEntry {
+        index: 8,
+        path: PathBuf::from("Album/CD2/02.flac"),
+        len: 1234,
+    };
+    let untagged = music_indexer::PreparedTrack {
+        disc_number: None,
+        ..track(false, None)
+    };
+    assert_eq!(song(untagged, &on_disc_two).disc_number, Some(2));
+    assert_eq!(song(track(false, None), &on_disc_two).disc_number, Some(1));
 }
 
 fn jpeg() -> Vec<u8> {

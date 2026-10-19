@@ -873,6 +873,7 @@ mod tests {
     #[case::sine_440_16_44_stereo("sine_440_16_44_stereo.wav", 44100, 16, ChannelCount::Stereo)]
     #[case::silence("silence_16_44_mono.wav", 44100, 16, ChannelCount::Mono)]
     #[case::original_1khz("1khz_16_44_1.wav", 44100, 16, ChannelCount::Mono)]
+    #[case::aiff("tagged_aiff.aiff", 44100, 16, ChannelCount::Mono)]
     fn test_decoder_params(
         #[case] filename: &str,
         #[case] sample_rate: u32,
@@ -910,6 +911,7 @@ mod tests {
     #[case::sine_440_16_44_stereo("sine_440_16_44_stereo.wav")]
     #[case::silence("silence_16_44_mono.wav")]
     #[case::original_1khz("1khz_16_44_1.wav")]
+    #[case::aiff("tagged_aiff.aiff")]
     fn test_decode_buffer_not_empty(#[case] filename: &str) {
         let path = fixture_path(filename);
         let mut decoder =

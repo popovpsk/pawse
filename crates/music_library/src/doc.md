@@ -19,7 +19,9 @@ scrobble engine (`scrobble/src/doc.md`); running the sound analysis
   every test. Migration tests replay `MIGRATIONS[..=8]` into a v8 database.
 - `repository.rs` — the two traits. `sqlite.rs` — `SqliteLibrary`, `ScanSession`, the
   migration runner, the SQL a scan shares; `compute_sort_name` is public so the app's
-  in-memory sorts agree with `artists.sort_name`. `thumbnail.rs` — a decoder panic comes
+  in-memory sorts agree with `artists.sort_name`; `clean_album_title` (trim, blank is
+  no album) is the one ingest rule for album titles, applied by the app to files and by
+  `project_remote_tracks` to server rows. `thumbnail.rs` — a decoder panic comes
   back as an error: one broken picture costs that cover only.
 - `remote.rs` — the server-track locator `pawse-source://<source_id>/<key>.<suffix>`,
   `location`, and a server cover's `source_path` `<kind>-cover://<source_id>/<key>`.
@@ -43,6 +45,14 @@ scrobble engine (`scrobble/src/doc.md`); running the sound analysis
   is not derivable: no scan deletes it. **Derived caches** (`track_embeddings`,
   `track_sound_genres`, `artist_info`) are costly to re-derive, so a scan leaves them
   alone.
+- `maintain_storage` (after every real scan) runs on `conn`, so a UI write waits for it
+  rather than failing on the busy timeout mid-vacuum. It `VACUUM`s only when more than
+  a quarter of the pages are free: a refill reuses the pages its clear freed, and a
+  vacuum rewrites the whole file. It `ANALYZE`s only when `user_version` or the track
+  count (by more than a quarter) moved, or a day passed, since
+  `scan_meta.analyzed_version` / `analyzed_tracks` / `analyzed_at`: a clear and refill
+  of the same library leaves the statistics true, while plays, deliveries and
+  playlists grow with no scan to notice.
 - `tracks.id` borrows `media_items.id`, so a rescan puts every row back under its id.
   User tables reference `media_items`, never `tracks`.
 
@@ -207,8 +217,10 @@ per year (issue #13).
 - `albums.identity` (migration 13): `mb␟<id>␟<exact title>` when the track has a
   MusicBrainz album id (trimmed, lowercased; years ignored), else `tag␟<exact
   title>␟<release year>`, where the release year is the `RELEASEDATE` / `TDRL` tag only,
-  empty without one. `albums.release_year` keeps it for the display year. The title
-  stays in the `mb` key so a rename lands the same way in a tag edit and a rescan:
+  empty without one. The title is exact but trimmed at ingest (`clean_album_title`):
+  a stray space must not split an album. `albums.release_year` keeps the release year
+  for the display year, and the album editor's year edits it (`album_release_year`).
+  The title stays in the `mb` key so a rename lands the same way in a tag edit and a rescan:
   neither path stores the album title per track.
 - The album artist is not part of the key: a track without the tag stays with siblings
   that have one (`album_artists.rs`). It is evidence for a split instead.
@@ -232,7 +244,8 @@ per year (issue #13).
   year, since a release is no older than its newest recording.
 - Known gaps: the plain row (and its id) goes to the larger release, so it
   moves to the other one when their sizes cross. A two-disc compilation without disc
-  numbers collides on every position and still splits by year. Server tracks carry no
+  tags collides on every position and still splits by year, unless its discs sit in
+  `CD n` / `Disc n` folders, which the app numbers at ingest. Server tracks carry no
   MusicBrainz id, so server-only songs of an album whose local files have one form a
   `tag` album of their own beside it.
 

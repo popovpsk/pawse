@@ -21,7 +21,8 @@ use crate::metadata::{CoverCache, read_metadata_cached};
 use crate::types::{CoverArt, ScanEvent, ScannedTrack, SourceSet};
 
 pub const AUDIO_EXTENSIONS: &[&str] = &[
-    "mp3", "flac", "ogg", "oga", "wav", "m4a", "aac", "wma", "ape", "wv", "opus", "dsf", "dff",
+    "mp3", "flac", "ogg", "oga", "wav", "aif", "aiff", "m4a", "aac", "wma", "ape", "wv", "opus",
+    "dsf", "dff",
 ];
 
 pub const CUE_EXTENSIONS: &[&str] = &["cue"];

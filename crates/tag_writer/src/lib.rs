@@ -18,6 +18,7 @@ pub struct TrackTagEdits {
     pub track_number: Option<u32>,
     pub disc_number: Option<u32>,
     pub year: Option<i32>,
+    pub release_year: Option<Option<i32>>,
     pub genres: Vec<String>,
     /// Rows handed out by [`read_raw_tags`] to drop from the file entirely.
     pub removed_tags: Vec<RawTag>,
@@ -361,6 +362,7 @@ fn apply(tag: &mut Tag, edits: &TrackTagEdits) {
     set_number(tag, ItemKey::DiscNumber, edits.disc_number);
 
     set_year(tag, edits.year);
+    set_release_year(tag, edits.release_year);
 
     set_multi(tag, ItemKey::Genre, &edits.genres);
 
@@ -406,6 +408,20 @@ fn set_year(tag: &mut Tag, year: Option<i32>) {
     );
 }
 
+fn set_release_year(tag: &mut Tag, release_year: Option<Option<i32>>) {
+    let Some(release_year) = release_year else {
+        return;
+    };
+    if key_year(tag, &ItemKey::ReleaseDate) == release_year {
+        return;
+    }
+    set_text(
+        tag,
+        ItemKey::ReleaseDate,
+        release_year.map(|y| y.to_string()).as_deref(),
+    );
+}
+
 /// Mirrors `read_year`: the same key order, and the same "first four digits" rule.
 fn current_year(tag: &Tag) -> Option<i32> {
     [
@@ -415,16 +431,18 @@ fn current_year(tag: &Tag) -> Option<i32> {
         ItemKey::ReleaseDate,
     ]
     .iter()
-    .find_map(|key| {
-        let text = tag.get(key).and_then(|item| item.value().text())?;
-        let digits: String = text
-            .trim_start()
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .take(4)
-            .collect();
-        (digits.len() == 4).then(|| digits.parse().ok())?
-    })
+    .find_map(|key| key_year(tag, key))
+}
+
+fn key_year(tag: &Tag, key: &ItemKey) -> Option<i32> {
+    let text = tag.get(key).and_then(|item| item.value().text())?;
+    let digits: String = text
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .take(4)
+        .collect();
+    (digits.len() == 4).then(|| digits.parse().ok())?
 }
 
 fn set_text(tag: &mut Tag, key: ItemKey, value: Option<&str>) {
@@ -534,6 +552,7 @@ mod tests {
             track_number: Some(7),
             disc_number: Some(2),
             year: Some(1994),
+            release_year: None,
             genres: vec!["Drum & Bass".into(), "Ambient".into()],
             removed_tags: Vec::new(),
             added_tags: Vec::new(),
@@ -1297,6 +1316,45 @@ mod tests {
             Some(1990),
             "the release date keys the album, so a track year edit must not move it"
         );
+    }
+
+    #[test]
+    fn a_release_year_edit_moves_only_the_release_date() {
+        for fixture in ["tagged_basic.flac", "tagged_mp3.mp3", "tagged_m4a.m4a"] {
+            let dir = TempDir::new();
+            let path = copy_fixture(&dir, fixture);
+            {
+                let mut tagged = lofty::read_from_path(&path).unwrap();
+                let tag = tagged.primary_tag_mut().unwrap();
+                tag.insert_text(ItemKey::ReleaseDate, "1990-11-05".into());
+                tag.insert_text(ItemKey::RecordingDate, "1977".into());
+                tagged.save_to_path(&path, WriteOptions::default()).unwrap();
+            }
+            let read = || music_indexer::metadata::read_metadata(&path).unwrap();
+
+            let mut edits = full_edits();
+            edits.year = Some(1977);
+            edits.release_year = Some(Some(1990));
+            write_metadata(&path, &edits).unwrap();
+            let tagged = lofty::read_from_path(&path).unwrap();
+            assert_eq!(
+                tagged
+                    .primary_tag()
+                    .and_then(|tag| tag.get_string(&ItemKey::ReleaseDate)),
+                Some("1990-11-05"),
+                "{fixture}: an unchanged release year keeps the full date"
+            );
+
+            edits.release_year = Some(Some(1991));
+            write_metadata(&path, &edits).unwrap();
+            assert_eq!(read().year, Some(1977), "{fixture}");
+            assert_eq!(read().release_year, Some(1991), "{fixture}");
+
+            edits.release_year = Some(None);
+            write_metadata(&path, &edits).unwrap();
+            assert_eq!(read().year, Some(1977), "{fixture}");
+            assert_eq!(read().release_year, None, "{fixture}");
+        }
     }
 
     #[test]

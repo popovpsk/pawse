@@ -58,7 +58,9 @@ tags (`tag_writer/src/doc.md`); CUE syntax (`cue_parser`, no doc); `normalize_ge
 - Report tags as the file has them; do not add cleaning to `read_metadata`. Placeholder
   credits (`[no artist]`, `Unknown Artist`) stay in `artist_names` and the library drops
   them at ingest (`clean_artist_names`): dropping them here would make saving any other
-  field in the tag editor write the emptied artist back to the file.
+  field in the tag editor write the emptied artist back to the file. The same goes for
+  the album title's stray spaces (`clean_album_title`) and a disc number taken from a
+  `CD n` / `Disc n` parent folder (`folder_disc_number`): both are applied at ingest.
 - What is reduced today: genres go through `normalize_genres` (an editor save writes them
   back normalized); year is the leading four digits of the first of `RecordingDate`,
   `Year`, `OriginalReleaseDate`, `ReleaseDate` that yields one; track and disc number are
@@ -117,10 +119,12 @@ tags (`tag_writer/src/doc.md`); CUE syntax (`cue_parser`, no doc); `normalize_ge
   and hit the `(path, start_offset_ms)` unique index. `CueTrack::start` is the only start
   rule. A track's duration is the next track's start minus its own when that track is in
   the same file, else the rest of its file; tracks of one file share its `path`.
-- Year is `REM DATE` parsed as a plain integer (a full date gives none).
-- The sheet has no disc field. A cue inside a folder named exactly `CD n` / `Disc n` takes
-  that disc number and anchors the album title to the cleaned parent folder name, so the
-  discs merge into one album; otherwise the sheet title and disc 1.
+- Year is the leading four digits of `REM DATE` (`year_from_str`, the tag rule), so a full
+  date gives its year.
+- The sheet has no disc field. A cue inside a folder named exactly `CD n` / `Disc n`
+  (`folder_disc_number`) takes that disc number and anchors the album title to the
+  cleaned parent folder name, so the discs merge into one album; otherwise the sheet
+  title and disc 1.
 - `resolve_audio_file`: the exact `FILE` name, else a sibling with the same stem
   (case-insensitive) and a supported extension — rippers leave `.wav` in the cue after
   encoding to FLAC.

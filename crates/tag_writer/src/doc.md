@@ -64,6 +64,10 @@ from the files.
   the reader takes first; `ReleaseDate` stays, since it is part of the album's identity
   (`music_library/src/doc.md`, "Album identity"). Clearing the year empties all four
   keys, or an old value returns from a fallback.
+- `release_year` is the album editor's handle on that key: `None` leaves `ReleaseDate`
+  alone (every other caller), `Some(year)` writes the bare year or removes the key, and
+  an unchanged year (`key_year`) keeps a full date. It runs after `set_year`, so
+  clearing the year and setting a release year in one save keeps the release year.
 
 ## Multi-value
 

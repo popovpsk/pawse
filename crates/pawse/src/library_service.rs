@@ -19,6 +19,7 @@ pub struct AlbumTagEdits {
     pub album: Option<String>,
     pub album_artists: Vec<String>,
     pub year: Option<Option<i32>>,
+    pub release_year: Option<Option<i32>>,
     pub genres: Vec<String>,
     /// Applied to every file of the album, since the cover is what the album screens
     /// show and one file disagreeing would surface as art that changes on rescan.
@@ -1017,6 +1018,10 @@ impl LibraryService {
         self.repo.album_title(album_id).ok().flatten()
     }
 
+    pub fn album_release_year(&self, album_id: i64) -> Option<i32> {
+        self.repo.album_release_year(album_id).ok().flatten()
+    }
+
     pub fn track_albums_map(&self, track_ids: &[i64]) -> HashMap<i64, String> {
         self.repo.track_albums_map(track_ids).unwrap_or_default()
     }
@@ -1830,8 +1835,9 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     let artist_names = clean_artist_names(scanned.artist_names.clone());
     let album_artist_names = clean_artist_names(scanned.album_artist_names.clone());
     let artist_ids = resolve_artists(repo, &artist_names)?;
+    let album_title = music_library::clean_album_title(scanned.album_title.clone());
 
-    let album_id = match scanned.album_title.as_deref() {
+    let album_id = match album_title.as_deref() {
         Some(title) => Some(repo.upsert_album(
             &music_library::AlbumKey {
                 title,
@@ -1847,10 +1853,10 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     let new_track = NewTrack {
         path: scanned.path.to_string_lossy().into_owned(),
         title: scanned.title.clone(),
-        album_title: scanned.album_title.clone(),
+        album_title,
         artist_names,
         track_number: scanned.track_number,
-        disc_number: scanned.disc_number,
+        disc_number: disc_number(scanned.disc_number, &scanned.path),
         year: scanned.year,
         duration_ms: scanned.duration_ms,
         cover_art_id: None,
@@ -2010,6 +2016,9 @@ fn write_album_fields(
     let current = music_indexer::metadata::read_metadata(path)?;
     if current.album_title == edits.album
         && edits.year.is_none_or(|year| current.year == year)
+        && edits
+            .release_year
+            .is_none_or(|year| current.release_year == year)
         && current.album_artist_names == edits.album_artists
         && current.genres == edits.genres
         && cover_already_matches(&current, &edits.cover)
@@ -2024,6 +2033,7 @@ fn write_album_fields(
         track_number: current.track_number,
         disc_number: current.disc_number,
         year: edits.year.unwrap_or(current.year),
+        release_year: edits.release_year,
         genres: edits.genres.clone(),
         removed_tags: Vec::new(),
         added_tags: Vec::new(),
@@ -2088,17 +2098,21 @@ fn clean_artist_names(names: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+pub(crate) fn disc_number(tagged: Option<u32>, path: &Path) -> Option<u32> {
+    tagged.or_else(|| music_indexer::cue::folder_disc_number(path))
+}
+
 fn to_scan_track(track: PreparedTrack) -> ScanTrack {
     let file_size = std::fs::metadata(&track.path).ok().map(|meta| meta.len());
     ScanTrack {
         file_size,
         path: track.path.to_string_lossy().into_owned(),
         title: track.title,
-        album_title: track.album_title,
+        album_title: music_library::clean_album_title(track.album_title),
         artist_names: clean_artist_names(track.artist_names),
         album_artist_names: clean_artist_names(track.album_artist_names),
         track_number: track.track_number,
-        disc_number: track.disc_number,
+        disc_number: disc_number(track.disc_number, &track.path),
         year: track.year,
         release_id: track.release_id,
         release_year: track.release_year,
@@ -2127,8 +2141,8 @@ fn finalize_rescan(repo: &dyn LibraryRepository, fingerprint: &str, folders_key:
     if let Err(e) = repo.set_scan_meta(fingerprint, folders_key) {
         log::error!("Failed to store scan fingerprint: {}", e);
     }
-    if let Err(e) = repo.vacuum() {
-        log::error!("Failed to vacuum library: {}", e);
+    if let Err(e) = repo.maintain_storage() {
+        log::error!("Failed to maintain library storage: {}", e);
     }
 }
 
@@ -2715,6 +2729,7 @@ mod tests {
             album: Some("Comp".into()),
             album_artists: Vec::new(),
             year: Some(None),
+            release_year: None,
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2755,6 +2770,7 @@ mod tests {
             album: Some("Kid A".into()),
             album_artists: Vec::new(),
             year: Some(Some(2000)),
+            release_year: None,
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2823,6 +2839,7 @@ mod tests {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
             year: None,
+            release_year: None,
             genres: vec!["Disco".into()],
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2847,6 +2864,7 @@ mod tests {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
             year: Some(Some(2001)),
+            release_year: None,
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -2895,6 +2913,7 @@ mod tests {
             album: Some("Renamed".into()),
             album_artists: vec!["Band & Friends".into()],
             year: Some(Some(2000)),
+            release_year: None,
             genres: vec!["Post-Rock".into()],
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -3138,6 +3157,7 @@ mod tests {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
             year: Some(Some(2001)),
+            release_year: None,
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Replace { bytes: embedded },
         };
@@ -3185,6 +3205,7 @@ mod tests {
             album: Some("Seed Album".into()),
             album_artists: Vec::new(),
             year: Some(Some(2001)),
+            release_year: None,
             genres: ws.repo.album_genres(album_id).unwrap(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -3215,6 +3236,7 @@ mod tests {
             album: Some("Brand New Name".into()),
             album_artists: Vec::new(),
             year: Some(Some(2001)),
+            release_year: None,
             genres: Vec::new(),
             cover: tag_writer::CoverEdit::Keep,
         };
@@ -3414,6 +3436,117 @@ mod tests {
         let albums = ws.repo.albums().unwrap();
         assert_eq!(albums.len(), 1, "{albums:?}");
         assert_eq!(albums[0].year, Some(2002));
+
+        let after_edit = ws.snapshot();
+        ws.scan();
+        assert_eq!(after_edit, ws.snapshot());
+    }
+
+    #[test]
+    fn an_album_title_with_stray_spaces_joins_its_album() {
+        let ws = Workspace::new();
+        for (name, title) in [("a", "Seed Album"), ("b", " Seed Album ")] {
+            ws.add_file(&format!("{name}.wav"), "sine_440_16_44_mono.wav");
+            std::fs::write(
+                ws.folder.join(format!("{name}.cue")),
+                format!(
+                    "PERFORMER \"Band\"\nTITLE \"{title}\"\nFILE \"{name}.wav\" WAVE\n  \
+                     TRACK 01 AUDIO\n    TITLE \"{name}\"\n    INDEX 01 00:00:00\n"
+                ),
+            )
+            .unwrap();
+        }
+        ws.scan();
+        let titles: Vec<String> = ws
+            .repo
+            .albums()
+            .unwrap()
+            .into_iter()
+            .map(|album| album.title)
+            .collect();
+        assert_eq!(titles, vec!["Seed Album".to_string()]);
+    }
+
+    #[test]
+    fn a_disc_folder_numbers_the_discs_its_files_do_not() {
+        let ws = Workspace::new();
+        for disc in ["CD1", "CD2"] {
+            std::fs::create_dir_all(ws.folder.join("Hits").join(disc)).unwrap();
+        }
+        let first = ws.add_file("Hits/CD1/01.flac", "tagged_basic.flac");
+        let second = ws.add_file("Hits/CD2/01.flac", "tagged_basic.flac");
+        let numbered = |year: i32, title: &str| tag_writer::TrackTagEdits {
+            track_number: Some(1),
+            year: Some(year),
+            ..edits_titled(title)
+        };
+        tag_writer::write_metadata(&first, &numbered(1972, "Early")).unwrap();
+        tag_writer::write_metadata(&second, &numbered(1989, "Late")).unwrap();
+        ws.scan();
+
+        let albums = ws.repo.albums().unwrap();
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        let mut tracks = ws.repo.tracks_for_album(albums[0].id).unwrap();
+        tracks.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(
+            tracks.iter().map(|t| t.disc_number).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+
+        let track_id = ws.track_id(&second);
+        assert!(apply_track_tags(&ws.repo, track_id, &second, &numbered(1989, "Renamed")).is_ok());
+        let after_edit = ws.snapshot();
+        ws.scan();
+        assert_eq!(after_edit, ws.snapshot());
+    }
+
+    #[test]
+    fn the_album_editor_year_moves_the_release_date_the_album_is_keyed_on() {
+        let ws = Workspace::new();
+        for n in [1, 2] {
+            let path = ws.add_file(&format!("0{n}.flac"), "tagged_basic.flac");
+            tag_writer::write_metadata(
+                &path,
+                &tag_writer::TrackTagEdits {
+                    track_number: Some(n),
+                    year: Some(1977),
+                    release_year: Some(Some(1990)),
+                    ..edits_titled(&format!("Song {n}"))
+                },
+            )
+            .unwrap();
+        }
+        ws.scan();
+        let albums = ws.repo.albums().unwrap();
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].year, Some(1990));
+        assert_eq!(
+            ws.repo.album_release_year(albums[0].id).unwrap(),
+            Some(1990)
+        );
+
+        let tracks = ws.repo.tracks_for_album(albums[0].id).unwrap();
+        let edits = AlbumTagEdits {
+            album: Some("Seed Album".into()),
+            album_artists: Vec::new(),
+            year: None,
+            release_year: Some(Some(1991)),
+            genres: Vec::new(),
+            cover: tag_writer::CoverEdit::Keep,
+        };
+        assert_eq!(apply_album_tags(&ws.repo, &tracks, &edits).unwrap(), 2);
+
+        let albums = ws.repo.albums().unwrap();
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].year, Some(1991));
+        let years: Vec<Option<i32>> = ws
+            .repo
+            .tracks_for_album(albums[0].id)
+            .unwrap()
+            .iter()
+            .map(|t| t.year)
+            .collect();
+        assert_eq!(years, vec![Some(1977), Some(1977)]);
 
         let after_edit = ws.snapshot();
         ws.scan();

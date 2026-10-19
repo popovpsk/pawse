@@ -72,7 +72,7 @@ fn read_year(tag: &Tag) -> Option<i32> {
     })
 }
 
-fn year_from_str(value: &str) -> Option<i32> {
+pub(crate) fn year_from_str(value: &str) -> Option<i32> {
     let digits: String = value
         .trim_start()
         .chars()

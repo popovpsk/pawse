@@ -240,6 +240,12 @@ const IDENTITY_MIGRATION: i32 = 9;
 
 const ALBUM_ID_HIGH: &str = "album_id_high";
 const ARTIST_ID_HIGH: &str = "artist_id_high";
+const ANALYZED_VERSION: &str = "analyzed_version";
+const ANALYZED_TRACKS: &str = "analyzed_tracks";
+const ANALYZED_AT: &str = "analyzed_at";
+const ANALYZE_MAX_AGE_SECS: i64 = 24 * 60 * 60;
+const ANALYZE_DRIFT_SHARE: i64 = 4;
+const VACUUM_FREE_SHARE: i64 = 4;
 
 struct StableIds {
     albums: HashMap<String, i64>,
@@ -288,6 +294,12 @@ impl StableIds {
 
 fn artist_key(name: &str) -> String {
     name.to_lowercase()
+}
+
+pub fn clean_album_title(title: Option<String>) -> Option<String> {
+    title
+        .map(|title| title.trim().to_string())
+        .filter(|title| !title.is_empty())
 }
 
 const RELEASE_IDENTITY: &str = "mb\u{1f}";
@@ -1767,6 +1779,16 @@ impl LibraryRepository for SqliteLibrary {
             .optional()?
             .flatten();
         Ok(title)
+    }
+
+    fn album_release_year(&self, album_id: i64) -> Result<Option<i32>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached("SELECT release_year FROM albums WHERE id = ?1")?;
+        let year = stmt
+            .query_row([album_id], |row| row.get::<_, Option<i32>>(0))
+            .optional()?
+            .flatten();
+        Ok(year)
     }
 
     fn track_albums_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, String>> {
@@ -3374,9 +3396,50 @@ impl LibraryRepository for SqliteLibrary {
         Ok(())
     }
 
-    fn vacuum(&self) -> Result<()> {
+    fn maintain_storage(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute_batch("VACUUM; ANALYZE;")?;
+        let pages: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let free: i64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        if free * VACUUM_FREE_SHARE > pages {
+            conn.execute_batch("VACUUM")?;
+        }
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let tracks: i64 = conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))?;
+        let stamp = |key: &str| -> Result<Option<i64>> {
+            Ok(conn
+                .query_row("SELECT value FROM scan_meta WHERE key = ?1", [key], |row| {
+                    row.get::<_, String>(0)
+                })
+                .optional()?
+                .and_then(|value| value.parse().ok()))
+        };
+        let now = unix_now();
+        let stale = match (
+            stamp(ANALYZED_VERSION)?,
+            stamp(ANALYZED_TRACKS)?,
+            stamp(ANALYZED_AT)?,
+        ) {
+            (Some(analyzed_version), Some(analyzed_tracks), Some(analyzed_at)) => {
+                analyzed_version != version
+                    || (tracks - analyzed_tracks).abs() * ANALYZE_DRIFT_SHARE > analyzed_tracks
+                    || !(0..ANALYZE_MAX_AGE_SECS).contains(&(now - analyzed_at))
+            }
+            _ => true,
+        };
+        if stale {
+            conn.execute_batch("ANALYZE")?;
+            for (key, value) in [
+                (ANALYZED_VERSION, version),
+                (ANALYZED_TRACKS, tracks),
+                (ANALYZED_AT, now),
+            ] {
+                conn.execute(
+                    "INSERT INTO scan_meta (key, value) VALUES (?1, ?2) \
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    rusqlite::params![key, value.to_string()],
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -4293,7 +4356,7 @@ impl ScanSession {
                             &crate::remote::suffix_for(suffix.as_deref(), content_type.as_deref()),
                         ),
                         title: Some(row.get(3)?),
-                        album_title: row.get(5)?,
+                        album_title: clean_album_title(row.get(5)?),
                         artist_names: artist.into_iter().filter(|a| !a.is_empty()).collect(),
                         album_artist_names: album_artist
                             .into_iter()

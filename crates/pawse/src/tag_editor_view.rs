@@ -67,6 +67,7 @@ pub struct TagEditorView {
     disc_number: Entity<InputState>,
     year: Entity<InputState>,
     loaded_year: String,
+    year_is_release: bool,
     genres: Vec<SharedString>,
     genre_input: Entity<InputState>,
     raw_tags: Vec<(SharedString, SharedString)>,
@@ -139,7 +140,10 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     loaded.album_artists = library.album_artists(album_id);
     loaded.genres = library.album_genres(album_id);
     let years: std::collections::BTreeSet<Option<i32>> = local.iter().map(|t| t.year).collect();
-    if years.len() > 1 {
+    if let Some(release_year) = library.album_release_year(album_id) {
+        loaded.year = Some(release_year);
+        loaded.year_is_release = true;
+    } else if years.len() > 1 {
         let known: Vec<i32> = years.iter().flatten().copied().collect();
         loaded.year = None;
         loaded.year_range = Some(match (known.first(), known.last()) {
@@ -177,6 +181,7 @@ struct Loaded {
     disc_number: Option<u32>,
     year: Option<i32>,
     year_range: Option<String>,
+    year_is_release: bool,
     genres: Vec<String>,
     raw_tags: Vec<(SharedString, SharedString)>,
     custom_tags: tag_writer::CustomTags,
@@ -227,6 +232,7 @@ fn load(track: &music_library::Track, path: &Path, want_raw: bool, cx: &App) -> 
         disc_number: scanned.disc_number,
         year: scanned.year,
         year_range: None,
+        year_is_release: false,
         genres: scanned.genres,
         raw_tags,
         custom_tags,
@@ -276,6 +282,7 @@ fn from_library(
         disc_number: Some(track.disc_number as u32),
         year: track.year,
         year_range: None,
+        year_is_release: false,
         // A cue sheet carries one genre for the whole disc, so the album's set is
         // exactly what this track was indexed with.
         genres: album_id
@@ -380,6 +387,7 @@ impl TagEditorView {
             disc_number,
             year,
             loaded_year,
+            year_is_release: loaded.year_is_release,
             genres: loaded.genres.into_iter().map(SharedString::from).collect(),
             genre_input,
             original_raw: to_raw_tags(&loaded.raw_tags),
@@ -575,6 +583,7 @@ impl TagEditorView {
                     track_number,
                     disc_number,
                     year,
+                    release_year: None,
                     genres,
                     removed_tags,
                     added_tags,
@@ -583,10 +592,13 @@ impl TagEditorView {
                 library.update_track_tags(track_id, edits, folders);
             }
             Target::Album { album_id } => {
+                let changed =
+                    (self.year.read(cx).value().trim() != self.loaded_year).then_some(year);
                 let edits = AlbumTagEdits {
                     album: text_of(&self.album, cx),
                     album_artists: split_list(&self.album_artists.read(cx).value()),
-                    year: (self.year.read(cx).value().trim() != self.loaded_year).then_some(year),
+                    year: changed.filter(|_| !self.year_is_release),
+                    release_year: changed.filter(|_| self.year_is_release),
                     genres,
                     cover: self.cover.clone(),
                 };

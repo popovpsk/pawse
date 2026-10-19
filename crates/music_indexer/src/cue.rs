@@ -10,7 +10,7 @@ use cue_parser::{CueSheet, CueTrack};
 use lofty::file::AudioFile;
 use lofty::prelude::TaggedFileExt;
 
-use crate::metadata::{embedded_cover, find_external_cover_art};
+use crate::metadata::{embedded_cover, find_external_cover_art, year_from_str};
 use crate::pipeline::AUDIO_EXTENSIONS;
 use crate::types::{CoverArt, ScannedTrack};
 
@@ -113,10 +113,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
     // a disc folder, take the disc number from it and anchor the album title to the
     // shared parent folder so both discs merge into one album despite differing CUE
     // titles. Otherwise keep the CUE title and default to disc 1.
-    let folder_disc = cue_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .and_then(parse_disc_folder);
+    let folder_disc = folder_disc_number(cue_path);
 
     let album_title = match folder_disc {
         Some(_) => cue_dir
@@ -152,7 +149,7 @@ pub fn process_cue_file(cue_path: &Path) -> anyhow::Result<Vec<ScannedTrack>> {
             .collect();
         let album_artist_names = sheet.performer.clone().into_iter().collect();
         let track_number = Some(cue_track.number);
-        let year = sheet.date.as_ref().and_then(|d| d.parse::<i32>().ok());
+        let year = sheet.date.as_deref().and_then(year_from_str);
 
         tracks.push(ScannedTrack {
             path: file.path.clone(),
@@ -215,6 +212,13 @@ pub fn resolve_audio_file(cue_dir: &Path, referenced: &str) -> Option<PathBuf> {
 
     matches.sort();
     matches.into_iter().next()
+}
+
+pub fn folder_disc_number(path: &Path) -> Option<u32> {
+    path.parent()?
+        .file_name()?
+        .to_str()
+        .and_then(parse_disc_folder)
 }
 
 /// Parse a disc number from a folder named exactly like a disc directory: `CD1`,
@@ -308,6 +312,20 @@ mod tests {
         assert_eq!(parse_disc_folder("Disc03"), Some(3));
         assert_eq!(parse_disc_folder("disc 4"), Some(4));
         assert_eq!(parse_disc_folder(" cd 10 "), Some(10));
+    }
+
+    #[test]
+    fn test_folder_disc_number_reads_the_parent_folder_only() {
+        use std::path::Path;
+        assert_eq!(
+            super::folder_disc_number(Path::new("/m/Album/CD 2/01.flac")),
+            Some(2)
+        );
+        assert_eq!(
+            super::folder_disc_number(Path::new("/m/Disc 3/Album/01.flac")),
+            None
+        );
+        assert_eq!(super::folder_disc_number(Path::new("01.flac")), None);
     }
 
     #[test]

@@ -19,7 +19,7 @@ const SIDECAR_LIMIT: u64 = 1024 * 1024;
 const COVER_LIMIT: u64 = 8 * 1024 * 1024;
 const PROBE_STALL: Duration = Duration::from_secs(90);
 const TAILED_EXTENSIONS: &[&str] = &[
-    "mp3", "ogg", "oga", "opus", "m4a", "aac", "wma", "ape", "wv", "dsf",
+    "mp3", "ogg", "oga", "opus", "m4a", "aac", "wma", "ape", "wv", "dsf", "aif", "aiff",
 ];
 const SIDECAR_EXTENSIONS: &[&str] = &["lrc"];
 
@@ -469,7 +469,7 @@ pub(super) fn song(track: PreparedTrack, file: &FileEntry) -> RemoteSong {
         album: real_album(track.album_title),
         album_artist: real_artist(track.album_artist_names.into_iter().next()),
         track_number: real_track_number(track.track_number),
-        disc_number: track.disc_number,
+        disc_number: crate::library_service::disc_number(track.disc_number, &file.path),
         year: track.year,
         genre: joined_genres(&track.genres),
         duration_ms: track.duration_ms.map(|ms| ms as i64),

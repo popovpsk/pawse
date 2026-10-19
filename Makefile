@@ -24,6 +24,7 @@ FIXTURES = \
 	$(FIXTURES_DIR)/tagged_opus.opus \
 	$(FIXTURES_DIR)/late_start_opus.opus \
 	$(FIXTURES_DIR)/tagged_m4a.m4a \
+	$(FIXTURES_DIR)/tagged_aiff.aiff \
 	$(FIXTURES_DIR)/long_44_stereo.flac \
 	$(FIXTURES_DIR)/long_44_stereo.m4a \
 	$(FIXTURES_DIR)/long_22_mono.wav \
@@ -199,6 +200,14 @@ $(FIXTURES_DIR)/tagged_m4a.m4a: | $(FIXTURES_DIR)
 		-metadata album="M4A Album" \
 		-metadata track="4" \
 		-codec:a aac "$@"
+
+$(FIXTURES_DIR)/tagged_aiff.aiff: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \
+		-metadata title="AIFF Track" \
+		-metadata artist="AIFF Artist" \
+		-metadata album="AIFF Album" \
+		-metadata track="2" \
+		-write_id3v2 1 -codec:a pcm_s16be "$@"
 
 clean:
 	rm -f $(FIXTURES)

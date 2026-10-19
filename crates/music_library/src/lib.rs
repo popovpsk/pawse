@@ -20,7 +20,7 @@ pub use models::{
     StoredLyrics, Track, TrackAnalysis, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
-pub use sqlite::{SqliteLibrary, compute_sort_name, sha256_hex};
+pub use sqlite::{SqliteLibrary, clean_album_title, compute_sort_name, sha256_hex};
 
 pub const NO_METADATA_ALBUM_ID: i64 = -1;
 pub const NO_METADATA_ARTIST_ID: i64 = -2;
@@ -974,12 +974,34 @@ mod tests {
         assert!(lib.album_title(999).unwrap().is_none());
     }
 
-    #[test]
-    fn test_vacuum_preserves_data() {
-        let (lib, _path) = create_test_db();
-        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+    fn pragma(path: &std::path::Path, name: &str) -> i64 {
+        rusqlite::Connection::open(path)
+            .unwrap()
+            .query_row(&format!("PRAGMA {name}"), [], |row| row.get(0))
+            .unwrap()
+    }
 
-        lib.vacuum().unwrap();
+    #[test]
+    fn maintain_storage_vacuums_only_a_mostly_free_file_and_keeps_data() {
+        let (lib, path) = create_test_db();
+        let track_id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.maintain_storage().unwrap();
+
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("CREATE TABLE filler (blob BLOB)")
+                .unwrap();
+            for _ in 0..64 {
+                conn.execute("INSERT INTO filler VALUES (zeroblob(65536))", [])
+                    .unwrap();
+            }
+            conn.execute_batch("DELETE FROM filler; PRAGMA wal_checkpoint(TRUNCATE);")
+                .unwrap();
+        }
+        assert!(pragma(&path, "freelist_count") * 4 > pragma(&path, "page_count"));
+
+        lib.maintain_storage().unwrap();
+        assert_eq!(pragma(&path, "freelist_count"), 0);
 
         let albums = lib.albums().unwrap();
         assert_eq!(albums.len(), 1);
@@ -987,6 +1009,64 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].id, track_id);
         assert_eq!(tracks[0].title, "Song");
+    }
+
+    #[test]
+    fn maintain_storage_analyzes_again_after_a_size_jump_or_a_day() {
+        let (lib, path) = create_test_db();
+        for n in 0..8 {
+            seed_track(&lib, &format!("Song {n}"), "Album", "Artist");
+        }
+        let analyzed = || -> Option<String> {
+            rusqlite::Connection::open(&path)
+                .unwrap()
+                .query_row(
+                    "SELECT value FROM scan_meta WHERE key = 'analyzed_tracks'",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok()
+        };
+        let clear_stats = || {
+            rusqlite::Connection::open(&path)
+                .unwrap()
+                .execute("DELETE FROM sqlite_stat1", [])
+                .unwrap();
+        };
+
+        lib.maintain_storage().unwrap();
+        assert_eq!(analyzed(), Some("8".into()));
+
+        clear_stats();
+        seed_track(&lib, "Song 8", "Album", "Artist");
+        lib.maintain_storage().unwrap();
+        assert_eq!(analyzed(), Some("8".into()));
+        let stats: i64 = rusqlite::Connection::open(&path)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM sqlite_stat1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(stats, 0, "a small change must not re-run ANALYZE");
+
+        for n in 9..12 {
+            seed_track(&lib, &format!("Song {n}"), "Album", "Artist");
+        }
+        lib.maintain_storage().unwrap();
+        assert_eq!(analyzed(), Some("12".into()));
+
+        clear_stats();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute(
+                "UPDATE scan_meta SET value = '0' WHERE key = 'analyzed_at'",
+                [],
+            )
+            .unwrap();
+        lib.maintain_storage().unwrap();
+        let stats: i64 = rusqlite::Connection::open(&path)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM sqlite_stat1", [], |row| row.get(0))
+            .unwrap();
+        assert!(stats > 0, "statistics older than a day are refreshed");
     }
 
     #[test]

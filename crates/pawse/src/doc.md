@@ -774,7 +774,11 @@ Integrations:
   in both. The album editor shows an album whose tracks disagree on the year with an
   empty field and the range as placeholder, and writes the year only if the field was
   changed (`AlbumTagEdits::year` `None`): otherwise one save would stamp the first
-  track's year onto every song of a compilation.
+  track's year onto every song of a compilation. An album keyed on a release date shows
+  that year instead (`album_release_year`, the year its card shows), and a change goes
+  to `AlbumTagEdits::release_year`: it moves `ReleaseDate` in every file and leaves each
+  track's recording date, or the edit would not show on the card (a file whose only date
+  is the release date reads the new year as its own).
 - Read-only: a cue track, a file that is the current queue track (checked on open and
   on save), an album with no own files. Server tracks get no editor; the album save
   skips server and cue tracks (`Track::own_file`).
@@ -793,9 +797,12 @@ Integrations:
   `apply_track_tags` / `apply_album_tags`, rescan with the real pipeline and compare
   `snapshot()` (every column, so forgotten ones show up).
 - Placeholder credits are dropped at ingest: `to_scan_track` and `reindex_one` pass both
-  name lists through `clean_artist_names` (trim, drop empty and `is_placeholder_artist`).
-  Never move that into `read_metadata`: it prefills this modal, and saving any other
-  field would write the emptied artist back.
+  name lists through `clean_artist_names` (trim, drop empty and `is_placeholder_artist`),
+  the album title through `music_library::clean_album_title`, and a missing disc number
+  falls back to a `CD n` / `Disc n` parent folder (`disc_number`, which the torrent
+  index uses for its songs too). Never move any of that
+  into `read_metadata`: it prefills this modal, and saving any other field would write
+  the cleaned value back.
 - The cover row shows the file's own embedded picture, never the library's cover (which
   may come from a `cover.jpg` beside the file), or Remove would look like it did
   something. Empty when none, and Remove is hidden. Setting one is still offered and

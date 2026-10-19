@@ -225,6 +225,16 @@ mod tests {
     }
 
     #[test]
+    fn test_read_metadata_tagged_aiff() {
+        let track = read_tagged_fixture("tagged_aiff.aiff");
+        assert_eq!(track.title.as_deref(), Some("AIFF Track"));
+        assert_eq!(track.artist_names, vec!["AIFF Artist".to_string()]);
+        assert_eq!(track.album_title.as_deref(), Some("AIFF Album"));
+        assert_eq!(track.track_number, Some(2));
+        assert!(track.duration_ms.unwrap() > 0);
+    }
+
+    #[test]
     fn test_read_metadata_tagged_ogg() {
         let track = read_tagged_fixture("tagged_ogg.ogg");
         assert_eq!(track.title.as_deref(), Some("OGG Track"));
@@ -799,6 +809,8 @@ mod tests {
         copy_fixture_wav(&tmp.path().join("a.wav"));
         copy_fixture("tagless.flac", &tmp.path().join("b.flac"));
         copy_fixture("tagged_mp3.mp3", &tmp.path().join("c.mp3"));
+        copy_fixture("tagged_aiff.aiff", &tmp.path().join("d.aiff"));
+        copy_fixture("tagged_aiff.aiff", &tmp.path().join("e.aif"));
 
         let events = collect_scan_events(tmp.path());
 
@@ -809,7 +821,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(tracks.len(), 3, "all supported formats should be processed");
+        assert_eq!(tracks.len(), 5, "all supported formats should be processed");
     }
 
     // ── CUE file processing ───────────────────────────────────────────
@@ -865,6 +877,22 @@ FILE \"audio.wav\" WAVE
         assert_eq!(t1.artist_names, vec!["Album Performer".to_string()]);
         assert_eq!(t1.track_number, Some(2));
         assert_eq!(t1.start_offset_ms, Some(200));
+    }
+
+    #[test]
+    fn test_cue_full_date_gives_its_year() {
+        let tmp = TempDir::new();
+        let dir = tmp.path();
+        copy_fixture_wav(&dir.join("audio.wav"));
+        let cue_path = dir.join("album.cue");
+        std::fs::write(
+            &cue_path,
+            "TITLE \"Dated\"\nREM DATE \"2004-05-01\"\nFILE \"audio.wav\" WAVE\n  TRACK 01 AUDIO\n    TITLE \"One\"\n    INDEX 01 00:00:00\n",
+        )
+        .unwrap();
+
+        let tracks = super::cue::process_cue_file(&cue_path).unwrap();
+        assert_eq!(tracks[0].year, Some(2004));
     }
 
     #[test]
