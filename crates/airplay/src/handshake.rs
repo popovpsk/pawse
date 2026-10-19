@@ -68,8 +68,8 @@ impl TimingServer {
                     if let Ok((len, from)) = socket.recv_from(&mut buffer) {
                         let received = rtp::ntp_now();
                         if let Some(reply) = rtp::timing_reply(&buffer[..len], received) {
-                            let _ = socket.send_to(&reply, from);
                             answered.store(true, Ordering::Release);
+                            let _ = socket.send_to(&reply, from);
                         }
                     }
                 }
