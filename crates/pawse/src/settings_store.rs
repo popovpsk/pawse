@@ -996,6 +996,33 @@ pub struct SettingsStore {
 
 impl Global for SettingsStore {}
 
+fn parse_settings(text: &str) -> UserSettings {
+    match serde_json::from_str(text) {
+        Ok(settings) => settings,
+        Err(e) => {
+            log::warn!("settings: {e}; keeping the keys that read");
+            salvage_settings(text)
+        }
+    }
+}
+
+fn salvage_settings(text: &str) -> UserSettings {
+    let Ok(serde_json::Value::Object(file)) = serde_json::from_str(text) else {
+        return UserSettings::default();
+    };
+    let mut kept = serde_json::Value::Object(serde_json::Map::new());
+    for (key, value) in file {
+        kept[key.as_str()] = value;
+        if UserSettings::deserialize(&kept).is_err() {
+            log::warn!("settings: `{key}` does not read, using its default");
+            if let Some(map) = kept.as_object_mut() {
+                map.remove(&key);
+            }
+        }
+    }
+    UserSettings::deserialize(&kept).unwrap_or_default()
+}
+
 fn write_settings(path: &Path, settings: &UserSettings) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1013,9 +1040,8 @@ impl SettingsStore {
     }
 
     pub fn load_from(path: PathBuf) -> Self {
-        let mut settings: UserSettings = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
+        let mut settings = std::fs::read_to_string(&path)
+            .map(|text| parse_settings(&text))
             .unwrap_or_default();
         migrate_scrobble(&mut settings);
         migrate_torrents(&mut settings);
@@ -2074,6 +2100,30 @@ mod tests {
         let store = SettingsStore::load_from(path.clone());
         assert_eq!(store.theme(), ThemeChoice::System);
         assert!(store.music_folders().is_empty());
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_value_that_does_not_read_costs_only_its_own_key() {
+        let path = tmp_settings_path();
+        fs::write(
+            &path,
+            r#"{
+                "music_folders": ["/music"],
+                "spectrum_style": "no_such_style",
+                "volume": "loud",
+                "lyrics_italic": true,
+                "a_key_from_the_future": 1
+            }"#,
+        )
+        .unwrap();
+
+        let store = SettingsStore::load_from(path.clone());
+        assert_eq!(store.music_folders(), &[PathBuf::from("/music")]);
+        assert!(store.lyrics_italic());
+        assert_eq!(store.spectrum_style(), SpectrumStyle::default());
+        assert_eq!(store.settings.volume, UserSettings::default().volume);
 
         cleanup(&path);
     }

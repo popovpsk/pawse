@@ -12,7 +12,8 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
 ## Files
 
 - `mod.rs` — `SpectrumView`: frame loop, tap hand-over, latency refresh, settings, hover;
-  `block` (gap and height range per style) and the layout constants the cover view uses.
+  `placement` (overlay on the cover, block in the stack or strip along the view's bottom,
+  each with its gap and height range) and the layout constants the cover view uses.
 - `paint.rs` — the four styles drawn with paths, quads and shaped lines; label formatting.
 - `settings.rs` — `settings_group`: Style, Tilt, Smoothing, Frame rate; Appearance shows
   it right under Cover view.
@@ -54,7 +55,9 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
   every 3 s on the background executor (CoreAudio property reads), so a device switch is
   picked up; a paused or settled spectrum asks nothing.
 - The point count follows the plot width measured in the last prepaint (one point per 3 px
-  for the minimal styles, 2 px for zones and analyzer).
+  for the minimal styles, 2 px for zones and analyzer). The silhouette's strip spans the
+  whole view, so it spreads at most `SILHOUETTE_POINTS` over it: at 1/3-octave smoothing
+  more points add work every frame, not detail.
 - Zone readouts are re-formatted at most every 125 ms, and only for the analyzer style.
 
 ## Painting
@@ -86,11 +89,12 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
   turns vertical at the edge, where the flattening's sag is large in y): quiet ends would
   otherwise trace the rounded corners as two hooks. The straight floor between them keeps
   its line.
-- Silhouette draws its hover labels in the 16 px under its plot, which the block height
-  includes.
+- Silhouette fills its strip and draws its hover labels inside the plot along the bottom,
+  at the cover style's offsets in foreground ink: the footer or the window edge is right
+  under it. Its baseline is the strip's bottom pixel row, so the edge does not clip it.
 - The box height is the cover view's choice (`Block::fit`), so plot heights are what is
-  left after each style's fixed label rows (`ZONES_PLOT`, `ANALYZER_PLOT`,
-  `SILHOUETTE_LABELS`); the dB range always spans the plot.
+  left after each style's fixed label rows (`ZONES_PLOT`, `ANALYZER_PLOT`); the dB range
+  always spans the plot.
 - Labels never overlap on a narrow plot: a zone name or level is drawn only when it fits
   its zone with `LABEL_PAD` on each side ("LOW MID" spans one octave), a frequency tick
   only clear of the end labels, and the analyzer's legend only clear of the hover
@@ -109,6 +113,8 @@ screen (`main_view.rs`, `pawse/src/doc.md`, "Main view").
 Owner's calls; ask before changing.
 
 - All four styles stay: On the cover, Silhouette (default), Zones, Analyzer.
+- Silhouette spans the whole view along its bottom (window edge to the side panel), right
+  above the footer, with its labels inside the plot.
 - The toggle lives in Cover view under Full screen (stacked, not side by side: beside it,
   it landed on the cover); every other setting is a group in Appearance, right under
   Cover view, and its description does not say where the toggle is.

@@ -61,7 +61,7 @@ static EN: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("The spectrum isn't available while casting to a device"),
     style: SharedString::new_static("Style"),
     style_desc: SharedString::new_static(
-        "On the cover: a curve along the bottom edge of the cover. Silhouette: a curve under the cover. Zones: frequency zones and a scale. Analyzer: the full grid with zone levels.",
+        "On the cover: a curve along the bottom edge of the cover. Silhouette: a curve across the whole width along the bottom edge. Zones: frequency zones and a scale. Analyzer: the full grid with zone levels.",
     ),
     style_cover: SharedString::new_static("On the cover"),
     style_silhouette: SharedString::new_static("Silhouette"),
@@ -91,7 +91,7 @@ static RU: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("Спектр недоступен во время трансляции на устройство"),
     style: SharedString::new_static("Стиль"),
     style_desc: SharedString::new_static(
-        "На обложке — кривая по нижнему краю обложки. Силуэт — кривая под обложкой. Зоны — частотные зоны и шкала. Анализатор — полная сетка с уровнями зон.",
+        "На обложке — кривая по нижнему краю обложки. Силуэт — кривая во всю ширину по нижнему краю. Зоны — частотные зоны и шкала. Анализатор — полная сетка с уровнями зон.",
     ),
     style_cover: SharedString::new_static("На обложке"),
     style_silhouette: SharedString::new_static("Силуэт"),
@@ -121,7 +121,7 @@ static UK: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("Спектр недоступний під час трансляції на пристрій"),
     style: SharedString::new_static("Стиль"),
     style_desc: SharedString::new_static(
-        "На обкладинці — крива вздовж нижнього краю обкладинки. Силует — крива під обкладинкою. Зони — частотні зони та шкала. Аналізатор — повна сітка з рівнями зон.",
+        "На обкладинці — крива вздовж нижнього краю обкладинки. Силует — крива на всю ширину вздовж нижнього краю. Зони — частотні зони та шкала. Аналізатор — повна сітка з рівнями зон.",
     ),
     style_cover: SharedString::new_static("На обкладинці"),
     style_silhouette: SharedString::new_static("Силует"),
@@ -153,7 +153,7 @@ static DE: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Stil"),
     style_desc: SharedString::new_static(
-        "Auf dem Cover: eine Kurve am unteren Rand des Covers. Silhouette: eine Kurve unter dem Cover. Zonen: Frequenzzonen und eine Skala. Analysator: das volle Raster mit den Pegeln der Zonen.",
+        "Auf dem Cover: eine Kurve am unteren Rand des Covers. Silhouette: eine Kurve über die ganze Breite am unteren Rand. Zonen: Frequenzzonen und eine Skala. Analysator: das volle Raster mit den Pegeln der Zonen.",
     ),
     style_cover: SharedString::new_static("Auf dem Cover"),
     style_silhouette: SharedString::new_static("Silhouette"),
@@ -185,7 +185,7 @@ static FR: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Style"),
     style_desc: SharedString::new_static(
-        "Sur la pochette : une courbe le long du bord inférieur de la pochette. Silhouette : une courbe sous la pochette. Zones : les zones de fréquences et une échelle. Analyseur : la grille complète avec le niveau des zones.",
+        "Sur la pochette : une courbe le long du bord inférieur de la pochette. Silhouette : une courbe sur toute la largeur, le long du bord inférieur. Zones : les zones de fréquences et une échelle. Analyseur : la grille complète avec le niveau des zones.",
     ),
     style_cover: SharedString::new_static("Sur la pochette"),
     style_silhouette: SharedString::new_static("Silhouette"),
@@ -217,7 +217,7 @@ static ES: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Estilo"),
     style_desc: SharedString::new_static(
-        "Sobre la portada: una curva a lo largo del borde inferior de la portada. Silueta: una curva bajo la portada. Zonas: zonas de frecuencia y una escala. Analizador: la cuadrícula completa con el nivel de cada zona.",
+        "Sobre la portada: una curva a lo largo del borde inferior de la portada. Silueta: una curva a todo lo ancho, a lo largo del borde inferior. Zonas: zonas de frecuencia y una escala. Analizador: la cuadrícula completa con el nivel de cada zona.",
     ),
     style_cover: SharedString::new_static("Sobre la portada"),
     style_silhouette: SharedString::new_static("Silueta"),
@@ -249,7 +249,7 @@ static PT: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Estilo"),
     style_desc: SharedString::new_static(
-        "Na capa: uma curva ao longo da borda inferior da capa. Silhueta: uma curva abaixo da capa. Zonas: zonas de frequência e uma escala. Analisador: a grade completa com o nível de cada zona.",
+        "Na capa: uma curva ao longo da borda inferior da capa. Silhueta: uma curva em toda a largura, ao longo da borda inferior. Zonas: zonas de frequência e uma escala. Analisador: a grade completa com o nível de cada zona.",
     ),
     style_cover: SharedString::new_static("Na capa"),
     style_silhouette: SharedString::new_static("Silhueta"),
@@ -281,7 +281,7 @@ static IT: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Stile"),
     style_desc: SharedString::new_static(
-        "Sulla copertina: una curva lungo il bordo inferiore della copertina. Silhouette: una curva sotto la copertina. Zone: le zone di frequenza e una scala. Analizzatore: la griglia completa con il livello delle zone.",
+        "Sulla copertina: una curva lungo il bordo inferiore della copertina. Silhouette: una curva su tutta la larghezza, lungo il bordo inferiore. Zone: le zone di frequenza e una scala. Analizzatore: la griglia completa con il livello delle zone.",
     ),
     style_cover: SharedString::new_static("Sulla copertina"),
     style_silhouette: SharedString::new_static("Silhouette"),
@@ -313,7 +313,7 @@ static NL: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Stijl"),
     style_desc: SharedString::new_static(
-        "Op de hoes: een curve langs de onderrand van de hoes. Silhouet: een curve onder de hoes. Zones: frequentiezones en een schaal. Analyse: het volledige raster met het niveau per zone.",
+        "Op de hoes: een curve langs de onderrand van de hoes. Silhouet: een curve over de hele breedte langs de onderrand. Zones: frequentiezones en een schaal. Analyse: het volledige raster met het niveau per zone.",
     ),
     style_cover: SharedString::new_static("Op de hoes"),
     style_silhouette: SharedString::new_static("Silhouet"),
@@ -345,7 +345,7 @@ static SV: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Stil"),
     style_desc: SharedString::new_static(
-        "På omslaget: en kurva längs omslagets nederkant. Siluett: en kurva under omslaget. Zoner: frekvenszoner och en skala. Analys: hela rutnätet med nivån för varje zon.",
+        "På omslaget: en kurva längs omslagets nederkant. Siluett: en kurva över hela bredden längs nederkanten. Zoner: frekvenszoner och en skala. Analys: hela rutnätet med nivån för varje zon.",
     ),
     style_cover: SharedString::new_static("På omslaget"),
     style_silhouette: SharedString::new_static("Siluett"),
@@ -377,7 +377,7 @@ static PL: SpectrumStrings = SpectrumStrings {
     ),
     style: SharedString::new_static("Styl"),
     style_desc: SharedString::new_static(
-        "Na okładce: krzywa wzdłuż dolnej krawędzi okładki. Sylwetka: krzywa pod okładką. Strefy: strefy częstotliwości i skala. Analizator: pełna siatka z poziomem każdej strefy.",
+        "Na okładce: krzywa wzdłuż dolnej krawędzi okładki. Sylwetka: krzywa na całą szerokość wzdłuż dolnej krawędzi. Strefy: strefy częstotliwości i skala. Analizator: pełna siatka z poziomem każdej strefy.",
     ),
     style_cover: SharedString::new_static("Na okładce"),
     style_silhouette: SharedString::new_static("Sylwetka"),
@@ -407,7 +407,7 @@ static CS: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("Spektrum není dostupné při přenosu do zařízení"),
     style: SharedString::new_static("Styl"),
     style_desc: SharedString::new_static(
-        "Na obalu: křivka podél spodního okraje obalu. Silueta: křivka pod obalem. Zóny: frekvenční zóny a stupnice. Analyzátor: celá mřížka s úrovní každé zóny.",
+        "Na obalu: křivka podél spodního okraje obalu. Silueta: křivka přes celou šířku podél spodního okraje. Zóny: frekvenční zóny a stupnice. Analyzátor: celá mřížka s úrovní každé zóny.",
     ),
     style_cover: SharedString::new_static("Na obalu"),
     style_silhouette: SharedString::new_static("Silueta"),
@@ -437,7 +437,7 @@ static TR: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("Bir cihaza yayın yapılırken spektrum kullanılamaz"),
     style: SharedString::new_static("Stil"),
     style_desc: SharedString::new_static(
-        "Kapakta: kapağın alt kenarı boyunca bir eğri. Siluet: kapağın altında bir eğri. Bölgeler: frekans bölgeleri ve bir ölçek. Analizör: bölge seviyeleriyle birlikte tam ızgara.",
+        "Kapakta: kapağın alt kenarı boyunca bir eğri. Siluet: alt kenar boyunca tüm genişliği kaplayan bir eğri. Bölgeler: frekans bölgeleri ve bir ölçek. Analizör: bölge seviyeleriyle birlikte tam ızgara.",
     ),
     style_cover: SharedString::new_static("Kapakta"),
     style_silhouette: SharedString::new_static("Siluet"),
@@ -467,7 +467,7 @@ static ZH: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("投放到设备时无法显示频谱"),
     style: SharedString::new_static("样式"),
     style_desc: SharedString::new_static(
-        "封面上：沿封面底边的一条曲线。剪影：封面下方的一条曲线。分区：频段分区和刻度。分析仪：带各分区电平的完整网格。",
+        "封面上：沿封面底边的一条曲线。剪影：沿底边横跨整个宽度的一条曲线。分区：频段分区和刻度。分析仪：带各分区电平的完整网格。",
     ),
     style_cover: SharedString::new_static("封面上"),
     style_silhouette: SharedString::new_static("剪影"),
@@ -497,7 +497,7 @@ static JA: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("デバイスへのキャスト中はスペクトラムを表示できません"),
     style: SharedString::new_static("スタイル"),
     style_desc: SharedString::new_static(
-        "カバー上：カバーの下端に沿った曲線。シルエット：カバーの下の曲線。ゾーン：周波数ゾーンと目盛り。アナライザー：ゾーンごとのレベル付きの完全なグリッド。",
+        "カバー上：カバーの下端に沿った曲線。シルエット：下端に沿って横幅いっぱいに広がる曲線。ゾーン：周波数ゾーンと目盛り。アナライザー：ゾーンごとのレベル付きの完全なグリッド。",
     ),
     style_cover: SharedString::new_static("カバー上"),
     style_silhouette: SharedString::new_static("シルエット"),
@@ -527,7 +527,7 @@ static KO: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("기기로 캐스팅하는 동안에는 스펙트럼을 볼 수 없습니다"),
     style: SharedString::new_static("스타일"),
     style_desc: SharedString::new_static(
-        "커버 위: 커버 아래쪽 가장자리를 따라가는 곡선. 실루엣: 커버 아래의 곡선. 구역: 주파수 구역과 눈금. 분석기: 구역별 레벨이 표시되는 전체 격자.",
+        "커버 위: 커버 아래쪽 가장자리를 따라가는 곡선. 실루엣: 아래쪽 가장자리를 따라 전체 너비에 걸친 곡선. 구역: 주파수 구역과 눈금. 분석기: 구역별 레벨이 표시되는 전체 격자.",
     ),
     style_cover: SharedString::new_static("커버 위"),
     style_silhouette: SharedString::new_static("실루엣"),
@@ -557,7 +557,7 @@ static VI: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("Không thể xem phổ khi đang truyền tới thiết bị"),
     style: SharedString::new_static("Kiểu"),
     style_desc: SharedString::new_static(
-        "Trên bìa: một đường cong dọc mép dưới của bìa. Bóng: một đường cong dưới bìa. Vùng: các vùng tần số và một thang đo. Bộ phân tích: lưới đầy đủ kèm mức của từng vùng.",
+        "Trên bìa: một đường cong dọc mép dưới của bìa. Bóng: một đường cong trải hết chiều rộng dọc mép dưới. Vùng: các vùng tần số và một thang đo. Bộ phân tích: lưới đầy đủ kèm mức của từng vùng.",
     ),
     style_cover: SharedString::new_static("Trên bìa"),
     style_silhouette: SharedString::new_static("Bóng"),
@@ -587,7 +587,7 @@ static ID: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("Spektrum tidak tersedia selama transmisi ke perangkat"),
     style: SharedString::new_static("Gaya"),
     style_desc: SharedString::new_static(
-        "Di sampul: kurva di sepanjang tepi bawah sampul. Siluet: kurva di bawah sampul. Zona: zona frekuensi dan skala. Penganalisis: kisi lengkap dengan level setiap zona.",
+        "Di sampul: kurva di sepanjang tepi bawah sampul. Siluet: kurva selebar tampilan di sepanjang tepi bawah. Zona: zona frekuensi dan skala. Penganalisis: kisi lengkap dengan level setiap zona.",
     ),
     style_cover: SharedString::new_static("Di sampul"),
     style_silhouette: SharedString::new_static("Siluet"),
@@ -617,7 +617,7 @@ static TH: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("ไม่สามารถแสดงสเปกตรัมขณะส่งไปยังอุปกรณ์"),
     style: SharedString::new_static("รูปแบบ"),
     style_desc: SharedString::new_static(
-        "บนปก: เส้นโค้งตามขอบล่างของปก เงา: เส้นโค้งใต้ปก โซน: โซนความถี่และสเกล ตัววิเคราะห์: ตารางเต็มพร้อมระดับของแต่ละโซน",
+        "บนปก: เส้นโค้งตามขอบล่างของปก เงา: เส้นโค้งเต็มความกว้างตามขอบล่าง โซน: โซนความถี่และสเกล ตัววิเคราะห์: ตารางเต็มพร้อมระดับของแต่ละโซน",
     ),
     style_cover: SharedString::new_static("บนปก"),
     style_silhouette: SharedString::new_static("เงา"),
@@ -647,7 +647,7 @@ static HI: SpectrumStrings = SpectrumStrings {
     unavailable: SharedString::new_static("किसी डिवाइस पर कास्ट करते समय स्पेक्ट्रम उपलब्ध नहीं है"),
     style: SharedString::new_static("शैली"),
     style_desc: SharedString::new_static(
-        "कवर पर: कवर के निचले किनारे के साथ एक वक्र। छाया: कवर के नीचे एक वक्र। ज़ोन: आवृत्ति ज़ोन और एक पैमाना। विश्लेषक: हर ज़ोन के स्तर के साथ पूरा ग्रिड।",
+        "कवर पर: कवर के निचले किनारे के साथ एक वक्र। छाया: निचले किनारे के साथ पूरी चौड़ाई में एक वक्र। ज़ोन: आवृत्ति ज़ोन और एक पैमाना। विश्लेषक: हर ज़ोन के स्तर के साथ पूरा ग्रिड।",
     ),
     style_cover: SharedString::new_static("कवर पर"),
     style_silhouette: SharedString::new_static("छाया"),

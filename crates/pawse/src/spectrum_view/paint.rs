@@ -5,7 +5,6 @@ use gpui::{
 };
 use spectrum::{Analyzer, ZONES, position, zone_of};
 
-use super::SILHOUETTE_LABELS;
 use crate::cover_mode_view::COVER_RADIUS;
 use crate::cover_skin::color::{oklch, to_hsla, to_oklch};
 use crate::settings_store::SpectrumStyle;
@@ -21,6 +20,7 @@ const MITER_MIN: f32 = 0.5;
 const SOLID: (Point<f32>, Point<f32>, Point<f32>) = (point(0., 1.), point(0., 1.), point(0., 1.));
 const COVER_RANGE: (f32, f32) = (-20., -76.);
 const SILHOUETTE_RANGE: (f32, f32) = (-22., -74.);
+const SILHOUETTE_POINTS: f32 = 400.;
 const ZONES_PLOT: (f32, f32) = (18., 20.);
 const ZONES_RANGE: (f32, f32) = (-12., -84.);
 const ANALYZER_PLOT: (f32, f32) = (34., 38.);
@@ -174,9 +174,10 @@ pub fn readout_text(style: SpectrumStyle, hz: f32, db: f32) -> SharedString {
     .into()
 }
 
-pub fn point_step(style: SpectrumStyle) -> f32 {
+pub fn point_step(style: SpectrumStyle, plot_width: f32) -> f32 {
     match style {
-        SpectrumStyle::Cover | SpectrumStyle::Silhouette => 3.,
+        SpectrumStyle::Cover => 3.,
+        SpectrumStyle::Silhouette => (plot_width / SILHOUETTE_POINTS).max(3.),
         SpectrumStyle::Zones | SpectrumStyle::Analyzer => 2.,
     }
 }
@@ -194,7 +195,7 @@ fn plot(style: SpectrumStyle, width: f32, height: f32) -> Plot {
     let edge = COVER_STROKE / 2.;
     let (left, top, w, h) = match style {
         SpectrumStyle::Cover => (edge, 0., width - edge * 2., height - edge),
-        SpectrumStyle::Silhouette => (0., 0., width, height - SILHOUETTE_LABELS),
+        SpectrumStyle::Silhouette => (0., 0., width, height),
         SpectrumStyle::Zones => (
             0.,
             ZONES_PLOT.0,
@@ -234,7 +235,7 @@ pub fn draw(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut
     let plot = plot(frame.style, width, height);
     match frame.style {
         SpectrumStyle::Cover => cover(frame, origin, plot, height, window, cx),
-        SpectrumStyle::Silhouette => silhouette(frame, origin, plot, width, window, cx),
+        SpectrumStyle::Silhouette => silhouette(frame, origin, plot, window, cx),
         SpectrumStyle::Zones => zones(frame, origin, plot, window, cx),
         SpectrumStyle::Analyzer => analyzer(frame, origin, plot, height, window, cx),
     }
@@ -298,14 +299,7 @@ fn cover_ink(accent: Hsla, luma: f32) -> Hsla {
     to_hsla(ink, accent.a)
 }
 
-fn silhouette(
-    frame: &Frame,
-    origin: Point<Pixels>,
-    plot: Plot,
-    width: f32,
-    window: &mut Window,
-    cx: &mut App,
-) {
+fn silhouette(frame: &Frame, origin: Point<Pixels>, plot: Plot, window: &mut Window, cx: &mut App) {
     let palette = frame.palette;
     curve(
         frame,
@@ -317,11 +311,12 @@ fn silhouette(
         Some((1.6, 1.)),
         window,
     );
-    hline(
+    rect(
         origin,
-        0.,
-        width,
-        plot.bottom(),
+        plot.left,
+        plot.bottom() - 1.,
+        plot.width,
+        1.,
         palette.fg.opacity(0.14),
         window,
     );
@@ -329,17 +324,17 @@ fn silhouette(
         dividers(
             origin,
             plot,
-            plot.bottom() - 4.,
-            plot.bottom() + 5.,
-            palette.fg.opacity(0.35),
+            plot.bottom() - 10.,
+            plot.bottom(),
+            palette.fg.opacity(0.45),
             window,
         );
         zone_names(
             frame,
             origin,
             plot,
-            plot.bottom() + 10.,
-            palette.muted.opacity(0.7),
+            plot.bottom() - 16.,
+            palette.fg.opacity(0.75),
             window,
             cx,
         );
@@ -1088,6 +1083,23 @@ mod tests {
         let (cx, cy) = (p.right() - p.corner, p.bottom() - p.corner);
         assert!(((x - cx).hypot(p.floor(x) - cy) - p.corner).abs() < 1e-3);
         assert_eq!(plot(SpectrumStyle::Zones, 300., 150.).corner, 0.);
+    }
+
+    #[test]
+    fn the_silhouette_spaces_its_points_out_on_a_wide_strip() {
+        assert_eq!(point_step(SpectrumStyle::Silhouette, 900.), 3.);
+        for width in [1_200., 3_000., 6_000.] {
+            let count = width / point_step(SpectrumStyle::Silhouette, width) + 1.;
+            assert!(count <= SILHOUETTE_POINTS + 1., "{width}: {count}");
+        }
+    }
+
+    #[test]
+    fn silhouette_plot_fills_its_strip() {
+        let p = plot(SpectrumStyle::Silhouette, 1600., 72.);
+        assert_eq!((p.left, p.right(), p.top, p.bottom()), (0., 1600., 0., 72.));
+        assert_eq!(p.y(SILHOUETTE_RANGE.0), 0.);
+        assert_eq!(p.y(SILHOUETTE_RANGE.1), 72.);
     }
 
     fn axis(count: usize) -> Vec<f32> {

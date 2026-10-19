@@ -19,7 +19,6 @@ use crate::settings_store::{SettingsStore, SpectrumFrameRate, SpectrumStyle};
 use crate::theme_colors::Colors;
 use paint::{Frame, Palette};
 
-pub const SILHOUETTE_LABELS: f32 = 16.;
 pub const WIDE_MAX_WIDTH: f32 = 1_200.;
 pub const COVER_FRACTION: f32 = 0.3;
 
@@ -46,22 +45,28 @@ impl Block {
     }
 }
 
-pub fn block(style: SpectrumStyle) -> Option<Block> {
+pub enum Placement {
+    Overlay,
+    Below(Block),
+    Strip(Block),
+}
+
+pub fn placement(style: SpectrumStyle) -> Placement {
     match style {
-        SpectrumStyle::Cover => None,
-        SpectrumStyle::Silhouette => Some(Block {
-            gap: 18.,
-            min: 40. + SILHOUETTE_LABELS,
-            share: 0.11,
-            max: 112. + SILHOUETTE_LABELS,
+        SpectrumStyle::Cover => Placement::Overlay,
+        SpectrumStyle::Silhouette => Placement::Strip(Block {
+            gap: 0.,
+            min: 40.,
+            share: 0.09,
+            max: 112.,
         }),
-        SpectrumStyle::Zones => Some(Block {
+        SpectrumStyle::Zones => Placement::Below(Block {
             gap: 22.,
             min: 110.,
             share: 0.22,
             max: 260.,
         }),
-        SpectrumStyle::Analyzer => Some(Block {
+        SpectrumStyle::Analyzer => Placement::Below(Block {
             gap: 26.,
             min: 210.,
             share: 0.38,
@@ -275,7 +280,7 @@ impl SpectrumView {
         self.sync_tap(cx);
         let width = paint::plot_width(self.style, f32::from(self.bounds.size.width));
         if width > 1. {
-            let count = (width / paint::point_step(self.style)) as usize + 1;
+            let count = (width / paint::point_step(self.style, width)) as usize + 1;
             self.analyzer.set_points(count.clamp(2, MAX_POINTS));
         }
         let now = Instant::now();

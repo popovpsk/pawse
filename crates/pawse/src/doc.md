@@ -247,9 +247,14 @@ Integrations:
 ## Settings persistence (`settings_store.rs`)
 
 - `settings.json` is `UserSettings` in `config_dir/pawse`. Every field has a serde
-  default, so a file from an older build loads and a new key takes its default; a file
-  that does not parse loads as all defaults and the next save overwrites it. An older
-  binary drops keys it does not know on its next save (CLAUDE.md, "Runtime data").
+  default, so a file from an older build loads and a new key takes its default. A value
+  this build cannot read (an enum variant from a newer build, a wrong type) costs only
+  its top-level key: `parse_settings` falls back to `salvage_settings`, which adds the
+  file's keys one by one, drops and logs those that break the read, and the next save
+  writes their defaults. A nested value loses its whole top-level key (one bad scrobble
+  target resets `scrobble`). Only a file that is not a JSON object loads as all
+  defaults. An older binary drops keys it does not know on its next save (CLAUDE.md,
+  "Runtime data").
 - `save()` sends a copy to the background writer, which keeps only the latest and writes
   a temp file and renames it; before the writer starts it writes synchronously. Failures
   surface through `notify_save_error`. The playback state (queue, position, shuffle,
@@ -543,20 +548,28 @@ Integrations:
   `Player::signal_tap` has a tap (not while casting to a renderer). The stack is cover →
   caption → spectrum block → progress → control bar: the narrow group (cover, caption) on
   top, the wide one (block, progress, bar) under it. On the cover style the spectrum sits
-  over the cover's bottom `COVER_FRACTION` instead of taking a block. A block is its style's
-  share of the height left for cover and block (`Block::fit`, clamped), so it scales
-  with the window and grows while the control bar slides away, like the cover does. It
-  never takes the cover below `COVER_MIN_SIDE`; when even its minimum does not fit, the
-  block is left out and the spectrum is not run.
-  Every block (silhouette, zones, analyzer) takes the width up to `WIDE_MAX_WIDTH`, never
+  over the cover's bottom `COVER_FRACTION` instead of taking a block. The silhouette takes
+  no block either: it is a strip pinned to the view's bottom edge across its whole width
+  (window edge to the lyrics or queue panel), right above the footer or the window edge.
+  Its height is its share of the view height (`Block::fit` with no gap), cut so the cover
+  keeps `COVER_MIN_SIDE` with the control bar fully shown whenever the bar can appear
+  (`under_max`), and the strip is left out below its minimum: the bar sliding in or out
+  never resizes or drops the strip. The sliding bar is clipped to its own slot, so it
+  rises from the strip's top edge instead of passing under its hover area. A block is
+  its style's share of the height left for cover and block (`Block::fit`, clamped), so
+  it scales with the window and grows while the control bar slides away, like the cover
+  does. It never takes the cover below `COVER_MIN_SIDE`; when even its minimum does not
+  fit, the block is left out and the spectrum is not run.
+  Every block (zones, analyzer) takes the width up to `WIDE_MAX_WIDTH`, never
   narrower than the cover. The progress bar is `COVER_PROGRESS_W_FRAC` of what stands
   above it, the block or else the cover. The control bar always spans the view less
   `COVER_MARGIN` on each side (`max_w`), with or without the spectrum: transport centred,
   volume, lyrics and queue in the right corner.
   `stack_layout` places all of it from one `SpectrumSlot`: only a block changes the
   stack. With one the vertical margins are `SPECTRUM_MARGIN_V` and the group is not
-  dropped, so the cover keeps the height the block takes; with the overlay, or a block
-  that does not fit, cover, margins and widths are exactly those without the spectrum.
+  dropped, so the cover keeps the height the block takes; with the overlay, the strip, or
+  a block that does not fit, cover, margins and widths are exactly those without the
+  spectrum, in the view less the strip.
 - The spectrum toggle (`cover_spectrum_button` in `main_view.rs`) sits under the Full
   screen button and fades with it; it writes `spectrum_visible`, is dimmed with its own
   tooltip while there is no tap, and its icon is static.
@@ -1128,8 +1141,9 @@ Owner's calls; ask before changing.
   bar or beside the search field.
 - With the spectrum on, Cover view does not reserve the control bar's slot: cover and
   spectrum grow into it as the bar hides and give it back as it slides in, animated, as
-  without the spectrum. Every block (silhouette, zones, analyzer) is wider than the
-  cover, not the cover's width; the spectrum on the cover leaves the cover's size alone.
+  without the spectrum. Every block (zones, analyzer) is wider than the cover, not the
+  cover's width; the silhouette spans the whole view along its bottom; the spectrum on
+  the cover leaves the cover's size alone.
   The caption stays with the cover and the progress with the block, so widths go narrow
   then wide instead of alternating; the control bar's aux buttons sit in the view's
   corner in every style and without the spectrum.
