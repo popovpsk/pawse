@@ -60,7 +60,10 @@ incoming connections leaves discovery working, so the device is listed and never
   `DLNA.ORG_OP=01`, `CI=1` for converted media); some TVs refuse media without them. The
   write timeout is 30 minutes since a paused device stops reading.
 - `was_requested(path)`: set by any `GET`/`HEAD` that finds a published path (track or
-  cover), cleared on unpublish. It proves the device can reach us (`NeverFetched`).
+  cover), cleared on unpublish. `contacted_by(address, since)`: the last time any
+  connection came from an address, canonical so the dual-stack socket's `::ffff:` form
+  matches. Either proves the device can reach us (`NeverFetched`); the second also covers a
+  request we cannot serve (a preflight, a mangled path).
 - A server track is a `Source::Stream` opener: each request opens its own reader on the same
   download.
 
@@ -167,10 +170,13 @@ changes win over the device's for 1.5 s.
   while loading). Then Chromecast IDLE/FINISHED, or a DLNA STOPPED within 5 s of the end (or
   without a duration), is `Ended`; an earlier STOPPED means someone stopped it on the device:
   shown as paused, and play reloads at that position.
-- Whether the device ever asked the media server for the track decides how a start that does
-  not happen ends. The waits count from the moment the device was told (`loaded_at`, stamped
-  in `send` and again by play for a track loaded paused) and are `Worker` fields (`patience`,
-  and `unreached_after`, at most the patience; `Session::start_with`) so tests do not wait.
+- Whether the device ever reached the media server decides how a start that does not happen
+  ends: a request for the track or its cover, or any connection from the device's address
+  since the session opened (`opened_at`). The waits count from the moment the device was
+  told (`loaded_at`, stamped in `send` and again by play for a track loaded paused) and are
+  `Worker` fields (`patience`, and `unreached_after`, at most the patience;
+  `Session::start_with`) so tests do not wait. `may_be_unreached` is the one check every
+  `NeverFetched` goes through: not seen playing, nothing reached us, the load not dropped.
   - It did, and still never played within 30 s (`NEVER_STARTED`):
     `Failed("the device did not start playing")`; long buffering stays buffering.
   - It never did within 20 s (`UNREACHED_AFTER`) although it answers every poll:
@@ -179,7 +185,9 @@ changes win over the device's for 1.5 s.
     does not necessarily sit idle (some report TRANSITIONING forever). Until it has asked,
     its PLAYING and PAUSED count as `Buffering` too (`seen_playing` is set only by a PLAYING
     after a request): some renderers answer PLAYING at once without the track, and believing
-    it would make the session read the frozen position as a pause and stop there.
+    it would make the session read the frozen position as a pause and stop there. A PLAYING
+    whose position moved since the last poll is believed even so: a running clock is a
+    device playing our track by some way we do not see.
   - A failed load without a request, reported by the device or a load command that fails or
     times out on our side (`refused`): within the first 3 s (`REFUSED_AT_ONCE`, long enough
     for the first poll after the 1.5 s hold) an ordinary `Failed` with "(it never asked for
@@ -187,11 +195,14 @@ changes win over the device's for 1.5 s.
     dropping looks the same); later `NeverFetched`, the device having given up on its own
     connection to us. Either way `NeverFetched` needs a device that still answers: `refused`
     polls once more, and one that does not gets the plain `Failed`, then `Lost`.
+  - A load the device dropped is never `NeverFetched` (`Driver::load_dropped`; Chromecast: a
+    `LOAD` never answered, `LOAD_CANCELLED`, or IDLE with CANCELLED or INTERRUPTED for our
+    track): a receiver app still starting can lose a `LOAD`, and a cancel comes from a STOP
+    or another sender's load. It ends as a plain `Failed`.
   - A Chromecast may answer `LOAD` only once the media is loaded or has failed, so with the
-    media server out of reach the session thread would sit in `LOAD` for 30 s and end in a
-    plain `Failed`. `Loading::unreached` lets the driver stop waiting: `Client::load` gives up
-    once the 20 s have passed with nothing requested, and `refused` turns that into
-    `NeverFetched`.
+    media server out of reach the session thread would sit in `LOAD` for 30 s.
+    `Loading::unreached` lets the driver stop waiting: `Client::load` gives up once the 20 s
+    have passed with nothing requested, a plain `Failed` as a dropped load.
   - Another Chromecast answers `LOAD` at once with IDLE and then leaves every media status
     request unanswered while its player tries to connect, so polls fail instead of reporting
     a state. A failed poll is `NeverFetched` too (`unreached_in_silence`) once the same 20 s
@@ -341,8 +352,9 @@ Chromecast whose requests go unanswered is tested with `ChromecastDriver::with_r
 Owner's calls; ask before changing.
 
 - The unreached checks err on the side of silence: a missed firewall message is acceptable, a
-  working device interrupted by one is not. `NeverFetched` needs nothing requested for 20 s
-  and a device that still answers; do not loosen either without asking.
+  working device interrupted by one is not. `NeverFetched` needs no contact from the device
+  for 20 s, a device that still answers, a load it did not drop and no running clock; do not
+  loosen any of them without asking.
 - A device that can take the original file gets the original file; PCM only where it cannot
   (codec, limits, cue segments). Not the rest of the track as PCM cut from the position to
   avoid the audible 200–300 ms head of a DLNA mid-track start: tried, then reverted — raw PCM

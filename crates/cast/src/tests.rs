@@ -1138,17 +1138,13 @@ fn chromecast_answering_load_with(
     (fake, session, events)
 }
 
-#[rstest]
-#[case::load_never_answered(chromecast::testing::LoadReply::Never, PATIENCE)]
-#[case::load_failed_once_its_own_connection_timed_out(
-    chromecast::testing::LoadReply::FailedAfter(Duration::from_millis(3500)),
-    Duration::from_secs(5)
-)]
-fn a_chromecast_that_cannot_reach_us_is_unreached_without_waiting_out_its_load(
-    #[case] reply: chromecast::testing::LoadReply,
-    #[case] patience: Duration,
-) {
-    let (fake, session, events) = chromecast_answering_load_with(reply, patience);
+#[test]
+fn a_chromecast_whose_load_fails_once_its_own_connection_timed_out_is_unreached() {
+    let patience = Duration::from_secs(5);
+    let (fake, session, events) = chromecast_answering_load_with(
+        chromecast::testing::LoadReply::FailedAfter(Duration::from_millis(3500)),
+        patience,
+    );
     let mut seen = Vec::new();
     let asked = Instant::now();
     session.load(minute_long(Duration::from_secs(30), true));
@@ -1160,6 +1156,76 @@ fn a_chromecast_that_cannot_reach_us_is_unreached_without_waiting_out_its_load(
     );
     assert!(fake.state().commands.iter().any(|c| c == "LOAD"));
     assert_eq!(complaints(&seen), [&SessionEvent::NeverFetched], "{seen:?}");
+}
+
+#[rstest]
+#[case::load_never_answered(chromecast::testing::LoadReply::Never, PATIENCE)]
+#[case::load_cancelled_late(
+    chromecast::testing::LoadReply::CancelledAfter(Duration::from_millis(3500)),
+    Duration::from_secs(5)
+)]
+fn a_chromecast_load_never_answered_or_cancelled_is_a_plain_failure(
+    #[case] reply: chromecast::testing::LoadReply,
+    #[case] patience: Duration,
+) {
+    let (_fake, session, events) = chromecast_answering_load_with(reply, patience);
+    let mut seen = Vec::new();
+    let asked = Instant::now();
+    session.load(minute_long(Duration::from_secs(30), true));
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    assert!(
+        asked.elapsed() < patience + Duration::from_secs(1),
+        "{:?}",
+        asked.elapsed()
+    );
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+#[rstest]
+#[case::cancelled("CANCELLED")]
+#[case::interrupted("INTERRUPTED")]
+fn a_chromecast_whose_track_was_dropped_on_the_device_is_not_blamed_on_the_network(
+    #[case] idle_reason: &'static str,
+) {
+    let (_fake, _server, session, events) =
+        chromecast_that_cannot_reach_media("IDLE", Some(idle_reason));
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
+}
+
+#[test]
+fn a_chromecast_playing_without_asking_us_for_the_track_is_believed_once_its_clock_runs() {
+    let fake = FakeChromecast::start();
+    fake.plays_without_fetching();
+    let driver = ChromecastDriver::connect(fake.address).unwrap();
+    let session = Session::start_with(Box::new(driver), MediaServer::start().unwrap(), PATIENCE);
+    let events = session.events();
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    quiet_for(&events, &mut seen, Duration::from_millis(3500));
+    assert!(fake.state().fetched.is_none());
+    assert!(complaints(&seen).is_empty(), "{seen:?}");
+    let buffering = seen
+        .iter()
+        .rev()
+        .find(|e| matches!(e, SessionEvent::Buffering(_)));
+    assert_ne!(buffering, Some(&SessionEvent::Buffering(true)), "{seen:?}");
+}
+
+#[test]
+fn a_renderer_that_reached_us_with_a_wrong_request_is_not_blamed_on_the_network() {
+    let (_fake, server, session, events) = stuck_renderer_session(crate::session::State::Idle);
+    let mut seen = Vec::new();
+    session.load(minute_long(Duration::ZERO, true));
+    expect_event(&events, &mut seen, |e| {
+        matches!(e, SessionEvent::Loaded { .. })
+    });
+    let (head, _) = get(&server, "/wrong/1.wav", "");
+    assert!(head.starts_with("HTTP/1.1 404"), "{head}");
+    expect_event(&events, &mut seen, |e| matches!(e, SessionEvent::Failed(_)));
+    assert!(!seen.contains(&SessionEvent::NeverFetched), "{seen:?}");
 }
 
 #[rstest]

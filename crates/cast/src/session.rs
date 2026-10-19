@@ -111,6 +111,9 @@ pub(crate) trait Driver: Send + Accepts {
     fn still_answers(&mut self) -> bool {
         false
     }
+    fn load_dropped(&self) -> bool {
+        false
+    }
     fn lost(&mut self) -> Option<String>;
     fn volume(&mut self) -> Option<f32>;
     fn seeks_on_load(&self) -> bool;
@@ -165,6 +168,7 @@ impl Session {
             hold_state_until: None,
             reported: None,
             started_at: Instant::now(),
+            opened_at: Instant::now(),
             end_reached: None,
             ours_on_device: false,
         };
@@ -264,6 +268,7 @@ struct Worker {
     hold_state_until: Option<Instant>,
     reported: Option<(Duration, Instant, u32, bool)>,
     started_at: Instant,
+    opened_at: Instant,
     end_reached: Option<Instant>,
     ours_on_device: bool,
 }
@@ -382,11 +387,20 @@ impl Worker {
     }
 
     fn never_fetched(&self) -> bool {
-        never_fetched(&self.server, &self.published)
+        never_fetched(
+            &self.server,
+            &self.published,
+            self.driver.peer(),
+            self.opened_at,
+        )
+    }
+
+    fn may_be_unreached(&self) -> bool {
+        !self.seen_playing && self.never_fetched() && !self.driver.load_dropped()
     }
 
     fn refused(&mut self, reason: String) -> SessionEvent {
-        if self.seen_playing || !self.never_fetched() {
+        if !self.may_be_unreached() {
             return SessionEvent::Failed(reason);
         }
         if self.loaded_at.elapsed() < REFUSED_AT_ONCE.min(self.unreached_after) {
@@ -426,11 +440,10 @@ impl Worker {
 
     fn unreached_in_silence(&mut self) -> bool {
         self.on_device()
-            && !self.seen_playing
             && self
                 .waited()
                 .is_some_and(|waited| waited > self.unreached_after)
-            && self.never_fetched()
+            && self.may_be_unreached()
             && self.driver.still_answers()
     }
 
@@ -598,7 +611,9 @@ impl Worker {
         let seek_later = !start.is_zero() && !self.driver.seeks_on_load();
         let deadline = self.loaded_at + self.unreached_after;
         let (server, published) = (&self.server, &self.published);
-        let unreached = || Instant::now() >= deadline && never_fetched(server, published);
+        let (peer, since) = (self.driver.peer(), self.opened_at);
+        let unreached =
+            || Instant::now() >= deadline && never_fetched(server, published, peer, since);
         let loading = Loading {
             url: &sent.url,
             mime: &sent.mime,
@@ -884,7 +899,12 @@ impl Worker {
         let Some(reported) = status.state else {
             return Ok(());
         };
-        let unfetched = !self.seen_playing && self.never_fetched();
+        let previous = self.reported.map(|(position, ..)| position);
+        let moving = reported == State::Playing
+            && previous
+                .zip(status.position)
+                .is_some_and(|(before, now)| now > before);
+        let unfetched = !self.seen_playing && !moving && self.never_fetched();
         if reported == State::Playing && !unfetched {
             self.seen_playing = true;
         }
@@ -894,14 +914,15 @@ impl Worker {
         {
             self.end_reached = Some(Instant::now());
         }
-        let previous = self.reported.map(|(position, ..)| position);
         let state = match self.device_state(reported, status.position) {
             State::Playing | State::Paused if unfetched => State::Buffering,
             state => state,
         };
         if !self.seen_playing {
             let waited = self.waited();
-            let unreached = unfetched && waited.is_some_and(|waited| waited > self.unreached_after);
+            let unreached = !moving
+                && self.may_be_unreached()
+                && waited.is_some_and(|waited| waited > self.unreached_after);
             let verdict = match state {
                 State::Idle | State::Finished if unreached => Some(SessionEvent::NeverFetched),
                 State::Idle | State::Finished
@@ -1009,8 +1030,10 @@ impl Worker {
     }
 }
 
-fn never_fetched(server: &MediaServer, published: &[String]) -> bool {
-    !published.is_empty() && !published.iter().any(|path| server.was_requested(path))
+fn never_fetched(server: &MediaServer, published: &[String], peer: IpAddr, since: Instant) -> bool {
+    !published.is_empty()
+        && !published.iter().any(|path| server.was_requested(path))
+        && !server.contacted_by(peer, since)
 }
 
 fn indexed_flac(path: &Path) -> Body {

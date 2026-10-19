@@ -20,9 +20,11 @@ Not here: what to load, the media server, polling and end-of-track logic, mDNS b
   that fetch and sits in the given player state instead (BUFFERING, PLAYING, or IDLE with a
   reason). `reply_to_load(LoadReply)` changes the answer to `LOAD` itself: none (`Never`, a
   receiver still trying to connect), `LOAD_FAILED` after a delay (`FailedAfter`, one whose own
-  connection attempt failed), both without a fetch, or IDLE at once and no answer to any
-  media request after it (`IdleThenSilent`, fetching or not). `stop_answering` leaves receiver
-  and media requests unanswered too; heartbeats still get theirs, so the connection stays.
+  connection attempt failed) or `LOAD_CANCELLED` (`CancelledAfter`), all without a fetch, or
+  IDLE at once and no answer to any media request after it (`IdleThenSilent`, fetching or
+  not). `plays_without_fetching` answers PLAYING with a running clock and no fetch.
+  `stop_answering` leaves receiver and media requests unanswered too; heartbeats still get
+  theirs, so the connection stays.
 - `tests.rs` — the client against the fake.
 - `../testdata/fake.{crt,key}` — the fake's self-signed P-256 certificate. It must be
   X.509 v3 (webpki rejects the v1 certificates LibreSSL makes by default) and the key
@@ -55,9 +57,10 @@ Not here: what to load, the media server, polling and end-of-track logic, mDNS b
   (other requests wait in one piece); when it says so the `LOAD` ends as a timeout. `cast`
   uses it to stop waiting on a receiver that has not asked for the media within its own
   wait.
-- `LOAD_FAILED`, `LOAD_CANCELLED`, `INVALID_REQUEST`, `LAUNCH_ERROR` and
-  `INVALID_PLAYER_STATE` replies are `Error::Rejected` for the waiting caller and
-  `Event::LoadFailed` on the event channel.
+- `LOAD_FAILED`, `INVALID_REQUEST`, `LAUNCH_ERROR` and `INVALID_PLAYER_STATE` replies are
+  `Error::Rejected` for the waiting caller, `LOAD_CANCELLED` is `Error::Cancelled` (another
+  load or a STOP took its place, which `cast` must not read as a device that cannot reach
+  it); all of them are `Event::LoadFailed` on the event channel.
 - **Launch joins.** `launch` first asks for the receiver status and joins the Default Media
   Receiver if it already runs (ours from before, or another sender's) instead of
   restarting it. Joining is a `CONNECT` to the app's transport id; media commands go there.

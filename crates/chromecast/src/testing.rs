@@ -34,6 +34,7 @@ pub enum LoadReply {
     Answered,
     Never,
     FailedAfter(Duration),
+    CancelledAfter(Duration),
     IdleThenSilent {
         fetches: bool,
     },
@@ -54,6 +55,7 @@ pub struct State {
     playing_since: Option<Instant>,
     media_silent: bool,
     silent: bool,
+    clock_runs: bool,
 }
 
 impl Default for State {
@@ -72,6 +74,7 @@ impl Default for State {
             playing_since: None,
             media_silent: false,
             silent: false,
+            clock_runs: false,
         }
     }
 }
@@ -166,6 +169,12 @@ impl FakeChromecast {
         lock(&self.state).unreachable_media = Some((player, idle_reason));
     }
 
+    pub fn plays_without_fetching(&self) {
+        let mut state = lock(&self.state);
+        state.unreachable_media = Some(("PLAYING", None));
+        state.clock_runs = true;
+    }
+
     pub fn reply_to_load(&self, reply: LoadReply) {
         lock(&self.state).load_reply = reply;
     }
@@ -223,7 +232,8 @@ fn serve(
         let payload: Value = serde_json::from_str(&message.payload).unwrap_or(Value::Null);
         if message.namespace == NS_MEDIA
             && payload["type"] == "LOAD"
-            && let LoadReply::FailedAfter(delay) = lock(&state).load_reply
+            && let LoadReply::FailedAfter(delay) | LoadReply::CancelledAfter(delay) =
+                lock(&state).load_reply
         {
             std::thread::sleep(delay);
         }
@@ -353,19 +363,21 @@ fn answer(message: &CastMessage, payload: &Value, state: &Mutex<State>) -> Vec<(
                     if state.load_reply != LoadReply::Answered {
                         state.fetched = None;
                         state.loaded = Some(loaded);
-                        if state.load_reply == LoadReply::Never {
-                            return Vec::new();
-                        }
+                        let failure = match state.load_reply {
+                            LoadReply::CancelledAfter(_) => "LOAD_CANCELLED",
+                            LoadReply::FailedAfter(_) => "LOAD_FAILED",
+                            _ => return Vec::new(),
+                        };
                         return vec![(
                             NS_MEDIA.into(),
-                            with_request(json!({"type": "LOAD_FAILED"}), payload),
+                            with_request(json!({"type": failure}), payload),
                         )];
                     }
                     if let Some((player, idle_reason)) = state.unreachable_media {
                         state.fetched = None;
                         state.idle_reason = idle_reason;
                         state.player = player;
-                        state.playing_since = None;
+                        state.playing_since = state.clock_runs.then(Instant::now);
                     } else {
                         state.fetched = fetch(&loaded.url).ok();
                         state.idle_reason = None;

@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use audio_decoder::Codec;
 use chromecast::{
-    Application, Client, DEFAULT_MEDIA_RECEIVER, Event, IdleReason, Media, MediaStatus, PlayerState,
+    Application, Client, DEFAULT_MEDIA_RECEIVER, Error, Event, IdleReason, Media, MediaStatus,
+    PlayerState,
 };
 
 use crate::media::{Accepts, Probe, chromecast_mime};
@@ -20,6 +21,7 @@ pub(crate) struct ChromecastDriver {
     volume: Option<f32>,
     lost: Option<String>,
     load_error: Option<String>,
+    load_dropped: bool,
 }
 
 impl ChromecastDriver {
@@ -44,6 +46,7 @@ impl ChromecastDriver {
             volume,
             lost: None,
             load_error: None,
+            load_dropped: false,
         })
     }
 
@@ -124,6 +127,7 @@ impl Driver for ChromecastDriver {
     fn load(&mut self, loading: &Loading) -> Result<(), String> {
         self.drain_events();
         self.load_error = None;
+        self.load_dropped = false;
         let media = Media {
             url: loading.url.to_string(),
             content_type: loading.mime.to_string(),
@@ -143,7 +147,10 @@ impl Driver for ChromecastDriver {
                 loading.start.as_secs_f64(),
                 loading.unreached,
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                self.load_dropped = matches!(e, Error::Timeout | Error::Cancelled(_));
+                e.to_string()
+            })?;
         self.media_session = status.map(|status| status.media_session_id);
         Ok(())
     }
@@ -201,6 +208,12 @@ impl Driver for ChromecastDriver {
             });
         };
         self.media_session = Some(status.media_session_id);
+        if matches!(
+            status.idle_reason,
+            Some(IdleReason::Cancelled | IdleReason::Interrupted)
+        ) {
+            self.load_dropped = true;
+        }
         let state = match status.state {
             PlayerState::Playing => State::Playing,
             PlayerState::Paused => State::Paused,
@@ -238,6 +251,10 @@ impl Driver for ChromecastDriver {
                 false
             }
         }
+    }
+
+    fn load_dropped(&self) -> bool {
+        self.load_dropped
     }
 
     fn lost(&mut self) -> Option<String> {

@@ -32,6 +32,8 @@ pub enum Error {
     Timeout,
     #[error("the device refused: {0}")]
     Rejected(String),
+    #[error("the device cancelled it: {0}")]
+    Cancelled(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -338,6 +340,7 @@ impl Client {
             .remove(&id);
         match reply {
             Ok(reply) => match failure(&reply) {
+                Some(reason) if reply["type"] == "LOAD_CANCELLED" => Err(Error::Cancelled(reason)),
                 Some(reason) => Err(Error::Rejected(reason)),
                 None => Ok(reply),
             },

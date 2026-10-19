@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::media::StreamOpener;
 use crate::pcm::{PcmReader, PcmSpec};
@@ -95,6 +95,7 @@ struct Shared {
     token: String,
     entries: Mutex<HashMap<String, Entry>>,
     requested: Mutex<HashSet<String>>,
+    contacts: Mutex<HashMap<IpAddr, Instant>>,
     next: AtomicUsize,
     stopped: AtomicBool,
     connections: AtomicUsize,
@@ -129,6 +130,7 @@ impl MediaServer {
             token: token(),
             entries: Mutex::new(HashMap::new()),
             requested: Mutex::new(HashSet::new()),
+            contacts: Mutex::new(HashMap::new()),
             next: AtomicUsize::new(1),
             stopped: AtomicBool::new(false),
             connections: AtomicUsize::new(0),
@@ -161,6 +163,12 @@ impl MediaServer {
                 requested.remove(name);
             }
         }
+    }
+
+    pub fn contacted_by(&self, peer: IpAddr, since: Instant) -> bool {
+        lock(&self.shared.contacts)
+            .get(&peer.to_canonical())
+            .is_some_and(|at| *at >= since)
     }
 
     pub fn was_requested(&self, path: &str) -> bool {
@@ -221,6 +229,9 @@ fn accept(listener: TcpListener, shared: Arc<Shared>) {
             std::thread::sleep(Duration::from_millis(50));
             continue;
         };
+        if let Ok(peer) = stream.peer_addr() {
+            lock(&shared.contacts).insert(peer.ip().to_canonical(), Instant::now());
+        }
         if shared.connections.load(Ordering::Acquire) >= MAX_CONNECTIONS {
             log::warn!("cast: too many media connections, refusing one");
             continue;
@@ -562,5 +573,29 @@ mod tests {
         assert!(!server.was_requested("/wrong/1.flac"));
         server.remove(std::slice::from_ref(&asked));
         assert!(!server.was_requested(&asked));
+    }
+
+    #[test]
+    fn any_connection_counts_as_contact_from_its_address() {
+        let server = MediaServer::start().unwrap();
+        let local = IpAddr::from(Ipv4Addr::LOCALHOST);
+        let before = Instant::now();
+        assert!(!server.contacted_by(local, before));
+        std::thread::sleep(Duration::from_millis(20));
+
+        let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        write!(
+            stream,
+            "OPTIONS /wrong HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+        let mut reply = String::new();
+        stream.read_to_string(&mut reply).unwrap();
+        assert!(reply.starts_with("HTTP/1.1 405"), "{reply}");
+        std::thread::sleep(Duration::from_millis(20));
+
+        assert!(server.contacted_by(local, before));
+        assert!(!server.contacted_by(Ipv4Addr::new(192, 0, 2, 1).into(), before));
+        assert!(!server.contacted_by(local, Instant::now()));
     }
 }
