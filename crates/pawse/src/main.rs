@@ -145,6 +145,7 @@ pub(crate) fn build_window_options(cx: &mut App) -> WindowOptions {
             ..TitleBar::title_bar_options()
         }),
         app_id: Some("pawse".into()),
+        inactive_frame_interval: Some(std::time::Duration::from_nanos(1_000_000_000 / 60)),
         #[cfg(target_os = "linux")]
         window_background: WindowBackgroundAppearance::Transparent,
         #[cfg(target_os = "linux")]
