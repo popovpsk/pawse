@@ -49,6 +49,8 @@ const CONTROLS_SLIDE_IN: Duration = Duration::from_millis(320);
 const CONTROLS_SLIDE_OUT: Duration = Duration::from_millis(200);
 const COVER_SLIDE: Duration = Duration::from_millis(300);
 const COVER_SLIDE_GAP: f32 = 40.;
+const COVER_SHADOW_BLUR: f32 = 28.;
+const FULL_SCREEN_SHADOW_BLUR: f32 = 16.;
 const REMOTE_COVER_MAX: u32 = 2048;
 const SPECTRUM_MARGIN_V: f32 = 20.;
 
@@ -84,6 +86,7 @@ pub struct CoverModeView {
     spectrum_style: SpectrumStyle,
     show_lyrics: bool,
     show_queue: bool,
+    controls_held: bool,
     spectrum: Entity<SpectrumView>,
     ink_thumb: Option<usize>,
     cover_volume: Entity<CoverVolume>,
@@ -180,6 +183,16 @@ impl SpectrumSlot {
             _ => None,
         }
     }
+}
+
+struct StackInputs {
+    avail_w: f32,
+    avail_h: f32,
+    spectrum_style: Option<SpectrumStyle>,
+    show_text: bool,
+    show_progress_bar: bool,
+    bar_max: f32,
+    text_h: f32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -376,6 +389,7 @@ impl CoverModeView {
             spectrum_style,
             show_lyrics: false,
             show_queue: false,
+            controls_held: false,
             spectrum,
             ink_thumb: None,
             cover_volume,
@@ -432,16 +446,79 @@ impl CoverModeView {
         self.show_queue = queue;
     }
 
+    pub fn spectrum(&self) -> &Entity<SpectrumView> {
+        &self.spectrum
+    }
+
+    pub fn strip_height(&self, window: &Window, cx: &App) -> Option<f32> {
+        let inputs = self.stack_inputs(self.avail(window), cx);
+        let under_max = inputs.bar_max + inputs.text_h;
+        stack_layout(
+            inputs.avail_w,
+            inputs.avail_h,
+            self.cover_aspect,
+            inputs.spectrum_style,
+            under_max,
+            under_max,
+            inputs.show_text,
+        )
+        .spectrum
+        .strip_height()
+    }
+
+    fn avail(&self, window: &Window) -> Size<Pixels> {
+        if self.measured.width > px(0.) {
+            self.measured
+        } else {
+            window.viewport_size()
+        }
+    }
+
+    fn stack_inputs(&self, avail: Size<Pixels>, cx: &App) -> StackInputs {
+        let has_track = !self.track_title.is_empty();
+        let show_text = has_track && !self.chrome_visible;
+        let show_progress_bar = show_text && self.show_progress;
+        let spectrum_style =
+            (self.show_spectrum && has_track && cx.global::<Services>().player.has_signal_tap())
+                .then_some(self.spectrum_style);
+        let bar_max = if self.chrome_visible {
+            0.
+        } else {
+            COVER_BAR_GAP + COVER_BAR_H
+        };
+        let text_h = if show_text {
+            COVER_TEXT_GAP
+                + COVER_TEXT_LINE
+                + if show_progress_bar {
+                    COVER_PROGRESS_GAP + COVER_PROGRESS_H
+                } else {
+                    0.
+                }
+        } else {
+            0.
+        };
+        StackInputs {
+            avail_w: f32::from(avail.width),
+            avail_h: f32::from(avail.height),
+            spectrum_style,
+            show_text,
+            show_progress_bar,
+            bar_max,
+            text_h,
+        }
+    }
+
     pub fn toggle_chrome(&mut self, cx: &mut Context<Self>) {
         self.chrome_visible = !self.chrome_visible;
         self.reset_controls();
         cx.notify();
     }
 
-    pub fn handle_mouse_move(&mut self, cx: &mut Context<Self>) {
+    pub fn handle_mouse_move(&mut self, held: bool, cx: &mut Context<Self>) {
         if !self.active || self.chrome_visible {
             return;
         }
+        self.controls_held = held;
         self.controls_hide_at = Instant::now() + CONTROLS_HIDE_DELAY;
         self.set_controls_shown(true, cx);
         if self.controls_hide_task.is_none() {
@@ -449,8 +526,13 @@ impl CoverModeView {
         }
     }
 
+    pub fn release_hold(&mut self) {
+        self.controls_held = false;
+    }
+
     fn reset_controls(&mut self) {
         self.controls_shown = false;
+        self.controls_held = false;
         self.controls_from = 0.;
         self.controls_at = Instant::now();
         self.controls_hide_task = None;
@@ -470,7 +552,7 @@ impl CoverModeView {
         self.controls_hide_task = Some(cx.spawn(async move |this, cx| {
             loop {
                 let Ok(remaining) = this.update(cx, |view, cx| {
-                    if view.cover_volume.read(cx).is_expanded() {
+                    if view.controls_held || view.cover_volume.read(cx).is_expanded() {
                         view.controls_hide_at = Instant::now() + CONTROLS_HIDE_DELAY;
                     }
                     view.controls_hide_at
@@ -929,25 +1011,26 @@ impl CoverModeView {
 
 impl Render for CoverModeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let avail = if self.measured.width > px(0.) {
-            self.measured
-        } else {
-            window.viewport_size()
-        };
-        let avail_w = f32::from(avail.width);
-        let avail_h = f32::from(avail.height);
+        let avail = self.avail(window);
+        let StackInputs {
+            avail_w,
+            avail_h,
+            spectrum_style,
+            show_text,
+            show_progress_bar,
+            bar_max,
+            text_h,
+        } = self.stack_inputs(avail, cx);
 
         let album_id = self.album_id;
         let title_color = Colors::foreground(cx);
         let artist_color = Colors::muted_foreground(cx);
-        let has_track = !self.track_title.is_empty();
         let thumb_img = self.large_cover.clone();
         let full_img = self.full_cover.clone();
         let placeholder_bg = Colors::secondary(cx);
         let placeholder_fg = Colors::muted_foreground(cx);
 
         let show_artist = self.show_artist;
-        let show_progress = self.show_progress;
         let show_controls = self.show_controls;
         let bar_colors = BarColors {
             fg: title_color,
@@ -963,8 +1046,6 @@ impl Render for CoverModeView {
             ("icons/play.svg", tr().play.clone())
         };
 
-        let show_text = has_track && !self.chrome_visible;
-        let show_progress_bar = show_text && show_progress;
         let controls_t = self.controls_progress(cx);
         let settled = if self.controls_shown {
             controls_t >= 1.
@@ -974,27 +1055,8 @@ impl Render for CoverModeView {
         if !settled {
             window.request_animation_frame();
         }
-        let spectrum_style =
-            (self.show_spectrum && has_track && cx.global::<Services>().player.has_signal_tap())
-                .then_some(self.spectrum_style);
         let show_bar = !self.chrome_visible && controls_t > 0.;
-        let bar_max = if self.chrome_visible {
-            0.
-        } else {
-            COVER_BAR_GAP + COVER_BAR_H
-        };
         let bar_reserve = if show_bar { bar_max * controls_t } else { 0. };
-        let text_h = if show_text {
-            COVER_TEXT_GAP
-                + COVER_TEXT_LINE
-                + if show_progress_bar {
-                    COVER_PROGRESS_GAP + COVER_PROGRESS_H
-                } else {
-                    0.
-                }
-        } else {
-            0.
-        };
         let StackLayout {
             spectrum,
             drop,
@@ -1020,7 +1082,11 @@ impl Render for CoverModeView {
         let shadow = vec![BoxShadow {
             color: gpui::black().opacity(0.5),
             offset: point(px(0.), px(18.)),
-            blur_radius: px(28.),
+            blur_radius: px(if self.chrome_visible {
+                COVER_SHADOW_BLUR
+            } else {
+                FULL_SCREEN_SHADOW_BLUR
+            }),
             spread_radius: px(0.),
             inset: false,
         }];
@@ -1227,17 +1293,6 @@ impl Render for CoverModeView {
                     })
                     .when_some(bar, |d, b| d.child(b)),
             )
-            .when_some(strip_h, |d, height| {
-                d.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .h(px(height))
-                        .child(self.spectrum.clone()),
-                )
-            })
             .child({
                 let entity = cx.entity();
                 canvas(

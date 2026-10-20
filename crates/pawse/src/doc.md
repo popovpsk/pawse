@@ -41,7 +41,8 @@ Playback and now playing:
 - `queue_view.rs` — the queue panel (rows from `track_list`). `panel_header.rs` — the
   header row of the side panels. `playlist_popup.rs` — the add-to-playlist popup.
 - `lyrics_view.rs` — lyrics panel. `lyrics_fill.rs` — its pure half: rows, active row,
-  fill geometry. Blurred rows are `lyrics_blur/`.
+  fill geometry, the full-screen edge fade. `lyrics_wave.rs` — the autoscroll wave:
+  per-row spring offsets. Blurred rows are `lyrics_blur/`.
 - `now_playing.rs` — footer's left block. `footer.rs` — footer layout and toggles.
   `track_progress_slider.rs` — progress slider, labels, keyboard seek.
   `play_button.rs`, `prev_button.rs`, `next_button.rs`, `shuffle_button.rs`,
@@ -185,12 +186,16 @@ Integrations:
   thin inset; the header then moves below it, `main_view/doc.md` "Placement"). On Linux
   it is ours: window buttons, double-click zoom, drag by `start_window_move`, window
   menu on right click when client-decorated; it does not collapse in fullscreen.
+  `bar_height` is the one place its height is decided, on every platform; `MainView`
+  reads it for the queue's cap in Full screen.
 - macOS traffic lights: `HEIGHT` and `TRAFFIC_LIGHT_X/Y` mirror `gpui_component`'s 34 px
   bar and the (9, 9) its `title_bar_options()` sets. A taller bar
   (`header_in_title_bar`) needs them recentered: `sync_traffic_lights` does it on the
   next frame when the target changes, checked every render because the font scale
-  changes the bar height. Windows caption buttons are `gpui_component`'s and follow the
-  bar height (not checked on a real Windows machine).
+  changes the bar height. gpui cannot hide them, so hiding moves them off the window's
+  left edge (`TRAFFIC_LIGHT_HIDDEN_X`); in native fullscreen gpui ignores the position
+  and AppKit shows its own bar. Windows caption buttons are `gpui_component`'s and follow
+  the bar height (not checked on a real Windows machine).
 
 ## Cached blocks (`view_cache.rs`)
 
@@ -412,6 +417,19 @@ Integrations:
 - Four sources in fixed tab order: server, `.lrc`, embedded tag, LRCLIB. Which wins is
   `lyrics_source::pick` (`music_library/src/doc.md`, "Lyrics"). Tabs show only with more
   than one source; an unavailable LRCLIB tab starts the search.
+- `LyricsPresentation` (Full screen cover mode, from `main_view::stage`): `bare_header`
+  keeps only the tabs and the locate button (no title, no Save; the row keeps its
+  height); `bottom_inset` ends the list above the spectrum strip with a spacer under the
+  body, and since the viewport canvas measures the body, a new inset recenters;
+  `edge_fade` fades the list at both edges (`lyrics_fill::EdgeFade`): gpui has no masks,
+  so each built row takes one opacity from where it is drawn (scroll offset and wave
+  shift included), reaching 0 as it touches the edge. An edge fades only as far as text
+  is scrolled past it, less the wave's shift at that edge (a wave starting at a song's
+  top does not pop the fade), so the first and last rows of a song stay whole. A row
+  faded below `FADED_OUT` takes no click or tooltip (it keeps its hover, so an underline
+  set before it faded is still cleared). `MainView` sets the presentation in render and
+  draws the panel uncached in the frame it changed, like the header (`main_view/doc.md`,
+  "Caching"): a notify from render reaches no cached block.
 - Loaded once per track, on a `PlaybackStatus` change of track id in `Preparing` or
   `Ready`, never on `Idle`. `Stopped` clears; `LyricsChanged` for the current track
   reloads. Neither the server request nor the LRCLIB search starts while the panel is
@@ -437,9 +455,24 @@ Integrations:
   that arrive while paused (another source tab, a late LRCLIB or server answer) light
   the row at the paused position.
 - Autoscroll centers the active row; the wheel disengages it, the locate button
-  re-engages. The animation's own end timer sets the final offset, so a window that drew
-  no frames meanwhile (occluded, minimized, asleep) still lands on the active row; an
-  animation already cancelled (wheel, new rows, recenter) leaves the offset alone.
+  re-engages. A step that `lyrics_wave::fits` (a few rows, counted in font sizes so it
+  does not depend on the panel height) is a wave: the offset jumps at once and every
+  built row is drawn back where it was, then springs home, rows below the centering line
+  starting later the farther down they are (capped), so the sung row moves first and the
+  ones ahead follow. Steps overlap by adding up; the wave asks for frames until the last
+  one settles and needs no timer, since the offset is already final. The shift is drawn
+  on the row inside a plain wrapper (no id, so element state keeps its path): the list's
+  child keeps its resting bounds, which `centered_offset`, `built_rows` and the wave's
+  own delays read. `built_rows` widens its margin by the wave's total shift. New rows,
+  recenters and a song change drop the wave; a scroll (wheel or a longer step) leaves it
+  to finish on top, since dropping it would make rows jump by what is left of it.
+- A longer step (usually a seek or the locate button after scrolling away) and every step
+  under reduce motion scroll the list instead: render sets the offset each frame
+  (`ScrollAnim`, `ease_out_quint` over `SCROLL_ANIM`), so the edge fade and the wave read
+  the offset the rows are painted at. The animation's own end timer sets the final
+  offset, so a window that drew no frames meanwhile (occluded, minimized, asleep) still
+  lands on the active row; an animation already cancelled (wheel, new rows, recenter)
+  leaves the offset alone.
 - Only rows near the visible area are built: the rest are empty divs of their last drawn
   height (`built_rows`), so indices, `centered_offset` and the scroll extent stay as with
   every row built. Near means within `lyrics_blur::NEAR` of the window height around the
@@ -463,7 +496,13 @@ Integrations:
   redraws on its notifies. It follows the song while autoscroll is on and the pointer is
   off the list. The pointer flag is cleared whenever the list is not drawn, because gpui
   drops the list's hover state then and would not report the pointer again until it
-  moves.
+  moves. It and the hovered row are also cleared when the pointer leaves the window
+  (`MouseExitEvent` from `viewport_canvas`): gpui keeps the last position inside, so a
+  list at the window's edge never gets `on_hover(false)`. Windows sends no
+  `MouseExitEvent` (gpui only clears its window-hovered flag and refreshes), so render
+  also drops both while `!is_window_hovered()`, except on macOS, where that flag means
+  the window is active. A move over the list sets the flag again, since gpui sends no
+  `on_hover(true)` for an element it still counts as hovered.
 
 ## Lyrics karaoke fill (`lyrics_fill.rs`, `lyrics_view.rs`)
 
@@ -570,7 +609,9 @@ Integrations:
   warning. With no full layer the view asks again at the next track of the same album.
 - With the chrome hidden the view shows the caption (title · artists, clickable), the
   optional progress bar and a control bar that slides in on mouse move and hides after
-  `CONTROLS_HIDE_DELAY`, held open while the volume popup is open (`cover_show_*` gate
+  `CONTROLS_HIDE_DELAY`, held open while the volume popup is open and, on macOS outside
+  native fullscreen, while the pointer last moved over the title-bar row the traffic
+  lights sit in; leaving the window (`MouseExitEvent`) drops that hold (`cover_show_*` gate
   artist, progress, controls). The slide honours `App::reduce_motion`. The view's size is
   measured by a canvas whose notify is deferred with `on_next_frame`.
 - `CoverBackdrop` bakes the current track's small cover (128 px bytes from
@@ -587,6 +628,24 @@ Integrations:
   without a backdrop. Every new popover or dropdown must use
   `popover_bg(color, veil_factor(cx))`, which never drops below `POPOVER_MIN_OPACITY`: a
   list of devices or playlists must stay readable.
+- Full screen (cover mode with the chrome hidden) is decided once per render by
+  `main_view::stage::Stage` (`main_view/doc.md`): over a backdrop the title bar has no
+  background (without one it takes the content background); the lyrics panel has none
+  and a transparent border (its width stays, so it does not resize), the queue keeps its
+  panel, and over a backdrop the panel reaches up through the transparent title bar (a
+  cap at the root under the bar, `bar_height` tall, sliding with the panel's own width
+  animation; it is in the tree whenever the queue is, only its colour depends on Full
+  screen, so toggling Full screen never starts its slide alone); the silhouette strip
+  runs under the lyrics; the lyrics get their
+  `LyricsPresentation`; the macOS traffic lights follow the control bar: off while it is
+  hidden, back on the mouse move that shows it (they jump, the bar slides).
+- The cover area is clipped in every mode: the cover view lays out from last frame's
+  measured size, so a panel opening or a fast resize can shrink the area by more than
+  `COVER_MARGIN` in one frame, and unclipped the cover would show under the transparent
+  lyrics. The shadow is shorter in Full screen instead (`FULL_SCREEN_SHADOW_BLUR`; gpui's
+  blur radius is the Gaussian's sigma, and the offset is vertical), so what is left of
+  its tail at the clip edge `COVER_MARGIN` away is under one 8-bit step and shows no
+  step at the lyrics panel.
 - Spectrum (`spectrum_view/doc.md`): shown when `spectrum_visible`, a track is loaded and
   `Player::signal_tap` has a tap (not while casting to a renderer). The stack is cover →
   caption → spectrum block → progress → control bar: the narrow group (cover, caption) on
@@ -594,6 +653,13 @@ Integrations:
   over the cover's bottom `COVER_FRACTION` instead of taking a block. The silhouette takes
   no block either: it is a strip pinned to the view's bottom edge across its whole width
   (window edge to the lyrics or queue panel), right above the footer or the window edge.
+  In Full screen it runs on under the lyrics panel up to the queue. `MainView` paints the
+  spectrum entity in both modes (`stage::Strip`), under the content: along the cover
+  area's bottom with the chrome shown, along the pane that holds cover area and lyrics
+  panel in Full screen. The cover view never paints it and only reserves its height in
+  its stack; the height comes from `CoverModeView::strip_height`, the same
+  `stack_inputs` and `stack_layout` the cover view renders from (on the measured size,
+  `None` before the first measure), so both agree in one frame.
   Its height is its share of the view height (`Block::fit` with no gap), cut so the cover
   keeps `COVER_MIN_SIDE` with the control bar fully shown whenever the bar can appear
   (`under_max`), and the strip is left out below its minimum: the bar sliding in or out
@@ -1186,8 +1252,9 @@ Owner's calls; ask before changing.
 - With the spectrum on, Cover view does not reserve the control bar's slot: cover and
   spectrum grow into it as the bar hides and give it back as it slides in, animated, as
   without the spectrum. Every block (zones, analyzer) is wider than the cover, not the
-  cover's width; the silhouette spans the whole view along its bottom; the spectrum on
-  the cover leaves the cover's size alone.
+  cover's width; the silhouette spans the whole view along its bottom, in Full screen
+  under the lyrics panel too but never under the queue; the spectrum on the cover
+  leaves the cover's size alone.
   The caption stays with the cover and the progress with the block, so widths go narrow
   then wide instead of alternating; the control bar's aux buttons sit in the view's
   corner in every style and without the spectrum.

@@ -39,6 +39,7 @@ pub mod localization;
 pub mod lyrics_blur;
 pub mod lyrics_fill;
 pub mod lyrics_view;
+pub mod lyrics_wave;
 pub mod main_view;
 pub mod media_bridge;
 pub mod next_button;

@@ -1,12 +1,11 @@
 use gpui::{
-    AnyElement, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled, Window, div,
-    prelude::FluentBuilder as _, px,
+    AnyElement, App, Hsla, IntoElement, ParentElement, RenderOnce, Styled, Window, div, px,
 };
 
 #[cfg(target_os = "linux")]
 use gpui::{
     Decorations, InteractiveElement, MouseButton, Render, StatefulInteractiveElement as _,
-    WindowControlArea, svg,
+    WindowControlArea, prelude::FluentBuilder as _, svg,
 };
 
 #[cfg(target_os = "linux")]
@@ -19,13 +18,15 @@ pub const HEIGHT: f32 = 34.;
 pub const TRAFFIC_LIGHT_X: f32 = 9.;
 #[cfg(target_os = "macos")]
 pub const TRAFFIC_LIGHT_Y: f32 = 9.;
+#[cfg(target_os = "macos")]
+pub const TRAFFIC_LIGHT_HIDDEN_X: f32 = -200.;
 const FULLSCREEN_TOP_INSET: f32 = 8.;
 
-pub fn title_bar_height(window: &Window) -> f32 {
-    if window.is_fullscreen() {
+pub fn bar_height(window: &Window, height: Option<f32>) -> f32 {
+    if cfg!(not(target_os = "linux")) && window.is_fullscreen() {
         FULLSCREEN_TOP_INSET
     } else {
-        HEIGHT
+        height.unwrap_or(HEIGHT)
     }
 }
 
@@ -70,14 +71,14 @@ impl RenderOnce for WindowTitleBar {
             return div()
                 .w_full()
                 .flex_shrink_0()
-                .h(px(FULLSCREEN_TOP_INSET))
+                .h(px(bar_height(window, self.height)))
                 .bg(bg)
                 .into_any_element();
         }
         gpui_component::TitleBar::new()
             .bg(bg)
             .border_color(gpui::transparent_black())
-            .when_some(self.height, |bar, height| bar.h(px(height)))
+            .h(px(bar_height(window, self.height)))
             .children(self.content)
             .into_any_element()
     }
@@ -214,7 +215,7 @@ impl RenderOnce for WindowTitleBar {
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .h(px(self.height.unwrap_or(HEIGHT)))
+                .h(px(bar_height(window, self.height)))
                 .pl(px(12.))
                 .border_b_1()
                 .border_color(gpui::transparent_black())

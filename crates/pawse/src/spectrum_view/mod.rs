@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use audio_output::SignalTap;
 use gpui::{
-    AppContext, Bounds, Context, Font, InteractiveElement, IntoElement, MouseMoveEvent,
-    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Task, Window, canvas, div,
+    AppContext, Bounds, Context, DispatchPhase, Font, InteractiveElement, IntoElement,
+    MouseExitEvent, MouseMoveEvent, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div,
 };
 use gpui_component::ActiveTheme;
 use spectrum::{Analyzer, Settings, ZONES};
@@ -144,6 +144,13 @@ impl SpectrumView {
 
     pub fn set_cover_luma(&mut self, luma: f32) {
         self.cover_luma = luma;
+    }
+
+    fn clear_hover(&mut self, cx: &mut Context<Self>) {
+        if self.hover.take().is_some() {
+            self.readout = None;
+            cx.notify();
+        }
     }
 
     pub fn set_wanted(&mut self, wanted: bool, cx: &mut Context<Self>) {
@@ -348,6 +355,10 @@ impl Drop for SpectrumView {
 impl Render for SpectrumView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.window_active = window.is_window_active();
+        if !cfg!(target_os = "macos") && !window.is_window_hovered() && self.hover.take().is_some()
+        {
+            self.readout = None;
+        }
         let palette = Palette {
             accent: Colors::primary(cx),
             fg: Colors::foreground(cx),
@@ -361,13 +372,13 @@ impl Render for SpectrumView {
         let name_font = paint::semibold(&ui_font);
         let measure = cx.entity();
         let entity = cx.entity();
+        let left = cx.entity();
         div()
             .id("spectrum")
             .size_full()
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                if !*hovered && this.hover.take().is_some() {
-                    this.readout = None;
-                    cx.notify();
+                if !*hovered {
+                    this.clear_hover(cx);
                 }
             }))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
@@ -384,6 +395,11 @@ impl Render for SpectrumView {
                         });
                     },
                     move |bounds, (), window, cx| {
+                        window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Capture {
+                                left.update(cx, |this, cx| this.clear_hover(cx));
+                            }
+                        });
                         entity.update(cx, |this, cx| {
                             let frame = Frame {
                                 analyzer: &this.analyzer,

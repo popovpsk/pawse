@@ -1,6 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Div, FontStyle, FontWeight, Hsla, ParentElement, Pixels, SharedString, Styled, Window, div, px,
+    Bounds, Div, FontStyle, FontWeight, Hsla, ParentElement, Pixels, SharedString, Styled, Window,
+    div, px,
 };
 
 pub const ACTIVE_TOLERANCE_MS: u32 = 50;
@@ -9,6 +10,7 @@ pub const INTERLUDE_MIN_MS: u32 = 3_000;
 pub const INTERLUDE_TEXT: &str = "♪ ♪ ♪";
 const OPEN_WORD_MS: u32 = 600;
 
+const EDGE_FADE: f32 = 0.18;
 const FEATHER_PX: f32 = 12.;
 const FEATHER_ALPHA: [f32; 4] = [0.85, 0.6, 0.35, 0.12];
 const FILL_BLEED: f32 = 0.25;
@@ -79,6 +81,40 @@ pub struct FillPlan {
     pub edge_row: usize,
     pub edge_x: Pixels,
     pub rows: Vec<Pixels>,
+}
+
+#[derive(Clone, Copy)]
+pub struct EdgeFade {
+    top: Pixels,
+    bottom: Pixels,
+    reach: Pixels,
+    above: f32,
+    below: f32,
+}
+
+impl EdgeFade {
+    pub fn new(
+        viewport: Bounds<Pixels>,
+        hidden_above: Pixels,
+        hidden_below: Pixels,
+    ) -> Option<Self> {
+        let reach = viewport.size.height * EDGE_FADE;
+        (reach > px(0.)).then(|| Self {
+            top: viewport.top(),
+            bottom: viewport.bottom(),
+            reach,
+            above: (hidden_above / reach).clamp(0., 1.),
+            below: (hidden_below / reach).clamp(0., 1.),
+        })
+    }
+
+    pub fn alpha(&self, top: Pixels, bottom: Pixels) -> f32 {
+        let edge = |gap: Pixels, strength: f32| {
+            let t = (gap / self.reach).clamp(0., 1.);
+            1. - strength * (1. - t * t * (3. - 2. * t))
+        };
+        edge(top - self.top, self.above) * edge(self.bottom - bottom, self.below)
+    }
 }
 
 pub fn format_ms(ms: u32) -> SharedString {
@@ -480,6 +516,37 @@ fn layer(plan: &FillPlan, rect: FillRect, text: &SharedString, font: LineFont, c
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn viewport() -> Bounds<Pixels> {
+        Bounds::new(
+            gpui::point(px(0.), px(100.)),
+            gpui::size(px(300.), px(500.)),
+        )
+    }
+
+    #[test]
+    fn edge_rows_fade_only_where_text_is_hidden_past_the_edge() {
+        let fade = EdgeFade::new(viewport(), px(200.), px(200.)).unwrap();
+        assert_eq!(fade.alpha(px(100.), px(140.)), 0.);
+        assert_eq!(fade.alpha(px(560.), px(600.)), 0.);
+        assert_eq!(fade.alpha(px(300.), px(340.)), 1.);
+        let near = fade.alpha(px(130.), px(170.));
+        assert!(near > 0. && near < 1.);
+
+        let at_start = EdgeFade::new(viewport(), px(0.), px(200.)).unwrap();
+        assert_eq!(at_start.alpha(px(108.), px(148.)), 1.);
+        assert_eq!(at_start.alpha(px(560.), px(600.)), 0.);
+
+        let barely = EdgeFade::new(viewport(), px(9.), px(0.)).unwrap();
+        assert!(barely.alpha(px(100.), px(140.)) > 0.8);
+        assert_eq!(barely.alpha(px(560.), px(600.)), 1.);
+    }
+
+    #[test]
+    fn an_empty_viewport_has_no_fade() {
+        let flat = Bounds::new(gpui::point(px(0.), px(0.)), gpui::size(px(300.), px(0.)));
+        assert!(EdgeFade::new(flat, px(10.), px(10.)).is_none());
+    }
 
     fn halo() -> lyrics::Lyrics {
         synced(&[

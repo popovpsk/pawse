@@ -22,11 +22,11 @@ panel, its rows, autoscroll and the hover flag (`pawse/src/doc.md`, "Lyrics"), t
 
 - Off by default (`lyrics_blur`), and only for synced lyrics. While the view follows the
   song (`Frame::following`: autoscroll on and the pointer off the list) a row's target is
-  its distance from the active row times `STEP`, up to `MAX_SIGMA`; before the first row
-  goes active the distance counts from a row above the first, so a short intro (too short
-  for the "♪ ♪ ♪" intro row) does not flash the whole text sharp. Lit rows (active,
-  lingering) and untimed rows stay sharp, and every row does while the view does not
-  follow.
+  its distance from the active row times `STEP` below it and `PAST_STEP` above it (sung
+  rows recede faster than the ones ahead), up to `MAX_SIGMA`; before the first row goes
+  active the distance counts from a row above the first, so a short intro (too short for
+  the "♪ ♪ ♪" intro row) does not flash the whole text sharp. Lit rows (active, lingering)
+  and untimed rows stay sharp, and every row does while the view does not follow.
 - Each row's sigma eases to its target every render (`TAU`, `dt` capped at `DT_MAX`, snaps
   within `EPS`); animation frames are requested only while some row still moves, so a
   settled panel asks for no frames.

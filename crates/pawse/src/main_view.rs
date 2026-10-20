@@ -2,10 +2,11 @@ use std::time::Duration;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt as _, App, AppContext, Context, DispatchPhase, DragMoveEvent, Empty,
-    Entity, EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render,
-    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, ease_out_quint, px, svg,
+    Animation, AnimationExt as _, AnyElement, App, AppContext, Context, DispatchPhase,
+    DragMoveEvent, Empty, Entity, EntityId, FocusHandle, Hsla, InteractiveElement, IntoElement,
+    MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
+    Pixels, Render, StatefulInteractiveElement, StyleRefinement, Styled, Subscription, Window,
+    canvas, div, ease_out_quint, px, svg,
 };
 use gpui_component::{
     StyledExt,
@@ -16,6 +17,7 @@ use gpui_component::{
 };
 
 mod header;
+mod stage;
 
 use crate::audio_settings::AudioSettings;
 use crate::cover_backdrop::{self, CoverBackdrop};
@@ -163,7 +165,7 @@ pub struct MainView {
     _sleep_timer_controls_observe: Subscription,
     header: Entity<header::HeaderHost>,
     #[cfg(target_os = "macos")]
-    traffic_light_y: f32,
+    traffic_light: (f32, f32),
     focus_handle: FocusHandle,
 }
 
@@ -717,23 +719,29 @@ impl MainView {
             _sleep_timer_controls_observe: sleep_timer_controls_observe,
             header,
             #[cfg(target_os = "macos")]
-            traffic_light_y: crate::window_title_bar::TRAFFIC_LIGHT_Y,
+            traffic_light: (
+                crate::window_title_bar::TRAFFIC_LIGHT_X,
+                crate::window_title_bar::TRAFFIC_LIGHT_Y,
+            ),
             focus_handle,
         }
     }
 
     #[cfg(target_os = "macos")]
-    fn sync_traffic_lights(&mut self, window: &mut Window, bar_height: f32) {
+    fn sync_traffic_lights(&mut self, window: &mut Window, bar_height: f32, hidden: bool) {
+        let x = if hidden {
+            crate::window_title_bar::TRAFFIC_LIGHT_HIDDEN_X
+        } else {
+            crate::window_title_bar::TRAFFIC_LIGHT_X
+        };
         let y = crate::window_title_bar::traffic_light_y(bar_height);
-        if (self.traffic_light_y - y).abs() < 0.01 {
+        let (old_x, old_y) = self.traffic_light;
+        if (old_x - x).abs() < 0.01 && (old_y - y).abs() < 0.01 {
             return;
         }
-        self.traffic_light_y = y;
+        self.traffic_light = (x, y);
         window.on_next_frame(move |window, _| {
-            window.set_traffic_light_position(gpui::point(
-                px(crate::window_title_bar::TRAFFIC_LIGHT_X),
-                px(y),
-            ));
+            window.set_traffic_light_position(gpui::point(px(x), px(y)));
         });
     }
 
@@ -981,13 +989,15 @@ impl Render for MainView {
             cx,
         );
         let veil = cover_backdrop::veil_factor(cx);
-        let title_bar_bg = cover_backdrop::chrome_bg(
-            if cover_mode && !chrome_visible {
-                background
-            } else {
-                title_bar
-            },
+        let stage = stage::Stage::new(
+            cover_mode,
+            self.cover_mode_view.read(cx),
+            has_backdrop,
+            title_bar,
+            background,
             veil,
+            window,
+            cx,
         );
         let bar_bg = cover_backdrop::chrome_bg(title_bar, veil);
         let panel_bg = cover_backdrop::panel_bg(background, veil);
@@ -1007,15 +1017,18 @@ impl Render for MainView {
         let header_in_bar =
             header_in_title_bar && (!window.is_fullscreen() || cfg!(target_os = "linux"));
         let show_chrome = !cover_mode || chrome_visible;
+        let lights_bar = if header_in_title_bar {
+            title_bar_height
+        } else {
+            crate::window_title_bar::HEIGHT
+        };
+        let hold_zone = if cfg!(target_os = "macos") && !window.is_fullscreen() {
+            lights_bar
+        } else {
+            0.
+        };
         #[cfg(target_os = "macos")]
-        self.sync_traffic_lights(
-            window,
-            if header_in_title_bar {
-                title_bar_height
-            } else {
-                crate::window_title_bar::HEIGHT
-            },
-        );
+        self.sync_traffic_lights(window, lights_bar, stage.lights_hidden);
 
         let header_state = show_chrome.then(|| header::HeaderState {
             placement: if header_in_bar {
@@ -1042,7 +1055,11 @@ impl Render for MainView {
             .filter(|_| !header_in_bar)
             .map(|state| self.header_block(state, cx));
 
-        let mut window_title_bar = crate::window_title_bar::WindowTitleBar::new().bg(title_bar_bg);
+        let border = Colors::border(cx);
+        let bar_height =
+            crate::window_title_bar::bar_height(window, header_in_bar.then_some(title_bar_height));
+        let mut window_title_bar =
+            crate::window_title_bar::WindowTitleBar::new().bg(stage.title_bar_bg);
         if header_in_bar {
             window_title_bar = window_title_bar
                 .height(title_bar_height)
@@ -1099,17 +1116,120 @@ impl Render for MainView {
                 }),
             )
             .when(cover_mode, |d| {
-                d.on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
+                d.on_mouse_move(cx.listener(move |this, e: &MouseMoveEvent, _, cx| {
+                    let held = e.position.y < px(hold_zone);
                     this.cover_mode_view
-                        .update(cx, |view, cx| view.handle_mouse_move(cx));
+                        .update(cx, |view, cx| view.handle_mouse_move(held, cx));
                 }))
             })
             .when(has_backdrop, |d| d.bg(background))
             .when_some(backdrop, |d, frame| {
                 d.child(cover_backdrop::layers(frame, background))
             })
+            .children((self.show_queue || self.queue_closing).then(|| {
+                sliding(
+                    div().absolute().top_0().right_0().h(px(bar_height)).when(
+                        stage.queue_to_top,
+                        |d| {
+                            d.bg(panel_bg)
+                                .border_l(px(PANEL_BORDER))
+                                .border_color(border)
+                        },
+                    ),
+                    self.queue_width,
+                    self.queue_closing,
+                    ("queue-top-slide-in", "queue-top-slide-out"),
+                )
+            }))
             .child(window_title_bar)
             .child({
+                let (pane_strip, area_strip) = match stage.strip {
+                    Some(strip) if strip.under_lyrics => (Some(strip), None),
+                    strip => (None, strip),
+                };
+                let content = div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .when(!cover_mode, |d| d.ml_4())
+                    .when(!cover_mode && !self.show_queue && !self.show_lyrics, |d| {
+                        d.mr_4()
+                    })
+                    .when(cover_mode, |d| d.relative())
+                    .when_some(area_strip, |d, strip| d.child(strip.layer()))
+                    .child(if cover_mode {
+                        self.cover_mode_view.clone().into_any_element()
+                    } else if show_settings {
+                        crate::view_cache::full(&self.settings_screen)
+                    } else if show_tools {
+                        crate::view_cache::full(&self.tools_view)
+                    } else {
+                        crate::view_cache::full(&self.library_view)
+                    })
+                    .when(cover_mode && (chrome_visible || controls_t > 0.), |d| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .size_full()
+                                .when(!chrome_visible, |d| d.opacity(controls_t))
+                                .child(cover_chrome_button(chrome_visible, tab_colors, cx))
+                                .child(cover_spectrum_button(tab_colors, cx)),
+                        )
+                    });
+                let lyrics_changed = self
+                    .lyrics_view
+                    .update(cx, |lv, _| lv.set_presentation(stage.lyrics));
+                let lyrics_panel = (self.show_lyrics || self.lyrics_closing).then(|| {
+                    side_panel(
+                        crate::view_cache::block(
+                            &self.lyrics_view,
+                            StyleRefinement::default().size_full(),
+                            !lyrics_changed,
+                        ),
+                        self.lyrics_width,
+                        self.lyrics_closing,
+                        (!veil_content && !stage.bare_lyrics).then_some(panel_bg),
+                        if stage.bare_lyrics {
+                            gpui::transparent_black()
+                        } else {
+                            border
+                        },
+                        resize_handle("lyrics_resize_handle")
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, e: &MouseDownEvent, _, _| {
+                                    this.lyrics_resize_origin =
+                                        Some((e.position.x, this.lyrics_width));
+                                }),
+                            )
+                            .on_drag(DragLyricsResize(entity_id), |drag, _, _, cx| {
+                                cx.new(|_| drag.clone())
+                            }),
+                        ("lyrics-slide-in", "lyrics-slide-out"),
+                    )
+                });
+                let queue_panel = (self.show_queue || self.queue_closing).then(|| {
+                    side_panel(
+                        crate::view_cache::full(&self.queue_view),
+                        self.queue_width,
+                        self.queue_closing,
+                        (!veil_content).then_some(panel_bg),
+                        border,
+                        resize_handle("queue_resize_handle")
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, e: &MouseDownEvent, _, _| {
+                                    this.queue_resize_origin =
+                                        Some((e.position.x, this.queue_width));
+                                }),
+                            )
+                            .on_drag(DragQueueResize(entity_id), |drag, _, _, cx| {
+                                cx.new(|_| drag.clone())
+                            }),
+                        ("queue-slide-in", "queue-slide-out"),
+                    )
+                });
                 let middle = div()
                     .flex_1()
                     .overflow_hidden()
@@ -1119,139 +1239,13 @@ impl Render for MainView {
                     .child(
                         div()
                             .flex_1()
-                            .overflow_hidden()
-                            .when(!cover_mode, |d| d.ml_4())
-                            .when(!cover_mode && !self.show_queue && !self.show_lyrics, |d| {
-                                d.mr_4()
-                            })
-                            .child(if cover_mode {
-                                self.cover_mode_view.clone().into_any_element()
-                            } else if show_settings {
-                                crate::view_cache::full(&self.settings_screen)
-                            } else if show_tools {
-                                crate::view_cache::full(&self.tools_view)
-                            } else {
-                                crate::view_cache::full(&self.library_view)
-                            })
-                            .when(cover_mode && (chrome_visible || controls_t > 0.), |d| {
-                                d.relative().child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .left_0()
-                                        .size_full()
-                                        .when(!chrome_visible, |d| d.opacity(controls_t))
-                                        .child(cover_chrome_button(chrome_visible, tab_colors, cx))
-                                        .child(cover_spectrum_button(tab_colors, cx)),
-                                )
-                            }),
+                            .flex()
+                            .relative()
+                            .when_some(pane_strip, |d, strip| d.child(strip.layer()))
+                            .child(content)
+                            .children(lyrics_panel),
                     )
-                    .when(self.show_lyrics || self.lyrics_closing, |d| {
-                        let lyrics_width = self.lyrics_width;
-                        let closing = self.lyrics_closing;
-                        d.child(
-                            div()
-                                .flex_shrink_0()
-                                .border_l(px(PANEL_BORDER))
-                                .border_color(Colors::border(cx))
-                                .relative()
-                                .when(!veil_content, |d| d.bg(panel_bg))
-                                .child(
-                                    div().size_full().overflow_hidden().child(
-                                        div()
-                                            .h_full()
-                                            .flex_shrink_0()
-                                            .w(px(lyrics_width - PANEL_BORDER))
-                                            .child(crate::view_cache::full(&self.lyrics_view)),
-                                    ),
-                                )
-                                .child(
-                                    div()
-                                        .id("lyrics_resize_handle")
-                                        .absolute()
-                                        .left(px(-3.))
-                                        .top(px(0.))
-                                        .h_full()
-                                        .w(px(6.))
-                                        .cursor(gpui::CursorStyle::ResizeLeftRight)
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, e: &MouseDownEvent, _, _| {
-                                                this.lyrics_resize_origin =
-                                                    Some((e.position.x, this.lyrics_width));
-                                            }),
-                                        )
-                                        .on_drag(DragLyricsResize(entity_id), |drag, _, _, cx| {
-                                            cx.new(|_| drag.clone())
-                                        }),
-                                )
-                                .with_animation(
-                                    if closing {
-                                        "lyrics-slide-out"
-                                    } else {
-                                        "lyrics-slide-in"
-                                    },
-                                    Animation::new(QUEUE_ANIM).with_easing(ease_out_quint()),
-                                    move |this, delta| {
-                                        let factor = if closing { 1.0 - delta } else { delta };
-                                        this.w(px(lyrics_width * factor))
-                                    },
-                                ),
-                        )
-                    })
-                    .when(self.show_queue || self.queue_closing, |d| {
-                        let queue_width = self.queue_width;
-                        let closing = self.queue_closing;
-                        d.child(
-                            div()
-                                .flex_shrink_0()
-                                .border_l(px(PANEL_BORDER))
-                                .border_color(Colors::border(cx))
-                                .relative()
-                                .when(!veil_content, |d| d.bg(panel_bg))
-                                .child(
-                                    div().size_full().overflow_hidden().child(
-                                        div()
-                                            .h_full()
-                                            .flex_shrink_0()
-                                            .w(px(queue_width - PANEL_BORDER))
-                                            .child(crate::view_cache::full(&self.queue_view)),
-                                    ),
-                                )
-                                .child(
-                                    div()
-                                        .id("queue_resize_handle")
-                                        .absolute()
-                                        .left(px(-3.))
-                                        .top(px(0.))
-                                        .h_full()
-                                        .w(px(6.))
-                                        .cursor(gpui::CursorStyle::ResizeLeftRight)
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(|this, e: &MouseDownEvent, _, _| {
-                                                this.queue_resize_origin =
-                                                    Some((e.position.x, this.queue_width));
-                                            }),
-                                        )
-                                        .on_drag(DragQueueResize(entity_id), |drag, _, _, cx| {
-                                            cx.new(|_| drag.clone())
-                                        }),
-                                )
-                                .with_animation(
-                                    if closing {
-                                        "queue-slide-out"
-                                    } else {
-                                        "queue-slide-in"
-                                    },
-                                    Animation::new(QUEUE_ANIM).with_easing(ease_out_quint()),
-                                    move |this, delta| {
-                                        let factor = if closing { 1.0 - delta } else { delta };
-                                        this.w(px(queue_width * factor))
-                                    },
-                                ),
-                        )
-                    });
+                    .children(queue_panel);
 
                 let footer_bar = div()
                     .w_full()
@@ -1273,6 +1267,7 @@ impl Render for MainView {
             })
             .child({
                 let entity = cx.entity();
+                let cover = self.cover_mode_view.clone();
                 canvas(
                     |_, _, _| {},
                     move |_, _, window, _| {
@@ -1288,6 +1283,12 @@ impl Render for MainView {
                                 this.lyrics_resize_origin = None;
                             });
                         });
+                        window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                            if phase != DispatchPhase::Capture {
+                                return;
+                            }
+                            cover.update(cx, |view, _| view.release_hold());
+                        });
                     },
                 )
                 .absolute()
@@ -1295,6 +1296,61 @@ impl Render for MainView {
             })
             .child(self.playlist_popup.clone())
     }
+}
+
+fn side_panel(
+    content: AnyElement,
+    width: f32,
+    closing: bool,
+    bg: Option<Hsla>,
+    border: Hsla,
+    handle: impl IntoElement,
+    (slide_in, slide_out): (&'static str, &'static str),
+) -> impl IntoElement {
+    let panel = div()
+        .flex_shrink_0()
+        .border_l(px(PANEL_BORDER))
+        .border_color(border)
+        .relative()
+        .when_some(bg, |d, bg| d.bg(bg))
+        .child(
+            div().size_full().overflow_hidden().child(
+                div()
+                    .h_full()
+                    .flex_shrink_0()
+                    .w(px(width - PANEL_BORDER))
+                    .child(content),
+            ),
+        )
+        .child(handle);
+    sliding(panel, width, closing, (slide_in, slide_out))
+}
+
+fn sliding<E: IntoElement + Styled + 'static>(
+    element: E,
+    width: f32,
+    closing: bool,
+    (slide_in, slide_out): (&'static str, &'static str),
+) -> gpui::AnimationElement<E> {
+    element.with_animation(
+        if closing { slide_out } else { slide_in },
+        Animation::new(QUEUE_ANIM).with_easing(ease_out_quint()),
+        move |this, delta| {
+            let factor = if closing { 1.0 - delta } else { delta };
+            this.w(px(width * factor))
+        },
+    )
+}
+
+fn resize_handle(id: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .absolute()
+        .left(px(-3.))
+        .top(px(0.))
+        .h_full()
+        .w(px(6.))
+        .cursor(gpui::CursorStyle::ResizeLeftRight)
 }
 
 fn cover_spectrum_button(colors: TabColors, cx: &mut Context<MainView>) -> impl IntoElement {

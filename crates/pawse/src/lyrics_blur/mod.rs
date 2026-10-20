@@ -17,6 +17,7 @@ use crate::cover_art_cache::drop_atlas_tile;
 use crate::lyrics_fill::{LineFont, LyricRow};
 
 const STEP: f32 = 1.5;
+const PAST_STEP: f32 = 2.;
 const TAU: f32 = 0.11;
 const DT_MAX: f32 = 0.05;
 const EPS: f32 = 0.02;
@@ -164,8 +165,12 @@ impl LyricsBlur {
         for (ix, slot) in self.slots.iter_mut().enumerate() {
             let timed = frame.rows.get(ix).is_some_and(|row| row.time_ms.is_some());
             let target = if frame.following && timed && !(frame.lit)(ix) {
-                let distance = frame.active.map_or(ix + 1, |active| ix.abs_diff(active));
-                (distance as f32 * STEP).min(MAX_SIGMA)
+                let (distance, step) = match frame.active {
+                    Some(active) if ix < active => (active - ix, PAST_STEP),
+                    Some(active) => (ix - active, STEP),
+                    None => (ix + 1, STEP),
+                };
+                (distance as f32 * step).min(MAX_SIGMA)
             } else {
                 0.
             };

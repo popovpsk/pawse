@@ -1,13 +1,14 @@
 # main_view
 
-Child modules of `main_view.rs`, the root view. Today that is the header: tabs, search
-field, view menu and the right-hand buttons. It lives in a child module of `main_view.rs`
-and renders with a `Context<MainView>`, because its buttons call `MainView`'s private
-methods and fields (`open_settings`, `leave_overlays`, `toggle_cover_mode`, `library_view`,
-…); `HeaderHost` is only the entity it is drawn under, so the header can be a cached block.
+Child modules of `main_view.rs`, the root view: the header (tabs, search field, view menu
+and the right-hand buttons) and the Full screen stage. The header renders with a
+`Context<MainView>`, because its buttons call `MainView`'s private methods and fields
+(`open_settings`, `leave_overlays`, `toggle_cover_mode`, `library_view`, …); `HeaderHost`
+is only the entity it is drawn under, so the header can be a cached block.
 
-Not here: the rest of the root view — screens, panels, footer, cover-mode chrome, key
-actions (`main_view.rs`, `pawse/src/doc.md`); the title bar widget (`window_title_bar.rs`);
+Not here: the rest of the root view — screens, side panels (`side_panel`), footer, key
+actions (`main_view.rs`, `pawse/src/doc.md`, "Cover mode and backdrop" for what Full
+screen looks like); the title bar widget (`window_title_bar.rs`);
 the view-options menu (`library_views/doc.md`); the library indicator (`pawse/src/doc.md`,
 "Library events"); the sleep-timer badge, which is in the footer (`sleep_timer/doc.md`).
 
@@ -17,6 +18,14 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
   `render_header`, `Placement`, `HEIGHT` (standalone bar) and `TITLE_BAR_HEIGHT` (bar when
   the header lives in the title bar), both scaled by the UI font scale, and the button
   helpers only the header uses.
+- `stage.rs` — `Stage`: everything Full screen cover mode changes in the root view,
+  computed once per render from cover mode, the cover view and the backdrop (title bar
+  background, the bare lyrics panel, the queue reaching up to the window top, the
+  silhouette `Strip` and where it runs, the
+  lyrics' `LyricsPresentation`, the traffic lights, which stay put in native fullscreen
+  where AppKit shows its own bar); `Strip::layer`. `MainView::render` only applies these
+  fields; a new Full screen difference goes into `Stage`, not into render as another
+  condition.
 
 ## Caching
 

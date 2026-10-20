@@ -5,10 +5,10 @@ use std::time::{Duration, Instant};
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt, AppContext, Context, Entity, FontStyle, FontWeight, Hsla,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, ScrollHandle, SharedString,
-    Size, StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div,
-    ease_out_quint, px,
+    AppContext, Context, DispatchPhase, Entity, FontStyle, FontWeight, Hsla, InteractiveElement,
+    IntoElement, MouseExitEvent, MouseMoveEvent, ParentElement, Pixels, Render, ScrollHandle,
+    SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas,
+    div, ease_out_quint, px,
 };
 use gpui_component::{tooltip::Tooltip, v_flex};
 use music_library::{StoredLyrics, lyrics_source};
@@ -16,7 +16,8 @@ use music_library::{StoredLyrics, lyrics_source};
 use crate::library_service::{LibraryEvent, LyricsAccess};
 use crate::localization::tr;
 use crate::lyrics_blur::{self, BlurStyle, LyricsBlur};
-use crate::lyrics_fill::{self, FillPlan, LineFont, LineShape};
+use crate::lyrics_fill::{self, EdgeFade, FillPlan, LineFont, LineShape};
+use crate::lyrics_wave::{self, Wave};
 use crate::panel_header::{
     panel_header, panel_header_actions, panel_header_button, panel_header_segment,
     panel_header_segments,
@@ -29,6 +30,7 @@ use crate::theme_colors::Colors;
 const SCROLL_ANIM: Duration = Duration::from_millis(360);
 const CENTER_BIAS: f32 = 0.4;
 const SCROLL_EPS: Pixels = px(1.);
+const FADED_OUT: f32 = 0.1;
 const SERVER_GRACE: Duration = Duration::from_millis(1_500);
 const BACKGROUND_SCALE: f32 = 0.8;
 const BACKGROUND_ALPHA: f32 = 0.7;
@@ -145,6 +147,20 @@ const SEGMENT_ORDER: [&str; 4] = [
     lyrics_source::LRCLIB,
 ];
 
+#[derive(Clone, Copy, PartialEq, Default)]
+pub struct LyricsPresentation {
+    pub bare_header: bool,
+    pub edge_fade: bool,
+    pub bottom_inset: Pixels,
+}
+
+#[derive(Clone, Copy)]
+struct ScrollAnim {
+    from: Pixels,
+    to: Pixels,
+    start: Instant,
+}
+
 pub struct LyricsView {
     current_track_id: Option<i64>,
     rows: Vec<lyrics_fill::LyricRow>,
@@ -168,10 +184,12 @@ pub struct LyricsView {
     not_found: bool,
     current_raw: Option<String>,
     visible: bool,
+    presentation: LyricsPresentation,
     scroll_handle: ScrollHandle,
     autoscroll: bool,
     scroll_seq: usize,
-    scroll_anim: Option<(Pixels, Pixels)>,
+    scroll_anim: Option<ScrollAnim>,
+    wave: Wave,
     pos_base_ms: u64,
     pos_base_at: Instant,
     playing: bool,
@@ -294,10 +312,12 @@ impl LyricsView {
             not_found: false,
             current_raw: None,
             visible: false,
+            presentation: LyricsPresentation::default(),
             scroll_handle: ScrollHandle::new(),
             autoscroll: true,
             scroll_seq: 0,
             scroll_anim: None,
+            wave: Wave::default(),
             pos_base_ms,
             pos_base_at: Instant::now(),
             playing,
@@ -328,6 +348,12 @@ impl LyricsView {
         }
         result.load(cx);
         result
+    }
+
+    pub fn set_presentation(&mut self, presentation: LyricsPresentation) -> bool {
+        let changed = self.presentation != presentation;
+        self.presentation = presentation;
+        changed
     }
 
     pub fn set_visible(&mut self, visible: bool, cx: &mut Context<Self>) {
@@ -682,6 +708,7 @@ impl LyricsView {
             self.invalidate_fill();
             self.autoscroll = true;
             self.scroll_anim = None;
+            self.wave.clear();
             self.viewport = Size::default();
             self.heights_key = None;
             self.scroll_handle.scroll_to_item(0);
@@ -698,6 +725,7 @@ impl LyricsView {
         self.can_export = false;
         self.current_raw = None;
         self.scroll_anim = None;
+        self.wave.clear();
         self.heights_key = None;
         self.pos_base_ms = 0;
         self.pos_base_at = Instant::now();
@@ -778,6 +806,13 @@ impl LyricsView {
     fn set_list_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
         if self.list_hovered != hovered {
             self.list_hovered = hovered;
+            cx.notify();
+        }
+    }
+
+    fn pointer_left(&mut self, cx: &mut Context<Self>) {
+        self.set_list_hovered(false, cx);
+        if self.hovered_ix.take().is_some() {
             cx.notify();
         }
     }
@@ -926,8 +961,8 @@ impl LyricsView {
             .min(self.scroll_handle.max_offset().y);
         let (from, to) = self
             .scroll_anim
-            .map_or((offset, offset), |(from, to)| (-from, -to));
-        let margin = view * lyrics_blur::NEAR;
+            .map_or((offset, offset), |anim| (-anim.from, -anim.to));
+        let margin = view * lyrics_blur::NEAR + self.wave.reach();
         let top = offset.min(from).min(to) - margin;
         let bottom = offset.max(from).max(to) + view + margin;
         let mut built: Option<Range<usize>> = None;
@@ -953,6 +988,7 @@ impl LyricsView {
         offset.y = to;
         self.scroll_handle.set_offset(offset);
         self.scroll_anim = None;
+        self.wave.clear();
     }
 
     fn start_autoscroll(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -967,9 +1003,23 @@ impl LyricsView {
             self.scroll_anim = None;
             return;
         }
+        let em = self.font.map_or(px(0.), |font| font.size);
+        if lyrics_wave::fits(from - to, em) && !cx.reduce_motion() {
+            let mut offset = self.scroll_handle.offset();
+            offset.y = to;
+            self.scroll_handle.set_offset(offset);
+            self.scroll_anim = None;
+            self._scroll_task = None;
+            self.wave.push(from, to, Instant::now());
+            return;
+        }
         self.scroll_seq = self.scroll_seq.wrapping_add(1);
         let seq = self.scroll_seq;
-        self.scroll_anim = Some((from, to));
+        self.scroll_anim = Some(ScrollAnim {
+            from,
+            to,
+            start: Instant::now(),
+        });
         self._scroll_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SCROLL_ANIM).await;
             this.update(cx, |this, cx| {
@@ -1070,6 +1120,24 @@ impl Render for LyricsView {
             }
         }
 
+        let now = Instant::now();
+        if let Some(anim) = self.scroll_anim {
+            let t =
+                now.saturating_duration_since(anim.start).as_secs_f32() / SCROLL_ANIM.as_secs_f32();
+            let mut offset = self.scroll_handle.offset();
+            if t >= 1. {
+                offset.y = anim.to;
+                self.scroll_anim = None;
+            } else {
+                offset.y = anim.from + (anim.to - anim.from) * ease_out_quint()(t);
+                window.request_animation_frame();
+            }
+            self.scroll_handle.set_offset(offset);
+        }
+        if self.wave.settle(now) {
+            window.request_animation_frame();
+        }
+
         let entity = cx.entity();
         if self.font.replace(font).is_some_and(|old| old != font) {
             self.recenter = true;
@@ -1105,6 +1173,10 @@ impl Render for LyricsView {
         });
         if self.loading || self.rows.is_empty() {
             self.list_hovered = false;
+        }
+        if !cfg!(target_os = "macos") && !window.is_window_hovered() {
+            self.list_hovered = false;
+            self.hovered_ix = None;
         }
         let following = self.autoscroll && !self.list_hovered;
         let lit = |ix: usize| self.is_lit(ix);
@@ -1194,7 +1266,7 @@ impl Render for LyricsView {
                     .on_click(cx.listener(|this, _, _, cx| this.resync(cx))),
                 )
             })
-            .when(self.can_export, |d| {
+            .when(self.can_export && !self.presentation.bare_header, |d| {
                 d.child(
                     panel_header_button(
                         "lyrics_save",
@@ -1205,7 +1277,12 @@ impl Render for LyricsView {
                     .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
                 )
             });
-        let header = panel_header(tr().lyrics.clone(), actions, cx);
+        let title = if self.presentation.bare_header {
+            SharedString::default()
+        } else {
+            tr().lyrics.clone()
+        };
+        let header = panel_header(title, actions, cx);
 
         let body = if (self.fetching || self.server_pending()) && self.rows.is_empty() {
             centered_message(tr().lyrics_fetching.clone(), muted_foreground).into_any_element()
@@ -1213,6 +1290,28 @@ impl Render for LyricsView {
             div().flex_1().into_any_element()
         } else if !self.rows.is_empty() {
             let scroll_handle = &self.scroll_handle;
+            let list_bounds = scroll_handle.bounds();
+            let wave = self.wave.frame(
+                now,
+                list_bounds.top() + list_bounds.size.height * CENTER_BIAS,
+                font.size,
+            );
+            let scroll_y = scroll_handle.offset().y;
+            let fade = self
+                .presentation
+                .edge_fade
+                .then(|| {
+                    let shift_at = |edge: Pixels| {
+                        wave.as_ref()
+                            .map_or(px(0.), |wave| wave.offset(edge - scroll_y))
+                    };
+                    EdgeFade::new(
+                        list_bounds,
+                        -scroll_y - shift_at(list_bounds.top()),
+                        scroll_handle.max_offset().y + scroll_y + shift_at(list_bounds.bottom()),
+                    )
+                })
+                .flatten();
             let list = v_flex()
                 .id("lyrics_list")
                 .size_full()
@@ -1221,6 +1320,9 @@ impl Render for LyricsView {
                 .on_scroll_wheel(cx.listener(|this, _, _, cx| this.disengage(cx)))
                 .on_hover(
                     cx.listener(|this, hovered: &bool, _, cx| this.set_list_hovered(*hovered, cx)),
+                )
+                .on_mouse_move(
+                    cx.listener(|this, _: &MouseMoveEvent, _, cx| this.set_list_hovered(true, cx)),
                 )
                 .py_2()
                 .children(self.rows.iter().enumerate().map(|(ix, row)| {
@@ -1250,6 +1352,20 @@ impl Render for LyricsView {
                     let row_blur = blur.row(ix);
                     let backing_alpha =
                         BACKGROUND_ALPHA * row_blur.as_ref().map_or(1., |b| b.backing_alpha);
+                    let item = (wave.is_some() || fade.is_some())
+                        .then(|| scroll_handle.bounds_for_item(ix))
+                        .flatten();
+                    let shift = match (&wave, item) {
+                        (Some(wave), Some(item)) => wave.offset(item.top()),
+                        _ => px(0.),
+                    };
+                    let alpha = match (fade, item) {
+                        (Some(fade), Some(item)) => {
+                            let top = item.top() + scroll_y + shift;
+                            fade.alpha(top, top + item.size.height)
+                        }
+                        _ => 1.,
+                    };
                     let line = div()
                         .w_full()
                         .px_4()
@@ -1257,7 +1373,9 @@ impl Render for LyricsView {
                         .text_size(font.size)
                         .text_color(color)
                         .font_weight(font.weight)
-                        .when(font.style == FontStyle::Italic, |d| d.italic());
+                        .when(font.style == FontStyle::Italic, |d| d.italic())
+                        .when(shift != px(0.), |d| d.relative().top(shift))
+                        .when(alpha < 1., |d| d.opacity(alpha));
                     let background = row.background.as_ref().map(|backing| {
                         let fills = is_lit && karaoke && !backing.words.is_empty();
                         div()
@@ -1283,7 +1401,7 @@ impl Render for LyricsView {
                             )
                     });
                     let stacked = background.is_some();
-                    match (synced, row.time_ms, row.label.clone()) {
+                    let element = match (synced, row.time_ms, row.label.clone()) {
                         (true, Some(time_ms), Some(label)) => line
                             .flex()
                             .when(stacked, |d| d.flex_col().items_start())
@@ -1297,17 +1415,19 @@ impl Render for LyricsView {
                                         |d, b| d.text_color(color.opacity(b.text_alpha)),
                                     )
                                     .children(row_blur.iter().flat_map(|b| b.layers()))
-                                    .cursor_pointer()
                                     .when(Some(ix) == hovered_ix, |d| d.underline())
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(label.clone()).build(window, cx)
-                                    })
                                     .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
                                         this.set_hovered(ix, *hovered, cx)
                                     }))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.seek_to_line(ix, time_ms, cx)
-                                    }))
+                                    .when(alpha >= FADED_OUT, |d| {
+                                        d.cursor_pointer()
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::new(label.clone()).build(window, cx)
+                                            })
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.seek_to_line(ix, time_ms, cx)
+                                            }))
+                                    })
                                     .child(row.text.clone())
                                     .when(blur_on, |d| {
                                         d.child(lyrics_blur::measure(blur_entity.clone(), ix))
@@ -1322,31 +1442,15 @@ impl Render for LyricsView {
                                         None => Vec::new(),
                                     }),
                             )
-                            .children(background)
-                            .into_any_element(),
-                        _ => line
-                            .child(row.text.clone())
-                            .children(background)
-                            .into_any_element(),
+                            .children(background),
+                        _ => line.child(row.text.clone()).children(background),
+                    };
+                    if shift == px(0.) {
+                        element.into_any_element()
+                    } else {
+                        div().w_full().child(element).into_any_element()
                     }
                 }));
-
-            let list = if let Some((from, to)) = self.scroll_anim {
-                let handle = self.scroll_handle.clone();
-                list.with_animation(
-                    ("lyrics-autoscroll", self.scroll_seq),
-                    Animation::new(SCROLL_ANIM).with_easing(ease_out_quint()),
-                    move |el, delta| {
-                        let mut offset = handle.offset();
-                        offset.y = from + (to - from) * delta;
-                        handle.set_offset(offset);
-                        el
-                    },
-                )
-                .into_any_element()
-            } else {
-                list.into_any_element()
-            };
 
             v_flex()
                 .flex_1()
@@ -1362,16 +1466,24 @@ impl Render for LyricsView {
             centered_message(message, muted_foreground).into_any_element()
         };
 
+        let inset = self.presentation.bottom_inset;
         v_flex()
             .size_full()
-            .relative()
             .child(header)
-            .child(body)
-            .child(viewport_canvas(cx.entity()))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .relative()
+                    .child(body)
+                    .child(viewport_canvas(cx.entity())),
+            )
+            .when(inset > px(0.), |d| d.child(div().flex_shrink_0().h(inset)))
     }
 }
 
 fn viewport_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
+    let left = entity.clone();
     canvas(
         move |bounds, window, cx| {
             if entity.read(cx).viewport != bounds.size {
@@ -1382,7 +1494,13 @@ fn viewport_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
                 window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
             }
         },
-        |_, _, _, _| {},
+        move |_, _, window, _| {
+            window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                if phase == DispatchPhase::Capture {
+                    left.update(cx, |this, cx| this.pointer_left(cx));
+                }
+            });
+        },
     )
     .absolute()
     .size_full()
