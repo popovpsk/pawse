@@ -269,11 +269,10 @@ impl Backend for MacosBackend {
         if self.shared.iopc_ctx.playing.load(Ordering::Relaxed) != STATE_PLAYING {
             return 0;
         }
-        let f32_samples = batch.data.to_f32();
         self.shared
             .iopc_ctx
             .buffer
-            .write_slice_blocking(&f32_samples)
+            .write_samples_blocking(&batch.data)
     }
 
     fn clear(&self) {

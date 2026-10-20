@@ -20,7 +20,9 @@ picker and settings (`pawse/src/doc.md`), the per-platform exclusive paths
   (`pactl`) and the `PIPEWIRE_NODE` pin.
 - `default_watch.rs` — flag set when the system default output changes.
 - `ring_buffer.rs` — `AudioRingBuffer`, the SPSC f32 buffer between engine and callback;
-  `with_tap` feeds every `pop_slice` to a `SignalTap`.
+  `with_tap` feeds every `pop_slice` to a `SignalTap`. `write_samples_blocking` converts
+  into one reused producer-side scratch (F32 goes in as is): a write into a full buffer
+  is partial, so the engine writes the rest of a batch several times.
 - `tap.rs` — `SignalTap`, the lock-free mono copy of what the device plays, for the
   spectrum.
 - `bit_perfect.rs` — `BitPerfectStatus` / `BitPerfectIssue`, `UNITY_VOLUME_TOLERANCE`.

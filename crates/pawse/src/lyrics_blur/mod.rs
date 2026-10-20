@@ -24,7 +24,7 @@ const FIT: Pixels = px(1.);
 const BATCH: usize = 12;
 const PENDING_FADE: f32 = 0.5;
 const BACKING_FADE: f32 = 2.;
-const NEAR: f32 = 0.25;
+pub const NEAR: f32 = 0.25;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct BlurStyle {

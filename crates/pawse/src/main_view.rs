@@ -121,15 +121,13 @@ pub struct MainView {
     _blur_interface_opacity_slider: Entity<SliderState>,
     _blur_interface_opacity_slider_observe: Subscription,
     _blur_interface_opacity_slider_subscription: Subscription,
-    settings_pages: crate::settings_view::SettingsPages,
+    settings_screen: Entity<crate::settings_view::SettingsScreen>,
+    _screens_observe: Subscription,
     search_input: Entity<InputState>,
     _remote_port_input: Entity<InputState>,
     _remote_port_subscription: Subscription,
     _scrobble_ui: Entity<ScrobbleUiState>,
     library_sources: Entity<crate::library_sources::LibrarySources>,
-    settings_page_ix: usize,
-    settings_page_request: u64,
-    settings_anchor: Option<gpui::SharedString>,
     _library_sources_observe: Subscription,
     _scrobble_ui_observe: Subscription,
     _scrobble_rules_observe: Subscription,
@@ -189,7 +187,8 @@ impl MainView {
                     cx.notify();
                 }
                 LibraryViewEvent::OpenLibrarySettings => {
-                    this.open_settings(this.settings_pages.library, window, cx);
+                    let page = this.settings_screen.read(cx).pages().library;
+                    this.open_settings(page, window, cx);
                 }
             },
         );
@@ -403,7 +402,7 @@ impl MainView {
             let library_page = library_page.clone();
             let sleep_timer_controls = sleep_timer_controls.clone();
             move |this, cx| {
-                this.settings_pages = crate::settings_view::build_settings_pages(
+                let pages = crate::settings_view::build_settings_pages(
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
@@ -416,6 +415,8 @@ impl MainView {
                     sleep_timer_controls.clone(),
                     cx,
                 );
+                this.settings_screen
+                    .update(cx, |screen, _| screen.set_pages(pages));
                 cx.notify();
             }
         });
@@ -560,7 +561,7 @@ impl MainView {
                     library.set_artists_grouping(grouping);
                     crate::services::publish_remote_library_change(cx);
                 }
-                this.settings_pages = crate::settings_view::build_settings_pages(
+                let pages = crate::settings_view::build_settings_pages(
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),
                         blur_intensity: blur_intensity_slider.clone(),
@@ -573,6 +574,8 @@ impl MainView {
                     sleep_timer_controls.clone(),
                     cx,
                 );
+                this.settings_screen
+                    .update(cx, |screen, _| screen.set_pages(pages));
                 cx.notify();
             }
         });
@@ -666,15 +669,19 @@ impl MainView {
             _blur_interface_opacity_slider: blur_interface_opacity_slider,
             _blur_interface_opacity_slider_observe: blur_interface_opacity_slider_observe,
             _blur_interface_opacity_slider_subscription: blur_interface_opacity_slider_subscription,
-            settings_pages,
+            settings_screen: cx.new(|_| crate::settings_view::SettingsScreen::new(settings_pages)),
+            _screens_observe: cx.observe_self(|this, cx| {
+                if this.show_settings {
+                    this.settings_screen.update(cx, |_, cx| cx.notify());
+                } else if this.show_tools {
+                    this.tools_view.update(cx, |_, cx| cx.notify());
+                }
+            }),
             search_input,
             _remote_port_input: remote_port_input,
             _remote_port_subscription: remote_port_subscription,
             _scrobble_ui: scrobble_ui,
             library_sources: library_sources.clone(),
-            settings_page_ix: 0,
-            settings_page_request: 0,
-            settings_anchor: None,
             _library_sources_observe: library_sources_observe,
             _scrobble_ui_observe: scrobble_ui_observe,
             _scrobble_rules_observe: scrobble_rules_observe,
@@ -787,12 +794,11 @@ impl MainView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.settings_anchor = anchor;
         self.leave_overlays(window, cx);
         self.show_tools = false;
         self.show_settings = true;
-        self.settings_page_ix = page_ix;
-        self.settings_page_request += 1;
+        self.settings_screen
+            .update(cx, |screen, _| screen.show(page_ix, anchor));
         self.library_sources
             .update(cx, |sources, cx| sources.refresh_cache(cx));
         cx.notify();
@@ -895,7 +901,7 @@ impl MainView {
         cx: &mut Context<Self>,
     ) {
         self.open_settings_at(
-            self.settings_pages.scrobbling,
+            self.settings_screen.read(cx).pages().scrobbling,
             Some(gpui::SharedString::from(
                 crate::scrobble_settings::MEDIA_SERVERS_ANCHOR,
             )),
@@ -911,7 +917,7 @@ impl MainView {
         cx: &mut Context<Self>,
     ) {
         self.open_settings_at(
-            self.settings_pages.general,
+            self.settings_screen.read(cx).pages().general,
             Some(gpui::SharedString::from(
                 crate::sleep_timer::settings::SETTINGS_ANCHOR,
             )),
@@ -1121,20 +1127,9 @@ impl Render for MainView {
                             .child(if cover_mode {
                                 self.cover_mode_view.clone().into_any_element()
                             } else if show_settings {
-                                // Our own tab-based settings widget (ui_components) owns
-                                // its scroll + active-tab state; it just needs a
-                                // definite-size parent, which `flex_1` provides here.
-                                div()
-                                    .size_full()
-                                    .child(crate::settings_view::settings_widget(
-                                        self.settings_pages.pages.clone(),
-                                        self.settings_page_ix,
-                                        self.settings_anchor.clone(),
-                                        self.settings_page_request,
-                                    ))
-                                    .into_any_element()
+                                crate::view_cache::full(&self.settings_screen)
                             } else if show_tools {
-                                self.tools_view.clone().into_any_element()
+                                crate::view_cache::full(&self.tools_view)
                             } else {
                                 crate::view_cache::full(&self.library_view)
                             })

@@ -28,7 +28,8 @@ App shell:
   notifies land in one frame.
 - `single_instance.rs` — second-launch guard (Windows, Linux).
 - `settings_store.rs` — `SettingsStore` over `UserSettings` (`settings.json`).
-  `settings_view.rs` — `build_settings_pages` (Appearance, General, Scrobbling, Library).
+  `settings_view.rs` — `build_settings_pages` (Appearance, General, Scrobbling, Library),
+  `SettingsScreen` (the view drawing them).
 
 Playback and now playing:
 - `playback_opener.rs` — `PlaybackOpener`: `TrackRequest` in, engine `Command`s out via a
@@ -163,16 +164,17 @@ Integrations:
   (`tools::TIMER_PAGE`); the last two work with the button hidden because `open_tools`
   never reads `tools_enabled`. Back closes either screen (`tools/doc.md` for the
   module).
-- Settings: `open_settings_at(page, anchor)` bumps `settings_page_request`, so the
-  widget switches page even when already open. `OpenScrobblingSettings` (the link on a
-  server row) opens Scrobbling at `MEDIA_SERVERS_ANCHOR`; `OpenSleepTimerSettings` opens
-  General at the sleep-timer anchor.
+- Settings: `open_settings_at(page, anchor)` goes through `SettingsScreen::show`, which
+  bumps the page request, so the widget switches page even when already open.
+  `OpenScrobblingSettings` (the link on a server row) opens Scrobbling at
+  `MEDIA_SERVERS_ANCHOR`; `OpenSleepTimerSettings` opens General at the sleep-timer
+  anchor.
 - Settings pages are built with labels baked in and rebuilt on every `SettingsStore`
   change and every `ThemeRegistry` change (a language change reaches them this way: the
   language is saved in the store). State that must survive a rebuild (`ScrobbleUiState`,
-  `ScrobbleRules`, `ScrobbleInputs`, the sliders, the remote-port input) lives in
-  entities owned by `MainView`. The same store observer mirrors a changed
-  `artists_grouping` into `LibraryService` (`library_views/doc.md`).
+  `ScrobbleRules`, `ScrobbleInputs`, the sliders, the remote-port input) lives in entities
+  owned by `MainView`; the built pages live in `SettingsScreen`. The same store observer
+  mirrors a changed `artists_grouping` into `LibraryService` (`library_views/doc.md`).
 - Focus: the `MainView` key context and focus handle sit on `#main_content`, never on
   `#main_view` or anything spanning the title bar. `track_focus` calls `prevent_default`
   on every left mouse-down in its bounds, which on Windows kills the caption buttons and
@@ -192,21 +194,26 @@ Integrations:
 
 ## Cached blocks (`view_cache.rs`)
 
-- The header (`main_view::header::HeaderHost`), the library (`LibraryView`), the footer
-  and the lyrics and queue panels are drawn through `view_cache::block`: a notify outside
-  them (the spectrum's frames, karaoke, `MainView` and cover-mode animations, hover
-  elsewhere) replays their last frame instead of rebuilding them. Position ticks rebuild
-  only the blocks that follow them: the footer (its progress slider) and the lyrics panel
-  (the active line, karaoke). A notify of the block or of any view inside it, a window
-  refresh (theme, language, font scale, resize, focus, drag) or new slot bounds rebuilds
-  the block with everything inside, cached children included, so caching inside a block
-  buys nothing.
+- The header (`main_view::header::HeaderHost`), the library (`LibraryView`), the footer,
+  the lyrics and queue panels and the Settings and Tools screens are drawn through
+  `view_cache::block`: a notify outside them (the spectrum's frames, karaoke, `MainView`
+  and cover-mode animations, hover elsewhere) replays their last frame instead of
+  rebuilding them. Position ticks rebuild only the blocks that follow them: the footer
+  (its progress slider) and the lyrics panel (the active line, karaoke). A notify of the
+  block or of any view inside it, a window refresh (theme, language, font scale, resize,
+  focus, drag) or new slot bounds rebuilds the block with everything inside, cached
+  children included, so caching inside a block buys nothing.
 - A block must be notified for everything its subtree reads in render that is not a view
   inside it. `follow_app_events` covers `SettingsStore`, `CastState`, every engine event
   but `PositionChanged`, every library event but `ScanProgress` / `RemoteSyncProgress`,
   and `StatusChanged`. A render input outside those (a `RefCell` or atomic in `Services`,
   another entity's `read`) shows stale until something else wakes the block; subscribe
   the block to it.
+- Exception: the Settings and Tools screens are also rebuilt on every notify of `MainView`
+  itself (`_screens_observe`), not on those of views inside it: `MainView` already
+  observes everything the settings pages read (store, sliders, sources, scrobbling state,
+  scans), and a page rebuild costs a layout of the whole page. A new settings input must
+  be observed by `MainView` or by the screen.
 - A notify sent while a parent renders is lost: gpui collects dirty views when a frame
   starts and schedules no new frame for one sent mid-draw. So a block takes nothing from
   `MainView::render`, except the header: `MainView::render` builds `HeaderState` (every
@@ -428,6 +435,18 @@ Integrations:
   re-engages. The animation's own end timer sets the final offset, so a window that drew
   no frames meanwhile (occluded, minimized, asleep) still lands on the active row; an
   animation already cancelled (wheel, new rows, recenter) leaves the offset alone.
+- Only rows near the visible area are built: the rest are empty divs of their last drawn
+  height (`built_rows`), so indices, `centered_offset` and the scroll extent stay as with
+  every row built. Near means within `lyrics_blur::NEAR` of the window height around the
+  scroll offset (clamped: a wheel step past the end is clamped only in prepaint), and
+  around both ends of a running autoscroll, so the blur has every row it draws layers for.
+  A height is only reused while `HeightsKey` (panel width, font, rem size, scale factor,
+  synced) and the rows stay the same; otherwise the frame builds every row and recenters
+  on the next one. The key's width is the last frame's, so the frame that resized the
+  panel still mixes old spacer heights with rewrapped rows: the recenter scheduled by
+  `viewport_canvas` would aim off, hence the second one. Rows don't change height with
+  lit, hover, fill or blur state (all overlays are absolute); keep it so, or the spacers
+  go stale.
 - `centered_offset` reads row bounds from the last drawn frame. New rows clear
   `viewport`, and autoscroll waits while it is unknown: the old rows' bounds would aim at
   the wrong place (a new song would scroll back up from the old offset). The next

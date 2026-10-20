@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, Context, ElementId, Entity, EventEmitter, Hsla, Image, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window, div, prelude::FluentBuilder, px,
+    AnyElement, AppContext, Context, ElementId, Entity, EventEmitter, Hsla, Image,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Task, Window, div, prelude::FluentBuilder,
+    px,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -146,6 +147,7 @@ pub struct ArtistsView {
     rem_size: f32,
     covers: GridCovers,
     scroll_handle: VirtualListScrollHandle,
+    source_task: Option<Task<()>>,
     _subscription: Subscription,
     _lang_subscription: Subscription,
     _settings_observer: Subscription,
@@ -266,6 +268,7 @@ impl ArtistsView {
             rem_size,
             covers: GridCovers::new(library_access),
             scroll_handle: VirtualListScrollHandle::new(),
+            source_task: None,
             _subscription: subscription,
             _lang_subscription: lang_subscription,
             _settings_observer: settings_observer,
@@ -276,14 +279,27 @@ impl ArtistsView {
     }
 
     fn reload_source(&mut self, cx: &mut Context<Self>) {
-        {
-            let library = &cx.global::<Services>().library;
-            self.artists_all = library.artists(self.grouping);
-            self.cover_ids = library.artist_album_covers(self.grouping);
-            self.search_haystacks = library.artist_search_haystacks(self.grouping);
-        }
-        self.keys = self.artists_all.iter().map(ArtistKey::of).collect();
-        self.recompute_visible(cx);
+        let library = cx.global::<Services>().library.clone();
+        let grouping = self.grouping;
+        let load = cx.background_spawn(async move {
+            (
+                library.artists(grouping),
+                library.artist_album_covers(grouping),
+                library.artist_search_haystacks(grouping),
+            )
+        });
+        self.source_task = Some(cx.spawn(async move |this, cx| {
+            let (artists, cover_ids, search_haystacks) = load.await;
+            this.update(cx, |this, cx| {
+                this.artists_all = artists;
+                this.cover_ids = cover_ids;
+                this.search_haystacks = search_haystacks;
+                this.keys = this.artists_all.iter().map(ArtistKey::of).collect();
+                this.recompute_visible(cx);
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     pub fn set_filter(&mut self, query: &str, cx: &mut Context<Self>) {

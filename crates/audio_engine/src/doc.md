@@ -31,7 +31,8 @@ one. `EngineOutput` is `AudioOutput` plus the fade and `release_paused` calls th
   playing but starved → `recv_timeout` in 10 ms slices; preparing with a play requested →
   `recv_timeout` up to the buffering deadline; parked with a release deadline →
   `recv_deadline`; otherwise a plain `recv`, so an idle engine never wakes up.
-- A batch `write` only partly accepted is kept (`current_audio_batch`) and written first.
+- A batch `write` only partly accepted is kept (`current_audio_batch`, its written front
+  discarded in place) and written first.
   It survives a pause: resume continues from the exact same sample.
 - `PositionChanged` goes out about every 200 ms, relative to the cue `track_start`. It is
   silent while a seek fade runs (the UI is already at the target) and after the track end.

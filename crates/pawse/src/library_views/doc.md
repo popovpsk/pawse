@@ -50,10 +50,12 @@ trigger (`main_view/doc.md`).
 - Genres is optional (Settings, off by default): its view is built on first visit and
   dropped when the setting goes off. Turning Liked / Playlists / Genres off removes
   their frames; if `stack[0]` is no longer a root, the stack becomes `[Root(Albums)]`.
-- Root tabs reload on `CatalogChanged` (tag edits send it too); pages do not. Pages
-  rely on album and artist ids surviving rescans (`music_library/src/doc.md`, "Stable
-  album and artist ids"); a genre page holds the genre key, not its id, for the same
-  reason.
+- Root tabs reload on `CatalogChanged` (tag edits send it too); pages do not. Albums and
+  Artists read their lists on the background executor and keep showing the old ones until
+  the new arrive; Albums still clears the cover cache in the handler, so the blocks
+  showing those covers are notified in the same turn. Pages rely on album and artist ids
+  surviving rescans (`music_library/src/doc.md`, "Stable album and artist ids"); a genre
+  page holds the genre key, not its id, for the same reason.
 - `SoundGenresChanged` (sent while the sound analysis saves) is acted on only while
   genres by sound are shown: the Genres tab, the album list and an open album header
   reload on it; a genre page follows only the switch.

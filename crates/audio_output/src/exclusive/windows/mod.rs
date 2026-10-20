@@ -373,8 +373,7 @@ impl Backend for WasapiBackend {
         if self.shared.ctx.playing.load(Ordering::Relaxed) != STATE_PLAYING {
             return 0;
         }
-        let f32_samples = batch.data.to_f32();
-        self.shared.ctx.buffer.write_slice_blocking(&f32_samples)
+        self.shared.ctx.buffer.write_samples_blocking(&batch.data)
     }
 
     fn clear(&self) {

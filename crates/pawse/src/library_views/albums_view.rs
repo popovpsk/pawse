@@ -186,6 +186,7 @@ pub struct AlbumsView {
     genres_map: HashMap<i64, Vec<String>>,
     sound_map: HashMap<i64, Vec<String>>,
     sound_task: Option<Task<()>>,
+    catalog_task: Option<Task<()>>,
     pub(super) row_data: Vec<AlbumRowData>,
     sections: Vec<Section>,
     section_labels: Vec<SharedString>,
@@ -236,17 +237,10 @@ impl AlbumsView {
                         cx.notify();
                     }
                     LibraryEvent::CatalogChanged => {
-                        let services = cx.global::<Services>();
-                        let cache = services.cover_art_cache.clone();
-                        this.albums_all = services.library.albums();
-                        this.search_entries = services.library.album_search_entries();
-                        this.genres_map = services.library.album_genres_map();
+                        let cache = cx.global::<Services>().cover_art_cache.clone();
                         cache.borrow_mut().clear(cx);
-                        this.keys = this.albums_all.iter().map(AlbumKey::of).collect();
-                        this.id_to_ix = Self::id_index(&this.albums_all);
                         this.covers.reset();
-                        this.recompute_visible(cx);
-                        this.reload_sound_genres(cx);
+                        this.reload_catalog(cx);
                         cx.notify();
                     }
                     LibraryEvent::SoundGenresChanged if this.prefs.sound_genres => {
@@ -289,6 +283,7 @@ impl AlbumsView {
             genres_map,
             sound_map: HashMap::new(),
             sound_task: None,
+            catalog_task: None,
             id_to_ix,
             row_data: Vec::new(),
             sections: Vec::new(),
@@ -352,6 +347,31 @@ impl AlbumsView {
         self.recompute_visible(cx);
         cover_grid::scroll_to_top(&self.scroll_handle);
         cx.notify();
+    }
+
+    fn reload_catalog(&mut self, cx: &mut Context<Self>) {
+        let library = cx.global::<Services>().library.clone();
+        let load = cx.background_spawn(async move {
+            (
+                library.albums(),
+                library.album_search_entries(),
+                library.album_genres_map(),
+            )
+        });
+        self.catalog_task = Some(cx.spawn(async move |this, cx| {
+            let (albums, search_entries, genres_map) = load.await;
+            this.update(cx, |this, cx| {
+                this.albums_all = albums;
+                this.search_entries = search_entries;
+                this.genres_map = genres_map;
+                this.keys = this.albums_all.iter().map(AlbumKey::of).collect();
+                this.id_to_ix = Self::id_index(&this.albums_all);
+                this.recompute_visible(cx);
+                this.reload_sound_genres(cx);
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     fn reload_sound_genres(&mut self, cx: &mut Context<Self>) {

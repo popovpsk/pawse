@@ -110,25 +110,31 @@ impl AudioSamples {
         }
     }
 
-    pub fn copy_from_offset(&self, start: usize) -> Self {
+    pub fn discard_front(&mut self, count: usize) {
         match self {
-            AudioSamples::S16(data) => AudioSamples::S16(data[start..].to_vec()),
-            AudioSamples::S24(data) => AudioSamples::S24(data[start..].to_vec()),
-            AudioSamples::S32(data) => AudioSamples::S32(data[start..].to_vec()),
-            AudioSamples::F32(data) => AudioSamples::F32(data[start..].to_vec()),
+            AudioSamples::S16(data) => drop(data.drain(..count)),
+            AudioSamples::S24(data) => drop(data.drain(..count)),
+            AudioSamples::S32(data) => drop(data.drain(..count)),
+            AudioSamples::F32(data) => drop(data.drain(..count)),
         }
     }
 
     /// Конвертирует любой формат сэмплов в f32
     pub fn to_f32(&self) -> Vec<f32> {
+        let mut out = Vec::with_capacity(self.len());
+        self.to_f32_into(&mut out);
+        out
+    }
+
+    pub fn to_f32_into(&self, out: &mut Vec<f32>) {
+        out.clear();
         match self {
-            AudioSamples::S16(data) => data.iter().map(|&s| s as f32 / 32768.0).collect(),
-            AudioSamples::S24(data) => data
-                .iter()
-                .map(|&s| s.into_i32() as f32 / 8388608.0)
-                .collect(),
-            AudioSamples::S32(data) => data.iter().map(|&s| s as f32 / 2147483648.0).collect(),
-            AudioSamples::F32(data) => data.clone(),
+            AudioSamples::S16(data) => out.extend(data.iter().map(|&s| s as f32 / 32768.0)),
+            AudioSamples::S24(data) => {
+                out.extend(data.iter().map(|&s| s.into_i32() as f32 / 8388608.0))
+            }
+            AudioSamples::S32(data) => out.extend(data.iter().map(|&s| s as f32 / 2147483648.0)),
+            AudioSamples::F32(data) => out.extend_from_slice(data),
         }
     }
 }

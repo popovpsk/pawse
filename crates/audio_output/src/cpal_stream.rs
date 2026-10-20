@@ -439,8 +439,7 @@ impl AudioOutput for CpalOutputStream {
             return 0;
         }
 
-        let f32_samples = samples.data.to_f32();
-        self.buffer.write_slice_blocking(&f32_samples)
+        self.buffer.write_samples_blocking(&samples.data)
     }
 
     fn clear(&self) {

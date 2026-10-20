@@ -286,7 +286,7 @@ impl AudioEngineLoop {
                 continue;
             }
 
-            let batch_to_write = match current_audio_batch {
+            let mut batch_to_write = match current_audio_batch {
                 Some(batch) => batch,
                 None => match self.decode_next_batch() {
                     Some(mut batch) => {
@@ -301,16 +301,13 @@ impl AudioEngineLoop {
             };
 
             let written = self.output.write(&batch_to_write);
+            self.update_current_position(written, &batch_to_write);
             if written == batch_to_write.data.len() {
                 current_audio_batch = None;
             } else {
-                current_audio_batch = Some(AudioBatch {
-                    data: batch_to_write.data.copy_from_offset(written),
-                    metadata: batch_to_write.metadata.clone(),
-                });
+                batch_to_write.data.discard_front(written);
+                current_audio_batch = Some(batch_to_write);
             }
-
-            self.update_current_position(written, &batch_to_write);
         }
     }
 

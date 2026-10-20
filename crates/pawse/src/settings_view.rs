@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use gpui::{
-    Anchor, App, ClipboardItem, Entity, ParentElement, SharedString, Styled, Window, actions, div,
-    prelude::FluentBuilder, px,
+    Anchor, App, ClipboardItem, Context, Entity, IntoElement, ParentElement, Render, SharedString,
+    Styled, Window, actions, div, prelude::FluentBuilder, px,
 };
 use gpui_component::{
     Disableable, Icon, IconName, Selectable, Sizable, WindowExt,
@@ -49,7 +49,7 @@ pub struct SettingsSliders {
 
 /// Build the list of `SettingPage`s for the Settings widget.
 ///
-/// Built once and cached on `MainView`. `SettingPage` is `Clone` so the cache
+/// Built once and cached on `SettingsScreen`. `SettingPage` is `Clone` so the cache
 /// is cloned into a fresh `Settings::new(...).pages(...)` shell on each render.
 #[derive(Clone)]
 pub struct LibraryPage {
@@ -137,18 +137,48 @@ pub struct SettingsPages {
     pub scrobbling: usize,
 }
 
-/// Wrap pre-built pages into the `Settings` element for inline rendering.
-pub fn settings_widget(
-    pages: Vec<SettingPage>,
+pub struct SettingsScreen {
+    pages: SettingsPages,
     page_ix: usize,
     anchor: Option<SharedString>,
     request: u64,
-) -> Settings {
-    Settings::new("pawse-settings")
-        .pages(pages)
-        .initial_page(page_ix)
-        .initial_anchor(anchor)
-        .page_request(request)
+}
+
+impl SettingsScreen {
+    pub fn new(pages: SettingsPages) -> Self {
+        Self {
+            pages,
+            page_ix: 0,
+            anchor: None,
+            request: 0,
+        }
+    }
+
+    pub fn pages(&self) -> &SettingsPages {
+        &self.pages
+    }
+
+    pub fn set_pages(&mut self, pages: SettingsPages) {
+        self.pages = pages;
+    }
+
+    pub fn show(&mut self, page_ix: usize, anchor: Option<SharedString>) {
+        self.page_ix = page_ix;
+        self.anchor = anchor;
+        self.request += 1;
+    }
+}
+
+impl Render for SettingsScreen {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(
+            Settings::new("pawse-settings")
+                .pages(self.pages.pages.clone())
+                .initial_page(self.page_ix)
+                .initial_anchor(self.anchor.clone())
+                .page_request(self.request),
+        )
+    }
 }
 
 /// Open a native folder picker (async, on the main thread), then add the

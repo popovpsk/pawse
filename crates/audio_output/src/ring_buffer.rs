@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use audio_common::AudioSamples;
+use parking_lot::Mutex;
 use rb::{RB, RbConsumer, RbError, RbInspector, RbProducer, SpscRb};
 
 use crate::tap::SignalTap;
@@ -8,6 +10,7 @@ use crate::tap::SignalTap;
 /// Lock-free SPSC ring buffer for audio samples
 pub struct AudioRingBuffer {
     rb: SpscRb<f32>,
+    scratch: Mutex<Vec<f32>>,
     unexpected_error_logged: AtomicBool,
     tap: Option<Arc<SignalTap>>,
 }
@@ -17,6 +20,7 @@ impl AudioRingBuffer {
         let rb = SpscRb::new(capacity);
         Self {
             rb,
+            scratch: Mutex::new(Vec::new()),
             unexpected_error_logged: AtomicBool::new(false),
             tap: None,
         }
@@ -33,6 +37,15 @@ impl AudioRingBuffer {
     /// Returns the number of samples actually pushed (may be less if buffer is full)
     pub fn push_slice(&self, samples: &[f32]) -> usize {
         self.rb.producer().write(samples).unwrap_or(0)
+    }
+
+    pub fn write_samples_blocking(&self, samples: &AudioSamples) -> usize {
+        if let AudioSamples::F32(data) = samples {
+            return self.write_slice_blocking(data);
+        }
+        let mut scratch = self.scratch.lock();
+        samples.to_f32_into(&mut scratch);
+        self.write_slice_blocking(&scratch)
     }
 
     pub fn write_slice_blocking(&self, samples: &[f32]) -> usize {
@@ -119,5 +132,33 @@ mod tests {
         let rb = AudioRingBuffer::new(100);
         assert!(rb.is_empty());
         assert_eq!(rb.len(), 0);
+    }
+
+    #[test]
+    fn write_samples_converts_and_reports_partial_writes() {
+        let rb = AudioRingBuffer::new(3);
+        let samples = AudioSamples::S16(vec![16384, -16384, 0, 32767]);
+        assert_eq!(rb.write_samples_blocking(&samples), 3);
+
+        let mut dest = [0.0; 3];
+        assert_eq!(rb.pop_slice(&mut dest), 3);
+        assert_eq!(dest, [0.5, -0.5, 0.0]);
+
+        let mut rest = samples;
+        rest.discard_front(3);
+        assert_eq!(rb.write_samples_blocking(&rest), 1);
+        let mut last = [0.0; 1];
+        rb.pop_slice(&mut last);
+        assert!((last[0] - 32767. / 32768.).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn write_samples_passes_f32_through() {
+        let rb = AudioRingBuffer::new(8);
+        let samples = AudioSamples::F32(vec![0.25, -0.75]);
+        assert_eq!(rb.write_samples_blocking(&samples), 2);
+        let mut dest = [0.0; 2];
+        rb.pop_slice(&mut dest);
+        assert_eq!(dest, [0.25, -0.75]);
     }
 }

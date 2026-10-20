@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -122,6 +123,15 @@ struct LitPlans {
     backing: Option<FillPlan>,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+struct HeightsKey {
+    width: Pixels,
+    font: LineFont,
+    rem: Pixels,
+    scale: f32,
+    synced: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SourceSegment {
     source: &'static str,
@@ -170,6 +180,7 @@ pub struct LyricsView {
     font: Option<LineFont>,
     viewport: Size<Pixels>,
     recenter: bool,
+    heights_key: Option<HeightsKey>,
     blur: Entity<LyricsBlur>,
     list_hovered: bool,
     access: LyricsAccess,
@@ -295,6 +306,7 @@ impl LyricsView {
             font: None,
             viewport: Size::default(),
             recenter: false,
+            heights_key: None,
             blur,
             list_hovered: false,
             access,
@@ -671,6 +683,7 @@ impl LyricsView {
             self.autoscroll = true;
             self.scroll_anim = None;
             self.viewport = Size::default();
+            self.heights_key = None;
             self.scroll_handle.scroll_to_item(0);
         }
         cx.notify();
@@ -685,6 +698,7 @@ impl LyricsView {
         self.can_export = false;
         self.current_raw = None;
         self.scroll_anim = None;
+        self.heights_key = None;
         self.pos_base_ms = 0;
         self.pos_base_at = Instant::now();
         self.release_blur(cx);
@@ -886,6 +900,48 @@ impl LyricsView {
         Some(target.clamp(-max, px(0.)))
     }
 
+    fn built_rows(
+        &mut self,
+        key: HeightsKey,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Range<usize> {
+        let all = 0..self.rows.len();
+        let previous = self.heights_key.replace(key);
+        if previous != Some(key) {
+            if previous.is_some() {
+                self.recenter = true;
+                let entity = cx.entity();
+                window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
+            }
+            return all;
+        }
+        if self.scroll_handle.children_count() != self.rows.len() {
+            return all;
+        }
+        let view = window.viewport_size().height;
+        let origin = self.scroll_handle.bounds().top();
+        let offset = (-self.scroll_handle.offset().y)
+            .max(px(0.))
+            .min(self.scroll_handle.max_offset().y);
+        let (from, to) = self
+            .scroll_anim
+            .map_or((offset, offset), |(from, to)| (-from, -to));
+        let margin = view * lyrics_blur::NEAR;
+        let top = offset.min(from).min(to) - margin;
+        let bottom = offset.max(from).max(to) + view + margin;
+        let mut built: Option<Range<usize>> = None;
+        for ix in all.clone() {
+            let Some(bounds) = self.scroll_handle.bounds_for_item(ix) else {
+                return all;
+            };
+            if bounds.bottom() - origin >= top && bounds.top() - origin <= bottom {
+                built = Some(built.map_or(ix..ix + 1, |range| range.start..ix + 1));
+            }
+        }
+        built.unwrap_or(all)
+    }
+
     fn recenter_to(&mut self, ix: usize) {
         let Some(to) = self.centered_offset(ix) else {
             return;
@@ -1063,6 +1119,21 @@ impl Render for LyricsView {
             self.blur
                 .update(cx, |blur, cx| blur.sync(frame, window, cx));
         }
+        let built = if self.loading || self.rows.is_empty() {
+            0..0
+        } else {
+            self.built_rows(
+                HeightsKey {
+                    width: self.viewport.width,
+                    font,
+                    rem: window.rem_size(),
+                    scale: window.scale_factor(),
+                    synced,
+                },
+                window,
+                cx,
+            )
+        };
         let blur_entity = self.blur.clone();
         let blur = self.blur.read(cx);
         let blur_on = blur.is_on();
@@ -1141,6 +1212,7 @@ impl Render for LyricsView {
         } else if self.loading {
             div().flex_1().into_any_element()
         } else if !self.rows.is_empty() {
+            let scroll_handle = &self.scroll_handle;
             let list = v_flex()
                 .id("lyrics_list")
                 .size_full()
@@ -1152,6 +1224,12 @@ impl Render for LyricsView {
                 )
                 .py_2()
                 .children(self.rows.iter().enumerate().map(|(ix, row)| {
+                    if !built.contains(&ix) {
+                        let height = scroll_handle
+                            .bounds_for_item(ix)
+                            .map_or(px(0.), |bounds| bounds.size.height);
+                        return div().w_full().flex_shrink_0().h(height).into_any_element();
+                    }
                     let lit = lit_plans.iter().find(|plans| plans.ix == Some(ix));
                     let is_active = Some(ix) == active_ix;
                     let lingering = lit.is_some() && !is_active;

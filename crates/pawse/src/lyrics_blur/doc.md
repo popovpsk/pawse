@@ -58,12 +58,14 @@ panel, its rows, autoscroll and the hover flag (`pawse/src/doc.md`, "Lyrics"), t
 
 ## Drawing
 
-- `measure` sits in every timed row while the blur is on. In prepaint it records the row's box
-  and whether the row is near the list's visible area (the content mask grown by `NEAR`
-  of its height). A far row draws no layers, only faded text, so a long song does not lay
-  out layers nobody sees; a row that comes near asks for the next frame, and a scroll
-  faster than the margin in one frame shows faded text for that frame. Resizes and
-  reveals in one frame share a single redraw request.
+- `measure` sits in every built timed row while the blur is on (the lyrics list builds
+  only rows near its visible area, with a margin of at least `NEAR`, `pawse/src/doc.md`,
+  "Lyrics"; a row never built is measured and baked once it comes near). In prepaint it
+  records the row's box and whether the row is near the list's visible area (the content
+  mask grown by `NEAR` of its height). A far row draws no layers, only faded text, so a
+  long song does not lay out layers nobody sees; a row that comes near asks for the next
+  frame, and a scroll faster than the margin in one frame shows faded text for that frame.
+  Resizes and reveals in one frame share a single redraw request.
 - Each level layer is a div carrying the opacity around a canvas: canvas does not apply
   opacity and gpui's opacity scope is crate-private.
 - Atlas tiles have no padding: each level carries a transparent 1-texel ring outside the
