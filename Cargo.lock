@@ -744,6 +744,7 @@ dependencies = [
  "gpui-pre",
  "log",
  "parking_lot",
+ "rstest",
 ]
 
 [[package]]

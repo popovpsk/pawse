@@ -858,6 +858,209 @@ fn frames_until(track_end: Duration, position: Duration, sample_rate: u32) -> us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use audio_common::{AudioSamples, AudioSource};
+    use audio_output::AudioOutput;
+    use audio_output::ring_buffer::AudioRingBuffer;
+    use parking_lot::Mutex;
+    use rstest::rstest;
+
+    const RING_CAPACITY: usize = 1031;
+    const POP_SIZES: [usize; 4] = [1, 7, 333, 64];
+
+    struct RingOutput {
+        buffer: AudioRingBuffer,
+        fade: Mutex<Option<FadeEvent>>,
+    }
+
+    impl AudioOutput for RingOutput {
+        fn write(&self, samples: &AudioBatch) -> usize {
+            self.buffer.write_samples_blocking(&samples.data)
+        }
+        fn clear(&self) {
+            self.buffer.clear();
+        }
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn is_playing(&self) -> bool {
+            true
+        }
+        fn set_volume(&self, _: f32) {}
+    }
+
+    impl EngineOutput for RingOutput {
+        fn begin_fade(&self, _: Option<f32>, target: f32, _: u32) {
+            let event = if target == 0.0 {
+                FadeEvent::FadedOut
+            } else {
+                FadeEvent::FadedIn
+            };
+            *self.fade.lock() = Some(event);
+        }
+        fn take_fade_event(&self) -> Option<FadeEvent> {
+            self.fade.lock().take()
+        }
+        fn reset_fade(&self) {
+            *self.fade.lock() = None;
+        }
+        fn release_paused(&self) {}
+    }
+
+    struct Harness {
+        output: Arc<RingOutput>,
+        engine: AudioEngine,
+        events: flume::Receiver<EngineEvent>,
+        received: Vec<f32>,
+        positions: Vec<(Duration, usize)>,
+        paused: bool,
+        ended: bool,
+        pops: usize,
+    }
+
+    impl Harness {
+        fn start(path: &Path) -> Self {
+            let output = Arc::new(RingOutput {
+                buffer: AudioRingBuffer::new(RING_CAPACITY),
+                fade: Mutex::new(None),
+            });
+            let engine = AudioEngine::new(output.clone());
+            let events = engine.events();
+            engine.set_track(path.to_path_buf());
+            engine.play();
+            Self {
+                output,
+                engine,
+                events,
+                received: Vec::new(),
+                positions: Vec::new(),
+                paused: false,
+                ended: false,
+                pops: 0,
+            }
+        }
+
+        fn pump(&mut self, limit: usize, done: impl Fn(&Self) -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut chunk = [0.0; 333];
+            while !done(self) {
+                assert!(Instant::now() < deadline, "engine stalled");
+                while let Ok(event) = self.events.try_recv() {
+                    match event {
+                        EngineEvent::PositionChanged(position) => {
+                            let written = self.received.len() + self.output.buffer.len();
+                            self.positions.push((position, written));
+                        }
+                        EngineEvent::Paused => self.paused = true,
+                        EngineEvent::TrackEnded => self.ended = true,
+                        EngineEvent::Error(err) => panic!("{err}"),
+                        _ => {}
+                    }
+                }
+                let room = limit
+                    .saturating_sub(self.received.len())
+                    .min(POP_SIZES[self.pops % POP_SIZES.len()]);
+                self.pops += 1;
+                let read = self.output.buffer.pop_slice(&mut chunk[..room]);
+                self.received.extend_from_slice(&chunk[..read]);
+                if read == 0 {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+
+        fn play_to_end(&mut self) {
+            self.pump(usize::MAX, |h| h.ended && h.output.buffer.is_empty());
+        }
+    }
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .join("../../fixtures")
+            .join(name)
+    }
+
+    struct Decoded {
+        samples: Vec<f32>,
+        first: AudioSamples,
+        per_second: f64,
+    }
+
+    impl Decoded {
+        fn duration_of(&self, samples: usize) -> Duration {
+            Duration::from_secs_f64(samples as f64 / self.per_second)
+        }
+    }
+
+    fn decode(path: &Path) -> Decoded {
+        let mut decoder = Decoder::open(path).unwrap();
+        let params = decoder.params();
+        let mut samples = Vec::new();
+        let mut first = None;
+        while let Some(batch) = decoder.next_buffer().unwrap() {
+            samples.extend(batch.data.to_f32());
+            first.get_or_insert(batch.data);
+        }
+        Decoded {
+            samples,
+            first: first.unwrap(),
+            per_second: params.sample_rate as f64 * params.channels_count() as f64,
+        }
+    }
+
+    fn assert_same_samples(received: &[f32], expected: &[f32]) {
+        assert_eq!(received.len(), expected.len());
+        let first_mismatch = received.iter().zip(expected).position(|(a, b)| a != b);
+        assert_eq!(first_mismatch, None);
+    }
+
+    #[rstest]
+    #[case::s16_stereo("sine_440_16_44_stereo.wav", AudioSamples::S16(Vec::new()))]
+    #[case::s24_mono("sine_440_24_44_mono.wav", AudioSamples::S24(Vec::new()))]
+    #[case::s32_mono("sine_440_32_44_mono.wav", AudioSamples::S32(Vec::new()))]
+    #[case::f32_opus("tagged_opus.opus", AudioSamples::F32(Vec::new()))]
+    fn partial_writes_deliver_every_sample_once(#[case] name: &str, #[case] kind: AudioSamples) {
+        let path = fixture(name);
+        let expected = decode(&path);
+        assert_eq!(
+            std::mem::discriminant(&expected.first),
+            std::mem::discriminant(&kind)
+        );
+
+        let mut harness = Harness::start(&path);
+        harness.play_to_end();
+
+        assert_same_samples(&harness.received, &expected.samples);
+        let tolerance = Duration::from_millis(1);
+        for &(position, written) in &harness.positions {
+            let written = expected.duration_of(written);
+            assert!(
+                position <= written + tolerance,
+                "{position:?} > {written:?}"
+            );
+        }
+        let (last, _) = *harness.positions.last().unwrap();
+        let duration = expected.duration_of(expected.samples.len());
+        assert!(
+            last + Duration::from_millis(POSITION_UPDATE_INTERVAL_MS) + tolerance >= duration,
+            "{last:?}"
+        );
+    }
+
+    #[test]
+    fn pause_on_a_full_buffer_resumes_from_the_same_sample() {
+        let path = fixture("sine_440_16_44_stereo.wav");
+        let expected = decode(&path);
+        let gate = 30_001;
+        assert!(gate + RING_CAPACITY < expected.samples.len());
+
+        let mut harness = Harness::start(&path);
+        harness.pump(gate, |h| h.received.len() == gate);
+        harness.engine.pause();
+        harness.pump(gate, |h| h.paused);
+        harness.engine.play();
+        harness.play_to_end();
+
+        assert_same_samples(&harness.received, &expected.samples);
+    }
 
     #[test]
     fn frames_until_counts_whole_frames_to_the_end() {
