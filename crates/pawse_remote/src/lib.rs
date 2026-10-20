@@ -23,6 +23,7 @@ pub enum RepeatMode {
     Off,
     All,
     One,
+    StopAfterTrack,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]

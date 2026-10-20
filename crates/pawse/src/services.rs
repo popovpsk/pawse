@@ -323,8 +323,11 @@ fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
 }
 
 fn advance_on_track_end(cx: &mut App) {
-    let stop = crate::sleep_timer::stop_at_track_end(cx);
+    let timer_stop = crate::sleep_timer::stop_at_track_end(cx);
     let services = cx.global::<Services>();
+    let stop = timer_stop
+        || services.playback_queue.borrow().repeat()
+            == crate::playback_queue::RepeatMode::StopAfterTrack;
     let last = services
         .playback_queue
         .borrow()
@@ -755,6 +758,9 @@ fn repeat_to_remote(mode: crate::playback_queue::RepeatMode) -> pawse_remote::Re
         crate::playback_queue::RepeatMode::Off => pawse_remote::RepeatMode::Off,
         crate::playback_queue::RepeatMode::All => pawse_remote::RepeatMode::All,
         crate::playback_queue::RepeatMode::One => pawse_remote::RepeatMode::One,
+        crate::playback_queue::RepeatMode::StopAfterTrack => {
+            pawse_remote::RepeatMode::StopAfterTrack
+        }
     }
 }
 
@@ -763,6 +769,9 @@ fn repeat_from_remote(mode: pawse_remote::RepeatMode) -> crate::playback_queue::
         pawse_remote::RepeatMode::Off => crate::playback_queue::RepeatMode::Off,
         pawse_remote::RepeatMode::All => crate::playback_queue::RepeatMode::All,
         pawse_remote::RepeatMode::One => crate::playback_queue::RepeatMode::One,
+        pawse_remote::RepeatMode::StopAfterTrack => {
+            crate::playback_queue::RepeatMode::StopAfterTrack
+        }
     }
 }
 

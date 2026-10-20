@@ -293,9 +293,10 @@ Integrations:
   track that ends on its own clears the queue position. "Previous" restarts the track
   after 3 s or on the first track.
 - `advance_on_track_end` runs before `TrackEnded` is re-emitted, so subscribers see the
-  advanced queue. With the sleep timer's "stop at the end of the track" armed the next
-  track is only loaded and no continuation is built; with no next track and no stop,
-  `similar_tracks::continue_ended_queue` extends the queue.
+  advanced queue. With `RepeatMode::StopAfterTrack` or the sleep timer's "stop at the end
+  of the track" armed the next track is only loaded and no continuation is built; with no
+  next track and no stop, `similar_tracks::continue_ended_queue` extends the queue. The
+  timer is asked first either way, so its one-shot stop is used up.
 - Play with nothing loaded (`current_duration_ms == 0`: an uncached server track after
   launch, `Stopped`, `Error`) starts the track instead of resuming.
 - Queue edits end with `queue_mutated` (`QueueChanged`, save, remote publish).
@@ -325,6 +326,10 @@ Integrations:
 
 ## Queue (`playback_queue.rs`)
 
+- Repeat cycles Off → All → One → StopAfterTrack. StopAfterTrack walks the queue like
+  Off (no wrap, no `has_next` on the last track); the stop is `advance_on_track_end`'s.
+  The mode is saved in the playback block, so an older binary, which cannot read it,
+  drops the saved queue.
 - Only available tracks enter the queue (`playable`). Callers pass lists and indexes in
   natural order; `set_tracks_and_play_at` maps the clicked index past dropped tracks and,
   with shuffle on, anchors the clicked track at slot 0.
@@ -1209,3 +1214,7 @@ Owner's calls; ask before changing.
   own debounce. Fullscreen is never restored; maximized only on Windows.
 - The wheel changes the volume only over the volume control, not over the whole window
   or footer, where it would fire on list scrolls that drift onto it.
+- "Stop after each track" is the repeat button's fourth state, not a separate button or
+  part of the sleep timer. Like a pro CD player's single mode it cues the next track
+  paused, so Play goes on from there. Its icon is the repeat arrow running into a bar,
+  not a stop square.

@@ -1,4 +1,4 @@
-export type RepeatMode = "off" | "all" | "one";
+export type RepeatMode = "off" | "all" | "one" | "stop_after_track";
 
 export type PlayerState = {
   v: number;
@@ -326,7 +326,12 @@ export class Remote {
   }
 
   cycleRepeat() {
-    const next: Record<RepeatMode, RepeatMode> = { off: "all", all: "one", one: "off" };
+    const next: Record<RepeatMode, RepeatMode> = {
+      off: "all",
+      all: "one",
+      one: "stop_after_track",
+      stop_after_track: "off",
+    };
     this.repeat = next[this.repeat];
     this.#send({ cmd: "set_repeat", mode: this.repeat });
   }

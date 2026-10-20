@@ -10,6 +10,7 @@ pub enum RepeatMode {
     Off,
     All,
     One,
+    StopAfterTrack,
 }
 
 /// Where the current queue came from. Used by the UI to decide whether
@@ -27,7 +28,8 @@ impl RepeatMode {
         match self {
             Self::Off => Self::All,
             Self::All => Self::One,
-            Self::One => Self::Off,
+            Self::One => Self::StopAfterTrack,
+            Self::StopAfterTrack => Self::Off,
         }
     }
 }
@@ -882,6 +884,19 @@ mod tests {
     }
 
     #[test]
+    fn stop_after_track_advances_without_wrapping() {
+        let mut q = PlaybackQueue::new();
+        q.set_tracks(sample_tracks(2));
+        q.play_track_at(0);
+        q.set_repeat(RepeatMode::StopAfterTrack);
+
+        assert_eq!(q.peek_next().map(|t| t.id), Some(1));
+        assert_eq!(q.next_track().map(|t| t.id), Some(1));
+        assert!(q.next_track().is_none());
+        assert_eq!(q.current_index(), None);
+    }
+
+    #[test]
     fn skipping_past_the_last_track_keeps_it_current() {
         let mut q = PlaybackQueue::new();
         q.set_tracks(sample_tracks(2));
@@ -1077,7 +1092,8 @@ mod tests {
     fn repeat_mode_cycle_order() {
         assert_eq!(RepeatMode::Off.cycle(), RepeatMode::All);
         assert_eq!(RepeatMode::All.cycle(), RepeatMode::One);
-        assert_eq!(RepeatMode::One.cycle(), RepeatMode::Off);
+        assert_eq!(RepeatMode::One.cycle(), RepeatMode::StopAfterTrack);
+        assert_eq!(RepeatMode::StopAfterTrack.cycle(), RepeatMode::Off);
     }
 
     #[test]
@@ -1231,6 +1247,9 @@ mod tests {
 
         q.set_repeat(RepeatMode::One);
         assert!(q.has_next());
+
+        q.set_repeat(RepeatMode::StopAfterTrack);
+        assert!(!q.has_next());
     }
 
     #[test]

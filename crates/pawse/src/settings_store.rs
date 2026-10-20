@@ -169,6 +169,7 @@ pub enum RepeatModePersist {
     Off,
     All,
     One,
+    StopAfterTrack,
 }
 
 impl From<crate::playback_queue::RepeatMode> for RepeatModePersist {
@@ -177,6 +178,7 @@ impl From<crate::playback_queue::RepeatMode> for RepeatModePersist {
             crate::playback_queue::RepeatMode::Off => Self::Off,
             crate::playback_queue::RepeatMode::All => Self::All,
             crate::playback_queue::RepeatMode::One => Self::One,
+            crate::playback_queue::RepeatMode::StopAfterTrack => Self::StopAfterTrack,
         }
     }
 }
@@ -187,6 +189,7 @@ impl From<RepeatModePersist> for crate::playback_queue::RepeatMode {
             RepeatModePersist::Off => Self::Off,
             RepeatModePersist::All => Self::All,
             RepeatModePersist::One => Self::One,
+            RepeatModePersist::StopAfterTrack => Self::StopAfterTrack,
         }
     }
 }

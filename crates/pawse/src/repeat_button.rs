@@ -36,12 +36,26 @@ impl RepeatButton {
 impl Render for RepeatButton {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mode = cx.global::<Services>().playback_queue.borrow().repeat();
-        let (icon, color) = match mode {
-            RepeatMode::Off => ("icons/repeat.svg", Colors::muted_foreground(cx)),
-            RepeatMode::All => ("icons/repeat.svg", Colors::primary(cx)),
-            RepeatMode::One => ("icons/repeat-one.svg", Colors::primary(cx)),
+        let strings = tr();
+        let (icon, color, tooltip_text) = match mode {
+            RepeatMode::Off => (
+                "icons/repeat.svg",
+                Colors::muted_foreground(cx),
+                &strings.repeat_off,
+            ),
+            RepeatMode::All => ("icons/repeat.svg", Colors::primary(cx), &strings.repeat_all),
+            RepeatMode::One => (
+                "icons/repeat-one.svg",
+                Colors::primary(cx),
+                &strings.repeat_one,
+            ),
+            RepeatMode::StopAfterTrack => (
+                "icons/stop-after-track.svg",
+                Colors::primary(cx),
+                &strings.stop_after_track,
+            ),
         };
-        let tooltip_text = tr().repeat_mode.clone();
+        let tooltip_text = tooltip_text.clone();
 
         div()
             .id("repeat_button")

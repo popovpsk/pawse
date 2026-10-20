@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, fly } from "svelte/transition";
-  import { Remote, formatTime, type Status } from "./lib/connection.svelte";
+  import { Remote, formatTime, type RepeatMode, type Status } from "./lib/connection.svelte";
   import Library from "./lib/Library.svelte";
   import AlbumBrowser from "./lib/AlbumBrowser.svelte";
   import ArtistBrowser from "./lib/ArtistBrowser.svelte";
@@ -9,6 +9,12 @@
   import VolumeControl from "./lib/VolumeControl.svelte";
 
   const remote = new Remote();
+  const repeatLabels: Record<RepeatMode, string> = {
+    off: "Repeat off",
+    all: "Repeat all",
+    one: "Repeat one",
+    stop_after_track: "Stop after each track",
+  };
 
   let showQueue = $state(false);
   let showLibrary = $state(false);
@@ -291,16 +297,23 @@
       </button>
       <button
         class={`transition active:scale-90 ${remote.repeat !== "off" ? "text-emerald-400 hover:text-emerald-300" : "text-neutral-500 hover:text-white"}`}
-        aria-label="Repeat"
+        aria-label={repeatLabels[remote.repeat]}
+        title={repeatLabels[remote.repeat]}
         onclick={() => remote.cycleRepeat()}
       >
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="17 1 21 5 17 9" />
-          <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-          <polyline points="7 23 3 19 7 15" />
-          <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-          {#if remote.repeat === "one"}
-            <text x="12" y="15" text-anchor="middle" font-size="8" font-weight="bold" fill="currentColor" stroke="none">1</text>
+          {#if remote.repeat === "stop_after_track"}
+            <path d="M3 19v-5a4 4 0 0 1 4-4h10" />
+            <polyline points="13 6 17 10 13 14" />
+            <path d="M21 5v10" />
+          {:else}
+            <polyline points="17 1 21 5 17 9" />
+            <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+            <polyline points="7 23 3 19 7 15" />
+            <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+            {#if remote.repeat === "one"}
+              <text x="12" y="15" text-anchor="middle" font-size="8" font-weight="bold" fill="currentColor" stroke="none">1</text>
+            {/if}
           {/if}
         </svg>
       </button>
