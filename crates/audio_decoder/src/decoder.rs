@@ -20,6 +20,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::packet::Packet;
 use symphonia::core::units::{Time, Timestamp};
+use symphonia_common::apple::audio::alac::MagicCookie;
 
 mod splice;
 
@@ -262,6 +263,11 @@ fn opus_output_gain(params: &AudioCodecParameters) -> Option<f32> {
     (raw != 0).then(|| 10f32.powf(f32::from(raw) / (20.0 * 256.0)))
 }
 
+fn alac_bit_depth(params: &AudioCodecParameters) -> Option<u32> {
+    let cookie = MagicCookie::read(params.extra_data.as_deref()?).ok()?;
+    Some(u32::from(cookie.bit_depth))
+}
+
 struct SymphoniaDecoder {
     format: Box<dyn symphonia::core::formats::FormatReader>,
     decoder: Box<dyn symphonia::core::codecs::audio::AudioDecoder>,
@@ -318,12 +324,17 @@ impl SymphoniaDecoder {
         let start_time = track
             .time_base
             .and_then(|time_base| time_base.calc_time(track.start_ts));
-        let codec_params = track
+        let mut codec_params = track
             .codec_params
             .as_ref()
             .and_then(|params| params.audio())
             .cloned()
             .ok_or(AudioError::Decoder("No audio codec parameters".to_string()))?;
+        if codec_params.codec == CODEC_ID_ALAC
+            && let Some(bits) = alac_bit_depth(&codec_params)
+        {
+            codec_params.bits_per_sample = Some(bits);
+        }
 
         let sample_rate = codec_params
             .sample_rate
@@ -874,6 +885,9 @@ mod tests {
     #[case::silence("silence_16_44_mono.wav", 44100, 16, ChannelCount::Mono)]
     #[case::original_1khz("1khz_16_44_1.wav", 44100, 16, ChannelCount::Mono)]
     #[case::aiff("tagged_aiff.aiff", 44100, 16, ChannelCount::Mono)]
+    #[case::alac_24_m4a("sine_440_24_44_mono.m4a", 44100, 24, ChannelCount::Mono)]
+    #[case::alac_24_caf("sine_440_24_44_mono.caf", 44100, 24, ChannelCount::Mono)]
+    #[case::alac_16_m4a("long_44_stereo.m4a", 44100, 16, ChannelCount::Stereo)]
     fn test_decoder_params(
         #[case] filename: &str,
         #[case] sample_rate: u32,

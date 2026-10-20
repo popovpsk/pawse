@@ -10,6 +10,8 @@ FIXTURES = \
 	$(FIXTURES_DIR)/sine_440_16_96_mono.wav \
 	$(FIXTURES_DIR)/sine_440_24_44_mono.wav \
 	$(FIXTURES_DIR)/sine_440_32_44_mono.wav \
+	$(FIXTURES_DIR)/sine_440_24_44_mono.m4a \
+	$(FIXTURES_DIR)/sine_440_24_44_mono.caf \
 	$(FIXTURES_DIR)/sine_440_16_44_stereo.wav \
 	$(FIXTURES_DIR)/silence_16_44_mono.wav \
 	$(FIXTURES_DIR)/1khz_16_44_1.wav \
@@ -64,6 +66,14 @@ $(FIXTURES_DIR)/sine_440_16_96_mono.wav: | $(FIXTURES_DIR)
 $(FIXTURES_DIR)/sine_440_24_44_mono.wav: | $(FIXTURES_DIR)
 	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \
 		-acodec pcm_s24le -ar 44100 -ac 1 "$@"
+
+$(FIXTURES_DIR)/sine_440_24_44_mono.m4a: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \
+		-sample_fmt s32p -c:a alac -ar 44100 -ac 1 "$@"
+
+$(FIXTURES_DIR)/sine_440_24_44_mono.caf: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \
+		-sample_fmt s32p -c:a alac -ar 44100 -ac 1 "$@"
 
 $(FIXTURES_DIR)/sine_440_32_44_mono.wav: | $(FIXTURES_DIR)
 	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=0.5" \

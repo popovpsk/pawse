@@ -700,6 +700,7 @@ dependencies = [
  "rstest",
  "symphonia",
  "symphonia-adapter-libopus",
+ "symphonia-common",
 ]
 
 [[package]]

@@ -22,6 +22,9 @@ the network readers behind `MediaStream` (`media_stream/src/doc.md`).
   rejects (ape, dsf, dff): those backends read a `File`, so the app downloads them whole.
 - `Decoder::codec` names the codec (APE and DSD by backend). `cast` uses it to decide what a
   receiver can play as is: an `.m4a` may be AAC or ALAC.
+- ALAC's bit depth is read from its magic cookie (`alac_bit_depth`): Symphonia's MP4 reader
+  leaves `bits_per_sample` empty and its CAF reader puts the container's 0 there. The 16-bit
+  fallback would label 24-bit files as 16 and make `cast` send them as 16-bit PCM.
 - A packet that fails to decode is skipped. A batch may be empty (Vorbis yields an empty
   first packet): end of stream is `Ok(None)` only.
 - The codec registry is our own (`CODECS`), not `symphonia::default::get_codecs()`: Symphonia
