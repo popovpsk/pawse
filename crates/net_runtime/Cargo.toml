@@ -1,0 +1,11 @@
+[package]
+name = "net_runtime"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
+
+[lints]
+workspace = true

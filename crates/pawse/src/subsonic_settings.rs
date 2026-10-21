@@ -1,4 +1,4 @@
-use gpui::{App, AppContext, Entity, Window};
+use gpui::{App, Entity, Window};
 use ui_components::settings::SettingGroup;
 
 use crate::library_sources::{ConnectState, LibrarySources, describe_error};
@@ -42,9 +42,8 @@ fn connect(
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
         let config = server.config();
-        let result = cx
-            .background_spawn(async move { RemoteConfig::Subsonic(config).client().ping() })
-            .await;
+        let result =
+            net_runtime::unblock(move || RemoteConfig::Subsonic(config).client().ping()).await;
         cx.update(|cx| {
             let error = result.as_ref().err().map(describe_error);
             let failed = error.is_some();

@@ -67,7 +67,7 @@ target being torn down (the local engine's `Stopped`, a closing session) never r
   is the target again or a newer fade-out started (`local_fades`); a paused engine is stopped
   at once. AirPlay fades in like the local engine; a renderer starts the way the device does,
   since a volume ramp over SOAP would be audible steps.
-- `connect` opens the receiver on the background executor; a second click on another receiver
+- `connect` opens the receiver on `net_runtime`'s blocking pool; a second click on another receiver
   wins (`CastState::connecting`). The media server starts only for renderers (AirPlay needs the
   DACP server, which discovery starts, and two UDP ports per stream, fixed: see "Ports" in
   `crates/cast/src/doc.md`). A failed connect is a notification and changes nothing;

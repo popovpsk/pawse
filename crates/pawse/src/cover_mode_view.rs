@@ -955,7 +955,7 @@ impl CoverModeView {
         let media = services.remote_media.clone();
         let track_path = self.track_path.clone();
         let renderer = cx.svg_renderer();
-        let load = cx.background_executor().spawn(async move {
+        let load = move || {
             let fetched = remote.and_then(|(source_id, key)| {
                 media
                     .cover(source_id, &key, REMOTE_COVER_MAX)
@@ -974,7 +974,12 @@ impl CoverModeView {
                 .to_image_data(renderer)
                 .ok()?;
             Some((image, aspect))
-        });
+        };
+        let load = if is_remote {
+            cx.background_executor().spawn(net_runtime::unblock(load))
+        } else {
+            cx.background_executor().spawn(async move { load() })
+        };
         let task = cx.spawn(async move |this, cx| {
             let loaded = load.await;
             let _ = this.update(cx, |view, cx| {

@@ -1148,7 +1148,7 @@ impl LibraryService {
         let event_tx = self.event_tx.clone();
         let rescan = self.rescanner();
         let remote_sync = self.remote_sync.clone();
-        std::thread::spawn(move || {
+        net_runtime::handle().spawn_blocking(move || {
             let mut changed = false;
             loop {
                 let batch = std::mem::take(&mut *remote_sync.queued.lock().unwrap());
@@ -1186,7 +1186,7 @@ impl LibraryService {
         let event_tx = self.event_tx.clone();
         let rescan = self.rescanner();
         let remote_sync = self.remote_sync.clone();
-        std::thread::spawn(move || {
+        net_runtime::handle().spawn_blocking(move || {
             let claim = Claim(&remote_sync.torrents, key);
             let changed = Self::sync_one(&*repo, &event_tx, &remote_sync, &server, probe, &rescan);
             drop(claim);
@@ -1319,7 +1319,7 @@ impl LibraryService {
     pub fn import_remote_stars(&self, server: crate::servers::RemoteServer) {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
-        std::thread::spawn(move || {
+        net_runtime::handle().spawn_blocking(move || {
             let outcome = synced_source(&*repo, &server).and_then(|source_id| {
                 crate::remote_sync::import_stars(&*repo, source_id, &server.config)
             });
@@ -1346,7 +1346,7 @@ impl LibraryService {
         let repo = self.repo.clone();
         let event_tx = self.event_tx.clone();
         let state = self.remote_sync.clone();
-        std::thread::spawn(move || {
+        net_runtime::handle().spawn_blocking(move || {
             let outcome = import_playlists_unless_syncing(&*repo, &state, &server, scope);
             let _ = event_tx.send(LibraryEvent::PlaylistsChanged);
             let outcome = outcome.map(|(report, touched)| {

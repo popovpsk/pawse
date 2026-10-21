@@ -528,7 +528,7 @@ fn start_web_sign_in(cx: &mut App, service: WebAuthService, state: Entity<Scrobb
 
         let result: Result<scrobble::Session, SessionError> = match token_result {
             Ok(token) => {
-                cx.background_spawn(async move {
+                net_runtime::unblock(move || {
                     let client = service.client().ok_or_else(|| {
                         SessionError::Other(anyhow::anyhow!("service is not configured"))
                     })?;
@@ -742,11 +742,10 @@ fn connect_listenbrainz(
     cx.spawn(async move |cx| {
         let probe = token.clone();
         let probe_root = root.clone();
-        let result = cx
-            .background_spawn(async move {
-                scrobble::ListenBrainzClient::new(probe_root, probe).validate()
-            })
-            .await;
+        let result = net_runtime::unblock(move || {
+            scrobble::ListenBrainzClient::new(probe_root, probe).validate()
+        })
+        .await;
         cx.update(|cx| match result {
             Ok(user) => {
                 update_scrobble(cx, move |s| {

@@ -125,7 +125,7 @@ impl Read for Body {
         } else {
             let stream = &mut self.stream;
             let torrent = &self.lease.torrent;
-            self.engine.runtime().block_on(async {
+            self.engine.handle().block_on(async {
                 match patient(torrent, STALL_TIMEOUT, stream.read(&mut buf[..cap])).await {
                     Ok(read) => read,
                     Err(Error::Timeout) => {

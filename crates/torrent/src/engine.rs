@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use librqbit::api::TorrentIdOrHash;
@@ -13,7 +13,7 @@ use librqbit::{
     ListenerMode, ListenerOptions, ManagedTorrent, Session, SessionOptions,
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Handle;
 
 use crate::body::{Body, Helper, Lease, Opened, Probe, Source};
 use crate::{Config, Error, FileEntry, Input, Meta, Network, Swarm, Upload, Want};
@@ -93,7 +93,6 @@ pub(crate) struct Shared {
 #[derive(Clone)]
 pub struct Engine {
     shared: Arc<Shared>,
-    runtime: Arc<Runtime>,
 }
 
 impl Engine {
@@ -103,24 +102,16 @@ impl Engine {
         }
         std::fs::create_dir_all(&config.work_dir).map_err(other)?;
         std::fs::create_dir_all(&config.state_dir).map_err(other)?;
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("torrent")
-            .enable_all()
-            .build()
-            .map_err(other)?;
+        let handle = net_runtime::try_handle().map_err(other)?;
         let shared = Arc::new(Shared {
             config: Mutex::new(config),
             state: Mutex::new(State::default()),
             starting: tokio::sync::Mutex::new(()),
             streams: Arc::new(tokio::sync::Semaphore::new(SHARED_STREAMS)),
-            handle: runtime.handle().clone(),
+            handle: handle.clone(),
         });
-        runtime.spawn(janitor(Arc::downgrade(&shared)));
-        Ok(Self {
-            shared,
-            runtime: Arc::new(runtime),
-        })
+        handle.spawn(janitor(Arc::downgrade(&shared)));
+        Ok(Self { shared })
     }
 
     pub fn resolve(&self, input: Input, timeout: Duration) -> Result<Meta, Error> {
@@ -129,7 +120,7 @@ impl Engine {
             Input::File(bytes) => (AddTorrent::from_bytes(bytes.clone()), Some(bytes)),
             Input::Magnet(link) => (AddTorrent::from_url(link), None),
         };
-        self.runtime.block_on(async move {
+        self.shared.handle.block_on(async move {
             let _busy = Busy::new(&shared);
             let session = shared.session().await?;
             let options = AddTorrentOptions {
@@ -156,7 +147,7 @@ impl Engine {
     pub fn meta(&self, info_hash: &str) -> Result<Meta, Error> {
         let bytes = self.shared.stored(info_hash)?;
         let shared = self.shared.clone();
-        self.runtime.block_on(async move {
+        self.shared.handle.block_on(async move {
             let _busy = Busy::new(&shared);
             let session = shared.session().await?;
             let options = AddTorrentOptions {
@@ -184,7 +175,7 @@ impl Engine {
         let shared = self.shared.clone();
         let hash = info_hash.to_string();
         let wants = wants.to_vec();
-        let lease = self.runtime.block_on(async move {
+        let lease = self.shared.handle.block_on(async move {
             let lease = Shared::acquire(&shared, &hash, true).await?;
             let progress = Arc::new(AtomicU64::new(0));
             let streams = Arc::new(tokio::sync::Semaphore::new(PROBE_STREAMS));
@@ -250,7 +241,7 @@ impl Engine {
     ) -> Result<Body, Error> {
         let shared = self.shared.clone();
         let hash = info_hash.to_string();
-        let (lease, stream, helpers, first, total) = self.runtime.block_on(async move {
+        let (lease, stream, helpers, first, total) = self.shared.handle.block_on(async move {
             let lease = Shared::acquire(&shared, &hash, false).await?;
             let total = lease
                 .torrent
@@ -311,7 +302,8 @@ impl Engine {
         }
         let shared = self.shared.clone();
         let hash = info_hash.to_string();
-        self.runtime
+        self.shared
+            .handle
             .block_on(async move { shared.unload(&hash, true).await });
         let Ok(entries) = std::fs::read_dir(self.state_dir()) else {
             return;
@@ -384,8 +376,17 @@ impl Engine {
         hashes
     }
 
-    pub(crate) fn runtime(&self) -> &Runtime {
-        &self.runtime
+    pub(crate) fn handle(&self) -> &Handle {
+        &self.shared.handle
+    }
+}
+
+impl Drop for Shared {
+    fn drop(&mut self) {
+        let state = self.state.get_mut().unwrap_or_else(PoisonError::into_inner);
+        if let Some(session) = state.session.take() {
+            session.cancellation_token().cancel();
+        }
     }
 }
 

@@ -48,9 +48,7 @@ fn discover(sources: Entity<LibrarySources>, cx: &mut App) {
     discovery.searching = true;
     set_discovery(&sources, discovery, cx);
     cx.spawn(async move |cx| {
-        let devices = cx
-            .background_spawn(async { dlna::discover(dlna::DISCOVER_TIMEOUT) })
-            .await;
+        let devices = net_runtime::unblock(|| dlna::discover(dlna::DISCOVER_TIMEOUT)).await;
         cx.update(|cx| {
             let discovery = DlnaDiscovery {
                 searching: false,
@@ -80,21 +78,20 @@ fn add(
     );
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
-        let result = cx
-            .background_spawn(async move {
-                let device = match target {
-                    Target::Found(device) => device,
-                    Target::Address(address) => describe_dlna(&address)?,
-                };
-                let server = DlnaServer {
-                    udn: device.udn,
-                    location: device.location,
-                    name: device.name,
-                };
-                RemoteConfig::Dlna(server.config()).client().ping()?;
-                Ok(server)
-            })
-            .await;
+        let result = net_runtime::unblock(move || {
+            let device = match target {
+                Target::Found(device) => device,
+                Target::Address(address) => describe_dlna(&address)?,
+            };
+            let server = DlnaServer {
+                udn: device.udn,
+                location: device.location,
+                name: device.name,
+            };
+            RemoteConfig::Dlna(server.config()).client().ping()?;
+            Ok(server)
+        })
+        .await;
         cx.update(|cx| {
             let server = match result {
                 Ok(server) => server,

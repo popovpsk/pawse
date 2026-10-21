@@ -24,7 +24,7 @@ No cover (`cover_art_id` empty), not the no-metadata bucket, at least one local 
 
 ## Flow
 
-- **Find** runs `plan` + `check` on a background task, then searches album by album, each search its own `background_spawn`: the `Finder` is moved in and back out because it carries the rate-limit clocks. **Stop** takes effect between albums. The state lives in `ToolsView` and survives leaving the screen.
+- **Find** runs `plan` + `check` on a background task, then searches album by album, each search its own `net_runtime::unblock`: the `Finder` is moved in and back out because it carries the rate-limit clocks. **Stop** takes effect between albums. The state lives in `ToolsView` and survives leaving the screen.
 - Exact hits start checked, uncertain ones unchecked with a note. Checkboxes work while searching (rows are only appended then) and are disabled while saving, which removes rows and would shift the indices they were rendered with. Save is available only when idle.
 - **Save** downloads the full-size image for each checked row, validates and writes it. Written rows leave the list, failed ones move to the skipped list with the reason. If anything was written, one ordinary (debounced, neither forced nor manual) `request_rescan` of the music folders follows.
 - The skipped text is appended line by line during a phase and rebuilt in full only by `relabel`. Thumbnails are `RenderImage`s released with `drop_atlas_tile` when a row goes away or a new search starts.

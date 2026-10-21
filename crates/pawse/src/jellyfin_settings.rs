@@ -1,4 +1,4 @@
-use gpui::{App, AppContext, Entity, Window};
+use gpui::{App, Entity, Window};
 use ui_components::settings::SettingGroup;
 
 use crate::library_sources::{ConnectState, LibrarySources, describe_error};
@@ -60,9 +60,7 @@ fn connect(
     );
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
-        let result = cx
-            .background_spawn(async move { login(&url, &username, &password) })
-            .await;
+        let result = net_runtime::unblock(move || login(&url, &username, &password)).await;
         cx.update(|cx| {
             let server = match result {
                 Ok(server) => server,

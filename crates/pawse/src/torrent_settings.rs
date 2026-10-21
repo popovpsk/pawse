@@ -92,14 +92,13 @@ fn add(
     let handle = window.window_handle();
     let host = cx.global::<Services>().torrents.clone();
     cx.spawn(async move |cx| {
-        let resolved = cx
-            .background_spawn(async move {
-                let _state = host.state_lock();
-                host.engine()
-                    .ok_or_else(|| torrent::Error::Other("torrents are unavailable".into()))?
-                    .resolve(input, RESOLVE_TIMEOUT)
-            })
-            .await;
+        let resolved = net_runtime::unblock(move || {
+            let _state = host.state_lock();
+            host.engine()
+                .ok_or_else(|| torrent::Error::Other("torrents are unavailable".into()))?
+                .resolve(input, RESOLVE_TIMEOUT)
+        })
+        .await;
         cx.update(|cx| {
             let meta = match resolved {
                 Ok(meta) => meta,

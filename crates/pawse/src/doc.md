@@ -628,8 +628,9 @@ Integrations:
   `RemoteMedia::cover(source_id, key, REMOTE_COVER_MAX)`: 2048 px fills a Retina screen
   without a Jellyfin original of several thousand pixels arriving whole. Nothing is
   cached; the DB dedupes covers, so an album is one request.
-- Only one server cover request runs at a time (it blocks an executor thread up to the
-  HTTP timeouts). A cover asked meanwhile is only remembered (`remote_cover_wanted`) and
+- Only one server cover request runs at a time (on `net_runtime`'s blocking pool; each can
+  wait out the HTTP timeouts, and skipping through tracks must not pile them up). A cover
+  asked meanwhile is only remembered (`remote_cover_wanted`) and
   the current one loads when the request ends; covers skipped past are never fetched. If
   the server gives nothing (or `HttpMedia::cover` turned its placeholder into `NotFound`,
   `remote_media/doc.md`), the file fallback runs, else the thumbnail stays with a logged
@@ -897,9 +898,9 @@ Integrations:
   the source unavailable and changes nothing else. Failing to *store* a listing is our
   own busy database: retried, never marks the source unavailable.
 - Requests arriving mid-sync are queued one per server (a probe request is dropped when
-  the server is already queued, any other replaces the entry); one thread drains the
-  queue and re-checks it after clearing `running`, so a late request is not stranded.
-  `syncs_alone` kinds (torrents) skip the queue: one thread per key. The "running" marks
+  the server is already queued, any other replaces the entry); one task on `net_runtime`'s
+  blocking pool drains the queue and re-checks it after clearing `running`, so a late
+  request is not stranded. `syncs_alone` kinds (torrents) skip the queue: one task per key. The "running" marks
   are `Claim` drop guards, so a panic in an index leaves nothing stuck as syncing.
 - Only a sync that changed something (songs, tags, availability) drops the scan
   fingerprint and rescans; otherwise a launch keeps the local fast path. The launch
@@ -1078,7 +1079,8 @@ keeps the Artists tab's bounded photo stores.
 
 ## Web remote reader and lyrics access (`library_service.rs`)
 
-- `LibraryAccess` implements `pawse_remote::LibraryReader`. Albums and artists sort with
+- `LibraryAccess` implements `pawse_remote::LibraryReader`; the server calls it on
+  `net_runtime`'s blocking pool, several requests at once. Albums and artists sort with
   `view_order`, like the desktop tabs. The artist grouping is a shared `AtomicU8`
   (`set_artists_grouping`), so flipping the setting re-points the remote without
   rebuilding it. `artist_detail` marks partial albums and `full` expands them

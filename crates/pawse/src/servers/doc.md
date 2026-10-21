@@ -149,7 +149,7 @@ Engine behaviour (patience, leases, probes) is in `torrent/src/doc.md`.
   live next to the `.torrent`; `cover_art` reads the saved large cover and accepts only a
   hex key, since it becomes a file name. `forget` (source removal) deletes everything named
   after the hash.
-- `syncs_alone`: each torrent syncs on its own thread (`LibraryService::sync_torrent`, one
+- `syncs_alone`: each torrent syncs in its own blocking task (`LibraryService::sync_torrent`, one
   at a time per torrent), outside the servers' one-by-one queue, so a slow or dead swarm
   holds nobody back. A probe gives up after 90 s without a byte. A failed index makes `ping`
   fail as `Unreachable` with its reason for the next 10 minutes (`RETRY_INDEX_AFTER`), so the offline watcher

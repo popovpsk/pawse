@@ -418,11 +418,10 @@ impl AlbumExport {
                 let media = media.clone();
                 let root = root.clone();
                 let stop = cancel.clone();
-                let result = cx
-                    .background_spawn(async move {
-                        place(&media, &entry, &root, &|| stop.load(Ordering::Acquire))
-                    })
-                    .await;
+                let result = net_runtime::unblock(move || {
+                    place(&media, &entry, &root, &|| stop.load(Ordering::Acquire))
+                })
+                .await;
                 match result {
                     Ok(()) => placed += 1,
                     Err(e) => {

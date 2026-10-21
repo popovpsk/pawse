@@ -283,17 +283,16 @@ fn find(state: Entity<CoversState>, cx: &mut App) {
             }
             let artist = job.album.artist.clone();
             let title = job.album.title.clone();
-            let (back, result) = cx
-                .background_spawn(async move {
-                    let result = finder.find(&artist, &title).map(|hit| {
-                        hit.map(|hit| {
-                            let thumb = decode_cover_tile(&hit.thumbnail);
-                            (hit, thumb)
-                        })
-                    });
-                    (finder, result)
-                })
-                .await;
+            let (back, result) = net_runtime::unblock(move || {
+                let result = finder.find(&artist, &title).map(|hit| {
+                    hit.map(|hit| {
+                        let thumb = decode_cover_tile(&hit.thumbnail);
+                        (hit, thumb)
+                    })
+                });
+                (finder, result)
+            })
+            .await;
             finder = back;
             if let Ok(Some(_)) = &result {
                 found += 1;
@@ -360,15 +359,14 @@ fn apply(state: Entity<CoversState>, cx: &mut App) {
             }
             let finder = finder.clone();
             let target = job.folder.clone();
-            let result = cx
-                .background_spawn(async move {
-                    let bytes = finder
-                        .download(&candidate)
-                        .map_err(|e| Skip::DownloadFailed(e.to_string()))?;
-                    let extension = folder::validate(&bytes)?;
-                    folder::write(&target, &bytes, extension)
-                })
-                .await;
+            let result = net_runtime::unblock(move || {
+                let bytes = finder
+                    .download(&candidate)
+                    .map_err(|e| Skip::DownloadFailed(e.to_string()))?;
+                let extension = folder::validate(&bytes)?;
+                folder::write(&target, &bytes, extension)
+            })
+            .await;
             match &result {
                 Ok(path) => {
                     written += 1;

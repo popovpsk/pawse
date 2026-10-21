@@ -215,7 +215,7 @@ fn remove_server(server: &RemoteServer, cx: &mut App) {
     apply_remote_sources(cx);
     crate::scrobble_bridge::apply_settings(cx);
     let client = server.config.client();
-    cx.background_spawn(async move { client.forget() }).detach();
+    net_runtime::handle().spawn_blocking(move || client.forget());
 }
 
 fn confirm_remove_server(server: RemoteServer, window: &mut Window, cx: &mut App) {

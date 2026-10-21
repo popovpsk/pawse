@@ -13,8 +13,8 @@ mapping, the read timeout) — `pawse/src/servers/doc.md`; the cache a finished 
 
 - `lib.rs` — public types (`Config`, `Upload`, `Network`, `Input`, `Meta`, `FileEntry`, `Want`,
   `Swarm`, `Error`) and `is_info_hash`.
-- `engine.rs` — `Engine`: its own tokio runtime, the lazily started `librqbit` session, the loaded
-  torrents (slots with lease counts), the janitor (10 s tick).
+- `engine.rs` — `Engine`: the lazily started `librqbit` session on the shared `net_runtime`, the
+  loaded torrents (slots with lease counts), the janitor (10 s tick).
 - `body.rs` — `Lease` (keeps a torrent loaded), `Probe`, `Body` (`Read` over a byte range).
 - `testing.rs` — `Seeder`: a real `librqbit` session seeding a folder on loopback, and an
   `Engine` whose only peer it is. Public under `test-support` so `pawse` tests can index a real
@@ -23,7 +23,10 @@ mapping, the read timeout) — `pawse/src/servers/doc.md`; the cache a finished 
 
 ## Interface
 
-- Every call blocks the caller on the engine's runtime, so none may run inside a tokio runtime.
+- Every call blocks the caller on `net_runtime` (`Handle::block_on`), so none may run in async code
+  or on its worker threads; a thread of its blocking pool is fine.
+- When the last `Engine`, `Probe` and `Body` are dropped, the session is cancelled: the runtime is
+  shared and would otherwise keep its peers, listeners and DHT running.
 - `resolve` lists a `.torrent` file or magnet and stores `<info_hash>.torrent` in `state_dir`;
   a torrent is known once resolved, and `meta` reads it back without the network. `forget`
   unloads it by force and deletes its work data and every `state_dir` entry starting with the hash.

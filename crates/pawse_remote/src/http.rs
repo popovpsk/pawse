@@ -11,6 +11,7 @@ use axum::{
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
+use tokio::sync::watch;
 
 use crate::{
     AlbumSort, ArtistSort, Command, CommandSink, CoverSize, LibraryReader, PlayerState, StateRx,
@@ -21,6 +22,7 @@ struct AppState {
     rx: StateRx,
     commands: CommandSink,
     library: Arc<dyn LibraryReader>,
+    stop: watch::Receiver<()>,
 }
 
 pub async fn serve(
@@ -28,11 +30,13 @@ pub async fn serve(
     rx: StateRx,
     commands: CommandSink,
     library: Arc<dyn LibraryReader>,
+    stop: watch::Receiver<()>,
 ) -> anyhow::Result<()> {
     let router = build_router(AppState {
         rx,
         commands,
         library,
+        stop,
     });
     log::info!(
         "pawse-remote: listening on http://{}",
@@ -78,25 +82,41 @@ struct CoverQuery {
     size: Option<String>,
 }
 
+async fn read(
+    state: &AppState,
+    respond: impl FnOnce(&dyn LibraryReader) -> Response + Send + 'static,
+) -> Response {
+    let library = state.library.clone();
+    tokio::task::spawn_blocking(move || respond(&*library))
+        .await
+        .unwrap_or_else(|err| {
+            log::error!("pawse-remote: a library read failed: {err}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })
+}
+
 async fn cover_handler(State(state): State<AppState>, Query(query): Query<CoverQuery>) -> Response {
     if query.size.as_deref() == Some("full") {
-        return match state.library.cover_original(query.id) {
-            Some((bytes, content_type)) => (
-                [
-                    (header::CONTENT_TYPE, content_type),
-                    (header::CACHE_CONTROL, "no-store".to_string()),
-                ],
-                bytes,
-            )
-                .into_response(),
-            None => StatusCode::NOT_FOUND.into_response(),
-        };
+        return read(&state, move |library| {
+            match library.cover_original(query.id) {
+                Some((bytes, content_type)) => (
+                    [
+                        (header::CONTENT_TYPE, content_type),
+                        (header::CACHE_CONTROL, "no-store".to_string()),
+                    ],
+                    bytes,
+                )
+                    .into_response(),
+                None => StatusCode::NOT_FOUND.into_response(),
+            }
+        })
+        .await;
     }
     let size = match query.size.as_deref() {
         Some("small") => CoverSize::Small,
         _ => CoverSize::Large,
     };
-    match state.library.cover(query.id, size) {
+    read(&state, move |library| match library.cover(query.id, size) {
         Some(bytes) => (
             [
                 (header::CONTENT_TYPE, "image/jpeg"),
@@ -106,7 +126,8 @@ async fn cover_handler(State(state): State<AppState>, Query(query): Query<CoverQ
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
-    }
+    })
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -119,12 +140,12 @@ struct ArtistsQuery {
 async fn artists_handler(
     State(state): State<AppState>,
     Query(query): Query<ArtistsQuery>,
-) -> impl IntoResponse {
-    Json(
-        state
-            .library
-            .artists(query.sort, query.desc.unwrap_or(0) != 0),
-    )
+) -> Response {
+    let desc = query.desc.unwrap_or(0) != 0;
+    read(&state, move |library| {
+        Json(library.artists(query.sort, desc)).into_response()
+    })
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -137,13 +158,14 @@ async fn artist_handler(
     State(state): State<AppState>,
     Query(query): Query<ArtistQuery>,
 ) -> Response {
-    match state
-        .library
-        .artist_detail(query.id, query.full.unwrap_or(0) != 0)
-    {
-        Some(detail) => Json(detail).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+    let full = query.full.unwrap_or(0) != 0;
+    read(&state, move |library| {
+        match library.artist_detail(query.id, full) {
+            Some(detail) => Json(detail).into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        }
+    })
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -156,12 +178,12 @@ struct AlbumsQuery {
 async fn albums_handler(
     State(state): State<AppState>,
     Query(query): Query<AlbumsQuery>,
-) -> impl IntoResponse {
-    Json(
-        state
-            .library
-            .albums(query.sort, query.desc.unwrap_or(0) != 0),
-    )
+) -> Response {
+    let desc = query.desc.unwrap_or(0) != 0;
+    read(&state, move |library| {
+        Json(library.albums(query.sort, desc)).into_response()
+    })
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -170,14 +192,17 @@ struct AlbumQuery {
 }
 
 async fn album_handler(State(state): State<AppState>, Query(query): Query<AlbumQuery>) -> Response {
-    match state.library.album_detail(query.id) {
-        Some(detail) => Json(detail).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+    read(&state, move |library| {
+        match library.album_detail(query.id) {
+            Some(detail) => Json(detail).into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        }
+    })
+    .await
 }
 
-async fn playlists_handler(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.library.playlists())
+async fn playlists_handler(State(state): State<AppState>) -> Response {
+    read(&state, |library| Json(library.playlists()).into_response()).await
 }
 
 #[derive(serde::Deserialize)]
@@ -189,14 +214,17 @@ async fn playlist_handler(
     State(state): State<AppState>,
     Query(query): Query<PlaylistQuery>,
 ) -> Response {
-    match state.library.playlist_detail(query.id) {
-        Some(detail) => Json(detail).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+    read(&state, move |library| {
+        match library.playlist_detail(query.id) {
+            Some(detail) => Json(detail).into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        }
+    })
+    .await
 }
 
-async fn liked_handler(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.library.liked())
+async fn liked_handler(State(state): State<AppState>) -> Response {
+    read(&state, |library| Json(library.liked()).into_response()).await
 }
 
 async fn command_handler(
@@ -211,16 +239,29 @@ async fn command_handler(
 }
 
 async fn ws_handler(State(state): State<AppState>, upgrade: WebSocketUpgrade) -> impl IntoResponse {
-    upgrade.on_upgrade(move |socket| stream_state(socket, state.rx, state.commands))
+    upgrade.on_upgrade(move |socket| stream_state(socket, state.rx, state.commands, state.stop))
 }
 
-async fn stream_state(mut socket: WebSocket, mut rx: StateRx, commands: CommandSink) {
+async fn stream_state(
+    mut socket: WebSocket,
+    mut rx: StateRx,
+    commands: CommandSink,
+    mut stop: watch::Receiver<()>,
+) {
     commands.send(Command::Refresh);
     let snapshot = rx.borrow_and_update().clone();
     if send_state(&mut socket, &snapshot).await.is_err() {
         return;
     }
-    while rx.changed().await.is_ok() {
+    loop {
+        tokio::select! {
+            changed = rx.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+            }
+            _ = stop.changed() => break,
+        }
         let next = rx.borrow_and_update().clone();
         if send_state(&mut socket, &next).await.is_err() {
             break;

@@ -583,9 +583,7 @@ impl LyricsView {
         }));
         let media = cx.global::<Services>().remote_media.clone();
         self._server_task = Some(cx.spawn(async move |this, cx| {
-            let fetched = cx
-                .background_spawn(async move { media.lyrics(&locator) })
-                .await;
+            let fetched = net_runtime::unblock(move || media.lyrics(&locator)).await;
             this.update(cx, |this, cx| {
                 if this.current_track_id != Some(id) {
                     return;
@@ -632,30 +630,29 @@ impl LyricsView {
         let epoch = access.fetch_epoch();
         self._fetch_task = Some(cx.spawn(async move |this, cx| {
             let id = ctx.id;
-            let refreshed = cx
-                .background_spawn(async move {
-                    let artist = access.first_artist(id).unwrap_or_default();
-                    let album = ctx.album_id.and_then(|aid| access.album_title(aid));
-                    let query = lyrics::LyricsQuery {
-                        artist,
-                        title: ctx.title,
-                        album,
-                        duration_secs: ctx.duration_secs,
-                    };
-                    let written = match lyrics::fetch(&query) {
-                        Ok(Some(remote)) => match pick_remote(remote) {
-                            Some(raw) => access.save_fetched(id, &raw, epoch),
-                            None => access.mark_not_found(id, epoch),
-                        },
-                        Ok(None) => access.mark_not_found(id, epoch),
-                        Err(e) => {
-                            log::warn!("lyrics fetch failed for track {}: {}", id, e);
-                            false
-                        }
-                    };
-                    written.then(|| access.variants(id))
-                })
-                .await;
+            let refreshed = net_runtime::unblock(move || {
+                let artist = access.first_artist(id).unwrap_or_default();
+                let album = ctx.album_id.and_then(|aid| access.album_title(aid));
+                let query = lyrics::LyricsQuery {
+                    artist,
+                    title: ctx.title,
+                    album,
+                    duration_secs: ctx.duration_secs,
+                };
+                let written = match lyrics::fetch(&query) {
+                    Ok(Some(remote)) => match pick_remote(remote) {
+                        Some(raw) => access.save_fetched(id, &raw, epoch),
+                        None => access.mark_not_found(id, epoch),
+                    },
+                    Ok(None) => access.mark_not_found(id, epoch),
+                    Err(e) => {
+                        log::warn!("lyrics fetch failed for track {}: {}", id, e);
+                        false
+                    }
+                };
+                written.then(|| access.variants(id))
+            })
+            .await;
             this.update(cx, |this, cx| {
                 if this.current_track_id != Some(id) {
                     return;

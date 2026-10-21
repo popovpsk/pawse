@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gpui::{App, AppContext, Context, Entity, ParentElement, Window, div, px};
+use gpui::{App, Context, Entity, ParentElement, Window, div, px};
 use gpui_component::{
     Disableable, WindowExt,
     button::{Button, ButtonVariants},
@@ -162,11 +162,10 @@ impl CacheFill {
                 }
                 let media = media.clone();
                 let stop = cancel.clone();
-                let fetched = cx
-                    .background_spawn(async move {
-                        media.resolve(&path, &|| stop.load(Ordering::Acquire))
-                    })
-                    .await;
+                let fetched = net_runtime::unblock(move || {
+                    media.resolve(&path, &|| stop.load(Ordering::Acquire))
+                })
+                .await;
                 if let Err(e) = fetched {
                     log::warn!("saving to the cache failed: {e}");
                 }

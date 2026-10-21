@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gpui::{App, AppContext, Entity, SharedString};
+use gpui::{App, Entity, SharedString};
 
 use crate::localization::tr;
 use crate::scrobble_settings::ScrobbleUiState;
@@ -111,33 +111,32 @@ pub fn start(cx: &mut App, ui: Entity<ScrobbleUiState>, source: ImportSource) {
     });
 
     cx.spawn(async move |cx| {
-        let outcome = cx
-            .background_spawn(async move {
-                let loved = fetcher.collect()?;
+        let outcome = net_runtime::unblock(move || {
+            let loved = fetcher.collect()?;
 
-                let tracks = library.all_tracks();
-                let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
-                let artists = library.track_artists_map(&ids);
-                let index = build_index(&tracks, &artists, &rewriter);
-                let mut found = 0usize;
-                let mut to_like: Vec<i64> = Vec::new();
-                for track in &loved {
-                    let Some(entries) = index.get(&key(&track.artist, &track.title)) else {
-                        continue;
-                    };
-                    found += 1;
-                    to_like.extend(
-                        entries
-                            .iter()
-                            .filter(|(_, liked)| !liked)
-                            .map(|(id, _)| *id),
-                    );
-                }
-                to_like.sort_unstable();
-                to_like.dedup();
-                anyhow::Ok((loved.len(), found, to_like))
-            })
-            .await;
+            let tracks = library.all_tracks();
+            let ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+            let artists = library.track_artists_map(&ids);
+            let index = build_index(&tracks, &artists, &rewriter);
+            let mut found = 0usize;
+            let mut to_like: Vec<i64> = Vec::new();
+            for track in &loved {
+                let Some(entries) = index.get(&key(&track.artist, &track.title)) else {
+                    continue;
+                };
+                found += 1;
+                to_like.extend(
+                    entries
+                        .iter()
+                        .filter(|(_, liked)| !liked)
+                        .map(|(id, _)| *id),
+                );
+            }
+            to_like.sort_unstable();
+            to_like.dedup();
+            anyhow::Ok((loved.len(), found, to_like))
+        })
+        .await;
 
         let (total, found, to_like) = match outcome {
             Ok(outcome) => outcome,

@@ -531,16 +531,14 @@ pub fn connect(receiver: cast::Receiver, cx: &mut App) {
         state.mark_in_use();
     });
     let wanted = receiver.clone();
-    let task = cx.background_spawn(async move {
-        match (wanted.airplay_device(), server) {
-            (Some(device), _) => {
-                cast::AirPlayOutput::connect(device.clone(), volume, gain).map(Connected::AirPlay)
-            }
-            (None, Some(server)) => cast::connect(&wanted, server)
-                .map(Connected::Renderer)
-                .map_err(cast::ConnectError::Failed),
-            (None, None) => Err(cast::ConnectError::Failed("no media server".into())),
+    let task = net_runtime::unblock(move || match (wanted.airplay_device(), server) {
+        (Some(device), _) => {
+            cast::AirPlayOutput::connect(device.clone(), volume, gain).map(Connected::AirPlay)
         }
+        (None, Some(server)) => cast::connect(&wanted, server)
+            .map(Connected::Renderer)
+            .map_err(cast::ConnectError::Failed),
+        (None, None) => Err(cast::ConnectError::Failed("no media server".into())),
     });
     cx.spawn(async move |cx| {
         let result = task.await;

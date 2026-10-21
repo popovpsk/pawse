@@ -313,9 +313,7 @@ impl ArtistCards {
                 }
                 let library = library.clone();
                 let lookup = lookup.clone();
-                let indexed = cx
-                    .background_spawn(async move { run_step(&lookup, &library, step) })
-                    .await;
+                let indexed = net_runtime::unblock(move || run_step(&lookup, &library, step)).await;
                 match indexed {
                     Indexed::Saved(name) => {
                         if this.update(cx, |this, cx| this.refresh(name, cx)).is_err() {

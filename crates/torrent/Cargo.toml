@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 librqbit = { version = "9.0.1", default-features = false, features = ["rust-tls", "disable-upload"] }
+net_runtime = { path = "../net_runtime" }
 tokio = { version = "1", features = ["rt-multi-thread", "time", "io-util", "sync"] }
 log.workspace = true
 anyhow.workspace = true

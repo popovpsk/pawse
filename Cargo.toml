@@ -16,6 +16,7 @@ members = [
     "crates/dlna",
     "crates/server_http",
     "crates/media_stream",
+    "crates/net_runtime",
     "crates/torrent",
     "crates/discord",
     "crates/pawse",

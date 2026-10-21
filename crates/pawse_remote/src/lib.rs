@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{oneshot, watch};
 
@@ -9,6 +10,7 @@ mod http;
 
 pub const DEFAULT_PORT: u16 = 8770;
 pub const PROTOCOL_VERSION: u32 = 3;
+const STOP_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoverSize {
@@ -290,17 +292,15 @@ pub fn commands() -> (CommandSink, CommandRx) {
 }
 
 pub struct RemoteServer {
-    shutdown: Option<oneshot::Sender<()>>,
-    join: Option<std::thread::JoinHandle<()>>,
+    stop: Option<watch::Sender<()>>,
+    stopped: flume::Receiver<()>,
 }
 
 impl Drop for RemoteServer {
     fn drop(&mut self) {
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(());
-        }
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
+        drop(self.stop.take());
+        if let Err(flume::RecvTimeoutError::Timeout) = self.stopped.recv_timeout(STOP_WAIT) {
+            log::warn!("pawse-remote: the server did not stop within {STOP_WAIT:?}");
         }
     }
 }
@@ -314,57 +314,48 @@ pub fn spawn(
     commands: CommandSink,
     library: Arc<dyn LibraryReader>,
 ) -> (RemoteServer, ReadyRx) {
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (stop, stopping) = watch::channel(());
     let (ready_tx, ready_rx) = oneshot::channel();
-    let builder = std::thread::Builder::new().name("pawse-remote".into());
-    let join = builder.spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(runtime) => runtime,
+    let (finished, stopped) = flume::bounded::<()>(0);
+    let server = RemoteServer {
+        stop: Some(stop),
+        stopped,
+    };
+    let runtime = match net_runtime::try_handle() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            log::error!("pawse-remote: no runtime to serve on: {err}");
+            let _ = ready_tx.send(Err(err));
+            return (server, ready_rx);
+        }
+    };
+    runtime.spawn(async move {
+        let _finished = finished;
+        let listener = match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                let _ = ready_tx.send(Ok(()));
+                listener
+            }
             Err(err) => {
-                log::error!("pawse-remote: failed to build runtime: {err}");
+                log::error!("pawse-remote: failed to bind {addr}: {err}");
                 let _ = ready_tx.send(Err(err.to_string()));
                 return;
             }
         };
-        runtime.block_on(async move {
-            let listener = match tokio::net::TcpListener::bind(addr).await {
-                Ok(listener) => {
-                    let _ = ready_tx.send(Ok(()));
-                    listener
-                }
-                Err(err) => {
-                    log::error!("pawse-remote: failed to bind {addr}: {err}");
-                    let _ = ready_tx.send(Err(err.to_string()));
-                    return;
-                }
-            };
-            tokio::select! {
-                result = http::serve(listener, rx, commands, library) => {
-                    if let Err(err) = result {
-                        log::error!("pawse-remote: server error: {err}");
-                    }
-                }
-                _ = shutdown_rx => {
-                    log::info!("pawse-remote: stopped on {addr}");
+        let mut stop = stopping.clone();
+        tokio::select! {
+            result = http::serve(listener, rx, commands, library, stopping) => {
+                if let Err(err) = result {
+                    log::error!("pawse-remote: server error: {err}");
                 }
             }
-        });
-    });
-    let join = match join {
-        Ok(handle) => Some(handle),
-        Err(err) => {
-            log::warn!("pawse-remote: failed to spawn server thread: {err}");
-            None
+            _ = stop.changed() => {
+                log::info!("pawse-remote: stopped on {addr}");
+            }
         }
-    };
-    (
-        RemoteServer {
-            shutdown: Some(shutdown_tx),
-            join,
-        },
-        ready_rx,
-    )
+    });
+    (server, ready_rx)
 }
+
+#[cfg(test)]
+mod tests;
