@@ -356,6 +356,8 @@ pub static JA: Strings = lang! {
     lyrics_dim_inactive_desc: "再生していない行を薄く表示する",
     lyrics_blur: "離れた行をぼかす",
     lyrics_blur_desc: "現在の行から離れた行ほど強くぼかします。ポインタを重ねるかスクロールすると、はっきり表示されます",
+    lyrics_wave: "行のウェーブ",
+    lyrics_wave_desc: "次の行に移るとき、まとめてスクロールせず、行が少し弾みながら順番に追いかけます",
 
     disc_t: "ディスク {}",
     n_tracks_one: "{} 曲",

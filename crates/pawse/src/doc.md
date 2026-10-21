@@ -423,11 +423,17 @@ Integrations:
   body, and since the viewport canvas measures the body, a new inset recenters;
   `edge_fade` fades the list at both edges (`lyrics_fill::EdgeFade`): gpui has no masks,
   so each built row takes one opacity from where it is drawn (scroll offset and wave
-  shift included), reaching 0 as it touches the edge. An edge fades only as far as text
-  is scrolled past it, less the wave's shift at that edge (a wave starting at a song's
-  top does not pop the fade), so the first and last rows of a song stay whole. A row
-  faded below `FADED_OUT` takes no click or tooltip (it keeps its hover, so an underline
-  set before it faded is still cleared). `MainView` sets the presentation in render and
+  shift included), reaching 0 as it touches the edge. The bottom fade reaches farther
+  (`EDGE_FADE_BELOW` against `EDGE_FADE_ABOVE`): the top already has the header row and
+  the title bar above it. The list's bottom padding is as tall as the bottom fade
+  (`EdgeFade::tail`), so at the end of a song its last rows rest above the fade instead
+  of on the window edge; it is padding, not a spacer row, because `built_rows` builds
+  every row while the list's child count differs from the rows'. An edge fades only as
+  far as content (text, or that padding) lies past it, less the wave's shift at that
+  edge (a wave starting at a song's top does not pop the fade), so the first and last
+  rows of a song stay whole. A row faded below `FADED_OUT` takes no
+  click, tooltip or underline (it keeps its `on_hover(false)`, so an underline set before
+  it faded is still cleared). `MainView` sets the presentation in render and
   draws the panel uncached in the frame it changed, like the header (`main_view/doc.md`,
   "Caching"): a notify from render reaches no cached block.
 - Loaded once per track, on a `PlaybackStatus` change of track id in `Preparing` or
@@ -455,24 +461,25 @@ Integrations:
   that arrive while paused (another source tab, a late LRCLIB or server answer) light
   the row at the paused position.
 - Autoscroll centers the active row; the wheel disengages it, the locate button
-  re-engages. A step that `lyrics_wave::fits` (a few rows, counted in font sizes so it
-  does not depend on the panel height) is a wave: the offset jumps at once and every
-  built row is drawn back where it was, then springs home, rows below the centering line
-  starting later the farther down they are (capped), so the sung row moves first and the
-  ones ahead follow. Steps overlap by adding up; the wave asks for frames until the last
-  one settles and needs no timer, since the offset is already final. The shift is drawn
-  on the row inside a plain wrapper (no id, so element state keeps its path): the list's
-  child keeps its resting bounds, which `centered_offset`, `built_rows` and the wave's
-  own delays read. `built_rows` widens its margin by the wave's total shift. New rows,
-  recenters and a song change drop the wave; a scroll (wheel or a longer step) leaves it
-  to finish on top, since dropping it would make rows jump by what is left of it.
+  re-engages. With `lyrics_wave` on, a step that `lyrics_wave::fits` (a few rows, counted
+  in font sizes so it does not depend on the panel height) is a wave: the offset jumps at
+  once and every built row is drawn back where it was, then springs home, rows below the
+  centering line starting later the farther down they are (capped), so the sung row
+  moves first and the ones ahead follow. Steps overlap by adding up; the wave asks for
+  frames until the last one settles and needs no timer, since the offset is already
+  final. The shift is drawn on the row inside a plain wrapper (no id, so element state
+  keeps its path): the list's child keeps its resting bounds, which `centered_offset`,
+  `built_rows` and the wave's own delays read. `built_rows` widens its margin by the
+  wave's total shift. New rows, recenters and a song change drop the wave; a scroll
+  (wheel or a longer step) leaves it to finish on top, since dropping it would make rows
+  jump by what is left of it.
 - A longer step (usually a seek or the locate button after scrolling away) and every step
-  under reduce motion scroll the list instead: render sets the offset each frame
-  (`ScrollAnim`, `ease_out_quint` over `SCROLL_ANIM`), so the edge fade and the wave read
-  the offset the rows are painted at. The animation's own end timer sets the final
-  offset, so a window that drew no frames meanwhile (occluded, minimized, asleep) still
-  lands on the active row; an animation already cancelled (wheel, new rows, recenter)
-  leaves the offset alone.
+  with the wave off or under reduce motion scroll the list instead: render sets the offset
+  each frame (`ScrollAnim`, `ease_out_quint` over `SCROLL_ANIM`), so the edge fade and the
+  wave read the offset the rows are painted at. The animation's own end timer sets the
+  final offset, so a window that drew no frames meanwhile (occluded, minimized, asleep)
+  still lands on the active row; an animation already cancelled (wheel, new rows,
+  recenter) leaves the offset alone.
 - Only rows near the visible area are built: the rest are empty divs of their last drawn
   height (`built_rows`), so indices, `centered_offset` and the scroll extent stay as with
   every row built. Near means within `lyrics_blur::NEAR` of the window height around the
@@ -496,13 +503,17 @@ Integrations:
   redraws on its notifies. It follows the song while autoscroll is on and the pointer is
   off the list. The pointer flag is cleared whenever the list is not drawn, because gpui
   drops the list's hover state then and would not report the pointer again until it
-  moves. It and the hovered row are also cleared when the pointer leaves the window
-  (`MouseExitEvent` from `viewport_canvas`): gpui keeps the last position inside, so a
-  list at the window's edge never gets `on_hover(false)`. Windows sends no
-  `MouseExitEvent` (gpui only clears its window-hovered flag and refreshes), so render
-  also drops both while `!is_window_hovered()`, except on macOS, where that flag means
-  the window is active. A move over the list sets the flag again, since gpui sends no
-  `on_hover(true)` for an element it still counts as hovered.
+  moves. The list and its rows take only `on_hover(false)`; the flag and the hovered row
+  are set by mouse moves over them, so a pointer resting there since before the list was
+  drawn counts only once it moves. Moves with a button down or during a drag are
+  skipped, as gpui's own hover rule does: gpui sends no `on_hover(false)` after one, so
+  a row it set would keep its underline. gpui sends `on_hover(false)` when the pointer
+  leaves the window but keeps the last position inside, so its next paint finds the
+  element under that position and sends `on_hover(true)` again: a list at the window's
+  edge that took it would stay hovered, and the blur off, until the window lost focus.
+  Windows sends no `MouseExitEvent` (gpui only clears its window-hovered flag and
+  refreshes), so render also drops both while `!is_window_hovered()`, except on macOS,
+  where that flag means the window is active.
 
 ## Lyrics karaoke fill (`lyrics_fill.rs`, `lyrics_view.rs`)
 
@@ -635,10 +646,14 @@ Integrations:
   panel, and over a backdrop the panel reaches up through the transparent title bar (a
   cap at the root under the bar, `bar_height` tall, sliding with the panel's own width
   animation; it is in the tree whenever the queue is, only its colour depends on Full
-  screen, so toggling Full screen never starts its slide alone); the silhouette strip
-  runs under the lyrics; the lyrics get their
-  `LyricsPresentation`; the macOS traffic lights follow the control bar: off while it is
-  hidden, back on the mouse move that shows it (they jump, the bar slides).
+  screen, so toggling Full screen never starts its slide alone; it lines up only while
+  the queue is never pushed past the window edge, which is why the pane holding the
+  content and the lyrics takes `min_w(0)` and clips: else its min-content width (the
+  cover stack's plus the lyrics panel's) pushes the queue out on a narrow window, and
+  lyrics wider than what is left would run under the queue); the silhouette strip runs
+  under the lyrics; the lyrics get their `LyricsPresentation`; the macOS traffic lights
+  follow the control bar: off while it is hidden, back on the mouse move that shows it
+  (they jump, the bar slides).
 - The cover area is clipped in every mode: the cover view lays out from last frame's
   measured size, so a panel opening or a fast resize can shrink the area by more than
   `COVER_MARGIN` in one frame, and unclipped the cover would show under the transparent
@@ -1277,6 +1292,12 @@ Owner's calls; ask before changing.
 - Lyrics lines all share one face: the active line is not made bolder (it re-wrapped
   lines that only just fit). Bold and italic are toggle buttons left of the size slider;
   bold is on by default, italic off.
+- The lyrics wave is a switch in the Lyrics settings, on by default; off, every step
+  scrolls the list.
+- In Full screen the lyrics panel stays below the title bar and gets the longer bottom
+  fade instead: lifting it into the bar would take unclipping its ancestors, an occluder
+  against the bar's window drag, and macOS only, since the caption buttons sit on the
+  right elsewhere.
 - The window placement is written with other settings saves and at quit, not on its
   own debounce. Fullscreen is never restored; maximized only on Windows.
 - The wheel changes the volume only over the volume control, not over the whole window

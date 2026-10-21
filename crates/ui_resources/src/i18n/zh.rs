@@ -356,6 +356,8 @@ pub static ZH: Strings = lang! {
     lyrics_dim_inactive_desc: "让未播放的歌词行变暗",
     lyrics_blur: "模糊远处的歌词行",
     lyrics_blur_desc: "离当前行越远的歌词越模糊；悬停或滚动歌词时会重新变清晰",
+    lyrics_wave: "歌词行波浪效果",
+    lyrics_wave_desc: "切换到下一行时，各行带轻微弹性依次跟上，而不是一起滚动",
 
     disc_t: "碟片 {}",
     n_tracks_one: "{} 首曲目",

@@ -356,6 +356,8 @@ pub static DE: Strings = lang! {
     lyrics_dim_inactive_desc: "Zeilen abschwächen, die gerade nicht laufen",
     lyrics_blur: "Entfernte Zeilen weichzeichnen",
     lyrics_blur_desc: "Je weiter eine Zeile von der aktuellen entfernt ist, desto unschärfer wird sie; beim Überfahren oder Scrollen wird der Text wieder scharf",
+    lyrics_wave: "Wellenbewegung der Zeilen",
+    lyrics_wave_desc: "Beim Wechsel zur nächsten Zeile folgen die Zeilen einander mit leichtem Federn, statt gemeinsam zu scrollen",
 
     disc_t: "CD {}",
     n_tracks_one: "{} Titel",

@@ -356,6 +356,8 @@ pub static FR: Strings = lang! {
     lyrics_dim_inactive_desc: "Estomper les lignes qui ne sont pas jouées",
     lyrics_blur: "Flouter les lignes éloignées",
     lyrics_blur_desc: "Plus une ligne est loin de la ligne en cours, plus elle est floue ; survoler ou faire défiler les paroles les rend nettes",
+    lyrics_wave: "Vague entre les lignes",
+    lyrics_wave_desc: "Au passage à la ligne suivante, les lignes se suivent avec un léger rebond au lieu de défiler ensemble",
 
     disc_t: "Disque {}",
     n_tracks_one: "{} titre",

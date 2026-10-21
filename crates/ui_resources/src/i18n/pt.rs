@@ -356,6 +356,8 @@ pub static PT: Strings = lang! {
     lyrics_dim_inactive_desc: "Atenuar as linhas que não estão tocando",
     lyrics_blur: "Desfocar as linhas distantes",
     lyrics_blur_desc: "Quanto mais longe da linha atual, mais desfocada fica a linha; ao passar o cursor ou rolar a letra, ela volta a ficar nítida",
+    lyrics_wave: "Onda entre as linhas",
+    lyrics_wave_desc: "Ao passar para a próxima linha, as linhas se movem uma após a outra com um leve balanço em vez de rolarem juntas",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} faixa",

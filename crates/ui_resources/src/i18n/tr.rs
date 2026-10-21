@@ -356,6 +356,8 @@ pub static TR: Strings = lang! {
     lyrics_dim_inactive_desc: "Çalmayan satırları soluklaştır",
     lyrics_blur: "Uzak satırları bulanıklaştır",
     lyrics_blur_desc: "Geçerli satırdan uzaklaştıkça satırlar bulanıklaşır; üzerine gelindiğinde veya kaydırıldığında metin yeniden netleşir",
+    lyrics_wave: "Satır dalgası",
+    lyrics_wave_desc: "Sonraki satıra geçerken satırlar birlikte kaymak yerine hafif bir yaylanmayla birbiri ardına ilerler",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} parça",

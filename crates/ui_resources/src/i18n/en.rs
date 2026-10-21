@@ -356,6 +356,8 @@ pub static EN: Strings = lang! {
     lyrics_dim_inactive_desc: "Fade the lines that are not playing",
     lyrics_blur: "Blur distant lines",
     lyrics_blur_desc: "Lines farther from the current one get blurrier; hovering or scrolling the lyrics brings them back into focus",
+    lyrics_wave: "Wave between lines",
+    lyrics_wave_desc: "When the next line comes up, the lines follow one after another with a slight spring instead of scrolling together",
 
     disc_t: "Disc {}",
     n_tracks_one: "{} track",

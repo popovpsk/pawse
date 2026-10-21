@@ -356,6 +356,8 @@ pub static ID: Strings = lang! {
     lyrics_dim_inactive_desc: "Buramkan baris yang tidak sedang diputar",
     lyrics_blur: "Kaburkan baris yang jauh",
     lyrics_blur_desc: "Makin jauh dari baris saat ini, makin kabur barisnya; saat kursor di atasnya atau lirik digulir, teks kembali tajam",
+    lyrics_wave: "Gelombang antarbaris",
+    lyrics_wave_desc: "Saat baris berikutnya tiba, baris-baris bergerak satu per satu dengan sedikit pantulan, bukan bergulir bersamaan",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} lagu",

@@ -1239,6 +1239,8 @@ impl Render for MainView {
                     .child(
                         div()
                             .flex_1()
+                            .min_w(px(0.))
+                            .overflow_hidden()
                             .flex()
                             .relative()
                             .when_some(pane_strip, |d, strip| d.child(strip.layer()))

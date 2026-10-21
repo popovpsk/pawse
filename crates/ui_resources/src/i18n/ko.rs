@@ -356,6 +356,8 @@ pub static KO: Strings = lang! {
     lyrics_dim_inactive_desc: "재생 중이 아닌 줄을 흐리게 표시합니다",
     lyrics_blur: "먼 줄 흐리게",
     lyrics_blur_desc: "현재 줄에서 멀수록 더 흐리게 표시합니다. 마우스를 올리거나 스크롤하면 다시 선명해집니다",
+    lyrics_wave: "줄 물결 효과",
+    lyrics_wave_desc: "다음 줄로 넘어갈 때 한꺼번에 스크롤하지 않고 줄들이 살짝 튕기며 차례로 따라옵니다",
 
     disc_t: "디스크 {}",
     n_tracks_one: "트랙 {}개",

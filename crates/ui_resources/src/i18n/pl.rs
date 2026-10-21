@@ -356,6 +356,8 @@ pub static PL: Strings = lang! {
     lyrics_dim_inactive_desc: "Wyszarz wiersze, które nie są odtwarzane",
     lyrics_blur: "Rozmywaj dalsze wiersze",
     lyrics_blur_desc: "Im dalej wiersz od bieżącego, tym bardziej jest rozmyty; po najechaniu kursorem lub przewinięciu tekst znów staje się ostry",
+    lyrics_wave: "Fala przy zmianie wiersza",
+    lyrics_wave_desc: "Przy przejściu do następnego wiersza wiersze przesuwają się jeden po drugim z lekkim sprężynowaniem zamiast przewijać się razem",
 
     disc_t: "Płyta {}",
     n_tracks_one: "{} utwór",

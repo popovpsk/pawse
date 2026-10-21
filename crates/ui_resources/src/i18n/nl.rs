@@ -356,6 +356,8 @@ pub static NL: Strings = lang! {
     lyrics_dim_inactive_desc: "Regels die niet spelen vervagen",
     lyrics_blur: "Verre regels vervagen",
     lyrics_blur_desc: "Hoe verder een regel van de huidige, hoe waziger hij wordt; met de muis erboven of tijdens scrollen wordt de tekst weer scherp",
+    lyrics_wave: "Golf tussen regels",
+    lyrics_wave_desc: "Bij de volgende regel schuiven de regels één voor één op met een lichte vering in plaats van samen te scrollen",
 
     disc_t: "Schijf {}",
     n_tracks_one: "{} nummer",

@@ -704,6 +704,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub lyrics_blur: bool,
     #[serde(default = "default_true")]
+    pub lyrics_wave: bool,
+    #[serde(default = "default_true")]
     pub lyrics_bold: bool,
     #[serde(default)]
     pub lyrics_italic: bool,
@@ -797,6 +799,7 @@ impl Default for UserSettings {
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
             lyrics_blur: false,
+            lyrics_wave: true,
             lyrics_bold: true,
             lyrics_italic: false,
             onboarding_complete: false,
@@ -1939,6 +1942,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn lyrics_wave(&self) -> bool {
+        self.settings.lyrics_wave
+    }
+
+    pub fn set_lyrics_wave(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_wave = enabled;
+        self.save()
+    }
+
     pub fn lyrics_bold(&self) -> bool {
         self.settings.lyrics_bold
     }
@@ -2379,6 +2391,7 @@ mod tests {
             lyrics_karaoke_fill: true,
             lyrics_dim_inactive: true,
             lyrics_blur: false,
+            lyrics_wave: false,
             lyrics_bold: false,
             lyrics_italic: false,
             onboarding_complete: false,
@@ -2422,6 +2435,7 @@ mod tests {
         assert_eq!(back.artists_layout, LibraryLayout::Grid);
         assert_eq!(back.network_cache_gb, 8);
         assert!(back.header_in_title_bar);
+        assert!(!back.lyrics_wave);
         assert_eq!(
             back.artists_grouping,
             music_library::ArtistGrouping::TrackArtist

@@ -356,6 +356,8 @@ pub static SV: Strings = lang! {
     lyrics_dim_inactive_desc: "Tona ned rader som inte spelas",
     lyrics_blur: "Gör avlägsna rader suddiga",
     lyrics_blur_desc: "Ju längre en rad är från den aktuella, desto suddigare blir den; när du håller muspekaren över eller skrollar blir texten skarp igen",
+    lyrics_wave: "Våg mellan rader",
+    lyrics_wave_desc: "När nästa rad börjar följer raderna efter varandra med en lätt fjädring i stället för att skrolla tillsammans",
 
     disc_t: "Skiva {}",
     n_tracks_one: "{} låt",

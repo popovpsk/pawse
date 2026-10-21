@@ -356,6 +356,8 @@ pub static CS: Strings = lang! {
     lyrics_dim_inactive_desc: "Zeslabit řádky, které právě nehrají",
     lyrics_blur: "Rozmazat vzdálené řádky",
     lyrics_blur_desc: "Čím dál je řádek od aktuálního, tím víc je rozmazaný; při najetí myší nebo posouvání se text znovu zaostří",
+    lyrics_wave: "Vlna při změně řádku",
+    lyrics_wave_desc: "Při přechodu na další řádek se řádky posouvají jeden po druhém s lehkým pružením, místo aby se posunuly najednou",
 
     disc_t: "Disk {}",
     n_tracks_one: "{} skladba",

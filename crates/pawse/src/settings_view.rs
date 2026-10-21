@@ -1399,6 +1399,26 @@ fn lyrics_group(slider: Entity<SliderState>) -> SettingGroup {
             )
             .description(tr().lyrics_blur_desc.clone()),
         )
+        .item(
+            SettingItem::new(
+                tr().lyrics_wave.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().lyrics_wave();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("lyrics-wave-toggle").checked(enabled).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) =
+                                    cx.global_mut::<SettingsStore>().set_lyrics_wave(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().lyrics_wave_desc.clone()),
+        )
 }
 
 fn local_folders_group(sources: Entity<crate::library_sources::LibrarySources>) -> SettingGroup {

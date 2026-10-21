@@ -5,10 +5,10 @@ use std::time::{Duration, Instant};
 use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, DispatchPhase, Entity, FontStyle, FontWeight, Hsla, InteractiveElement,
-    IntoElement, MouseExitEvent, MouseMoveEvent, ParentElement, Pixels, Render, ScrollHandle,
-    SharedString, Size, StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas,
-    div, ease_out_quint, px,
+    App, AppContext, Context, Entity, FontStyle, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseMoveEvent, ParentElement, Pixels, Render, ScrollHandle, SharedString, Size,
+    StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div, ease_out_quint,
+    px,
 };
 use gpui_component::{tooltip::Tooltip, v_flex};
 use music_library::{StoredLyrics, lyrics_source};
@@ -810,13 +810,6 @@ impl LyricsView {
         }
     }
 
-    fn pointer_left(&mut self, cx: &mut Context<Self>) {
-        self.set_list_hovered(false, cx);
-        if self.hovered_ix.take().is_some() {
-            cx.notify();
-        }
-    }
-
     fn is_lit(&self, ix: usize) -> bool {
         self.active_ix == Some(ix) || self.lit.iter().any(|lit| lit.ix == Some(ix))
     }
@@ -1004,7 +997,10 @@ impl LyricsView {
             return;
         }
         let em = self.font.map_or(px(0.), |font| font.size);
-        if lyrics_wave::fits(from - to, em) && !cx.reduce_motion() {
+        if cx.global::<SettingsStore>().lyrics_wave()
+            && lyrics_wave::fits(from - to, em)
+            && !cx.reduce_motion()
+        {
             let mut offset = self.scroll_handle.offset();
             offset.y = to;
             self.scroll_handle.set_offset(offset);
@@ -1318,13 +1314,20 @@ impl Render for LyricsView {
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll_handle)
                 .on_scroll_wheel(cx.listener(|this, _, _, cx| this.disengage(cx)))
-                .on_hover(
-                    cx.listener(|this, hovered: &bool, _, cx| this.set_list_hovered(*hovered, cx)),
-                )
-                .on_mouse_move(
-                    cx.listener(|this, _: &MouseMoveEvent, _, cx| this.set_list_hovered(true, cx)),
-                )
+                .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                    if !*hovered {
+                        this.set_list_hovered(false, cx);
+                    }
+                }))
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                    if hovering(event, cx) {
+                        this.set_list_hovered(true, cx);
+                    }
+                }))
                 .py_2()
+                .when(fade.is_some(), |d| {
+                    d.pb(EdgeFade::tail(list_bounds.size.height))
+                })
                 .children(self.rows.iter().enumerate().map(|(ix, row)| {
                     if !built.contains(&ix) {
                         let height = scroll_handle
@@ -1417,10 +1420,19 @@ impl Render for LyricsView {
                                     .children(row_blur.iter().flat_map(|b| b.layers()))
                                     .when(Some(ix) == hovered_ix, |d| d.underline())
                                     .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                                        this.set_hovered(ix, *hovered, cx)
+                                        if !*hovered {
+                                            this.set_hovered(ix, false, cx);
+                                        }
                                     }))
                                     .when(alpha >= FADED_OUT, |d| {
                                         d.cursor_pointer()
+                                            .on_mouse_move(cx.listener(
+                                                move |this, event: &MouseMoveEvent, _, cx| {
+                                                    if hovering(event, cx) {
+                                                        this.set_hovered(ix, true, cx);
+                                                    }
+                                                },
+                                            ))
                                             .tooltip(move |window, cx| {
                                                 Tooltip::new(label.clone()).build(window, cx)
                                             })
@@ -1482,8 +1494,11 @@ impl Render for LyricsView {
     }
 }
 
+fn hovering(event: &MouseMoveEvent, cx: &App) -> bool {
+    event.pressed_button.is_none() && !cx.has_active_drag()
+}
+
 fn viewport_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
-    let left = entity.clone();
     canvas(
         move |bounds, window, cx| {
             if entity.read(cx).viewport != bounds.size {
@@ -1494,13 +1509,7 @@ fn viewport_canvas(entity: Entity<LyricsView>) -> impl IntoElement {
                 window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
             }
         },
-        move |_, _, window, _| {
-            window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
-                if phase == DispatchPhase::Capture {
-                    left.update(cx, |this, cx| this.pointer_left(cx));
-                }
-            });
-        },
+        |_, _, _, _| {},
     )
     .absolute()
     .size_full()

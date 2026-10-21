@@ -356,6 +356,8 @@ pub static IT: Strings = lang! {
     lyrics_dim_inactive_desc: "Sfuma le righe che non sono in riproduzione",
     lyrics_blur: "Sfoca le righe lontane",
     lyrics_blur_desc: "Più una riga è lontana da quella corrente, più è sfocata; passando il puntatore o scorrendo il testo torna nitido",
+    lyrics_wave: "Onda tra le righe",
+    lyrics_wave_desc: "Quando arriva la riga successiva, le righe si spostano una dopo l'altra con un leggero rimbalzo invece di scorrere insieme",
 
     disc_t: "Disco {}",
     n_tracks_one: "{} brano",

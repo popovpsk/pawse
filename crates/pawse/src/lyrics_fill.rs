@@ -10,7 +10,8 @@ pub const INTERLUDE_MIN_MS: u32 = 3_000;
 pub const INTERLUDE_TEXT: &str = "♪ ♪ ♪";
 const OPEN_WORD_MS: u32 = 600;
 
-const EDGE_FADE: f32 = 0.18;
+const EDGE_FADE_ABOVE: f32 = 0.12;
+const EDGE_FADE_BELOW: f32 = 0.3;
 const FEATHER_PX: f32 = 12.;
 const FEATHER_ALPHA: [f32; 4] = [0.85, 0.6, 0.35, 0.12];
 const FILL_BLEED: f32 = 0.25;
@@ -87,7 +88,8 @@ pub struct FillPlan {
 pub struct EdgeFade {
     top: Pixels,
     bottom: Pixels,
-    reach: Pixels,
+    reach_above: Pixels,
+    reach_below: Pixels,
     above: f32,
     below: f32,
 }
@@ -98,22 +100,29 @@ impl EdgeFade {
         hidden_above: Pixels,
         hidden_below: Pixels,
     ) -> Option<Self> {
-        let reach = viewport.size.height * EDGE_FADE;
-        (reach > px(0.)).then(|| Self {
+        let reach_above = viewport.size.height * EDGE_FADE_ABOVE;
+        let reach_below = Self::tail(viewport.size.height);
+        (reach_above > px(0.)).then(|| Self {
             top: viewport.top(),
             bottom: viewport.bottom(),
-            reach,
-            above: (hidden_above / reach).clamp(0., 1.),
-            below: (hidden_below / reach).clamp(0., 1.),
+            reach_above,
+            reach_below,
+            above: (hidden_above / reach_above).clamp(0., 1.),
+            below: (hidden_below / reach_below).clamp(0., 1.),
         })
     }
 
+    pub fn tail(viewport_height: Pixels) -> Pixels {
+        viewport_height * EDGE_FADE_BELOW
+    }
+
     pub fn alpha(&self, top: Pixels, bottom: Pixels) -> f32 {
-        let edge = |gap: Pixels, strength: f32| {
-            let t = (gap / self.reach).clamp(0., 1.);
+        let edge = |gap: Pixels, reach: Pixels, strength: f32| {
+            let t = (gap / reach).clamp(0., 1.);
             1. - strength * (1. - t * t * (3. - 2. * t))
         };
-        edge(top - self.top, self.above) * edge(self.bottom - bottom, self.below)
+        edge(top - self.top, self.reach_above, self.above)
+            * edge(self.bottom - bottom, self.reach_below, self.below)
     }
 }
 
@@ -540,6 +549,13 @@ mod tests {
         let barely = EdgeFade::new(viewport(), px(9.), px(0.)).unwrap();
         assert!(barely.alpha(px(100.), px(140.)) > 0.8);
         assert_eq!(barely.alpha(px(560.), px(600.)), 1.);
+    }
+
+    #[test]
+    fn the_bottom_edge_fades_farther_than_the_top() {
+        let fade = EdgeFade::new(viewport(), px(200.), px(200.)).unwrap();
+        assert_eq!(fade.alpha(px(200.), px(240.)), 1.);
+        assert!(fade.alpha(px(460.), px(500.)) < 1.);
     }
 
     #[test]

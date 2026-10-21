@@ -356,6 +356,8 @@ pub static VI: Strings = lang! {
     lyrics_dim_inactive_desc: "Làm mờ những dòng không phát",
     lyrics_blur: "Làm nhòe các dòng ở xa",
     lyrics_blur_desc: "Dòng càng xa dòng hiện tại càng nhòe; khi rê chuột hoặc cuộn lời bài hát, chữ sẽ rõ nét trở lại",
+    lyrics_wave: "Hiệu ứng sóng giữa các dòng",
+    lyrics_wave_desc: "Khi sang dòng tiếp theo, các dòng nối tiếp nhau dịch chuyển với độ nảy nhẹ thay vì cuộn cùng lúc",
 
     disc_t: "Đĩa {}",
     n_tracks_one: "{} bài hát",
