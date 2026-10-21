@@ -22,6 +22,7 @@ Not here: the overlay switching (`MainView::open_tools`, `pawse/src/doc.md`); th
 - The page index is the page's identity: `AI_PROMPT_PAGE` 0, Covers 1, `TIMER_PAGE` 2. Add pages after these or fix the constants. The Timer page exists only if the `SleepTimer` global does. `show_page` bumps `page_request` so the widget switches tabs even when the screen is already open.
 - Pages are built once. Labels are baked in at build time, so they are rebuilt on `LangChanged`, on an AI prompt mode change (the answer-import group exists only in playlist modes, the release-window item only in New releases) and when Covers gains or loses its results / skipped items. A new conditional item needs a trigger like these.
 - Tool state lives in `ToolsView`, so a running cover search or a built prompt survives closing the screen.
+- A scrolling box inside a page (the prompt preview, the Covers skipped list) stops the wheel event while it can still scroll (`contain_scroll`): gpui scroll containers don't stop propagation, so the page would scroll with it. A box that doesn't overflow, or is at its end, lets the page scroll.
 - `show_ai_playlist` first switches to From my library when the current mode builds no playlist (New music and New releases have no answer import).
 
 ## AI prompt

@@ -851,6 +851,7 @@ impl MainView {
         if !on {
             self.cover_volume.update(cx, |v, cx| v.collapse(cx));
         }
+        self.footer.update(cx, |f, cx| f.collapse_volume(cx));
         cx.notify();
     }
 
@@ -1434,6 +1435,7 @@ fn cover_chrome_button(
             this.cover_mode_view
                 .update(cx, |view, cx| view.toggle_chrome(cx));
             this.cover_volume.update(cx, |v, cx| v.collapse(cx));
+            this.footer.update(cx, |f, cx| f.collapse_volume(cx));
         }))
         .child(svg().path(icon).size(px(20.)).text_color(fg))
 }

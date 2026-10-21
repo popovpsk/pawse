@@ -3,8 +3,8 @@ pub mod covers;
 mod timer;
 
 use gpui::{
-    AppContext, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
-    actions, div,
+    App, AppContext, Context, Entity, IntoElement, ParentElement, Render, ScrollHandle,
+    ScrollWheelEvent, Styled, Subscription, Window, actions, div, px,
 };
 use gpui_component::input::{InputState, TextareaState};
 use ui_components::settings::{SettingPage, Settings};
@@ -20,6 +20,19 @@ use crate::sleep_timer::SleepTimer;
 use crate::sleep_timer::controls::SleepTimerControls;
 
 actions!(tools, [OpenAiPlaylist]);
+
+pub(crate) fn contain_scroll(
+    handle: &ScrollHandle,
+) -> impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static {
+    let handle = handle.clone();
+    move |_, _, cx| {
+        let max = handle.max_offset().y;
+        let y = handle.offset().y;
+        if max > px(0.) && y <= px(0.) && y >= -max {
+            cx.stop_propagation();
+        }
+    }
+}
 
 const WISHES_ROWS: (usize, usize) = (2, 6);
 const ANSWER_ROWS: (usize, usize) = (4, 12);

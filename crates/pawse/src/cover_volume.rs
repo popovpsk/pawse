@@ -14,7 +14,7 @@ use crate::theme_colors::Colors;
 use crate::volume::{Volume, volume_icon};
 use ui_components::slider::{Slider, SliderEvent};
 
-const ICON_SIZE: f32 = 34.;
+pub const ICON_SIZE: f32 = 34.;
 const PANEL_H: f32 = 132.;
 
 pub struct CoverVolume {
@@ -85,6 +85,7 @@ impl CoverVolume {
 
     fn on_scroll(&mut self, e: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.volume.update(cx, |vol, cx| vol.wheel(e, cx));
+        cx.stop_propagation();
     }
 }
 
@@ -172,7 +173,13 @@ impl Render for CoverVolume {
                     .hover(move |s| s.bg(hover_bg))
                     .tooltip(|window, cx| Tooltip::new(tr().volume.clone()).build(window, cx))
                     .on_click(cx.listener(Self::on_icon_click))
-                    .child(svg().path(icon).size(px(22.)).text_color(fg)),
+                    .child(
+                        svg()
+                            .path(icon)
+                            .size(px(22.))
+                            .text_color(fg)
+                            .opacity(if is_exclusive { 0.4 } else { 1.0 }),
+                    ),
             )
     }
 }

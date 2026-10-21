@@ -15,6 +15,12 @@ use crate::settings_store::SettingsStore;
 pub const VOLUME_STEP: f32 = 0.05;
 const WHEEL_PIXELS_PER_STEP: f32 = 24.;
 const WHEEL_LINES_PER_STEP: f32 = 3.;
+const ICON_SIZE: f32 = 22.;
+const SLIDER_W: f32 = 100.;
+
+pub fn full_width(rem: f32) -> f32 {
+    ICON_SIZE + rem * 0.5 + SLIDER_W
+}
 
 #[derive(Default)]
 struct WheelSteps {
@@ -129,7 +135,7 @@ impl Render for Volume {
                     .child(
                         svg()
                             .path(icon_path)
-                            .size(px(22.))
+                            .size(px(ICON_SIZE))
                             .text_color(Colors::foreground(cx)),
                     )
             });
@@ -142,7 +148,7 @@ impl Render for Volume {
             self.slider
                 .update(cx, |slider, cx| slider.set_value_silent(shown, cx));
         }
-        container = container.child(div().w(px(100.)).child(self.slider.clone()));
+        container = container.child(div().w(px(SLIDER_W)).child(self.slider.clone()));
 
         container.flex_shrink_0().h_6()
     }

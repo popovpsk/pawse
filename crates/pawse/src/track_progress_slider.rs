@@ -11,6 +11,7 @@ use gpui_component::h_flex;
 use crate::theme_colors::Colors;
 use ui_components::slider::{Slider, SliderEvent};
 
+use crate::footer::SIDE_COLUMN_W;
 use crate::playback_status::{Phase, StatusChanged};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -40,7 +41,17 @@ fn row_content_width(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
 
 pub fn row_center(viewport_w: f32, rem: f32, scale: f32, show_labels: bool) -> f32 {
     let row_w = row_content_width(viewport_w, rem, show_labels);
-    (viewport_w * 0.5).max(3.0 * rem + 200.0 * scale + row_w * 0.5)
+    (viewport_w * 0.5).max(3.0 * rem + SIDE_COLUMN_W * scale + row_w * 0.5)
+}
+
+pub fn right_column_room(viewport_w: f32, rem: f32, scale: f32, show_labels: bool) -> f32 {
+    let column = SIDE_COLUMN_W * scale;
+    let room = viewport_w - 6.0 * rem - column - row_content_width(viewport_w, rem, show_labels);
+    if room > column {
+        (room + column) * 0.5
+    } else {
+        room
+    }
 }
 
 pub fn row_visible_left(viewport_w: f32, rem: f32, scale: f32, show_labels: bool) -> f32 {

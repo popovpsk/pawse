@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use cover_search::{Candidate, Finder, Source};
 use gpui::{
     AnyElement, App, AppContext, Axis, Entity, InteractiveElement, IntoElement, ParentElement,
-    RenderImage, SharedString, StatefulInteractiveElement, Styled, UniformListScrollHandle, div,
-    px, uniform_list,
+    RenderImage, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    UniformListScrollHandle, div, px, uniform_list,
 };
 use gpui_component::{
     Disableable, Sizable,
@@ -95,6 +95,7 @@ pub struct CoversState {
     skipped_text: SharedString,
     apply_label: SharedString,
     list_scroll: UniformListScrollHandle,
+    skipped_scroll: ScrollHandle,
 }
 
 impl CoversState {
@@ -595,11 +596,15 @@ fn results_field(state: Entity<CoversState>, cx: &mut App) -> AnyElement {
 }
 
 fn skipped_field(state: Entity<CoversState>, cx: &mut App) -> AnyElement {
-    let text = state.read(cx).skipped_text.clone();
+    let ui = state.read(cx);
+    let text = ui.skipped_text.clone();
+    let scroll = ui.skipped_scroll.clone();
     div()
         .id("covers-skipped")
         .max_h(px(SKIPPED_HEIGHT))
         .overflow_y_scroll()
+        .track_scroll(&scroll)
+        .on_scroll_wheel(crate::tools::contain_scroll(&scroll))
         .p_2()
         .rounded_md()
         .border_1()

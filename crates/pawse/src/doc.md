@@ -48,8 +48,8 @@ Playback and now playing:
   `play_button.rs`, `prev_button.rs`, `next_button.rs`, `shuffle_button.rs`,
   `repeat_button.rs` — the transport buttons.
 - `cover_mode_view.rs` — fullscreen cover. `cover_backdrop.rs` — blurred cover behind the
-  window, translucent chrome colors. `cover_volume.rs` / `volume.rs` — cover-mode / footer
-  volume.
+  window, translucent chrome colors. `cover_volume.rs` / `volume.rs` — popup (cover mode,
+  narrow footer) / footer volume.
 - `audio_settings.rs` — header output controls; `bit_perfect_info.rs` — their tooltip and
   dialog. `pipewire_alsa_gate.rs` — Linux window shown instead of the app.
 
@@ -594,6 +594,14 @@ Integrations:
   Timer page. It goes with the rest of the footer in cover mode; only countdown mode shows
   text (`sleep_timer/doc.md`). `set_show_queue` / `set_show_lyrics` mirror panel state
   toggled elsewhere (cover mode).
+- When the volume row (badge, icon, slider) is wider than its room
+  (`track_progress_slider::right_column_room`), the footer shows its own `CoverVolume`
+  on the same `Volume` instead: a button with the vertical popup. The row cannot shrink,
+  so in a squeezed footer it would push the whole right column, toggles included, past
+  the window edge; in a wide one it may reach left into the free space, keeping 2 rem from
+  the progress row. The countdown label is measured with every digit as `0`: the system
+  font's digits are proportional, so the real text would flip the row at the threshold
+  every second. `MainView` collapses the popup whenever the footer hides.
 - `TrackProgressSlider` wraps `ui_components::Slider` with `live_update(false)`: the thumb
   follows the pointer while dragging and the single `Change` on release becomes
   `Player::seek`. `PositionChanged` is ignored while no track is ready or
@@ -706,8 +714,10 @@ Integrations:
 - The spectrum toggle (`cover_spectrum_button` in `main_view.rs`) sits under the Full
   screen button and fades with it; it writes `spectrum_visible`, is dimmed with its own
   tooltip while there is no tap, and its icon is static.
-- `CoverVolume` drives the footer's `Volume` entity through a vertical popup slider; the
-  wheel over it goes to `Volume::wheel` (Volume), a click outside collapses it.
+- `CoverVolume` drives the footer's `Volume` entity through a vertical popup slider (also
+  the narrow footer's volume button); the wheel over it goes to `Volume::wheel` (Volume)
+  and stops there, since the popup floats over lists that would scroll too; a click
+  outside collapses it.
 
 ## Volume (`volume.rs`)
 

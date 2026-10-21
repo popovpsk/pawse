@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{
     AnyElement, App, AppContext, Axis, ClipboardItem, Entity, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, div, px,
+    ParentElement, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, div, px,
 };
 use gpui_component::{
     Disableable, Selectable, Sizable,
@@ -55,6 +55,7 @@ pub struct AiPromptState {
     import_busy: bool,
     import_status: Option<SharedString>,
     import_missing: Option<SharedString>,
+    preview_scroll: ScrollHandle,
 }
 
 impl Default for AiPromptState {
@@ -75,6 +76,7 @@ impl Default for AiPromptState {
             import_busy: false,
             import_status: None,
             import_missing: None,
+            preview_scroll: ScrollHandle::new(),
         }
     }
 }
@@ -494,6 +496,7 @@ fn result_field(
     let size = ui.size.clone();
     let no_history = ui.no_history && ready;
     let status = ui.status.clone();
+    let preview_scroll = ui.preview_scroll.clone();
 
     let buttons = h_flex()
         .gap_2()
@@ -531,6 +534,8 @@ fn result_field(
                 .id("ai-prompt-preview")
                 .max_h(px(PREVIEW_HEIGHT))
                 .overflow_y_scroll()
+                .track_scroll(&preview_scroll)
+                .on_scroll_wheel(crate::tools::contain_scroll(&preview_scroll))
                 .p_2()
                 .rounded_md()
                 .border_1()

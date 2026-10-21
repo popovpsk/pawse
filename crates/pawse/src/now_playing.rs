@@ -251,13 +251,8 @@ impl NowPlaying {
     fn fitting_specs(&mut self, max_w: f32, window: &mut Window) -> Option<SharedString> {
         let font_size = window.rem_size() * 0.75;
         if self.specs.len() > 1 && self.specs_font_size != Some(font_size) {
-            let style = window.text_style();
             for (text, width) in &mut self.specs {
-                let run = style.to_run(text.len());
-                *width = window
-                    .text_system()
-                    .shape_line(text.clone(), font_size, &[run], None)
-                    .width;
+                *width = crate::footer::text_xs_width(text, window);
             }
             self.specs_font_size = Some(font_size);
         }
@@ -349,7 +344,9 @@ impl Render for NowPlaying {
         let settings = cx.global::<SettingsStore>();
         let scale = settings.font_scale().ui_scale();
         if !self.has_track {
-            return h_flex().w(px(200. * scale)).into_any_element();
+            return h_flex()
+                .w(px(crate::footer::SIDE_COLUMN_W * scale))
+                .into_any_element();
         }
         let show_time_labels = settings.show_time_labels();
         let transport_buttons = if settings.show_repeat_shuffle() {
@@ -386,7 +383,7 @@ impl Render for NowPlaying {
         h_flex()
             .gap_3()
             .items_center()
-            .w(px(200. * scale))
+            .w(px(crate::footer::SIDE_COLUMN_W * scale))
             .child(
                 div()
                     .id("np_cover")
