@@ -576,7 +576,15 @@ Integrations:
 - Its text widths come from the viewport, the transport button count and
   `track_progress_slider::row_visible_left`, so text never runs under the transport or
   progress row. `FOOTER_FIXED_W` hard-codes the footer's fixed widths (two 200 px side
-  columns, paddings, gaps): change the footer layout and it has to follow.
+  columns, paddings, gaps): change the footer layout and it has to follow. It does not
+  follow the font scale on purpose: at Medium/Large the progress row keeps the Small
+  budget (only the larger time labels take from the slider) and the specs line gives way.
+  In a narrow window the volume column then shrinks and the middle column sits right of
+  center; `row_center` models that for the transport and progress positions.
+- The specs line shows the first variant that fits its slot (widths measured once per
+  track and font size): full, then `44.1/16 · 1041 kbps`, then both forms without the
+  bitrate. It drops detail rather than clip, and has no ellipsis, since `text_ellipsis`
+  panics on the `·` / `→` in it.
 - The footer cover emits `ToggleCoverModeRequested` only for the first click of a click
   sequence (`click_count() == 1`); otherwise a double click would enter and at once leave
   cover mode. It travels `NowPlaying` → `Footer` → `MainView::toggle_cover_mode`

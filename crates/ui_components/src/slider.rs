@@ -2,7 +2,7 @@ use gpui::{
     AppContext, Bounds, Context, DispatchPhase, DragMoveEvent, Empty, EntityId, EventEmitter,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     ParentElement, Pixels, Point, Render, StatefulInteractiveElement, Styled, Window, canvas, div,
-    prelude::FluentBuilder, px, relative,
+    prelude::FluentBuilder, px, relative, rems,
 };
 use gpui_component::ActiveTheme;
 
@@ -386,16 +386,16 @@ impl Render for Slider {
                 div()
                     .absolute()
                     .left(relative(hover_pct))
-                    .ml(-px(20.))
-                    .top(px(-24.))
-                    .w(px(40.))
+                    .ml(rems(-1.25))
+                    .top(rems(-1.5))
+                    .w(rems(2.5))
                     .flex()
                     .justify_center()
                     .items_center()
-                    .rounded(px(4.))
+                    .rounded(rems(0.25))
                     .bg(cx.theme().foreground)
                     .text_color(cx.theme().background)
-                    .text_size(px(11.))
+                    .text_size(rems(0.6875))
                     .child(text),
             );
         }

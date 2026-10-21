@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use crate::playback_status::{Phase, StatusChanged};
 use gpui::{
     AnyElement, ClickEvent, Context, EventEmitter, Image, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
     Subscription, Window, div, img, px,
 };
 use gpui_component::{h_flex, v_flex};
@@ -40,7 +40,8 @@ pub struct NowPlaying {
     year: Option<SharedString>,
     cover_art_id: Option<i64>,
     cover_image: Option<Arc<Image>>,
-    specs: SharedString,
+    specs: Vec<(SharedString, Pixels)>,
+    specs_font_size: Option<Pixels>,
     _subscription: Subscription,
     _library_subscription: Subscription,
 }
@@ -50,6 +51,7 @@ fn format_specs(
     bit_depth: Option<u8>,
     bitrate: Option<u32>,
     dsd_rate: Option<u32>,
+    compact: bool,
 ) -> String {
     use std::fmt::Write;
     let mut specs = String::new();
@@ -60,12 +62,16 @@ fn format_specs(
         if !specs.is_empty() {
             specs.push('\u{2192}');
         }
-        let khz = sr as f32 / 1000.0;
-        if khz.fract().abs() < f32::EPSILON {
-            let _ = write!(specs, "{} kHz \u{b7} {}-bit", khz as u32, bd);
-        } else {
-            let _ = write!(specs, "{:.1} kHz \u{b7} {}-bit", khz, bd);
+        let _ = write!(specs, "{}", sr / 1000);
+        if sr % 1000 != 0 {
+            let fraction = format!("{:03}", sr % 1000);
+            let _ = write!(specs, ".{}", fraction.trim_end_matches('0'));
         }
+        let _ = if compact {
+            write!(specs, "/{}", bd)
+        } else {
+            write!(specs, " kHz \u{b7} {}-bit", bd)
+        };
     }
     // DSD has no meaningful compressed bitrate — the source is already fully
     // disclosed by the DSD{n}→ prefix above.
@@ -78,6 +84,27 @@ fn format_specs(
         let _ = write!(specs, "{} kbps", kbps);
     }
     specs
+}
+
+fn specs_variants(
+    sample_rate: Option<u32>,
+    bit_depth: Option<u8>,
+    bitrate: Option<u32>,
+    dsd_rate: Option<u32>,
+) -> Vec<SharedString> {
+    let mut variants: Vec<SharedString> = Vec::new();
+    for (bitrate, compact) in [
+        (bitrate, false),
+        (bitrate, true),
+        (None, false),
+        (None, true),
+    ] {
+        let text = format_specs(sample_rate, bit_depth, bitrate, dsd_rate, compact);
+        if !text.is_empty() && !variants.iter().any(|v| v.as_ref() == text) {
+            variants.push(text.into());
+        }
+    }
+    variants
 }
 
 impl NowPlaying {
@@ -143,7 +170,8 @@ impl NowPlaying {
             year: None,
             cover_art_id: None,
             cover_image: None,
-            specs: SharedString::default(),
+            specs: Vec::new(),
+            specs_font_size: None,
             _subscription: subscription,
             _library_subscription: library_subscription,
         };
@@ -197,8 +225,11 @@ impl NowPlaying {
                 .map(SharedString::from)
                 .unwrap_or_default();
             self.year = year.map(|y| SharedString::from(y.to_string()));
-            self.specs =
-                SharedString::from(format_specs(sample_rate, bit_depth, bitrate, dsd_rate));
+            self.specs = specs_variants(sample_rate, bit_depth, bitrate, dsd_rate)
+                .into_iter()
+                .map(|text| (text, Pixels::ZERO))
+                .collect();
+            self.specs_font_size = None;
             self.artists_track_id = Some(track_id);
             self.artists = services
                 .library
@@ -217,10 +248,31 @@ impl NowPlaying {
         cx.notify();
     }
 
+    fn fitting_specs(&mut self, max_w: f32, window: &mut Window) -> Option<SharedString> {
+        let font_size = window.rem_size() * 0.75;
+        if self.specs.len() > 1 && self.specs_font_size != Some(font_size) {
+            let style = window.text_style();
+            for (text, width) in &mut self.specs {
+                let run = style.to_run(text.len());
+                *width = window
+                    .text_system()
+                    .shape_line(text.clone(), font_size, &[run], None)
+                    .width;
+            }
+            self.specs_font_size = Some(font_size);
+        }
+        self.specs
+            .iter()
+            .find(|(_, width)| f32::from(*width) <= max_w)
+            .or(self.specs.last())
+            .map(|(text, _)| text.clone())
+    }
+
     fn details_line(
-        &self,
+        &mut self,
         details: NowPlayingDetails,
         max_w: f32,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let muted_fg = Colors::muted_foreground(cx);
@@ -233,14 +285,14 @@ impl NowPlaying {
                 .child(text)
         };
         match details {
-            NowPlayingDetails::Specs => (!self.specs.is_empty()).then(|| {
+            NowPlayingDetails::Specs => self.fitting_specs(max_w, window).map(|text| {
                 div()
                     .max_w(px(max_w))
                     .text_xs()
                     .text_color(muted_fg)
                     .overflow_hidden()
                     .whitespace_nowrap()
-                    .child(self.specs.clone())
+                    .child(text)
                     .into_any_element()
             }),
             NowPlayingDetails::Year => self.year.clone().map(|year| line(year).into_any_element()),
@@ -280,7 +332,8 @@ impl NowPlaying {
         self.year = None;
         self.cover_art_id = None;
         self.cover_image = None;
-        self.specs = SharedString::default();
+        self.specs.clear();
+        self.specs_font_size = None;
     }
 }
 
@@ -311,13 +364,18 @@ impl Render for NowPlaying {
         let left_of = |x: f32, margin: f32| {
             (x - rem - cover_size - rem * 0.75 - margin).clamp(96. * scale, 460.)
         };
-        let progress_left =
-            crate::track_progress_slider::row_visible_left(viewport_w, rem, show_time_labels);
+        let progress_left = crate::track_progress_slider::row_visible_left(
+            viewport_w,
+            rem,
+            scale,
+            show_time_labels,
+        );
         let buttons_left =
-            (viewport_w - (transport_buttons * 36. + (transport_buttons - 1.) * rem * 0.5)) * 0.5;
+            crate::track_progress_slider::row_center(viewport_w, rem, scale, show_time_labels)
+                - (transport_buttons * 36. + (transport_buttons - 1.) * rem * 0.5) * 0.5;
         let text_w = left_of(buttons_left, rem * 0.5);
-        let line_w = left_of(progress_left, rem * 0.75);
-        let details_line = self.details_line(details, line_w, cx);
+        let line_w = left_of(progress_left, rem * 0.5);
+        let details_line = self.details_line(details, line_w, window, cx);
         let artists_w = if details_line.is_some() {
             text_w
         } else {
@@ -447,12 +505,12 @@ impl Render for NowPlaying {
 
 #[cfg(test)]
 mod tests {
-    use super::format_specs;
+    use super::{format_specs, specs_variants};
 
     #[test]
     fn integer_khz() {
         assert_eq!(
-            format_specs(Some(48000), Some(24), None, None),
+            format_specs(Some(48000), Some(24), None, None, false),
             "48 kHz \u{b7} 24-bit"
         );
     }
@@ -460,39 +518,39 @@ mod tests {
     #[test]
     fn fractional_khz() {
         assert_eq!(
-            format_specs(Some(44100), Some(16), None, None),
+            format_specs(Some(44100), Some(16), None, None, false),
             "44.1 kHz \u{b7} 16-bit"
         );
     }
 
     #[test]
     fn bitrate_only() {
-        assert_eq!(format_specs(None, None, Some(320), None), "320 kbps");
+        assert_eq!(format_specs(None, None, Some(320), None, false), "320 kbps");
     }
 
     #[test]
     fn sample_rate_and_bitrate_combined() {
         assert_eq!(
-            format_specs(Some(96000), Some(24), Some(1411), None),
+            format_specs(Some(96000), Some(24), Some(1411), None, false),
             "96 kHz \u{b7} 24-bit \u{b7} 1411 kbps"
         );
     }
 
     #[test]
     fn empty_when_nothing_known() {
-        assert_eq!(format_specs(None, None, None, None), "");
+        assert_eq!(format_specs(None, None, None, None, false), "");
     }
 
     #[test]
     fn needs_both_rate_and_depth() {
-        assert_eq!(format_specs(Some(48000), None, None, None), "");
-        assert_eq!(format_specs(None, Some(24), None, None), "");
+        assert_eq!(format_specs(Some(48000), None, None, None, false), "");
+        assert_eq!(format_specs(None, Some(24), None, None, false), "");
     }
 
     #[test]
     fn dsd64_label_with_target_rate() {
         assert_eq!(
-            format_specs(Some(352_800), Some(24), None, Some(2_822_400)),
+            format_specs(Some(352_800), Some(24), None, Some(2_822_400), false),
             "DSD64\u{2192}352.8 kHz \u{b7} 24-bit"
         );
     }
@@ -504,7 +562,7 @@ mod tests {
         // label still reflects the *source* multiplier, only the rate after
         // the arrow stays constant across DSD64/128/256/512.
         assert_eq!(
-            format_specs(Some(352_800), Some(24), None, Some(5_644_800)),
+            format_specs(Some(352_800), Some(24), None, Some(5_644_800), false),
             "DSD128\u{2192}352.8 kHz \u{b7} 24-bit"
         );
     }
@@ -512,7 +570,7 @@ mod tests {
     #[test]
     fn dsd256_label_but_target_rate_stays_fixed() {
         assert_eq!(
-            format_specs(Some(352_800), Some(24), None, Some(11_289_600)),
+            format_specs(Some(352_800), Some(24), None, Some(11_289_600), false),
             "DSD256\u{2192}352.8 kHz \u{b7} 24-bit"
         );
     }
@@ -520,13 +578,66 @@ mod tests {
     #[test]
     fn dsd_suppresses_bitrate_even_if_present() {
         assert_eq!(
-            format_specs(Some(352_800), Some(24), Some(1411), Some(2_822_400)),
+            format_specs(Some(352_800), Some(24), Some(1411), Some(2_822_400), false),
             "DSD64\u{2192}352.8 kHz \u{b7} 24-bit"
         );
     }
 
     #[test]
     fn dsd_label_alone_without_target_rate() {
-        assert_eq!(format_specs(None, None, None, Some(2_822_400)), "DSD64");
+        assert_eq!(
+            format_specs(None, None, None, Some(2_822_400), false),
+            "DSD64"
+        );
+    }
+
+    #[test]
+    fn fractional_khz_keeps_every_digit() {
+        assert_eq!(
+            format_specs(Some(22050), Some(16), None, None, false),
+            "22.05 kHz \u{b7} 16-bit"
+        );
+        assert_eq!(
+            format_specs(Some(11025), Some(8), None, None, true),
+            "11.025/8"
+        );
+    }
+
+    #[test]
+    fn compact_rate_and_depth() {
+        assert_eq!(
+            format_specs(Some(44100), Some(16), Some(1041), None, true),
+            "44.1/16 \u{b7} 1041 kbps"
+        );
+        assert_eq!(
+            format_specs(Some(48000), Some(24), None, None, true),
+            "48/24"
+        );
+    }
+
+    #[test]
+    fn variants_drop_units_before_bitrate() {
+        assert_eq!(
+            specs_variants(Some(44100), Some(16), Some(1041), None),
+            [
+                "44.1 kHz \u{b7} 16-bit \u{b7} 1041 kbps",
+                "44.1/16 \u{b7} 1041 kbps",
+                "44.1 kHz \u{b7} 16-bit",
+                "44.1/16",
+            ]
+        );
+    }
+
+    #[test]
+    fn variants_skip_duplicates_and_empty() {
+        assert_eq!(
+            specs_variants(Some(352_800), Some(24), Some(1411), Some(2_822_400)),
+            [
+                "DSD64\u{2192}352.8 kHz \u{b7} 24-bit",
+                "DSD64\u{2192}352.8/24"
+            ]
+        );
+        assert_eq!(specs_variants(None, None, Some(320), None), ["320 kbps"]);
+        assert!(specs_variants(None, None, None, None).is_empty());
     }
 }

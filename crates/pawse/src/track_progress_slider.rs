@@ -38,8 +38,14 @@ fn row_content_width(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
     labels_w + (viewport_w - FOOTER_FIXED_W - labels_w).clamp(SLIDER_MIN_W, SLIDER_MAX_W)
 }
 
-pub fn row_visible_left(viewport_w: f32, rem: f32, show_labels: bool) -> f32 {
-    let left = (viewport_w - row_content_width(viewport_w, rem, show_labels)) * 0.5;
+pub fn row_center(viewport_w: f32, rem: f32, scale: f32, show_labels: bool) -> f32 {
+    let row_w = row_content_width(viewport_w, rem, show_labels);
+    (viewport_w * 0.5).max(3.0 * rem + 200.0 * scale + row_w * 0.5)
+}
+
+pub fn row_visible_left(viewport_w: f32, rem: f32, scale: f32, show_labels: bool) -> f32 {
+    let left = row_center(viewport_w, rem, scale, show_labels)
+        - row_content_width(viewport_w, rem, show_labels) * 0.5;
     if show_labels {
         left + rem * (LABEL_W_REM - LABEL_TEXT_W_REM)
     } else {

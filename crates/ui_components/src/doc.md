@@ -56,6 +56,7 @@ the footer sliders and the cover cache use these widgets (`pawse/src/doc.md`), t
   cursor is still over the slider. A release outside `track_bounds` then has no hover
   transition to clear `hover_value`, so both release paths pass the release position and
   `end_interaction` clears it when that is outside the track.
+- The hover tooltip is sized in rem, so it follows the app's font scale.
 
 ## NativeTooltip
 
