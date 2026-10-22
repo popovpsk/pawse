@@ -15,11 +15,11 @@ macOS · Windows · Linux
 <table>
   <tr>
     <td width="50%"><img alt="Artists" src=".docs/screenshots/artists.webp"></td>
-    <td width="50%"><img alt="Album" src=".docs/screenshots/album.webp"></td>
+    <td width="50%"><img alt="Lyrics" src=".docs/screenshots/lyrics.webp"></td>
   </tr>
   <tr>
     <td width="50%"><img alt="Cover view" src=".docs/screenshots/cover_view.webp"></td>
-    <td width="50%"><img alt="Settings" src=".docs/screenshots/settings.webp"></td>
+    <td width="50%"><img alt="Album" src=".docs/screenshots/album.webp"></td>
   </tr>
 </table>
 
