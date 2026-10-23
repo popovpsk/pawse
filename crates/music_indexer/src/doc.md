@@ -72,8 +72,8 @@ tags (`tag_writer/src/doc.md`); CUE syntax (`cue_parser`, no doc); `normalize_ge
 - `release_id` is the raw `MusicBrainzReleaseId` (`MUSICBRAINZ_ALBUMID`,
   `TXXX:MusicBrainz Album Id`, the iTunes freeform atom); `release_year` is the leading
   four digits of `ReleaseDate` (`RELEASEDATE`, `TDRL`) only, never the recording date
-  `year` prefers. Both key the album (`music_library/src/doc.md`, "Album identity");
-  CUE and DSD tracks have neither.
+  `year` prefers. Both can split an album, never key it (`music_library/src/doc.md`,
+  "Album identity"); CUE and DSD tracks have neither.
 - DSF/DFF skip `lofty`: `dsd::read_tags` supplies the tags, there is no bitrate, lyrics
   come from the sidecar only.
 - Lyrics: the `.lrc` sidecar (same stem and directory) and the embedded tag are both

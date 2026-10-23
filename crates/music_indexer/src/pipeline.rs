@@ -44,7 +44,7 @@ const PROGRESS_INTERVAL: usize = 10;
 /// indexer's behavior changed while the input bytes did not. Bump this whenever
 /// a fix changes the tracks produced from the same files (e.g. the Windows-1252
 /// CUE decoding fix), and every existing library reindexes once on next launch.
-const INDEXER_FORMAT_VERSION: u32 = 7;
+const INDEXER_FORMAT_VERSION: u32 = 8;
 
 enum WorkItem {
     Audio(PathBuf),

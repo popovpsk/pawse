@@ -13,11 +13,11 @@ pub use adoption::normalize_tag;
 pub use error::{LibraryError, Result};
 pub use genres::normalize_genres;
 pub use models::{
-    Album, AlbumKey, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow,
-    ArtistSummary, ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack,
-    PlayStats, PlayTally, Playlist, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong,
-    RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, SoundGenres, SourceSummary,
-    StoredLyrics, Track, TrackAnalysis, TrackListing, lyrics_source,
+    Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow, ArtistSummary,
+    ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack, PlayStats, PlayTally,
+    Playlist, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
+    ScanLyrics, ScanTrack, SoundGenres, SourceSummary, StoredLyrics, Track, TrackAnalysis,
+    TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, clean_album_title, compute_sort_name, sha256_hex};
@@ -286,12 +286,8 @@ mod tests {
     #[test]
     fn test_upsert_album() {
         let (lib, _path) = create_test_db();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Abbey Road"), Some(1969), None)
-            .unwrap();
-        let album_id2 = lib
-            .upsert_album(&AlbumKey::titled("Abbey Road"), Some(1969), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
+        let album_id2 = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
         assert_eq!(
             album_id, album_id2,
             "upsert should return same id for same album"
@@ -303,9 +299,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let artist1 = lib.upsert_artist("The Beatles").unwrap();
         let artist2 = lib.upsert_artist("Billy Preston").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Let It Be"), Some(1970), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Let It Be", Some(1970), None).unwrap();
         lib.set_album_artists(album_id, &[(artist1, 0), (artist2, 1)])
             .unwrap();
 
@@ -530,9 +524,7 @@ mod tests {
     fn test_upsert_track_and_query() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Radiohead").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("OK Computer"), Some(1997), None)
-            .unwrap();
+        let album_id = lib.upsert_album("OK Computer", Some(1997), None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let track = NewTrack {
@@ -543,6 +535,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(1997),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(285_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -564,12 +558,8 @@ mod tests {
         let beatles = lib.upsert_artist("The Beatles").unwrap();
         let zeppelin = lib.upsert_artist("Led Zeppelin").unwrap();
 
-        let album1 = lib
-            .upsert_album(&AlbumKey::titled("Abbey Road"), Some(1969), None)
-            .unwrap();
-        let album2 = lib
-            .upsert_album(&AlbumKey::titled("IV"), Some(1971), None)
-            .unwrap();
+        let album1 = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
+        let album2 = lib.upsert_album("IV", Some(1971), None).unwrap();
 
         lib.set_album_artists(album1, &[(beatles, 0)]).unwrap();
         lib.set_album_artists(album2, &[(zeppelin, 0)]).unwrap();
@@ -584,9 +574,7 @@ mod tests {
     fn test_tracks_by_keys_matches_path_and_offset() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let new_track = |path: &str, title: &str, offset: Option<u64>| {
@@ -598,6 +586,8 @@ mod tests {
                 track_number: None,
                 disc_number: None,
                 year: None,
+                release_id: None,
+                release_year: None,
                 duration_ms: None,
                 cover_art_id: None,
                 start_offset_ms: offset,
@@ -643,12 +633,8 @@ mod tests {
 
         let beatles = lib.upsert_artist("The Beatles").unwrap();
         let radiohead = lib.upsert_artist("Radiohead").unwrap();
-        let abbey = lib
-            .upsert_album(&AlbumKey::titled("Abbey Road"), Some(1969), None)
-            .unwrap();
-        let ok = lib
-            .upsert_album(&AlbumKey::titled("OK Computer"), Some(1997), None)
-            .unwrap();
+        let abbey = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
+        let ok = lib.upsert_album("OK Computer", Some(1997), None).unwrap();
         lib.set_album_artists(abbey, &[(beatles, 0)]).unwrap();
         lib.set_album_artists(ok, &[(radiohead, 0)]).unwrap();
 
@@ -661,6 +647,8 @@ mod tests {
                 track_number: Some(no),
                 disc_number: Some(1),
                 year: None,
+                release_id: None,
+                release_year: None,
                 duration_ms: None,
                 cover_art_id: None,
                 start_offset_ms: None,
@@ -713,9 +701,7 @@ mod tests {
     fn test_no_metadata_bucket() {
         let (lib, _path) = create_test_db();
         let beatles = lib.upsert_artist("The Beatles").unwrap();
-        let abbey = lib
-            .upsert_album(&AlbumKey::titled("Abbey Road"), Some(1969), None)
-            .unwrap();
+        let abbey = lib.upsert_album("Abbey Road", Some(1969), None).unwrap();
         lib.set_album_artists(abbey, &[(beatles, 0)]).unwrap();
 
         let tagged = NewTrack {
@@ -726,6 +712,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -755,6 +743,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -782,9 +772,7 @@ mod tests {
     fn test_tracks_by_keys_chunks_beyond_parameter_limit() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let mut keys: Vec<(String, i32)> = Vec::new();
@@ -798,6 +786,8 @@ mod tests {
                 track_number: None,
                 disc_number: None,
                 year: None,
+                release_id: None,
+                release_year: None,
                 duration_ms: None,
                 cover_art_id: None,
                 start_offset_ms: None,
@@ -816,9 +806,7 @@ mod tests {
     fn test_clear() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let track = NewTrack {
@@ -829,6 +817,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -846,9 +836,7 @@ mod tests {
     fn test_track_title_fallback_from_path() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let track = NewTrack {
@@ -859,6 +847,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -878,7 +868,7 @@ mod tests {
         let track1_artist_id = lib.upsert_artist("Artist One").unwrap();
         let track2_artist_id = lib.upsert_artist("Artist Two").unwrap();
         let album_id = lib
-            .upsert_album(&AlbumKey::titled("Multi-Disc Album"), Some(2020), None)
+            .upsert_album("Multi-Disc Album", Some(2020), None)
             .unwrap();
 
         let track1 = NewTrack {
@@ -889,6 +879,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -902,6 +894,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(2),
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(200_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -932,9 +926,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let artist1 = lib.upsert_artist("Artist One").unwrap();
         let artist2 = lib.upsert_artist("Artist Two").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
 
         let track = NewTrack {
             path: "/music/track.flac".into(),
@@ -944,6 +936,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -959,9 +953,7 @@ mod tests {
     #[test]
     fn test_album_title_found() {
         let (lib, _path) = create_test_db();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Test Album"), Some(2000), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Test Album", Some(2000), None).unwrap();
         assert_eq!(
             lib.album_title(album_id).unwrap(),
             Some("Test Album".into())
@@ -1073,9 +1065,7 @@ mod tests {
     fn test_delete_orphaned_albums_and_artists() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Orphan Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Orphan Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Orphan Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         lib.delete_orphaned_albums_and_artists().unwrap();
@@ -1109,9 +1099,7 @@ mod tests {
     fn test_clear_then_reinsert() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
         let track = NewTrack {
             path: "/music/song.flac".into(),
@@ -1121,6 +1109,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -1134,9 +1124,7 @@ mod tests {
         assert!(!lib.has_tracks().unwrap());
 
         let artist_id2 = lib.upsert_artist("Artist").unwrap();
-        let album_id2 = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id2 = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id2, &[(artist_id2, 0)])
             .unwrap();
         lib.upsert_track(&track, Some(album_id2), &[(artist_id2, 0)])
@@ -1150,9 +1138,7 @@ mod tests {
     #[test]
     fn test_empty_album_artist_in_summary() {
         let (lib, _path) = create_test_db();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Compilation"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Compilation", Some(2020), None).unwrap();
         let artist_id = lib.upsert_artist("Various").unwrap();
         let track = NewTrack {
             path: "/music/track01.flac".into(),
@@ -1162,6 +1148,8 @@ mod tests {
             track_number: Some(1),
             disc_number: None,
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -1187,6 +1175,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -1203,9 +1193,7 @@ mod tests {
     fn test_same_path_different_offset() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", None, None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
         let track1 = NewTrack {
@@ -1216,6 +1204,8 @@ mod tests {
             track_number: Some(1),
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: Some(300_000),
             cover_art_id: None,
             start_offset_ms: Some(0),
@@ -1229,6 +1219,8 @@ mod tests {
             track_number: Some(2),
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: Some(300_000),
             cover_art_id: None,
             start_offset_ms: Some(300_000),
@@ -1319,7 +1311,7 @@ mod tests {
 
         let artist_id = lib.upsert_artist("Artist").unwrap();
         let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), Some(cover_id))
+            .upsert_album("Album", Some(2020), Some(cover_id))
             .unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
@@ -1331,6 +1323,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(200_000),
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
@@ -1358,9 +1352,7 @@ mod tests {
     fn test_resolve_album_covers_picks_the_lowest_numbered_track() {
         let (lib, _path) = create_test_db();
         let artist = lib.upsert_artist("Artist").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         let mut covers = Vec::new();
         for (n, shade) in [(3u32, 60u8), (2, 30), (1, 0)] {
@@ -1376,6 +1368,8 @@ mod tests {
                 track_number: Some(n),
                 disc_number: Some(1),
                 year: Some(2020),
+                release_id: None,
+                release_year: None,
                 duration_ms: Some(1000),
                 cover_art_id: Some(cover),
                 start_offset_ms: None,
@@ -1401,9 +1395,7 @@ mod tests {
             .save_cover_art(&make_test_jpeg(&[255, 0, 0]), "/music/a.flac", true)
             .unwrap();
         let artist = lib.upsert_artist("Artist").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, Some(cover))
-            .unwrap();
+        let album = lib.upsert_album("Album", None, Some(cover)).unwrap();
         let track = NewTrack {
             path: "/music/one.flac".into(),
             title: Some("One".into()),
@@ -1412,6 +1404,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: Some(1000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -1438,12 +1432,8 @@ mod tests {
         assert_eq!(cover_id, cover_id2, "same bytes must return same ID");
 
         let artist_id = lib.upsert_artist("Artist").unwrap();
-        let album1 = lib
-            .upsert_album(&AlbumKey::titled("Album 1"), None, Some(cover_id))
-            .unwrap();
-        let album2 = lib
-            .upsert_album(&AlbumKey::titled("Album 2"), None, Some(cover_id))
-            .unwrap();
+        let album1 = lib.upsert_album("Album 1", None, Some(cover_id)).unwrap();
+        let album2 = lib.upsert_album("Album 2", None, Some(cover_id)).unwrap();
 
         let track1 = NewTrack {
             path: "/music/track1.flac".into(),
@@ -1453,6 +1443,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
@@ -1466,6 +1458,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: Some(cover_id),
             start_offset_ms: None,
@@ -1516,11 +1510,7 @@ mod tests {
 
         // Step 3: Upsert album with cover_art_id
         let album_id = lib
-            .upsert_album(
-                &AlbumKey::titled("Test Album"),
-                Some(2024),
-                Some(cover_art_id),
-            )
+            .upsert_album("Test Album", Some(2024), Some(cover_art_id))
             .unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
 
@@ -1533,6 +1523,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2024),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(180_000),
             cover_art_id: Some(cover_art_id),
             start_offset_ms: None,
@@ -1568,9 +1560,7 @@ mod tests {
 
     fn seed_track(lib: &SqliteLibrary, title: &str, album: &str, artist: &str) -> i64 {
         let artist_id = lib.upsert_artist(artist).unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled(album), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album(album, Some(2020), None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
         let track = NewTrack {
             path: format!("/music/{}.flac", title),
@@ -1580,6 +1570,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -1593,9 +1585,7 @@ mod tests {
     fn test_track_defaults_to_not_liked() {
         let (lib, _path) = create_test_db();
         let _ = seed_track(&lib, "Song", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
         let tracks = lib.tracks_for_album(album_id).unwrap();
         assert!(!tracks[0].liked);
     }
@@ -1694,15 +1684,9 @@ mod tests {
         let (lib, _path) = create_test_db();
         let radiohead = lib.upsert_artist("Radiohead").unwrap();
         let other = lib.upsert_artist("Other").unwrap();
-        let ok_computer = lib
-            .upsert_album(&AlbumKey::titled("OK Computer"), Some(1997), None)
-            .unwrap();
-        let kid_a = lib
-            .upsert_album(&AlbumKey::titled("Kid A"), Some(2000), None)
-            .unwrap();
-        let other_album = lib
-            .upsert_album(&AlbumKey::titled("Other Album"), Some(2001), None)
-            .unwrap();
+        let ok_computer = lib.upsert_album("OK Computer", Some(1997), None).unwrap();
+        let kid_a = lib.upsert_album("Kid A", Some(2000), None).unwrap();
+        let other_album = lib.upsert_album("Other Album", Some(2001), None).unwrap();
         lib.set_album_artists(ok_computer, &[(radiohead, 0)])
             .unwrap();
         lib.set_album_artists(kid_a, &[(radiohead, 0)]).unwrap();
@@ -1716,6 +1700,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2000),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(180_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -1756,9 +1742,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let a1 = lib.upsert_artist("Lead").unwrap();
         let a2 = lib.upsert_artist("Feat").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Album"), None, None)
-            .unwrap();
+        let album = lib.upsert_album("Album", None, None).unwrap();
         let track = NewTrack {
             path: "/music/t.flac".into(),
             title: Some("Track".into()),
@@ -1767,6 +1751,8 @@ mod tests {
             track_number: None,
             disc_number: None,
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -2088,9 +2074,7 @@ mod tests {
         );
         assert!(album_ids(&lib)["Second Sun"] > gone);
 
-        let edited = lib
-            .upsert_album(&AlbumKey::titled("Edited"), Some(2001), None)
-            .unwrap();
+        let edited = lib.upsert_album("Edited", Some(2001), None).unwrap();
         assert!(edited > album_ids(&lib)["Second Sun"]);
 
         let mut session = lib.open_scan_session().unwrap();
@@ -2099,9 +2083,7 @@ mod tests {
             .add_track(on_album("/m/a.flac", "Night Drive", "Nova"))
             .unwrap();
         session.flush().unwrap();
-        let during = lib
-            .upsert_album(&AlbumKey::titled("During Scan"), Some(2002), None)
-            .unwrap();
+        let during = lib.upsert_album("During Scan", Some(2002), None).unwrap();
         session
             .add_track(on_album("/m/e.flac", "Afterglow", "Nova"))
             .unwrap();
@@ -2151,8 +2133,7 @@ mod tests {
         assert_eq!(albums[0].2, 4);
 
         assert_eq!(
-            lib.upsert_album(&AlbumKey::titled("Very Best Of"), Some(1972), None)
-                .unwrap(),
+            lib.upsert_album("Very Best Of", Some(1972), None).unwrap(),
             albums[0].0
         );
     }
@@ -2184,8 +2165,7 @@ mod tests {
         assert_eq!(albums_titled(&lib, "Rumours"), albums);
 
         assert_eq!(
-            lib.upsert_album(&AlbumKey::titled("Rumours"), Some(1977), None)
-                .unwrap(),
+            lib.upsert_album("Rumours", Some(1977), None).unwrap(),
             albums[1].0,
             "the larger release keeps the plain row"
         );
@@ -2195,19 +2175,19 @@ mod tests {
     fn the_album_artist_tag_and_the_release_date_tell_same_titled_albums_apart() {
         let (lib, _) = create_test_db();
         lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        let abbey = |path: &str, number: u32, release_year: i32| ScanTrack {
+            release_year: Some(release_year),
+            ..numbered(path, "Abbey Road", "The Beatles", number, 1969)
+        };
         scan(
             &lib,
             vec![
                 numbered("/m/abba.flac", "Greatest Hits", "ABBA", 1, 1975),
                 numbered("/m/queen.flac", "Greatest Hits", "Queen", 2, 1975),
-                ScanTrack {
-                    release_year: Some(1969),
-                    ..numbered("/m/ar69.flac", "Abbey Road", "The Beatles", 1, 1969)
-                },
-                ScanTrack {
-                    release_year: Some(2019),
-                    ..numbered("/m/ar19.flac", "Abbey Road", "The Beatles", 2, 1969)
-                },
+                abbey("/m/69/01.flac", 1, 1969),
+                abbey("/m/69/02.flac", 2, 1969),
+                abbey("/m/19/01.flac", 1, 2019),
+                abbey("/m/19/02.flac", 2, 2019),
             ],
         );
         assert_eq!(albums_titled(&lib, "Greatest Hits").len(), 2);
@@ -2264,8 +2244,282 @@ mod tests {
         assert_eq!(albums[0].2, 6);
     }
 
+    fn on_disc(disc: u32, number: u32, year: i32) -> ScanTrack {
+        ScanTrack {
+            disc_number: Some(disc),
+            ..numbered(
+                &format!("/m/gt/{disc}-{number:02}.flac"),
+                "Gran Turismo",
+                "Various Artists",
+                number,
+                year,
+            )
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::a_release_date_per_song(
+        (1..=6)
+            .map(|n| ScanTrack {
+                release_year: Some(1996 + n as i32),
+                ..on_disc(1, n, 1990 + n as i32)
+            })
+            .collect()
+    )]
+    #[case::undated_copies_beside_a_number_used_twice(
+        (1..=4)
+            .map(|n| on_disc(1, n, 1977))
+            .chain((1..=2).map(|n| ScanTrack {
+                path: format!("/m/mp3/{n}.mp3"),
+                year: None,
+                ..on_disc(1, n, 1977)
+            }))
+            .chain([ScanTrack {
+                path: "/m/gt/1-04b.flac".into(),
+                ..on_disc(1, 4, 2017)
+            }])
+            .collect()
+    )]
+    #[case::one_number_used_twice_on_a_year_two_songs_share(
+        (1..=6)
+            .map(|n| on_disc(1, n, 1990 + n.div_ceil(2) as i32))
+            .chain([ScanTrack {
+                path: "/m/gt/1-03b.flac".into(),
+                ..on_disc(1, 3, 2017)
+            }])
+            .collect()
+    )]
+    #[case::a_number_used_twice_by_the_earliest_years(
+        (1..=12)
+            .map(|n| on_disc(1, n, 1960 + 2 * n as i32))
+            .chain([ScanTrack {
+                path: "/m/gt/1-01b.flac".into(),
+                ..on_disc(1, 1, 1963)
+            }])
+            .collect()
+    )]
+    #[case::two_numbers_used_twice(
+        (1..=12)
+            .map(|n| on_disc(1, n, if n % 2 == 0 { 2016 } else { 2017 }))
+            .chain([2, 4].map(|n| ScanTrack {
+                path: format!("/m/gt/1-{n:02}b.flac"),
+                ..on_disc(1, n, 2017)
+            }))
+            .collect()
+    )]
+    #[case::a_release_id_on_one_disc_only(
+        (1..=3)
+            .map(|n| ScanTrack {
+                release_id: Some("aaaa-1111".into()),
+                release_year: Some(2005),
+                ..on_disc(1, n, 2005)
+            })
+            .chain((1..=3).map(|n| on_disc(2, n, 2005)))
+            .collect()
+    )]
+    fn tags_that_do_not_show_two_releases_keep_one_album(#[case] tracks: Vec<ScanTrack>) {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        let count = tracks.len();
+        scan(&lib, tracks);
+        let albums = albums_titled(&lib, "Gran Turismo");
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].2, count);
+        lib.regroup_albums().unwrap();
+        assert_eq!(albums_titled(&lib, "Gran Turismo"), albums);
+    }
+
     #[test]
-    fn an_album_from_before_identities_hands_its_id_to_the_album_its_tracks_join() {
+    fn an_album_reports_the_range_of_its_tracks_release_years() {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(
+            &lib,
+            vec![
+                ScanTrack {
+                    release_year: Some(2003),
+                    ..on_disc(1, 1, 1990)
+                },
+                ScanTrack {
+                    release_year: Some(2001),
+                    ..on_disc(1, 2, 1990)
+                },
+                on_disc(1, 3, 2010),
+            ],
+        );
+        let albums = albums_titled(&lib, "Gran Turismo");
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].1, Some(2010));
+        assert_eq!(
+            lib.album_release_years(albums[0].0).unwrap(),
+            Some((2001, 2010))
+        );
+
+        scan(&lib, vec![on_disc(1, 1, 1990), on_disc(1, 2, 2010)]);
+        let albums = albums_titled(&lib, "Gran Turismo");
+        assert_eq!(lib.album_release_years(albums[0].0).unwrap(), None);
+    }
+
+    #[rstest::rstest]
+    #[case::a_deluxe_edition_with_a_bonus_disc(
+        (1..=3)
+            .map(|n| on_disc(1, n, 1977))
+            .chain((1..=3).map(|n| ScanTrack {
+                path: format!("/m/deluxe/1-{n}.flac"),
+                ..on_disc(1, n, 2017)
+            }))
+            .chain((1..=4).map(|n| ScanTrack {
+                path: format!("/m/deluxe/2-{n}.flac"),
+                ..on_disc(2, n, 2017)
+            }))
+            .collect(),
+        vec![(Some(1977), 3), (Some(2017), 7)]
+    )]
+    #[case::a_remaster_of_an_original_with_a_year_per_song(
+        (1..=4)
+            .map(|n| on_disc(1, n, 1960 + n as i32))
+            .chain((1..=4).map(|n| ScanTrack {
+                path: format!("/m/remaster/{n}.flac"),
+                release_year: Some(2017),
+                ..on_disc(1, n, 1960 + n as i32)
+            }))
+            .collect(),
+        vec![(Some(1964), 4), (Some(2017), 4)]
+    )]
+    #[case::a_standard_edition_with_a_year_per_song_beside_a_deluxe_one(
+        (1..=3)
+            .map(|n| on_disc(1, n, 1960 + n as i32))
+            .chain((1..=3).map(|n| ScanTrack {
+                path: format!("/m/deluxe/1-{n}.flac"),
+                release_year: Some(2017),
+                ..on_disc(1, n, 1960 + n as i32)
+            }))
+            .chain((1..=4).map(|n| ScanTrack {
+                path: format!("/m/deluxe/2-{n}.flac"),
+                release_year: Some(2017),
+                ..on_disc(2, n, 2017)
+            }))
+            .collect(),
+        vec![(Some(1963), 3), (Some(2017), 7)]
+    )]
+    #[case::a_remaster_beside_an_original_with_numbers_used_twice(
+        (1..=10)
+            .map(|n| on_disc(1, n, 2017))
+            .chain((9..=14).map(|n| ScanTrack {
+                path: format!("/m/gt/1-{n:02}b.flac"),
+                ..on_disc(1, n, 2016)
+            }))
+            .chain((1..=14).map(|n| ScanTrack {
+                path: format!("/m/remaster/{n}.flac"),
+                release_id: Some("cccc-3333".into()),
+                release_year: Some(2020),
+                ..on_disc(1, n, 2017)
+            }))
+            .collect(),
+        vec![(Some(2017), 16), (Some(2020), 14)]
+    )]
+    #[case::two_singles(
+        vec![
+            on_disc(1, 1, 1997),
+            ScanTrack { path: "/m/single.flac".into(), ..on_disc(1, 1, 2017) },
+        ],
+        vec![(Some(1997), 1), (Some(2017), 1)]
+    )]
+    #[case::copies_do_not_make_a_release_larger(
+        (1..=2)
+            .flat_map(|n| {
+                [
+                    on_disc(1, n, 1977),
+                    ScanTrack {
+                        path: format!("/m/mp3/{n}.mp3"),
+                        ..on_disc(1, n, 1977)
+                    },
+                ]
+            })
+            .chain((1..=3).map(|n| ScanTrack {
+                path: format!("/m/b/{n}.flac"),
+                ..on_disc(1, n, 2004)
+            }))
+            .chain((3..=4).map(|n| ScanTrack {
+                path: format!("/m/c/{n}.flac"),
+                ..on_disc(1, n, 2011)
+            }))
+            .collect(),
+        vec![(Some(1977), 4), (Some(2011), 5)]
+    )]
+    #[case::a_remaster_by_its_release_id(
+        (1..=2)
+            .map(|n| ScanTrack {
+                release_id: Some("aaaa-1111".into()),
+                ..on_disc(1, n, 1977)
+            })
+            .chain((1..=2).map(|n| ScanTrack {
+                path: format!("/m/remaster/{n}.flac"),
+                release_id: Some("bbbb-2222".into()),
+                release_year: Some(2011),
+                ..on_disc(1, n, 1977)
+            }))
+            .collect(),
+        vec![(Some(1977), 2), (Some(2011), 2)]
+    )]
+    fn releases_that_share_their_positions_split(
+        #[case] tracks: Vec<ScanTrack>,
+        #[case] expected: Vec<(Option<i32>, usize)>,
+    ) {
+        let (lib, _) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(&lib, tracks.clone());
+        let albums = albums_titled(&lib, "Gran Turismo");
+        assert_eq!(
+            albums
+                .iter()
+                .map(|&(_, year, count)| (year, count))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        scan(&lib, tracks.into_iter().rev().collect());
+        assert_eq!(albums_titled(&lib, "Gran Turismo"), albums);
+        lib.regroup_albums().unwrap();
+        assert_eq!(albums_titled(&lib, "Gran Turismo"), albums);
+    }
+
+    #[test]
+    fn server_songs_join_the_album_their_local_siblings_carry_a_release_id_for() {
+        let (lib, _) = create_test_db();
+        let source = server(&lib);
+        let song = |n: u32| RemoteSong {
+            album: Some("Gran Turismo".into()),
+            album_artist: Some("Various Artists".into()),
+            track_number: Some(n),
+            year: Some(2005),
+            ..remote_song(&format!("s{n}"), &format!("Server {n}"))
+        };
+        lib.apply_remote_listing(source, &[song(4), song(5)], &[])
+            .unwrap();
+        lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
+        scan(
+            &lib,
+            (1..=3)
+                .map(|n| ScanTrack {
+                    release_id: Some("aaaa-1111".into()),
+                    release_year: Some(2005),
+                    ..on_disc(1, n, 2005)
+                })
+                .collect(),
+        );
+        let albums = albums_titled(&lib, "Gran Turismo");
+        assert_eq!(albums.len(), 1, "{albums:?}");
+        assert_eq!(albums[0].2, 5);
+        lib.regroup_albums().unwrap();
+        assert_eq!(albums_titled(&lib, "Gran Turismo"), albums);
+    }
+
+    #[rstest::rstest]
+    #[case::without_identity("NULL")]
+    #[case::with_an_older_identity("'tag' || char(31) || title || char(31)")]
+    fn an_album_from_before_identities_hands_its_id_to_the_album_its_tracks_join(
+        #[case] identity: &str,
+    ) {
         let (lib, path) = create_test_db();
         lib.reconcile_local_sources(&folders(&["/m"])).unwrap();
         scan(
@@ -2279,7 +2533,7 @@ mod tests {
         let old: Vec<i64> = before.values().copied().collect();
         {
             let conn = rusqlite::Connection::open(&path).unwrap();
-            conn.execute("UPDATE albums SET identity = NULL", [])
+            conn.execute(&format!("UPDATE albums SET identity = {identity}"), [])
                 .unwrap();
         }
 
@@ -4527,9 +4781,7 @@ mod tests {
         let other = lib.upsert_artist("Other").unwrap();
 
         let mk_album = |title: &str, year: Option<i32>, cover: Option<i64>| {
-            let id = lib
-                .upsert_album(&AlbumKey::titled(title), year, cover)
-                .unwrap();
+            let id = lib.upsert_album(title, year, cover).unwrap();
             lib.set_album_artists(id, &[(artist, 0)]).unwrap();
             id
         };
@@ -4546,6 +4798,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: Some(120_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -4578,7 +4832,7 @@ mod tests {
 
         // Other artist — should not bleed into result.
         let other_album = lib
-            .upsert_album(&AlbumKey::titled("Other Album"), Some(2005), Some(cover2))
+            .upsert_album("Other Album", Some(2005), Some(cover2))
             .unwrap();
         lib.set_album_artists(other_album, &[(other, 0)]).unwrap();
         lib.upsert_track(
@@ -4603,9 +4857,7 @@ mod tests {
         assert!(covers.contains_key(&other));
         // Artist without covers is absent.
         let no_cover_artist = lib.upsert_artist("Silent").unwrap();
-        let bare_album = lib
-            .upsert_album(&AlbumKey::titled("Bare"), Some(2000), None)
-            .unwrap();
+        let bare_album = lib.upsert_album("Bare", Some(2000), None).unwrap();
         lib.upsert_track(
             &mk_track("/p/t6.flac", bare_album),
             Some(bare_album),
@@ -4629,9 +4881,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let second = lib.upsert_artist("Bravo").unwrap();
         let first = lib.upsert_artist("Alpha").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Split"), Some(2001), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Split", Some(2001), None).unwrap();
         lib.set_album_artists(album_id, &[(second, 1), (first, 0)])
             .unwrap();
 
@@ -4646,9 +4896,7 @@ mod tests {
     fn test_set_track_genres_replaces_links() {
         let (lib, _path) = create_test_db();
         let track_id = seed_track(&lib, "Song", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         lib.set_track_genres(track_id, &["Ambient".into(), "Techno".into()])
             .unwrap();
@@ -4672,9 +4920,7 @@ mod tests {
     fn test_set_track_genres_dedups_case_insensitively() {
         let (lib, _path) = create_test_db();
         let track_id = seed_track(&lib, "Song", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         lib.set_track_genres(
             track_id,
@@ -4744,9 +4990,7 @@ mod tests {
         let cover_id = before.cover_art_id.expect("scan attached the cover");
         lib.set_liked(before.id, true).unwrap();
 
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Cue Album"), Some(1999), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Cue Album", Some(1999), None).unwrap();
         let new_artist = lib.upsert_artist("New Artist").unwrap();
         let updated = NewTrack {
             path: "/m/whole_album.flac".into(),
@@ -4756,6 +5000,8 @@ mod tests {
             track_number: Some(4),
             disc_number: Some(2),
             year: Some(2001),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(1000),
             cover_art_id: None,
             start_offset_ms: Some(5000),
@@ -4789,9 +5035,7 @@ mod tests {
     fn test_set_track_genres_skips_blank_names() {
         let (lib, _path) = create_test_db();
         let track_id = seed_track(&lib, "Song", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         lib.set_track_genres(
             track_id,
@@ -4811,9 +5055,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let first = seed_track(&lib, "One", "Album", "Artist");
         let second = seed_track(&lib, "Two", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         lib.set_track_genres(first, &["Jazz".into()]).unwrap();
         lib.set_track_genres(second, &["Techno".into()]).unwrap();
@@ -4831,9 +5073,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let first = seed_track(&lib, "One", "Album", "Artist");
         let second = seed_track(&lib, "Two", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         lib.set_track_genres(first, &["Ambient".into()]).unwrap();
         lib.set_track_genres(second, &["Ambient".into()]).unwrap();
@@ -4851,9 +5091,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let first = seed_track(&lib, "One", "Album", "Artist");
         let second = seed_track(&lib, "Two", "Album", "Artist");
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
 
         lib.set_track_genres(first, &["Ambient".into()]).unwrap();
         lib.set_track_genres(second, &["AMBIENT".into()]).unwrap();
@@ -4869,9 +5107,7 @@ mod tests {
     fn test_album_artists_survive_a_track_upsert() {
         let (lib, _path) = create_test_db();
         let credited = lib.upsert_artist("Album Artist").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Album", Some(2020), None).unwrap();
         lib.set_album_artists(album_id, &[(credited, 0)]).unwrap();
 
         let performer = lib.upsert_artist("Guest").unwrap();
@@ -4883,6 +5119,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: Some(2020),
+            release_id: None,
+            release_year: None,
             duration_ms: Some(1000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -4913,6 +5151,8 @@ mod tests {
             track_number,
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: None,
             cover_art_id: None,
             start_offset_ms: None,
@@ -4930,9 +5170,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let band = lib.upsert_artist("Band").unwrap();
         let guest = lib.upsert_artist("Guest").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Split"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Split", Some(2020), None).unwrap();
         let tagged = insert_album_track(&lib, "/m/01.flac", Some(album), Some(1), &[(guest, 0)]);
         let untagged = insert_album_track(&lib, "/m/02.flac", Some(album), Some(2), &[(guest, 0)]);
         lib.set_track_album_artists(tagged, &[(band, 0)]).unwrap();
@@ -4980,9 +5218,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let band = lib.upsert_artist("Band").unwrap();
         let guest = lib.upsert_artist("Guest").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Split"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Split", Some(2020), None).unwrap();
         let tagged = insert_album_track(&lib, "/m/01.flac", Some(album), Some(1), &[(guest, 0)]);
         lib.set_track_album_artists(tagged, &[(band, 0)]).unwrap();
 
@@ -5034,18 +5270,14 @@ mod tests {
         let zed = lib.upsert_artist("Zed").unwrap();
         let compiler = lib.upsert_artist("Compiler").unwrap();
 
-        let comp = lib
-            .upsert_album(&AlbumKey::titled("Comp"), Some(2021), None)
-            .unwrap();
+        let comp = lib.upsert_album("Comp", Some(2021), None).unwrap();
         let second = insert_album_track(&lib, "/c/02.flac", Some(comp), Some(2), &[(zed, 0)]);
         lib.set_track_album_artists(second, &[(compiler, 0)])
             .unwrap();
         insert_album_track(&lib, "/c/01.flac", Some(comp), Some(1), &[(alpha, 0)]);
         lib.set_album_artists(comp, &[(zed, 0)]).unwrap();
 
-        let plain = lib
-            .upsert_album(&AlbumKey::titled("Plain"), Some(2022), None)
-            .unwrap();
+        let plain = lib.upsert_album("Plain", Some(2022), None).unwrap();
         insert_album_track(&lib, "/p/b.flac", Some(plain), Some(2), &[(zed, 0)]);
         insert_album_track(&lib, "/p/a.flac", Some(plain), Some(1), &[(alpha, 0)]);
 
@@ -5069,9 +5301,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let alpha = lib.upsert_artist("Alpha").unwrap();
         let only_tag = lib.upsert_artist("Only In Tag").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Comp"), Some(2021), None)
-            .unwrap();
+        let album = lib.upsert_album("Comp", Some(2021), None).unwrap();
         insert_album_track(&lib, "/c/01.flac", Some(album), Some(1), &[(alpha, 0)]);
         let second = insert_album_track(&lib, "/c/02.flac", Some(album), Some(2), &[(alpha, 0)]);
         lib.set_track_album_artists(second, &[(only_tag, 0)])
@@ -5095,9 +5325,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let band = lib.upsert_artist("Band").unwrap();
         let featuring = lib.upsert_artist("Band Feat. Guest").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Record"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Record", Some(2020), None).unwrap();
         insert_album_track(&lib, "/r/01.flac", Some(album), Some(1), &[(band, 0)]);
         insert_album_track(&lib, "/r/02.flac", Some(album), Some(2), &[(featuring, 0)]);
         insert_album_track(&lib, "/r/03.flac", Some(album), Some(3), &[]);
@@ -5128,9 +5356,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let alpha = lib.upsert_artist("Alpha").unwrap();
         let zed = lib.upsert_artist("Zed").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Comp"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Comp", Some(2020), None).unwrap();
         insert_album_track(&lib, "/c/01.flac", Some(album), Some(1), &[(alpha, 0)]);
         insert_album_track(&lib, "/c/02.flac", Some(album), Some(2), &[(zed, 0)]);
 
@@ -5148,9 +5374,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let band = lib.upsert_artist("Band").unwrap();
         let guest = lib.upsert_artist("Guest").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Split"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Split", Some(2020), None).unwrap();
         let tagged = insert_album_track(&lib, "/m/01.flac", Some(album), Some(1), &[(guest, 0)]);
         insert_album_track(&lib, "/m/02.flac", Some(album), Some(2), &[(guest, 0)]);
         lib.set_track_album_artists(tagged, &[(band, 0)]).unwrap();
@@ -5168,12 +5392,8 @@ mod tests {
         let mick = lib.upsert_artist("Mick Gordon").unwrap();
         let other = lib.upsert_artist("Other").unwrap();
         let various = lib.upsert_artist("Various Artists").unwrap();
-        let solo = lib
-            .upsert_album(&AlbumKey::titled("Old Blood"), Some(2015), None)
-            .unwrap();
-        let comp = lib
-            .upsert_album(&AlbumKey::titled("New Colossus"), Some(2017), None)
-            .unwrap();
+        let solo = lib.upsert_album("Old Blood", Some(2015), None).unwrap();
+        let comp = lib.upsert_album("New Colossus", Some(2017), None).unwrap();
         let solo_track = insert_album_track(&lib, "/s/01.flac", Some(solo), Some(1), &[(mick, 0)]);
         let credited = insert_album_track(&lib, "/c/01.flac", Some(comp), Some(1), &[(mick, 0)]);
         let others = insert_album_track(&lib, "/c/02.flac", Some(comp), Some(2), &[(other, 0)]);
@@ -5238,9 +5458,7 @@ mod tests {
     fn set_album_artists_marks_the_albums_artist_known() {
         let (lib, _path) = create_test_db();
         let band = lib.upsert_artist("Band").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Record"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Record", Some(2020), None).unwrap();
         assert!(!lib.album_artist_known(album).unwrap());
 
         lib.set_album_artists(album, &[(band, 0)]).unwrap();
@@ -5268,12 +5486,8 @@ mod tests {
         let headliner = lib.upsert_artist("Headliner").unwrap();
         let guest = lib.upsert_artist("Guest Only").unwrap();
         let various = lib.upsert_artist("Various Artists").unwrap();
-        let comp = lib
-            .upsert_album(&AlbumKey::titled("Comp"), Some(2020), Some(cover))
-            .unwrap();
-        let own = lib
-            .upsert_album(&AlbumKey::titled("Solo"), Some(2021), Some(cover))
-            .unwrap();
+        let comp = lib.upsert_album("Comp", Some(2020), Some(cover)).unwrap();
+        let own = lib.upsert_album("Solo", Some(2021), Some(cover)).unwrap();
         let on_comp = insert_album_track(&lib, "/c/01.flac", Some(comp), Some(1), &[(guest, 0)]);
         lib.set_track_album_artists(on_comp, &[(various, 0)])
             .unwrap();
@@ -5306,9 +5520,7 @@ mod tests {
         let (lib, _path) = create_test_db();
         let band = lib.upsert_artist("Band").unwrap();
         let guest = lib.upsert_artist("Guest").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Record"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Record", Some(2020), None).unwrap();
         let shared = insert_album_track(
             &lib,
             "/r/01.flac",
@@ -5425,9 +5637,7 @@ mod tests {
     fn track_listings_carry_names_likes_and_play_stats() {
         let (lib, _path) = create_test_db();
         let artist_id = lib.upsert_artist("Tool").unwrap();
-        let album_id = lib
-            .upsert_album(&AlbumKey::titled("Fear Inoculum"), Some(2019), None)
-            .unwrap();
+        let album_id = lib.upsert_album("Fear Inoculum", Some(2019), None).unwrap();
         lib.set_album_artists(album_id, &[(artist_id, 0)]).unwrap();
         let new_track = |path: &str, title: &str| NewTrack {
             path: path.into(),
@@ -5437,6 +5647,8 @@ mod tests {
             track_number: Some(1),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: Some(700_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -5735,6 +5947,8 @@ mod tests {
             track_number: Some(2),
             disc_number: Some(1),
             year: None,
+            release_id: None,
+            release_year: None,
             duration_ms: Some(713_000),
             cover_art_id: None,
             start_offset_ms: None,
@@ -6076,9 +6290,7 @@ mod tests {
         let artist = lib.upsert_artist("Band").unwrap();
         let mut n = 0;
         let mut add = |title: &str, cover: Option<i64>, tracks: usize, genre: &str| {
-            let album = lib
-                .upsert_album(&AlbumKey::titled(title), Some(2000), cover)
-                .unwrap();
+            let album = lib.upsert_album(title, Some(2000), cover).unwrap();
             for _ in 0..tracks {
                 n += 1;
                 let path = format!("/m/{n}.flac");
@@ -6576,12 +6788,8 @@ mod tests {
         analysed(&lib, VERSION, first, &[(GRUNGE, 0.4), (ALT_ROCK, 0.3)]);
         analysed(&lib, VERSION, second, &[(GRUNGE, 0.2)]);
         analysed(&lib, VERSION, elsewhere, &[(TECHNO, 0.6)]);
-        let album = lib
-            .upsert_album(&AlbumKey::titled("Album"), Some(2020), None)
-            .unwrap();
-        let other = lib
-            .upsert_album(&AlbumKey::titled("Other"), Some(2020), None)
-            .unwrap();
+        let album = lib.upsert_album("Album", Some(2020), None).unwrap();
+        let other = lib.upsert_album("Other", Some(2020), None).unwrap();
 
         let all = lib.album_sound_genres(VERSION, 0.1, 3, None).unwrap();
         assert_eq!(all[&album], vec![GRUNGE, ALT_ROCK]);
@@ -6607,9 +6815,7 @@ mod tests {
             .save_cover_art(&make_test_jpeg(&[255, 0, 0]), "/music/a.flac", true)
             .unwrap();
         let artist = lib.upsert_artist("Band").unwrap();
-        let album = lib
-            .upsert_album(&AlbumKey::titled("A"), Some(2000), Some(cover))
-            .unwrap();
+        let album = lib.upsert_album("A", Some(2000), Some(cover)).unwrap();
         let id = insert_album_track(&lib, "/m/1.flac", Some(album), Some(1), &[(artist, 0)]);
         analysed(&lib, VERSION, id, &[(SHOEGAZE, 0.5)]);
 

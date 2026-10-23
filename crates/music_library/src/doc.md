@@ -112,12 +112,12 @@ has no `add_cover` yet waits, or is inserted cover-less at `finish`), `flush()`,
   and a server listing slipping in while held arrivals settle would mint a second item
   for a song whose local copy is about to be written. It runs only after the indexer
   reported `Complete`; a dropped session retires nothing and records no fingerprint.
-- The session writes no album cover, only each track's own album-artist tag and a
-  provisional album year (the first track's); the app settles the rest after every
-  write (`settle_derived_rows`:
-  `regroup_albums`, covers, years, album artists, item snapshots before
-  `delete_orphaned_albums_and_artists`, which keeps any cover a snapshot references). An
-  album's cover is its lowest `(disc, track, path)` track with one.
+- The session writes no album cover, only each track's own album-artist tag, release id
+  and release year, and a provisional album year (the first track's); the app settles
+  the rest after every write (`settle_derived_rows`: `regroup_albums`, covers, years,
+  album artists, item snapshots before `delete_orphaned_albums_and_artists`, which keeps
+  any cover a snapshot references). An album's cover is its lowest `(disc, track, path)`
+  track with one.
 - A file whose `(path, offset)` has a binding in any local source (placeholder and
   disabled included) keeps its item and is re-pointed to the longest enabled root
   containing it, the placeholder only when none does: that heals the placeholder.
@@ -192,11 +192,11 @@ delivered files, so a screen holding an old id would land on another album.
 
 - `ScanSession::clear` snapshots the ids first (`StableIds`): an album gets its old id
   back by `identity` (see "Album identity"), an artist by name.
-- Rows from before migration 13 have no identity. On the first rescan after it, an album
-  whose identity is not in the snapshot takes the old id of the track that created it,
-  if no other album took it yet (`legacy_albums`): the seven albums a compilation used to
-  split into become one that keeps one of their ids. Which one depends on delivery
-  order, once.
+- A row whose identity is not `album␟…` (NULL before migration 13, or an older key) is
+  matched by its tracks instead: an album whose identity is not in the snapshot takes
+  the old id of the track that created it, if no other album took it yet
+  (`legacy_albums`), so albums that merge keep one of their ids. Which one depends on
+  delivery order, once.
 - A new one gets an id above everything ever handed out (`allocate_catalog_id`; the
   high-water marks live in `scan_meta`). Every writer allocates through it, the tag
   editor's `upsert_album` / `get_or_insert_artist` included, so a tag edit between two
@@ -209,45 +209,57 @@ delivered files, so a screen holding an old id would land on another album.
 
 ## Album identity
 
-Albums are grouped close to Navidrome's default album id (`musicbrainz_albumid |
-album, releasedate`) and MusicBee: the track's own year is not part of it. A compilation
-whose tracks carry each song's year (`DATE` 1972, 1977, …) used to split into one album
-per year (issue #13).
+An album is the tracks that share an exact album title, as with MusicBee's album
+artist + album. Album artist, MusicBrainz release id, release date and track year are
+evidence for a split, never part of the key: a library tidied for MusicBee does not keep
+those consistent, and a tag on one disc of a set or a date per song must not break an
+album apart.
 
-- `albums.identity` (migration 13): `mb␟<id>␟<exact title>` when the track has a
-  MusicBrainz album id (trimmed, lowercased; years ignored), else `tag␟<exact
-  title>␟<release year>`, where the release year is the `RELEASEDATE` / `TDRL` tag only,
-  empty without one. The title is exact but trimmed at ingest (`clean_album_title`):
-  a stray space must not split an album. `albums.release_year` keeps the release year
-  for the display year, and the album editor's year edits it (`album_release_year`).
-  The title stays in the `mb` key so a rename lands the same way in a tag edit and a rescan:
-  neither path stores the album title per track.
-- The album artist is not part of the key: a track without the tag stays with siblings
-  that have one (`album_artists.rs`). It is evidence for a split instead.
-- `regroup_releases` looks at every `tag` family (the plain row plus rows split off it)
-  that has two tracks with different years on one `(disc, track)`, or two different
-  first album-artist tags. Different first album-artist tags split it by that tag (an
-  untagged track is a group of its own); a group with such a collision then splits by
-  the track year, which is the old `(title, year)` rule for two releases under one name.
-  Same-year collisions are copies (FLAC beside MP3) and split nothing, so copies of a
-  per-song-year compilation stay one album. One group left means the family merges back
-  into the plain row.
+- `albums.identity` is `album␟<exact title>`, trimmed at ingest (`clean_album_title`):
+  a stray space must not split an album. Each track keeps its own `release_id`
+  (MusicBrainz album id, trimmed and lowercased on write) and `release_year` (the
+  `RELEASEDATE` / `TDRL` year), so regrouping never rereads a file.
+- A track's release is its release id, else its release year, else its own year; a
+  track with none of them fits any release, since a missing tag is no evidence. A
+  `(disc, track)` position is contested when tracks of different releases hold it; a set
+  of positions is mostly taken when at least two of them, and at least half, are.
+- `regroup_releases` looks at every family (the plain row plus rows split off it) with
+  two different first album-artist tags or a contested position. Different first
+  album-artist tags split it by that tag (an untagged track is a group of its own); a
+  track without the tag otherwise stays with siblings that have one (`album_artists.rs`).
+- Within each artist group (`release_clusters`), tracks split only when contested
+  positions are half of all, or the positions of some release with two or more, or of
+  all one-position releases together, are mostly contested. Two releases under one name
+  share nearly every position, a stray duplicate number shares one; one-position
+  releases are judged together because a year per song makes every song its own release.
+- Splitting, releases with two or more positions, most positions first (copies do not
+  count), join the first cluster whose positions do not mostly cover the smaller of the
+  two; one-position releases then join the first cluster where their position is free,
+  and undated tracks the first cluster. Neither fitting starts a cluster. Same-release
+  collisions are copies (FLAC beside MP3) and split nothing; one cluster left means the
+  family merges back into the plain row.
 - The largest group keeps the plain identity, ties go to the smallest key; the others
-  get `<plain>␝a<artist>␝y<year>` (an empty part means that split did not apply).
-  `mb` albums never split: two copies of one release are one album.
+  get `<plain>␝a<artist>␝<release>`, the release being `m<id>` or `y<year>` of the
+  cluster's first release (an empty part means that split did not apply).
 - It runs at the end of the scan's `finish`, where split rows get their old ids back
   from `StableIds`, and as `regroup_albums` in `settle_derived_rows` (new ids), so a tag
   edit and a rescan agree. Until `finish`, a family sits in its plain row.
 - `upsert_album` (the tag editor's re-index) finds or creates the plain row; the regroup
   then moves the track to the row a scan would give it.
-- `resolve_album_years`: an album's year is its `release_year`, else the newest track
-  year, since a release is no older than its newest recording.
-- Known gaps: the plain row (and its id) goes to the larger release, so it
-  moves to the other one when their sizes cross. A two-disc compilation without disc
-  tags collides on every position and still splits by year, unless its discs sit in
-  `CD n` / `Disc n` folders, which the app numbers at ingest. Server tracks carry no
-  MusicBrainz id, so server-only songs of an album whose local files have one form a
-  `tag` album of their own beside it.
+- `resolve_album_years`: an album's year is the newest of its tracks' release years,
+  each the release date else the track year, since a release is no older than its
+  newest recording. `album_release_years` is the range of those years, read live for
+  the album editor, and `None` unless a track carries a release date. `albums.release_year`
+  stays unwritten: an older binary opened on the same database still inserts into it.
+- Known gaps: the plain row (and its id) goes to the larger release, so it moves to the
+  other one when their sizes cross. Releases without track numbers, or whose numbers do
+  not overlap, merge, different release ids included: a compilation assembled from
+  downloads carries each song's own album id. Copies of one release where only one
+  carries the release id or date clash and split. A two-disc set without disc tags
+  collides on every position and splits when its discs differ in year (with a year per
+  song, into two albums that each mix both discs), unless they sit in `CD n` / `Disc n`
+  folders, which the app numbers at ingest. One duplicate number still splits an album
+  of two positions: it cannot be told from two singles.
 
 (`␟` is U+001F, `␝` U+001D.)
 
@@ -455,8 +467,9 @@ Owner's calls; ask before changing.
   that is for a manual screen.
 - Artist names match case-insensitively, album titles exactly: tags differ in case far
   more often than two real artists do.
-- Album identity follows Navidrome's default with the track year out of the key; the
-  album artist and position collisions split, they do not key (2026-10-17).
+- Albums are keyed by title alone, as in MusicBee, not by Navidrome's release date and
+  MusicBrainz id; those, the album artist and the track year only split, and all but
+  the album artist only when positions clash.
 - Not-found artists are retried only when the item snapshot's `updated_at` moves;
   credits the snapshot does not hold (a second track artist, an album-artist tag added
   to existing tracks) trigger nothing: catching them would need per-row state and a

@@ -13,10 +13,10 @@ use crate::album_artists::{AlbumTrackArtists, derive_album_artists};
 use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
-    AlbumKey, AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary,
-    ArtistTitles, CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove,
-    NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay,
-    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
+    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
+    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
+    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
     StoredLyrics, Track, TrackAnalysis, TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
@@ -264,9 +264,9 @@ impl StableIds {
         let legacy_albums: HashMap<i64, i64> = {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.album_id FROM tracks t JOIN albums a ON a.id = t.album_id \
-                 WHERE a.identity IS NULL",
+                 WHERE a.identity IS NULL OR a.identity NOT LIKE ?1 || '%'",
             )?;
-            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            stmt.query_map([ALBUM_IDENTITY], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<std::result::Result<_, _>>()?
         };
         let album_max: Option<i64> =
@@ -302,72 +302,153 @@ pub fn clean_album_title(title: Option<String>) -> Option<String> {
         .filter(|title| !title.is_empty())
 }
 
-const RELEASE_IDENTITY: &str = "mb\u{1f}";
+const ALBUM_IDENTITY: &str = "album\u{1f}";
 
-fn album_identity(key: &AlbumKey<'_>) -> String {
-    if let Some(release_id) = key.release_id.map(str::trim).filter(|id| !id.is_empty()) {
-        return format!(
-            "{RELEASE_IDENTITY}{}\u{1f}{}",
-            release_id.to_lowercase(),
-            key.title
-        );
-    }
-    format!(
-        "tag\u{1f}{}\u{1f}{}",
-        key.title,
-        key.release_year.map(|y| y.to_string()).unwrap_or_default()
-    )
+fn album_identity(title: &str) -> String {
+    format!("{ALBUM_IDENTITY}{title}")
 }
 
-type ReleasePart = (Option<Option<String>>, Option<Option<i32>>);
+fn release_id_key(release_id: Option<&str>) -> Option<String> {
+    release_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_lowercase)
+}
 
-fn split_identity(identity: &str, (artist, year): &ReleasePart) -> String {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Release {
+    Id(String),
+    Year(Option<i32>),
+}
+
+impl Release {
+    fn year(&self) -> Option<i32> {
+        match self {
+            Release::Id(_) => None,
+            Release::Year(year) => *year,
+        }
+    }
+}
+
+type ReleasePart = (Option<Option<String>>, Option<Release>);
+
+fn split_identity(identity: &str, (artist, release): &ReleasePart) -> String {
     let artist = match artist {
         None => String::new(),
         Some(name) => format!("a{}", name.as_deref().unwrap_or_default()),
     };
-    let year = match year {
+    let release = match release {
         None => String::new(),
-        Some(year) => format!("y{}", year.map(|y| y.to_string()).unwrap_or_default()),
+        Some(Release::Id(id)) => format!("m{id}"),
+        Some(Release::Year(year)) => {
+            format!("y{}", year.map(|y| y.to_string()).unwrap_or_default())
+        }
     };
-    format!("{identity}\u{1d}{artist}\u{1d}{year}")
-}
-
-fn effective_release_year(key: &AlbumKey<'_>, identity: &str) -> Option<i32> {
-    if identity.starts_with(RELEASE_IDENTITY) {
-        None
-    } else {
-        key.release_year
-    }
+    format!("{identity}\u{1d}{artist}\u{1d}{release}")
 }
 
 const RELEASE_FAMILIES: &str = "SELECT identity FROM albums \
-    WHERE identity LIKE 'tag%' AND (instr(identity, char(29)) > 0 OR id IN ( \
+    WHERE identity LIKE ?1 || '%' AND (instr(identity, char(29)) > 0 OR id IN ( \
         SELECT album_id FROM tracks \
         WHERE album_id IS NOT NULL AND track_number IS NOT NULL \
         GROUP BY album_id, disc_number, track_number \
-        HAVING COUNT(DISTINCT IFNULL(year, 'none')) > 1 \
+        HAVING COUNT(DISTINCT IFNULL('m' || release_id, 'y' || IFNULL(release_year, year))) > 1 \
         UNION SELECT t.album_id FROM tracks t \
         JOIN track_album_artists a ON a.track_id = t.id AND a.position = 0 \
         WHERE t.album_id IS NOT NULL GROUP BY t.album_id HAVING COUNT(DISTINCT a.artist_id) > 1))";
 
-const FAMILY_ROWS: &str = "SELECT id, identity, title, release_year FROM albums \
+const FAMILY_ROWS: &str = "SELECT id, identity, title FROM albums \
     WHERE identity = ?1 OR (identity > ?2 AND identity < ?3) ORDER BY id";
 
 const INSERT_ALBUM: &str = "INSERT INTO albums \
-    (id, title, year, release_year, identity, cover_art_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+    (id, title, year, identity, cover_art_id) VALUES (?1, ?2, ?3, ?4, ?5)";
 
-const ALBUM_PIECES: &str = "SELECT t.id, t.disc_number, t.track_number, t.year, ar.name \
+const ALBUM_PIECES: &str = "SELECT t.id, t.disc_number, t.track_number, t.year, ar.name, \
+    t.release_id, t.release_year \
     FROM tracks t \
     LEFT JOIN track_album_artists a ON a.track_id = t.id AND a.position = 0 \
     LEFT JOIN artists ar ON ar.id = a.artist_id \
     WHERE t.album_id = ?1 ORDER BY t.id";
 
+type Slot = (i64, i64);
+
 struct AlbumPiece {
     id: i64,
-    slot: Option<(i64, i64)>,
-    year: Option<i32>,
+    slot: Option<Slot>,
+    release: Release,
     artist: Option<String>,
+}
+
+fn mostly_taken(slots: usize, taken: usize) -> bool {
+    taken >= 2 && taken * 2 >= slots
+}
+
+fn clashes(
+    group: &std::collections::HashSet<Slot>,
+    cluster: &std::collections::HashSet<Slot>,
+) -> bool {
+    mostly_taken(
+        group.len().min(cluster.len()),
+        group.intersection(cluster).count(),
+    )
+}
+
+fn release_clusters(pieces: Vec<AlbumPiece>) -> Vec<(Release, Vec<i64>)> {
+    use std::collections::{BTreeMap, HashSet};
+    let mut by_release: BTreeMap<Release, (Vec<i64>, HashSet<Slot>)> = BTreeMap::new();
+    for piece in pieces {
+        let (ids, slots) = by_release.entry(piece.release).or_default();
+        ids.push(piece.id);
+        slots.extend(piece.slot);
+    }
+    let unknown = by_release.remove(&Release::Year(None));
+    let mut holders: HashMap<Slot, usize> = HashMap::new();
+    for (_, slots) in by_release.values() {
+        for slot in slots {
+            *holders.entry(*slot).or_default() += 1;
+        }
+    }
+    let contested = |slots: &HashSet<Slot>| slots.iter().filter(|s| holders[*s] > 1).count();
+    let shared = holders.values().filter(|&&n| n > 1).count();
+    let loose: HashSet<Slot> = by_release
+        .values()
+        .filter(|(_, slots)| slots.len() < 2)
+        .flat_map(|(_, slots)| slots.iter().copied())
+        .collect();
+    let split = shared > 0
+        && (shared * 2 >= holders.len()
+            || mostly_taken(loose.len(), contested(&loose))
+            || by_release
+                .values()
+                .any(|(_, slots)| slots.len() >= 2 && mostly_taken(slots.len(), contested(slots))));
+    let mut groups: Vec<_> = by_release.into_iter().collect();
+    groups.sort_by_key(|(_, (ids, slots))| {
+        std::cmp::Reverse((slots.len() >= 2, slots.len(), ids.len()))
+    });
+    groups.extend(unknown.map(|group| (Release::Year(None), group)));
+    let mut clusters: Vec<(Release, Vec<i64>, HashSet<Slot>)> = Vec::new();
+    for (release, (ids, slots)) in groups {
+        let fits = |taken: &HashSet<Slot>| {
+            !split
+                || release == Release::Year(None)
+                || if slots.len() >= 2 {
+                    !clashes(&slots, taken)
+                } else {
+                    slots.is_disjoint(taken)
+                }
+        };
+        match clusters.iter_mut().find(|(_, _, taken)| fits(taken)) {
+            Some((_, members, taken)) => {
+                members.extend(ids);
+                taken.extend(slots);
+            }
+            None => clusters.push((release, ids, slots)),
+        }
+    }
+    clusters
+        .into_iter()
+        .map(|(release, ids, _)| (release, ids))
+        .collect()
 }
 
 fn release_groups(pieces: Vec<AlbumPiece>) -> std::collections::BTreeMap<ReleasePart, Vec<i64>> {
@@ -383,28 +464,21 @@ fn release_groups(pieces: Vec<AlbumPiece>) -> std::collections::BTreeMap<Release
     }
     let mut groups: BTreeMap<ReleasePart, Vec<i64>> = BTreeMap::new();
     for (artist, pieces) in artist_groups {
-        let mut years_at: HashMap<(i64, i64), Option<i32>> = HashMap::new();
-        let by_year = pieces.iter().any(|p| {
-            p.slot
-                .is_some_and(|slot| *years_at.entry(slot).or_insert(p.year) != p.year)
-        });
-        for piece in pieces {
-            groups
-                .entry((artist.clone(), by_year.then_some(piece.year)))
-                .or_default()
-                .push(piece.id);
+        let clusters = release_clusters(pieces);
+        let split = clusters.len() > 1;
+        for (release, ids) in clusters {
+            groups.insert((artist.clone(), split.then_some(release)), ids);
         }
     }
     groups
 }
 
-type AlbumFor<'a> =
-    dyn FnMut(&Connection, String, &str, Option<i32>, Option<i32>, i64) -> Result<i64> + 'a;
+type AlbumFor<'a> = dyn FnMut(&Connection, String, &str, Option<i32>, i64) -> Result<i64> + 'a;
 
 fn regroup_releases(conn: &Connection, album_for: &mut AlbumFor<'_>) -> Result<()> {
     let families: std::collections::BTreeSet<String> = {
         let mut stmt = conn.prepare(RELEASE_FAMILIES)?;
-        stmt.query_map([], |row| row.get::<_, String>(0))?
+        stmt.query_map([ALBUM_IDENTITY], |row| row.get::<_, String>(0))?
             .map(|identity| {
                 identity.map(|identity| {
                     identity
@@ -417,15 +491,15 @@ fn regroup_releases(conn: &Connection, album_for: &mut AlbumFor<'_>) -> Result<(
             .collect::<std::result::Result<_, _>>()?
     };
     for base in families {
-        let rows: Vec<(i64, String, String, Option<i32>)> = {
+        let rows: Vec<(i64, String, String)> = {
             let mut stmt = conn.prepare_cached(FAMILY_ROWS)?;
             stmt.query_map(
                 rusqlite::params![base, format!("{base}\u{1d}"), format!("{base}\u{1e}")],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )?
             .collect::<std::result::Result<_, _>>()?
         };
-        let Some((_, _, title, release_year)) = rows.first().cloned() else {
+        let Some((_, _, title)) = rows.first().cloned() else {
             continue;
         };
         let mut pieces = Vec::new();
@@ -434,10 +508,14 @@ fn regroup_releases(conn: &Connection, album_for: &mut AlbumFor<'_>) -> Result<(
             let found = stmt.query_map([album_id], |row| {
                 let disc: i64 = row.get(1)?;
                 let number: Option<i64> = row.get(2)?;
+                let release = match row.get::<_, Option<String>>(5)? {
+                    Some(id) => Release::Id(id),
+                    None => Release::Year(row.get::<_, Option<i32>>(6)?.or(row.get(3)?)),
+                };
                 Ok(AlbumPiece {
                     id: row.get(0)?,
                     slot: number.map(|n| (disc, n)),
-                    year: row.get(3)?,
+                    release,
                     artist: row.get::<_, Option<String>>(4)?.map(|n| artist_key(&n)),
                 })
             })?;
@@ -462,8 +540,7 @@ fn regroup_releases(conn: &Connection, album_for: &mut AlbumFor<'_>) -> Result<(
                     conn,
                     identity,
                     &title,
-                    release_year,
-                    part.1.flatten(),
+                    part.1.as_ref().and_then(Release::year),
                     track_ids[0],
                 )?,
             };
@@ -486,7 +563,6 @@ fn scan_album_id(
     stable: Option<&StableIds>,
     identity: String,
     title: &str,
-    release_year: Option<i32>,
     year: Option<i32>,
     item_id: i64,
 ) -> Result<i64> {
@@ -507,7 +583,7 @@ fn scan_album_id(
     };
     conn.execute(
         INSERT_ALBUM,
-        rusqlite::params![id, title, year, release_year, identity, None::<i64>],
+        rusqlite::params![id, title, year, identity, None::<i64>],
     )?;
     claimed.insert(id);
     cache.insert(identity, id);
@@ -1393,11 +1469,11 @@ impl LibraryRepository for SqliteLibrary {
 
     fn upsert_album(
         &self,
-        key: &AlbumKey<'_>,
+        title: &str,
         year: Option<i32>,
         cover_art_id: Option<i64>,
     ) -> Result<i64> {
-        let identity = album_identity(key);
+        let identity = album_identity(title);
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if let Some(id) = tx
@@ -1420,14 +1496,7 @@ impl LibraryRepository for SqliteLibrary {
         let id = allocate_catalog_id(&tx, "albums", ALBUM_ID_HIGH)?;
         tx.execute(
             INSERT_ALBUM,
-            rusqlite::params![
-                id,
-                key.title,
-                year,
-                effective_release_year(key, &identity),
-                identity,
-                cover_art_id
-            ],
+            rusqlite::params![id, title, year, identity, cover_art_id],
         )?;
         tx.commit()?;
         Ok(id)
@@ -1521,7 +1590,9 @@ impl LibraryRepository for SqliteLibrary {
                     year = ?6,
                     cover_art_id = COALESCE(?7, cover_art_id),
                     start_offset_ms = ?8,
-                    bitrate = ?10
+                    bitrate = ?10,
+                    release_id = ?11,
+                    release_year = ?12
                 WHERE id = ?9"#,
                 rusqlite::params![
                     title,
@@ -1534,6 +1605,8 @@ impl LibraryRepository for SqliteLibrary {
                     start_offset_ms,
                     id,
                     track.bitrate,
+                    release_id_key(track.release_id.as_deref()),
+                    track.release_year,
                 ],
             )?;
             id
@@ -1569,8 +1642,8 @@ impl LibraryRepository for SqliteLibrary {
             )?;
             tx.execute(
                 r#"INSERT INTO tracks
-                    (id, path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+                    (id, path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate, release_id, release_year)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
                 rusqlite::params![
                     item_id,
                     track.path,
@@ -1583,6 +1656,8 @@ impl LibraryRepository for SqliteLibrary {
                     track.cover_art_id,
                     start_offset_ms,
                     track.bitrate,
+                    release_id_key(track.release_id.as_deref()),
+                    track.release_year,
                 ],
             )?;
             item_id
@@ -1781,14 +1856,20 @@ impl LibraryRepository for SqliteLibrary {
         Ok(title)
     }
 
-    fn album_release_year(&self, album_id: i64) -> Result<Option<i32>> {
+    fn album_release_years(&self, album_id: i64) -> Result<Option<(i32, i32)>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached("SELECT release_year FROM albums WHERE id = ?1")?;
-        let year = stmt
-            .query_row([album_id], |row| row.get::<_, Option<i32>>(0))
-            .optional()?
-            .flatten();
-        Ok(year)
+        let mut stmt = conn.prepare_cached(
+            "SELECT MIN(COALESCE(release_year, year)), MAX(COALESCE(release_year, year)), \
+             COUNT(release_year) FROM tracks WHERE album_id = ?1",
+        )?;
+        let years = stmt.query_row([album_id], |row| {
+            let dated: i64 = row.get(2)?;
+            Ok(row
+                .get::<_, Option<i32>>(0)?
+                .zip(row.get::<_, Option<i32>>(1)?)
+                .filter(|_| dated > 0))
+        })?;
+        Ok(years)
     }
 
     fn track_albums_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, String>> {
@@ -2190,11 +2271,11 @@ impl LibraryRepository for SqliteLibrary {
     fn regroup_albums(&self) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        regroup_releases(&tx, &mut |conn, identity, title, release_year, year, _| {
+        regroup_releases(&tx, &mut |conn, identity, title, year, _| {
             let id = allocate_catalog_id(conn, "albums", ALBUM_ID_HIGH)?;
             conn.execute(
                 INSERT_ALBUM,
-                rusqlite::params![id, title, year, release_year, identity, None::<i64>],
+                rusqlite::params![id, title, year, identity, None::<i64>],
             )?;
             Ok(id)
         })?;
@@ -2205,8 +2286,9 @@ impl LibraryRepository for SqliteLibrary {
     fn resolve_album_years(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE albums SET year = COALESCE(release_year, \
-             (SELECT MAX(t.year) FROM tracks t WHERE t.album_id = albums.id))",
+            "UPDATE albums SET year = \
+             (SELECT MAX(COALESCE(t.release_year, t.year)) \
+              FROM tracks t WHERE t.album_id = albums.id)",
             [],
         )?;
         Ok(())
@@ -4192,22 +4274,14 @@ impl ScanSession {
     /// The album row only; its cover is left NULL and filled afterwards by
     /// [`LibraryRepository::resolve_album_covers`], which picks deterministically
     /// instead of taking whichever track the scan happened to finish first.
-    fn resolve_album(
-        &mut self,
-        key: &AlbumKey<'_>,
-        year: Option<i32>,
-        item_id: i64,
-    ) -> Result<i64> {
-        let identity = album_identity(key);
-        let release_year = effective_release_year(key, &identity);
+    fn resolve_album(&mut self, title: &str, year: Option<i32>, item_id: i64) -> Result<i64> {
         scan_album_id(
             &self.conn,
             &mut self.album_cache,
             &mut self.claimed_albums,
             self.stable_ids.as_ref(),
-            identity,
-            key.title,
-            release_year,
+            album_identity(title),
+            title,
             year,
             item_id,
         )
@@ -4221,12 +4295,7 @@ impl ScanSession {
             stable_ids,
             ..
         } = self;
-        regroup_releases(conn, &mut |conn,
-                                     identity,
-                                     title,
-                                     release_year,
-                                     year,
-                                     item_id| {
+        regroup_releases(conn, &mut |conn, identity, title, year, item_id| {
             scan_album_id(
                 conn,
                 album_cache,
@@ -4234,7 +4303,6 @@ impl ScanSession {
                 stable_ids.as_ref(),
                 identity,
                 title,
-                release_year,
                 year,
                 item_id,
             )
@@ -4593,15 +4661,7 @@ impl ScanSession {
         }
 
         let album_id = match &track.album_title {
-            Some(title) => Some(self.resolve_album(
-                &AlbumKey {
-                    title,
-                    release_id: track.release_id.as_deref(),
-                    release_year: track.release_year,
-                },
-                track.year,
-                item_id,
-            )?),
+            Some(title) => Some(self.resolve_album(title, track.year, item_id)?),
             None => None,
         };
 
@@ -4616,8 +4676,8 @@ impl ScanSession {
         // failing the statement.
         let inserted = self.conn.execute(
             r#"INSERT OR IGNORE INTO tracks
-                (id, path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate, is_cue)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
+                (id, path, title, album_id, track_number, disc_number, duration_ms, year, cover_art_id, start_offset_ms, bitrate, is_cue, release_id, release_year)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
             rusqlite::params![
                 item_id,
                 track.path,
@@ -4631,6 +4691,8 @@ impl ScanSession {
                 start_offset_ms,
                 track.bitrate,
                 track.is_cue,
+                release_id_key(track.release_id.as_deref()),
+                track.release_year,
             ],
         )?;
         // A duplicate was ignored: bail before linking artists, otherwise

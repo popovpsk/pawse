@@ -941,9 +941,11 @@ Integrations:
   in both. The album editor shows an album whose tracks disagree on the year with an
   empty field and the range as placeholder, and writes the year only if the field was
   changed (`AlbumTagEdits::year` `None`): otherwise one save would stamp the first
-  track's year onto every song of a compilation. An album keyed on a release date shows
-  that year instead (`album_release_year`, the year its card shows), and a change goes
-  to `AlbumTagEdits::release_year`: it moves `ReleaseDate` in every file and leaves each
+  track's year onto every song of a compilation. An album where any track carries a
+  release date edits that instead (`album_release_years`: each track's release date else
+  year; the card shows the newest), with the same empty field and range when they
+  disagree, and a change goes to
+  `AlbumTagEdits::release_year`: it moves `ReleaseDate` in every file and leaves each
   track's recording date, or the edit would not show on the card (a file whose only date
   is the release date reads the new year as its own).
 - Read-only: a cue track, a file that is the current queue track (checked on open and

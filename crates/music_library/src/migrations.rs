@@ -522,4 +522,11 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         CREATE INDEX idx_albums_identity ON albums(identity);
         "#,
     ),
+    (
+        14,
+        r#"
+        ALTER TABLE tracks ADD COLUMN release_id TEXT;
+        ALTER TABLE tracks ADD COLUMN release_year INTEGER;
+        "#,
+    ),
 ];

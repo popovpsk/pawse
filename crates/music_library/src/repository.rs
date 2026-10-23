@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 use crate::models::{
-    AlbumKey, AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary,
-    ArtistTitles, CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove,
-    NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay,
-    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
+    AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
+    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
+    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
+    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
     StoredLyrics, Track, TrackAnalysis, TrackListing,
 };
 
@@ -37,7 +37,7 @@ pub trait LibraryRepository: Send + Sync {
     fn upsert_artist(&self, name: &str) -> Result<i64>;
     fn upsert_album(
         &self,
-        key: &AlbumKey<'_>,
+        title: &str,
         year: Option<i32>,
         cover_art_id: Option<i64>,
     ) -> Result<i64>;
@@ -58,7 +58,7 @@ pub trait LibraryRepository: Send + Sync {
     fn track_artists_with_ids(&self, track_id: i64) -> Result<Vec<(i64, String)>>;
     fn track_artists_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, Vec<String>>>;
     fn album_title(&self, album_id: i64) -> Result<Option<String>>;
-    fn album_release_year(&self, album_id: i64) -> Result<Option<i32>>;
+    fn album_release_years(&self, album_id: i64) -> Result<Option<(i32, i32)>>;
     fn track_albums_map(&self, track_ids: &[i64]) -> Result<HashMap<i64, String>>;
     fn album_genres(&self, album_id: i64) -> Result<Vec<String>>;
     /// The album's credited artists in `album_artists.position` order. Mirrors

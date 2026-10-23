@@ -140,9 +140,14 @@ pub fn open_for_album(album_id: i64, window: &mut Window, cx: &mut App) {
     loaded.album_artists = library.album_artists(album_id);
     loaded.genres = library.album_genres(album_id);
     let years: std::collections::BTreeSet<Option<i32>> = local.iter().map(|t| t.year).collect();
-    if let Some(release_year) = library.album_release_year(album_id) {
-        loaded.year = Some(release_year);
+    if let Some((first, last)) = library.album_release_years(album_id) {
         loaded.year_is_release = true;
+        if first == last {
+            loaded.year = Some(first);
+        } else {
+            loaded.year = None;
+            loaded.year_range = Some(format!("{first}–{last}"));
+        }
     } else if years.len() > 1 {
         let known: Vec<i32> = years.iter().flatten().copied().collect();
         loaded.year = None;

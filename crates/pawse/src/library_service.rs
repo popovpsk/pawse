@@ -1018,8 +1018,8 @@ impl LibraryService {
         self.repo.album_title(album_id).ok().flatten()
     }
 
-    pub fn album_release_year(&self, album_id: i64) -> Option<i32> {
-        self.repo.album_release_year(album_id).ok().flatten()
+    pub fn album_release_years(&self, album_id: i64) -> Option<(i32, i32)> {
+        self.repo.album_release_years(album_id).ok().flatten()
     }
 
     pub fn track_albums_map(&self, track_ids: &[i64]) -> HashMap<i64, String> {
@@ -1838,15 +1838,7 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
     let album_title = music_library::clean_album_title(scanned.album_title.clone());
 
     let album_id = match album_title.as_deref() {
-        Some(title) => Some(repo.upsert_album(
-            &music_library::AlbumKey {
-                title,
-                release_id: scanned.release_id.as_deref(),
-                release_year: scanned.release_year,
-            },
-            scanned.year,
-            None,
-        )?),
+        Some(title) => Some(repo.upsert_album(title, scanned.year, None)?),
         None => None,
     };
 
@@ -1858,6 +1850,8 @@ fn reindex_one(repo: &dyn LibraryRepository, track_id: i64, path: &Path) -> anyh
         track_number: scanned.track_number,
         disc_number: disc_number(scanned.disc_number, &scanned.path),
         year: scanned.year,
+        release_id: scanned.release_id.clone(),
+        release_year: scanned.release_year,
         duration_ms: scanned.duration_ms,
         cover_art_id: None,
         start_offset_ms: scanned.start_offset_ms,
@@ -3501,7 +3495,7 @@ mod tests {
     }
 
     #[test]
-    fn the_album_editor_year_moves_the_release_date_the_album_is_keyed_on() {
+    fn the_album_editor_year_moves_the_release_date_the_album_shows() {
         let ws = Workspace::new();
         for n in [1, 2] {
             let path = ws.add_file(&format!("0{n}.flac"), "tagged_basic.flac");
@@ -3521,8 +3515,8 @@ mod tests {
         assert_eq!(albums.len(), 1, "{albums:?}");
         assert_eq!(albums[0].year, Some(1990));
         assert_eq!(
-            ws.repo.album_release_year(albums[0].id).unwrap(),
-            Some(1990)
+            ws.repo.album_release_years(albums[0].id).unwrap(),
+            Some((1990, 1990))
         );
 
         let tracks = ws.repo.tracks_for_album(albums[0].id).unwrap();
@@ -3568,9 +3562,7 @@ mod tests {
 
         let headliner = repo.upsert_artist("Headliner").unwrap();
         let guest = repo.upsert_artist("Guest").unwrap();
-        let album = repo
-            .upsert_album(&music_library::AlbumKey::titled("Record"), Some(2020), None)
-            .unwrap();
+        let album = repo.upsert_album("Record", Some(2020), None).unwrap();
         let track = repo
             .upsert_track(
                 &NewTrack {
@@ -3643,16 +3635,8 @@ mod tests {
         std::fs::create_dir_all(&folder).unwrap();
         let repo = SqliteLibrary::open_at(folder.join("library.db")).unwrap();
 
-        let older = repo
-            .upsert_album(
-                &music_library::AlbumKey::titled("The Zebra"),
-                Some(1999),
-                None,
-            )
-            .unwrap();
-        let newer = repo
-            .upsert_album(&music_library::AlbumKey::titled("Apple"), Some(2010), None)
-            .unwrap();
+        let older = repo.upsert_album("The Zebra", Some(1999), None).unwrap();
+        let newer = repo.upsert_album("Apple", Some(2010), None).unwrap();
         for (album, album_title, title, path) in [
             (older, "The Zebra", "Stripes", "/m/z.flac"),
             (newer, "Apple", "Core", "/m/a.flac"),
