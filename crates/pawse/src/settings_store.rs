@@ -659,8 +659,8 @@ pub struct UserSettings {
     pub auto_update: bool,
     #[serde(default = "default_true")]
     pub lyrics_from_internet: bool,
-    #[serde(default)]
-    pub lyrics_prefer_lrclib: bool,
+    #[serde(default, alias = "lyrics_prefer_lrclib")]
+    pub lyrics_prefer_web: bool,
     #[serde(default = "default_true")]
     pub artist_info_from_internet: bool,
     #[serde(default)]
@@ -778,7 +778,7 @@ impl Default for UserSettings {
             artists_layout: LibraryLayout::List,
             auto_update: true,
             lyrics_from_internet: true,
-            lyrics_prefer_lrclib: false,
+            lyrics_prefer_web: false,
             artist_info_from_internet: true,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,
@@ -1388,16 +1388,16 @@ impl SettingsStore {
         self.save()
     }
 
-    pub fn lyrics_prefer_lrclib(&self) -> bool {
-        self.settings.lyrics_from_internet && self.settings.lyrics_prefer_lrclib
+    pub fn lyrics_prefer_web(&self) -> bool {
+        self.settings.lyrics_from_internet && self.settings.lyrics_prefer_web
     }
 
-    pub fn lyrics_prefer_lrclib_setting(&self) -> bool {
-        self.settings.lyrics_prefer_lrclib
+    pub fn lyrics_prefer_web_setting(&self) -> bool {
+        self.settings.lyrics_prefer_web
     }
 
-    pub fn set_lyrics_prefer_lrclib(&mut self, enabled: bool) -> anyhow::Result<()> {
-        self.settings.lyrics_prefer_lrclib = enabled;
+    pub fn set_lyrics_prefer_web(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.lyrics_prefer_web = enabled;
         self.save()
     }
 
@@ -2370,7 +2370,7 @@ mod tests {
             artists_layout: LibraryLayout::Grid,
             auto_update: true,
             lyrics_from_internet: true,
-            lyrics_prefer_lrclib: false,
+            lyrics_prefer_web: false,
             artist_info_from_internet: true,
             remote_enabled: false,
             remote_port: pawse_remote::DEFAULT_PORT,

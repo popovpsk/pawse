@@ -4996,13 +4996,13 @@ mod tests {
         assert!(!first.not_found);
         assert_eq!(first.text, "plain words");
 
-        lib.upsert_lyrics(track_id, "[00:00.00] synced now", "lrclib", false)
+        lib.upsert_lyrics(track_id, "[00:00.00] synced now", "web", false)
             .unwrap();
-        assert_eq!(find("lrclib").text, "[00:00.00] synced now");
+        assert_eq!(find("web").text, "[00:00.00] synced now");
         assert_eq!(find("embedded").text, "plain words");
 
-        lib.upsert_lyrics(track_id, "", "lrclib", true).unwrap();
-        let third = find("lrclib");
+        lib.upsert_lyrics(track_id, "", "web", true).unwrap();
+        let third = find("web");
         assert!(third.not_found);
         assert_eq!(third.text, "");
 

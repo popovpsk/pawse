@@ -529,4 +529,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         ALTER TABLE tracks ADD COLUMN release_year INTEGER;
         "#,
     ),
+    (
+        15,
+        r#"
+        DELETE FROM lyrics WHERE source = 'lrclib';
+        "#,
+    ),
 ];

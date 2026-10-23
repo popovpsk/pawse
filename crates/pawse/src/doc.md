@@ -414,9 +414,11 @@ Integrations:
 
 ## Lyrics (`lyrics_view.rs`)
 
-- Four sources in fixed tab order: server, `.lrc`, embedded tag, LRCLIB. Which wins is
+- Four sources in fixed tab order: server, `.lrc`, embedded tag, web. Which wins is
   `lyrics_source::pick` (`music_library/src/doc.md`, "Lyrics"). Tabs show only with more
-  than one source; an unavailable LRCLIB tab starts the search.
+  than one source; an unavailable web tab starts the search. The web tab is one source
+  whichever provider answered (`lyrics/src/doc.md`, "Web lookup"); the provider is only
+  logged.
 - `LyricsPresentation` (Full screen cover mode, from `main_view::stage`): `bare_header`
   keeps only the tabs and the locate button (no title, no Save; the row keeps its
   height); `bottom_inset` ends the list above the spectrum strip with a spacer under the
@@ -438,27 +440,27 @@ Integrations:
   "Caching"): a notify from render reaches no cached block.
 - Loaded once per track, on a `PlaybackStatus` change of track id in `Preparing` or
   `Ready`, never on `Idle`. `Stopped` clears; `LyricsChanged` for the current track
-  reloads. Neither the server request nor the LRCLIB search starts while the panel is
+  reloads. Neither the server request nor the web search starts while the panel is
   hidden; showing it starts them.
 - For a track played from a server, its lyrics are asked each time it is shown
   (`RemoteMedia::lyrics`), never stored (`servers/doc.md`, Decisions), and take the place
-  of `.lrc`/tag in the ranking against LRCLIB ("Prefer LRCLIB"). For `SERVER_GRACE` the
-  LRCLIB auto-search waits and a stored source ranked below the server is not shown, so
-  the text does not swap under the user; after it the server is no longer waited for and
-  a late answer still takes over. A failed request counts as "none" for that play.
+  of `.lrc`/tag in the ranking against the web ("Prefer lyrics from the internet"). For
+  `SERVER_GRACE` the web auto-search waits and a stored source ranked below the server is
+  not shown, so the text does not swap under the user; after it the server is no longer
+  waited for and a late answer still takes over. A failed request counts as "none" for that play.
 - The auto-search needs "Fetch lyrics from the internet" on, nothing searched yet, and
-  no own lyrics (or "Prefer LRCLIB"). Turning the switch off forgets everything LRCLIB
-  gave (`LyricsAccess::forget_fetched`: words and "not found" markers; a search in
-  flight cannot write after it, see "Web remote reader and lyrics access"), as does
-  every launch while it stays off; until the delete lands the view drops LRCLIB rows
+  no own lyrics (or "Prefer lyrics from the internet"). Turning the switch off forgets
+  everything the web gave (`LyricsAccess::forget_fetched`: words and "not found" markers;
+  a search in flight cannot write after it, see "Web remote reader and lyrics access"),
+  as does every launch while it stays off; until the delete lands the view drops web rows
   itself.
-- Export writes `current_raw` as `.lrc` beside the file, only for LRCLIB text of a local
+- Export writes `current_raw` as `.lrc` beside the file, only for web text of a local
   non-cue file without a sidecar. Synthetic ♪ rows live only in `rows`, so they never
   reach the file; keep it so. Server tracks never export.
 - Time is interpolated between `PositionChanged` ticks (frozen while not playing,
   including `Preparing` and buffering); a row goes active `ACTIVE_TOLERANCE_MS` early.
   Render recomputes the active row whenever the lyrics are synced, paused too, so rows
-  that arrive while paused (another source tab, a late LRCLIB or server answer) light
+  that arrive while paused (another source tab, a late web or server answer) light
   the row at the paused position.
 - Autoscroll centers the active row; the wheel disengages it, the locate button
   re-engages. With `lyrics_wave` on, a step that `lyrics_wave::fits` (a few rows, counted
@@ -1088,7 +1090,7 @@ keeps the Artists tab's bounded photo stores.
   rebuilding it. `artist_detail` marks partial albums and `full` expands them
   (`artist_display_tracks`, as on the desktop artist page). Covers over `WEB_COVER_MAX`
   are re-encoded as JPEG.
-- `LyricsAccess` gates LRCLIB writes by epoch: `forget_fetched` bumps `fetch_epoch` at
+- `LyricsAccess` gates web lyrics writes by epoch: `forget_fetched` bumps `fetch_epoch` at
   once (UI thread) and deletes on the executor; `save_fetched` / `mark_not_found` check
   the epoch under the lock the delete takes, so a lookup in flight cannot write after a
   forget. The request is not cancelled, only its result.

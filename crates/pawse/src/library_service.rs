@@ -522,11 +522,11 @@ impl LyricsAccess {
         let _writes = self.fetch_gate.writes.lock().unwrap();
         match self
             .repo
-            .delete_lyrics_source(music_library::lyrics_source::LRCLIB)
+            .delete_lyrics_source(music_library::lyrics_source::WEB)
         {
             Ok(0) => {}
-            Ok(n) => log::info!("Forgot {n} LRCLIB lyrics rows"),
-            Err(e) => log::error!("Failed to forget LRCLIB lyrics: {e}"),
+            Ok(n) => log::info!("Forgot {n} web lyrics rows"),
+            Err(e) => log::error!("Failed to forget web lyrics: {e}"),
         }
     }
 
@@ -539,7 +539,7 @@ impl LyricsAccess {
         }
         if let Err(e) =
             self.repo
-                .upsert_lyrics(track_id, text, music_library::lyrics_source::LRCLIB, false)
+                .upsert_lyrics(track_id, text, music_library::lyrics_source::WEB, false)
         {
             log::error!("Failed to save lyrics for track {}: {}", track_id, e);
             return false;
@@ -555,7 +555,7 @@ impl LyricsAccess {
         }
         if let Err(e) =
             self.repo
-                .upsert_lyrics(track_id, "", music_library::lyrics_source::LRCLIB, true)
+                .upsert_lyrics(track_id, "", music_library::lyrics_source::WEB, true)
         {
             log::error!(
                 "Failed to mark lyrics not-found for track {}: {}",
@@ -3742,7 +3742,7 @@ mod tests {
             repo.lyrics_variants(id)
                 .unwrap()
                 .into_iter()
-                .filter(|v| v.source == music_library::lyrics_source::LRCLIB)
+                .filter(|v| v.source == music_library::lyrics_source::WEB)
                 .count()
         };
 

@@ -5281,6 +5281,8 @@ name = "lyrics"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "log",
+ "roxmltree 0.21.1",
  "rstest",
  "serde",
  "serde_json",

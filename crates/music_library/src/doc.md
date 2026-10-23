@@ -309,16 +309,18 @@ album apart.
 ## Lyrics
 
 - One row per source, `PRIMARY KEY (track_id, source)`: a `.lrc` sidecar, the embedded
-  tag and an LRCLIB result live side by side, a scan never overwrites fetched words and
-  the user can switch. A `not_found` row is the "looked up, nothing" marker.
+  tag and the best lyrics found on the web (`web`, whichever provider gave them) live side
+  by side, a scan never overwrites fetched words and the user can switch. A `not_found`
+  row is the "looked up, nothing" marker.
 - `clear()` removes the disk rows (`lrc`, `embedded`) so a deleted `.lrc` disappears;
-  fetched rows and markers go only through `delete_lyrics_source` (the user turns LRCLIB
-  off), and an item kept alive only by them is swept by the next scan.
+  fetched rows and markers go only through `delete_lyrics_source` (the user turns lyrics
+  from the internet off), and an item kept alive only by them is swept by the next scan.
 - Which row shows is decided outside SQL (`lyrics_source::choices`, `pick`): default
-  order `server > lrc > embedded > lrclib` (`lrclib` first if the user prefers it), a
-  row whose text equals a higher-ranked one is dropped (an exported `.lrc` hides the
-  LRCLIB copy it came from). `server` is never a row: the app fetches a server track's
-  own lyrics live.
+  order `server > lrc > embedded > web` (`web` first if the user prefers it), a row whose
+  text equals a higher-ranked one is dropped (an exported `.lrc` hides the web copy it
+  came from). `server` is never a row: the app fetches a server track's own lyrics live.
+- Migration 15 drops every old `lrclib` row, found or not: they were LRCLIB-only lookups,
+  and the next showing of a track asks every web provider again.
 
 ## Artist info cache
 

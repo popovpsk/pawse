@@ -795,19 +795,19 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
 
     group = group.item(
         SettingItem::new(
-            tr().lyrics_prefer_lrclib.clone(),
+            tr().lyrics_prefer_web.clone(),
             SettingField::render(|_window, cx: &mut App| {
                 let settings = cx.global::<SettingsStore>();
-                let enabled = settings.lyrics_prefer_lrclib_setting();
+                let enabled = settings.lyrics_prefer_web_setting();
                 let online = settings.lyrics_from_internet();
                 h_flex().items_center().justify_end().child(
-                    Switch::new("lyrics-prefer-lrclib-toggle")
+                    Switch::new("lyrics-prefer-web-toggle")
                         .checked(enabled && online)
                         .disabled(!online)
                         .on_click(|new_val, _, cx| {
                             if let Err(e) = cx
                                 .global_mut::<SettingsStore>()
-                                .set_lyrics_prefer_lrclib(*new_val)
+                                .set_lyrics_prefer_web(*new_val)
                             {
                                 notify_save_error(cx, e);
                             }
@@ -815,7 +815,7 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
                 )
             }),
         )
-        .description(tr().lyrics_prefer_lrclib_desc.clone()),
+        .description(tr().lyrics_prefer_web_desc.clone()),
     );
 
     let artist_strings = artist_card_strings_for(active());

@@ -245,23 +245,23 @@ pub struct NewTrack {
 pub mod lyrics_source {
     pub const LRC: &str = "lrc";
     pub const EMBEDDED: &str = "embedded";
-    pub const LRCLIB: &str = "lrclib";
+    pub const WEB: &str = "web";
     pub const SERVER: &str = "server";
 
     pub fn is_disk_derived(source: &str) -> bool {
         matches!(source, LRC | EMBEDDED)
     }
 
-    pub fn order(prefer_lrclib: bool) -> [&'static str; 4] {
-        if prefer_lrclib {
-            [LRCLIB, SERVER, LRC, EMBEDDED]
+    pub fn order(prefer_web: bool) -> [&'static str; 4] {
+        if prefer_web {
+            [WEB, SERVER, LRC, EMBEDDED]
         } else {
-            [SERVER, LRC, EMBEDDED, LRCLIB]
+            [SERVER, LRC, EMBEDDED, WEB]
         }
     }
 
-    pub fn rank(source: &str, prefer_lrclib: bool) -> usize {
-        order(prefer_lrclib)
+    pub fn rank(source: &str, prefer_web: bool) -> usize {
+        order(prefer_web)
             .iter()
             .position(|known| *known == source)
             .unwrap_or(usize::MAX)
@@ -269,13 +269,13 @@ pub mod lyrics_source {
 
     pub fn choices(
         variants: &[super::StoredLyrics],
-        prefer_lrclib: bool,
+        prefer_web: bool,
     ) -> Vec<&super::StoredLyrics> {
         let mut usable: Vec<&super::StoredLyrics> = variants
             .iter()
             .filter(|v| !v.not_found && !v.text.trim().is_empty())
             .collect();
-        usable.sort_by_key(|v| rank(&v.source, prefer_lrclib));
+        usable.sort_by_key(|v| rank(&v.source, prefer_web));
         let mut distinct: Vec<&super::StoredLyrics> = Vec::with_capacity(usable.len());
         for variant in usable {
             if !distinct
@@ -289,12 +289,12 @@ pub mod lyrics_source {
     }
 
     pub fn pick(
-        prefer_lrclib: bool,
+        prefer_web: bool,
         chosen: Option<&'static str>,
         available: impl Fn(&str) -> bool,
     ) -> Option<&'static str> {
         chosen.filter(|source| available(source)).or_else(|| {
-            order(prefer_lrclib)
+            order(prefer_web)
                 .into_iter()
                 .find(|source| available(source))
         })

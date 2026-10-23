@@ -46,7 +46,7 @@ macOS · Windows · Linux
 ## Everything you'd expect
 
 - **Formats** — FLAC, ALAC, AAC, MP3, WAV, Ogg Vorbis, Opus, APE, DSD (DSF/DFF) and more; CUE sheets split into tracks; gapless playback and click-free fades.
-- **Lyrics** — time-synced, with karaoke highlighting, from your files, LRCLIB or your media server.
+- **Lyrics** — time-synced, with karaoke highlighting, from your files, the web (BiniLyrics, LRCLIB, lrcmux) or your media server.
 - **Tag editor** — per track or per album.
 - **System integration** — OS media controls, media keys, keyboard shortcuts, Discord status.
 - **Sleep timer** and **automatic updates**.

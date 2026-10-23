@@ -53,7 +53,7 @@ struct LoadOutcome {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Lrclib {
+enum Web {
     Unknown,
     NotFound,
     Found,
@@ -144,7 +144,7 @@ const SEGMENT_ORDER: [&str; 4] = [
     lyrics_source::SERVER,
     lyrics_source::LRC,
     lyrics_source::EMBEDDED,
-    lyrics_source::LRCLIB,
+    lyrics_source::WEB,
 ];
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -167,12 +167,12 @@ pub struct LyricsView {
     synced: bool,
     source: String,
     variants: Vec<StoredLyrics>,
-    lrclib: Lrclib,
+    web: Web,
     server: Server,
     server_slow: bool,
     choice: Option<&'static str>,
     segments: Vec<SourceSegment>,
-    prefer_lrclib: bool,
+    prefer_web: bool,
     online: bool,
     track_duration_ms: Option<u64>,
     active_ix: Option<usize>,
@@ -286,7 +286,7 @@ impl LyricsView {
         let blur = cx.new(|_| LyricsBlur::default());
         let blur_subscription = cx.observe(&blur, |_, _, cx| cx.notify());
         let settings = cx.global::<SettingsStore>();
-        let prefer_lrclib = settings.lyrics_prefer_lrclib();
+        let prefer_web = settings.lyrics_prefer_web();
         let online = settings.lyrics_from_internet();
 
         let mut result = Self {
@@ -295,12 +295,12 @@ impl LyricsView {
             synced: false,
             source: String::new(),
             variants: Vec::new(),
-            lrclib: Lrclib::Unknown,
+            web: Web::Unknown,
             server: Server::None,
             server_slow: false,
             choice: None,
             segments: Vec::new(),
-            prefer_lrclib,
+            prefer_web,
             online,
             track_duration_ms: None,
             active_ix: None,
@@ -374,13 +374,13 @@ impl LyricsView {
     fn settings_changed(&mut self, cx: &mut Context<Self>) {
         cx.notify();
         let settings = cx.global::<SettingsStore>();
-        let prefer_lrclib = settings.lyrics_prefer_lrclib();
+        let prefer_web = settings.lyrics_prefer_web();
         let online = settings.lyrics_from_internet();
-        if prefer_lrclib == self.prefer_lrclib && online == self.online {
+        if prefer_web == self.prefer_web && online == self.online {
             return;
         }
         let went_offline = self.online && !online;
-        self.prefer_lrclib = prefer_lrclib;
+        self.prefer_web = prefer_web;
         self.online = online;
         if went_offline {
             self.forget_fetched(cx);
@@ -468,24 +468,24 @@ impl LyricsView {
 
     fn set_variants(&mut self, mut variants: Vec<StoredLyrics>) {
         if !self.online {
-            variants.retain(|v| v.source != lyrics_source::LRCLIB);
+            variants.retain(|v| v.source != lyrics_source::WEB);
         }
-        self.lrclib = match variants.iter().find(|v| v.source == lyrics_source::LRCLIB) {
-            Some(v) if v.not_found => Lrclib::NotFound,
-            Some(_) => Lrclib::Found,
-            None => Lrclib::Unknown,
+        self.web = match variants.iter().find(|v| v.source == lyrics_source::WEB) {
+            Some(v) if v.not_found => Web::NotFound,
+            Some(_) => Web::Found,
+            None => Web::Unknown,
         };
         self.variants = variants;
         if self.choice.is_some_and(|choice| {
-            choice == lyrics_source::LRCLIB && (!self.online || self.lrclib == Lrclib::NotFound)
+            choice == lyrics_source::WEB && (!self.online || self.web == Web::NotFound)
         }) {
             self.choice = None;
         }
     }
 
     fn show_best(&mut self, cx: &mut Context<Self>) {
-        let choices = lyrics_source::choices(&self.variants, self.prefer_lrclib);
-        let can_search = self.online && self.lrclib == Lrclib::Unknown;
+        let choices = lyrics_source::choices(&self.variants, self.prefer_web);
+        let can_search = self.online && self.web == Web::Unknown;
         let from_server = matches!(self.server, Server::Found(_));
         let available = |source: &str| {
             if source == lyrics_source::SERVER {
@@ -498,15 +498,15 @@ impl LyricsView {
             .iter()
             .filter_map(|&source| {
                 let available = available(source);
-                let searchable = source == lyrics_source::LRCLIB && can_search;
+                let searchable = source == lyrics_source::WEB && can_search;
                 (available || searchable).then_some(SourceSegment { source, available })
             })
             .collect();
         let waiting = self.server_waiting() && self.choice.is_none();
-        let server_rank = lyrics_source::rank(lyrics_source::SERVER, self.prefer_lrclib);
+        let server_rank = lyrics_source::rank(lyrics_source::SERVER, self.prefer_web);
         let picked =
-            lyrics_source::pick(self.prefer_lrclib, self.choice, available).filter(|source| {
-                !waiting || lyrics_source::rank(source, self.prefer_lrclib) < server_rank
+            lyrics_source::pick(self.prefer_web, self.choice, available).filter(|source| {
+                !waiting || lyrics_source::rank(source, self.prefer_web) < server_rank
             });
         match picked {
             Some(lyrics_source::SERVER) => {
@@ -525,7 +525,7 @@ impl LyricsView {
                     self.apply_text(&text, source, cx);
                 }
             }
-            None if self.lrclib == Lrclib::NotFound && !self.fetching && !self.server_pending() => {
+            None if self.web == Web::NotFound && !self.fetching && !self.server_pending() => {
                 self.set_not_found(cx)
             }
             None => self.set_empty(cx),
@@ -545,12 +545,12 @@ impl LyricsView {
             return;
         }
         self.maybe_fetch_server(cx);
-        if self.loading || !self.online || self.fetching || self.lrclib != Lrclib::Unknown {
+        if self.loading || !self.online || self.fetching || self.web != Web::Unknown {
             return;
         }
-        let has_own = !lyrics_source::choices(&self.variants, self.prefer_lrclib).is_empty()
+        let has_own = !lyrics_source::choices(&self.variants, self.prefer_web).is_empty()
             || matches!(self.server, Server::Found(_));
-        if (has_own || self.server_waiting()) && !self.prefer_lrclib {
+        if (has_own || self.server_waiting()) && !self.prefer_web {
             return;
         }
         if let Some(ctx) = Self::current_context(cx)
@@ -640,10 +640,10 @@ impl LyricsView {
                     duration_secs: ctx.duration_secs,
                 };
                 let written = match lyrics::fetch(&query) {
-                    Ok(Some(remote)) => match pick_remote(remote) {
-                        Some(raw) => access.save_fetched(id, &raw, epoch),
-                        None => access.mark_not_found(id, epoch),
-                    },
+                    Ok(Some(found)) => {
+                        log::info!("lyrics for track {id} from {}", found.provider);
+                        access.save_fetched(id, &found.text, epoch)
+                    }
                     Ok(None) => access.mark_not_found(id, epoch),
                     Err(e) => {
                         log::warn!("lyrics fetch failed for track {}: {}", id, e);
@@ -661,7 +661,7 @@ impl LyricsView {
                 match refreshed {
                     Some(variants) => this.set_variants(variants),
                     None => {
-                        if this.choice == Some(lyrics_source::LRCLIB) {
+                        if this.choice == Some(lyrics_source::WEB) {
                             this.choice = None;
                         }
                     }
@@ -692,10 +692,8 @@ impl LyricsView {
         self.source = source.to_string();
         self.current_raw = raw;
         let has_sidecar = self.variants.iter().any(|v| v.source == lyrics_source::LRC);
-        self.can_export = !self.rows.is_empty()
-            && source == lyrics_source::LRCLIB
-            && !self.is_cue
-            && !has_sidecar;
+        self.can_export =
+            !self.rows.is_empty() && source == lyrics_source::WEB && !self.is_cue && !has_sidecar;
         self.loading = false;
         self.not_found = false;
         if rows_changed {
@@ -736,7 +734,7 @@ impl LyricsView {
         self.fetching = false;
         self._fetch_task = None;
         self.variants.clear();
-        self.lrclib = Lrclib::Unknown;
+        self.web = Web::Unknown;
         self.server = Server::None;
         self.server_slow = false;
         self._server_task = None;
@@ -1066,13 +1064,6 @@ impl LyricsView {
     }
 }
 
-fn pick_remote(remote: lyrics::RemoteLyrics) -> Option<String> {
-    remote
-        .synced
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| remote.plain.filter(|s| !s.trim().is_empty()))
-}
-
 impl Render for LyricsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let foreground = Colors::foreground(cx);
@@ -1223,16 +1214,15 @@ impl Render for LyricsView {
                         lyrics_source::EMBEDDED => {
                             ("icons/lyrics-tag.svg", tr().lyrics_source_tags.clone())
                         }
-                        _ if fetching => (
-                            "icons/loader-circle.svg",
-                            tr().lyrics_searching_lrclib.clone(),
-                        ),
-                        _ if segment.available => {
-                            ("icons/lyrics-web.svg", tr().lyrics_source_lrclib.clone())
+                        _ if fetching => {
+                            ("icons/loader-circle.svg", tr().lyrics_searching_web.clone())
                         }
-                        _ => ("icons/lyrics-web.svg", tr().lyrics_search_lrclib.clone()),
+                        _ if segment.available => {
+                            ("icons/lyrics-web.svg", tr().lyrics_source_web.clone())
+                        }
+                        _ => ("icons/lyrics-web.svg", tr().lyrics_search_web.clone()),
                     };
-                    let spinning = fetching && source == lyrics_source::LRCLIB;
+                    let spinning = fetching && source == lyrics_source::WEB;
                     panel_header_segment(
                         ("lyrics_source", ix),
                         icon,
