@@ -17,9 +17,9 @@ use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
 use ui_components::artist_avatar::artist_avatar;
 
+use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
 use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, has_music_sources};
-use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;

@@ -10,6 +10,7 @@ use crate::{Command, EngineEvent, StreamTrack};
 use audio_common::AudioBatch;
 use audio_decoder::Decoder;
 use audio_output::{EngineOutput, FadeEvent};
+use equalizer::{Control, Processor};
 use flume::TryRecvError;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -66,10 +67,18 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new(out: Arc<dyn EngineOutput>) -> Self {
-        Self::with_resolver(out, Arc::new(|path| Ok(path.to_path_buf())))
+        Self::with_resolver(
+            out,
+            Arc::new(|path| Ok(path.to_path_buf())),
+            Arc::new(Control::new(None)),
+        )
     }
 
-    pub fn with_resolver(out: Arc<dyn EngineOutput>, resolver: TrackResolver) -> Self {
+    pub fn with_resolver(
+        out: Arc<dyn EngineOutput>,
+        resolver: TrackResolver,
+        equalizer: Arc<Control>,
+    ) -> Self {
         let (event_sender, event_receiver) = flume::bounded(64);
         let (command_sender, command_receiver) = flume::bounded(64);
 
@@ -93,6 +102,8 @@ impl AudioEngine {
             prepare_started: None,
             release_at: Some(Instant::now() + RELEASE_AFTER_PAUSE),
             ended_naturally: false,
+            equalizer: Processor::new(equalizer),
+            equalized: false,
         }
         .run();
 
@@ -184,6 +195,8 @@ struct AudioEngineLoop {
     prepare_started: Option<Instant>,
     release_at: Option<Instant>,
     ended_naturally: bool,
+    equalizer: Processor,
+    equalized: bool,
 }
 
 impl AudioEngineLoop {
@@ -294,6 +307,7 @@ impl AudioEngineLoop {
                             self.end_track();
                             continue;
                         }
+                        self.equalize(&mut batch);
                         batch
                     }
                     None => continue,
@@ -331,6 +345,18 @@ impl AudioEngineLoop {
         let channels = batch.metadata.channels.to_u8() as usize;
         batch.data.truncate(frames * channels);
         false
+    }
+
+    fn equalize(&mut self, batch: &mut AudioBatch) {
+        let channels = batch.metadata.channels.to_u8() as usize;
+        if self.equalizer.prepare(batch.metadata.sample_rate, channels) {
+            self.equalizer.process(batch.data.f32_mut());
+        }
+        let equalized = self.equalizer.is_active();
+        if equalized != self.equalized {
+            self.equalized = equalized;
+            self.output.set_equalized(equalized);
+        }
     }
 
     fn update_current_position(&mut self, written: usize, b: &AudioBatch) {
@@ -861,8 +887,10 @@ mod tests {
     use audio_common::{AudioSamples, AudioSource};
     use audio_output::AudioOutput;
     use audio_output::ring_buffer::AudioRingBuffer;
+    use equalizer::{Band, Kind};
     use parking_lot::Mutex;
     use rstest::rstest;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     const RING_CAPACITY: usize = 1031;
     const POP_SIZES: [usize; 4] = [1, 7, 333, 64];
@@ -870,6 +898,7 @@ mod tests {
     struct RingOutput {
         buffer: AudioRingBuffer,
         fade: Mutex<Option<FadeEvent>>,
+        equalized: AtomicBool,
     }
 
     impl AudioOutput for RingOutput {
@@ -903,6 +932,9 @@ mod tests {
             *self.fade.lock() = None;
         }
         fn release_paused(&self) {}
+        fn set_equalized(&self, equalized: bool) {
+            self.equalized.store(equalized, Ordering::Relaxed);
+        }
     }
 
     struct Harness {
@@ -918,11 +950,17 @@ mod tests {
 
     impl Harness {
         fn start(path: &Path) -> Self {
+            Self::start_with(path, Arc::new(Control::new(None)))
+        }
+
+        fn start_with(path: &Path, equalizer: Arc<Control>) -> Self {
             let output = Arc::new(RingOutput {
                 buffer: AudioRingBuffer::new(RING_CAPACITY),
                 fade: Mutex::new(None),
+                equalized: AtomicBool::new(false),
             });
-            let engine = AudioEngine::new(output.clone());
+            let resolver: TrackResolver = Arc::new(|path| Ok(path.to_path_buf()));
+            let engine = AudioEngine::with_resolver(output.clone(), resolver, equalizer);
             let events = engine.events();
             engine.set_track(path.to_path_buf());
             engine.play();
@@ -1043,6 +1081,28 @@ mod tests {
             last + Duration::from_millis(POSITION_UPDATE_INTERVAL_MS) + tolerance >= duration,
             "{last:?}"
         );
+    }
+
+    #[rstest]
+    #[case::flat(vec![Band::new(Kind::Peak, 1000., 0., 1.)], false)]
+    #[case::boost(vec![Band::new(Kind::Peak, 440., 6., 2.)], true)]
+    fn equalizer_touches_the_signal_only_when_it_changes_it(
+        #[case] bands: Vec<Band>,
+        #[case] active: bool,
+    ) {
+        let path = fixture("sine_440_16_44_stereo.wav");
+        let mut expected = decode(&path).samples;
+        let control = Arc::new(Control::new(Some(bands)));
+        let mut reference = Processor::new(control.clone());
+        if reference.prepare(44_100, 2) {
+            reference.process(&mut expected);
+        }
+
+        let mut harness = Harness::start_with(&path, control);
+        harness.play_to_end();
+
+        assert_same_samples(&harness.received, &expected);
+        assert_eq!(harness.output.equalized.load(Ordering::Relaxed), active);
     }
 
     #[test]

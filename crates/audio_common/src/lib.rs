@@ -119,6 +119,16 @@ impl AudioSamples {
         }
     }
 
+    pub fn f32_mut(&mut self) -> &mut [f32] {
+        if !matches!(self, AudioSamples::F32(_)) {
+            *self = AudioSamples::F32(self.to_f32());
+        }
+        match self {
+            AudioSamples::F32(data) => data,
+            _ => unreachable!("converted to F32 above"),
+        }
+    }
+
     /// Конвертирует любой формат сэмплов в f32
     pub fn to_f32(&self) -> Vec<f32> {
         let mut out = Vec::with_capacity(self.len());

@@ -38,7 +38,6 @@ trigger (`main_view/doc.md`).
 - `playlist_import.rs` — server playlist import dialog.
 - `track_row.rs` — shared by the track pages: Liked/playlist columns, the guest-credit
   rule, search haystacks, the unavailable label. `build_artist_map` is used by the queue.
-- `fuzzy.rs` — the fuzzy filter (nucleo) with a minimum score per typed character.
 
 ## Navigation
 
@@ -84,8 +83,8 @@ trigger (`main_view/doc.md`).
   it stays stale while the block is replayed. Settings that change data are followed by
   the view's own `observe_global::<SettingsStore>`, which compares a snapshot first: it
   fires on every settings write.
-- Search: the trimmed query is fuzzy-matched against haystacks built at load, best
-  first; the list scrolls to the top.
+- Search: the trimmed query is fuzzy-matched (`crate::fuzzy`) against haystacks built at
+  load, best first; the list scrolls to the top.
 
 ## Albums and Artists tabs
 

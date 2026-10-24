@@ -2,11 +2,13 @@
 
 The playback engine: one `audio-engine` thread owns the decoder, feeds an `EngineOutput`,
 is driven by `Command`s and reports `EngineEvent`s. It does fades, seeking, cue-track
-ranges, gapless hand-over, streamed sources and the idle release of the output.
+ranges, gapless hand-over, streamed sources, the equalizer pass and the idle release of
+the output.
 
 Not here: decoding (`audio_decoder/src/doc.md`), devices, modes and the ring buffer
-(`audio_output/src/doc.md`), deciding what to open and when — `PlaybackOpener`, `Player`,
-the AirPlay and cast targets (`pawse/src/doc.md`, `pawse/src/cast/doc.md`).
+(`audio_output/src/doc.md`), the filters (`equalizer/src/doc.md`), deciding what to open
+and when — `PlaybackOpener`, `Player`, the AirPlay and cast targets (`pawse/src/doc.md`,
+`pawse/src/cast/doc.md`).
 
 ## Files
 
@@ -40,6 +42,21 @@ one. `EngineOutput` is `AudioOutput` plus the fade and `release_paused` calls th
   cached server tracks to files and rejects ones not downloaded). Failures become
   `EngineEvent::Error`.
 - `Seek` takes a fraction of the effective range — the cue track, or the whole file.
+
+## Equalizer
+
+- Every engine gets the app's one `equalizer::Control` (`with_resolver`; `new` makes an
+  empty one) and runs its own `Processor` on each freshly decoded batch, after
+  `trim_to_track_end` and before the first `write`. A batch is processed once: the part a
+  partial write left over (`current_audio_batch`) is already processed.
+- A batch the processor has no work for is left as decoded; one it filters is converted to
+  F32 in place first (`AudioSamples::f32_mut`).
+- On the output side only `EngineOutput::set_equalized` changes, called when
+  `Processor::is_active` flips; `Output` turns it into a bit-perfect issue, the AirPlay
+  output ignores it. The Tools page sets the same flag on a change, so it is right while
+  paused too.
+- A change reaches the ear after what the ring buffer holds (128 ms) plus the device
+  latency (seconds on AirPlay); the loop never flushes for it.
 
 ## Fades
 

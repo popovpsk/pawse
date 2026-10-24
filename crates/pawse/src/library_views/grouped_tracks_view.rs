@@ -27,8 +27,8 @@ use crate::track_list::{
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
+use crate::fuzzy::fuzzy_scored;
 use crate::library_service::{LibraryEvent, LibraryService};
-use crate::library_views::fuzzy::fuzzy_scored;
 use crate::library_views::track_row::{TITLE_MIN_WIDTH, artist_column, guest_credits};
 use crate::localization::{LangChanged, tr};
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};

@@ -21,9 +21,9 @@ use crate::track_list::{
 };
 use nucleo_matcher::{Config, Matcher};
 
+use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::AlbumInfo;
-use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::track_row::{
     TITLE_MIN_WIDTH, artist_column, build_haystacks, guest_credits,
 };

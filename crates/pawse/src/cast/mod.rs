@@ -599,6 +599,7 @@ fn activate(receiver: cast::Receiver, connected: Connected, volume: Option<f32>,
             let engine = Rc::new(AudioEngine::with_resolver(
                 output.clone(),
                 player.resolver.clone(),
+                services.equalizer.clone(),
             ));
             let opener = PlaybackOpener::new(player.backend.clone(), engine_sink(&engine));
             forward_airplay(id, &engine, &output, &player, cx);

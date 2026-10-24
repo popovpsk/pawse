@@ -26,6 +26,8 @@ pub struct BitPerfectStrings {
     pub sample_rate_desc: SharedString,
     pub bit_depth_desc: SharedString,
     pub no_source_desc: SharedString,
+    pub equalizer: SharedString,
+    pub equalizer_desc: SharedString,
     pub not_an_error: SharedString,
     pub got_it: SharedString,
 }
@@ -119,6 +121,10 @@ static EN: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Nothing is playing yet. Start a track, and this icon will show whether it reaches the device unchanged.",
     ),
+    equalizer: SharedString::new_static("The equalizer is on"),
+    equalizer_desc: SharedString::new_static(
+        "The equalizer changes the sound on purpose before it reaches the device. Turn it off in Tools → Equalizer to hear the file unchanged.",
+    ),
     not_an_error: SharedString::new_static(
         "None of this is an error: the music plays normally. The icon only shows whether the device gets exactly what's in the file.",
     ),
@@ -168,6 +174,10 @@ static ZH: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "尚未播放任何内容。开始播放一首曲目后，这个图标会显示它是否原样到达设备。",
+    ),
+    equalizer: SharedString::new_static("均衡器已开启"),
+    equalizer_desc: SharedString::new_static(
+        "均衡器会在声音到达设备之前有意改变它。在“工具 → 均衡器”中关闭它，即可听到未经改变的文件。",
     ),
     not_an_error: SharedString::new_static(
         "以上都不是错误：音乐照常播放。这个图标只表示设备收到的是否与文件内容完全一致。",
@@ -221,6 +231,10 @@ static PT: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Nada está tocando ainda. Comece uma faixa e este ícone vai mostrar se ela chega ao dispositivo sem alterações.",
     ),
+    equalizer: SharedString::new_static("O equalizador está ligado"),
+    equalizer_desc: SharedString::new_static(
+        "O equalizador altera o som de propósito antes que ele chegue ao dispositivo. Desligue-o em Ferramentas → Equalizador para ouvir o arquivo sem alterações.",
+    ),
     not_an_error: SharedString::new_static(
         "Nada disso é um erro: a música toca normalmente. O ícone só mostra se o dispositivo recebe exatamente o que está no arquivo.",
     ),
@@ -272,6 +286,10 @@ static RU: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Пока ничего не играет. Включите трек, и этот значок покажет, доходит ли он до устройства без изменений.",
+    ),
+    equalizer: SharedString::new_static("Включён эквалайзер"),
+    equalizer_desc: SharedString::new_static(
+        "Эквалайзер намеренно меняет звук до того, как он попадает на устройство. Выключите его в разделе Инструменты → Эквалайзер, чтобы слушать файл без изменений.",
     ),
     not_an_error: SharedString::new_static(
         "Всё это не ошибка: музыка играет как обычно. Значок лишь показывает, получает ли устройство в точности то, что записано в файле.",
@@ -327,6 +345,10 @@ static JA: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "まだ何も再生されていません。トラックを再生すると、このアイコンがデバイスに変更なしで届いているかを表示します。",
     ),
+    equalizer: SharedString::new_static("イコライザーがオンです"),
+    equalizer_desc: SharedString::new_static(
+        "イコライザーは、音がデバイスに届く前に意図的に変えています。ファイルをそのまま聴くには、ツール → イコライザーでオフにしてください。",
+    ),
     not_an_error: SharedString::new_static(
         "これらはいずれもエラーではなく、音楽は普通に再生されています。このアイコンは、デバイスがファイルの内容をそのまま受け取っているかどうかを示すだけです。",
     ),
@@ -378,6 +400,10 @@ static DE: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Es wird noch nichts abgespielt. Starte einen Titel, dann zeigt dieses Symbol, ob er unverändert beim Gerät ankommt.",
+    ),
+    equalizer: SharedString::new_static("Der Equalizer ist an"),
+    equalizer_desc: SharedString::new_static(
+        "Der Equalizer verändert den Klang absichtlich, bevor er beim Gerät ankommt. Schalte ihn unter Werkzeuge → Equalizer aus, um die Datei unverändert zu hören.",
     ),
     not_an_error: SharedString::new_static(
         "Nichts davon ist ein Fehler: Die Musik spielt ganz normal. Das Symbol zeigt nur, ob das Gerät genau das bekommt, was in der Datei steht.",
@@ -431,6 +457,10 @@ static FR: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Rien n'est encore en lecture. Lancez une piste, et cette icône indiquera si elle parvient au périphérique sans modification.",
     ),
+    equalizer: SharedString::new_static("L'égaliseur est activé"),
+    equalizer_desc: SharedString::new_static(
+        "L'égaliseur modifie volontairement le son avant qu'il n'atteigne le périphérique. Désactivez-le dans Outils → Égaliseur pour écouter le fichier sans modification.",
+    ),
     not_an_error: SharedString::new_static(
         "Rien de tout cela n'est une erreur : la musique est lue normalement. L'icône indique seulement si le périphérique reçoit exactement ce que contient le fichier.",
     ),
@@ -482,6 +512,10 @@ static KO: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "아직 재생 중인 곡이 없습니다. 트랙을 재생하면 이 아이콘이 장치에 그대로 전달되는지 보여 줍니다.",
+    ),
+    equalizer: SharedString::new_static("이퀄라이저가 켜져 있습니다"),
+    equalizer_desc: SharedString::new_static(
+        "이퀄라이저는 소리가 장치에 닿기 전에 의도적으로 바꿉니다. 파일을 그대로 들으려면 도구 → 이퀄라이저에서 끄세요.",
     ),
     not_an_error: SharedString::new_static(
         "이 중 어느 것도 오류가 아닙니다. 음악은 정상적으로 재생됩니다. 이 아이콘은 장치가 파일 내용을 그대로 받는지만 보여 줍니다.",
@@ -535,6 +569,10 @@ static IT: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Non è ancora in riproduzione nulla. Avvia una traccia e questa icona mostrerà se arriva al dispositivo senza modifiche.",
     ),
+    equalizer: SharedString::new_static("L'equalizzatore è attivo"),
+    equalizer_desc: SharedString::new_static(
+        "L'equalizzatore modifica di proposito il suono prima che arrivi al dispositivo. Disattivalo in Strumenti → Equalizzatore per ascoltare il file senza modifiche.",
+    ),
     not_an_error: SharedString::new_static(
         "Niente di tutto questo è un errore: la musica suona normalmente. L'icona indica solo se il dispositivo riceve esattamente ciò che c'è nel file.",
     ),
@@ -586,6 +624,10 @@ static TR: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Henüz hiçbir şey çalmıyor. Bir parça başlatın, bu simge onun aygıta değişmeden ulaşıp ulaşmadığını gösterecek.",
+    ),
+    equalizer: SharedString::new_static("Ekolayzer açık"),
+    equalizer_desc: SharedString::new_static(
+        "Ekolayzer, ses aygıta ulaşmadan önce onu bilerek değiştirir. Dosyayı değiştirilmeden dinlemek için Araçlar → Ekolayzer'den kapatın.",
     ),
     not_an_error: SharedString::new_static(
         "Bunların hiçbiri hata değil: müzik normal şekilde çalıyor. Simge yalnızca aygıtın dosyadakinin tam aynısını alıp almadığını gösterir.",
@@ -639,6 +681,10 @@ static PL: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Jeszcze nic nie gra. Włącz utwór, a ta ikona pokaże, czy dociera do urządzenia bez zmian.",
     ),
+    equalizer: SharedString::new_static("Korektor jest włączony"),
+    equalizer_desc: SharedString::new_static(
+        "Korektor celowo zmienia dźwięk, zanim dotrze on do urządzenia. Wyłącz go w Narzędzia → Korektor, aby słuchać pliku bez zmian.",
+    ),
     not_an_error: SharedString::new_static(
         "Nic z tego nie jest błędem: muzyka gra normalnie. Ikona pokazuje tylko, czy urządzenie dostaje dokładnie to, co jest w pliku.",
     ),
@@ -690,6 +736,10 @@ static NL: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Er speelt nog niets. Start een nummer, dan laat dit pictogram zien of het het apparaat ongewijzigd bereikt.",
+    ),
+    equalizer: SharedString::new_static("De equalizer staat aan"),
+    equalizer_desc: SharedString::new_static(
+        "De equalizer verandert het geluid bewust voordat het het apparaat bereikt. Zet hem uit via Hulpmiddelen → Equalizer om het bestand ongewijzigd te horen.",
     ),
     not_an_error: SharedString::new_static(
         "Niets hiervan is een fout: de muziek speelt gewoon. Het pictogram laat alleen zien of het apparaat precies krijgt wat er in het bestand staat.",
@@ -743,6 +793,10 @@ static UK: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Поки нічого не грає. Увімкніть трек, і цей значок покаже, чи доходить він до пристрою без змін.",
     ),
+    equalizer: SharedString::new_static("Увімкнено еквалайзер"),
+    equalizer_desc: SharedString::new_static(
+        "Еквалайзер навмисно змінює звук, перш ніж той потрапить на пристрій. Вимкніть його в розділі Інструменти → Еквалайзер, щоб слухати файл без змін.",
+    ),
     not_an_error: SharedString::new_static(
         "Усе це не помилка: музика грає як зазвичай. Значок лише показує, чи отримує пристрій саме те, що записано у файлі.",
     ),
@@ -794,6 +848,10 @@ static VI: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Chưa phát gì cả. Hãy phát một bản nhạc, biểu tượng này sẽ cho biết nó có đến thiết bị mà không bị thay đổi hay không.",
+    ),
+    equalizer: SharedString::new_static("Bộ chỉnh âm đang bật"),
+    equalizer_desc: SharedString::new_static(
+        "Bộ chỉnh âm cố ý thay đổi âm thanh trước khi nó đến thiết bị. Hãy tắt nó trong Công cụ → Bộ chỉnh âm để nghe tệp mà không bị thay đổi.",
     ),
     not_an_error: SharedString::new_static(
         "Không có điều nào ở trên là lỗi: nhạc vẫn phát bình thường. Biểu tượng chỉ cho biết thiết bị có nhận đúng y nguyên nội dung trong tệp hay không.",
@@ -847,6 +905,10 @@ static ID: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Belum ada yang diputar. Putar sebuah lagu, dan ikon ini akan menunjukkan apakah lagu itu sampai ke perangkat tanpa perubahan.",
     ),
+    equalizer: SharedString::new_static("Equalizer sedang aktif"),
+    equalizer_desc: SharedString::new_static(
+        "Equalizer sengaja mengubah suara sebelum sampai ke perangkat. Matikan di Alat → Equalizer untuk mendengar file tanpa perubahan.",
+    ),
     not_an_error: SharedString::new_static(
         "Semua ini bukan kesalahan: musik diputar seperti biasa. Ikon ini hanya menunjukkan apakah perangkat menerima persis apa yang ada di file.",
     ),
@@ -898,6 +960,10 @@ static TH: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "ยังไม่มีอะไรเล่นอยู่ เริ่มเล่นแทร็ก แล้วไอคอนนี้จะแสดงว่าเสียงไปถึงอุปกรณ์โดยไม่เปลี่ยนแปลงหรือไม่",
+    ),
+    equalizer: SharedString::new_static("อีควอไลเซอร์เปิดอยู่"),
+    equalizer_desc: SharedString::new_static(
+        "อีควอไลเซอร์ตั้งใจปรับเสียงก่อนที่เสียงจะไปถึงอุปกรณ์ ปิดได้ที่ เครื่องมือ → อีควอไลเซอร์ เพื่อฟังไฟล์โดยไม่เปลี่ยนแปลง",
     ),
     not_an_error: SharedString::new_static(
         "ทั้งหมดนี้ไม่ใช่ข้อผิดพลาด เพลงยังเล่นได้ตามปกติ ไอคอนนี้แค่บอกว่าอุปกรณ์ได้รับข้อมูลตรงตามไฟล์ทุกประการหรือไม่",
@@ -951,6 +1017,10 @@ static CS: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "Zatím nic nehraje. Spusťte skladbu a tato ikona ukáže, jestli do zařízení dorazí beze změn.",
     ),
+    equalizer: SharedString::new_static("Ekvalizér je zapnutý"),
+    equalizer_desc: SharedString::new_static(
+        "Ekvalizér záměrně mění zvuk dřív, než dorazí do zařízení. Vypněte ho v Nástroje → Ekvalizér, pokud chcete slyšet soubor beze změn.",
+    ),
     not_an_error: SharedString::new_static(
         "Nic z toho není chyba: hudba hraje normálně. Ikona jen ukazuje, jestli zařízení dostává přesně to, co je v souboru.",
     ),
@@ -1002,6 +1072,10 @@ static SV: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Inget spelas än. Starta en låt så visar den här ikonen om den når enheten oförändrad.",
+    ),
+    equalizer: SharedString::new_static("Equalizern är på"),
+    equalizer_desc: SharedString::new_static(
+        "Equalizern ändrar ljudet med avsikt innan det når enheten. Stäng av den under Verktyg → Equalizer för att höra filen oförändrad.",
     ),
     not_an_error: SharedString::new_static(
         "Inget av det här är ett fel: musiken spelas som vanligt. Ikonen visar bara om enheten får exakt det som finns i filen.",
@@ -1055,6 +1129,10 @@ static HI: BitPerfectStrings = BitPerfectStrings {
     no_source_desc: SharedString::new_static(
         "अभी कुछ भी नहीं चल रहा। कोई ट्रैक चलाएँ, और यह आइकन दिखाएगा कि वह डिवाइस तक बिना बदलाव के पहुँचता है या नहीं।",
     ),
+    equalizer: SharedString::new_static("इक्वलाइज़र चालू है"),
+    equalizer_desc: SharedString::new_static(
+        "इक्वलाइज़र आवाज़ को डिवाइस तक पहुँचने से पहले जानबूझकर बदलता है। फ़ाइल को बिना बदलाव के सुनने के लिए इसे टूल → इक्वलाइज़र में बंद करें।",
+    ),
     not_an_error: SharedString::new_static(
         "इनमें से कुछ भी गड़बड़ी नहीं है: संगीत सामान्य रूप से चल रहा है। यह आइकन सिर्फ़ यह दिखाता है कि डिवाइस को ठीक वही मिल रहा है या नहीं जो फ़ाइल में है।",
     ),
@@ -1106,6 +1184,10 @@ static ES: BitPerfectStrings = BitPerfectStrings {
     ),
     no_source_desc: SharedString::new_static(
         "Todavía no se reproduce nada. Pon una pista y este icono mostrará si llega al dispositivo sin cambios.",
+    ),
+    equalizer: SharedString::new_static("El ecualizador está activado"),
+    equalizer_desc: SharedString::new_static(
+        "El ecualizador cambia el sonido a propósito antes de que llegue al dispositivo. Desactívalo en Herramientas → Ecualizador para escuchar el archivo sin cambios.",
     ),
     not_an_error: SharedString::new_static(
         "Nada de esto es un error: la música suena con normalidad. El icono solo indica si el dispositivo recibe exactamente lo que hay en el archivo.",

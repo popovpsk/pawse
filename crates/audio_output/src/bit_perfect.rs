@@ -47,13 +47,21 @@ pub enum BitPerfectIssue {
     /// Output is shared (going through the OS mixer).
     NotExclusive,
     /// Device hardware volume scalar < 1.0 (system slider attenuates).
-    SystemVolumeNotUnity { current: f32 },
+    SystemVolumeNotUnity {
+        current: f32,
+    },
     /// Device hardware mute is on.
     SystemMuted,
     /// Device sample rate doesn't match the source — CoreAudio is resampling.
-    SampleRateMismatch { source: u32, device: u32 },
+    SampleRateMismatch {
+        source: u32,
+        device: u32,
+    },
     /// Source bit depth exceeds what the f32 transport preserves (24 mantissa bits).
-    BitDepthExceedsContainer { source: u8 },
+    BitDepthExceedsContainer {
+        source: u8,
+    },
+    Equalizer,
     /// No track loaded — status is undefined.
     NoSource,
 }

@@ -19,13 +19,13 @@ use ui_components::artist_avatar::artist_avatar;
 use ui_components::cover_thumb::artist_tile;
 
 use crate::artist_card::ArtistCards;
+use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
 use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, no_music_message};
 use crate::library_views::artists_grid::{self, TileParams};
 use crate::library_views::cover_grid::{
     self, GridCovers, ItemLayout, LIST_PAD_X, LibraryItem, MeasuredGrid,
 };
-use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::view_order::{self, ArtistKey, Section};
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;

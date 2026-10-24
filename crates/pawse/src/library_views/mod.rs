@@ -4,7 +4,6 @@ pub mod albums_view;
 mod artists_grid;
 pub mod artists_view;
 mod cover_grid;
-mod fuzzy;
 pub mod genres_view;
 pub mod grouped_tracks_view;
 pub mod library_view;

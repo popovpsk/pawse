@@ -28,6 +28,7 @@ pub mod dlna_settings;
 pub mod error_bridge;
 pub mod footer;
 pub mod frame_grid;
+pub mod fuzzy;
 pub mod jellyfin_settings;
 pub mod keyboard_shortcuts;
 pub mod library_scan_indicator;

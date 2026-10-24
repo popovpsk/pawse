@@ -35,6 +35,8 @@ members = [
     "crates/chromecast",
     "crates/airplay",
     "crates/spectrum",
+    "crates/equalizer",
+    "crates/autoeq",
     "crates/text_blur"
 ]
 

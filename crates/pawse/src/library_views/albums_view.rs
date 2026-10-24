@@ -17,12 +17,12 @@ use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
+use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::{LibraryAccess, LibraryEvent};
 use crate::library_views::albums_grid::{self, TileParams, TileSubtitle};
 use crate::library_views::cover_grid::{
     self, GridCovers, ItemLayout, LIST_PAD_X, LibraryItem, MeasuredGrid,
 };
-use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::view_order::{self, AlbumKey, Section};
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;

@@ -21,8 +21,8 @@ use crate::track_list::{
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
 
+use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
-use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::track_row::{
     CoverTrackRow, TITLE_MIN_WIDTH, TrackListPrefs, TrackNames, build_haystacks, track_columns,
     unavailable_label,

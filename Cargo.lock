@@ -733,6 +733,7 @@ dependencies = [
  "audio_common",
  "audio_decoder",
  "audio_output",
+ "equalizer",
  "flume",
  "gpui-pre",
  "log",
@@ -795,6 +796,15 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "autoeq"
+version = "1.0.0"
+dependencies = [
+ "rstest",
+ "thiserror 2.0.19",
+ "ureq",
+]
 
 [[package]]
 name = "av-scenechange"
@@ -2437,6 +2447,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "equalizer"
+version = "1.0.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -6609,6 +6628,7 @@ dependencies = [
  "audio_embedding_gpu",
  "audio_engine",
  "audio_output",
+ "autoeq",
  "cast",
  "chrono",
  "cover_search",
@@ -6616,6 +6636,7 @@ dependencies = [
  "dirs 6.0.0",
  "discord",
  "dlna",
+ "equalizer",
  "flume",
  "gpui-component",
  "gpui-pre",

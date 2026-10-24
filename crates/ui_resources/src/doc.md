@@ -22,7 +22,7 @@ Not here: resolving the saved language and announcing a change (`pawse::localiza
 - `themes/` — one JSON per theme family.
 - `i18n/mod.rs` — `Strings` (the schema), `lang!`, `languages!`, `Lang`, the accessor methods,
   the active-language atomic. `i18n/<code>.rs` — one `pub static <CODE>: Strings` each.
-- `i18n/{cast,playlist_import,bit_perfect,view_menu,similar,artist_card,tools,spectrum}.rs` — feature
+- `i18n/{cast,playlist_import,bit_perfect,view_menu,similar,artist_card,tools,spectrum,equalizer}.rs` — feature
   tables: a struct, a `static` per language (all 20 in one file) and a `*_strings()` picker.
 
 ## Assets and themes
@@ -43,12 +43,12 @@ Not here: resolving the saved language and announcing a change (`pawse::localiza
   (`disc`, `n_tracks`, `size`, `failed_*`, the feature tables' own); those allocate, so cache
   them off the render path. `fill` pairs arguments with `{}` in order and silently drops any
   mismatch: a translation cannot reorder arguments and must keep the English count of `{}`.
-  Only `cast`, `playlist_import` and `bit_perfect` test this.
+  Only `cast`, `playlist_import`, `bit_perfect` and `equalizer` test this.
 - The compiler enforces completeness: `lang!` is a full struct literal, `Lang::strings` and
   each `*_strings()` are exhaustive matches. `lang!` takes `plural:` and `reveal_folder:`
   first, then keys in any order.
 - Adding a string: a field in `Strings` and a line in every `<code>.rs`. Adding a language:
-  `<code>.rs`, a `languages!` row, a static and `for_lang` arm in each of the seven feature
+  `<code>.rs`, a `languages!` row, a static and `for_lang` arm in each of the nine feature
   tables, and the `twenty_languages` test.
 - `plural:` is a CLDR family per language (`OneOther`, `EastSlavic`, `Polish`, `Czech`) used
   only by `n_tracks` (`n_tracks_one/few/other`); no other count is pluralized.

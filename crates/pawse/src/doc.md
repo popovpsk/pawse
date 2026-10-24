@@ -21,6 +21,8 @@ App shell:
 - `keyboard_shortcuts.rs` — key bindings. `app_menu.rs` — localized application menu.
   `localization.rs` — saved language to `tr()`. `pickers.rs` — theme and language
   dropdowns. `theme_colors.rs` — `Colors`, the theme lookups views use.
+- `fuzzy.rs` — the fuzzy filter (nucleo) with a minimum score per typed character; the
+  library views' search and the equalizer's headphone search.
 - `frame_grid.rs` — the shared tick grid for frame loops (`FASTEST` 120 fps, `FAST` 60,
   `SLOW` 30, `SLOWEST` for reduce motion; each is every other tick of the one before, so
   slower ticks are always faster ones). Every notify redraws the whole window, so two
@@ -376,6 +378,10 @@ Integrations:
   `is_playing`, `is_buffering`), publishes to the web remote, then re-emits on
   `EngineEventsBus`, so a subscriber reading an atomic sees the state of the event it
   handles. `Rc` fields of `Services` are UI-thread only.
+- `Services::equalizer` is the one `equalizer::Control`, built from
+  `UserSettings::equalizer` before the local engine and handed to it and to every AirPlay
+  engine (`cast/mod.rs`). Only the Tools Equalizer page changes it
+  (`tools/equalizer/doc.md`).
 - Views rebuilt without a track reload (a macOS Dock reopen builds a new `MainView`) take
   initial state from these atomics, not events; the DSD rate is an atomic only for that.
 - `Stopped` and `Error` zero the duration, which is what makes the next Play reload;

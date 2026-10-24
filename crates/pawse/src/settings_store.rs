@@ -714,6 +714,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub sleep_timer: SleepTimerSettings,
     #[serde(default)]
+    pub equalizer: EqualizerSettings,
+    #[serde(default)]
     window: RefCell<Option<WindowPlacement>>,
 }
 
@@ -740,7 +742,7 @@ impl Default for UserSettings {
             playlists_show_album: false,
             playlists_show_year: false,
             playlists_show_unavailable: true,
-            tools_enabled: false,
+            tools_enabled: true,
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
@@ -805,8 +807,24 @@ impl Default for UserSettings {
             onboarding_complete: false,
             network_cache_gb: default_network_cache_gb(),
             sleep_timer: SleepTimerSettings::default(),
+            equalizer: EqualizerSettings::default(),
             window: RefCell::new(None),
         }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EqualizerSettings {
+    pub enabled: bool,
+    pub bands: Vec<equalizer::Band>,
+    pub source: Option<String>,
+    pub profile: Option<String>,
+}
+
+impl EqualizerSettings {
+    pub fn active_bands(&self) -> Option<Vec<equalizer::Band>> {
+        self.enabled.then(|| self.bands.clone())
     }
 }
 
@@ -1055,6 +1073,7 @@ impl SettingsStore {
         migrate_scrobble(&mut settings);
         migrate_torrents(&mut settings);
         migrate_albums_artist(&mut settings);
+        settings.equalizer.bands.truncate(equalizer::MAX_BANDS);
         Self {
             settings,
             path,
@@ -1555,6 +1574,15 @@ impl SettingsStore {
 
     pub fn sleep_timer(&self) -> SleepTimerSettings {
         self.settings.sleep_timer.sanitized()
+    }
+
+    pub fn equalizer(&self) -> &EqualizerSettings {
+        &self.settings.equalizer
+    }
+
+    pub fn set_equalizer(&mut self, equalizer: EqualizerSettings) -> anyhow::Result<()> {
+        self.settings.equalizer = equalizer;
+        self.save()
     }
 
     pub fn set_sleep_timer(&mut self, settings: SleepTimerSettings) -> anyhow::Result<()> {
@@ -2120,6 +2148,26 @@ mod tests {
     }
 
     #[test]
+    fn tools_are_on_for_a_new_install_but_not_for_a_file_without_the_key() {
+        let path = tmp_settings_path();
+        assert!(SettingsStore::load_from(path.clone()).tools_enabled());
+        fs::write(&path, "{}").unwrap();
+        assert!(!SettingsStore::load_from(path.clone()).tools_enabled());
+        cleanup(&path);
+    }
+
+    #[test]
+    fn equalizer_bands_are_capped_on_load() {
+        let path = tmp_settings_path();
+        let band = r#"{"kind":"peak","freq":1000.0,"gain":1.0,"q":1.0}"#;
+        let bands = vec![band; equalizer::MAX_BANDS + 8].join(",");
+        fs::write(&path, format!(r#"{{"equalizer":{{"bands":[{bands}]}}}}"#)).unwrap();
+        let store = SettingsStore::load_from(path.clone());
+        assert_eq!(store.equalizer().bands.len(), equalizer::MAX_BANDS);
+        cleanup(&path);
+    }
+
+    #[test]
     fn load_returns_defaults_when_file_corrupt() {
         let path = tmp_settings_path();
         fs::write(&path, "{ this is not valid json").unwrap();
@@ -2404,6 +2452,17 @@ mod tests {
                 auto_until_min: 5 * 60,
                 auto_duration_min: 45,
             },
+            equalizer: EqualizerSettings {
+                enabled: true,
+                bands: vec![equalizer::Band::new(
+                    equalizer::Kind::LowShelf,
+                    105.,
+                    6.5,
+                    0.7,
+                )],
+                source: Some("Sennheiser HD 600".into()),
+                profile: Some("HD 600 warm".into()),
+            },
             window: RefCell::new(Some(WindowPlacement {
                 display: None,
                 x: -1600.,
@@ -2434,6 +2493,7 @@ mod tests {
         assert_eq!(back.artists_picture, ArtistPicture::Photo);
         assert_eq!(back.artists_layout, LibraryLayout::Grid);
         assert_eq!(back.network_cache_gb, 8);
+        assert_eq!(back.equalizer, settings.equalizer);
         assert!(back.header_in_title_bar);
         assert!(!back.lyrics_wave);
         assert_eq!(

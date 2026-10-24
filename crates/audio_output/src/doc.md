@@ -12,7 +12,8 @@ picker and settings (`pawse/src/doc.md`), the per-platform exclusive paths
 
 ## Files
 
-- `output.rs` — `Output`, `EngineOutput`, `FadeEvent`, `OutputEvent`,
+- `output.rs` — `Output`, `EngineOutput` (with `set_equalized`, a no-op by default),
+  `FadeEvent`, `OutputEvent`,
   `native_mode_available`, `pipewire_alsa_missing`.
 - `cpal_stream.rs` — `AudioOutput` trait, `CpalOutputStream` (shared mode), `FadeState` /
   `apply_fade_gain`, the volume curve.
@@ -169,7 +170,7 @@ to users as "Native sample rate") implement `Backend`; `Output` treats them alik
   all stream swaps, shared and exclusive) is `with_tap` and sets the tap's rate and
   channels. The tap sees samples as the callback pops them, before fade and volume, so the
   spectrum shows the file's level whatever the slider says and exclusive paths stay
-  untouched. A frozen or silenced callback pops nothing, so a pause reads as silence.
+  untouched. The equalizer runs before the ring, so the tap shows the equalized signal. A frozen or silenced callback pops nothing, so a pause reads as silence.
 - `push` runs on the real-time thread: nothing unless `set_active(true)`, then a mono mix
   into a 2^18-frame ring of `AtomicU32` (f32 bits) and three atomic stores. No locks, no
   allocation, no `unsafe`; a torn read only blurs one frame of a picture.
@@ -191,7 +192,8 @@ to users as "Native sample rate") implement `Backend`; `Output` treats them alik
 rate and bit depth; the exclusive backend's `DeviceSnapshot` gives hardware volume, mute
 and device rate. Issues: not exclusive; system volume below unity; muted; sample-rate
 mismatch (only while playing and only when the device rate is known); source deeper than 24
-bits (f32 keeps 24 mantissa bits); no source.
+bits (f32 keeps 24 mantissa bits); the equalizer is on (`set_equalized`, from the engine
+when its processor starts or stops and from the Tools page on a change); no source.
 
 ## Thread priority
 
@@ -215,6 +217,8 @@ Owner's calls; ask before changing.
   was tried early and failed (crackling, dropouts, EBUSY). A missing plugin is the app's
   startup gate (`pawse/src/doc.md`), not a fallback.
 - The shared path leaves resampling and DSP to the OS mixer; only exclusive paths touch the
-  raw signal.
+  raw signal. The one exception is the user's equalizer (`equalizer/src/doc.md`), which no
+  OS offers: it runs in the engine before both paths, also in exclusive mode, and shows up
+  as a bit-perfect issue.
 - No real-time promotion on Linux (it would need rtkit / libdbus); the decode thread is
   never real-time.

@@ -32,7 +32,8 @@ target being torn down (the local engine's `Stopped`, a closing session) never r
 - **Local** — the app's engine and its `PlaybackOpener` (`Player::local`, also used for the
   launch-time restore).
 - **AirPlay** — a second `AudioEngine` on `cast::AirPlayOutput` with its own
-  `PlaybackOpener`. Positions are shifted back by what the speaker has not played yet
+  `PlaybackOpener`, on the same equalizer `Control` as the local one (renderers get the
+  original file, so no equalizer there). Positions are shifted back by what the speaker has not played yet
   (`AirPlayOutput::pending`; negative progress while the previous track's tail still plays).
   Now playing goes to the device on every `Loaded` on the engine event bus, looked up on a
   background task; each lookup carries a generation and only the newest is handed over, so a

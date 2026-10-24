@@ -25,6 +25,7 @@ use crate::playback_queue::QueueSource;
 pub struct Services {
     pub player: Rc<crate::cast::Player>,
     pub output: Arc<Output>,
+    pub equalizer: Arc<equalizer::Control>,
     pub engine_event_bus: Entity<EngineEventsBus>,
     pub playback_status: Entity<crate::playback_status::PlaybackStatus>,
     pub library: Arc<LibraryService>,
@@ -74,9 +75,15 @@ impl Services {
                 .network_cache_bytes(),
             cx.background_executor(),
         );
+        let equalizer = Arc::new(equalizer::Control::new(
+            cx.global::<crate::settings_store::SettingsStore>()
+                .equalizer()
+                .active_bands(),
+        ));
         let audio_engine = Rc::new(AudioEngine::with_resolver(
             output.clone(),
             remote_media.resolver(),
+            equalizer.clone(),
         ));
         let engine_manager = Rc::new(EngineManager::new(audio_engine).start(cx));
         let engine_event_bus = cx.new(|_| EngineEventsBus);
@@ -187,6 +194,7 @@ impl Services {
 
         Services {
             output,
+            equalizer,
             player,
             engine_event_bus,
             playback_status,

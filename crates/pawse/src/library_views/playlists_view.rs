@@ -18,8 +18,8 @@ use gpui_component::{
 use nucleo_matcher::{Config, Matcher};
 use ui_resources::i18n::playlist_import_strings;
 
+use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
-use crate::library_views::fuzzy::fuzzy_sorted;
 use crate::library_views::playlist_import::{self, PlaylistImport};
 use crate::localization::tr;
 use crate::services::Services;

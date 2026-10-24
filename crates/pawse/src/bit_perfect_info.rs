@@ -156,6 +156,7 @@ fn issue_label(issue: &BitPerfectIssue) -> SharedString {
             s.sample_rate(&khz(*source), &khz(*device)).into()
         }
         BitPerfectIssue::BitDepthExceedsContainer { source } => s.bit_depth(*source).into(),
+        BitPerfectIssue::Equalizer => s.equalizer.clone(),
         BitPerfectIssue::NoSource => s.no_source.clone(),
     }
 }
@@ -171,6 +172,7 @@ fn issue_details(issue: &BitPerfectIssue) -> Vec<SharedString> {
         BitPerfectIssue::SystemMuted => vec![s.system_muted_desc.clone()],
         BitPerfectIssue::SampleRateMismatch { .. } => vec![s.sample_rate_desc.clone()],
         BitPerfectIssue::BitDepthExceedsContainer { .. } => vec![s.bit_depth_desc.clone()],
+        BitPerfectIssue::Equalizer => vec![s.equalizer_desc.clone()],
         BitPerfectIssue::NoSource => vec![s.no_source_desc.clone()],
     }
 }

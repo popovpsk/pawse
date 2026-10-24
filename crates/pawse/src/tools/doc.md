@@ -1,12 +1,12 @@
 # tools
 
-The Tools screen: utilities that sit next to the player instead of in Settings. Each tool is one `SettingPage` on the shared `ui_components::Settings` widget, so a new tool is a new page in `ToolsView::build_pages`. Pages: AI prompt, Covers, Timer.
+The Tools screen: utilities that sit next to the player instead of in Settings. Each tool is one `SettingPage` on the shared `ui_components::Settings` widget, so a new tool is a new page in `ToolsView::build_pages`. Pages: Equalizer, AI prompt, Covers, Timer.
 
-Not here: the overlay switching (`MainView::open_tools`, `pawse/src/doc.md`); the sleep timer (`sleep_timer/doc.md`); the Covers page (`covers/doc.md`); the screen's strings (`ui_resources/src/doc.md`, `i18n/tools.rs`); the listening-history queries (`music_library/src/doc.md`, "Reading listening history").
+Not here: the overlay switching (`MainView::open_tools`, `pawse/src/doc.md`); the sleep timer (`sleep_timer/doc.md`); the Equalizer page (`equalizer/doc.md`); the Covers page (`covers/doc.md`); the screen's strings (`ui_resources/src/doc.md`, `i18n/tools.rs`); the listening-history queries (`music_library/src/doc.md`, "Reading listening history").
 
 ## Files
 
-- `mod.rs` — `ToolsView`: builds and caches the pages, owns the state of every tool, `show_page`, `show_ai_playlist`, the `OpenAiPlaylist` action.
+- `mod.rs` — `ToolsView`: builds and caches the pages, owns the state of every tool (the equalizer's two entities included), `show_page`, `show_ai_playlist`, the `OpenAiPlaylist` action.
 - `timer.rs` — the Timer page. It only reads `SleepTimer`; field and slider states come from `sleep_timer::controls` (passed in by `MainView`), `duration_field` / `fade_item` from `sleep_timer::settings`. Its automatic-timer row has a Settings button dispatching `OpenSleepTimerSettings`.
 - `ai_prompt/mod.rs` — `AiPromptState`, the page, the `generate` / `copy` / `import_answer` actions.
 - `ai_prompt/options.rs` — `Mode`, `Period`, `Detail`, counts, `PromptOptions`, `language_name`.
@@ -14,13 +14,14 @@ Not here: the overlay switching (`MainView::open_tools`, `pawse/src/doc.md`); th
 - `ai_prompt/builder.rs` — `build_prompt`, pure: snapshot + options + now to text. Prompt tests live here.
 - `ai_prompt/template.rs` — every sentence of the prompt. Nothing else holds prompt text.
 - `ai_prompt/answer.rs` — the way back: `TrackIndex` and `parse_answer`, pure. Parser tests live here.
+- `equalizer/` — the Equalizer page, own `doc.md`.
 - `covers/` — the Covers page, own `doc.md`.
 
 ## Screen
 
-- The header Tools button opens page 0 and exists only with `tools_enabled` (Settings → Appearance, default off, also for a `settings.json` from before the key). The `OpenAiPlaylist` action (AI button on the Playlists screen) and the footer sleep-timer badge (`TIMER_PAGE`) open the screen with the button hidden: `open_tools` never reads `tools_enabled`.
-- The page index is the page's identity: `AI_PROMPT_PAGE` 0, Covers 1, `TIMER_PAGE` 2. Add pages after these or fix the constants. The Timer page exists only if the `SleepTimer` global does. `show_page` bumps `page_request` so the widget switches tabs even when the screen is already open.
-- Pages are built once. Labels are baked in at build time, so they are rebuilt on `LangChanged`, on an AI prompt mode change (the answer-import group exists only in playlist modes, the release-window item only in New releases) and when Covers gains or loses its results / skipped items. A new conditional item needs a trigger like these.
+- The header Tools button opens page 0 (Equalizer) and exists only with `tools_enabled` (Settings → Appearance): on for a new install (`UserSettings::default`), off for a `settings.json` without the key, so an existing user who never turned it on keeps it hidden. Every save writes the key, so it only goes missing in files older than it. The `OpenAiPlaylist` action (AI button on the Playlists screen) and the footer sleep-timer badge (`TIMER_PAGE`) open the screen with the button hidden: `open_tools` never reads `tools_enabled`.
+- The page index is the page's identity: Equalizer 0, `AI_PROMPT_PAGE` 1, Covers 2, `TIMER_PAGE` 3. Add pages after these or fix the constants. The Timer page exists only if the `SleepTimer` global does. `show_page` bumps `page_request` so the widget switches tabs even when the screen is already open.
+- Pages are built once. Labels are baked in at build time, so they are rebuilt on `LangChanged` (the equalizer's preamp line and search placeholder are relabelled then too), on an AI prompt mode change (the answer-import group exists only in playlist modes, the release-window item only in New releases) and when Covers gains or loses its results / skipped items. A new conditional item needs a trigger like these.
 - Tool state lives in `ToolsView`, so a running cover search or a built prompt survives closing the screen.
 - A scrolling box inside a page (the prompt preview, the Covers skipped list) stops the wheel event while it can still scroll (`contain_scroll`): gpui scroll containers don't stop propagation, so the page would scroll with it. A box that doesn't overflow, or is at its end, lets the page scroll.
 - `show_ai_playlist` first switches to From my library when the current mode builds no playlist (New music and New releases have no answer import).
@@ -54,6 +55,7 @@ The pasted answer becomes a playlist in the model's order. The name is the typed
 
 ## Decisions
 
+- Tools are on for new installs and left as they are in existing settings.
 - A prompt generator, not an in-app recommender: nothing is sent anywhere, the only output is the clipboard.
 - No fuzzy / edit-distance matching in the answer import: a wrong track silently in the playlist is worse than a visible miss.
 - No `Title by Artist` form there: in free text it matched prose ("Stand by Me" became a track `Stand` by `Me`).

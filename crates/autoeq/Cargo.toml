@@ -1,0 +1,18 @@
+[package]
+name = "autoeq"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2.0"
+ureq = "3"
+
+[dev-dependencies]
+rstest = "0.26"
+
+[lints]
+workspace = true

@@ -205,7 +205,7 @@ pub fn tools_strings() -> &'static ToolsStrings {
 static EN: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Tools"),
     tools_desc: SharedString::new_static(
-        "Shows the Tools button in the title bar, with extras such as the AI prompt for music recommendations.",
+        "Shows the Tools button in the title bar: the equalizer, the AI prompt for music recommendations and more.",
     ),
     tools_ai_prompt: SharedString::new_static("AI prompt"),
     ai_prompt_intro: SharedString::new_static(
@@ -327,7 +327,7 @@ static EN: ToolsStrings = ToolsStrings {
 static ZH: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("工具"),
     tools_desc: SharedString::new_static(
-        "在标题栏显示“工具”按钮，提供用于音乐推荐的 AI 提示词等附加功能。",
+        "在标题栏显示“工具”按钮：均衡器、用于音乐推荐的 AI 提示词等。",
     ),
     tools_ai_prompt: SharedString::new_static("AI 提示词"),
     ai_prompt_intro: SharedString::new_static(
@@ -439,7 +439,7 @@ static ZH: ToolsStrings = ToolsStrings {
 static PT: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Ferramentas"),
     tools_desc: SharedString::new_static(
-        "Mostra o botão Ferramentas na barra de título, com extras como o prompt para IA para recomendações musicais.",
+        "Mostra o botão Ferramentas na barra de título: o equalizador, o prompt para IA para recomendações musicais e mais.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt para IA"),
     ai_prompt_intro: SharedString::new_static(
@@ -563,7 +563,7 @@ static PT: ToolsStrings = ToolsStrings {
 static RU: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Инструменты"),
     tools_desc: SharedString::new_static(
-        "Показывает кнопку «Инструменты» в заголовке окна с дополнительными функциями вроде промпта для ИИ-рекомендаций.",
+        "Показывает кнопку «Инструменты» в заголовке окна: эквалайзер, промпт для ИИ-рекомендаций и другое.",
     ),
     tools_ai_prompt: SharedString::new_static("Промпт для ИИ"),
     ai_prompt_intro: SharedString::new_static(
@@ -687,7 +687,7 @@ static RU: ToolsStrings = ToolsStrings {
 static JA: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("ツール"),
     tools_desc: SharedString::new_static(
-        "タイトルバーに「ツール」ボタンを表示します。音楽のおすすめ用 AI プロンプトなどの追加機能があります。",
+        "タイトルバーに「ツール」ボタンを表示します。イコライザー、音楽のおすすめ用 AI プロンプトなどがあります。",
     ),
     tools_ai_prompt: SharedString::new_static("AI プロンプト"),
     ai_prompt_intro: SharedString::new_static(
@@ -811,7 +811,7 @@ static JA: ToolsStrings = ToolsStrings {
 static DE: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Werkzeuge"),
     tools_desc: SharedString::new_static(
-        "Zeigt die Schaltfläche „Werkzeuge“ in der Titelleiste mit Extras wie dem KI-Prompt für Musikempfehlungen.",
+        "Zeigt die Schaltfläche „Werkzeuge“ in der Titelleiste: den Equalizer, den KI-Prompt für Musikempfehlungen und mehr.",
     ),
     tools_ai_prompt: SharedString::new_static("KI-Prompt"),
     ai_prompt_intro: SharedString::new_static(
@@ -939,7 +939,7 @@ static DE: ToolsStrings = ToolsStrings {
 static FR: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Outils"),
     tools_desc: SharedString::new_static(
-        "Affiche le bouton Outils dans la barre de titre, avec des extras comme le prompt IA pour des recommandations musicales.",
+        "Affiche le bouton Outils dans la barre de titre : l'égaliseur, le prompt IA pour des recommandations musicales et plus encore.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt IA"),
     ai_prompt_intro: SharedString::new_static(
@@ -1069,7 +1069,7 @@ static FR: ToolsStrings = ToolsStrings {
 static KO: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("도구"),
     tools_desc: SharedString::new_static(
-        "제목 표시줄에 도구 버튼을 표시합니다. 음악 추천용 AI 프롬프트 같은 추가 기능이 있습니다.",
+        "제목 표시줄에 도구 버튼을 표시합니다. 이퀄라이저, 음악 추천용 AI 프롬프트 등이 있습니다.",
     ),
     tools_ai_prompt: SharedString::new_static("AI 프롬프트"),
     ai_prompt_intro: SharedString::new_static(
@@ -1191,7 +1191,7 @@ static KO: ToolsStrings = ToolsStrings {
 static IT: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Strumenti"),
     tools_desc: SharedString::new_static(
-        "Mostra il pulsante Strumenti nella barra del titolo, con extra come il prompt per IA per consigli musicali.",
+        "Mostra il pulsante Strumenti nella barra del titolo: l'equalizzatore, il prompt per IA per consigli musicali e altro.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt per IA"),
     ai_prompt_intro: SharedString::new_static(
@@ -1317,7 +1317,7 @@ static IT: ToolsStrings = ToolsStrings {
 static TR: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Araçlar"),
     tools_desc: SharedString::new_static(
-        "Başlık çubuğunda, müzik önerileri için yapay zekâ istemi gibi ek özellikler sunan Araçlar düğmesini gösterir.",
+        "Başlık çubuğunda Araçlar düğmesini gösterir: ekolayzer, müzik önerileri için yapay zekâ istemi ve daha fazlası.",
     ),
     tools_ai_prompt: SharedString::new_static("Yapay zekâ istemi"),
     ai_prompt_intro: SharedString::new_static(
@@ -1445,7 +1445,7 @@ static TR: ToolsStrings = ToolsStrings {
 static PL: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Narzędzia"),
     tools_desc: SharedString::new_static(
-        "Pokazuje przycisk Narzędzia na pasku tytułu z dodatkami, takimi jak prompt dla AI z rekomendacjami muzyki.",
+        "Pokazuje przycisk Narzędzia na pasku tytułu: korektor, prompt dla AI z rekomendacjami muzyki i inne.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt dla AI"),
     ai_prompt_intro: SharedString::new_static(
@@ -1567,7 +1567,7 @@ static PL: ToolsStrings = ToolsStrings {
 static NL: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Hulpmiddelen"),
     tools_desc: SharedString::new_static(
-        "Toont de knop Hulpmiddelen in de titelbalk, met extra's zoals de AI-prompt voor muziekaanbevelingen.",
+        "Toont de knop Hulpmiddelen in de titelbalk: de equalizer, de AI-prompt voor muziekaanbevelingen en meer.",
     ),
     tools_ai_prompt: SharedString::new_static("AI-prompt"),
     ai_prompt_intro: SharedString::new_static(
@@ -1699,7 +1699,7 @@ static NL: ToolsStrings = ToolsStrings {
 static UK: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Інструменти"),
     tools_desc: SharedString::new_static(
-        "Показує кнопку «Інструменти» в заголовку вікна з додатковими функціями, як-от промпт для ШІ-рекомендацій.",
+        "Показує кнопку «Інструменти» в заголовку вікна: еквалайзер, промпт для ШІ-рекомендацій та інше.",
     ),
     tools_ai_prompt: SharedString::new_static("Промпт для ШІ"),
     ai_prompt_intro: SharedString::new_static(
@@ -1821,7 +1821,7 @@ static UK: ToolsStrings = ToolsStrings {
 static VI: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Công cụ"),
     tools_desc: SharedString::new_static(
-        "Hiển thị nút Công cụ trên thanh tiêu đề với các tính năng bổ sung như lời nhắc AI để gợi ý nhạc.",
+        "Hiển thị nút Công cụ trên thanh tiêu đề: bộ chỉnh âm, lời nhắc AI để gợi ý nhạc và nhiều hơn nữa.",
     ),
     tools_ai_prompt: SharedString::new_static("Lời nhắc AI"),
     ai_prompt_intro: SharedString::new_static(
@@ -1947,7 +1947,7 @@ static VI: ToolsStrings = ToolsStrings {
 static ID: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Alat"),
     tools_desc: SharedString::new_static(
-        "Menampilkan tombol Alat di bilah judul dengan fitur tambahan seperti prompt AI untuk rekomendasi musik.",
+        "Menampilkan tombol Alat di bilah judul: equalizer, prompt AI untuk rekomendasi musik, dan lainnya.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt AI"),
     ai_prompt_intro: SharedString::new_static(
@@ -2073,7 +2073,7 @@ static ID: ToolsStrings = ToolsStrings {
 static TH: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("เครื่องมือ"),
     tools_desc: SharedString::new_static(
-        "แสดงปุ่มเครื่องมือในแถบชื่อเรื่อง พร้อมฟีเจอร์เสริม เช่น พรอมต์ AI สำหรับแนะนำเพลง",
+        "แสดงปุ่มเครื่องมือในแถบชื่อเรื่อง: อีควอไลเซอร์ พรอมต์ AI สำหรับแนะนำเพลง และอื่น ๆ",
     ),
     tools_ai_prompt: SharedString::new_static("พรอมต์ AI"),
     ai_prompt_intro: SharedString::new_static(
@@ -2187,7 +2187,7 @@ static TH: ToolsStrings = ToolsStrings {
 static CS: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Nástroje"),
     tools_desc: SharedString::new_static(
-        "Zobrazuje tlačítko Nástroje v záhlaví okna s doplňky, jako je prompt pro AI s hudebními doporučeními.",
+        "Zobrazuje tlačítko Nástroje v záhlaví okna: ekvalizér, prompt pro AI s hudebními doporučeními a další.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt pro AI"),
     ai_prompt_intro: SharedString::new_static(
@@ -2311,7 +2311,7 @@ static CS: ToolsStrings = ToolsStrings {
 static SV: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Verktyg"),
     tools_desc: SharedString::new_static(
-        "Visar knappen Verktyg i namnlisten med extrafunktioner som AI-prompten för musiktips.",
+        "Visar knappen Verktyg i namnlisten: equalizern, AI-prompten för musiktips och mer.",
     ),
     tools_ai_prompt: SharedString::new_static("AI-prompt"),
     ai_prompt_intro: SharedString::new_static(
@@ -2437,7 +2437,7 @@ static SV: ToolsStrings = ToolsStrings {
 static HI: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("टूल"),
     tools_desc: SharedString::new_static(
-        "टाइटल बार में टूल बटन दिखाता है, जिसमें संगीत सुझावों के लिए AI प्रॉम्प्ट जैसी अतिरिक्त सुविधाएँ हैं।",
+        "टाइटल बार में टूल बटन दिखाता है: इक्वलाइज़र, संगीत सुझावों के लिए AI प्रॉम्प्ट और बहुत कुछ।",
     ),
     tools_ai_prompt: SharedString::new_static("AI प्रॉम्प्ट"),
     ai_prompt_intro: SharedString::new_static(
@@ -2557,7 +2557,7 @@ static HI: ToolsStrings = ToolsStrings {
 static ES: ToolsStrings = ToolsStrings {
     tools: SharedString::new_static("Herramientas"),
     tools_desc: SharedString::new_static(
-        "Muestra el botón Herramientas en la barra de título, con extras como el prompt para IA para recomendaciones musicales.",
+        "Muestra el botón Herramientas en la barra de título: el ecualizador, el prompt para IA para recomendaciones musicales y más.",
     ),
     tools_ai_prompt: SharedString::new_static("Prompt para IA"),
     ai_prompt_intro: SharedString::new_static(

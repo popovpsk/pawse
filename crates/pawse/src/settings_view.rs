@@ -30,7 +30,7 @@ use ui_resources::i18n::{active, artist_card_strings_for, cast_strings, similar_
 
 actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
 
-fn reveal_in_file_manager(path: &std::path::Path) {
+pub(crate) fn reveal_in_file_manager(path: &std::path::Path) {
     #[cfg(target_os = "macos")]
     let program = "open";
     #[cfg(target_os = "windows")]

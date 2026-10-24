@@ -1,5 +1,6 @@
 pub mod ai_prompt;
 pub mod covers;
+mod equalizer;
 mod timer;
 
 use gpui::{
@@ -15,6 +16,7 @@ use crate::services::Services;
 
 use ai_prompt::{AiPromptInputs, AiPromptState, Mode};
 use covers::CoversState;
+use equalizer::{EqualizerView, HeadphonePicker};
 
 use crate::sleep_timer::SleepTimer;
 use crate::sleep_timer::controls::SleepTimerControls;
@@ -36,10 +38,12 @@ pub(crate) fn contain_scroll(
 
 const WISHES_ROWS: (usize, usize) = (2, 6);
 const ANSWER_ROWS: (usize, usize) = (4, 12);
-const AI_PROMPT_PAGE: usize = 0;
-pub const TIMER_PAGE: usize = 2;
+const AI_PROMPT_PAGE: usize = 1;
+pub const TIMER_PAGE: usize = 3;
 
 pub struct ToolsView {
+    equalizer: Entity<EqualizerView>,
+    headphones: Entity<HeadphonePicker>,
     ai_prompt: Entity<AiPromptState>,
     inputs: AiPromptInputs,
     mode: Mode,
@@ -63,6 +67,8 @@ impl ToolsView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let equalizer = cx.new(|cx| EqualizerView::new(window, cx));
+        let headphones = cx.new(|cx| HeadphonePicker::new(equalizer.clone(), window, cx));
         let ai_prompt = cx.new(|_| AiPromptState::default());
         let covers = cx.new(|_| CoversState::default());
         let wishes = cx.new(|cx| {
@@ -114,6 +120,12 @@ impl ToolsView {
                     state.set_placeholder(s.ai_answer_name_placeholder.clone(), window, cx)
                 });
                 this.covers.update(cx, |state, _| state.relabel());
+                this.equalizer.update(cx, |view, cx| {
+                    view.relabel();
+                    cx.notify();
+                });
+                this.headphones
+                    .update(cx, |picker, cx| picker.relabel(window, cx));
                 this.pages = this.build_pages();
                 cx.notify();
             });
@@ -126,6 +138,8 @@ impl ToolsView {
         let sleep_timer_controls_observe =
             cx.observe(&sleep_timer_controls, |_, _, cx| cx.notify());
         let mut view = Self {
+            equalizer,
+            headphones,
             ai_prompt,
             inputs,
             mode,
@@ -148,6 +162,7 @@ impl ToolsView {
 
     fn build_pages(&self) -> Vec<SettingPage> {
         let mut pages = vec![
+            equalizer::page(self.equalizer.clone(), self.headphones.clone()),
             ai_prompt::page(self.ai_prompt.clone(), self.inputs.clone(), self.mode),
             covers::page(self.covers.clone(), self.covers_layout),
         ];
