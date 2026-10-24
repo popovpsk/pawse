@@ -496,7 +496,7 @@ impl HeadphonePicker {
                 .text_sm()
                 .text_center()
                 .text_color(muted)
-                .child(text)
+                .child(div().max_w_full().child(text))
         };
         let body = match &self.index {
             Index::Ready(_) if count > 0 => {
@@ -631,13 +631,13 @@ impl HeadphonePicker {
             Some(None) => Some(Spinner::new().color(muted).into_any_element()),
             Some(Some(Preview::Failed(error))) => Some(
                 v_flex()
-                    .px_4()
+                    .max_w_full()
                     .gap_2()
                     .items_center()
                     .text_sm()
                     .text_center()
                     .text_color(muted)
-                    .child(error.clone())
+                    .child(div().max_w_full().child(error.clone()))
                     .child(
                         Button::new("eq-preview-retry")
                             .small()
@@ -665,6 +665,7 @@ impl HeadphonePicker {
                     h_flex()
                         .absolute()
                         .inset_0()
+                        .px_4()
                         .items_center()
                         .justify_center()
                         .child(overlay),
