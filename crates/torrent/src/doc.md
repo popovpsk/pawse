@@ -48,6 +48,14 @@ mapping, the read timeout) — `pawse/src/servers/doc.md`; the cache a finished 
   quiet time.
 - A probe's `stall` is a limit, not a deadline: `Timeout` only after that long without a new byte
   from its own streams.
+- After 2 s without a byte, `patient` and the probe loop call `revive`: a torrent that has found
+  peers but has none live, connecting or queued is paused and resumed, at most every 10 s per
+  torrent (`Slot::revived_at`). librqbit drops peers no stream needs and can lose one for longer
+  than our timeouts when a stream opens during that disconnect, which back-to-back reads and
+  probes do; resuming rebuilds the peer table from the initial peers, DHT and trackers, and open
+  streams survive it. A torrent with no peer found yet is left alone, so a slow first DHT lookup
+  is not restarted. A failed resume unloads the torrent by force, so the next lease adds it
+  afresh. Resuming restarts `fetched_bytes`: progress is a nonzero count that changed.
 
 ## Streams
 
@@ -118,7 +126,8 @@ mapping, the read timeout) — `pawse/src/servers/doc.md`; the cache a finished 
   change that: turning uploading off caps it at 16 KiB/s (lower would stop librqbit's upload
   scheduler, whose chunks are 16 KiB) and the session is restarted as soon as it is idle.
 - `swarm` reports connected and known peers of a loaded torrent; librqbit does not say which are
-  seeds, so seeds cannot be counted.
+  seeds, so seeds cannot be counted. Connected can be 0 right after a read ends (no stream needs a
+  peer then), so the test checks it while a read is open.
 - No protocol encryption (MSE/PE): peers set to require it drop the connection during the
   handshake, the rest of the swarm still serves.
 

@@ -28,6 +28,8 @@ const SHARED_STREAMS: usize = 24;
 const OFF_WHILE_RUNNING_BPS: u32 = 16 * 1024;
 pub(crate) const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 const PATIENCE_CAP: Duration = Duration::from_secs(5 * 60);
+const REVIVE_AFTER: Duration = Duration::from_secs(2);
+const REVIVE_EVERY: Duration = Duration::from_secs(10);
 const STREAM_LOOKAHEAD: u64 = 32 * 1024 * 1024;
 const PIECES_IN_FLIGHT: u64 = 8;
 const MAX_HELPERS: u64 = 3;
@@ -36,6 +38,7 @@ struct Slot {
     torrent: Arc<ManagedTorrent>,
     leases: usize,
     idle_since: Instant,
+    revived_at: Option<Instant>,
 }
 
 struct State {
@@ -219,6 +222,8 @@ impl Engine {
                             last_progress = Instant::now();
                         } else if last_progress.elapsed() >= stall {
                             return Err(Error::Timeout);
+                        } else if last_progress.elapsed() >= REVIVE_AFTER {
+                            shared.revive(&lease.torrent).await;
                         }
                         if !shared.torrent_file(&hash).is_file() {
                             return Err(Error::Unknown);
@@ -261,7 +266,7 @@ impl Engine {
                     .map_err(other)?;
                 Ok::<_, Error>(stream)
             };
-            let mut stream = patient(&torrent, timeout, open).await??;
+            let mut stream = patient(&shared, &torrent, timeout, open).await??;
             let mut first = vec![0u8; 64 * 1024];
             let wanted = end
                 .map_or(total, |end| end.min(total))
@@ -270,7 +275,7 @@ impl Engine {
             let got = if cap == 0 {
                 0
             } else {
-                patient(&torrent, timeout, stream.read(&mut first[..cap]))
+                patient(&shared, &torrent, timeout, stream.read(&mut first[..cap]))
                     .await?
                     .map_err(other)?
             };
@@ -424,6 +429,40 @@ impl Shared {
         Some(session)
     }
 
+    pub(crate) async fn revive(&self, torrent: &Arc<ManagedTorrent>) {
+        if !stranded(torrent) {
+            return;
+        }
+        let hash = torrent.info_hash().as_string();
+        let session = {
+            let mut state = self.state.lock().unwrap();
+            let Some(slot) = state.slots.get_mut(&hash) else {
+                return;
+            };
+            if !Arc::ptr_eq(&slot.torrent, torrent)
+                || slot
+                    .revived_at
+                    .is_some_and(|at| at.elapsed() < REVIVE_EVERY)
+            {
+                return;
+            }
+            slot.revived_at = Some(Instant::now());
+            let Some(session) = state.session.clone() else {
+                return;
+            };
+            session
+        };
+        log::info!("torrent {hash}: no peer left while waiting for data, reconnecting");
+        if let Err(e) = session.pause(torrent).await {
+            log::warn!("torrent {hash}: not paused to reconnect: {e:#}");
+            return;
+        }
+        if let Err(e) = session.unpause(torrent).await {
+            log::warn!("torrent {hash}: not resumed after pausing to reconnect, unloading: {e:#}");
+            self.unload(&hash, true).await;
+        }
+    }
+
     async fn session(&self) -> Result<Arc<Session>, Error> {
         if let Some(session) = self.running_session() {
             return Ok(session);
@@ -543,6 +582,7 @@ impl Shared {
                 torrent: torrent.clone(),
                 leases: 0,
                 idle_since: Instant::now(),
+                revived_at: None,
             });
         slot.leases += 1;
         Ok(Lease::new(shared, info_hash, slot.torrent.clone(), discard))
@@ -695,7 +735,8 @@ fn connected(torrent: &ManagedTorrent) -> u32 {
 }
 
 pub(crate) async fn patient<F: std::future::Future>(
-    torrent: &ManagedTorrent,
+    shared: &Shared,
+    torrent: &Arc<ManagedTorrent>,
     quiet: Duration,
     work: F,
 ) -> Result<F::Output, Error> {
@@ -708,19 +749,29 @@ pub(crate) async fn patient<F: std::future::Future>(
             done = &mut work => return Ok(done),
             _ = tokio::time::sleep(PROGRESS_TICK) => {
                 let now = fetched(torrent);
-                if now != seen {
-                    seen = now;
+                if now != seen && now > 0 {
                     last_progress = Instant::now();
                 }
+                seen = now;
                 if last_progress.elapsed() >= quiet || started.elapsed() >= PATIENCE_CAP {
                     return Err(match connected(torrent) {
                         0 => Error::NoPeers,
                         _ => Error::Timeout,
                     });
                 }
+                if last_progress.elapsed() >= REVIVE_AFTER {
+                    shared.revive(torrent).await;
+                }
             }
         }
     }
+}
+
+fn stranded(torrent: &ManagedTorrent) -> bool {
+    torrent.live().is_some_and(|live| {
+        let peers = live.stats_snapshot().peer_stats;
+        peers.seen > 0 && peers.live + peers.connecting + peers.queued == 0
+    })
 }
 
 pub(crate) fn helper_count(piece: u64) -> u64 {

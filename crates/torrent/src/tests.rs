@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -174,6 +175,11 @@ fn a_read_returns_the_bytes_at_the_offset() {
         .read(&meta.info_hash, second, start, Some(start + 600_000), WAIT)
         .unwrap();
     assert_eq!((body.offset(), body.total()), (start, source.len() as u64));
+    let swarm = engine.swarm(&meta.info_hash).unwrap();
+    assert!(
+        swarm.connected >= 1 && swarm.known >= swarm.connected,
+        "{swarm:?}"
+    );
     let mut got = Vec::new();
     body.read_to_end(&mut got).unwrap();
     assert_eq!(got, source[start as usize..start as usize + 600_000]);
@@ -190,11 +196,6 @@ fn a_read_returns_the_bytes_at_the_offset() {
     tail.read_to_end(&mut end).unwrap();
     assert_eq!(end, source[source.len() - 10..]);
     assert_eq!(engine.loaded(), vec![meta.info_hash.clone()]);
-    let swarm = engine.swarm(&meta.info_hash).unwrap();
-    assert!(
-        swarm.connected >= 1 && swarm.known >= swarm.connected,
-        "{swarm:?}"
-    );
     assert_eq!(engine.swarm(&"1".repeat(40)), None);
 }
 
@@ -259,6 +260,75 @@ fn a_read_right_after_a_discarded_probe_gets_the_bytes() {
             "{round}"
         );
     }
+}
+
+fn forward(listener: TcpListener, to: SocketAddr) {
+    std::thread::spawn(move || {
+        for client in listener.incoming().flatten() {
+            let Ok(server) = TcpStream::connect(to) else {
+                continue;
+            };
+            let pairs = [
+                (client.try_clone().unwrap(), server.try_clone().unwrap()),
+                (server, client),
+            ];
+            for (mut from, mut into) in pairs {
+                std::thread::spawn(move || {
+                    let _ = std::io::copy(&mut from, &mut into);
+                    let _ = into.shutdown(Shutdown::Write);
+                });
+            }
+        }
+    });
+}
+
+#[test]
+fn a_peer_that_refused_a_read_is_tried_again_before_its_backoff_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let album = dir.path().join("back");
+    std::fs::create_dir_all(&album).unwrap();
+    let source = content(7, 1024 * 1024);
+    std::fs::write(album.join("01.flac"), &source).unwrap();
+    let seeding = Seeding::new(&album, PIECE);
+    let refused = crate::testing::free_port();
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(crate::Config {
+        work_dir: root.path().join("work"),
+        state_dir: root.path().join("state"),
+        upload: crate::Upload::WhileActive,
+        idle_unload: Duration::from_secs(600),
+        work_limit_bytes: u64::MAX,
+        network: crate::Network::Local {
+            listen_port: crate::testing::free_port(),
+            peers: vec![([127, 0, 0, 1], refused).into()],
+        },
+    })
+    .unwrap();
+    let meta = engine
+        .resolve(Input::File(seeding.torrent.clone()), WAIT)
+        .unwrap();
+    let file = index_of(&meta, "01.flac");
+    let read = std::thread::spawn({
+        let engine = engine.clone();
+        let hash = meta.info_hash.clone();
+        move || {
+            let mut got = Vec::new();
+            engine
+                .read(&hash, file, 0, None, Duration::from_secs(8))?
+                .read_to_end(&mut got)
+                .map_err(|e| Error::Other(e.to_string()))?;
+            Ok::<_, Error>(got)
+        }
+    });
+    assert!(wait_until(|| engine
+        .swarm(&meta.info_hash)
+        .is_some_and(|swarm| swarm.known >= 1)));
+    std::thread::sleep(Duration::from_millis(300));
+    forward(
+        TcpListener::bind(("127.0.0.1", refused)).unwrap(),
+        seeding.addr,
+    );
+    assert_eq!(read.join().unwrap().unwrap(), source);
 }
 
 #[test]
