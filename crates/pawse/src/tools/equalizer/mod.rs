@@ -779,14 +779,13 @@ fn input(
 }
 
 fn kind_label(kind: Kind) -> SharedString {
-    let s = equalizer_strings();
-    match kind {
-        Kind::Peak => s.peak.clone(),
-        Kind::LowShelf => s.low_shelf.clone(),
-        Kind::HighShelf => s.high_shelf.clone(),
-        Kind::LowPass => s.low_pass.clone(),
-        Kind::HighPass => s.high_pass.clone(),
-    }
+    SharedString::new_static(match kind {
+        Kind::Peak => "Peak",
+        Kind::LowShelf => "Low shelf",
+        Kind::HighShelf => "High shelf",
+        Kind::LowPass => "Low pass",
+        Kind::HighPass => "High pass",
+    })
 }
 
 fn parse_number(text: &str) -> Option<f64> {

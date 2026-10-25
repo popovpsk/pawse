@@ -133,4 +133,7 @@ Owner's calls; ask before changing.
   rest of the file handling live in its menu.
 - Headphone search is a dialog: search, pick a measurement, see the preview, then Load.
 - Short texts: no paragraphs explaining the page.
+- Filter types (Peak, Low shelf, High shelf, Low pass, High pass) are English in every
+  language: the names AutoEq, Equalizer APO and headphone guides use, so bands can be
+  matched against them.
 - No equalizer mark in the player bar.
