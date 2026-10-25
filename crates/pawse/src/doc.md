@@ -195,10 +195,10 @@ Integrations:
   window dragging. `on_action` handlers are on `#main_view`, so actions dispatched from
   the header still arrive. A blur of the search field reclaims focus only when nothing
   else holds it, so popups and pickers are not robbed.
-- `WindowTitleBar` is `gpui_component::TitleBar` on macOS and Windows (in fullscreen a
-  thin inset; the header then moves below it, `main_view/doc.md` "Placement"). On Linux
-  it is ours: window buttons, double-click zoom, drag by `start_window_move`, window
-  menu on right click when client-decorated; it does not collapse in fullscreen.
+- `WindowTitleBar` is `gpui_component::TitleBar` on macOS and Windows. On Linux it is
+  ours: window buttons, double-click zoom, drag by `start_window_move`, window menu on
+  right click when client-decorated. In fullscreen it is a thin inset on every platform
+  (`fullscreen_inset`); the header then moves below it (`main_view/doc.md` "Placement").
   `bar_height` is the one place its height is decided, on every platform; `MainView`
   reads it for the queue's cap in Full screen.
 - macOS traffic lights: `HEIGHT` and `TRAFFIC_LIGHT_X/Y` mirror `gpui_component`'s 34 px
@@ -691,6 +691,9 @@ Integrations:
   under the lyrics; the lyrics get their `LyricsPresentation`; the macOS traffic lights
   follow the control bar: off while it is hidden, back on the mouse move that shows it
   (they jump, the bar slides).
+- On Windows and Linux, Full screen on a maximized window also takes the window into the
+  system fullscreen, borderless over the taskbar or panels, and leaving Full screen
+  brings it back maximized (`main_view/doc.md`, "System fullscreen").
 - The cover area is clipped in every mode: the cover view lays out from last frame's
   measured size, so a panel opening or a fast resize can shrink the area by more than
   `COVER_MARGIN` in one frame, and unclipped the cover would show under the transparent
@@ -1367,8 +1370,11 @@ Owner's calls; ask before changing.
   fade instead: lifting it into the bar would take unclipping its ancestors, an occluder
   against the bar's window drag, and macOS only, since the caption buttons sit on the
   right elsewhere.
+- Full screen takes the window into the system fullscreen only when it is maximized, and
+  only on Windows and Linux; a smaller window keeps its size. In fullscreen the Linux
+  title bar collapses like the other platforms': no window buttons there.
 - The window placement is written with other settings saves and at quit, not on its
-  own debounce. Fullscreen is never restored; maximized only on Windows.
+  own debounce. Fullscreen is never restored as a placement; maximized only on Windows.
 - The wheel changes the volume only over the volume control, not over the whole window
   or footer, where it would fire on list scrolls that drift onto it.
 - "Stop after each track" is the repeat button's fourth state, not a separate button or

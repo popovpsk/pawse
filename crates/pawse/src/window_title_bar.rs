@@ -23,7 +23,7 @@ pub const TRAFFIC_LIGHT_HIDDEN_X: f32 = -200.;
 const FULLSCREEN_TOP_INSET: f32 = 8.;
 
 pub fn bar_height(window: &Window, height: Option<f32>) -> f32 {
-    if cfg!(not(target_os = "linux")) && window.is_fullscreen() {
+    if window.is_fullscreen() {
         FULLSCREEN_TOP_INSET
     } else {
         height.unwrap_or(HEIGHT)
@@ -33,6 +33,15 @@ pub fn bar_height(window: &Window, height: Option<f32>) -> f32 {
 #[cfg(target_os = "macos")]
 pub fn traffic_light_y(bar_height: f32) -> f32 {
     TRAFFIC_LIGHT_Y + (bar_height - HEIGHT) / 2.
+}
+
+fn fullscreen_inset(window: &Window, height: Option<f32>, bg: Hsla) -> AnyElement {
+    div()
+        .w_full()
+        .flex_shrink_0()
+        .h(px(bar_height(window, height)))
+        .bg(bg)
+        .into_any_element()
 }
 
 #[derive(IntoElement, Default)]
@@ -68,12 +77,7 @@ impl RenderOnce for WindowTitleBar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let bg = self.bg.unwrap_or_else(|| Colors::title_bar(cx));
         if window.is_fullscreen() {
-            return div()
-                .w_full()
-                .flex_shrink_0()
-                .h(px(bar_height(window, self.height)))
-                .bg(bg)
-                .into_any_element();
+            return fullscreen_inset(window, self.height, bg);
         }
         gpui_component::TitleBar::new()
             .bg(bg)
@@ -99,9 +103,12 @@ impl Render for DragState {
 #[cfg(target_os = "linux")]
 impl RenderOnce for WindowTitleBar {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let bg = self.bg.unwrap_or_else(|| Colors::title_bar(cx));
+        if window.is_fullscreen() {
+            return fullscreen_inset(window, self.height, bg);
+        }
         let is_client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
         let state = window.use_state(cx, |_, _| DragState { should_move: false });
-        let bg = self.bg.unwrap_or_else(|| Colors::title_bar(cx));
         let text_secondary = Colors::muted_foreground(cx);
         let text_primary = Colors::foreground(cx);
         let danger = Colors::danger(cx);

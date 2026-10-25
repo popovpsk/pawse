@@ -18,6 +18,7 @@ use gpui_component::{
 
 mod header;
 mod last_screen;
+mod os_fullscreen;
 mod stage;
 
 use crate::audio_settings::AudioSettings;
@@ -100,6 +101,7 @@ pub struct MainView {
     tools_view: Entity<crate::tools::ToolsView>,
     cover_mode: bool,
     cover_mode_view: Entity<CoverModeView>,
+    os_fullscreen: bool,
     cover_backdrop: Entity<CoverBackdrop>,
     cover_volume: Entity<CoverVolume>,
     _cover_skin: Entity<CoverSkin>,
@@ -524,13 +526,15 @@ impl MainView {
         let cover_backdrop_observe = cx.observe(&cover_backdrop, |_, _, cx| cx.notify());
         let cover_skin = cx.new(CoverSkin::new);
 
-        let cover_observe_subscription = cx.observe(&cover_mode_view, |this, view, cx| {
-            let hidden = !view.read(cx).controls_shown();
-            if hidden {
-                this.cover_volume.update(cx, |cv, cx| cv.collapse(cx));
-            }
-            cx.notify();
-        });
+        let cover_observe_subscription =
+            cx.observe_in(&cover_mode_view, window, |this, view, window, cx| {
+                let hidden = !view.read(cx).controls_shown();
+                if hidden {
+                    this.cover_volume.update(cx, |cv, cx| cv.collapse(cx));
+                }
+                this.sync_os_fullscreen(window, cx);
+                cx.notify();
+            });
 
         // ShuffleButton::on_click calls cx.notify() after reordering the queue.
         // Observe that entity so QueueView stays in sync with the shuffled order.
@@ -594,8 +598,9 @@ impl MainView {
             }
         });
 
-        let window_bounds_subscription = cx.observe_window_bounds(window, |_, window, cx| {
+        let window_bounds_subscription = cx.observe_window_bounds(window, |this, window, cx| {
             crate::window_placement::remember(window, cx);
+            this.sync_os_fullscreen(window, cx);
         });
 
         let library_event_bus = cx
@@ -650,6 +655,7 @@ impl MainView {
                 .new(|cx| crate::tools::ToolsView::new(sleep_timer_controls.clone(), window, cx)),
             cover_mode: false,
             cover_mode_view,
+            os_fullscreen: false,
             cover_backdrop,
             cover_volume,
             _cover_skin: cover_skin,
@@ -1016,8 +1022,7 @@ impl Render for MainView {
         let scale = settings.font_scale().ui_scale();
         let header_in_title_bar = settings.header_in_title_bar();
         let title_bar_height = header::TITLE_BAR_HEIGHT * scale;
-        let header_in_bar =
-            header_in_title_bar && (!window.is_fullscreen() || cfg!(target_os = "linux"));
+        let header_in_bar = header_in_title_bar && !window.is_fullscreen();
         let show_chrome = !cover_mode || chrome_visible;
         let lights_bar = if header_in_title_bar {
             title_bar_height

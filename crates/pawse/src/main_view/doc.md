@@ -1,8 +1,8 @@
 # main_view
 
 Child modules of `main_view.rs`, the root view: the header (tabs, search field, view menu
-and the right-hand buttons), the Full screen stage and the screen a reopened window
-returns to. The header renders with a
+and the right-hand buttons), the Full screen stage, the system fullscreen that goes with
+it and the screen a reopened window returns to. The header renders with a
 `Context<MainView>`, because its buttons call `MainView`'s private methods and fields
 (`open_settings`, `leave_overlays`, `toggle_cover_mode`, `library_view`, …); `HeaderHost`
 is only the entity it is drawn under, so the header can be a cached block.
@@ -21,6 +21,7 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
   helpers only the header uses.
 - `last_screen.rs` — `LastScreen` (global), `MainView::remember_screen` /
   `restore_screen`.
+- `os_fullscreen.rs` — `OsFullscreen`, `MainView::sync_os_fullscreen`.
 - `stage.rs` — `Stage`: everything Full screen cover mode changes in the root view,
   computed once per render from cover mode, the cover view and the backdrop (title bar
   background, the bare lyrics panel, the queue reaching up to the window top, the
@@ -70,15 +71,37 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
   press on a button as a window drag (macOS, Linux) or a caption hit (Windows
   `WindowControlArea::Drag`) and the click never arrives. Gaps, the strips above and below the
   buttons and the spacer next to the search field still drag the window.
-- `main_view.rs` falls back to `Below` in fullscreen on macOS and Windows, where
-  `WindowTitleBar` collapses to a thin inset; on Linux the bar does not collapse. In cover
-  mode with hidden chrome the bar keeps its height and stays empty, so the layout does not
-  jump.
+- `main_view.rs` falls back to `Below` in fullscreen, where `WindowTitleBar` collapses to
+  a thin inset. In cover mode with hidden chrome the bar keeps its height and stays empty,
+  so the layout does not jump; in the system fullscreen it collapses too.
 - The header sits outside `#main_content`, which owns the `MainView` key context and focus
   handle; focus tracking must stay off the title-bar region. So arrow and space shortcuts do
   not fire while focus is in the header (the binding is `MainView && !Input`). The `on_action`
   handlers are on `#main_view`, so actions dispatched from the header, for example by a
   notification button, still reach `MainView`.
+
+## System fullscreen
+
+- On Windows and Linux, Full screen on a maximized window also calls `toggle_fullscreen`:
+  borderless over the monitor on Windows (gpui strips the frame and drops `NonRudeHWND`, so
+  the shell lowers the taskbar), `xdg_toplevel.set_fullscreen` on Wayland,
+  `_NET_WM_STATE_FULLSCREEN` on X11. Leaving it restores the maximized window (gpui keeps
+  the old style and rect on Windows; the compositor restores the earlier state on Linux).
+- `sync_os_fullscreen` runs on every notify of the cover view (`toggle_chrome` and
+  `set_active` both notify, so the button, Escape, leaving cover mode and
+  `restore_screen` all reach it) and on every window bounds change, which catches a
+  window maximized later: maximizing in Full screen enters too, and on Windows a window
+  reopened into Full screen is shown maximized after `restore_screen` and enters again.
+- `os_fullscreen` marks a fullscreen entered during this Full screen; only that one is
+  left, and one the compositor set in the library is never touched. Left by other means (a compositor shortcut), the window keeps Full screen
+  inside it and is not taken back until Full screen is entered anew.
+- Leaving toggles only while `is_fullscreen()` holds, since the toggle is a request that
+  lands later (a task on Windows, a configure on Wayland, a property on X11) and the
+  Wayland toggle reads the state it already has: a refused request (a KWin rule) leaves
+  nothing behind, and leaving Full screen before the request landed, within one
+  compositor round trip, leaves the window fullscreen.
+- macOS is never touched: its native fullscreen is a separate Space with its own
+  animation, entered only by the green button.
 
 ## Last screen
 
