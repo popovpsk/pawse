@@ -220,6 +220,8 @@ pub struct Strings {
     pub settings_appearance: SharedString,
     pub settings_general: SharedString,
     pub settings_library: SharedString,
+    pub settings_top_bar: SharedString,
+    pub settings_features: SharedString,
     pub theme: SharedString,
     pub theme_desc: SharedString,
     pub dynamic_theme: SharedString,

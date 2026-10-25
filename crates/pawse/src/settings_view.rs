@@ -78,11 +78,13 @@ pub fn build_settings_pages(
                 sliders.blur_intensity,
                 sliders.blur_interface_opacity,
             ))
+            .group(top_bar_group())
+            .group(now_playing_group())
+            .group(features_group())
             .group(cover_view_group())
             .group(crate::spectrum_view::settings::settings_group())
             .group(queue_group())
-            .group(lyrics_group(sliders.lyrics))
-            .group(now_playing_group()),
+            .group(lyrics_group(sliders.lyrics)),
     ];
     let general = SettingPage::new(tr().settings_general.clone())
         .group(general_group(remote_port_input))
@@ -415,27 +417,33 @@ fn appearance_group(
         );
     }
 
-    group = group.item(
-        SettingItem::new(
-            tr().header_in_title_bar.clone(),
-            SettingField::render(|_window, cx: &mut App| {
-                let enabled = cx.global::<SettingsStore>().header_in_title_bar();
-                h_flex().items_center().justify_end().child(
-                    Switch::new("header-in-title-bar-toggle")
-                        .checked(enabled)
-                        .on_click(|new_val, _, cx| {
-                            if let Err(e) = cx
-                                .global_mut::<SettingsStore>()
-                                .set_header_in_title_bar(*new_val)
-                            {
-                                notify_save_error(cx, e);
-                            }
-                        }),
-                )
-            }),
-        )
-        .description(tr().header_in_title_bar_desc.clone()),
-    );
+    group
+}
+
+fn top_bar_group() -> SettingGroup {
+    let mut group = SettingGroup::new()
+        .title(tr().settings_top_bar.clone())
+        .item(
+            SettingItem::new(
+                tr().header_in_title_bar.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let enabled = cx.global::<SettingsStore>().header_in_title_bar();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("header-in-title-bar-toggle")
+                            .checked(enabled)
+                            .on_click(|new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_header_in_title_bar(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            }),
+                    )
+                }),
+            )
+            .description(tr().header_in_title_bar_desc.clone()),
+        );
 
     // The untouched-signal-path toggle: exclusive on macOS/Windows, native
     // sample rate on Linux. Hidden when the platform can't offer it at all
@@ -475,75 +483,37 @@ fn appearance_group(
         );
     }
 
-    group
-        .item(
-            SettingItem::new(
-                tr().device_picker_button.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let show = cx.global::<SettingsStore>().show_device_picker();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("device-picker-toggle").checked(show).on_click(
-                            |new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_show_device_picker(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                                let output = &cx.global::<Services>().output;
-                                output.set_follow_default(!*new_val);
-                                if !*new_val {
-                                    output.follow_system_default();
-                                }
-                            },
-                        ),
-                    )
-                }),
-            )
-            .description(tr().device_picker_button_desc.clone()),
+    group.item(
+        SettingItem::new(
+            tr().device_picker_button.clone(),
+            SettingField::render(|_window, cx: &mut App| {
+                let show = cx.global::<SettingsStore>().show_device_picker();
+                h_flex().items_center().justify_end().child(
+                    Switch::new("device-picker-toggle")
+                        .checked(show)
+                        .on_click(|new_val, _, cx| {
+                            if let Err(e) = cx
+                                .global_mut::<SettingsStore>()
+                                .set_show_device_picker(*new_val)
+                            {
+                                notify_save_error(cx, e);
+                            }
+                            let output = &cx.global::<Services>().output;
+                            output.set_follow_default(!*new_val);
+                            if !*new_val {
+                                output.follow_system_default();
+                            }
+                        }),
+                )
+            }),
         )
-        .item(
-            SettingItem::new(
-                tr().repeat_shuffle.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let show = cx.global::<SettingsStore>().show_repeat_shuffle();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("repeat-shuffle-toggle").checked(show).on_click(
-                            |new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_show_repeat_shuffle(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            },
-                        ),
-                    )
-                }),
-            )
-            .description(tr().repeat_shuffle_desc.clone()),
-        )
-        .item(
-            SettingItem::new(
-                tr().time_labels.clone(),
-                SettingField::render(|_window, cx: &mut App| {
-                    let show = cx.global::<SettingsStore>().show_time_labels();
-                    h_flex().items_center().justify_end().child(
-                        Switch::new("time-labels-toggle").checked(show).on_click(
-                            |new_val, _, cx| {
-                                if let Err(e) = cx
-                                    .global_mut::<SettingsStore>()
-                                    .set_show_time_labels(*new_val)
-                                {
-                                    notify_save_error(cx, e);
-                                }
-                            },
-                        ),
-                    )
-                }),
-            )
-            .description(tr().time_labels_desc.clone()),
-        )
+        .description(tr().device_picker_button_desc.clone()),
+    )
+}
+
+fn features_group() -> SettingGroup {
+    SettingGroup::new()
+        .title(tr().settings_features.clone())
         .item(
             SettingItem::new(
                 tr().tab_genres.clone(),
@@ -1167,6 +1137,48 @@ fn now_playing_group() -> SettingGroup {
                 }),
             )
             .description(tr().now_playing_details_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                tr().repeat_shuffle.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_repeat_shuffle();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("repeat-shuffle-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_repeat_shuffle(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().repeat_shuffle_desc.clone()),
+        )
+        .item(
+            SettingItem::new(
+                tr().time_labels.clone(),
+                SettingField::render(|_window, cx: &mut App| {
+                    let show = cx.global::<SettingsStore>().show_time_labels();
+                    h_flex().items_center().justify_end().child(
+                        Switch::new("time-labels-toggle").checked(show).on_click(
+                            |new_val, _, cx| {
+                                if let Err(e) = cx
+                                    .global_mut::<SettingsStore>()
+                                    .set_show_time_labels(*new_val)
+                                {
+                                    notify_save_error(cx, e);
+                                }
+                            },
+                        ),
+                    )
+                }),
+            )
+            .description(tr().time_labels_desc.clone()),
         )
 }
 

@@ -183,6 +183,12 @@ Integrations:
   `ScrobbleRules`, `ScrobbleInputs`, the sliders, the remote-port input) lives in entities
   owned by `MainView`; the built pages live in `SettingsScreen`. The same store observer
   mirrors a changed `artists_grouping` into `LibraryService` (`library_views/doc.md`).
+- Appearance is grouped by where a setting shows: the untitled look group (theme, font,
+  blur), Top bar (the header: title-bar placement, output buttons), Now playing (the
+  footer: third line, repeat/shuffle, time labels), Features (switches that hide a tab or
+  button everywhere it appears: genres, likes, playlists, tools, tag editor), then the
+  views. Group titles and descriptions name what the user sees, never "header" or
+  "footer".
 - Focus: the `MainView` key context and focus handle sit on `#main_content`, never on
   `#main_view` or anything spanning the title bar. `track_focus` calls `prevent_default`
   on every left mouse-down in its bounds, which on Windows kills the caption buttons and
