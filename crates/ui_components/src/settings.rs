@@ -261,7 +261,10 @@ pub struct Settings {
     initial_page: usize,
     initial_anchor: Option<SharedString>,
     request: u64,
+    on_page_change: Option<PageChangeHandler>,
 }
+
+type PageChangeHandler = Rc<dyn Fn(&usize, &mut Window, &mut App)>;
 
 impl Settings {
     pub fn new(id: impl Into<ElementId>) -> Self {
@@ -271,6 +274,7 @@ impl Settings {
             initial_page: 0,
             initial_anchor: None,
             request: 0,
+            on_page_change: None,
         }
     }
 
@@ -286,6 +290,14 @@ impl Settings {
 
     pub fn page_request(mut self, request: u64) -> Self {
         self.request = request;
+        self
+    }
+
+    pub fn on_page_change(
+        mut self,
+        handler: impl Fn(&usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_page_change = Some(Rc::new(handler));
         self
     }
 
@@ -343,16 +355,21 @@ impl RenderOnce for Settings {
             )
             .on_click({
                 let state = state.clone();
-                move |index, _, cx| {
+                let on_page_change = self.on_page_change.clone();
+                move |index, window, cx| {
                     let i = *index;
-                    state.update(cx, |s, cx| {
+                    let changed = state.update(cx, |s, cx| {
                         if s.active == i {
-                            return;
+                            return false;
                         }
                         s.active = i;
                         s.scroll.set_offset(point(px(0.), px(0.)));
                         cx.notify();
+                        true
                     });
+                    if changed && let Some(handler) = &on_page_change {
+                        handler(index, window, cx);
+                    }
                 }
             });
 

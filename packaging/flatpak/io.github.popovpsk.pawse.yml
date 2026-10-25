@@ -19,6 +19,7 @@ finish-args:
   - --filesystem=home
   - --filesystem=/run/media
   - --own-name=org.mpris.MediaPlayer2.pawse
+  - --talk-name=org.kde.StatusNotifierWatcher
 
 modules:
   - name: pawse

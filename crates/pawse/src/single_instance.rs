@@ -75,17 +75,8 @@ pub fn install(cx: &mut App, listener: Option<LocalSocketListener>) {
 
     cx.spawn(async move |cx| {
         while rx.recv_async().await.is_ok() {
-            cx.update(raise_to_front);
+            cx.update(crate::raise_main_window);
         }
     })
     .detach();
-}
-
-fn raise_to_front(cx: &mut App) {
-    cx.activate(true);
-    if let Some(handle) = cx.windows().into_iter().next() {
-        let _ = handle.update(cx, |_, window, _| window.activate_window());
-    } else {
-        crate::open_initial_window(cx, false);
-    }
 }

@@ -49,6 +49,14 @@ impl SouvlakiIntegration {
     }
 }
 
+impl Drop for SouvlakiIntegration {
+    fn drop(&mut self) {
+        if let Err(err) = self.controls.get_mut().detach() {
+            log::debug!("media_integration: failed to detach media controls: {err:?}");
+        }
+    }
+}
+
 fn map_event(event: MediaControlEvent) -> Option<MediaCommand> {
     match event {
         MediaControlEvent::Play => Some(MediaCommand::Play),

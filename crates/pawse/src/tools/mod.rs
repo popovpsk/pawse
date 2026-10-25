@@ -181,6 +181,10 @@ impl ToolsView {
         cx.notify();
     }
 
+    pub fn page_ix(&self) -> usize {
+        self.page_ix
+    }
+
     pub fn show_ai_playlist(&mut self, cx: &mut Context<Self>) {
         self.ai_prompt.update(cx, |state, cx| {
             if state.prefer_playlist_mode() {
@@ -192,12 +196,15 @@ impl ToolsView {
 }
 
 impl Render for ToolsView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(
             Settings::new("pawse-tools")
                 .initial_page(self.page_ix)
                 .page_request(self.page_request)
-                .pages(self.pages.clone()),
+                .pages(self.pages.clone())
+                .on_page_change(cx.listener(|this, page_ix: &usize, _, _| {
+                    this.page_ix = *page_ix;
+                })),
         )
     }
 }

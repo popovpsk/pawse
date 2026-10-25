@@ -17,6 +17,7 @@ use gpui_component::{
 };
 
 mod header;
+mod last_screen;
 mod stage;
 
 use crate::audio_settings::AudioSettings;
@@ -35,8 +36,6 @@ use crate::library_views::view_menu::ViewMenuTab;
 use crate::localization::LangChanged;
 use crate::localization::tr;
 use crate::lyrics_view::LyricsView;
-#[cfg(not(target_os = "macos"))]
-use crate::media_bridge::MediaBridge;
 use crate::now_playing::{
     NavigateToAlbumRequested, NavigateToArtistRequested, ToggleCoverModeRequested,
 };
@@ -137,8 +136,6 @@ pub struct MainView {
     _scrobble_inputs: ScrobbleInputs,
     _scrobble_token_subscription: Subscription,
     _scrobble_status_observe: Option<Subscription>,
-    #[cfg(not(target_os = "macos"))]
-    _media_bridge: Entity<MediaBridge>,
     _library_subscription: Subscription,
     _scan_subscription: Subscription,
     _search_subscription: Subscription,
@@ -634,7 +631,11 @@ impl MainView {
             cx.new(|cx| header::HeaderHost::new(main_view, parts, cx))
         };
 
-        Self {
+        #[cfg(target_os = "windows")]
+        crate::media_bridge::bind_window(crate::media_bridge::window_hwnd(window), cx);
+        cx.on_release(|this, cx| this.remember_screen(cx)).detach();
+
+        let mut view = Self {
             library_view,
             footer,
             queue_view,
@@ -691,8 +692,6 @@ impl MainView {
             _scrobble_inputs: scrobble_inputs,
             _scrobble_token_subscription: scrobble_token_subscription,
             _scrobble_status_observe: scrobble_status_observe,
-            #[cfg(not(target_os = "macos"))]
-            _media_bridge: cx.new(|cx| MediaBridge::new(window, cx)),
             _library_subscription: library_subscription,
             _scan_subscription: scan_subscription,
             _search_subscription: search_subscription,
@@ -724,7 +723,9 @@ impl MainView {
                 crate::window_title_bar::TRAFFIC_LIGHT_Y,
             ),
             focus_handle,
-        }
+        };
+        view.restore_screen(window, cx);
+        view
     }
 
     #[cfg(target_os = "macos")]

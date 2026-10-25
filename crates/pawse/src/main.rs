@@ -83,6 +83,8 @@ pub mod tools;
 pub mod torrent_settings;
 pub mod track_list;
 pub mod track_progress_slider;
+#[cfg(not(target_os = "macos"))]
+pub mod tray_bridge;
 pub mod view_cache;
 pub mod volume;
 pub mod window_placement;
@@ -207,6 +209,16 @@ fn open_initial_window(cx: &mut App, run_startup_tasks: bool) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn raise_main_window(cx: &mut App) {
+    cx.activate(true);
+    if let Some(handle) = cx.windows().into_iter().next() {
+        let _ = handle.update(cx, |_, window, _| window.activate_window());
+    } else {
+        open_initial_window(cx, false);
+    }
+}
+
 fn main() {
     #[cfg(not(target_os = "macos"))]
     let single_instance = match single_instance::acquire() {
@@ -323,15 +335,19 @@ fn main() {
 
         crate::services::apply_remote_state(cx);
 
+        #[cfg(not(target_os = "macos"))]
+        cx.set_quit_mode(gpui::QuitMode::Explicit);
+        #[cfg(not(target_os = "macos"))]
         cx.on_window_closed(|cx, _| {
-            if cx.windows().is_empty() {
-                #[cfg(not(target_os = "macos"))]
+            if cx.windows().is_empty() && !crate::tray_bridge::park(cx) {
                 cx.quit();
             }
         })
         .detach();
 
         cx.on_app_quit(|cx| {
+            #[cfg(not(target_os = "macos"))]
+            crate::tray_bridge::shutdown(cx);
             let scrobble = crate::scrobble_bridge::finalize_on_quit(cx);
             crate::discord_bridge::finalize_on_quit(cx);
             crate::similar_tracks::shutdown(cx);
@@ -384,13 +400,15 @@ fn main() {
         crate::scrobble_bridge::setup(cx);
         crate::sleep_timer::setup(cx);
         crate::similar_tracks::setup(cx);
+        #[cfg(not(target_os = "macos"))]
+        crate::tray_bridge::setup(cx);
 
         open_initial_window(cx, true);
 
         #[cfg(not(target_os = "macos"))]
         single_instance::install(cx, single_instance);
 
-        #[cfg(target_os = "macos")]
+        #[cfg(not(target_os = "windows"))]
         crate::media_bridge::setup(cx);
 
         crate::discord_bridge::setup(cx);

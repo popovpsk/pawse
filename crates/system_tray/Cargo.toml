@@ -1,0 +1,18 @@
+[package]
+name = "system_tray"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = { workspace = true }
+thiserror = "2.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false }
+
+[lints]
+workspace = true

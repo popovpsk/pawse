@@ -1,7 +1,8 @@
 # main_view
 
 Child modules of `main_view.rs`, the root view: the header (tabs, search field, view menu
-and the right-hand buttons) and the Full screen stage. The header renders with a
+and the right-hand buttons), the Full screen stage and the screen a reopened window
+returns to. The header renders with a
 `Context<MainView>`, because its buttons call `MainView`'s private methods and fields
 (`open_settings`, `leave_overlays`, `toggle_cover_mode`, `library_view`, …); `HeaderHost`
 is only the entity it is drawn under, so the header can be a cached block.
@@ -18,6 +19,8 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
   `render_header`, `Placement`, `HEIGHT` (standalone bar) and `TITLE_BAR_HEIGHT` (bar when
   the header lives in the title bar), both scaled by the UI font scale, and the button
   helpers only the header uses.
+- `last_screen.rs` — `LastScreen` (global), `MainView::remember_screen` /
+  `restore_screen`.
 - `stage.rs` — `Stage`: everything Full screen cover mode changes in the root view,
   computed once per render from cover mode, the cover view and the backdrop (title bar
   background, the bare lyrics panel, the queue reaching up to the window top, the
@@ -76,3 +79,18 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
   not fire while focus is in the header (the binding is `MainView && !Input`). The `on_action`
   handlers are on `#main_view`, so actions dispatched from the header, for example by a
   notification button, still reach `MainView`.
+
+## Last screen
+
+- A closed window loses its `MainView` (macOS Dock reopen, the tray's Show, a second
+  launch on Windows / Linux all build a new one). `remember_screen` runs in `MainView`'s
+  `on_release` and stores `LastScreen`; `restore_screen` ends `MainView::new`. Memory
+  only: a new launch starts on Albums.
+- Kept: the screen (library, Settings page, Tools page, cover mode with Full screen),
+  the library's whole navigation stack as `NavKey`s, so Back still leads where it led
+  (`library_views/doc.md`, "Navigation"), and both side panels (open, width). Not kept:
+  scroll positions, the search text, open popovers.
+- The library is restored first, then the panels, then the screen: opening Settings or
+  Tools goes through `leave_overlays`, and cover mode must be entered last.
+- Settings and Tools report tab clicks through `Settings::on_page_change`, so `page_ix`
+  is the shown tab and not only the last requested one.

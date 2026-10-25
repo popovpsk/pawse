@@ -657,6 +657,8 @@ pub struct UserSettings {
     pub artists_layout: LibraryLayout,
     #[serde(default = "default_true")]
     pub auto_update: bool,
+    #[serde(default)]
+    pub close_to_tray: bool,
     #[serde(default = "default_true")]
     pub lyrics_from_internet: bool,
     #[serde(default, alias = "lyrics_prefer_lrclib")]
@@ -779,6 +781,7 @@ impl Default for UserSettings {
             artists_picture: ArtistPicture::default(),
             artists_layout: LibraryLayout::List,
             auto_update: true,
+            close_to_tray: false,
             lyrics_from_internet: true,
             lyrics_prefer_web: false,
             artist_info_from_internet: true,
@@ -1386,6 +1389,15 @@ impl SettingsStore {
 
     pub fn set_auto_update(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.auto_update = enabled;
+        self.save()
+    }
+
+    pub fn close_to_tray(&self) -> bool {
+        self.settings.close_to_tray
+    }
+
+    pub fn set_close_to_tray(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.close_to_tray = enabled;
         self.save()
     }
 
@@ -2417,6 +2429,7 @@ mod tests {
             artists_picture: ArtistPicture::Photo,
             artists_layout: LibraryLayout::Grid,
             auto_update: true,
+            close_to_tray: true,
             lyrics_from_internet: true,
             lyrics_prefer_web: false,
             artist_info_from_internet: true,
@@ -2483,6 +2496,7 @@ mod tests {
         assert_eq!(back.similar_familiarity, Familiarity::New);
         assert!(!back.similar_autoplay);
         assert!(back.sound_genres_shown);
+        assert!(back.close_to_tray);
         assert!(!back.albums_show_artist);
         assert_eq!(back.albums_sort, AlbumsSort::Year);
         assert!(back.albums_sort_desc);

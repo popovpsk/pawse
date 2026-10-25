@@ -29,6 +29,7 @@ App shell:
   loops at 30 fps out of phase would draw 60 frames; waking on the same ticks, their
   notifies land in one frame.
 - `single_instance.rs` — second-launch guard (Windows, Linux).
+- `tray_bridge.rs` — the notification-area icon and closing into it (Windows, Linux).
 - `settings_store.rs` — `SettingsStore` over `UserSettings` (`settings.json`).
   `settings_view.rs` — `build_settings_pages` (Appearance, General, Scrobbling, Library),
   `SettingsScreen` (the view drawing them).
@@ -83,7 +84,7 @@ Integrations:
 - `scrobble_flow_tests.rs` — whole-flow tests; a `#[path]` child module of
   `scrobble_bridge`, so `main.rs` does not list it.
 - `discord_bridge.rs`, `media_bridge.rs` — engine events to Discord / the OS now-playing
-  surface.
+  surface; `media_bridge::bind_window` rebinds Windows' SMTC to a window.
 - `error_bridge.rs` — `diagnostics` notices and background errors as notifications.
 
 ## Startup and quit (`main.rs`)
@@ -100,16 +101,20 @@ Integrations:
   The startup tasks run once per process: `reconcile_sources`, then
   `scrobble_bridge::apply_settings` (server targets need the `sources` ids reconcile
   creates), `restore_engine_state`, and on the first frame the rescan,
-  `library_watcher::rebuild` and `sync_all`. A macOS reopen, a second-launch raise and
-  the window after onboarding pass `false`; without `onboarding_complete` the first
-  window is the onboarding one.
+  `library_watcher::rebuild` and `sync_all`. A macOS reopen, a second-launch raise, the
+  tray's Show and the window after onboarding pass `false`; without `onboarding_complete`
+  the first window is the onboarding one.
 - `build_window_options` caps an unfocused window at 60 fps (`inactive_frame_interval`)
   instead of gpui's default ~30, which stutters the lyrics autoscroll; 60 rather than
   uncapped is the owner's call. gpui throttles only frames requested with `on_next_frame`
   (`request_animation_frame`, `with_animation`); timer loops that notify are not capped,
   so the spectrum lowers itself (`spectrum_view/doc.md`).
-- Closing the last window quits on Windows and Linux. On macOS the app stays (audio
-  keeps playing, `on_reopen` opens a window); only Quit leaves.
+- Closing the last window quits on Windows and Linux unless `tray_bridge::park` keeps
+  the app in the tray ("Tray"). There the quit mode is `QuitMode::Explicit` and the
+  `on_window_closed` observer quits: gpui's default quits after the observers have run,
+  whatever they decided. On macOS the app stays (audio keeps playing, `on_reopen`
+  opens a window); only Quit leaves. A window opened again shows the screen the closed
+  one was on (`main_view/doc.md`, "Last screen").
 - The quit hook finalizes the scrobble, shuts Discord and the similar-tracks pipeline
   down, saves the playback state with `save_playback_blocking` (synchronous; it also
   detaches the background writer so nothing races it), shuts the services down and
@@ -144,9 +149,9 @@ Integrations:
   and this one exits. A failed bind is retried as a connect (two simultaneous launches);
   if both fail the app runs unguarded with a warning.
 - `install` runs the blocking `accept` on a thread (`single-instance`). Each connection
-  raises the app on the UI thread: activate, first window, or open a window when none
-  exists (`run_startup_tasks` false). After 16 consecutive accept errors the thread
-  stops.
+  raises the app on the UI thread with `main::raise_main_window` (also the tray's Show):
+  activate, first window, or open a window when none exists (`run_startup_tasks`
+  false). After 16 consecutive accept errors the thread stops.
 - macOS has no socket: `LSMultipleInstancesProhibited` in `crates/pawse/Info.plist` is
   enforced by LaunchServices, so it covers Finder and `open` but not a binary started
   from a shell (CLAUDE.md: no single-instance lock when running `target/*/pawse`). With
@@ -382,8 +387,9 @@ Integrations:
   `UserSettings::equalizer` before the local engine and handed to it and to every AirPlay
   engine (`cast/mod.rs`). Only the Tools Equalizer page changes it
   (`tools/equalizer/doc.md`).
-- Views rebuilt without a track reload (a macOS Dock reopen builds a new `MainView`) take
-  initial state from these atomics, not events; the DSD rate is an atomic only for that.
+- Views rebuilt without a track reload (a macOS Dock reopen or the tray's Show builds a
+  new `MainView`) take initial state from these atomics, not events; the DSD rate is an
+  atomic only for that.
 - `Stopped` and `Error` zero the duration, which is what makes the next Play reload;
   `Preparing` sets the catalog duration, zeroes the position and clears the DSD rate.
 - Prefetch runs once per loaded track (re-armed on `Loaded`, needs a known duration):
@@ -394,7 +400,7 @@ Integrations:
 ## Launch restore (`main.rs`)
 
 - After `Services::initialize`, `main` sets the saved volume and restores the queue. The
-  window's startup tasks (not run on a macOS Dock reopen) then call
+  window's startup tasks (not run on a reopened window) then call
   `restore_engine_state`.
 - A current track that is a local file or cached is loaded paused into the local engine
   and seeked. A server track not in the cache is not restored: its position goes into
@@ -1247,11 +1253,13 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
 
 ## OS media controls (`media_bridge.rs`)
 
-- Wires `media_integration` (its `doc.md`) to the engine bus. On macOS `setup` runs once
-  at launch and the integration is app-lived (audio keeps running with no window). On
-  Windows and Linux a `MediaBridge` entity owned by `MainView` creates it (with the
-  window's `hwnd` for SMTC) and it dies with the window, which is when those platforms
-  quit.
+- Wires `media_integration` (its `doc.md`) to the engine bus. On macOS and Linux `setup`
+  runs once at launch and the integration is app-lived (audio keeps running with no
+  window). Windows' SMTC needs a window's `hwnd`: `bind_window` replaces the integration
+  with one on the given window, dropping the old one first (two would show twice in the
+  OS flyout; the drop detaches it, `media_integration/src/doc.md`). `MainView::new` binds
+  it to the main window; `tray_bridge::park` binds it to the tray's hidden window while
+  the app sits in the tray, so media keys keep working.
 - Inbound `MediaCommand`s arrive on a `flume` channel and a GPUI task maps them to
   `services::*` playback calls. Outbound, the bridge seeds itself from `Services`;
   `Loaded` publishes the track (artists joined with ", ", cover path); `TrackEnded` /
@@ -1261,6 +1269,28 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
   `<cache_dir>/pawse/artwork/<cover id>.jpg` (and deletes the other `.jpg` files there),
   never the temp dir: the OS reads the file from outside our process, and inside a
   Flatpak `/tmp` is the sandbox's private tmpfs.
+
+## Tray (`tray_bridge.rs`, Windows and Linux)
+
+- Settings → General "Close to tray" (`close_to_tray`, off by default). The icon exists
+  while the switch is on, not only while the window is closed. A language change
+  relabels its menu in place (`Tray::set_labels`), or, with no icon yet (still being
+  created on Linux, or failed), creates it again. Menu: Show, Quit; a left click is Show. The crate
+  is `system_tray` (its `doc.md`).
+- When the last window closes, `on_window_closed` asks `park`: the app stays only if the
+  icon is shown (`Tray::is_shown`), otherwise it quits as before. So a Linux desktop
+  without a StatusNotifier host (GNOME without the AppIndicator extension, a Flatpak
+  without `--talk-name=org.kde.StatusNotifierWatcher`) loses nothing but the switch's
+  effect; the description says so on Linux.
+- Closing destroys the window (gpui has no hide): Show opens a new one through
+  `raise_main_window`. Playback, scrobbling, Discord, the sleep timer and the web remote
+  are app-level and keep running.
+- Linux builds the config and the icon on the background executor (`Tray::new` waits
+  on D-Bus); `generation` drops a result the switch or a language change has overtaken. Windows creates it
+  on the UI thread (`system_tray/src/doc.md`).
+- One `flume` channel for the process: the sink is `TrayHost::sink`, read by a task
+  that runs Show / Quit on the UI thread. The quit hook drops the icon first, so no
+  ghost icon is left on Windows.
 
 ## Error notices (`error_bridge.rs`)
 
@@ -1290,6 +1320,9 @@ Owner's calls; ask before changing.
 - The scan indicator may blink off between a sync and its rescan; a hold-over delay at
   launch was worse.
 - An unfinished cover phase is not persisted (no table or migration for resuming it).
+- Close to tray is Windows and Linux only; the tray menu is Show and Quit, nothing more.
+- The screen to return to is kept in memory only, never in `settings.json`; scroll
+  positions and the search text are not kept.
 - A missing `pipewire-alsa` plugin blocks startup with install commands, not a fallback
   to raw ALSA cards (`audio_output/src/doc.md`, Decisions).
 - The sleep-timer badge lives in the footer volume row in every layout, not in the title

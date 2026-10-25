@@ -45,6 +45,7 @@ mod sv;
 mod th;
 mod tools;
 mod tr;
+mod tray;
 mod uk;
 mod vi;
 mod view_menu;
@@ -58,6 +59,7 @@ pub use playlist_import::{PlaylistImportStrings, playlist_import_strings};
 pub use similar::{SimilarStrings, similar_strings};
 pub use spectrum::{SpectrumStrings, spectrum_strings};
 pub use tools::{ToolsStrings, tools_strings};
+pub use tray::{TrayStrings, tray_strings};
 pub use view_menu::{ViewMenuStrings, view_menu_strings};
 
 /// One immutable string per UI label. See the module docs.

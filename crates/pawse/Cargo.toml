@@ -72,6 +72,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 interprocess = "2"
+system_tray = { path = "../system_tray" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 raw-window-handle = "0.6.2"

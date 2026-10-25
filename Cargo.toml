@@ -37,7 +37,8 @@ members = [
     "crates/spectrum",
     "crates/equalizer",
     "crates/autoeq",
-    "crates/text_blur"
+    "crates/text_blur",
+    "crates/system_tray"
 ]
 
 default-members = ["crates/pawse"]

@@ -13,8 +13,8 @@ trigger (`main_view/doc.md`).
 
 ## Files
 
-- `library_view.rs` — `LibraryView`: root container, navigation stack, search routing,
-  `resolve_artist_page`.
+- `library_view.rs` — `LibraryView`: root container, navigation stack (`NavKey`), search
+  routing, `resolve_artist_page`.
 - `albums_view.rs` — Albums tab, List or Grid; also `empty_library` /
   `no_music_message`, the empty state the tabs share.
 - `albums_grid.rs` — album tile and strip of the Grid layout.
@@ -49,6 +49,13 @@ trigger (`main_view/doc.md`).
 - Genres is optional (Settings, off by default): its view is built on first visit and
   dropped when the setting goes off. Turning Liked / Playlists / Genres off removes
   their frames; if `stack[0]` is no longer a root, the stack becomes `[Root(Albums)]`.
+- Each frame keeps what it was opened with (album id, artist id + grouping, the genre,
+  playlist id or All tracks), so `nav_keys` describes the stack and `restore` rebuilds
+  it in a new window (`main_view/doc.md`, "Last screen"). `restore` reopens pages by id:
+  a frame whose album, artist or playlist is gone is skipped, the rest still open, and
+  the Liked / Playlists / Genres switches apply as above (`OptionalTabs::allow`, shared
+  with the settings observer). The genre page keeps the
+  `GenreSummary` itself, since a genre has no lookup by key.
 - Root tabs reload on `CatalogChanged` (tag edits send it too); pages do not. Albums and
   Artists read their lists on the background executor and keep showing the old ones until
   the new arrive; Albums still clears the cover cache in the handler, so the blocks

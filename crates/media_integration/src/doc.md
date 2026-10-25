@@ -7,7 +7,7 @@ Not here: mapping engine events to these calls, the receiving end of the command
 ## Files
 
 - `lib.rs` — `SystemMediaIntegration`, the data types, `create_integration(sender, hwnd)` (cfg-dispatched; `None` where there is no backend or init fails). Re-forbids `unsafe` off macOS.
-- `souvlaki_backend.rs` — `SouvlakiIntegration`, shared by Windows and Linux: `map_event` (OS event → `MediaCommand`; Stop, Raise, Quit, volume and relative seek are ignored) and `playback`. Unit-tested.
+- `souvlaki_backend.rs` — `SouvlakiIntegration`, shared by Windows and Linux: `map_event` (OS event → `MediaCommand`; Stop, Raise, Quit, volume and relative seek are ignored) and `playback`; dropping it calls `detach`. Unit-tested.
 - `macos/mod.rs` — `MacOsIntegration`: artwork cache and the trait impl; no `unsafe` of its own.
 - `macos/now_playing.rs` — `MPNowPlayingInfoCenter` writes (full metadata vs. position only) and artwork loading.
 - `macos/remote_command.rs` — `MPRemoteCommandCenter` handler registration.
@@ -24,4 +24,4 @@ Not here: mapping engine events to these calls, the receiving end of the command
 - `unsafe` stays on macOS. The crate allows it (`objc2`), but `lib.rs` has `#![cfg_attr(not(target_os = "macos"), forbid(unsafe_code))]`, so the facade and the souvlaki backend stay provably safe; only `macos/now_playing.rs` and `macos/remote_command.rs` use it.
 - Degrade to nothing: `create_integration` returns `None` for an unsupported platform, a souvlaki create/attach failure, or a call off the main thread on macOS. Windows needs `hwnd` for SMTC; every other platform ignores it.
 - The artwork file must live where the host can read it. `NowPlayingInfo::artwork_path` is a filesystem path; souvlaki hands it to MPRIS as `mpris:artUrl = file://<path>` (not percent-encoded), which the desktop shell resolves outside our process. So the app writes it under `dirs::cache_dir()/pawse/artwork`, never `std::env::temp_dir()`: inside a Flatpak `/tmp` is the sandbox's private tmpfs, a `file:///tmp/...` URL points at nothing on the host, and a host file with the same name would show someone else's cover. Windows SMTC and the macOS widget consume the same path.
-- The integration must outlive playback: on macOS it is app-lived (audio runs with no window), on Windows and Linux it dies with the window, which is when those platforms quit.
+- The integration must outlive playback, which goes on with no window (macOS, and the tray on Windows and Linux): on macOS and Linux it is app-lived; on Windows it is rebuilt for whichever window exists, the main one or the tray's hidden one, because SMTC belongs to an `hwnd`. `SouvlakiIntegration`'s `Drop` detaches: souvlaki's Windows controls have no `Drop`, so a dropped one would stay enabled with its button handler, and the next integration on the same window would add a second handler (one media key, two skips).

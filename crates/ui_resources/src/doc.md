@@ -22,7 +22,7 @@ Not here: resolving the saved language and announcing a change (`pawse::localiza
 - `themes/` — one JSON per theme family.
 - `i18n/mod.rs` — `Strings` (the schema), `lang!`, `languages!`, `Lang`, the accessor methods,
   the active-language atomic. `i18n/<code>.rs` — one `pub static <CODE>: Strings` each.
-- `i18n/{cast,playlist_import,bit_perfect,view_menu,similar,artist_card,tools,spectrum,equalizer}.rs` — feature
+- `i18n/{cast,playlist_import,bit_perfect,view_menu,similar,artist_card,tools,spectrum,equalizer,tray}.rs` — feature
   tables: a struct, a `static` per language (all 20 in one file) and a `*_strings()` picker.
 
 ## Assets and themes

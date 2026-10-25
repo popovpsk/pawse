@@ -167,16 +167,23 @@ impl SettingsScreen {
         self.anchor = anchor;
         self.request += 1;
     }
+
+    pub fn page_ix(&self) -> usize {
+        self.page_ix
+    }
 }
 
 impl Render for SettingsScreen {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(
             Settings::new("pawse-settings")
                 .pages(self.pages.pages.clone())
                 .initial_page(self.page_ix)
                 .initial_anchor(self.anchor.clone())
-                .page_request(self.request),
+                .page_request(self.request)
+                .on_page_change(cx.listener(|this, page_ix: &usize, _, _| {
+                    this.page_ix = *page_ix;
+                })),
         )
     }
 }
@@ -771,6 +778,11 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
+    {
+        group = group.item(close_to_tray_item());
+    }
+
     group = group.item(
         SettingItem::new(
             tr().lyrics_from_internet.clone(),
@@ -997,6 +1009,36 @@ fn feedback_group() -> SettingGroup {
                     )
             }),
         ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn close_to_tray_item() -> SettingItem {
+    let strings = ui_resources::i18n::tray_strings();
+    let description = if cfg!(target_os = "linux") {
+        SharedString::from(format!(
+            "{} {}",
+            strings.close_to_tray_desc, strings.no_tray_hint
+        ))
+    } else {
+        strings.close_to_tray_desc.clone()
+    };
+    SettingItem::new(
+        strings.close_to_tray.clone(),
+        SettingField::render(|_window, cx: &mut App| {
+            let enabled = cx.global::<SettingsStore>().close_to_tray();
+            h_flex().items_center().justify_end().child(
+                Switch::new("close-to-tray-toggle")
+                    .checked(enabled)
+                    .on_click(|new_val, _, cx| {
+                        if let Err(e) = cx.global_mut::<SettingsStore>().set_close_to_tray(*new_val)
+                        {
+                            notify_save_error(cx, e);
+                        }
+                    }),
+            )
+        }),
+    )
+    .description(description)
 }
 
 fn discord_item() -> SettingItem {

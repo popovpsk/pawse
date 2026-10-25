@@ -3,23 +3,38 @@ use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
 use audio_engine::EngineEvent;
-use gpui::{App, AsyncApp};
-#[cfg(not(target_os = "macos"))]
-use gpui::{Context, Entity, Subscription, Window};
+use gpui::{App, AsyncApp, Subscription};
+#[cfg(target_os = "windows")]
+use gpui::{Global, Window};
 use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
-#[cfg(not(target_os = "macos"))]
-use crate::services::EngineEventsBus;
 use crate::services::Services;
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "windows"))]
 pub fn setup(cx: &mut App) {
+    if let Some(subscription) = subscribe(cx, None) {
+        subscription.detach();
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowBinding(Option<Subscription>);
+
+#[cfg(target_os = "windows")]
+impl Global for WindowBinding {}
+
+#[cfg(target_os = "windows")]
+pub fn bind_window(hwnd: Option<*mut std::ffi::c_void>, cx: &mut App) {
+    cx.set_global(WindowBinding(None));
+    let subscription = subscribe(cx, hwnd);
+    cx.set_global(WindowBinding(subscription));
+}
+
+fn subscribe(cx: &mut App, hwnd: Option<*mut std::ffi::c_void>) -> Option<Subscription> {
     let current_position = Rc::new(RefCell::new(0.0f64));
     let current_duration = Rc::new(RefCell::new(0.0f64));
     let last_state = Rc::new(RefCell::new(MediaPlaybackState::Stopped));
-    let Some(integration) = create_integration(cx, None) else {
-        return;
-    };
+    let integration = create_integration(cx, hwnd)?;
 
     seed_from_services(
         cx,
@@ -30,57 +45,8 @@ pub fn setup(cx: &mut App) {
     );
 
     let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
-    cx.subscribe(&engine_event_bus, move |_, event: &EngineEvent, cx| {
-        apply_engine_event(
-            cx,
-            event,
-            &integration,
-            &last_state,
-            &current_position,
-            &current_duration,
-        );
-    })
-    .detach();
-}
-
-#[cfg(not(target_os = "macos"))]
-pub struct MediaBridge {
-    _subscription: Subscription,
-}
-
-#[cfg(not(target_os = "macos"))]
-impl MediaBridge {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
-        let hwnd = window_hwnd(window);
-
-        let subscription = Self::init(cx, &engine_event_bus, hwnd)
-            .unwrap_or_else(|| cx.subscribe(&engine_event_bus, |_, _, _, _| {}));
-
-        Self {
-            _subscription: subscription,
-        }
-    }
-
-    fn init(
-        cx: &mut Context<Self>,
-        engine_event_bus: &Entity<EngineEventsBus>,
-        hwnd: Option<*mut std::ffi::c_void>,
-    ) -> Option<Subscription> {
-        let current_position = Rc::new(RefCell::new(0.0f64));
-        let current_duration = Rc::new(RefCell::new(0.0f64));
-        let last_state = Rc::new(RefCell::new(MediaPlaybackState::Stopped));
-        let integration = create_integration(cx, hwnd)?;
-
-        seed_from_services(
-            cx,
-            &integration,
-            &last_state,
-            &current_position,
-            &current_duration,
-        );
-
-        let subscription = cx.subscribe(engine_event_bus, move |_, _, event: &EngineEvent, cx| {
+    Some(
+        cx.subscribe(&engine_event_bus, move |_, event: &EngineEvent, cx| {
             apply_engine_event(
                 cx,
                 event,
@@ -89,9 +55,8 @@ impl MediaBridge {
                 &current_position,
                 &current_duration,
             );
-        });
-        Some(subscription)
-    }
+        }),
+    )
 }
 
 fn apply_engine_event(
@@ -179,20 +144,12 @@ fn seed_from_services(
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn window_hwnd(window: &Window) -> Option<*mut std::ffi::c_void> {
-    #[cfg(target_os = "windows")]
-    {
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        match HasWindowHandle::window_handle(window).ok()?.as_raw() {
-            RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as *mut std::ffi::c_void),
-            _ => None,
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window;
-        None
+#[cfg(target_os = "windows")]
+pub fn window_hwnd(window: &Window) -> Option<*mut std::ffi::c_void> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match HasWindowHandle::window_handle(window).ok()?.as_raw() {
+        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as *mut std::ffi::c_void),
+        _ => None,
     }
 }
 

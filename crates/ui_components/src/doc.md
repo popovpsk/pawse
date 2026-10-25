@@ -40,6 +40,8 @@ the footer sliders and the cover cache use these widgets (`pawse/src/doc.md`), t
 - `initial_page` / `initial_anchor` are read when that state is created and again whenever
   `page_request` differs from the number it last saw; a re-render with the same number
   leaves the user's tab alone. To switch tabs while shown, the caller bumps `page_request`.
+- `on_page_change` runs after a tab click changes the tab (not for `page_request`
+  switches), so the caller can know which tab is shown; the keyed state is private.
 - A `SettingGroup::anchor` named by `initial_anchor` is scrolled to the top, by the group's
   index among the scroll container's direct children: every group must stay one child.
 

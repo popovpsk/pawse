@@ -1,5 +1,5 @@
 use gpui::{
-    AppContext, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
+    App, AppContext, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, Styled,
     Subscription, Window, div,
 };
 use gpui_component::v_flex;
@@ -37,21 +37,91 @@ pub enum LibraryRootTab {
     Playlists,
 }
 
+#[derive(Clone, Debug)]
+pub enum NavKey {
+    Root(LibraryRootTab),
+    Album(i64),
+    Artist(i64, ArtistGrouping),
+    Genre(music_library::GenreSummary),
+    Playlist(i64),
+    AllTracks,
+}
+
 enum NavEntry {
     Root(LibraryRootTab),
     AlbumTracks {
+        album_id: i64,
         view: Entity<TracksView>,
         _sub: Subscription,
     },
     ArtistTracks {
+        artist_id: i64,
+        grouping: ArtistGrouping,
         view: Entity<GroupedTracksView>,
         _subs: [Subscription; 2],
     },
     GenreTracks {
+        genre: music_library::GenreSummary,
         view: Entity<GroupedTracksView>,
         _subs: [Subscription; 2],
     },
-    PlaylistTracks(Entity<PlaylistTracksView>),
+    PlaylistTracks {
+        playlist_id: Option<i64>,
+        view: Entity<PlaylistTracksView>,
+    },
+}
+
+impl NavEntry {
+    fn key(&self) -> NavKey {
+        match self {
+            NavEntry::Root(tab) => NavKey::Root(*tab),
+            NavEntry::AlbumTracks { album_id, .. } => NavKey::Album(*album_id),
+            NavEntry::ArtistTracks {
+                artist_id,
+                grouping,
+                ..
+            } => NavKey::Artist(*artist_id, *grouping),
+            NavEntry::GenreTracks { genre, .. } => NavKey::Genre(genre.clone()),
+            NavEntry::PlaylistTracks {
+                playlist_id: Some(id),
+                ..
+            } => NavKey::Playlist(*id),
+            NavEntry::PlaylistTracks {
+                playlist_id: None, ..
+            } => NavKey::AllTracks,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OptionalTabs {
+    liked: bool,
+    playlists: bool,
+    genres: bool,
+}
+
+impl OptionalTabs {
+    fn read(cx: &App) -> Self {
+        let store = cx.global::<SettingsStore>();
+        Self {
+            liked: store.liked_enabled(),
+            playlists: store.playlists_enabled(),
+            genres: store.genres_enabled(),
+        }
+    }
+
+    fn allow(self, key: &NavKey) -> bool {
+        match key {
+            NavKey::Root(LibraryRootTab::Liked) => self.liked,
+            NavKey::Root(LibraryRootTab::Playlists) | NavKey::Playlist(_) | NavKey::AllTracks => {
+                self.playlists
+            }
+            NavKey::Root(LibraryRootTab::Genres) | NavKey::Genre(_) => self.genres,
+            NavKey::Root(LibraryRootTab::Albums | LibraryRootTab::Artists)
+            | NavKey::Album(_)
+            | NavKey::Artist(..) => true,
+        }
+    }
 }
 
 struct GenresRoot {
@@ -119,22 +189,12 @@ impl LibraryView {
         ];
 
         let settings_observer = cx.observe_global::<SettingsStore>(|this, cx| {
-            let store = cx.global::<SettingsStore>();
-            let liked = store.liked_enabled();
-            let playlists = store.playlists_enabled();
-            let genres = store.genres_enabled();
-            if !genres {
+            let tabs = OptionalTabs::read(cx);
+            if !tabs.genres {
                 this.genres = None;
             }
             let before = this.stack.len();
-            this.stack.retain(|entry| match entry {
-                NavEntry::Root(LibraryRootTab::Liked) => liked,
-                NavEntry::Root(LibraryRootTab::Playlists) => playlists,
-                NavEntry::PlaylistTracks(_) => playlists,
-                NavEntry::Root(LibraryRootTab::Genres) => genres,
-                NavEntry::GenreTracks { .. } => genres,
-                _ => true,
-            });
+            this.stack.retain(|entry| tabs.allow(&entry.key()));
             if this.stack.len() == before {
                 return;
             }
@@ -170,11 +230,18 @@ impl LibraryView {
         match self.stack.last()? {
             NavEntry::Root(LibraryRootTab::Albums) => Some(ViewMenuTab::Albums),
             NavEntry::Root(LibraryRootTab::Artists) => Some(ViewMenuTab::Artists),
-            NavEntry::Root(LibraryRootTab::Liked) | NavEntry::PlaylistTracks(_) => {
+            NavEntry::Root(LibraryRootTab::Liked) | NavEntry::PlaylistTracks { .. } => {
                 Some(ViewMenuTab::Tracks)
             }
             NavEntry::GenreTracks { .. } => Some(ViewMenuTab::Genre),
             _ => None,
+        }
+    }
+
+    pub fn root_tab(&self) -> LibraryRootTab {
+        match self.stack.first() {
+            Some(NavEntry::Root(tab)) => *tab,
+            _ => LibraryRootTab::Albums,
         }
     }
 
@@ -229,7 +296,7 @@ impl LibraryView {
             Some(NavEntry::ArtistTracks { view, .. } | NavEntry::GenreTracks { view, .. }) => {
                 view.update(cx, |v, cx| v.set_filter(query, cx));
             }
-            Some(NavEntry::PlaylistTracks(view)) => {
+            Some(NavEntry::PlaylistTracks { view, .. }) => {
                 view.update(cx, |v, cx| v.set_filter(query, cx));
             }
             None => {}
@@ -241,6 +308,40 @@ impl LibraryView {
             self.stack.pop();
             cx.emit(LibraryViewEvent::StateChanged);
             cx.notify();
+        }
+    }
+
+    pub fn nav_keys(&self) -> Vec<NavKey> {
+        self.stack.iter().map(NavEntry::key).collect()
+    }
+
+    pub fn restore(&mut self, keys: &[NavKey], window: &mut Window, cx: &mut Context<Self>) {
+        let tabs = OptionalTabs::read(cx);
+        let Some((root @ NavKey::Root(tab), pages)) = keys.split_first() else {
+            return;
+        };
+        if !tabs.allow(root) {
+            return;
+        }
+        self.select_tab(*tab, cx);
+        let library = cx.global::<Services>().library.clone();
+        for key in pages.iter().filter(|key| tabs.allow(key)) {
+            match key {
+                NavKey::Album(id) => self.navigate_to_album(*id, cx),
+                NavKey::Artist(id, grouping) => {
+                    if let Some(artist) = library.artist_summary(*id, *grouping) {
+                        self.show_artist_tracks(artist, *grouping, cx);
+                    }
+                }
+                NavKey::Genre(genre) => self.show_genre_tracks(genre.clone(), cx),
+                NavKey::Playlist(id) => {
+                    if let Some(playlist) = library.playlists().into_iter().find(|p| p.id == *id) {
+                        self.show_playlist_tracks(playlist, window, cx);
+                    }
+                }
+                NavKey::AllTracks => self.show_all_tracks(window, cx),
+                NavKey::Root(_) => {}
+            }
         }
     }
 
@@ -284,7 +385,11 @@ impl LibraryView {
         let sub = cx.subscribe(&view, |this, _, event: &NavigateToArtistRequested, cx| {
             this.navigate_to_artist(event.artist_id, event.track_id, cx);
         });
-        self.stack.push(NavEntry::AlbumTracks { view, _sub: sub });
+        self.stack.push(NavEntry::AlbumTracks {
+            album_id: album.id,
+            view,
+            _sub: sub,
+        });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -297,8 +402,12 @@ impl LibraryView {
     ) {
         let view = cx.new(|cx| GroupedTracksView::artist(&artist, grouping, cx));
         let subs = Self::grouped_tracks_subscriptions(&view, cx);
-        self.stack
-            .push(NavEntry::ArtistTracks { view, _subs: subs });
+        self.stack.push(NavEntry::ArtistTracks {
+            artist_id: artist.id,
+            grouping,
+            view,
+            _subs: subs,
+        });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -307,7 +416,11 @@ impl LibraryView {
         let sort = cx.global::<SettingsStore>().genres_sort();
         let view = cx.new(|cx| GroupedTracksView::genre(&genre, sort, cx));
         let subs = Self::grouped_tracks_subscriptions(&view, cx);
-        self.stack.push(NavEntry::GenreTracks { view, _subs: subs });
+        self.stack.push(NavEntry::GenreTracks {
+            genre,
+            view,
+            _subs: subs,
+        });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -356,7 +469,10 @@ impl LibraryView {
                 cx,
             )
         });
-        self.stack.push(NavEntry::PlaylistTracks(view));
+        self.stack.push(NavEntry::PlaylistTracks {
+            playlist_id: Some(playlist.id),
+            view,
+        });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -365,7 +481,10 @@ impl LibraryView {
         let view = cx.new(|cx| {
             PlaylistTracksView::new(tr().all_tracks.clone(), QueueSource::AllTracks, window, cx)
         });
-        self.stack.push(NavEntry::PlaylistTracks(view));
+        self.stack.push(NavEntry::PlaylistTracks {
+            playlist_id: None,
+            view,
+        });
         cx.emit(LibraryViewEvent::StateChanged);
         cx.notify();
     }
@@ -416,7 +535,7 @@ impl Render for LibraryView {
             Some(NavEntry::ArtistTracks { view, .. } | NavEntry::GenreTracks { view, .. }) => {
                 v_flex().size_full().child(view.clone())
             }
-            Some(NavEntry::PlaylistTracks(view)) => v_flex().size_full().child(view.clone()),
+            Some(NavEntry::PlaylistTracks { view, .. }) => v_flex().size_full().child(view.clone()),
             None => v_flex().size_full(),
         })
     }
