@@ -232,6 +232,14 @@ pub enum BlurBackground {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum FullScreenMode {
+    System,
+    #[default]
+    Windowed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum AlbumsArtistDisplay {
     #[default]
     Inline,
@@ -598,6 +606,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub cover_show_controls: bool,
     #[serde(default)]
+    pub full_screen_mode: FullScreenMode,
+    #[serde(default)]
     pub spectrum_visible: bool,
     #[serde(default)]
     pub spectrum_style: SpectrumStyle,
@@ -751,6 +761,7 @@ impl Default for UserSettings {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            full_screen_mode: FullScreenMode::default(),
             spectrum_visible: false,
             spectrum_style: SpectrumStyle::default(),
             spectrum_tilt: SpectrumTilt::default(),
@@ -1665,6 +1676,15 @@ impl SettingsStore {
         self.save()
     }
 
+    pub fn full_screen_mode(&self) -> FullScreenMode {
+        self.settings.full_screen_mode
+    }
+
+    pub fn set_full_screen_mode(&mut self, mode: FullScreenMode) -> anyhow::Result<()> {
+        self.settings.full_screen_mode = mode;
+        self.save()
+    }
+
     pub fn spectrum_visible(&self) -> bool {
         self.settings.spectrum_visible
     }
@@ -2399,6 +2419,7 @@ mod tests {
             cover_show_artist: true,
             cover_show_progress: true,
             cover_show_controls: true,
+            full_screen_mode: FullScreenMode::System,
             spectrum_visible: true,
             spectrum_style: SpectrumStyle::Analyzer,
             spectrum_tilt: SpectrumTilt::Gentle,
@@ -2497,6 +2518,7 @@ mod tests {
         assert!(!back.similar_autoplay);
         assert!(back.sound_genres_shown);
         assert!(back.close_to_tray);
+        assert_eq!(back.full_screen_mode, FullScreenMode::System);
         assert!(!back.albums_show_artist);
         assert_eq!(back.albums_sort, AlbumsSort::Year);
         assert!(back.albums_sort_desc);

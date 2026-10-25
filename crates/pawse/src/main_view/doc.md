@@ -82,11 +82,14 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
 
 ## System fullscreen
 
-- On Windows and Linux, Full screen on a maximized window also calls `toggle_fullscreen`:
+- On Windows and Linux, with `full_screen_mode` set to `System` (the default is
+  `Windowed`), Full screen on a maximized window also calls `toggle_fullscreen`:
   borderless over the monitor on Windows (gpui strips the frame and drops `NonRudeHWND`, so
   the shell lowers the taskbar), `xdg_toplevel.set_fullscreen` on Wayland,
   `_NET_WM_STATE_FULLSCREEN` on X11. Leaving it restores the maximized window (gpui keeps
   the old style and rect on Windows; the compositor restores the earlier state on Linux).
+- The setting is read in `sync_os_fullscreen`, not observed: Settings opens only after
+  `leave_overlays` has left cover mode, so it cannot change during Full screen.
 - `sync_os_fullscreen` runs on every notify of the cover view (`toggle_chrome` and
   `set_active` both notify, so the button, Escape, leaving cover mode and
   `restore_screen` all reach it) and on every window bounds change, which catches a

@@ -691,9 +691,11 @@ Integrations:
   under the lyrics; the lyrics get their `LyricsPresentation`; the macOS traffic lights
   follow the control bar: off while it is hidden, back on the mouse move that shows it
   (they jump, the bar slides).
-- On Windows and Linux, Full screen on a maximized window also takes the window into the
-  system fullscreen, borderless over the taskbar or panels, and leaving Full screen
-  brings it back maximized (`main_view/doc.md`, "System fullscreen").
+- On Windows and Linux, with Settings → Appearance → Cover view "Full screen" set to
+  Fullscreen (`full_screen_mode`, Windowed by default), Full screen on a maximized window
+  also takes the window into the system fullscreen, borderless over the taskbar or
+  panels, and leaving Full screen brings it back maximized (`main_view/doc.md`, "System
+  fullscreen"). The choice is not shown on macOS.
 - The cover area is clipped in every mode: the cover view lays out from last frame's
   measured size, so a panel opening or a fast resize can shrink the area by more than
   `COVER_MARGIN` in one frame, and unclipped the cover would show under the transparent
@@ -1371,7 +1373,8 @@ Owner's calls; ask before changing.
   against the bar's window drag, and macOS only, since the caption buttons sit on the
   right elsewhere.
 - Full screen takes the window into the system fullscreen only when it is maximized, and
-  only on Windows and Linux; a smaller window keeps its size. In fullscreen the Linux
+  only on Windows and Linux; a smaller window keeps its size. It is opt-in, a two-way
+  choice (Fullscreen / Windowed) rather than a switch, Windowed by default. In fullscreen the Linux
   title bar collapses like the other platforms': no window buttons there.
 - The window placement is written with other settings saves and at quit, not on its
   own debounce. Fullscreen is never restored as a placement; maximized only on Windows.

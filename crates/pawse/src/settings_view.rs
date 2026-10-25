@@ -22,7 +22,7 @@ use crate::localization::tr;
 use crate::remote_settings::{COUNT_COLUMN, ICON_SIZE, row_colors};
 use crate::services::Services;
 use crate::settings_store::{
-    BlurBackground, FontScale, NowPlayingDetails, SettingsStore, apply_font_scale,
+    BlurBackground, FontScale, FullScreenMode, NowPlayingDetails, SettingsStore, apply_font_scale,
     notify_save_error,
 };
 use crate::theme_colors::Colors;
@@ -1183,7 +1183,7 @@ fn now_playing_group() -> SettingGroup {
 }
 
 fn cover_view_group() -> SettingGroup {
-    SettingGroup::new()
+    let group = SettingGroup::new()
         .title(tr().cover_mode.clone())
         .item(
             SettingItem::new(
@@ -1247,7 +1247,48 @@ fn cover_view_group() -> SettingGroup {
                 }),
             )
             .description(tr().cover_controls_desc.clone()),
-        )
+        );
+    if cfg!(target_os = "macos") {
+        return group;
+    }
+    group.item(full_screen_mode_item())
+}
+
+fn full_screen_mode_item() -> SettingItem {
+    SettingItem::new(
+        tr().full_screen.clone(),
+        SettingField::render(|_window, cx: &mut App| {
+            let current = cx.global::<SettingsStore>().full_screen_mode();
+            h_flex().items_center().justify_end().child(
+                ButtonGroup::new("full-screen-mode-group")
+                    .small()
+                    .child(
+                        Button::new("full-screen-system")
+                            .label(tr().full_screen_system.clone())
+                            .selected(current == FullScreenMode::System),
+                    )
+                    .child(
+                        Button::new("full-screen-windowed")
+                            .label(tr().full_screen_windowed.clone())
+                            .selected(current == FullScreenMode::Windowed),
+                    )
+                    .on_click(|clicks: &Vec<usize>, _, cx| {
+                        let Some(&ix) = clicks.first() else {
+                            return;
+                        };
+                        let mode = match ix {
+                            0 => FullScreenMode::System,
+                            _ => FullScreenMode::Windowed,
+                        };
+                        if let Err(e) = cx.global_mut::<SettingsStore>().set_full_screen_mode(mode)
+                        {
+                            notify_save_error(cx, e);
+                        }
+                    }),
+            )
+        }),
+    )
+    .description(tr().full_screen_desc.clone())
 }
 
 fn queue_group() -> SettingGroup {
