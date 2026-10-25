@@ -149,7 +149,8 @@ mod tests {
         std::fs::write(folder.join("notes.md"), "x").unwrap();
         assert_eq!(list(&folder), ["air", "Warm"]);
         assert_eq!(read(&folder, "Warm").unwrap(), bands);
-        assert!(contains(&list(&folder), "warm"));
+        assert!(contains(&list(&folder), "Warm"));
+        assert_eq!(contains(&list(&folder), "warm"), !cfg!(target_os = "linux"));
         delete(&folder, "air").unwrap();
         assert_eq!(list(&folder), ["Warm"]);
         let _ = std::fs::remove_dir_all(&folder);
