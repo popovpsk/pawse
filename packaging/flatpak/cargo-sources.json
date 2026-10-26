@@ -5176,6 +5176,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/keyring-core/keyring-core-1.0.1.crate",
+        "sha256": "29fbf4b551298c67925f38cf341a1ada797a75f1837bdf8ae1fc8e2ebc6efb59",
+        "dest": "cargo/vendor/keyring-core-1.0.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"29fbf4b551298c67925f38cf341a1ada797a75f1837bdf8ae1fc8e2ebc6efb59\", \"files\": {}}",
+        "dest": "cargo/vendor/keyring-core-1.0.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/khronos-egl/khronos-egl-6.0.0.crate",
         "sha256": "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76",
         "dest": "cargo/vendor/khronos-egl-6.0.0"
@@ -12503,6 +12516,19 @@
         "type": "inline",
         "contents": "{\"package\": \"f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5\", \"files\": {}}",
         "dest": "cargo/vendor/windows-link-0.2.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/windows-native-keyring-store/windows-native-keyring-store-1.1.0.crate",
+        "sha256": "063426e76fdec7438d56bb777f67e318a84a25c707b07e575cb8b78e10c028f8",
+        "dest": "cargo/vendor/windows-native-keyring-store-1.1.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"063426e76fdec7438d56bb777f67e318a84a25c707b07e575cb8b78e10c028f8\", \"files\": {}}",
+        "dest": "cargo/vendor/windows-native-keyring-store-1.1.0",
         "dest-filename": ".cargo-checksum.json"
     },
     {

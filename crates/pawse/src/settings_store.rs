@@ -429,6 +429,7 @@ pub struct WindowPlacement {
 pub struct SubsonicServer {
     pub url: String,
     pub username: String,
+    #[serde(with = "secret_store::serde_string")]
     pub password: String,
 }
 
@@ -455,6 +456,7 @@ pub struct JellyfinServer {
     pub url: String,
     pub username: String,
     pub user_id: String,
+    #[serde(with = "secret_store::serde_string")]
     pub token: String,
     pub device_id: String,
 }
@@ -903,7 +905,7 @@ impl SleepTimerSettings {
 pub struct ServiceState {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, with = "sealed_session")]
     pub session: Option<scrobble::Session>,
     #[serde(default = "default_true")]
     pub send_loves: bool,
@@ -919,11 +921,46 @@ impl Default for ServiceState {
     }
 }
 
+mod sealed_session {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    struct Stored {
+        #[serde(with = "secret_store::serde_string")]
+        key: String,
+        name: String,
+    }
+
+    pub fn serialize<S: Serializer>(
+        session: &Option<scrobble::Session>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        session
+            .as_ref()
+            .map(|session| Stored {
+                key: session.key.clone(),
+                name: session.name.clone(),
+            })
+            .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<scrobble::Session>, D::Error> {
+        Ok(
+            Option::<Stored>::deserialize(deserializer)?.map(|stored| scrobble::Session {
+                key: stored.key,
+                name: stored.name,
+            }),
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListenBrainzState {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, with = "secret_store::serde_string")]
     pub token: String,
     #[serde(default)]
     pub user: String,
@@ -1077,17 +1114,33 @@ fn write_settings(path: &Path, settings: &UserSettings) -> anyhow::Result<()> {
 
 impl SettingsStore {
     pub fn load() -> Self {
+        let secrets_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("pawse");
+        secret_store::init(&secrets_dir);
         Self::load_from(Self::default_path())
     }
 
     pub fn load_from(path: PathBuf) -> Self {
-        let mut settings = std::fs::read_to_string(&path)
-            .map(|text| parse_settings(&text))
-            .unwrap_or_default();
+        let (mut settings, reseal) = match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                match secret_store::watch_reseal(|| serde_json::from_str::<UserSettings>(&text)) {
+                    (Ok(settings), reseal) => {
+                        let legacy = settings.legacy_lastfm_session.is_some();
+                        (settings, reseal || legacy)
+                    }
+                    (Err(_), _) => (parse_settings(&text), false),
+                }
+            }
+            Err(_) => (UserSettings::default(), false),
+        };
         migrate_scrobble(&mut settings);
         migrate_torrents(&mut settings);
         migrate_albums_artist(&mut settings);
         settings.equalizer.bands.truncate(equalizer::MAX_BANDS);
+        if reseal && let Err(e) = write_settings(&path, &settings) {
+            log::warn!("settings: could not seal the stored secrets: {e}");
+        }
         Self {
             settings,
             path,
@@ -2196,6 +2249,87 @@ mod tests {
         fs::write(&path, format!(r#"{{"equalizer":{{"bands":[{bands}]}}}}"#)).unwrap();
         let store = SettingsStore::load_from(path.clone());
         assert_eq!(store.equalizer().bands.len(), equalizer::MAX_BANDS);
+        cleanup(&path);
+    }
+
+    const PLAIN_SECRETS: &str = r#"{
+        "subsonic_servers": [{"url": "http://nd", "username": "u", "password": "sub-pass"}],
+        "jellyfin_servers": [{"url": "http://jf", "username": "u", "user_id": "id", "token": "jf-token", "device_id": "dev"}],
+        "scrobble": {
+            "lastfm": {"session": {"key": "lfm-key", "name": "me"}},
+            "listenbrainz": {"token": "lb-token"}
+        }
+    }"#;
+
+    fn assert_plain_secrets(store: &SettingsStore) {
+        assert_eq!(store.subsonic_servers()[0].password, "sub-pass");
+        assert_eq!(store.jellyfin_servers()[0].token, "jf-token");
+        let lastfm = store.scrobble().lastfm.session.as_ref().unwrap();
+        assert_eq!(
+            (lastfm.key.as_str(), lastfm.name.as_str()),
+            ("lfm-key", "me")
+        );
+        assert_eq!(store.scrobble().listenbrainz.token, "lb-token");
+    }
+
+    #[test]
+    fn plain_secrets_are_sealed_on_disk_at_load_and_read_back() {
+        let path = tmp_settings_path();
+        fs::write(&path, PLAIN_SECRETS).unwrap();
+        let store = SettingsStore::load_from(path.clone());
+        assert_plain_secrets(&store);
+        let text = fs::read_to_string(&path).unwrap();
+        for plain in ["sub-pass", "jf-token", "lfm-key", "lb-token"] {
+            assert!(!text.contains(plain), "{plain} is still in the clear");
+        }
+        assert_eq!(text.matches("pawse:v1:").count(), 4);
+        assert_plain_secrets(&SettingsStore::load_from(path.clone()));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_secret_that_does_not_open_survives_a_save() {
+        let path = tmp_settings_path();
+        let foreign = "pawse:v1:00000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        fs::write(
+            &path,
+            format!(
+                r#"{{"subsonic_servers":[{{"url":"http://nd","username":"u","password":"{foreign}"}}]}}"#
+            ),
+        )
+        .unwrap();
+        let mut store = SettingsStore::load_from(path.clone());
+        assert_eq!(store.subsonic_servers()[0].password, foreign);
+        store.set_volume(0.5).unwrap();
+        assert!(fs::read_to_string(&path).unwrap().contains(foreign));
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_file_that_needs_salvage_is_not_rewritten_at_load() {
+        let path = tmp_settings_path();
+        let text = r#"{"subsonic_servers":[{"url":"http://nd","username":"u","password":"sub-pass"}],"volume":"loud"}"#;
+        fs::write(&path, text).unwrap();
+        let store = SettingsStore::load_from(path.clone());
+        assert_eq!(store.subsonic_servers()[0].password, "sub-pass");
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        cleanup(&path);
+    }
+
+    #[test]
+    fn a_legacy_lastfm_session_is_sealed_at_load() {
+        let path = tmp_settings_path();
+        fs::write(
+            &path,
+            r#"{"lastfm_session":{"key":"legacy-key","name":"me"}}"#,
+        )
+        .unwrap();
+        let store = SettingsStore::load_from(path.clone());
+        let session = store.scrobble().lastfm.session.as_ref().unwrap();
+        assert_eq!(session.key, "legacy-key");
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("legacy-key"));
+        assert!(!text.contains("lastfm_session"));
         cleanup(&path);
     }
 

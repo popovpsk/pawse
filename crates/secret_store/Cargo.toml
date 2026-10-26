@@ -1,0 +1,30 @@
+[package]
+name = "secret_store"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+log = { workspace = true }
+thiserror = "2.0"
+serde = "1"
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
+futures-lite = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring-core = "1"
+windows-native-keyring-store = "1.1"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+
+[lints]
+workspace = true

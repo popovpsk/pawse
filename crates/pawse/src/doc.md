@@ -298,6 +298,17 @@ Integrations:
 - The `scrobble` section holds the per-service state (session or token, `enabled`,
   `send_loves`), `first_artist_only` (on by default), `servers` (both switches off by
   default; entries are not pruned when a server is removed) and `rewrite`.
+- Secrets are sealed on disk through `secret_store::serde_string`: the Subsonic
+  `password`, the Jellyfin `token`, the Last.fm / Libre.fm `session.key` (via
+  `sealed_session`, so `scrobble::Session` stays serde-plain) and the ListenBrainz
+  `token`. In memory they are plain `String`s, and every consumer reads them as before.
+  The fields keep their names and type, so an older binary carries a sealed value through
+  its saves untouched (and fails to log in). `load()` calls `secret_store::init` before
+  `load_from`, and tests use `load_from` only, so they never reach the OS keychain.
+  `load_from` rewrites the file at once when it parsed cleanly and either `watch_reseal`
+  reports a plain value or one sealed with a key that is no longer the preferred one, or
+  a legacy `lastfm_session` is present. A file that needed `salvage_settings` is never
+  rewritten at load.
 
 ## Starting a track (`services.rs`)
 
@@ -1352,8 +1363,8 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
 
 Owner's calls; ask before changing.
 
-- Credentials sit in plain text in `settings.json`: the Subsonic password next to the
-  scrobbling sessions and tokens; Jellyfin keeps only a token.
+- Credentials stay in `settings.json` but sealed (`secret_store`): the Subsonic password
+  next to the scrobbling sessions and tokens; Jellyfin keeps only a token.
 - Torrents stay off until the user confirms the warning; the flag is a one-time
   acknowledgement, not a switch with an off position.
 - Artist info: no time-based refresh of found rows, no Wikipedia text, no on-demand

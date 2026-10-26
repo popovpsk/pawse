@@ -141,6 +141,7 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          PAWSE_SECRETS_KEY: ${{ secrets.PAWSE_SECRETS_KEY }}
         run: cargo build --release -p pawse
 
       - name: Verify the release binary keeps the updater
@@ -216,6 +217,7 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          PAWSE_SECRETS_KEY: ${{ secrets.PAWSE_SECRETS_KEY }}
           LDAI_UPDATE_INFORMATION: ${{ matrix.update_info }}
         run: cargo packager --release --formats ${{ matrix.formats }} --verbose
 
@@ -379,6 +381,7 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          PAWSE_SECRETS_KEY: ${{ secrets.PAWSE_SECRETS_KEY }}
         run: |
           cargo build --release -p pawse --no-default-features
           cargo tree -p pawse -e normal -f '{p} {f}' --no-default-features | grep 'updater v' || true

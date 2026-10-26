@@ -109,17 +109,18 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          PAWSE_SECRETS_KEY: ${{ secrets.PAWSE_SECRETS_KEY }}
         run: |
           ruby -ryaml -e '
             m = YAML.load_file(ENV["MANIFEST"])
             env = m["modules"][0]["build-options"]["env"]
-            %w[LASTFM_API_KEY LASTFM_API_SECRET DISCORD_CLIENT_ID].each do |k|
+            %w[LASTFM_API_KEY LASTFM_API_SECRET DISCORD_CLIENT_ID PAWSE_SECRETS_KEY].each do |k|
               v = ENV[k].to_s
               next if v.empty?
               env[k] = v
             end
             File.write(ENV["MANIFEST"], m.to_yaml)
-            puts "baked: #{env.keys.grep(/LASTFM|DISCORD/).join(", ")}"
+            puts "baked: #{env.keys.grep(/LASTFM|DISCORD|PAWSE/).join(", ")}"
           '
 
       - name: Build into the repository
