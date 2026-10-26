@@ -628,31 +628,18 @@ impl LyricsView {
         cx.notify();
         let access = self.access.clone();
         let epoch = access.fetch_epoch();
+        let searching = access.begin_search(ctx.id);
         self._fetch_task = Some(cx.spawn(async move |this, cx| {
             let id = ctx.id;
             let refreshed = net_runtime::unblock(move || {
-                let artist = access.first_artist(id).unwrap_or_default();
-                let album = ctx.album_id.and_then(|aid| access.album_title(aid));
-                let query = lyrics::LyricsQuery {
-                    artist,
-                    title: ctx.title,
-                    album,
-                    duration_secs: ctx.duration_secs,
-                };
-                let written = match lyrics::fetch(&query) {
-                    Ok(Some(found)) => {
-                        log::info!("lyrics for track {id} from {}", found.provider);
-                        access.save_fetched(id, &found.text, epoch)
-                    }
-                    Ok(None) => access.mark_not_found(id, epoch),
-                    Err(e) => {
-                        log::warn!("lyrics fetch failed for track {}: {}", id, e);
-                        false
-                    }
-                };
+                let _searching = searching;
+                let written = access.look_up(id, ctx.title, ctx.album_id, ctx.duration_secs, epoch);
                 written.then(|| access.variants(id))
             })
             .await;
+            if refreshed.is_none() {
+                cx.update(crate::services::publish_remote_lyrics_change);
+            }
             this.update(cx, |this, cx| {
                 if this.current_track_id != Some(id) {
                     return;

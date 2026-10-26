@@ -59,6 +59,7 @@ pub struct Services {
     pub remote_server: Rc<RefCell<Option<pawse_remote::RemoteServer>>>,
     remote_queue_cache: Rc<RefCell<RemoteQueueCache>>,
     library_rev: Arc<AtomicU64>,
+    lyrics_rev: Arc<AtomicU64>,
 }
 
 type RemoteQueueCache = Option<(u64, Arc<Vec<pawse_remote::QueueItem>>)>;
@@ -96,6 +97,13 @@ impl Services {
             cx.global::<crate::settings_store::SettingsStore>()
                 .artists_grouping(),
         ));
+        {
+            let settings = cx.global::<crate::settings_store::SettingsStore>();
+            library.set_lyrics_prefs(
+                settings.lyrics_from_internet(),
+                settings.lyrics_prefer_web(),
+            );
+        }
         let library_event_bus = cx.new(|_| LibraryEventsBus);
         let library_event_bus_clone = library_event_bus.clone();
         let album_export = crate::album_export::AlbumExport::create(&library_event_bus, cx);
@@ -135,8 +143,18 @@ impl Services {
                             | LibraryEvent::PlaylistTracksChanged { .. }
                             | LibraryEvent::CatalogChanged
                     );
+                    if matches!(&event, LibraryEvent::CatalogChanged) {
+                        cx.global::<Services>()
+                            .lyrics_rev
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
                     if library_changed {
                         publish_remote_library_change(cx);
+                    }
+                    if let LibraryEvent::LyricsChanged { track_id } = &event
+                        && current_track_id(cx) == Some(*track_id)
+                    {
+                        publish_remote_lyrics_change(cx);
                     }
                     notify_scan_event(&event, cx);
                     library_event_bus_clone.update(cx, |_, cx| cx.emit(event));
@@ -216,6 +234,7 @@ impl Services {
             remote_server: Rc::new(RefCell::new(None)),
             remote_queue_cache: Rc::new(RefCell::new(None)),
             library_rev: Arc::new(AtomicU64::new(0)),
+            lyrics_rev: Arc::new(AtomicU64::new(0)),
             remote_media,
             cache_fill: cx.new(|_| crate::cache_fill::CacheFill::default()),
             artist_cards,
@@ -420,7 +439,12 @@ pub fn apply_remote_state(cx: &mut App) {
                 std::net::SocketAddr::from(([0, 0, 0, 0], port)),
                 services.remote_state_rx.clone(),
                 services.remote_command_tx.clone(),
-                Arc::new(services.library.library_access()),
+                Arc::new(
+                    services
+                        .library
+                        .library_access()
+                        .with_remote_media(services.remote_media.clone()),
+                ),
             );
             *slot = Some(server);
             Some(ready)
@@ -655,7 +679,53 @@ fn apply_remote_command(cx: &mut App, command: pawse_remote::Command) {
             let tracks = library(cx).liked_tracks();
             queue_all(cx, tracks);
         }
+        pawse_remote::Command::FindLyrics { track_id } => find_lyrics(cx, track_id),
     }
+}
+
+fn current_track_id(cx: &App) -> Option<i64> {
+    cx.global::<Services>()
+        .playback_queue
+        .borrow()
+        .current_track()
+        .map(|t| t.id)
+}
+
+fn find_lyrics(cx: &mut App, track_id: i64) {
+    let settings = cx.global::<crate::settings_store::SettingsStore>();
+    let online = settings.lyrics_from_internet();
+    let prefer_web = settings.lyrics_prefer_web();
+    let services = cx.global::<Services>();
+    let current = services.playback_queue.borrow().current_track().cloned();
+    let Some(track) = current.filter(|t| online && t.id == track_id) else {
+        publish_remote_lyrics_change(cx);
+        return;
+    };
+    let access = services.library.lyrics_access();
+    let Some(searching) = access.begin_search(track_id) else {
+        return;
+    };
+    let epoch = access.fetch_epoch();
+    cx.spawn(async move |cx| {
+        let written = net_runtime::unblock(move || {
+            let _searching = searching;
+            let variants = access.variants(track_id);
+            let searched = variants
+                .iter()
+                .any(|v| v.source == music_library::lyrics_source::WEB);
+            let has_own = !music_library::lyrics_source::choices(&variants, prefer_web).is_empty();
+            if searched || (has_own && !prefer_web) {
+                return false;
+            }
+            let duration_secs = track.duration_ms.map(|ms| (ms / 1000) as u64);
+            access.look_up(track.id, track.title, track.album_id, duration_secs, epoch)
+        })
+        .await;
+        if !written {
+            cx.update(publish_remote_lyrics_change);
+        }
+    })
+    .detach();
 }
 
 fn library(cx: &App) -> &LibraryService {
@@ -787,6 +857,13 @@ pub fn queue_mutated(cx: &mut App) {
     let bus = cx.global::<Services>().library_event_bus.clone();
     bus.update(cx, |_, cx| cx.emit(LibraryEvent::QueueChanged));
     save_playback(cx);
+    publish_remote_state(cx);
+}
+
+pub fn publish_remote_lyrics_change(cx: &mut App) {
+    cx.global::<Services>()
+        .lyrics_rev
+        .fetch_add(1, Ordering::Relaxed);
     publish_remote_state(cx);
 }
 
@@ -981,6 +1058,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
     }
     let queue_rev = hasher.finish();
     let library_rev = services.library_rev.load(Ordering::Relaxed);
+    let lyrics_rev = services.lyrics_rev.load(Ordering::Relaxed);
 
     let cached = services
         .remote_queue_cache
@@ -1011,6 +1089,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
             queue_index,
             queue_rev,
             library_rev,
+            lyrics_rev,
             shuffle,
             repeat,
             volume,
@@ -1026,6 +1105,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
     pawse_remote::PlayerState {
         v: pawse_remote::PROTOCOL_VERSION,
         has_track: true,
+        track_id: Some(track_id),
         title: Some(title),
         artist,
         album,
@@ -1037,6 +1117,7 @@ fn build_remote_state(cx: &mut App) -> pawse_remote::PlayerState {
         queue_index,
         queue_rev,
         library_rev,
+        lyrics_rev,
         shuffle,
         repeat,
         volume,

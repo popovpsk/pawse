@@ -58,6 +58,7 @@ fn build_router(state: AppState) -> Router {
         .route("/api/playlists", get(playlists_handler))
         .route("/api/playlist", get(playlist_handler))
         .route("/api/liked", get(liked_handler))
+        .route("/api/lyrics", get(lyrics_handler))
         .route("/api/command", post(command_handler))
         .route("/ws", get(ws_handler));
 
@@ -225,6 +226,25 @@ async fn playlist_handler(
 
 async fn liked_handler(State(state): State<AppState>) -> Response {
     read(&state, |library| Json(library.liked()).into_response()).await
+}
+
+#[derive(serde::Deserialize)]
+struct LyricsQuery {
+    id: i64,
+}
+
+async fn lyrics_handler(
+    State(state): State<AppState>,
+    Query(query): Query<LyricsQuery>,
+) -> Response {
+    read(&state, move |library| {
+        (
+            [(header::CACHE_CONTROL, "no-store")],
+            Json(library.lyrics(query.id)),
+        )
+            .into_response()
+    })
+    .await
 }
 
 async fn command_handler(

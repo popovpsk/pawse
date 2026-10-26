@@ -153,6 +153,7 @@ pub struct LibraryService {
     executor: gpui::BackgroundExecutor,
     scan_state: Arc<ScanState>,
     artists_grouping: Arc<AtomicU8>,
+    lyrics_prefs: Arc<LyricsPrefs>,
 }
 
 fn grouping_to_u8(grouping: ArtistGrouping) -> u8 {
@@ -182,17 +183,68 @@ pub struct LyricsAccess {
 struct FetchGate {
     epoch: AtomicU64,
     writes: Mutex<()>,
+    searching: Mutex<HashSet<i64>>,
+}
+
+pub struct SearchGuard {
+    gate: Arc<FetchGate>,
+    track_id: i64,
+}
+
+impl Drop for SearchGuard {
+    fn drop(&mut self) {
+        self.gate.searching.lock().unwrap().remove(&self.track_id);
+    }
+}
+
+#[derive(Default)]
+struct LyricsPrefs {
+    online: AtomicBool,
+    prefer_web: AtomicBool,
 }
 
 #[derive(Clone)]
 pub struct LibraryAccess {
     repo: Arc<dyn LibraryRepository>,
     artists_grouping: Arc<AtomicU8>,
+    lyrics_prefs: Arc<LyricsPrefs>,
+    fetch_gate: Arc<FetchGate>,
+    media: Option<crate::remote_media::RemoteMedia>,
+}
+
+fn read_lyrics_variants(
+    repo: &dyn LibraryRepository,
+    track_id: i64,
+) -> Vec<music_library::StoredLyrics> {
+    repo.lyrics_variants(track_id).unwrap_or_else(|e| {
+        log::error!("Failed to read lyrics for track {track_id}: {e}");
+        Vec::new()
+    })
 }
 
 impl LibraryAccess {
     pub fn cover_large(&self, id: i64) -> Option<Vec<u8>> {
         self.repo.get_cover_art_large(id).ok().flatten()
+    }
+
+    pub fn with_remote_media(mut self, media: crate::remote_media::RemoteMedia) -> Self {
+        self.media = Some(media);
+        self
+    }
+
+    fn server_lyrics(&self, track_id: i64) -> Option<String> {
+        let media = self.media.as_ref()?;
+        let track = self.repo.track(track_id).ok().flatten()?;
+        if !track.is_remote() {
+            return None;
+        }
+        match media.lyrics(&track.path) {
+            Ok(found) => found.map(|found| lyrics::to_lrc(&found)),
+            Err(e) => {
+                log::warn!("server lyrics for track {track_id} failed: {e:?}");
+                None
+            }
+        }
     }
 }
 
@@ -350,6 +402,39 @@ impl pawse_remote::LibraryReader for LibraryAccess {
         let tracks = self.repo.liked_tracks().unwrap_or_default();
         to_playlist_tracks(&*self.repo, tracks)
     }
+
+    fn lyrics(&self, track_id: i64) -> pawse_remote::TrackLyrics {
+        use music_library::lyrics_source;
+        let online = self.lyrics_prefs.online.load(Ordering::Relaxed);
+        let prefer_web = self.lyrics_prefs.prefer_web.load(Ordering::Relaxed);
+        let mut variants = read_lyrics_variants(&*self.repo, track_id);
+        if !online {
+            variants.retain(|v| v.source != lyrics_source::WEB);
+        }
+        let web_unknown = !variants.iter().any(|v| v.source == lyrics_source::WEB);
+        let stored = lyrics_source::choices(&variants, prefer_web)
+            .first()
+            .map(|v| (v.text.clone(), lyrics_source::rank(&v.source, prefer_web)));
+        let server_rank = lyrics_source::rank(lyrics_source::SERVER, prefer_web);
+        let from_server = stored
+            .as_ref()
+            .is_none_or(|(_, rank)| *rank > server_rank)
+            .then(|| self.server_lyrics(track_id))
+            .flatten();
+        let text = from_server.or(stored.map(|(text, _)| text));
+        let searchable = online && web_unknown && (text.is_none() || prefer_web);
+        let searching = self
+            .fetch_gate
+            .searching
+            .lock()
+            .unwrap()
+            .contains(&track_id);
+        pawse_remote::TrackLyrics {
+            text,
+            searchable,
+            searching,
+        }
+    }
 }
 
 fn in_order<T>(items: Vec<T>, order: &[usize]) -> Vec<T> {
@@ -481,13 +566,7 @@ fn group_artist_albums(
 
 impl LyricsAccess {
     pub fn variants(&self, track_id: i64) -> Vec<music_library::StoredLyrics> {
-        match self.repo.lyrics_variants(track_id) {
-            Ok(variants) => variants,
-            Err(e) => {
-                log::error!("Failed to read lyrics for track {}: {}", track_id, e);
-                Vec::new()
-            }
-        }
+        read_lyrics_variants(&*self.repo, track_id)
     }
 
     pub fn first_artist(&self, track_id: i64) -> Option<String> {
@@ -504,6 +583,45 @@ impl LyricsAccess {
 
     pub fn fetch_epoch(&self) -> u64 {
         self.fetch_gate.epoch.load(Ordering::SeqCst)
+    }
+
+    pub fn begin_search(&self, track_id: i64) -> Option<SearchGuard> {
+        self.fetch_gate
+            .searching
+            .lock()
+            .unwrap()
+            .insert(track_id)
+            .then(|| SearchGuard {
+                gate: self.fetch_gate.clone(),
+                track_id,
+            })
+    }
+
+    pub fn look_up(
+        &self,
+        track_id: i64,
+        title: String,
+        album_id: Option<i64>,
+        duration_secs: Option<u64>,
+        epoch: u64,
+    ) -> bool {
+        let query = lyrics::LyricsQuery {
+            artist: self.first_artist(track_id).unwrap_or_default(),
+            title,
+            album: album_id.and_then(|id| self.album_title(id)),
+            duration_secs,
+        };
+        match lyrics::fetch(&query) {
+            Ok(Some(found)) => {
+                log::info!("lyrics for track {track_id} from {}", found.provider);
+                self.save_fetched(track_id, &found.text, epoch)
+            }
+            Ok(None) => self.mark_not_found(track_id, epoch),
+            Err(e) => {
+                log::warn!("lyrics fetch failed for track {}: {}", track_id, e);
+                false
+            }
+        }
     }
 
     pub fn forget_fetched(&self, executor: &gpui::BackgroundExecutor) {
@@ -553,6 +671,13 @@ impl LyricsAccess {
         if self.fetch_epoch() != epoch {
             return false;
         }
+        if self
+            .variants(track_id)
+            .iter()
+            .any(|v| v.source == music_library::lyrics_source::WEB && !v.not_found)
+        {
+            return true;
+        }
         if let Err(e) =
             self.repo
                 .upsert_lyrics(track_id, "", music_library::lyrics_source::WEB, true)
@@ -584,6 +709,7 @@ impl LibraryService {
             executor,
             scan_state: Arc::new(ScanState::default()),
             artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(artists_grouping))),
+            lyrics_prefs: Arc::default(),
         }
     }
 
@@ -598,6 +724,15 @@ impl LibraryService {
     pub fn set_artists_grouping(&self, grouping: ArtistGrouping) {
         self.artists_grouping
             .store(grouping_to_u8(grouping), Ordering::Relaxed);
+    }
+
+    pub fn set_lyrics_prefs(&self, online: bool, prefer_web: bool) -> bool {
+        let was_online = self.lyrics_prefs.online.swap(online, Ordering::Relaxed);
+        let preferred = self
+            .lyrics_prefs
+            .prefer_web
+            .swap(prefer_web, Ordering::Relaxed);
+        was_online != online || preferred != prefer_web
     }
 
     pub fn albums(&self) -> Vec<music_library::AlbumSummary> {
@@ -779,6 +914,9 @@ impl LibraryService {
         LibraryAccess {
             repo: self.repo.clone(),
             artists_grouping: self.artists_grouping.clone(),
+            lyrics_prefs: self.lyrics_prefs.clone(),
+            fetch_gate: self.lyrics_fetch_gate.clone(),
+            media: None,
         }
     }
 
@@ -3585,6 +3723,9 @@ mod tests {
         let access = LibraryAccess {
             repo: Arc::new(repo),
             artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(ArtistGrouping::AlbumArtist))),
+            lyrics_prefs: Arc::default(),
+            fetch_gate: Arc::default(),
+            media: None,
         };
         let names = |access: &LibraryAccess| {
             let mut names: Vec<String> = access
@@ -3618,6 +3759,90 @@ mod tests {
                 .albums
                 .is_empty()
         );
+
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn the_remote_reader_picks_lyrics_like_the_panel() {
+        use music_library::lyrics_source;
+        use pawse_remote::LibraryReader;
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let folder = std::env::temp_dir().join(format!(
+            "pawse-remote-lyrics-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        let repo = SqliteLibrary::open_at(folder.join("library.db")).unwrap();
+        let track = |path: &str| {
+            repo.upsert_track(
+                &NewTrack {
+                    path: path.into(),
+                    title: Some("Song".into()),
+                    ..Default::default()
+                },
+                None,
+                &[],
+            )
+            .unwrap()
+        };
+        let own = track("/m/own.flac");
+        let bare = track("/m/bare.flac");
+        let missing = track("/m/missing.flac");
+        repo.upsert_lyrics(own, "[00:01.00]from file", lyrics_source::LRC, false)
+            .unwrap();
+        repo.upsert_lyrics(own, "[00:01.00]from web", lyrics_source::WEB, false)
+            .unwrap();
+        repo.upsert_lyrics(missing, "", lyrics_source::WEB, true)
+            .unwrap();
+
+        let repo: Arc<dyn LibraryRepository> = Arc::new(repo);
+        let gate: Arc<FetchGate> = Arc::default();
+        let access = LibraryAccess {
+            repo: repo.clone(),
+            artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(ArtistGrouping::AlbumArtist))),
+            lyrics_prefs: Arc::default(),
+            fetch_gate: gate.clone(),
+            media: None,
+        };
+        let (event_tx, _event_rx) = flume::unbounded();
+        let searches = LyricsAccess {
+            repo,
+            event_tx,
+            fetch_gate: gate,
+        };
+        let prefs = |online: bool, prefer_web: bool| {
+            access.lyrics_prefs.online.store(online, Ordering::Relaxed);
+            access
+                .lyrics_prefs
+                .prefer_web
+                .store(prefer_web, Ordering::Relaxed);
+        };
+        let read = |id: i64| {
+            let found = access.lyrics(id);
+            (found.text, found.searchable)
+        };
+
+        prefs(true, false);
+        assert_eq!(read(own), (Some("[00:01.00]from file".into()), false));
+        assert_eq!(read(bare), (None, true));
+        assert_eq!(read(missing), (None, false));
+
+        prefs(true, true);
+        assert_eq!(read(own), (Some("[00:01.00]from web".into()), false));
+
+        prefs(false, false);
+        assert_eq!(read(own), (Some("[00:01.00]from file".into()), false));
+        assert_eq!(read(bare), (None, false));
+        assert_eq!(read(missing), (None, false));
+
+        let search = searches.begin_search(bare);
+        assert!(access.lyrics(bare).searching);
+        assert!(!access.lyrics(own).searching);
+        drop(search);
+        assert!(!access.lyrics(bare).searching);
 
         let _ = std::fs::remove_dir_all(&folder);
     }
@@ -3659,6 +3884,9 @@ mod tests {
         let access = LibraryAccess {
             repo: Arc::new(repo),
             artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(ArtistGrouping::AlbumArtist))),
+            lyrics_prefs: Arc::default(),
+            fetch_gate: Arc::default(),
+            media: None,
         };
         let titles = |sort: AlbumSort, desc: bool| -> Vec<String> {
             access
@@ -3759,5 +3987,13 @@ mod tests {
 
         assert!(access.save_fetched(a, "la la", access.fetch_epoch()));
         assert_eq!(fetched(a), 1);
+        assert!(access.mark_not_found(a, access.fetch_epoch()));
+        assert!(
+            repo.lyrics_variants(a)
+                .unwrap()
+                .iter()
+                .any(|v| v.source == music_library::lyrics_source::WEB && v.text == "la la"),
+            "a search that found nothing never replaces one that found"
+        );
     }
 }

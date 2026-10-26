@@ -1,8 +1,9 @@
 # lyrics
 
-The lyric types, an LRC parser, and a blocking lookup of lyrics on the web (BiniLyrics,
-LRCLIB, lrcmux) that returns the best match as Enhanced LRC. GPUI-free; only `pawse` depends
-on it. `fetch` blocks on network I/O and must run off the UI thread; everything else is pure.
+The lyric types, an LRC parser and writer, and a blocking lookup of lyrics on the web
+(BiniLyrics, LRCLIB, lrcmux) that returns the best match as Enhanced LRC. GPUI-free; only
+`pawse` depends on it. `fetch` blocks on network I/O and must run off the UI thread;
+everything else is pure.
 
 Not here: where lyrics come from and which source is shown — disk `.lrc` / embedded text
 (`music_indexer/src/doc.md`), per-source rows and the pick order (`music_library/src/doc.md`),
@@ -13,6 +14,7 @@ server lyrics (`pawse/src/servers/doc.md`); turning `Lyrics` into rows and the k
 
 - `parser.rs` — `Lyrics`, `LyricLine`, `parse_lrc`, `parse_time_tag`.
 - `words.rs` — `Word`, `Backing`, the Enhanced LRC splitter, `locate_words`.
+- `writer.rs` — `to_lrc`: `Lyrics` back to Enhanced LRC text.
 - `web/mod.rs` — `LyricsQuery`, `WebLyrics`, `fetch`: the provider chain.
 - `web/pick.rs` — matching a candidate to the track and ranking candidates.
 - `web/binilyrics.rs`, `web/lrclib.rs`, `web/lrcmux.rs` — one provider each: requests and
@@ -24,9 +26,13 @@ server lyrics (`pawse/src/servers/doc.md`); turning `Lyrics` into rows and the k
 
 ## LRC parsing (`parse_lrc`)
 
-Never fails or panics: unusable input gives fewer lines.
+Never fails or panics: unusable input gives fewer lines. The web remote parses the same
+text in TypeScript (`web/src/lib/lyrics/parse.ts`, a line-by-line port): a rule changed here
+changes there too, or the remote and the desktop show different lines for one file.
 
-- Input splits on `\n` and `\r`. Tags count only at the start of a line.
+- A leading byte order mark is dropped (editors on Windows write one; it would hide the
+  first line's tags). Input splits on `\n` and `\r`. Tags count only at the start of a
+  line.
 - Time tags: `[mm:ss]`, `[mm:ss.xx]` (hundredths), `[mm:ss.xxx]` (ms). A longer fraction is
   cut to hundredths; a one-digit fraction, or a timestamp overflowing `u32` ms, is not a
   time tag.
@@ -63,6 +69,25 @@ For callers that have word cues but no markers (server lyrics): finds each cue's
 in the line, in order, from where the previous one ended; blank cues (a timed space) are
 skipped. One cue that cannot be found drops every word of the line, so a line is filled
 either word by word with correct positions or not by words at all.
+
+## Writing (`to_lrc`)
+
+The web remote is served text only, so server lyrics (built as `Lyrics`, never text) are
+written back out for it.
+
+- `parse_lrc(&to_lrc(x)) == x` for any `Lyrics` the parser produces, except untimed text
+  after a timed word (below); the tests hold it. Stamps are milliseconds (`[mm:ss.xxx]`,
+  `<mm:ss.xxx>`), so no time moves.
+- A word is written as its marker and text up to the next word (or the end); an end
+  marker follows only when what lies before the next word is blank, since a marker before
+  text starts a word. So untimed text after a timed word does not round-trip: it joins
+  that word, which loses its end and fills to the next word's start (or the line's end)
+  instead. `locate_words` output has it as punctuation between words (server lyrics), the
+  parser's only when a timed and an untimed `[bg:]` line join one backing.
+- Words that do not fit the text (out of order, off char boundaries) are dropped and the
+  line is written plain.
+- Lost on the way: line text that starts like a tag (`[Chorus]`) and a `]` inside backing
+  text — LRC has no escaping.
 
 ## Web lookup (`fetch`)
 

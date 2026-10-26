@@ -9,7 +9,7 @@ mod assets;
 mod http;
 
 pub const DEFAULT_PORT: u16 = 8770;
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 const STOP_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,6 +122,13 @@ pub struct PlaylistDetail {
     pub tracks: Vec<PlaylistTrack>,
 }
 
+#[derive(Clone, Default, serde::Serialize)]
+pub struct TrackLyrics {
+    pub text: Option<String>,
+    pub searchable: bool,
+    pub searching: bool,
+}
+
 pub trait LibraryReader: Send + Sync + 'static {
     fn cover(&self, id: i64, size: CoverSize) -> Option<Vec<u8>>;
     fn cover_original(&self, id: i64) -> Option<(Vec<u8>, String)>;
@@ -132,6 +139,7 @@ pub trait LibraryReader: Send + Sync + 'static {
     fn playlists(&self) -> Vec<PlaylistEntry>;
     fn playlist_detail(&self, playlist_id: i64) -> Option<PlaylistDetail>;
     fn liked(&self) -> Vec<PlaylistTrack>;
+    fn lyrics(&self, track_id: i64) -> TrackLyrics;
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -146,6 +154,7 @@ pub struct QueueItem {
 pub struct PlayerState {
     pub v: u32,
     pub has_track: bool,
+    pub track_id: Option<i64>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -157,6 +166,7 @@ pub struct PlayerState {
     pub queue_index: Option<usize>,
     pub queue_rev: u64,
     pub library_rev: u64,
+    pub lyrics_rev: u64,
     pub shuffle: bool,
     pub repeat: RepeatMode,
     pub volume: f32,
@@ -273,6 +283,9 @@ pub enum Command {
         track_id: i64,
     },
     QueueLiked,
+    FindLyrics {
+        track_id: i64,
+    },
 }
 
 pub type CommandRx = flume::Receiver<Command>;

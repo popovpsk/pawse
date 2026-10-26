@@ -3,6 +3,7 @@ export type RepeatMode = "off" | "all" | "one" | "stop_after_track";
 export type PlayerState = {
   v: number;
   has_track: boolean;
+  track_id: number | null;
   title: string | null;
   artist: string | null;
   album: string | null;
@@ -14,6 +15,7 @@ export type PlayerState = {
   queue_index: number | null;
   queue_rev: number;
   library_rev: number;
+  lyrics_rev: number;
   shuffle: boolean;
   repeat: RepeatMode;
   volume: number;
@@ -99,6 +101,12 @@ export type PlaylistDetail = {
   tracks: PlaylistTrack[];
 };
 
+export type TrackLyrics = {
+  text: string | null;
+  searchable: boolean;
+  searching: boolean;
+};
+
 export type Status = "connecting" | "open" | "reconnecting";
 
 type Cmd =
@@ -122,11 +130,14 @@ type Cmd =
   | { cmd: "queue_playlist"; playlist_id: number }
   | { cmd: "play_liked_track"; track_id: number }
   | { cmd: "queue_liked_track"; track_id: number }
-  | { cmd: "queue_liked" };
+  | { cmd: "queue_liked" }
+  | { cmd: "find_lyrics"; track_id: number };
 
 export class Remote {
   status = $state<Status>("connecting");
+  connection = $state(0);
   hasTrack = $state(false);
+  trackId = $state<number | null>(null);
   title = $state<string | null>(null);
   artist = $state<string | null>(null);
   album = $state<string | null>(null);
@@ -138,6 +149,7 @@ export class Remote {
   queueIndex = $state<number | null>(null);
   queue = $state<QueueItem[]>([]);
   libraryRev = $state(0);
+  lyricsRev = $state(0);
   shuffle = $state(false);
   repeat = $state<RepeatMode>("off");
   volume = $state(1);
@@ -192,6 +204,7 @@ export class Remote {
     this.status = previous ? "reconnecting" : "connecting";
     const ws = new WebSocket(this.#url());
     this.#ws = ws;
+    let first = true;
     ws.onopen = () => {
       if (this.#ws !== ws) return;
       this.status = "open";
@@ -201,6 +214,10 @@ export class Remote {
       if (this.#ws !== ws) return;
       try {
         this.#apply(JSON.parse(event.data) as PlayerState);
+        if (first) {
+          first = false;
+          this.connection += 1;
+        }
       } catch {}
     };
     ws.onclose = () => {
@@ -215,6 +232,7 @@ export class Remote {
 
   #apply(state: PlayerState) {
     this.hasTrack = state.has_track;
+    this.trackId = state.track_id ?? null;
     this.title = state.title;
     this.artist = state.artist;
     this.album = state.album;
@@ -224,6 +242,7 @@ export class Remote {
     this.coverId = state.cover_id;
     this.queueIndex = state.queue_index;
     this.libraryRev = state.library_rev;
+    this.lyricsRev = state.lyrics_rev ?? 0;
     this.shuffle = state.shuffle;
     this.repeat = state.repeat;
     this.volumeLocked = state.volume_locked;
@@ -296,6 +315,10 @@ export class Remote {
 
   endSeek(ms: number) {
     if (!this.#seeking) return;
+    this.seekTo(ms);
+  }
+
+  seekTo(ms: number) {
     this.#seeking = false;
     this.#base = ms;
     this.#baseAt = performance.now();
@@ -426,6 +449,10 @@ export class Remote {
 
   queueLiked() {
     this.#send({ cmd: "queue_liked" });
+  }
+
+  findLyrics(trackId: number) {
+    this.#send({ cmd: "find_lyrics", track_id: trackId });
   }
 
   #send(cmd: Cmd) {

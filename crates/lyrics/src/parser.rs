@@ -15,12 +15,14 @@ pub struct LyricLine {
 }
 
 const BACKING_TAG: &str = "bg:";
+const BYTE_ORDER_MARK: char = '\u{feff}';
 
 pub fn parse_lrc(raw: &str) -> Lyrics {
     let mut lines: Vec<LyricLine> = Vec::new();
     let mut synced = false;
     let mut last_group = 0..0;
 
+    let raw = raw.strip_prefix(BYTE_ORDER_MARK).unwrap_or(raw);
     for raw_line in raw.split(['\n', '\r']) {
         let mut rest = raw_line;
         let mut times: Vec<u32> = Vec::new();
@@ -180,6 +182,13 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_line() {
+        let parsed = parse_lrc("\u{feff}[00:01.00]first\n[00:02.00]second");
+        let texts: Vec<_> = parsed.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, vec!["first", "second"]);
     }
 
     #[test]

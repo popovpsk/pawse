@@ -564,6 +564,18 @@ impl MainView {
                     library.set_artists_grouping(grouping);
                     crate::services::publish_remote_library_change(cx);
                 }
+                let settings = cx.global::<SettingsStore>();
+                let (online, prefer_web) = (
+                    settings.lyrics_from_internet(),
+                    settings.lyrics_prefer_web(),
+                );
+                if cx
+                    .global::<crate::services::Services>()
+                    .library
+                    .set_lyrics_prefs(online, prefer_web)
+                {
+                    crate::services::publish_remote_lyrics_change(cx);
+                }
                 let pages = crate::settings_view::build_settings_pages(
                     SettingsSliders {
                         lyrics: lyrics_slider.clone(),

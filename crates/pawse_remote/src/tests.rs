@@ -35,6 +35,9 @@ impl LibraryReader for EmptyLibrary {
     fn liked(&self) -> Vec<PlaylistTrack> {
         Vec::new()
     }
+    fn lyrics(&self, _: i64) -> TrackLyrics {
+        TrackLyrics::default()
+    }
 }
 
 fn free_addr() -> SocketAddr {

@@ -7,6 +7,8 @@
   import PlaylistBrowser from "./lib/PlaylistBrowser.svelte";
   import LikedBrowser from "./lib/LikedBrowser.svelte";
   import VolumeControl from "./lib/VolumeControl.svelte";
+  import LyricsPanel from "./lib/LyricsPanel.svelte";
+  import { LyricsFeed } from "./lib/lyrics/feed.svelte";
 
   const remote = new Remote();
   const repeatLabels: Record<RepeatMode, string> = {
@@ -16,10 +18,52 @@
     stop_after_track: "Stop after each track",
   };
 
-  let showQueue = $state(false);
+  let showSheet = $state(false);
+  let sheetTab = $state<"queue" | "lyrics">("queue");
   let showLibrary = $state(false);
   let showPanel = $state(true);
+  let desktopLyrics = $state(false);
   let desktopTab = $state<"queue" | "albums" | "artists" | "playlists" | "liked">("queue");
+  let panelLyrics = $state<LyricsPanel | null>(null);
+  let panelCanResync = $state(false);
+  let sheetLyrics = $state<LyricsPanel | null>(null);
+  let sheetCanResync = $state(false);
+
+  const sheetTabs = [
+    { id: "queue", label: "Queue" },
+    { id: "lyrics", label: "Lyrics" },
+  ] as const;
+
+  const wideQuery = matchMedia("(min-width: 1024px)");
+  let isWide = $state(wideQuery.matches);
+  wideQuery.addEventListener("change", (e) => (isWide = e.matches));
+
+  const feed = new LyricsFeed(remote, () =>
+    isWide ? showPanel && desktopLyrics : showSheet && sheetTab === "lyrics",
+  );
+
+  function openSheet(tab: "queue" | "lyrics") {
+    sheetTab = tab;
+    showSheet = true;
+  }
+
+  function toggleDesktopLyrics() {
+    if (showPanel && desktopLyrics) {
+      showPanel = false;
+    } else {
+      desktopLyrics = true;
+      showPanel = true;
+    }
+  }
+
+  function togglePanel() {
+    if (showPanel && !desktopLyrics) {
+      showPanel = false;
+    } else {
+      desktopLyrics = false;
+      showPanel = true;
+    }
+  }
 
   let alBrowser = $state<AlbumBrowser | null>(null);
   let alInDetail = $state(false);
@@ -63,6 +107,26 @@
 
 </script>
 
+{#snippet lyricsIcon()}
+  <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(-.45 .45) rotate(45 12 12)">
+      <circle cx="12" cy="6.6" r="3.4" />
+      <path d="M10.4 12.7h3.2l-.75 6.9a.85.85 0 0 1-1.7 0z" />
+    </g>
+  </svg>
+{/snippet}
+
+{#snippet locateIcon()}
+  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    <line x1="12" y1="2.5" x2="12" y2="5.5" />
+    <line x1="12" y1="18.5" x2="12" y2="21.5" />
+    <line x1="2.5" y1="12" x2="5.5" y2="12" />
+    <line x1="18.5" y1="12" x2="21.5" y2="12" />
+  </svg>
+{/snippet}
+
 {#snippet queueList(variant: "mobile" | "desktop")}
   {#if remote.queue.length === 0}
     <p class="px-3 py-8 text-center text-sm text-neutral-500">Queue is empty</p>
@@ -77,7 +141,7 @@
           class="flex min-w-0 flex-1 items-center gap-3 py-2 text-left transition active:scale-[0.99]"
           onclick={() => {
             remote.playAt(i);
-            showQueue = false;
+            showSheet = false;
           }}
         >
           <div class="h-11 w-11 flex-shrink-0 overflow-hidden rounded-md bg-neutral-800">
@@ -163,8 +227,15 @@
       </button>
       <button
         class="text-neutral-400 transition active:scale-90 hover:text-white lg:hidden"
+        aria-label="Lyrics"
+        onclick={() => openSheet("lyrics")}
+      >
+        {@render lyricsIcon()}
+      </button>
+      <button
+        class="text-neutral-400 transition active:scale-90 hover:text-white lg:hidden"
         aria-label="Queue"
-        onclick={() => (showQueue = true)}
+        onclick={() => openSheet("queue")}
       >
         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <path d="M4 6h12M4 12h12M4 18h8" />
@@ -172,14 +243,23 @@
         </svg>
       </button>
       <button
-        class={`hidden transition active:scale-90 hover:text-white lg:block ${showPanel ? "text-white" : "text-neutral-500"}`}
-        aria-label={showPanel ? "Hide panel" : "Show panel"}
-        onclick={() => (showPanel = !showPanel)}
+        class={`hidden transition active:scale-90 hover:text-white lg:block ${showPanel && desktopLyrics ? "text-white" : "text-neutral-500"}`}
+        aria-label={showPanel && desktopLyrics ? "Hide lyrics" : "Show lyrics"}
+        aria-pressed={showPanel && desktopLyrics}
+        onclick={toggleDesktopLyrics}
+      >
+        {@render lyricsIcon()}
+      </button>
+      <button
+        class={`hidden transition active:scale-90 hover:text-white lg:block ${showPanel && !desktopLyrics ? "text-white" : "text-neutral-500"}`}
+        aria-label={showPanel && !desktopLyrics ? "Hide panel" : "Show panel"}
+        aria-pressed={showPanel && !desktopLyrics}
+        onclick={togglePanel}
       >
         <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="4" width="18" height="16" rx="2" />
           <line x1="15" y1="4" x2="15" y2="20" />
-          {#if showPanel}
+          {#if showPanel && !desktopLyrics}
             <path d="M15 5.5h3.5A1.5 1.5 0 0 1 20 7v10a1.5 1.5 0 0 1-1.5 1.5H15z" fill="currentColor" stroke="none" />
           {/if}
         </svg>
@@ -332,6 +412,25 @@
     }`}
   >
   <aside class="flex h-full min-h-0 w-80 flex-col border-l border-white/10 bg-white/5 backdrop-blur-xl xl:w-96">
+    {#if isWide && showPanel && desktopLyrics}
+      <div class="flex min-h-0 flex-1 flex-col" out:fade={{ duration: showPanel ? 0 : 200 }}>
+        <div class="flex items-center gap-2 px-3.5 py-3">
+          <span class="flex h-8 min-w-0 flex-1 items-center text-[13px] font-semibold text-neutral-300">Lyrics</span>
+          {#if panelCanResync}
+            <button
+              class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-neutral-300 transition active:scale-90 hover:bg-white/10 hover:text-white"
+              aria-label="Follow the song"
+              title="Follow the song"
+              onclick={() => panelLyrics?.resync()}
+            >
+              {@render locateIcon()}
+            </button>
+          {/if}
+        </div>
+        <LyricsPanel bind:this={panelLyrics} bind:canResync={panelCanResync} {remote} {feed} />
+      </div>
+    {/if}
+    <div class={`min-h-0 flex-1 flex-col ${desktopLyrics ? "hidden" : "flex"}`}>
     <div class="flex items-center overflow-x-auto px-1.5 py-3 [scrollbar-width:none]">
       <button
         class={`flex-shrink-0 rounded-full px-2 py-1.5 text-[13px] font-semibold transition ${
@@ -462,26 +561,47 @@
     <div class={`min-h-0 flex-1 flex-col ${desktopTab === "liked" ? "flex" : "hidden"}`}>
       <LikedBrowser {remote} />
     </div>
+    </div>
   </aside>
   </div>
 
-  {#if showQueue}
+  {#if showSheet}
     <button
       class="absolute inset-0 z-20 cursor-default bg-black/50 lg:hidden"
-      aria-label="Close queue"
+      aria-label="Close"
       transition:fade={{ duration: 150 }}
-      onclick={() => (showQueue = false)}
+      onclick={() => (showSheet = false)}
     ></button>
     <section
-      class="absolute inset-x-0 bottom-0 z-30 flex max-h-[80dvh] flex-col rounded-t-3xl border-t border-white/10 bg-neutral-900 shadow-2xl lg:hidden"
+      class="absolute inset-x-0 bottom-0 z-30 flex h-[80dvh] flex-col rounded-t-3xl border-t border-white/10 bg-neutral-900 shadow-2xl lg:hidden"
       transition:fly={{ y: 500, duration: 250 }}
     >
-      <div class="flex items-center justify-between px-5 py-4">
-        <h2 class="text-sm font-semibold tracking-wide text-neutral-300">Queue</h2>
+      <div class="flex items-center gap-3 px-4 py-3">
+        <div class="flex min-w-0 flex-1 gap-1">
+          {#each sheetTabs as t (t.id)}
+            <button
+              class={`h-9 rounded-full px-4 text-sm font-semibold transition active:scale-95 ${
+                sheetTab === t.id ? "bg-white/10 text-white" : "text-neutral-400 hover:text-neutral-200"
+              }`}
+              onclick={() => (sheetTab = t.id)}
+            >
+              {t.label}
+            </button>
+          {/each}
+        </div>
+        {#if sheetTab === "lyrics" && sheetCanResync}
+          <button
+            class="text-neutral-400 transition active:scale-90 hover:text-white"
+            aria-label="Follow the song"
+            onclick={() => sheetLyrics?.resync()}
+          >
+            {@render locateIcon()}
+          </button>
+        {/if}
         <button
           class="text-neutral-400 transition active:scale-90 hover:text-white"
           aria-label="Close"
-          onclick={() => (showQueue = false)}
+          onclick={() => (showSheet = false)}
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M6 6l12 12M18 6L6 18" />
@@ -489,9 +609,13 @@
         </button>
       </div>
 
-      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {@render queueList("mobile")}
-      </div>
+      {#if sheetTab === "queue"}
+        <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {@render queueList("mobile")}
+        </div>
+      {:else if !isWide}
+        <LyricsPanel bind:this={sheetLyrics} bind:canResync={sheetCanResync} {remote} {feed} />
+      {/if}
     </section>
   {/if}
 

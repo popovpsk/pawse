@@ -459,7 +459,8 @@ Integrations:
 - Loaded once per track, on a `PlaybackStatus` change of track id in `Preparing` or
   `Ready`, never on `Idle`. `Stopped` clears; `LyricsChanged` for the current track
   reloads. Neither the server request nor the web search starts while the panel is
-  hidden; showing it starts them.
+  hidden; showing it starts them. The web remote can start the same search without the
+  panel ("Web remote reader and lyrics access").
 - For a track played from a server, its lyrics are asked each time it is shown
   (`RemoteMedia::lyrics`), never stored (`servers/doc.md`, Decisions), and take the place
   of `.lrc`/tag in the ranking against the web ("Prefer lyrics from the internet"). For
@@ -1116,7 +1117,39 @@ keeps the Artists tab's bounded photo stores.
 - `LyricsAccess` gates web lyrics writes by epoch: `forget_fetched` bumps `fetch_epoch` at
   once (UI thread) and deletes on the executor; `save_fetched` / `mark_not_found` check
   the epoch under the lock the delete takes, so a lookup in flight cannot write after a
-  forget. The request is not cancelled, only its result.
+  forget. The request is not cancelled, only its result. `look_up` is the one web lookup
+  (query, fetch, write) the lyrics panel and the remote share.
+- Remote lyrics (`LibraryReader::lyrics`, `/api/lyrics`) are raw text; the browser parses
+  them (`web/src/lib/lyrics/doc.md`). The pick is the panel's default one —
+  `lyrics_source::choices` with "Prefer lyrics from the internet", web rows dropped while
+  "Fetch lyrics from the internet" is off, no source tabs. Both switches are atomics shared
+  like the grouping (`set_lyrics_prefs`). A server track's own lyrics are asked live on
+  each request, only when the server outranks the best stored row, and sent through
+  `lyrics::to_lrc`; only the reader passed to the remote server has `RemoteMedia`
+  (`with_remote_media`). The request waits for the server's answer with no
+  `SERVER_GRACE`, so a hung server keeps the browser on "Loading…" for up to the HTTP
+  timeouts; accepted — a grace would need a way to hand the browser the late answer.
+- `searchable` is the panel's auto-search rule: switch on, no `web` row yet (found or
+  not found), and no own lyrics unless the web is preferred. The browser then sends
+  `FindLyrics` once per track; `find_lyrics` runs it only for the current track and
+  re-checks the stored rows (not the server) before `look_up`. `searching` is whether a
+  search for the track holds the `begin_search` guard, so the browser keeps "Searching…"
+  across bumps that are not the search's end.
+- `begin_search` keeps one search per track between the panel and the remote: a
+  `FindLyrics` for a track already searched returns at once and waits for that search's
+  end. The panel takes the guard when it can but never waits on it, so a panel opened
+  during a remote search searches again; accepted, it is rare, and `mark_not_found`
+  never replaces found text, so a duplicate that finds nothing cannot undo one that did
+  (it reports the row as written: the other search's `LyricsChanged` already went out).
+  Both take the guard on the UI thread, before the search is dispatched.
+- `PlayerState.lyrics_rev` tells the browser to reload. It bumps on `LyricsChanged` for the
+  current track, `CatalogChanged` (a rescan rewrites `.lrc` / tag rows; `library_rev` is
+  not used, since likes and playlist edits bump it), a lyrics switch change, and a remote
+  or panel search that wrote nothing (failed or skipped; a remote one also when forgotten
+  by the epoch, while a forget drops the panel's task, and the switch change that forgets
+  bumps): a failed lookup sends no `LyricsChanged`, so without the last a browser showing
+  "Searching…" would wait forever. A bump means only "reload"; whether a search is still
+  running comes from `searching`.
 
 ## Engine-event bridges (`scrobble_bridge.rs`, `discord_bridge.rs`, `media_bridge.rs`)
 

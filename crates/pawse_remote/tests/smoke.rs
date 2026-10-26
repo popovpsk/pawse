@@ -125,6 +125,21 @@ impl pawse_remote::LibraryReader for TestLibrary {
             duration_ms: 1000,
         }]
     }
+
+    fn lyrics(&self, track_id: i64) -> pawse_remote::TrackLyrics {
+        match track_id {
+            11 => pawse_remote::TrackLyrics {
+                text: Some("[00:01.00]Smoke line".into()),
+                searchable: false,
+                searching: false,
+            },
+            _ => pawse_remote::TrackLyrics {
+                text: None,
+                searchable: true,
+                searching: true,
+            },
+        }
+    }
 }
 
 #[test]
@@ -142,7 +157,7 @@ fn serves_state_snapshot() {
     });
 
     let body = wait_for_state(addr);
-    assert!(body.contains("\"v\":3"), "body: {body}");
+    assert!(body.contains("\"v\":4"), "body: {body}");
     assert!(body.contains("Smoke Track"), "body: {body}");
     assert!(body.contains("\"playing\":true"), "body: {body}");
     assert!(body.contains("\"repeat\":\"off\""), "body: {body}");
@@ -204,6 +219,20 @@ fn serves_state_snapshot() {
 
     let liked = try_get(addr, "/api/liked").expect("liked endpoint");
     assert!(liked.contains("Smoke Track"), "liked: {liked}");
+
+    let lyrics = try_get(addr, "/api/lyrics?id=11").expect("lyrics endpoint");
+    assert!(
+        lyrics.contains(r#""text":"[00:01.00]Smoke line""#),
+        "lyrics: {lyrics}"
+    );
+    assert!(lyrics.contains(r#""searchable":false"#), "lyrics: {lyrics}");
+    let missing = try_get(addr, "/api/lyrics?id=12").expect("lyrics endpoint");
+    assert!(
+        missing.contains(r#""text":null"#)
+            && missing.contains(r#""searchable":true"#)
+            && missing.contains(r#""searching":true"#),
+        "lyrics: {missing}"
+    );
 }
 
 fn wait_for_state(addr: SocketAddr) -> String {
