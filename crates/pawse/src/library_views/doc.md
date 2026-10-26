@@ -155,6 +155,13 @@ trigger (`main_view/doc.md`).
 - `album_info`: up to three tag genres inline + all of them in a tooltip, heard genres
   dimmed after them; tracks and genres reload on `CatalogChanged`. Buttons: tag editor
   (the album has a local file), save to cache, move to the local folder, add to queue.
+- Album header: cover and text share a wrapping row, so text that would get less than
+  `TEXT_MIN_WIDTH` beside the cover moves under it at full width (plain flex-wrap, no width
+  measurement); the buttons stay top right. The list item follows the content: a probe on
+  that row reports its size (`HeightChanged`, one frame late), `TracksView` sizes the item
+  to it plus a gap and moves the scroll offset by the change, so what is in view stays put.
+  The title wraps up to three lines, then ends in `…`; only a cut title gets the full one
+  in a tooltip.
 - Guest column (`track_row::guest_credits`): a track whose credited artists differ, as
   a set, from its album's *known* artists — and on an artist page from the page artist
   — shows them in an artist column; when the album's artist is not known, every track
@@ -238,3 +245,5 @@ Owner's calls; ask before changing.
   grouping, where every row is the page artist's.
 - No sort on Liked and playlists.
 - No layout glyph on the menu trigger.
+- Album titles wrap (long titles are normal) up to three lines, not one truncated line.
+- A narrow album header puts the text under a full-size cover, not beside a smaller one.

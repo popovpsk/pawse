@@ -6,7 +6,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     AppContext, Context, ElementId, Entity, EventEmitter, FontWeight, InteractiveElement,
     IntoElement, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
-    Styled, Subscription, Window, div, px, rems, size, svg,
+    Styled, Subscription, Window, div, point, px, rems, size, svg,
 };
 use gpui_component::{
     VirtualListScrollHandle, h_flex,
@@ -23,7 +23,7 @@ use nucleo_matcher::{Config, Matcher};
 
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
-use crate::library_views::album_info::AlbumInfo;
+use crate::library_views::album_info::{AlbumInfo, HeightChanged};
 use crate::library_views::track_row::{
     TITLE_MIN_WIDTH, artist_column, build_haystacks, guest_credits,
 };
@@ -36,7 +36,7 @@ const TOP_PADDING: f32 = 12.;
 const TRACK_ROW_HEIGHT: f32 = 36.;
 const DISC_HEADER_HEIGHT: f32 = 32.;
 const DISC_HEADER_GAP: f32 = 24.;
-const ALBUM_INFO_HEIGHT: f32 = 170.;
+const ALBUM_INFO_GAP: f32 = 20.;
 
 #[derive(Clone)]
 enum TrackItem {
@@ -81,17 +81,21 @@ pub struct TracksView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     album_info: Entity<AlbumInfo>,
+    header_height: Pixels,
     current_track_id: Option<i64>,
     is_playing: bool,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
     _album_info_subscription: Subscription,
+    _album_info_resize: Subscription,
     _lang_subscription: Subscription,
 }
 
 impl TracksView {
     pub fn new(album: &music_library::AlbumSummary, cx: &mut Context<Self>) -> Self {
+        let album_info = cx.new(|cx| AlbumInfo::new(album, cx));
+        let header_height = album_info.read(cx).height();
         let services = cx.global::<Services>();
         let tracks_all: Vec<Rc<_>> = services
             .library
@@ -106,7 +110,7 @@ impl TracksView {
             .enumerate()
             .map(|(ix, t)| TrackRow::from_track(t, ix, &credits))
             .collect();
-        let (items, item_sizes_vec) = Self::build_items(&row_data, tr());
+        let (items, item_sizes_vec) = Self::build_items(&row_data, tr(), header_height);
 
         let item_sizes = Rc::new(item_sizes_vec);
         let engine_event_bus = services.engine_event_bus.clone();
@@ -120,7 +124,6 @@ impl TracksView {
         let is_playing = services
             .is_playing
             .load(std::sync::atomic::Ordering::Relaxed);
-        let album_info = cx.new(|cx| AlbumInfo::new(album, cx));
 
         let scroll_handle = VirtualListScrollHandle::new();
         if let Some(track_id) = current_track_id
@@ -204,10 +207,24 @@ impl TracksView {
             },
         );
 
+        let album_info_resize = cx.subscribe(&album_info, |this, info, _: &HeightChanged, cx| {
+            let height = info.read(cx).height();
+            if height == this.header_height {
+                return;
+            }
+            let delta = height - this.header_height;
+            this.header_height = height;
+            this.rebuild_items();
+            let offset = this.scroll_handle.offset();
+            if offset.y < px(0.) {
+                this.scroll_handle
+                    .set_offset(point(offset.x, (offset.y - delta).min(px(0.))));
+            }
+            cx.notify();
+        });
+
         let lang_subscription = cx.subscribe(&lang_event_bus, |this, _, _: &LangChanged, cx| {
-            let (items, item_sizes_vec) = Self::build_items(&this.row_data, tr());
-            this.items = items;
-            this.item_sizes = Rc::new(item_sizes_vec);
+            this.rebuild_items();
             cx.notify();
         });
 
@@ -222,19 +239,28 @@ impl TracksView {
             item_sizes,
             scroll_handle,
             album_info,
+            header_height,
             current_track_id,
             is_playing,
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
             _album_info_subscription: album_info_subscription,
+            _album_info_resize: album_info_resize,
             _lang_subscription: lang_subscription,
         }
+    }
+
+    fn rebuild_items(&mut self) {
+        let (items, item_sizes_vec) = Self::build_items(&self.row_data, tr(), self.header_height);
+        self.items = items;
+        self.item_sizes = Rc::new(item_sizes_vec);
     }
 
     fn build_items(
         rows: &[TrackRow],
         strings: &ui_resources::i18n::Strings,
+        header: Pixels,
     ) -> (Vec<TrackItem>, Vec<Size<Pixels>>) {
         let max_disc = rows.iter().map(|r| r.disc_number).max().unwrap_or(1);
         let multi_disc = max_disc > 1;
@@ -242,7 +268,7 @@ impl TracksView {
         let mut items = vec![TrackItem::TopPadding, TrackItem::AlbumInfo];
         let mut item_sizes_vec = vec![
             size(px(0.), px(TOP_PADDING)),
-            size(px(0.), px(ALBUM_INFO_HEIGHT + 1.)),
+            size(px(0.), header + px(ALBUM_INFO_GAP + 1.)),
         ];
 
         if multi_disc {
@@ -305,10 +331,7 @@ impl TracksView {
                 .map(|ix| TrackRow::from_track(&self.tracks_all[ix], ix, &self.credits))
                 .collect();
         }
-        let strings = tr();
-        let (items, item_sizes_vec) = Self::build_items(&self.row_data, strings);
-        self.items = items;
-        self.item_sizes = Rc::new(item_sizes_vec);
+        self.rebuild_items();
     }
 }
 

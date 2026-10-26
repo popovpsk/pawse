@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Render, RenderImage,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    Context, EventEmitter, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    RenderImage, SharedString, Size, StatefulInteractiveElement, Styled, StyledText, Window,
+    canvas, div, px,
 };
 use gpui_component::{h_flex, tooltip::Tooltip, v_flex};
 
@@ -18,9 +19,15 @@ use crate::settings_store::SettingsStore;
 use crate::similar_tracks::genres;
 use crate::track_list::{add_album_to_queue_button, move_to_local_button, save_to_cache_button};
 
+const COVER_SIZE: f32 = 150.;
+const TEXT_MIN_WIDTH: f32 = 180.;
+const TITLE_LINES: usize = 3;
+
+pub struct HeightChanged;
+
 pub struct AlbumInfo {
     album_id: i64,
-    title: String,
+    title: SharedString,
     artist_name: SharedString,
     artist_id: Option<i64>,
     year: Option<i32>,
@@ -36,6 +43,8 @@ pub struct AlbumInfo {
     tracks: std::rc::Rc<Vec<music_library::Track>>,
     export_meta: std::rc::Rc<crate::album_export::AlbumMeta>,
     fills_seen: u64,
+    size: Size<Pixels>,
+    title_truncated: bool,
     _fill_subscription: gpui::Subscription,
     _export_subscription: gpui::Subscription,
     _catalog_subscription: gpui::Subscription,
@@ -105,7 +114,7 @@ impl AlbumInfo {
         };
         let mut this = Self {
             album_id: album.id,
-            title: album.title.clone(),
+            title: album.title.clone().into(),
             artist_name: album.artist_name.clone().into(),
             artist_id: album.artist_id,
             year: album.year,
@@ -121,6 +130,8 @@ impl AlbumInfo {
             tracks: std::rc::Rc::new(tracks),
             export_meta: std::rc::Rc::new(export_meta),
             fills_seen,
+            size: Size::default(),
+            title_truncated: false,
             _fill_subscription: fill_subscription,
             _export_subscription: export_subscription,
             _catalog_subscription: catalog_subscription,
@@ -132,6 +143,10 @@ impl AlbumInfo {
 }
 
 impl AlbumInfo {
+    pub fn height(&self) -> Pixels {
+        self.size.height.max(px(COVER_SIZE))
+    }
+
     fn reload_genres(&mut self, cx: &mut Context<Self>) {
         self.tag_genres = cx.global::<Services>().library.album_genres(self.album_id);
         (self.genres_inline, self.genres_tooltip) = tag_display(&self.tag_genres);
@@ -180,6 +195,7 @@ fn tag_display(genres: &[String]) -> (SharedString, Option<SharedString>) {
 }
 
 impl EventEmitter<NavigateToArtistRequested> for AlbumInfo {}
+impl EventEmitter<HeightChanged> for AlbumInfo {}
 
 impl Render for AlbumInfo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -232,91 +248,131 @@ impl Render for AlbumInfo {
         let title: SharedString = if self.album_id == music_library::NO_METADATA_ALBUM_ID {
             crate::localization::tr().no_metadata.clone()
         } else {
-            self.title.clone().into()
+            self.title.clone()
         };
+        let title_text = StyledText::new(title.clone());
+        let probe = {
+            let entity = cx.entity();
+            let title_layout = title_text.layout().clone();
+            let title = title.clone();
+            canvas(
+                move |bounds, window, cx| {
+                    if entity.read(cx).size == bounds.size {
+                        return;
+                    }
+                    let truncated = title_layout.text() != title.as_ref();
+                    entity.update(cx, |this, _| {
+                        this.size = bounds.size;
+                        this.title_truncated = truncated;
+                    });
+                    window.on_next_frame(move |_, cx| {
+                        entity.update(cx, |_, cx| {
+                            cx.emit(HeightChanged);
+                            cx.notify();
+                        });
+                    });
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full()
+        };
+
+        let text = v_flex()
+            .flex_grow(1.)
+            .flex_basis(px(TEXT_MIN_WIDTH))
+            .overflow_hidden()
+            .gap_1()
+            .pt_1()
+            .child(
+                div()
+                    .id("album_title")
+                    .text_lg()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .line_clamp(TITLE_LINES)
+                    .text_ellipsis()
+                    .when(self.title_truncated, |el| {
+                        el.tooltip(move |window, cx| Tooltip::new(title.clone()).build(window, cx))
+                    })
+                    .child(title_text),
+            )
+            .child(if let Some(aid) = artist_id {
+                h_flex()
+                    .child(
+                        div()
+                            .id(("al_artist", aid as u64))
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .cursor_pointer()
+                            .border_b(px(1.))
+                            .hover(|s| s.border_color(muted_fg))
+                            .on_click(cx.listener(move |_, _, _, cx| {
+                                cx.emit(NavigateToArtistRequested {
+                                    artist_id: aid,
+                                    track_id: None,
+                                });
+                            }))
+                            .child(self.artist_name.clone()),
+                    )
+                    .into_any_element()
+            } else {
+                div()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(self.artist_name.clone())
+                    .into_any_element()
+            })
+            .child(if let Some(year) = self.year {
+                div().text_sm().text_color(muted_fg).child(year.to_string())
+            } else {
+                div()
+            })
+            .child(if self.genres_inline.is_empty() {
+                div().into_any_element()
+            } else if let Some(tooltip) = self.genres_tooltip.clone() {
+                div()
+                    .id(("album_genres", album_id as u64))
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(self.genres_inline.clone())
+                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+                    .into_any_element()
+            } else {
+                div()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(self.genres_inline.clone())
+                    .into_any_element()
+            })
+            .when(!self.heard_inline.is_empty(), |row| {
+                row.child(
+                    div()
+                        .text_sm()
+                        .text_color(genres::dimmed(cx))
+                        .child(self.heard_inline.clone()),
+                )
+            });
 
         h_flex()
             .w_full()
             .px_4()
             .gap_4()
             .items_start()
-            .child(cover_tile(
-                self.cover.as_ref(),
-                150.,
-                6.,
-                Colors::secondary(cx),
-                muted_fg,
-            ))
             .child(
-                v_flex()
+                h_flex()
                     .flex_1()
-                    .overflow_hidden()
-                    .gap_1()
-                    .pt_1()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(title),
-                    )
-                    .child(if let Some(aid) = artist_id {
-                        h_flex()
-                            .child(
-                                div()
-                                    .id(("al_artist", aid as u64))
-                                    .text_sm()
-                                    .text_color(muted_fg)
-                                    .cursor_pointer()
-                                    .border_b(px(1.))
-                                    .hover(|s| s.border_color(muted_fg))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        cx.emit(NavigateToArtistRequested {
-                                            artist_id: aid,
-                                            track_id: None,
-                                        });
-                                    }))
-                                    .child(self.artist_name.clone()),
-                            )
-                            .into_any_element()
-                    } else {
-                        div()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .child(self.artist_name.clone())
-                            .into_any_element()
-                    })
-                    .child(if let Some(year) = self.year {
-                        div().text_sm().text_color(muted_fg).child(year.to_string())
-                    } else {
-                        div()
-                    })
-                    .child(if self.genres_inline.is_empty() {
-                        div().into_any_element()
-                    } else if let Some(tooltip) = self.genres_tooltip.clone() {
-                        div()
-                            .id(("album_genres", album_id as u64))
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .child(self.genres_inline.clone())
-                            .tooltip(move |window, cx| {
-                                Tooltip::new(tooltip.clone()).build(window, cx)
-                            })
-                            .into_any_element()
-                    } else {
-                        div()
-                            .text_sm()
-                            .text_color(muted_fg)
-                            .child(self.genres_inline.clone())
-                            .into_any_element()
-                    })
-                    .when(!self.heard_inline.is_empty(), |row| {
-                        row.child(
-                            div()
-                                .text_sm()
-                                .text_color(genres::dimmed(cx))
-                                .child(self.heard_inline.clone()),
-                        )
-                    }),
+                    .flex_wrap()
+                    .gap_4()
+                    .items_start()
+                    .child(probe)
+                    .child(cover_tile(
+                        self.cover.as_ref(),
+                        COVER_SIZE,
+                        6.,
+                        Colors::secondary(cx),
+                        muted_fg,
+                    ))
+                    .child(text),
             )
             .child(
                 h_flex()
