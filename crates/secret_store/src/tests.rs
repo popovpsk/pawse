@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::crypto::{self, Key};
-use crate::{Source, assemble, file_key, watch_reseal};
+use crate::{Source, assemble, embedded, file_key, watch_reseal};
 
 fn random_key() -> Key {
     Key::new(crypto::random_bytes().unwrap())
@@ -150,12 +150,17 @@ fn a_file_key_that_does_not_open_is_left_alone() {
 #[test]
 fn builds_with_different_binary_keys_keep_separate_files() {
     let dir = tempfile::tempdir().unwrap();
-    let (release, public) = (random_key(), random_key());
-    let first = file_key::load(dir.path(), &release, true).unwrap();
-    let second = file_key::load(dir.path(), &public, true).unwrap();
+    let (ours, theirs) = (random_key(), random_key());
+    let first = file_key::load(dir.path(), &ours, true).unwrap();
+    let second = file_key::load(dir.path(), &theirs, true).unwrap();
     assert_ne!(first.id(), second.id());
     assert_eq!(
-        file_key::load(dir.path(), &release, false).unwrap().id(),
+        file_key::load(dir.path(), &ours, false).unwrap().id(),
         first.id()
     );
+}
+
+#[test]
+fn the_binary_key_never_changes() {
+    assert_eq!(embedded::key().id(), "d3b95c32");
 }

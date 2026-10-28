@@ -15,15 +15,14 @@ Not here: which settings fields are sealed and when the file is rewritten
   `watch_reseal`, `Source`.
 - `crypto.rs` — `Key` (id = first 4 bytes of its SHA-256, hex), `seal`, `open`,
   `is_sealed`, the format.
-- `embedded.rs` — the binary key E, derived from `PAWSE_SECRETS_KEY` at compile time or a
-  public seed.
+- `embedded.rs` — the binary key E, derived from a seed fixed in the source.
 - `file_key.rs` — the file key `K_f` in `secret-<id of E>.key`, sealed with E.
 - `keychain/` — `read` / `write` of the 32-byte data key: `windows.rs` (Credential
   Manager via `keyring-core`, target `data-key.pawse`), `linux.rs` (Secret Service or the
   Flatpak secret portal via `oo7`, label "Pawse", attributes `application=pawse`,
   `kind=data-key`). Compiled on those two platforms only.
 - `serde_string.rs` — `#[serde(with)]` for a `String` field.
-- `tests.rs` — sealing, key order, file key creation and its refusals.
+- `tests.rs` — sealing, key order, file key creation and its refusals, the pinned id of E.
 
 ## Spec
 
@@ -46,13 +45,9 @@ Not here: which settings fields are sealed and when the file is rewritten
 - The reseal flag is thread-local: `watch_reseal` resets it, runs the deserialization
   on the same thread, and reads it.
 - Without `init` (tests), the key set is E only, with no I/O.
-- `PAWSE_SECRETS_KEY` is read by `option_env!`, which cargo tracks: every step that
-  builds the release binary must get it (release and Flatpak workflows), or the packager
-  rebuilds with the public seed. An empty value counts as unset.
-- Builds with different E cannot open each other's file-sealed values. On macOS the
-  file key is the only key, so a local build run on the real `HOME` next to the installed
-  release needs the same `PAWSE_SECRETS_KEY` in its environment. Otherwise each build
-  reseals with its own key, and the other one keeps failing to log in.
+- E is the same in every build, so a local build on the real `HOME` reads the values the
+  installed release sealed. A test pins its id: a new E opens no existing file key, and
+  every fallback value would need re-entering.
 
 ## Decisions
 
@@ -63,9 +58,11 @@ Owner's calls; ask before changing.
 - macOS uses no keychain. A self-signed build gets a `cdhash:` partition, so every
   update or rebuild would ask for the login password. That changes only with a Developer
   ID (`teamid:` partition).
-- The fallback is a random file key wrapped by E from a CI secret, not a key per app
-  version: per-version keys add no protection and break reading a newer file.
-- `PAWSE_SECRETS_KEY` never changes. A new value orphans every fallback file.
+- The fallback is a random file key wrapped by a public E, not one from a CI secret: a
+  key compiled into a shipped binary can be read out of it anyway, and a secret one locks
+  every other build out of the user's values. Not a key per app version either:
+  per-version keys add no protection and break reading a newer file.
+- E never changes. A new seed orphans every fallback file.
 - Own thin wrappers rather than gpui's credentials API, which names items after Zed.
 - The Flatpak manifest gets no `org.freedesktop.secrets` talk-name. Without a portal
   backend the file key is used.

@@ -50,15 +50,7 @@ fn load(dir: &Path) -> Keys {
     let keychain = keychain_key();
     let file = file_key::load(dir, &binary, keychain.is_none());
     let keys = assemble(keychain, file, binary);
-    log::info!(
-        "secrets: sealing with the {:?} key ({} binary key)",
-        keys.source,
-        if embedded::is_public() {
-            "public"
-        } else {
-            "release"
-        }
-    );
+    log::info!("secrets: sealing with the {:?} key", keys.source);
     keys
 }
 
