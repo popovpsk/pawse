@@ -28,13 +28,16 @@ use crate::library_service::LibraryEvent;
 use crate::library_views::track_row::build_artist_map;
 use crate::localization::tr;
 use crate::panel_header::{
-    panel_header, panel_header_actions, panel_header_button, panel_header_button_colored,
+    HEADER_HEIGHT, panel_header, panel_header_actions, panel_header_button,
+    panel_header_button_colored,
 };
 use crate::playback_queue::RemoveOutcome;
 use crate::playlist_popup::OpenAddToPlaylist;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::similar_tracks::{self, OnApplied};
+
+const MINI_ARTIST_ROWS: f32 = 5.;
 
 #[derive(Clone)]
 struct DraggedQueueTrack {
@@ -76,10 +79,12 @@ struct QueueRowParams {
 }
 
 impl QueueRowParams {
-    fn from_cx(cx: &mut Context<QueueView>) -> Self {
+    fn from_cx(list_room: Option<f32>, cx: &mut Context<QueueView>) -> Self {
         let settings = cx.global::<SettingsStore>();
-        let show_queue_artist = settings.show_queue_artist();
         let rem = f32::from(settings.font_scale().px());
+        let artist_row_h = rem * 3.0 + 1.;
+        let show_queue_artist = settings.show_queue_artist()
+            && list_room.is_none_or(|room| room >= artist_row_h * MINI_ARTIST_ROWS);
         Self {
             muted: Colors::muted(cx),
             muted_fg: Colors::muted_foreground(cx),
@@ -92,10 +97,10 @@ impl QueueRowParams {
             show_queue_actions: settings.show_queue_actions(),
             show_queue_artist,
             item_height: if show_queue_artist {
-                rem * 3.0
+                artist_row_h
             } else {
-                rem * 2.25
-            } + 1.,
+                rem * 2.25 + 1.
+            },
             cover_size: if show_queue_artist {
                 rem * 2.0
             } else {
@@ -337,7 +342,7 @@ impl QueueView {
 }
 
 impl Render for QueueView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let header = queue_header(
             cx,
             !self.tracks.is_empty(),
@@ -349,7 +354,11 @@ impl Render for QueueView {
             return queue_empty_state(cx, header);
         }
 
-        let params = QueueRowParams::from_cx(cx);
+        let list_room = self.mini_close.is_some().then(|| {
+            let frame = gpui_component::window_paddings(window);
+            f32::from(window.viewport_size().height - frame.top - frame.bottom) - HEADER_HEIGHT
+        });
+        let params = QueueRowParams::from_cx(list_room, cx);
 
         v_flex().size_full().child(header).child(
             v_flex()

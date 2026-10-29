@@ -5,9 +5,9 @@ use std::time::Duration;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Animation, AnimationExt, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity,
-    FocusHandle, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
-    RenderImage, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Task,
-    Window, WindowControlArea, div, ease_out_quint, px, rems, svg,
+    FocusHandle, FontWeight, InteractiveElement, IntoElement, MouseButton, MouseMoveEvent,
+    ParentElement, Render, RenderImage, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Subscription, Task, Window, WindowControlArea, div, ease_out_quint, px, rems, svg,
 };
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, v_flex};
@@ -321,6 +321,13 @@ impl MiniPlayer {
             self.remote_task = Some(task);
         } else {
             self._full_task = Some(task);
+        }
+    }
+
+    fn set_pointer_over(&mut self, over: bool, cx: &mut Context<Self>) {
+        if self.pointer_over != over {
+            self.pointer_over = over;
+            cx.notify();
         }
     }
 
@@ -862,11 +869,19 @@ impl Render for MiniPlayer {
                     .absolute()
                     .inset_0()
                     .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                        if this.pointer_over != *hovered {
-                            this.pointer_over = *hovered;
-                            cx.notify();
+                        if !*hovered {
+                            this.set_pointer_over(false, cx);
                         }
-                    })),
+                    }))
+                    .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
+                        if !cx.has_active_drag() {
+                            this.set_pointer_over(true, cx);
+                        }
+                    }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.set_pointer_over(true, cx)),
+                    ),
             )
     }
 }

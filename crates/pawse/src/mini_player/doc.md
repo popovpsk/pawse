@@ -80,7 +80,10 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
 - The queue toggle lays `QueueView` over the whole window (slide and fade both ways).
   `QueueView::for_mini_player` drops Save to playlist and Clear queue from its header and
   puts a lit queue icon where the main panel has none; an × there would sit where the
-  chrome's × closes the window. The view is created on the
+  chrome's × closes the window. When the window leaves room under the queue header for
+  fewer than `MINI_ARTIST_ROWS` two-line rows, the rows drop the artist line even if the
+  queue setting shows it; the room is the window height, since the layer fills it. The
+  view is created on the
   first open. A `PlaylistPopup` of its own serves the queue's add-to-playlist buttons; its
   list shrinks to the window height (`LIST_ROOM`), so in a short strip it scrolls instead of
   running off the bottom.
@@ -88,7 +91,14 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
   (no web search while off). Kept in `MiniState` for the session.
 - Controls are `occlude`d so a press on them is not a window drag. That also takes hover
   away from everything behind them, so hover is read from an empty full-size layer
-  painted on top, which blocks nothing. The overlay stays while the volume popup is open
+  painted on top, which blocks nothing. The layer's hover is set by mouse moves outside a
+  drag and by a left mouse-up, and cleared by `on_hover(false)`; gpui's `on_hover(true)`
+  is ignored. After the pointer leaves, gpui keeps its last position inside, so the next
+  paint finds the full-size layer hovered again; only an activation change re-reads the
+  real position. gpui reports hover lost when a drag (the progress slider, the queue
+  rows) starts and sends nothing more if the drag ends outside the window, so moves
+  during one do not count and a mouse-up inside brings the hover back. A pointer resting
+  on a window that just opened counts once it moves. The overlay stays while the volume popup is open
   or the progress is dragged, since a slider drag makes gpui report hover lost. Windows
   sends no mouse-exit to elements, so there hover also needs `is_window_hovered`.
 - Hover goes through a delay (`SHOW_DELAY` in, `HIDE_DELAY` out): while the window is
@@ -129,6 +139,7 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
 - Adaptive layout (strip / cover) chosen by the window's height, no setting.
 - Like, volume, lyrics and queue besides the transport; no shuffle / repeat. The queue is
   a full-window layer, the lyrics three rows on the cover and one in the strip.
+- In a short window the queue rows go without the artist line so more of them fit.
 - Entry: a footer button left of the lyrics toggle, ⌥⌘M / Ctrl+Shift+M, the macOS Window
   menu.
 - The window can't be stretched past 520×520.

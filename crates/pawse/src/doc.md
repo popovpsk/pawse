@@ -43,7 +43,8 @@ Playback and now playing:
   `custom`, session-only mix state. Pure, UI thread (`Rc<Track>`).
 - `playback_status.rs` — `PlaybackStatus`: current track id, phase, duration.
 - `queue_view.rs` — the queue panel (rows from `track_list`); the mini player hosts one
-  too (`for_mini_player`: no Save / Clear, a queue button that closes it). `panel_header.rs` — the
+  too (`for_mini_player`: no Save / Clear, a queue button that closes it, no artist line
+  in a short window, `mini_player/doc.md`). `panel_header.rs` — the
   header row of the side panels. `playlist_popup.rs` — the add-to-playlist popup.
 - `lyrics_view.rs` — lyrics panel. `lyrics_fill.rs` — its pure half: rows, active row,
   fill geometry, the full-screen edge fade. `lyrics_wave.rs` — the autoscroll wave:

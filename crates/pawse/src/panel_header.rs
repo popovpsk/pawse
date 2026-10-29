@@ -10,7 +10,7 @@ use gpui_component::{h_flex, tooltip::Tooltip};
 
 use crate::theme_colors::Colors;
 
-const HEADER_HEIGHT: f32 = 40.;
+pub(crate) const HEADER_HEIGHT: f32 = 40.;
 pub(crate) const BUTTON_SIZE: f32 = 28.;
 pub(crate) const ICON_SIZE: f32 = 16.;
 
