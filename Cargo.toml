@@ -39,7 +39,8 @@ members = [
     "crates/autoeq",
     "crates/text_blur",
     "crates/system_tray",
-    "crates/secret_store"
+    "crates/secret_store",
+    "crates/window_level"
 ]
 
 default-members = ["crates/pawse"]

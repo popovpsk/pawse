@@ -1,0 +1,23 @@
+[package]
+name = "window_level"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+raw-window-handle = { version = "0.6.2", features = ["std"] }
+thiserror = "2.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.13.2"
+
+[lints.rust]
+unsafe_code = "allow"

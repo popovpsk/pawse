@@ -318,6 +318,27 @@ impl Render for Footer {
                             .items_center()
                             .child(
                                 div()
+                                    .id("mini_player_toggle")
+                                    .size(px(34.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .rounded_full()
+                                    .hover(|s| s.bg(Colors::muted(cx)))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr().mini_player.clone()).build(window, cx)
+                                    })
+                                    .on_click(|_, _, cx| crate::mini_player::enter(cx))
+                                    .child(
+                                        svg()
+                                            .path("icons/s2-mini-player.svg")
+                                            .size(px(22.))
+                                            .text_color(Colors::muted_foreground(cx)),
+                                    ),
+                            )
+                            .child(
+                                div()
                                     .id("lyrics_toggle")
                                     .size(px(34.))
                                     .flex()

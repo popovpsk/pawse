@@ -480,7 +480,7 @@ impl AlbumExport {
 }
 
 fn notify(notification: Notification, cx: &mut App) {
-    let Some(handle) = cx.windows().into_iter().next() else {
+    let Some(handle) = crate::main_window(cx) else {
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {

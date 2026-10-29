@@ -60,6 +60,7 @@ media_stream = { path = "../media_stream" }
 torrent = { path = "../torrent" }
 scrobble = { path = "../scrobble" }
 secret_store = { path = "../secret_store" }
+window_level = { path = "../window_level" }
 discord = { path = "../discord" }
 updater = { path = "../updater", default-features = false }
 sys-locale = "0.3"

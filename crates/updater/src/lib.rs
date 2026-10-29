@@ -1,7 +1,7 @@
 use anyhow::Result;
 use gpui::{
-    App, AppContext as _, AsyncApp, Context, Entity, Global, SharedString, Task, WeakEntity,
-    actions,
+    AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Global, SharedString, Task,
+    WeakEntity, actions,
 };
 use gpui_component::WindowExt as _;
 use gpui_component::notification::{Notification, NotificationType};
@@ -53,6 +53,17 @@ pub struct AutoUpdater {
 struct GlobalUpdater(Entity<AutoUpdater>);
 
 impl Global for GlobalUpdater {}
+
+pub struct ToastWindow(pub fn(&App) -> Option<AnyWindowHandle>);
+
+impl Global for ToastWindow {}
+
+fn toast_window(cx: &App) -> Option<AnyWindowHandle> {
+    match cx.try_global::<ToastWindow>() {
+        Some(pick) => (pick.0)(cx),
+        None => cx.active_window(),
+    }
+}
 
 pub fn init(cx: &mut App, current_version: &str, enabled: bool) {
     if !is_supported() {
@@ -310,7 +321,7 @@ async fn check_and_stage(
 }
 
 fn toast_ready(cx: &mut App, version: &Version) {
-    let Some(handle) = cx.active_window() else {
+    let Some(handle) = toast_window(cx) else {
         return;
     };
     let message =
@@ -329,7 +340,7 @@ fn toast_ready(cx: &mut App, version: &Version) {
 }
 
 fn toast(cx: &mut App, message: impl Into<SharedString>, kind: NotificationType) {
-    let Some(handle) = cx.active_window() else {
+    let Some(handle) = toast_window(cx) else {
         return;
     };
     let message = message.into();

@@ -672,6 +672,8 @@ pub struct UserSettings {
     #[serde(default)]
     pub close_to_tray: bool,
     #[serde(default = "default_true")]
+    pub mini_player_on_top: bool,
+    #[serde(default = "default_true")]
     pub lyrics_from_internet: bool,
     #[serde(default, alias = "lyrics_prefer_lrclib")]
     pub lyrics_prefer_web: bool,
@@ -731,6 +733,8 @@ pub struct UserSettings {
     pub equalizer: EqualizerSettings,
     #[serde(default)]
     window: RefCell<Option<WindowPlacement>>,
+    #[serde(default)]
+    mini_window: RefCell<Option<WindowPlacement>>,
 }
 
 impl Default for UserSettings {
@@ -795,6 +799,7 @@ impl Default for UserSettings {
             artists_layout: LibraryLayout::List,
             auto_update: true,
             close_to_tray: false,
+            mini_player_on_top: true,
             lyrics_from_internet: true,
             lyrics_prefer_web: false,
             artist_info_from_internet: true,
@@ -825,6 +830,7 @@ impl Default for UserSettings {
             sleep_timer: SleepTimerSettings::default(),
             equalizer: EqualizerSettings::default(),
             window: RefCell::new(None),
+            mini_window: RefCell::new(None),
         }
     }
 }
@@ -1420,6 +1426,14 @@ impl SettingsStore {
         self.settings.window.replace(Some(placement));
     }
 
+    pub fn mini_window_placement(&self) -> Option<WindowPlacement> {
+        self.settings.mini_window.borrow().clone()
+    }
+
+    pub fn remember_mini_window_placement(&self, placement: WindowPlacement) {
+        self.settings.mini_window.replace(Some(placement));
+    }
+
     pub fn volume(&self) -> f32 {
         self.settings.volume
     }
@@ -1462,6 +1476,15 @@ impl SettingsStore {
 
     pub fn set_close_to_tray(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.close_to_tray = enabled;
+        self.save()
+    }
+
+    pub fn mini_player_on_top(&self) -> bool {
+        self.settings.mini_player_on_top
+    }
+
+    pub fn set_mini_player_on_top(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.mini_player_on_top = enabled;
         self.save()
     }
 
@@ -2144,11 +2167,11 @@ pub fn apply_named_theme(name: &str, cx: &mut App) {
 }
 
 /// Push a user-visible notification (and log) when saving settings fails.
-/// Looks up the active window via `cx.active_window()` — settings writes
-/// always happen in response to UI actions, so a window is present.
+/// Looks up the active main window — settings writes always happen in
+/// response to UI actions; in the mini player the failure is only logged.
 pub fn notify_save_error(cx: &mut App, err: anyhow::Error) {
     log::error!("settings: save failed: {err}");
-    if let Some(handle) = cx.active_window() {
+    if let Some(handle) = crate::active_main_window(cx) {
         let _ = handle.update(cx, |_, window, cx| {
             let s = tr();
             window.push_notification(
@@ -2585,6 +2608,7 @@ mod tests {
             artists_layout: LibraryLayout::Grid,
             auto_update: true,
             close_to_tray: true,
+            mini_player_on_top: false,
             lyrics_from_internet: true,
             lyrics_prefer_web: false,
             artist_info_from_internet: true,
@@ -2639,10 +2663,20 @@ mod tests {
                 height: 700.,
                 maximized: false,
             })),
+            mini_window: RefCell::new(Some(WindowPlacement {
+                display: Some("display".into()),
+                x: 1200.,
+                y: 800.,
+                width: 420.,
+                height: 128.,
+                maximized: false,
+            })),
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: UserSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.window, settings.window);
+        assert_eq!(back.mini_window, settings.mini_window);
+        assert!(!back.mini_player_on_top);
         assert!((back.volume - 0.42).abs() < f32::EPSILON);
         assert_eq!(back.font_scale, FontScale::Large);
         assert_eq!(back.now_playing_details, NowPlayingDetails::Album);

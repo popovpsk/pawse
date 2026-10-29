@@ -125,7 +125,7 @@ fn usable(built: Built, seed: Seed, cx: &mut App) -> Option<Vec<Track>> {
             Notification::error(s.failed.clone())
         }
     };
-    if let Some(handle) = cx.windows().into_iter().next() {
+    if let Some(handle) = crate::main_window(cx) {
         let _ = handle.update(cx, |_, window, cx| {
             window.push_notification(notification, cx);
         });

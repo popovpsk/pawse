@@ -43,6 +43,7 @@ pub mod lyrics_view;
 pub mod lyrics_wave;
 pub mod main_view;
 pub mod media_bridge;
+pub mod mini_player;
 pub mod next_button;
 pub mod now_playing;
 pub mod onboarding_view;
@@ -161,7 +162,7 @@ pub(crate) fn build_window_options(cx: &mut App) -> WindowOptions {
 
 fn open_main_window(cx: &mut App, run_startup_tasks: bool) {
     let mut options = build_window_options(cx);
-    crate::window_placement::restore(&mut options, cx);
+    crate::window_placement::restore(&mut options, crate::window_placement::Slot::Main, cx);
     cx.open_window(options, |window, cx| {
         let view = cx.new(|cx| MainView::new(window, cx));
         let root = cx.new(|cx| Root::new(view, window, cx));
@@ -198,12 +199,28 @@ pub fn open_onboarding_window(cx: &mut App) {
     .expect("Failed to open onboarding window");
 }
 
+pub(crate) fn main_window(cx: &App) -> Option<AnyWindowHandle> {
+    let mini = crate::mini_player::window(cx);
+    cx.windows()
+        .into_iter()
+        .find(|handle| Some(*handle) != mini)
+}
+
+pub(crate) fn active_main_window(cx: &App) -> Option<AnyWindowHandle> {
+    cx.active_window()
+        .filter(|handle| Some(*handle) != crate::mini_player::window(cx))
+}
+
 fn open_initial_window(cx: &mut App, run_startup_tasks: bool) {
     if cx
         .global::<crate::settings_store::SettingsStore>()
         .onboarding_complete()
     {
-        open_main_window(cx, run_startup_tasks);
+        if !run_startup_tasks && crate::mini_player::is_current(cx) {
+            crate::mini_player::open(cx);
+        } else {
+            open_main_window(cx, run_startup_tasks);
+        }
     } else {
         open_onboarding_window(cx);
     }
@@ -269,6 +286,7 @@ fn main() {
                 .global::<crate::settings_store::SettingsStore>()
                 .auto_update();
             updater::init(cx, env!("CARGO_PKG_VERSION"), auto_update_enabled);
+            cx.set_global(updater::ToastWindow(crate::active_main_window));
         }
 
         ui_resources::themes::register_bundled_themes(cx, |cx| {
@@ -393,6 +411,7 @@ fn main() {
         });
 
         cx.on_action(|_: &updater::CheckForUpdates, cx| updater::check_now(cx));
+        cx.on_action(|_: &crate::app_menu::ToggleMiniPlayer, cx| crate::mini_player::toggle(cx));
 
         cx.activate(true);
         crate::app_menu::set_menus(cx);

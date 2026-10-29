@@ -108,6 +108,7 @@ pub struct Volume {
     /// user's real level and comes back on the way out.
     slider_pinned_to_unity: bool,
     wheel: WheelSteps,
+    fill: bool,
 }
 
 impl Render for Volume {
@@ -117,7 +118,7 @@ impl Render for Volume {
 
         let icon_path = volume_icon(is_exclusive, self.is_muted, self.volume);
 
-        let mut container = h_flex()
+        let container = h_flex()
             .id("volume_control")
             .gap_2()
             .justify_end()
@@ -148,9 +149,17 @@ impl Render for Volume {
             self.slider
                 .update(cx, |slider, cx| slider.set_value_silent(shown, cx));
         }
-        container = container.child(div().w(px(SLIDER_W)).child(self.slider.clone()));
-
-        container.flex_shrink_0().h_6()
+        if self.fill {
+            container
+                .w_full()
+                .child(div().flex_1().min_w(px(0.)).child(self.slider.clone()))
+                .h_6()
+        } else {
+            container
+                .child(div().w(px(SLIDER_W)).child(self.slider.clone()))
+                .flex_shrink_0()
+                .h_6()
+        }
     }
 }
 
@@ -188,7 +197,13 @@ impl Volume {
             volume_before_mute: if initial > 0.0 { initial } else { 1.0 },
             slider_pinned_to_unity: false,
             wheel: WheelSteps::default(),
+            fill: false,
         }
+    }
+
+    pub fn fill_width(mut self) -> Self {
+        self.fill = true;
+        self
     }
 
     fn sync_volume(&mut self, cx: &mut Context<Self>) {

@@ -11,6 +11,7 @@ actions!(
         ShowAll,
         Minimize,
         Zoom,
+        ToggleMiniPlayer,
         OpenRepository,
     ]
 );
@@ -52,6 +53,8 @@ pub fn app_menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::action(s.minimize.clone(), Minimize),
                 MenuItem::action(s.zoom.clone(), Zoom),
+                MenuItem::separator(),
+                MenuItem::action(s.mini_player.clone(), ToggleMiniPlayer),
             ],
             disabled: false,
         },

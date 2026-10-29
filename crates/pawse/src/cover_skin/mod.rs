@@ -4,7 +4,7 @@ mod scheme;
 
 use std::time::{Duration, Instant};
 
-use gpui::{App, Context, Global, Subscription, Task, WeakEntity, ease_in_out};
+use gpui::{App, AppContext, Context, Entity, Global, Subscription, Task, WeakEntity, ease_in_out};
 use gpui_component::theme::{Theme, ThemeColor, ThemeMode, ThemeTokens};
 
 use crate::library_service::LibraryEvent;
@@ -39,6 +39,16 @@ pub struct CoverSkin {
 struct Handle(WeakEntity<CoverSkin>);
 
 impl Global for Handle {}
+
+pub fn shared(cx: &mut App) -> Entity<CoverSkin> {
+    if let Some(skin) = cx
+        .try_global::<Handle>()
+        .and_then(|handle| handle.0.upgrade())
+    {
+        return skin;
+    }
+    cx.new(CoverSkin::new)
+}
 
 pub fn reapply(cx: &mut App) {
     let Some(skin) = cx

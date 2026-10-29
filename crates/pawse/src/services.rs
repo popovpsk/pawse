@@ -319,7 +319,7 @@ fn notify_scan_event(event: &LibraryEvent, cx: &mut App) {
         }
         _ => return,
     };
-    let Some(handle) = cx.windows().into_iter().next() else {
+    let Some(handle) = crate::main_window(cx) else {
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {
@@ -473,7 +473,7 @@ pub fn apply_remote_state(cx: &mut App) {
 
 fn notify_remote_error(cx: &mut App, port: u16, err: &str) {
     let s = crate::localization::tr();
-    let Some(handle) = cx.windows().into_iter().next() else {
+    let Some(handle) = crate::main_window(cx) else {
         return;
     };
     let message = s.remote_start_failed(port, err);
@@ -691,7 +691,7 @@ fn current_track_id(cx: &App) -> Option<i64> {
         .map(|t| t.id)
 }
 
-fn find_lyrics(cx: &mut App, track_id: i64) {
+pub(crate) fn find_lyrics(cx: &mut App, track_id: i64) {
     let settings = cx.global::<crate::settings_store::SettingsStore>();
     let online = settings.lyrics_from_internet();
     let prefer_web = settings.lyrics_prefer_web();
@@ -980,7 +980,8 @@ pub async fn run_engine_events_bus(
                 current_duration_ms.store(0, Ordering::Relaxed);
                 let message = message.clone();
                 cx.update(|cx| {
-                    let Some(handle) = cx.windows().into_iter().next() else {
+                    let Some(handle) = crate::main_window(cx) else {
+                        log::warn!("playback failed: {message}");
                         return;
                     };
                     let _ = handle.update(cx, |_, window, cx| {

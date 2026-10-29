@@ -28,6 +28,9 @@ pub struct OpenAddToPlaylist {
 actions!(playlist_popup, [ClosePlaylistPopup]);
 
 const POPUP_KEY_CONTEXT: &str = "PlaylistPopup";
+const LIST_MAX_H: f32 = 280.;
+const LIST_MIN_H: f32 = 32.;
+const LIST_ROOM: f32 = 104.;
 
 /// Register the popup's escape binding once at app startup. Scoped to the
 /// `PlaylistPopup` key context so it only fires while the popup is rendered
@@ -394,6 +397,10 @@ impl gpui::Render for PlaylistPopup {
                 .into_any_element()
         };
 
+        let frame = gpui_component::window_paddings(window);
+        let list_max_h = (window.viewport_size().height - frame.top - frame.bottom - px(LIST_ROOM))
+            .min(px(LIST_MAX_H))
+            .max(px(LIST_MIN_H));
         let popup_content = v_flex()
             .id("playlist-popup-content")
             .key_context(POPUP_KEY_CONTEXT)
@@ -417,7 +424,7 @@ impl gpui::Render for PlaylistPopup {
             .child(
                 div()
                     .id("playlist-popup-list")
-                    .max_h(px(280.))
+                    .max_h(list_max_h)
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
                     .p_1()

@@ -109,9 +109,9 @@ the view-options menu (`library_views/doc.md`); the library indicator (`pawse/sr
 ## Last screen
 
 - A closed window loses its `MainView` (macOS Dock reopen, the tray's Show, a second
-  launch on Windows / Linux all build a new one). `remember_screen` runs in `MainView`'s
-  `on_release` and stores `LastScreen`; `restore_screen` ends `MainView::new`. Memory
-  only: a new launch starts on Albums.
+  launch on Windows / Linux and the way back from the mini player all build a new one).
+  `remember_screen` runs in `MainView`'s `on_release` and stores `LastScreen`;
+  `restore_screen` ends `MainView::new`. Memory only: a new launch starts on Albums.
 - Kept: the screen (library, Settings page, Tools page, cover mode with Full screen),
   the library's whole navigation stack as `NavKey`s, so Back still leads where it led
   (`library_views/doc.md`, "Navigation"), and both side panels (open, width). Not kept:

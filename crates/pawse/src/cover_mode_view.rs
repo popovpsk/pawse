@@ -144,6 +144,117 @@ fn image_aspect(bytes: &[u8]) -> Option<f32> {
     Some(w as f32 / h as f32)
 }
 
+pub(crate) struct FullCoverSource {
+    source: Option<(String, bool)>,
+    remote: Option<(i64, String)>,
+}
+
+pub(crate) type LoadedCover = Option<(Arc<RenderImage>, Option<f32>)>;
+
+impl FullCoverSource {
+    pub(crate) fn of(cover_art_id: i64, cx: &App) -> Self {
+        let source = cx
+            .global::<Services>()
+            .library
+            .get_cover_art_source(cover_art_id);
+        let remote = source.as_ref().and_then(|(path, _)| {
+            music_library::remote::parse_cover_source(path)
+                .map(|(source_id, key)| (source_id, key.to_string()))
+        });
+        Self { source, remote }
+    }
+
+    pub(crate) fn is_remote(&self) -> bool {
+        self.remote.is_some()
+    }
+
+    pub(crate) fn load(self, track_path: Option<String>, cx: &App) -> Task<LoadedCover> {
+        let Self { source, remote } = self;
+        let is_remote = remote.is_some();
+        let media = cx.global::<Services>().remote_media.clone();
+        let renderer = cx.svg_renderer();
+        let load = move || {
+            let fetched = remote.and_then(|(source_id, key)| {
+                media
+                    .cover(source_id, &key, REMOTE_COVER_MAX)
+                    .inspect_err(|e| log::warn!("cover view: server cover {key}: {e:?}"))
+                    .ok()
+            });
+            let bytes = match fetched {
+                Some(bytes) => bytes,
+                None => {
+                    music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?
+                }
+            };
+            let format = sniff_image_format(&bytes)?;
+            let aspect = image_aspect(&bytes);
+            let image = Image::from_bytes(format, bytes)
+                .to_image_data(renderer)
+                .ok()?;
+            Some((image, aspect))
+        };
+        if is_remote {
+            cx.background_executor().spawn(net_runtime::unblock(load))
+        } else {
+            cx.background_executor().spawn(async move { load() })
+        }
+    }
+}
+
+pub(crate) fn cover_layer(
+    thumb: Option<Arc<RenderImage>>,
+    full: Option<Arc<RenderImage>>,
+    w: f32,
+    h: f32,
+    radius: f32,
+    placeholder_bg: Hsla,
+    placeholder_fg: Hsla,
+) -> Div {
+    div()
+        .relative()
+        .w(px(w))
+        .h(px(h))
+        .rounded(px(radius))
+        .overflow_hidden()
+        .bg(placeholder_bg)
+        .map(|d| match (thumb, full) {
+            (Some(thumb), Some(full)) => d
+                .child(
+                    img(thumb)
+                        .size_full()
+                        .rounded(px(radius))
+                        .object_fit(gpui::ObjectFit::Cover),
+                )
+                .child(
+                    img(full)
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .rounded(px(radius))
+                        .object_fit(gpui::ObjectFit::Contain),
+                ),
+            (Some(thumb), None) => d.child(
+                img(thumb)
+                    .size_full()
+                    .rounded(px(radius))
+                    .object_fit(gpui::ObjectFit::Cover),
+            ),
+            (None, Some(full)) => d.child(
+                img(full)
+                    .size_full()
+                    .rounded(px(radius))
+                    .object_fit(gpui::ObjectFit::Contain),
+            ),
+            (None, None) => d.flex().items_center().justify_center().child(
+                svg()
+                    .path("icons/placeholder-notes.svg")
+                    .size(px(placeholder_icon_size(w, h)))
+                    .text_color(placeholder_fg),
+            ),
+        })
+}
+
 fn bottom_edge_luma(image: &RenderImage) -> f32 {
     let Some(bytes) = image.as_bytes(0) else {
         return 1.;
@@ -883,103 +994,18 @@ impl CoverModeView {
         self._full_cover_task = None;
     }
 
-    fn cover_layer(
-        thumb: Option<Arc<RenderImage>>,
-        full: Option<Arc<RenderImage>>,
-        w: f32,
-        h: f32,
-        placeholder_bg: Hsla,
-        placeholder_fg: Hsla,
-    ) -> Div {
-        div()
-            .relative()
-            .w(px(w))
-            .h(px(h))
-            .rounded(px(COVER_RADIUS))
-            .overflow_hidden()
-            .bg(placeholder_bg)
-            .map(|d| match (thumb, full) {
-                (Some(thumb), Some(full)) => d
-                    .child(
-                        img(thumb)
-                            .size_full()
-                            .rounded(px(COVER_RADIUS))
-                            .object_fit(gpui::ObjectFit::Cover),
-                    )
-                    .child(
-                        img(full)
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .size_full()
-                            .rounded(px(COVER_RADIUS))
-                            .object_fit(gpui::ObjectFit::Contain),
-                    ),
-                (Some(thumb), None) => d.child(
-                    img(thumb)
-                        .size_full()
-                        .rounded(px(COVER_RADIUS))
-                        .object_fit(gpui::ObjectFit::Cover),
-                ),
-                (None, Some(full)) => d.child(
-                    img(full)
-                        .size_full()
-                        .rounded(px(COVER_RADIUS))
-                        .object_fit(gpui::ObjectFit::Contain),
-                ),
-                (None, None) => d.flex().items_center().justify_center().child(
-                    svg()
-                        .path("icons/placeholder-notes.svg")
-                        .size(px(placeholder_icon_size(w, h)))
-                        .text_color(placeholder_fg),
-                ),
-            })
-    }
-
     fn load_full_cover(&mut self, cx: &mut Context<Self>) {
         self._full_cover_task = None;
         let Some(id) = self.cover_art_id else {
             return;
         };
-        let services = cx.global::<Services>();
-        let source = services.library.get_cover_art_source(id);
-        let remote = source.as_ref().and_then(|(path, _)| {
-            music_library::remote::parse_cover_source(path)
-                .map(|(source_id, key)| (source_id, key.to_string()))
-        });
-        let is_remote = remote.is_some();
+        let source = FullCoverSource::of(id, cx);
+        let is_remote = source.is_remote();
         if is_remote && self.remote_cover_task.is_some() {
             self.remote_cover_wanted = true;
             return;
         }
-        let media = services.remote_media.clone();
-        let track_path = self.track_path.clone();
-        let renderer = cx.svg_renderer();
-        let load = move || {
-            let fetched = remote.and_then(|(source_id, key)| {
-                media
-                    .cover(source_id, &key, REMOTE_COVER_MAX)
-                    .inspect_err(|e| log::warn!("cover view: server cover {key}: {e:?}"))
-                    .ok()
-            });
-            let bytes = match fetched {
-                Some(bytes) => bytes,
-                None => {
-                    music_indexer::metadata::load_cover_from_source(source, track_path.as_deref())?
-                }
-            };
-            let format = sniff_image_format(&bytes)?;
-            let aspect = image_aspect(&bytes);
-            let image = Image::from_bytes(format, bytes)
-                .to_image_data(renderer)
-                .ok()?;
-            Some((image, aspect))
-        };
-        let load = if is_remote {
-            cx.background_executor().spawn(net_runtime::unblock(load))
-        } else {
-            cx.background_executor().spawn(async move { load() })
-        };
+        let load = source.load(self.track_path.clone(), cx);
         let task = cx.spawn(async move |this, cx| {
             let loaded = load.await;
             let _ = this.update(cx, |view, cx| {
@@ -1141,20 +1167,22 @@ impl Render for CoverModeView {
             let slide_gap = (avail_w - cover_w) / 2. + COVER_SLIDE_GAP;
             let page = cover_w + slide_gap;
             let seq = self.slide_seq;
-            let outgoing = Self::cover_layer(
+            let outgoing = cover_layer(
                 self.prev_large_cover.clone(),
                 self.prev_full_cover.clone(),
                 cover_w,
                 cover_h,
+                COVER_RADIUS,
                 placeholder_bg,
                 placeholder_fg,
             )
             .shadow(shadow.clone());
-            let incoming = Self::cover_layer(
+            let incoming = cover_layer(
                 thumb_img,
                 full_img,
                 cover_w,
                 cover_h,
+                COVER_RADIUS,
                 placeholder_bg,
                 placeholder_fg,
             )
@@ -1188,11 +1216,12 @@ impl Render for CoverModeView {
                     ),
             )
         } else {
-            Self::cover_layer(
+            cover_layer(
                 thumb_img,
                 full_img,
                 cover_w,
                 cover_h,
+                COVER_RADIUS,
                 placeholder_bg,
                 placeholder_fg,
             )

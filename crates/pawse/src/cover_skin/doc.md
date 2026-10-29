@@ -3,8 +3,9 @@
 Generates the running theme from the current album cover: light or dark and the whole
 lightness scale come from the cover's median lightness, the accent hue from its dominant
 colour, and the structure — how far every token sits from the background — from the theme
-the user picked. Off by default (`dynamic_theme`). One `CoverSkin` entity, held by
-`MainView`; `cover_skin::reapply` is the only call from outside.
+the user picked. Off by default (`dynamic_theme`). One `CoverSkin` entity, held by the
+open window's view (`MainView` or `MiniPlayer`) through `cover_skin::shared`, so a swap
+between them keeps it; `shared` and `cover_skin::reapply` are the only calls from outside.
 
 Not here: `ThemeChoice`, `apply_theme` and the setting (`settings_store.rs`); the theme
 picker (`pickers.rs`); the small-cover cache (`cover_art_cache.rs`); the blurred backdrop

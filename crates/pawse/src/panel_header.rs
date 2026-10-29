@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    Animation, AnimationExt, App, Div, ElementId, FontWeight, InteractiveElement, ParentElement,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Transformation, div, percentage,
-    px, rems, svg,
+    Animation, AnimationExt, App, Div, ElementId, FontWeight, Hsla, InteractiveElement,
+    ParentElement, SharedString, Stateful, StatefulInteractiveElement, Styled, Transformation, div,
+    percentage, px, rems, svg,
 };
 use gpui_component::{h_flex, tooltip::Tooltip};
 
@@ -42,6 +42,16 @@ pub fn panel_header_button(
     tooltip: SharedString,
     cx: &App,
 ) -> Stateful<Div> {
+    panel_header_button_colored(id, icon, tooltip, Colors::muted_foreground(cx), cx)
+}
+
+pub fn panel_header_button_colored(
+    id: &'static str,
+    icon: &'static str,
+    tooltip: SharedString,
+    color: Hsla,
+    cx: &App,
+) -> Stateful<Div> {
     let hover_bg = Colors::muted(cx);
     div()
         .id(id)
@@ -58,7 +68,7 @@ pub fn panel_header_button(
             svg()
                 .path(icon)
                 .size(rems(ICON_SIZE / 16.))
-                .text_color(Colors::muted_foreground(cx)),
+                .text_color(color),
         )
 }
 

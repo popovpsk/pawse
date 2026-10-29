@@ -12,8 +12,8 @@ toast strings (`ui_resources/src/doc.md`, read at toast time — this crate's on
 ## Files
 
 - `lib.rs` — public API (`init`, `check_now`, `set_enabled`, `apply_and_restart`, `handle`,
-  `is_supported`, the `CheckForUpdates` action), `AutoUpdater` with its `Status` and poll
-  loop (`POLL_INTERVAL`, 6 h), the toasts.
+  `is_supported`, the `CheckForUpdates` action, `ToastWindow`), `AutoUpdater` with its
+  `Status` and poll loop (`POLL_INTERVAL`, 6 h), the toasts.
 - `github.rs` — `fetch_latest`: `releases/latest`, per-OS asset choice, the asset's `digest`.
 - `version.rs` — tag parsing (leading `v` stripped), `is_newer` (strictly greater).
 - `install/` — per-platform download and apply (`install/doc.md`).
@@ -23,6 +23,8 @@ toast strings (`ui_resources/src/doc.md`, read at toast time — this crate's on
 
 - `check_now` works with auto-update off and, unlike automatic polls, toasts "up to date" and
   errors. Once `Ready`, polls do nothing; a manual check re-shows the toast.
+- Toasts go to the window the app's `ToastWindow` global picks (`pawse`: the active main
+  window, never the mini player), or to the active window when it sets none.
 - The "ready" toast is persistent with a no-op `on_click` so a click dismisses it: the player
   often sits in the background and a timed toast would be missed. It only notifies; applying
   is the header button, shown by `has_staged_update`.

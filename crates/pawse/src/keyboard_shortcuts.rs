@@ -1,5 +1,7 @@
 use gpui::{App, KeyBinding, actions};
 
+use crate::app_menu::ToggleMiniPlayer;
+
 actions!(
     pawse,
     [
@@ -15,8 +17,15 @@ actions!(
 );
 
 pub const CONTEXT: &str = "MainView";
+pub const MINI_CONTEXT: &str = "MiniPlayer";
 
 const BINDING: &str = "MainView && !Input";
+const MINI_BINDING: &str = "MiniPlayer && !Input";
+
+#[cfg(target_os = "macos")]
+pub const MINI_PLAYER_KEY: &str = "cmd-alt-m";
+#[cfg(not(target_os = "macos"))]
+pub const MINI_PLAYER_KEY: &str = "ctrl-shift-m";
 
 pub fn init(cx: &mut App) {
     #[cfg(target_os = "macos")]
@@ -33,6 +42,14 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("down", VolumeDown, Some(BINDING)),
         KeyBinding::new("space", PlayPause, Some(BINDING)),
         KeyBinding::new("escape", ExitCoverMode, Some(BINDING)),
+        KeyBinding::new("right", SeekForward, Some(MINI_BINDING)),
+        KeyBinding::new("left", SeekBackward, Some(MINI_BINDING)),
+        KeyBinding::new(next, NextTrack, Some(MINI_BINDING)),
+        KeyBinding::new(prev, PreviousTrack, Some(MINI_BINDING)),
+        KeyBinding::new("up", VolumeUp, Some(MINI_BINDING)),
+        KeyBinding::new("down", VolumeDown, Some(MINI_BINDING)),
+        KeyBinding::new("space", PlayPause, Some(MINI_BINDING)),
+        KeyBinding::new(MINI_PLAYER_KEY, ToggleMiniPlayer, None),
     ]);
 
     #[cfg(target_os = "macos")]

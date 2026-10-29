@@ -480,7 +480,7 @@ pub fn volume_mode_changed(cx: &mut App) {
 }
 
 fn notify(cx: &mut App, notification: Notification) {
-    let Some(handle) = cx.windows().into_iter().next() else {
+    let Some(handle) = crate::main_window(cx) else {
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {
@@ -981,7 +981,7 @@ fn unreached(id: u64, name: &str, cx: &mut App) {
 }
 
 fn explain_unreached(name: &str, cx: &mut App) {
-    let Some(handle) = cx.windows().into_iter().next() else {
+    let Some(handle) = crate::main_window(cx) else {
         return;
     };
     let strings = cast_strings();

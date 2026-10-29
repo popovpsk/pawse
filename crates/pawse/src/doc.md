@@ -3,18 +3,19 @@
 The GPUI app: the files directly in `crates/pawse/src` that have no folder of their own.
 Folder modules (`library_views`, `track_list`, `servers`, `remote_media`, `cast`,
 `similar_tracks`, `tools`, `sleep_timer`, `cover_skin`, `main_view`, `spectrum_view`,
-`lyrics_blur`) have their own
+`lyrics_blur`, `mini_player`) have their own
 `doc.md`; the library crates have theirs.
 
 ## Files
 
 App shell:
-- `main.rs` — startup, window creation, app-level actions, launch restore, the quit hook.
+- `main.rs` — startup, window creation, app-level actions, launch restore, the quit hook;
+  `main_window` / `active_main_window` (any window but the mini player's).
 - `main_view.rs` — `MainView`, the root view (header: `main_view/header.rs`).
 - `view_cache.rs` — `block` / `full` (a view drawn as a cached block),
   `follow_app_events` (the notifies every block takes).
   `window_title_bar.rs` — `WindowTitleBar`. `onboarding_view.rs` — the first-run window.
-  `window_placement.rs` — main window size and position across launches.
+  `window_placement.rs` — main and mini window size and position across launches.
 - `services.rs` — the `Services` global, transport functions (`play_next`, `seek_to_ms`,
   `set_volume`, …), `run_engine_events_bus`, prefetch, queue persistence, and the web
   remote's command/state half (`apply_remote_command`, `build_remote_state`).
@@ -41,7 +42,8 @@ Playback and now playing:
 - `playback_queue.rs` — `PlaybackQueue`: order, current index, shuffle, repeat, source,
   `custom`, session-only mix state. Pure, UI thread (`Rc<Track>`).
 - `playback_status.rs` — `PlaybackStatus`: current track id, phase, duration.
-- `queue_view.rs` — the queue panel (rows from `track_list`). `panel_header.rs` — the
+- `queue_view.rs` — the queue panel (rows from `track_list`); the mini player hosts one
+  too (`for_mini_player`: no Save / Clear, a queue button that closes it). `panel_header.rs` — the
   header row of the side panels. `playlist_popup.rs` — the add-to-playlist popup.
 - `lyrics_view.rs` — lyrics panel. `lyrics_fill.rs` — its pure half: rows, active row,
   fill geometry, the full-screen edge fade. `lyrics_wave.rs` — the autoscroll wave:
@@ -102,8 +104,8 @@ Integrations:
   `scrobble_bridge::apply_settings` (server targets need the `sources` ids reconcile
   creates), `restore_engine_state`, and on the first frame the rescan,
   `library_watcher::rebuild` and `sync_all`. A macOS reopen, a second-launch raise, the
-  tray's Show and the window after onboarding pass `false`; without `onboarding_complete`
-  the first window is the onboarding one.
+  tray's Show, the window after onboarding and the way back from the mini player pass
+  `false`; without `onboarding_complete` the first window is the onboarding one.
 - `build_window_options` caps an unfocused window at 60 fps (`inactive_frame_interval`)
   instead of gpui's default ~30, which stutters the lyrics autoscroll; 60 rather than
   uncapped is the owner's call. gpui throttles only frames requested with `on_next_frame`
@@ -126,7 +128,8 @@ Integrations:
 ## Window placement (`window_placement.rs`)
 
 - `MainView` observes its window's bounds and `remember` keeps the placement in
-  `UserSettings`' `window` without saving; the next settings save of any kind and the
+  `UserSettings`' `window` without saving (`Slot::Main`; the mini player keeps its own in
+  `mini_window`, `Slot::Mini`); the next settings save of any kind and the
   quit save write it. The bounds are taken while the window lives, since on Windows and
   Linux the quit comes after the last window has closed.
 - Shape follows Zed: `inner_window_bounds` (with client-side decorations `window_bounds`
@@ -134,10 +137,10 @@ Integrations:
   uuid, because macOS bounds are relative to the window's display. Changes of an inactive
   window are skipped: on screen lock and display sleep macOS shrinks inactive windows to
   the built-in screen.
-- Only windowed bounds are recorded, and maximized ones on Windows. In fullscreen, and
+- Only windowed bounds are recorded, and maximized ones on Windows (main window only). In fullscreen, and
   while maximized on Linux, the last windowed placement stays. A minimized Windows
   window (moved off its display) is skipped: it would report a maximized one as windowed.
-- `restore` applies only to the main window (not onboarding or the Linux gate). The
+- `restore` applies to the main and the mini window (not onboarding or the Linux gate). The
   saved position is used when its display is connected and holds the window's center;
   otherwise the saved size is centered on the primary display. Size is clamped to the
   display's visible area and the window's minimum. Wayland ignores the position.
@@ -254,10 +257,12 @@ Integrations:
   `MainView && !Input`. `!Input` relies on `gpui_component` giving every text field the
   context `Input`, so typing never triggers them; they also do not fire while focus is
   in the header. Next / previous are Cmd+arrows on macOS, Ctrl+arrows elsewhere. Cmd-Q,
-  H, Alt-H, M are bound app-wide on macOS.
+  H, Alt-H, M are bound app-wide on macOS. The same transport keys are bound to
+  `MiniPlayer && !Input` (`mini_player/doc.md`); `ToggleMiniPlayer` (Cmd-Alt-M,
+  Ctrl-Shift-M elsewhere) is bound app-wide.
 - The menu is built from `tr()`, so `pickers::choose_lang` rebuilds it after a language
-  change. Hide / Services / Window items are macOS only; "Check for updates" only when
-  `updater::is_supported()`.
+  change. Hide / Services / Window items are macOS only (Window also holds Mini Player);
+  "Check for updates" only when `updater::is_supported()`.
 
 ## Localization (`localization.rs`)
 
@@ -285,7 +290,7 @@ Integrations:
   a temp file and renames it; before the writer starts it writes synchronously. Failures
   surface through `notify_save_error`. The playback state (queue, position, shuffle,
   repeat) lives in the same file.
-- `window` is a `RefCell` so the bounds observer can update it through `cx.global`: a
+- `window` and `mini_window` are `RefCell`s so the bounds observer can update it through `cx.global`: a
   `global_mut` per resize frame would wake every `SettingsStore` observer (Settings
   pages rebuild).
 - Any `cx.global_mut::<SettingsStore>()` notifies the global's observers; that is how
@@ -654,7 +659,8 @@ Integrations:
   `drop_atlas_tile`. The box takes the picture's real aspect ratio (square until known).
   Each image layer is rounded by `COVER_RADIUS` itself: gpui clips children to
   rectangles, so the box's own rounding only reaches its background and shadow.
-- Full-size source: a local cover is read from `cover_art.source_path`, falling back to
+- Full-size source (`FullCoverSource`, shared with the mini player together with
+  `cover_layer`): a local cover is read from `cover_art.source_path`, falling back to
   the playing track's file when that yields nothing (`load_cover_from_source`). A server
   cover (`<kind>-cover://<source_id>/<key>`) is asked as
   `RemoteMedia::cover(source_id, key, REMOTE_COVER_MAX)`: 2048 px fills a Retina screen
@@ -684,7 +690,8 @@ Integrations:
 - `MainView` paints it at the window root; chrome over it gets translucent colors from
   `chrome_bg`, `panel_bg`, `inset_bg`, `field_bg`, `popover_bg`, scaled by the
   interface-opacity setting. `MainView::render` publishes the backdrop's presence
-  (`set_active`) because popovers cannot be handed the flag; `veil_factor` is `None`
+  (`set_active`) because popovers cannot be handed the flag, and its release clears it
+  so the mini player's popups do not take a closed window's veil; `veil_factor` is `None`
   without a backdrop. Every new popover or dropdown must use
   `popover_bg(color, veil_factor(cx))`, which never drops below `POPOVER_MIN_OPACITY`: a
   list of devices or playlists must stay readable.
@@ -1352,11 +1359,11 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
 - `diagnostics::notify_error` / `notify_warning` (any crate, any thread) log and push a
   `Notice`; `spawn_notice_forwarder` (started in `main` before the settings load) drains
   it on the foreground executor into an error or warning notification on the active
-  window. No active window: the notice is dropped, its log line is already in
-  `pawse.log`.
+  window. No active window, or the mini player's: the notice is dropped, its log line is
+  already in `pawse.log`.
 - `push_background_error` is for errors that do not come through `diagnostics` (today
-  `scrobble_bridge::report_failure`): active window or else the first, no auto-hide, and
-  it returns `false` with no window, so the caller can try again later instead of
+  `scrobble_bridge::report_failure`): active window or else the first, never the mini
+  player's, no auto-hide, and it returns `false` with no such window, so the caller can try again later instead of
   recording the message as shown.
 
 ## Decisions

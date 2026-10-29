@@ -13,7 +13,7 @@ pub fn spawn_notice_forwarder(cx: &mut App, notices: flume::Receiver<Notice>) {
 }
 
 fn push_notice(cx: &mut App, notice: Notice) {
-    let Some(handle) = cx.active_window() else {
+    let Some(handle) = crate::active_main_window(cx) else {
         return;
     };
     let _ = handle.update(cx, |_, window, cx| {
@@ -30,7 +30,7 @@ pub fn push_background_error(
     title: impl Into<SharedString>,
     message: impl Into<SharedString>,
 ) -> bool {
-    let Some(handle) = cx.active_window().or_else(|| cx.windows().first().copied()) else {
+    let Some(handle) = crate::active_main_window(cx).or_else(|| crate::main_window(cx)) else {
         return false;
     };
     let (title, message) = (title.into(), message.into());

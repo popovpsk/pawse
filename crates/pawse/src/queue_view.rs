@@ -27,7 +27,9 @@ use ui_components::cover_placeholder::cover_placeholder;
 use crate::library_service::LibraryEvent;
 use crate::library_views::track_row::build_artist_map;
 use crate::localization::tr;
-use crate::panel_header::{panel_header, panel_header_actions, panel_header_button};
+use crate::panel_header::{
+    panel_header, panel_header_actions, panel_header_button, panel_header_button_colored,
+};
 use crate::playback_queue::RemoveOutcome;
 use crate::playlist_popup::OpenAddToPlaylist;
 use crate::services::Services;
@@ -133,6 +135,7 @@ pub struct QueueView {
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
     on_similar_applied: OnApplied,
+    mini_close: Option<OnApplied>,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
@@ -243,6 +246,7 @@ impl QueueView {
                     });
                 })
             },
+            mini_close: None,
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
@@ -253,6 +257,11 @@ impl QueueView {
         similar_tracks::set_queue_refresh(result.on_similar_applied.clone(), cx);
         result.refresh_tracks(cx);
         result
+    }
+
+    pub fn for_mini_player(mut self, on_close: OnApplied) -> Self {
+        self.mini_close = Some(on_close);
+        self
     }
 
     pub fn set_visible(&mut self, visible: bool) {
@@ -329,7 +338,12 @@ impl QueueView {
 
 impl Render for QueueView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = queue_header(cx, !self.tracks.is_empty(), &self.on_similar_applied);
+        let header = queue_header(
+            cx,
+            !self.tracks.is_empty(),
+            &self.on_similar_applied,
+            self.mini_close.clone(),
+        );
 
         if self.tracks.is_empty() {
             return queue_empty_state(cx, header);
@@ -574,9 +588,11 @@ fn queue_header(
     cx: &mut Context<QueueView>,
     has_tracks: bool,
     on_similar_applied: &OnApplied,
+    mini_close: Option<OnApplied>,
 ) -> Div {
     let settings = cx.global::<SettingsStore>();
     let playlists_enabled = settings.playlists_enabled();
+    let full = mini_close.is_none();
     let scale = settings.font_scale().ui_scale();
     let actions = panel_header_actions()
         .when(has_tracks && similar_tracks::is_running(cx), |d| {
@@ -586,7 +602,7 @@ fn queue_header(
                 cx,
             ))
         })
-        .when(has_tracks && playlists_enabled, |d| {
+        .when(full && has_tracks && playlists_enabled, |d| {
             d.child(
                 panel_header_button(
                     "save-queue-to-playlist",
@@ -613,7 +629,7 @@ fn queue_header(
                 })),
             )
         })
-        .when(has_tracks, |d| {
+        .when(full && has_tracks, |d| {
             d.child(
                 panel_header_button(
                     "clear-queue",
@@ -631,6 +647,18 @@ fn queue_header(
                     this.refresh_tracks(cx);
                     crate::services::queue_mutated(cx);
                 })),
+            )
+        })
+        .when_some(mini_close, |d, on_close| {
+            d.child(
+                panel_header_button_colored(
+                    "close-queue",
+                    "icons/s2-queue.svg",
+                    tr().queue.clone(),
+                    Colors::primary(cx),
+                    cx,
+                )
+                .on_click(move |_, _, cx| on_close(cx)),
             )
         });
     panel_header(tr().queue.clone(), actions, cx)

@@ -524,7 +524,7 @@ impl MainView {
         });
         let cover_backdrop = cx.new(CoverBackdrop::new);
         let cover_backdrop_observe = cx.observe(&cover_backdrop, |_, _, cx| cx.notify());
-        let cover_skin = cx.new(CoverSkin::new);
+        let cover_skin = crate::cover_skin::shared(cx);
 
         let cover_observe_subscription =
             cx.observe_in(&cover_mode_view, window, |this, view, window, cx| {
@@ -611,7 +611,7 @@ impl MainView {
         });
 
         let window_bounds_subscription = cx.observe_window_bounds(window, |this, window, cx| {
-            crate::window_placement::remember(window, cx);
+            crate::window_placement::remember(window, crate::window_placement::Slot::Main, cx);
             this.sync_os_fullscreen(window, cx);
         });
 
@@ -650,7 +650,11 @@ impl MainView {
 
         #[cfg(target_os = "windows")]
         crate::media_bridge::bind_window(crate::media_bridge::window_hwnd(window), cx);
-        cx.on_release(|this, cx| this.remember_screen(cx)).detach();
+        cx.on_release(|this, cx| {
+            this.remember_screen(cx);
+            cover_backdrop::set_active(0., cx);
+        })
+        .detach();
 
         let mut view = Self {
             library_view,

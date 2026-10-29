@@ -15,7 +15,7 @@ use crate::volume::{Volume, volume_icon};
 use ui_components::slider::{Slider, SliderEvent};
 
 pub const ICON_SIZE: f32 = 34.;
-const PANEL_H: f32 = 132.;
+pub const PANEL_H: f32 = 132.;
 
 pub struct CoverVolume {
     volume: Entity<Volume>,
