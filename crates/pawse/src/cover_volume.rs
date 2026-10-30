@@ -1,8 +1,11 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui::{
-    AppContext, BoxShadow, ClickEvent, Context, DispatchPhase, Entity, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, ParentElement, Render, ScrollWheelEvent,
-    StatefulInteractiveElement, Styled, Subscription, Window, canvas, div, point,
-    prelude::FluentBuilder, px, svg,
+    Anchor, App, AppContext, Bounds, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
+    ScrollWheelEvent, StatefulInteractiveElement, Styled, Subscription, Window, anchored, canvas,
+    deferred, div, point, prelude::FluentBuilder, px, svg,
 };
 
 use gpui_component::tooltip::Tooltip;
@@ -16,11 +19,16 @@ use ui_components::slider::{Slider, SliderEvent};
 
 pub const ICON_SIZE: f32 = 34.;
 pub const PANEL_H: f32 = 132.;
+const FIT_MARGIN: f32 = 6.;
+const FIT_GAP: f32 = 8.;
 
 pub struct CoverVolume {
     volume: Entity<Volume>,
     slider: Entity<Slider>,
     expanded: bool,
+    fit_window: bool,
+    icon_bounds: Rc<Cell<Bounds<Pixels>>>,
+    panel_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     _slider_subscription: Subscription,
     _volume_subscription: Subscription,
 }
@@ -59,9 +67,17 @@ impl CoverVolume {
             volume,
             slider,
             expanded: false,
+            fit_window: false,
+            icon_bounds: Rc::default(),
+            panel_bounds: Rc::default(),
             _slider_subscription: slider_subscription,
             _volume_subscription: volume_subscription,
         }
+    }
+
+    pub fn fit_window(mut self) -> Self {
+        self.fit_window = true;
+        self
     }
 
     pub fn is_expanded(&self) -> bool {
@@ -87,10 +103,58 @@ impl CoverVolume {
         self.volume.update(cx, |vol, cx| vol.wheel(e, cx));
         cx.stop_propagation();
     }
+
+    fn panel(&self, height: f32, cx: &App) -> Div {
+        div()
+            .h(px(height))
+            .w(px(ICON_SIZE))
+            .flex()
+            .justify_center()
+            .py(px(16.))
+            .rounded_full()
+            .bg(Colors::popover(cx))
+            .border_1()
+            .border_color(Colors::border(cx))
+            .shadow(vec![BoxShadow {
+                color: gpui::black().opacity(0.35),
+                offset: point(px(0.), px(6.)),
+                blur_radius: px(16.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+            .child(self.slider.clone())
+    }
+
+    fn fitted_panel(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let insets = gpui_component::window_paddings(window);
+        let room =
+            f32::from(window.viewport_size().height - insets.top - insets.bottom) - FIT_MARGIN * 2.;
+        let icon = self.icon_bounds.get();
+        let panel_bounds = self.panel_bounds.clone();
+        deferred(
+            anchored()
+                .anchor(Anchor::BottomLeft)
+                .position(point(icon.origin.x, icon.origin.y - px(FIT_GAP)))
+                .snap_to_window_with_margin(px(FIT_MARGIN))
+                .child(
+                    self.panel(PANEL_H.min(room), cx)
+                        .occlude()
+                        .on_scroll_wheel(cx.listener(Self::on_scroll))
+                        .child(
+                            canvas(
+                                move |bounds, _, _| panel_bounds.set(Some(bounds)),
+                                |_, _, _, _| {},
+                            )
+                            .absolute()
+                            .size_full(),
+                        ),
+                ),
+        )
+    }
 }
 
 impl Render for CoverVolume {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_exclusive = cx.global::<Services>().volume_locked();
         let (value, muted) = {
             let vol = self.volume.read(cx);
@@ -117,8 +181,17 @@ impl Render for CoverVolume {
             .items_center()
             .gap_2()
             .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .when(self.fit_window, |d| {
+                let icon_bounds = self.icon_bounds.clone();
+                d.child(
+                    canvas(move |bounds, _, _| icon_bounds.set(bounds), |_, _, _, _| {})
+                        .absolute()
+                        .size_full(),
+                )
+            })
             .when(expanded, |d| {
                 let entity = cx.entity();
+                let panel_bounds = self.panel_bounds.clone();
                 d.child(
                     canvas(
                         |_, _, _| {},
@@ -128,7 +201,9 @@ impl Render for CoverVolume {
                                 {
                                     return;
                                 }
-                                if bounds.contains(&e.position) {
+                                if bounds.contains(&e.position)
+                                    || panel_bounds.get().is_some_and(|b| b.contains(&e.position))
+                                {
                                     return;
                                 }
                                 entity.update(cx, |this, cx| this.collapse(cx));
@@ -138,27 +213,13 @@ impl Render for CoverVolume {
                     .absolute()
                     .size_full(),
                 )
-                .child(
-                    div()
-                        .block_mouse_except_scroll()
-                        .h(px(PANEL_H))
-                        .w(px(ICON_SIZE))
-                        .flex()
-                        .justify_center()
-                        .py(px(16.))
-                        .rounded_full()
-                        .bg(Colors::popover(cx))
-                        .border_1()
-                        .border_color(Colors::border(cx))
-                        .shadow(vec![BoxShadow {
-                            color: gpui::black().opacity(0.35),
-                            offset: point(px(0.), px(6.)),
-                            blur_radius: px(16.),
-                            spread_radius: px(0.),
-                            inset: false,
-                        }])
-                        .child(self.slider.clone()),
-                )
+                .map(|d| {
+                    if self.fit_window {
+                        d.child(self.fitted_panel(window, cx))
+                    } else {
+                        d.child(self.panel(PANEL_H, cx).block_mouse_except_scroll())
+                    }
+                })
             })
             .child(
                 div()

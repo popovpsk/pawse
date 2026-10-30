@@ -56,7 +56,8 @@ Playback and now playing:
   `repeat_button.rs` — the transport buttons.
 - `cover_mode_view.rs` — fullscreen cover. `cover_backdrop.rs` — blurred cover behind the
   window, translucent chrome colors. `cover_volume.rs` / `volume.rs` — popup (cover mode,
-  narrow footer) / footer volume.
+  narrow footer, mini player with `fit_window`: deferred, kept inside the window) / footer
+  volume.
 - `audio_settings.rs` — header output controls; `bit_perfect_info.rs` — their tooltip and
   dialog. `pipewire_alsa_gate.rs` — Linux window shown instead of the app.
 

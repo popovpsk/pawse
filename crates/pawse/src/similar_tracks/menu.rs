@@ -8,7 +8,6 @@ use gpui_component::{
     button::{Button, ButtonGroup, ButtonVariants},
     h_flex,
     popover::{Popover, PopoverState},
-    scroll::ScrollableElement,
     v_flex,
 };
 use ui_resources::i18n::similar_strings;
@@ -23,9 +22,7 @@ use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 
-const WINDOW_ROOM: f32 = 20.;
-
-pub fn queue_menu(on_applied: OnApplied, scale: f32, cx: &App) -> impl IntoElement {
+pub fn queue_menu(on_applied: OnApplied, scale: f32, compact: bool, cx: &App) -> impl IntoElement {
     Popover::new("similar-queue-menu")
         .anchor(Anchor::TopRight)
         .appearance(false)
@@ -44,13 +41,13 @@ pub fn queue_menu(on_applied: OnApplied, scale: f32, cx: &App) -> impl IntoEleme
                 )
                 .tooltip(similar_strings().menu.clone()),
         )
-        .content(move |_, window, cx| content(&on_applied, scale, window, cx))
+        .content(move |_, _, cx| content(&on_applied, scale, compact, cx))
 }
 
 fn content(
     on_applied: &OnApplied,
     scale: f32,
-    window: &Window,
+    compact: bool,
     cx: &mut Context<PopoverState>,
 ) -> impl IntoElement + use<> {
     let s = similar_strings();
@@ -64,14 +61,11 @@ fn content(
     let familiarity = cx.global::<SettingsStore>().similar_familiarity();
     let radio = on_applied.clone();
     let mix = on_applied.clone();
-    let frame = gpui_component::window_paddings(window);
-    let max_h = window.viewport_size().height - frame.top - frame.bottom - px(WINDOW_ROOM);
     menu_surface("similar-queue-menu-content", scale, cx)
-        .max_h(max_h)
         .child(action_row(
             "similar-radio",
             s.radio.clone(),
-            s.radio_hint.clone(),
+            (!compact).then(|| s.radio_hint.clone()),
             has_current,
             colors,
             cx.listener(move |state, _: &ClickEvent, window, cx| {
@@ -82,7 +76,7 @@ fn content(
         .child(action_row(
             "similar-mix",
             s.mix.clone(),
-            s.mix_hint.clone(),
+            (!compact).then(|| s.mix_hint.clone()),
             true,
             colors,
             cx.listener(move |state, _: &ClickEvent, window, cx| {
@@ -90,16 +84,17 @@ fn content(
                 mix_queue(mix.clone(), cx);
             }),
         ))
-        .child(separator(colors))
-        .child(section_label(s.tracks.clone(), colors))
+        .when(!compact, |menu| {
+            menu.child(separator(colors))
+                .child(section_label(s.tracks.clone(), colors))
+        })
         .child(familiarity_switch(familiarity))
-        .overflow_y_scrollbar()
 }
 
 fn action_row(
     id: &'static str,
     label: SharedString,
-    hint: SharedString,
+    hint: Option<SharedString>,
     enabled: bool,
     colors: MenuColors,
     run: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -108,6 +103,7 @@ fn action_row(
     v_flex()
         .id(id)
         .min_h(px(ROW_HEIGHT))
+        .justify_center()
         .px_2p5()
         .py_1()
         .rounded(px(6.))
@@ -118,7 +114,7 @@ fn action_row(
                 .text_color(colors.foreground)
                 .child(label),
         )
-        .child(div().text_xs().text_color(colors.muted_fg).child(hint))
+        .children(hint.map(|hint| div().text_xs().text_color(colors.muted_fg).child(hint)))
         .map(|row| {
             if enabled {
                 row.cursor_pointer()

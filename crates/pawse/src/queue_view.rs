@@ -650,6 +650,7 @@ fn queue_header(
             d.child(similar_tracks::queue_menu(
                 on_similar_applied.clone(),
                 scale,
+                !full,
                 cx,
             ))
         })

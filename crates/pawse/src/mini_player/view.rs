@@ -48,7 +48,6 @@ const CONTROL_ICON: f32 = 20.;
 const SIDE_GROUP_W: f32 = (CONTROL_SIZE + 4.) * 2. + cover_volume::ICON_SIZE;
 const CHROME_SIZE: f32 = 26.;
 const CHROME_ICON: f32 = 16.;
-const VOLUME_MIN_W: f32 = 78.;
 const SCRIM: f32 = 0.82;
 const SHOW_DELAY: Duration = Duration::from_millis(90);
 const HIDE_DELAY: Duration = Duration::from_millis(350);
@@ -103,8 +102,8 @@ impl MiniPlayer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
-        let volume = cx.new(|cx| Volume::new(window, cx).fill_width());
-        let cover_volume = cx.new(|cx| CoverVolume::new(volume.clone(), window, cx));
+        let volume = cx.new(|cx| Volume::new(window, cx));
+        let cover_volume = cx.new(|cx| CoverVolume::new(volume.clone(), window, cx).fit_window());
         let lyrics = cx.new(LyricsLine::new);
         let services = cx.global::<Services>();
         let playback_status = services.playback_status.clone();
@@ -512,6 +511,16 @@ impl MiniPlayer {
         )
     }
 
+    fn volume_slot(&self) -> Div {
+        guard(
+            div()
+                .relative()
+                .flex_shrink_0()
+                .size(px(cover_volume::ICON_SIZE))
+                .child(self.cover_volume.clone()),
+        )
+    }
+
     fn text_block(&self, lyric: Option<SharedString>, cx: &Context<Self>) -> Div {
         let (title, artists) = self
             .track
@@ -603,11 +612,12 @@ impl MiniPlayer {
             .filter(|_| h >= PAD * 2. + rem * 3.25 + 36. + 16. + 8.);
         let like = self.like_button(cx);
         let toggles_w = (CONTROL_SIZE + ROW_GAP) * 2. + ROW_GAP;
-        let controls_w =
-            TRANSPORT_W + like.as_ref().map_or(0., |_| CONTROL_SIZE + ROW_GAP) + toggles_w;
+        let controls_w = TRANSPORT_W
+            + like.as_ref().map_or(0., |_| CONTROL_SIZE + ROW_GAP)
+            + cover_volume::ICON_SIZE
+            + ROW_GAP
+            + toggles_w;
         let side = (h - PAD * 2.).min(w - PAD * 2. - GAP - controls_w).max(0.);
-        let column_w = w - PAD * 2. - side - GAP;
-        let show_volume = column_w - controls_w >= VOLUME_MIN_W;
         h_flex()
             .size_full()
             .p(px(PAD))
@@ -641,18 +651,8 @@ impl MiniPlayer {
                                     .gap(px(ROW_GAP))
                                     .child(guard(self.transport()))
                                     .children(like.map(guard))
-                                    .map(|d| {
-                                        if show_volume {
-                                            d.child(guard(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w(px(0.))
-                                                    .child(self.volume.clone()),
-                                            ))
-                                        } else {
-                                            d.child(div().flex_1())
-                                        }
-                                    })
+                                    .child(self.volume_slot())
+                                    .child(div().flex_1())
                                     .child(self.lyrics_toggle(cx))
                                     .child(self.queue_toggle(cx)),
                             )
@@ -672,8 +672,6 @@ impl MiniPlayer {
     ) -> AnyElement {
         let side = w.min(h);
         let scrim = Colors::background(cx).opacity(SCRIM);
-        let volume_open = self.cover_volume.read(cx).is_expanded();
-        let volume_reach = cover_volume::ICON_SIZE + cover_volume::PANEL_H + rem * 0.5;
         let compact = overlay && h < COVER_LAYOUT_MIN_H + COMPACT_LYRICS_EXTRA;
         let around = self
             .lyrics_on
@@ -718,23 +716,7 @@ impl MiniPlayer {
                                 .justify_end()
                                 .child(self.lyrics_toggle(cx))
                                 .child(self.queue_toggle(cx))
-                                .child(guard(
-                                    div()
-                                        .relative()
-                                        .size(px(cover_volume::ICON_SIZE))
-                                        .when(volume_open, |d| {
-                                            d.child(
-                                                div()
-                                                    .absolute()
-                                                    .bottom_0()
-                                                    .left_0()
-                                                    .w(px(cover_volume::ICON_SIZE))
-                                                    .h(px(volume_reach))
-                                                    .occlude(),
-                                            )
-                                        })
-                                        .child(self.cover_volume.clone()),
-                                )),
+                                .child(self.volume_slot()),
                         ),
                 )
         });

@@ -70,7 +70,7 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
   loaded only while this layout shows; letterboxed by the theme background), with three
   lyric rows and the progress bar always visible and the rest on hover.
 - When space runs out, detail goes rather than getting clipped: the lyric line in a
-  short strip, the volume in a narrow one.
+  short strip. In a narrow strip the cover shrinks so the controls row keeps its width.
 - Title and artists `truncate` as in the footer. Lyric rows are sentences in any script,
   so they wrap and are clipped at their line count instead of taking an ellipsis.
 - The three lyric rows (previous, current, next) slide up and fade in on every row
@@ -90,7 +90,7 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
   created on the first open. A `PlaylistPopup` of its own serves the queue's
   add-to-playlist buttons; its list shrinks to the window height (`LIST_ROOM`), so in a
   short strip it scrolls instead of running off the bottom. The similar-tracks menu in the
-  queue header does the same (`similar_tracks/doc.md`).
+  queue header is the compact one (`similar_tracks/doc.md`).
 - The lyrics toggle hides the lyrics in both layouts and stops `LyricsLine` loading
   (no web search while off). Kept in `MiniState` for the session.
 - Controls are `occlude`d so a press on them is not a window drag. That also takes hover
@@ -107,8 +107,11 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
   sends no mouse-exit to elements, so there hover also needs `is_window_hovered`.
 - Hover goes through a delay (`SHOW_DELAY` in, `HIDE_DELAY` out): while the window is
   resized the pointer sits on its edge and crosses in and out every frame.
-- The open volume popup sits outside its 34 px slot; an occluding block behind it keeps
-  that area out of the Windows drag region, or a slider drag would move the window.
+- Volume is the vertical popup in both layouts (`CoverVolume::fit_window`): drawn
+  deferred over everything, anchored above its icon and moved down into the window when
+  there is no room above (over the icon in the strip), never taller than the window. It
+  occludes, which also keeps it out of the Windows drag region, or a slider drag would
+  move the window. Its position comes from the icon's bounds of the previous frame.
 
 ## Window
 
@@ -147,10 +150,13 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
 - Adaptive layout (strip / cover) chosen by the window's height, no setting.
 - Like, volume, lyrics and queue besides the transport; no shuffle / repeat. The queue is
   a full-window layer, the lyrics three rows on the cover and one in the strip.
+- Volume is only the icon with the vertical popup, never a horizontal slider.
 - In a short window the queue rows go without the artist line so more of them fit.
 - The queue's locate button is in the mini player only, and only while the current track
   is scrolled out of view.
 - No × where closing would quit the app (Windows and Linux without the tray).
+- The queue's similar-tracks menu is radio, mix and the familiarity switch only, no hints
+  and no scrolling.
 - Entry: a footer button left of the lyrics toggle, ⌥⌘M / Ctrl+Shift+M, the macOS Window
   menu.
 - The window can't be stretched past 520×520.

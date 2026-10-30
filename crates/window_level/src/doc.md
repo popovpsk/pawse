@@ -40,7 +40,10 @@ Not here: which window is kept on top, the setting and the pin button
   `WM_NCDESTROY`.
 - X11 writes both, scaled: gpui stores its minimum in `WM_NORMAL_HINTS` unscaled, so on a
   HiDPI X11 screen it is too small.
-- Wayland has no protocol for this: `supported` is false, `set_always_on_top` and
-  `set_size_limits` return `Unsupported`. So does every other handle kind.
+- Wayland: `supported` is false, `set_always_on_top` and `set_size_limits` return
+  `Unsupported`, as for every other handle kind. There is no protocol for keeping a window
+  on top. Size limits exist (`xdg_toplevel.set_min_size` / `set_max_size`), but the
+  toplevel belongs to gpui and the handle exposes only the surface: gpui sets the minimum
+  from `window_min_size` and the maximum to its largest texture, so no app maximum.
 - macOS: only the level changes. The window stays on its Space and does not show over
   another app's full-screen Space (that would take collection behaviour changes).
