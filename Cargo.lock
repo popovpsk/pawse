@@ -8318,11 +8318,9 @@ version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
- "futures-lite 2.6.1",
  "getrandom 0.3.4",
  "keyring-core",
  "log",
- "oo7",
  "serde",
  "serde_json",
  "sha2 0.10.9",

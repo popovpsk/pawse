@@ -13,10 +13,6 @@ sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.3"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
-futures-lite = "2"
-
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring-core = "1"
 windows-native-keyring-store = "1.1"

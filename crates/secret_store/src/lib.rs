@@ -1,7 +1,7 @@
 mod crypto;
 mod embedded;
 mod file_key;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 mod keychain;
 pub mod serde_string;
 
@@ -64,7 +64,7 @@ fn assemble(keychain: Option<Key>, file: Option<Key>, binary: Key) -> Keys {
     Keys { source, seal, all }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 fn keychain_key() -> Option<Key> {
     match keychain::read() {
         Ok(Some(bytes)) => {
@@ -93,7 +93,7 @@ fn keychain_key() -> Option<Key> {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(not(target_os = "windows"))]
 fn keychain_key() -> Option<Key> {
     None
 }
