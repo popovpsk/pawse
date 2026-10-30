@@ -21,6 +21,7 @@ pub static ES: Strings = lang! {
     queue_is_empty: "La cola está vacía.",
     clear_queue: "Vaciar cola",
     save_queue_to_playlist: "Guardar cola en una lista",
+    queue_show_current: "Mostrar la pista actual",
 
     add_to_playlist: "Añadir a la lista",
     remove_from_playlist: "Quitar de la lista",

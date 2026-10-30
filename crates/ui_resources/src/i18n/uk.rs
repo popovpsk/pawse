@@ -21,6 +21,7 @@ pub static UK: Strings = lang! {
     queue_is_empty: "Черга порожня.",
     clear_queue: "Очистити чергу",
     save_queue_to_playlist: "Зберегти чергу до плейлиста",
+    queue_show_current: "Показати поточний трек",
 
     add_to_playlist: "Додати до плейлиста",
     remove_from_playlist: "Прибрати з плейлиста",

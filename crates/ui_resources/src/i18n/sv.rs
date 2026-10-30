@@ -21,6 +21,7 @@ pub static SV: Strings = lang! {
     queue_is_empty: "Kön är tom.",
     clear_queue: "Rensa kön",
     save_queue_to_playlist: "Spara kön i en spellista",
+    queue_show_current: "Visa det aktuella spåret",
 
     add_to_playlist: "Lägg till i spellista",
     remove_from_playlist: "Ta bort från spellista",

@@ -21,6 +21,7 @@ pub static CS: Strings = lang! {
     queue_is_empty: "Fronta je prázdná.",
     clear_queue: "Vymazat frontu",
     save_queue_to_playlist: "Uložit frontu do playlistu",
+    queue_show_current: "Zobrazit aktuální skladbu",
 
     add_to_playlist: "Přidat do playlistu",
     remove_from_playlist: "Odebrat z playlistu",

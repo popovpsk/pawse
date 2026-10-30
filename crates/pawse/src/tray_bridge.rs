@@ -56,12 +56,18 @@ pub fn setup(cx: &mut App) {
     apply(wanted, cx);
 }
 
-pub fn park(cx: &mut App) -> bool {
-    let Some(tray) = cx
-        .try_global::<TrayHost>()
+pub fn keeps_app(cx: &App) -> bool {
+    shown(cx).is_some()
+}
+
+fn shown(cx: &App) -> Option<&Tray> {
+    cx.try_global::<TrayHost>()
         .and_then(|host| host.tray.as_ref())
         .filter(|tray| tray.is_shown())
-    else {
+}
+
+pub fn park(cx: &mut App) -> bool {
+    let Some(tray) = shown(cx) else {
         return false;
     };
     #[cfg(target_os = "windows")]

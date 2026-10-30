@@ -21,6 +21,7 @@ pub static ID: Strings = lang! {
     queue_is_empty: "Antrean kosong.",
     clear_queue: "Kosongkan antrean",
     save_queue_to_playlist: "Simpan antrean ke playlist",
+    queue_show_current: "Tampilkan trek yang sedang aktif",
 
     add_to_playlist: "Tambahkan ke playlist",
     remove_from_playlist: "Hapus dari playlist",

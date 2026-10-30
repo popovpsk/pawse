@@ -21,6 +21,7 @@ pub static IT: Strings = lang! {
     queue_is_empty: "La coda è vuota.",
     clear_queue: "Svuota coda",
     save_queue_to_playlist: "Salva coda in una playlist",
+    queue_show_current: "Mostra la traccia corrente",
 
     add_to_playlist: "Aggiungi alla playlist",
     remove_from_playlist: "Rimuovi dalla playlist",

@@ -223,6 +223,9 @@ database. Off, the views run their tag-only queries.
   update, since its return starts nothing.
 - `queue_menu` shows only while the queue has tracks and the analysis is running; radio, the most
   used, is nearest the trigger and disabled with no current track.
+- The menu is no taller than the window less `WINDOW_ROOM` (the popup's 8 px window margins and
+  the content's 4 px offset) and scrolls past that: gpui fits a popup into the window by moving it,
+  never by shrinking it, so in the mini player's strip it would run off the bottom.
 
 ## Checking by hand
 

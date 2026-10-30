@@ -44,7 +44,8 @@ Playback and now playing:
 - `playback_status.rs` — `PlaybackStatus`: current track id, phase, duration.
 - `queue_view.rs` — the queue panel (rows from `track_list`); the mini player hosts one
   too (`for_mini_player`: no Save / Clear, a queue button that closes it, no artist line
-  in a short window, `mini_player/doc.md`). `panel_header.rs` — the
+  in a short window, a locate button while the current track is out of view,
+  `mini_player/doc.md`). `panel_header.rs` — the
   header row of the side panels. `playlist_popup.rs` — the add-to-playlist popup.
 - `lyrics_view.rs` — lyrics panel. `lyrics_fill.rs` — its pure half: rows, active row,
   fill geometry, the full-screen edge fade. `lyrics_wave.rs` — the autoscroll wave:
@@ -1344,7 +1345,8 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
   icon is shown (`Tray::is_shown`), otherwise it quits as before. So a Linux desktop
   without a StatusNotifier host (GNOME without the AppIndicator extension, a Flatpak
   without `--talk-name=org.kde.StatusNotifierWatcher`) loses nothing but the switch's
-  effect; the description says so on Linux.
+  effect; the description says so on Linux. `keeps_app` asks the same without parking;
+  the mini player hides its × when it is false.
 - Closing destroys the window (gpui has no hide): Show opens a new one through
   `raise_main_window`. Playback, scrobbling, Discord, the sleep timer and the web remote
   are app-level and keep running.

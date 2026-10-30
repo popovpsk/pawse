@@ -21,6 +21,7 @@ pub static DE: Strings = lang! {
     queue_is_empty: "Die Warteschlange ist leer.",
     clear_queue: "Warteschlange leeren",
     save_queue_to_playlist: "Warteschlange in Playlist speichern",
+    queue_show_current: "Aktuellen Titel zeigen",
 
     add_to_playlist: "Zur Playlist hinzufügen",
     remove_from_playlist: "Aus Playlist entfernen",

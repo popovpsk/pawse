@@ -21,6 +21,7 @@ pub static PT: Strings = lang! {
     queue_is_empty: "A fila está vazia.",
     clear_queue: "Limpar fila",
     save_queue_to_playlist: "Salvar fila em uma playlist",
+    queue_show_current: "Mostrar a faixa atual",
 
     add_to_playlist: "Adicionar à playlist",
     remove_from_playlist: "Remover da playlist",

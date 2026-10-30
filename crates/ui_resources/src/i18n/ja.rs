@@ -21,6 +21,7 @@ pub static JA: Strings = lang! {
     queue_is_empty: "キューは空です。",
     clear_queue: "キューをクリア",
     save_queue_to_playlist: "キューをプレイリストに保存",
+    queue_show_current: "現在のトラックを表示",
 
     add_to_playlist: "プレイリストに追加",
     remove_from_playlist: "プレイリストから削除",

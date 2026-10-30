@@ -21,6 +21,7 @@ pub static FR: Strings = lang! {
     queue_is_empty: "La file d'attente est vide.",
     clear_queue: "Vider la file d'attente",
     save_queue_to_playlist: "Enregistrer la file d'attente dans une playlist",
+    queue_show_current: "Afficher la piste en cours",
 
     add_to_playlist: "Ajouter à la playlist",
     remove_from_playlist: "Retirer de la playlist",

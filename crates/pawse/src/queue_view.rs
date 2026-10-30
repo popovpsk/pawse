@@ -141,6 +141,7 @@ pub struct QueueView {
     scroll_handle: VirtualListScrollHandle,
     on_similar_applied: OnApplied,
     mini_close: Option<OnApplied>,
+    current_away: bool,
     _subscription: Subscription,
     _status_subscription: Subscription,
     _library_subscription: Subscription,
@@ -252,6 +253,7 @@ impl QueueView {
                 })
             },
             mini_close: None,
+            current_away: false,
             _subscription: subscription,
             _status_subscription: status_subscription,
             _library_subscription: library_subscription,
@@ -272,6 +274,7 @@ impl QueueView {
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
         if visible {
+            self.current_away = false;
             self.scroll_current_into_view();
         }
     }
@@ -280,6 +283,26 @@ impl QueueView {
         if let Some(ix) = self.current_index {
             self.scroll_handle
                 .scroll_to_item(ix, gpui::ScrollStrategy::Top);
+        }
+    }
+
+    fn note_current_away(
+        &mut self,
+        room: f32,
+        item_height: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let offset = f32::from(self.scroll_handle.offset().y);
+        let last_top = (room - item_height).max(0.);
+        let away = self.current_index.is_some_and(|ix| {
+            let top = ix as f32 * item_height + offset;
+            top < -0.5 || top > last_top + 0.5
+        });
+        if away != self.current_away {
+            self.current_away = away;
+            let view = cx.entity();
+            window.on_next_frame(move |_, cx| view.update(cx, |_, cx| cx.notify()));
         }
     }
 
@@ -348,6 +371,7 @@ impl Render for QueueView {
             !self.tracks.is_empty(),
             &self.on_similar_applied,
             self.mini_close.clone(),
+            self.current_away,
         );
 
         if self.tracks.is_empty() {
@@ -369,7 +393,10 @@ impl Render for QueueView {
                         cx.entity().clone(),
                         "queue_list",
                         self.virtual_list_item_sizes(params.item_height),
-                        move |view, visible_range, _window, cx| {
+                        move |view, visible_range, window, cx| {
+                            if let Some(room) = list_room {
+                                view.note_current_away(room, params.item_height, window, cx);
+                            }
                             visible_range
                                 .map(|track_ix| {
                                     queue_visible_range_row(cx, view, &params, track_ix)
@@ -598,12 +625,27 @@ fn queue_header(
     has_tracks: bool,
     on_similar_applied: &OnApplied,
     mini_close: Option<OnApplied>,
+    current_away: bool,
 ) -> Div {
     let settings = cx.global::<SettingsStore>();
     let playlists_enabled = settings.playlists_enabled();
     let full = mini_close.is_none();
     let scale = settings.font_scale().ui_scale();
     let actions = panel_header_actions()
+        .when(has_tracks && current_away, |d| {
+            d.child(
+                panel_header_button(
+                    "queue-show-current",
+                    "icons/locate.svg",
+                    tr().queue_show_current.clone(),
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.scroll_current_into_view();
+                    cx.notify();
+                })),
+            )
+        })
         .when(has_tracks && similar_tracks::is_running(cx), |d| {
             d.child(similar_tracks::queue_menu(
                 on_similar_applied.clone(),

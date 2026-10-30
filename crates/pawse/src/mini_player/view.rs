@@ -583,13 +583,15 @@ impl MiniPlayer {
                     .tooltip(|window, cx| Tooltip::new(tr().full_player.clone()).build(window, cx))
                     .on_click(|_, _, cx| super::leave(cx)),
                 )
-                .child(
-                    chrome_button("mini_close", "icons/s1-x.svg", Colors::foreground(cx), cx)
-                        .tooltip(|window, cx| {
-                            Tooltip::new(tr().close_window.clone()).build(window, cx)
-                        })
-                        .on_click(|_, window, _| window.remove_window()),
-                ),
+                .when(close_keeps_app(cx), |d| {
+                    d.child(
+                        chrome_button("mini_close", "icons/s1-x.svg", Colors::foreground(cx), cx)
+                            .tooltip(|window, cx| {
+                                Tooltip::new(tr().close_window.clone()).build(window, cx)
+                            })
+                            .on_click(|_, window, _| window.remove_window()),
+                    )
+                }),
         )
     }
 
@@ -884,6 +886,16 @@ impl Render for MiniPlayer {
                     ),
             )
     }
+}
+
+#[cfg(target_os = "macos")]
+fn close_keeps_app(_: &App) -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+fn close_keeps_app(cx: &App) -> bool {
+    crate::tray_bridge::keeps_app(cx)
 }
 
 fn guard(el: Div) -> Div {

@@ -21,6 +21,7 @@ pub static ZH: Strings = lang! {
     queue_is_empty: "队列为空。",
     clear_queue: "清空队列",
     save_queue_to_playlist: "将队列保存到播放列表",
+    queue_show_current: "显示当前曲目",
 
     add_to_playlist: "添加到播放列表",
     remove_from_playlist: "从播放列表移除",

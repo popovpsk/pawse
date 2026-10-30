@@ -21,6 +21,7 @@ pub static RU: Strings = lang! {
     queue_is_empty: "Очередь пуста.",
     clear_queue: "Очистить очередь",
     save_queue_to_playlist: "Сохранить очередь в плейлист",
+    queue_show_current: "Показать текущий трек",
 
     add_to_playlist: "Добавить в плейлист",
     remove_from_playlist: "Убрать из плейлиста",

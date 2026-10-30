@@ -85,6 +85,7 @@ pub struct Strings {
     pub queue_is_empty: SharedString,
     pub clear_queue: SharedString,
     pub save_queue_to_playlist: SharedString,
+    pub queue_show_current: SharedString,
 
     // --- Track-row actions ---
     pub add_to_playlist: SharedString,

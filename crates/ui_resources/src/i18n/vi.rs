@@ -21,6 +21,7 @@ pub static VI: Strings = lang! {
     queue_is_empty: "Hàng đợi trống.",
     clear_queue: "Xóa hàng đợi",
     save_queue_to_playlist: "Lưu hàng đợi vào danh sách phát",
+    queue_show_current: "Hiện bản nhạc hiện tại",
 
     add_to_playlist: "Thêm vào danh sách phát",
     remove_from_playlist: "Xóa khỏi danh sách phát",

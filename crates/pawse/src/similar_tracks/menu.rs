@@ -8,6 +8,7 @@ use gpui_component::{
     button::{Button, ButtonGroup, ButtonVariants},
     h_flex,
     popover::{Popover, PopoverState},
+    scroll::ScrollableElement,
     v_flex,
 };
 use ui_resources::i18n::similar_strings;
@@ -21,6 +22,8 @@ use crate::panel_header::{BUTTON_SIZE, ICON_SIZE};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
+
+const WINDOW_ROOM: f32 = 20.;
 
 pub fn queue_menu(on_applied: OnApplied, scale: f32, cx: &App) -> impl IntoElement {
     Popover::new("similar-queue-menu")
@@ -41,12 +44,13 @@ pub fn queue_menu(on_applied: OnApplied, scale: f32, cx: &App) -> impl IntoEleme
                 )
                 .tooltip(similar_strings().menu.clone()),
         )
-        .content(move |_, _, cx| content(&on_applied, scale, cx))
+        .content(move |_, window, cx| content(&on_applied, scale, window, cx))
 }
 
 fn content(
     on_applied: &OnApplied,
     scale: f32,
+    window: &Window,
     cx: &mut Context<PopoverState>,
 ) -> impl IntoElement + use<> {
     let s = similar_strings();
@@ -60,7 +64,10 @@ fn content(
     let familiarity = cx.global::<SettingsStore>().similar_familiarity();
     let radio = on_applied.clone();
     let mix = on_applied.clone();
+    let frame = gpui_component::window_paddings(window);
+    let max_h = window.viewport_size().height - frame.top - frame.bottom - px(WINDOW_ROOM);
     menu_surface("similar-queue-menu-content", scale, cx)
+        .max_h(max_h)
         .child(action_row(
             "similar-radio",
             s.radio.clone(),
@@ -86,6 +93,7 @@ fn content(
         .child(separator(colors))
         .child(section_label(s.tracks.clone(), colors))
         .child(familiarity_switch(familiarity))
+        .overflow_y_scrollbar()
 }
 
 fn action_row(

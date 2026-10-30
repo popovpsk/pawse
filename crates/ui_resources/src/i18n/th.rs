@@ -21,6 +21,7 @@ pub static TH: Strings = lang! {
     queue_is_empty: "คิวว่างเปล่า",
     clear_queue: "ล้างคิว",
     save_queue_to_playlist: "บันทึกคิวลงเพลย์ลิสต์",
+    queue_show_current: "แสดงแทร็กปัจจุบัน",
 
     add_to_playlist: "เพิ่มลงเพลย์ลิสต์",
     remove_from_playlist: "นำออกจากเพลย์ลิสต์",

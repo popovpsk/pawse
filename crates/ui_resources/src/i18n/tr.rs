@@ -21,6 +21,7 @@ pub static TR: Strings = lang! {
     queue_is_empty: "Sıra boş.",
     clear_queue: "Kuyruğu temizle",
     save_queue_to_playlist: "Kuyruğu çalma listesine kaydet",
+    queue_show_current: "Geçerli parçayı göster",
 
     add_to_playlist: "Çalma listesine ekle",
     remove_from_playlist: "Çalma listesinden kaldır",

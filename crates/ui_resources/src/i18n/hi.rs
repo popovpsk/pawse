@@ -21,6 +21,7 @@ pub static HI: Strings = lang! {
     queue_is_empty: "क़तार ख़ाली है।",
     clear_queue: "कतार साफ़ करें",
     save_queue_to_playlist: "कतार को प्लेलिस्ट में सहेजें",
+    queue_show_current: "मौजूदा ट्रैक दिखाएँ",
 
     add_to_playlist: "प्लेलिस्ट में जोड़ें",
     remove_from_playlist: "प्लेलिस्ट से हटाएँ",

@@ -21,6 +21,7 @@ pub static NL: Strings = lang! {
     queue_is_empty: "De wachtrij is leeg.",
     clear_queue: "Wachtrij leegmaken",
     save_queue_to_playlist: "Wachtrij opslaan in afspeellijst",
+    queue_show_current: "Huidig nummer tonen",
 
     add_to_playlist: "Aan afspeellijst toevoegen",
     remove_from_playlist: "Uit afspeellijst verwijderen",

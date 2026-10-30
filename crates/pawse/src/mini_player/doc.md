@@ -82,11 +82,15 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
   puts a lit queue icon where the main panel has none; an × there would sit where the
   chrome's × closes the window. When the window leaves room under the queue header for
   fewer than `MINI_ARTIST_ROWS` two-line rows, the rows drop the artist line even if the
-  queue setting shows it; the room is the window height, since the layer fills it. The
-  view is created on the
-  first open. A `PlaylistPopup` of its own serves the queue's add-to-playlist buttons; its
-  list shrinks to the window height (`LIST_ROOM`), so in a short strip it scrolls instead of
-  running off the bottom.
+  queue setting shows it; the room is the window height, since the layer fills it. A
+  locate button leads the header while the current track's row is not wholly in view and
+  scrolls it back to the top. That is measured in the list's row callback, which runs
+  after a pending `scroll_to_item` has moved the list (a check in `render` would keep the
+  button after its own click); a change repaints the header on the next frame. The view is
+  created on the first open. A `PlaylistPopup` of its own serves the queue's
+  add-to-playlist buttons; its list shrinks to the window height (`LIST_ROOM`), so in a
+  short strip it scrolls instead of running off the bottom. The similar-tracks menu in the
+  queue header does the same (`similar_tracks/doc.md`).
 - The lyrics toggle hides the lyrics in both layouts and stops `LyricsLine` loading
   (no web search while off). Kept in `MiniState` for the session.
 - Controls are `occlude`d so a press on them is not a window drag. That also takes hover
@@ -113,6 +117,10 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
   caption, so a double-click there maximizes the window (up to the maximum size).
 - The macOS traffic lights are moved off-window at creation; the chrome's ×, "full
   player" and pin replace them. The chrome is hidden while the queue is open.
+- On Windows and Linux the chrome's × shows only while `tray_bridge::keeps_app` holds:
+  closing the last window there quits unless the tray icon keeps the app, so without it
+  "full player" is the only way out of the chrome. Read on every render, so it follows
+  the switch.
 - Keyboard: the root has the `MiniPlayer` key context and a zero-size element holds
   focus. A focused root would `prevent_default` every mouse-down, which kills the drag
   area on Windows. Focus is set again whenever the window activates and whenever the
@@ -140,6 +148,9 @@ window placement (`window_placement.rs`, `pawse/src/doc.md`), the last screen a 
 - Like, volume, lyrics and queue besides the transport; no shuffle / repeat. The queue is
   a full-window layer, the lyrics three rows on the cover and one in the strip.
 - In a short window the queue rows go without the artist line so more of them fit.
+- The queue's locate button is in the mini player only, and only while the current track
+  is scrolled out of view.
+- No × where closing would quit the app (Windows and Linux without the tray).
 - Entry: a footer button left of the lyrics toggle, ⌥⌘M / Ctrl+Shift+M, the macOS Window
   menu.
 - The window can't be stretched past 520×520.

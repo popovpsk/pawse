@@ -21,6 +21,7 @@ pub static KO: Strings = lang! {
     queue_is_empty: "대기열이 비어 있습니다.",
     clear_queue: "대기열 지우기",
     save_queue_to_playlist: "대기열을 재생목록에 저장",
+    queue_show_current: "현재 트랙 보기",
 
     add_to_playlist: "재생목록에 추가",
     remove_from_playlist: "재생목록에서 제거",

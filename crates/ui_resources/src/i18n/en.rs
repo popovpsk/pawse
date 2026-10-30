@@ -21,6 +21,7 @@ pub static EN: Strings = lang! {
     queue_is_empty: "Queue is empty.",
     clear_queue: "Clear queue",
     save_queue_to_playlist: "Save queue to playlist",
+    queue_show_current: "Show current track",
 
     add_to_playlist: "Add to playlist",
     remove_from_playlist: "Remove from playlist",
