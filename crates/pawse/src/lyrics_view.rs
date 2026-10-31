@@ -150,6 +150,7 @@ const SEGMENT_ORDER: [&str; 4] = [
 #[derive(Clone, Copy, PartialEq, Default)]
 pub struct LyricsPresentation {
     pub bare_header: bool,
+    pub tabs_t: f32,
     pub edge_fade: bool,
     pub bottom_inset: Pixels,
 }
@@ -1185,11 +1186,12 @@ impl Render for LyricsView {
         let hovered_ix = self.hovered_ix;
         let show_sync = synced && active_ix.is_some() && !self.autoscroll;
 
-        let segments = (self.segments.len() > 1).then(|| {
+        let segments = (self.segments.len() > 1 && self.presentation.tabs_t > 0.).then(|| {
             let shown = self.source.as_str();
             let fetching = self.fetching;
-            panel_header_segments(cx).children(self.segments.iter().enumerate().map(
-                |(ix, segment)| {
+            let tabs_t = self.presentation.tabs_t;
+            panel_header_segments(cx).opacity(tabs_t).children(
+                self.segments.iter().enumerate().map(|(ix, segment)| {
                     let source = segment.source;
                     let (icon, tooltip) = match source {
                         lyrics_source::SERVER => {
@@ -1219,8 +1221,8 @@ impl Render for LyricsView {
                         cx,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.select_source(source, cx)))
-                },
-            ))
+                }),
+            )
         });
 
         let actions = panel_header_actions()

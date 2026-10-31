@@ -49,6 +49,11 @@ impl Stage {
             });
         let lyrics = LyricsPresentation {
             bare_header: full_screen,
+            tabs_t: if full_screen {
+                cover.controls_progress(cx)
+            } else {
+                1.
+            },
             edge_fade: full_screen,
             bottom_inset: strip
                 .as_ref()

@@ -457,8 +457,8 @@ Integrations:
   whichever provider answered (`lyrics/src/doc.md`, "Web lookup"); the provider is only
   logged.
 - `LyricsPresentation` (Full screen cover mode, from `main_view::stage`): `bare_header`
-  keeps only the tabs and the locate button (no title, no Save; the row keeps its
-  height); `bottom_inset` ends the list above the spectrum strip with a spacer under the
+  drops the title and Save and fades the source tabs in with the cover controls
+  (`tabs_t`, hidden at 0 so they take no clicks; the row keeps its height); `bottom_inset` ends the list above the spectrum strip with a spacer under the
   body, and since the viewport canvas measures the body, a new inset recenters;
   `edge_fade` fades the list at both edges (`lyrics_fill::EdgeFade`): gpui has no masks,
   so each built row takes one opacity from where it is drawn (scroll offset and wave
