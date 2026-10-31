@@ -38,6 +38,7 @@ macOS · Windows · Linux
 - **Bit-perfect playback** — **exclusive output** on Windows and macOS, **native sample rate** on Linux, with automatic sample-rate / bit-depth matching and a live bit-perfect indicator.
 - **Fluid, minimal UI** — smooth at 120+ fps, 20+ themes plus an adaptive one that follows the cover art, 20 UI languages; hide any control, label or column you never use.
 - **One library, many sources** — local files, Subsonic/Navidrome, Jellyfin, DLNA/UPnP servers and torrents, mixed into one library.
+- **Parametric equalizer** — editable bands with automatic preamp, headphone profiles from the AutoEq database, Equalizer APO import/export; works with exclusive output.
 - **Cast anywhere** — AirPlay 1 & 2, Chromecast and DLNA renderers, switchable mid-track.
 - **Sound-based radio** — optional on-device analysis finds tracks that sound alike, for radio, queue mixes and genres detected from the audio.
 - **Remote control** — a built-in web remote for any phone or browser on your network: player, queue and full library browsing.
@@ -49,6 +50,7 @@ macOS · Windows · Linux
 - **Lyrics** — time-synced, with karaoke highlighting, from your files, the web (BiniLyrics, LRCLIB, lrcmux) or your media server.
 - **Tag editor** — per track or per album.
 - **System integration** — OS media controls, media keys, keyboard shortcuts, Discord status.
+- **Mini player** — a compact window that replaces the main one, with an option to keep it above all other windows.
 - **Sleep timer** and **automatic updates**.
 
 ## Download
