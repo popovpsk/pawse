@@ -5,10 +5,10 @@ use audio_engine::EngineEvent;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Animation, AnimationExt, App, AppContext, BoxShadow, ClickEvent, Context, Div, Entity,
-    EventEmitter, Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, Pixels,
-    Render, RenderImage, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage,
-    Subscription, Task, Transformation, Window, canvas, div, ease_out_quint, img, point, px,
-    quadratic, size, svg,
+    EventEmitter, Hsla, Image, ImageFormat, InteractiveElement, IntoElement, MouseMoveEvent,
+    ParentElement, Pixels, Render, RenderImage, SharedString, Size, StatefulInteractiveElement,
+    Styled, StyledImage, Subscription, Task, Transformation, Window, canvas, div, ease_out_quint,
+    img, point, px, quadratic, size, svg,
 };
 use gpui_component::h_flex;
 use gpui_component::tooltip::Tooltip;
@@ -625,11 +625,18 @@ impl CoverModeView {
         cx.notify();
     }
 
-    pub fn handle_mouse_move(&mut self, held: bool, cx: &mut Context<Self>) {
-        if !self.active || self.chrome_visible {
+    pub fn handle_mouse_move(&mut self, held: bool) {
+        if !self.active || self.chrome_visible || !self.controls_shown {
             return;
         }
         self.controls_held = held;
+        self.controls_hide_at = Instant::now() + CONTROLS_HIDE_DELAY;
+    }
+
+    fn reveal_controls(&mut self, cx: &mut Context<Self>) {
+        if !self.active || self.chrome_visible {
+            return;
+        }
         self.controls_hide_at = Instant::now() + CONTROLS_HIDE_DELAY;
         self.set_controls_shown(true, cx);
         if self.controls_hide_task.is_none() {
@@ -1232,6 +1239,7 @@ impl Render for CoverModeView {
             .size_full()
             .relative()
             .overflow_hidden()
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| this.reveal_controls(cx)))
             .child(
                 div()
                     .size_full()

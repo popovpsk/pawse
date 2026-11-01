@@ -677,11 +677,14 @@ Integrations:
   `remote_media/doc.md`), the file fallback runs, else the thumbnail stays with a logged
   warning. With no full layer the view asks again at the next track of the same album.
 - With the chrome hidden the view shows the caption (title · artists, clickable), the
-  optional progress bar and a control bar that slides in on mouse move and hides after
-  `CONTROLS_HIDE_DELAY`, held open while the volume popup is open and, on macOS outside
-  native fullscreen, while the pointer last moved over the title-bar row the traffic
-  lights sit in; leaving the window (`MouseExitEvent`) drops that hold (`cover_show_*` gate
-  artist, progress, controls). The slide honours `App::reduce_motion`. The view's size is
+  optional progress bar and a control bar that slides in on a mouse move over the cover
+  area (the view's own `on_mouse_move`, so it follows gpui's hit test; a move over the
+  lyrics, the queue or the title bar only keeps a shown bar, through `MainView`'s root
+  handler) and hides
+  `CONTROLS_HIDE_DELAY` after the last move, held open while the volume popup is open
+  and, on macOS outside native fullscreen, while the pointer last moved over the
+  title-bar row the traffic lights sit in; leaving the window (`MouseExitEvent`) drops
+  that hold (`cover_show_*` gate artist, progress, controls). The slide honours `App::reduce_motion`. The view's size is
   measured by a canvas whose notify is deferred with `on_next_frame`.
 - `CoverBackdrop` bakes the current track's small cover (128 px bytes from
   `CoverArtCache::get_small`, no full decode) into a 96 px blurred, saturated raster on
@@ -711,8 +714,8 @@ Integrations:
   cover stack's plus the lyrics panel's) pushes the queue out on a narrow window, and
   lyrics wider than what is left would run under the queue); the silhouette strip runs
   under the lyrics; the lyrics get their `LyricsPresentation`; the macOS traffic lights
-  follow the control bar: off while it is hidden, back on the mouse move that shows it
-  (they jump, the bar slides).
+  follow the control bar: off while it is hidden, back with it (they jump, the bar
+  slides).
 - On Windows and Linux, with Settings → Appearance → Cover view "Full screen" set to
   Fullscreen (`full_screen_mode`, Windowed by default), Full screen on a maximized window
   also takes the window into the system fullscreen, borderless over the taskbar or
@@ -1404,6 +1407,10 @@ Owner's calls; ask before changing.
   corner in every style and without the spectrum.
 - The bit-perfect check/warning button and the exclusive-mode button keep their icons;
   redesigns of them were tried and rejected.
+- Full screen controls (bar, corner buttons, lyrics tabs, traffic lights) appear only on
+  a move over the cover area, not over the lyrics or queue panels or the title bar; once
+  shown, a move anywhere keeps them, so the lyrics tabs and traffic lights can be
+  reached.
 - No `App::reduce_motion` guard on the cover colour crossfade or the backdrop crossfade
   (`cover_skin/doc.md`, Decisions); the cover-mode controls slide does honour it.
 - Double counting of server plays is the user's call: a server that forwards plays to

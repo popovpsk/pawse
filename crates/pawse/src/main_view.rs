@@ -1142,7 +1142,7 @@ impl Render for MainView {
                 d.on_mouse_move(cx.listener(move |this, e: &MouseMoveEvent, _, cx| {
                     let held = e.position.y < px(hold_zone);
                     this.cover_mode_view
-                        .update(cx, |view, cx| view.handle_mouse_move(held, cx));
+                        .update(cx, |view, _| view.handle_mouse_move(held));
                 }))
             })
             .when(has_backdrop, |d| d.bg(background))
