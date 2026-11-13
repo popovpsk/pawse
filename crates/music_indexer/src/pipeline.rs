@@ -324,10 +324,6 @@ fn emit_track(
     }
 
     let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
-    if count.is_multiple_of(PROGRESS_INTERVAL)
-        && tx.send(ScanEvent::Progress { scanned: count }).is_err()
-    {
-        return false;
-    }
-    true
+    !count.is_multiple_of(PROGRESS_INTERVAL)
+        || tx.send(ScanEvent::Progress { scanned: count }).is_ok()
 }
