@@ -174,7 +174,12 @@ impl PlaylistPopup {
 
     fn refresh_lists(&mut self, cx: &mut Context<Self>) {
         let services = cx.global::<Services>();
-        self.playlists = services.library.playlists();
+        self.playlists = services
+            .library
+            .playlists()
+            .into_iter()
+            .filter(|playlist| playlist.file_path.is_none())
+            .collect();
         self.containing = match self.track_ids.as_slice() {
             [track_id] => services
                 .library

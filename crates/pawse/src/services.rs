@@ -96,6 +96,8 @@ impl Services {
             cx.background_executor().clone(),
             cx.global::<crate::settings_store::SettingsStore>()
                 .artists_grouping(),
+            cx.global::<crate::settings_store::SettingsStore>()
+                .folder_playlists(),
         ));
         {
             let settings = cx.global::<crate::settings_store::SettingsStore>();
@@ -117,6 +119,9 @@ impl Services {
                     // they receive the emitted event below.
                     if let LibraryEvent::PlaylistTracksChanged { playlist_id } = &event {
                         sync_queue_with_playlist(*playlist_id, cx);
+                    }
+                    if matches!(&event, LibraryEvent::PlaylistsChanged) {
+                        detach_queue_from_gone_playlist(cx);
                     }
                     if matches!(&event, LibraryEvent::CatalogChanged) {
                         remap_queue_after_rescan(cx);
@@ -346,6 +351,28 @@ fn sync_queue_with_playlist(playlist_id: i64, cx: &mut App) {
         .playback_queue
         .borrow_mut()
         .refresh_keeping_current(new_tracks.into_iter().map(Rc::new).collect());
+    save_playback(cx);
+}
+
+fn detach_queue_from_gone_playlist(cx: &mut App) {
+    let services = cx.global::<Services>();
+    let crate::playback_queue::QueueSource::Playlist(playlist_id) =
+        services.playback_queue.borrow().source()
+    else {
+        return;
+    };
+    if services
+        .library
+        .playlists()
+        .iter()
+        .any(|playlist| playlist.id == playlist_id)
+    {
+        return;
+    }
+    services
+        .playback_queue
+        .borrow_mut()
+        .set_source(crate::playback_queue::QueueSource::Unknown);
     save_playback(cx);
 }
 

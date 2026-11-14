@@ -580,6 +580,8 @@ pub struct UserSettings {
     #[serde(default = "default_true")]
     pub playlists_enabled: bool,
     #[serde(default)]
+    pub folder_playlists: bool,
+    #[serde(default)]
     pub genres_enabled: bool,
     #[serde(default)]
     pub genres_sort: music_library::GenreSort,
@@ -753,6 +755,7 @@ impl Default for UserSettings {
             now_playing_details: NowPlayingDetails::default(),
             liked_enabled: true,
             playlists_enabled: true,
+            folder_playlists: false,
             genres_enabled: false,
             genres_sort: music_library::GenreSort::default(),
             genres_sort_desc: false,
@@ -1609,6 +1612,15 @@ impl SettingsStore {
 
     pub fn set_playlists_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.playlists_enabled = enabled;
+        self.save()
+    }
+
+    pub fn folder_playlists(&self) -> bool {
+        self.settings.folder_playlists
+    }
+
+    pub fn set_folder_playlists(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.folder_playlists = enabled;
         self.save()
     }
 
@@ -2562,6 +2574,7 @@ mod tests {
             now_playing_details: NowPlayingDetails::Album,
             liked_enabled: true,
             playlists_enabled: true,
+            folder_playlists: true,
             genres_enabled: true,
             genres_sort: music_library::GenreSort::Year,
             genres_sort_desc: true,

@@ -54,6 +54,7 @@ pub mod play_button;
 pub mod playback_opener;
 pub mod playback_queue;
 pub mod playback_status;
+pub mod playlist_files;
 pub mod playlist_popup;
 pub mod prev_button;
 pub mod queue_view;

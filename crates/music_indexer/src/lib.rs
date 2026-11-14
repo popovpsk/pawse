@@ -6,7 +6,7 @@ pub mod types;
 
 pub use pipeline::{AUDIO_EXTENSIONS, CUE_EXTENSIONS, collect_sources, run};
 pub use scanner::DirectoryScanner;
-pub use types::{CoverArt, PreparedTrack, ScanEvent, ScannedTrack, SourceSet};
+pub use types::{CoverArt, PreparedTrack, ScanEvent, ScannedTrack, SourceSet, StampedFile};
 
 #[cfg(test)]
 mod tests {

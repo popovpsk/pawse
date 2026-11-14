@@ -125,7 +125,15 @@ pub struct PreparedTrack {
 pub struct SourceSet {
     pub cue_files: Vec<PathBuf>,
     pub audio_files: Vec<PathBuf>,
+    pub playlist_files: Vec<StampedFile>,
     pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StampedFile {
+    pub path: PathBuf,
+    pub mtime: i64,
+    pub size: i64,
 }
 
 #[derive(Debug, Clone)]

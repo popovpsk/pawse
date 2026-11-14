@@ -8,6 +8,7 @@ use music_indexer::{PreparedTrack, ScanEvent};
 use music_library::{ArtistGrouping, LibraryRepository, NewTrack, ScanTrack, SqliteLibrary};
 
 use crate::library_views::view_order::{self, AlbumKey, ArtistKey};
+use crate::playlist_files::FilesOutcome;
 use crate::settings_store::{AlbumsSort, ArtistsSort};
 
 /// The album-level fields of a tag edit, applied to every track of one album.
@@ -43,6 +44,15 @@ struct ScanState {
     last_change: Mutex<Option<Instant>>,
     last_finished: Mutex<Option<Instant>>,
     reported_scan_errors: Mutex<HashSet<(PathBuf, String)>>,
+    folder_playlists: AtomicBool,
+    playlist_walk: Mutex<Option<PlaylistWalk>>,
+    folder_sync: Mutex<()>,
+}
+
+#[derive(Clone)]
+struct PlaylistWalk {
+    files: Vec<music_indexer::StampedFile>,
+    offline: Vec<PathBuf>,
 }
 
 pub struct RescanHold(Arc<ScanState>);
@@ -92,6 +102,9 @@ pub enum LibraryEvent {
     RemotePlaylistsImported {
         key: String,
         outcome: Result<crate::remote_sync::PlaylistImport, crate::servers::RemoteError>,
+    },
+    PlaylistFilesImported {
+        outcome: FilesOutcome,
     },
     TrackLikedChanged {
         track_id: i64,
@@ -699,15 +712,20 @@ impl LibraryService {
         event_tx: flume::Sender<LibraryEvent>,
         executor: gpui::BackgroundExecutor,
         artists_grouping: ArtistGrouping,
+        folder_playlists: bool,
     ) -> Self {
         let repo = Arc::new(SqliteLibrary::open().expect("open library db"));
+        let scan_state = ScanState {
+            folder_playlists: AtomicBool::new(folder_playlists),
+            ..ScanState::default()
+        };
         Self {
             remote_sync: Arc::new(RemoteSyncState::default()),
             repo,
             event_tx,
             lyrics_fetch_gate: Arc::default(),
             executor,
-            scan_state: Arc::new(ScanState::default()),
+            scan_state: Arc::new(scan_state),
             artists_grouping: Arc::new(AtomicU8::new(grouping_to_u8(artists_grouping))),
             lyrics_prefs: Arc::default(),
         }
@@ -1476,6 +1494,86 @@ impl LibraryService {
         });
     }
 
+    pub fn import_playlist_files(&self, paths: Vec<PathBuf>) {
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let state = self.remote_sync.clone();
+        net_runtime::handle().spawn_blocking(move || {
+            let outcome = {
+                let _one_at_a_time = state
+                    .playlist_imports
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                crate::playlist_files::import_files(&*repo, &paths)
+            };
+            let outcome = match outcome {
+                Ok((outcome, touched)) => {
+                    if matches!(outcome, FilesOutcome::Imported(_)) {
+                        let _ = event_tx.send(LibraryEvent::PlaylistsChanged);
+                    }
+                    for playlist_id in touched {
+                        let _ = event_tx.send(LibraryEvent::PlaylistTracksChanged { playlist_id });
+                    }
+                    outcome
+                }
+                Err(e) => {
+                    log::error!("Failed to import playlist files: {e}");
+                    FilesOutcome::Failed
+                }
+            };
+            let _ = event_tx.send(LibraryEvent::PlaylistFilesImported { outcome });
+        });
+    }
+
+    pub fn set_folder_playlists(&self, enabled: bool) {
+        self.scan_state
+            .folder_playlists
+            .store(enabled, Ordering::Release);
+        let repo = self.repo.clone();
+        let event_tx = self.event_tx.clone();
+        let state = self.scan_state.clone();
+        self.executor
+            .spawn(async move {
+                Self::sync_folder_playlists(&*repo, &event_tx, &state, true);
+            })
+            .detach();
+    }
+
+    fn sync_folder_playlists(
+        repo: &dyn LibraryRepository,
+        event_tx: &flume::Sender<LibraryEvent>,
+        state: &ScanState,
+        full: bool,
+    ) {
+        let _one_at_a_time = state
+            .folder_sync
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changes = if state.folder_playlists.load(Ordering::Acquire) {
+            let Some(walk) = state.playlist_walk.lock().unwrap().clone() else {
+                return;
+            };
+            crate::playlist_files::sync_folder(repo, &walk.files, &walk.offline, full)
+        } else {
+            repo.clear_file_playlists()
+                .map(|listing| music_library::FilePlaylistChanges {
+                    listing,
+                    tracks: Vec::new(),
+                })
+        };
+        match changes {
+            Ok(changes) => {
+                if changes.listing {
+                    let _ = event_tx.send(LibraryEvent::PlaylistsChanged);
+                }
+                for playlist_id in changes.tracks {
+                    let _ = event_tx.send(LibraryEvent::PlaylistTracksChanged { playlist_id });
+                }
+            }
+            Err(e) => log::error!("Failed to sync playlists from music folders: {e}"),
+        }
+    }
+
     pub fn import_remote_playlists(
         &self,
         server: crate::servers::RemoteServer,
@@ -1657,7 +1755,7 @@ impl LibraryService {
             inner_executor,
             scope,
             manual,
-            &state.reported_scan_errors,
+            &state,
         )
         .await;
         if let Some(folder) = warning {
@@ -1671,12 +1769,17 @@ impl LibraryService {
         inner_executor: gpui::BackgroundExecutor,
         scope: ScanScope,
         manual: bool,
-        reported_errors: &Mutex<HashSet<(PathBuf, String)>>,
+        state: &ScanState,
     ) {
+        let reported_errors = &state.reported_scan_errors;
         // Cheap walk + fingerprint. Fast path: if nothing on disk changed
         // since the last successful scan, skip all DB work entirely. This
         // is what makes run-on-launch / background rescans viable.
-        let sources = music_indexer::collect_sources(&scope.available);
+        let mut sources = music_indexer::collect_sources(&scope.available);
+        *state.playlist_walk.lock().unwrap() = Some(PlaylistWalk {
+            files: std::mem::take(&mut sources.playlist_files),
+            offline: scope.unavailable.clone(),
+        });
         let folders_key = scope.folders_key();
         let unchanged = matches!(repo.scan_fingerprint(), Ok(Some(fp)) if fp == sources.fingerprint)
             && matches!(repo.scan_folders(), Ok(Some(f)) if f == folders_key)
@@ -1686,6 +1789,7 @@ impl LibraryService {
             if manual {
                 let _ = event_tx.send(LibraryEvent::ScanUpToDate);
             }
+            Self::sync_folder_playlists(&*repo, &event_tx, state, false);
             return;
         }
 
@@ -1739,6 +1843,9 @@ impl LibraryService {
             let _ = event_tx.send(LibraryEvent::CatalogChanged);
             let _ = event_tx.send(LibraryEvent::ScanComplete);
             let _ = event_tx.send(scan_outcome(ok));
+            if ok {
+                Self::sync_folder_playlists(&*repo, &event_tx, state, true);
+            }
             return;
         }
 
@@ -1822,6 +1929,9 @@ impl LibraryService {
         let _ = event_tx.send(LibraryEvent::CatalogChanged);
         let _ = event_tx.send(LibraryEvent::ScanComplete);
         let _ = event_tx.send(scan_outcome(ok));
+        if ok {
+            Self::sync_folder_playlists(&*repo, &event_tx, state, true);
+        }
     }
 }
 

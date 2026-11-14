@@ -24,6 +24,7 @@ members = [
     "crates/ui_components",
     "crates/ui_resources",
     "crates/cue_parser",
+    "crates/playlist_file",
     "crates/diagnostics",
     "crates/updater",
     "crates/lyrics",

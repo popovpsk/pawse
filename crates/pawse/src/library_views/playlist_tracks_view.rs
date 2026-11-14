@@ -69,6 +69,7 @@ enum Item {
 pub struct PlaylistTracksView {
     name: SharedString,
     source: QueueSource,
+    editable: bool,
     tracks_all: Vec<Rc<music_library::Track>>,
     row_data: Vec<CoverTrackRow>,
     names: TrackNames,
@@ -93,6 +94,7 @@ impl PlaylistTracksView {
     pub fn new(
         name: SharedString,
         source: QueueSource,
+        editable: bool,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -204,6 +206,7 @@ impl PlaylistTracksView {
         let mut this = Self {
             name,
             source,
+            editable,
             unavailable: unavailable_label(&tracks_all, prefs.unavailable),
             tracks_all,
             row_data: Vec::new(),
@@ -341,6 +344,7 @@ impl Render for PlaylistTracksView {
 
         let p = PlaylistTrackRowParams {
             source: self.source,
+            editable: self.editable,
             border,
             list_hover,
             muted,
@@ -406,6 +410,7 @@ fn load_tracks(source: QueueSource, library: &LibraryService) -> Vec<Rc<music_li
 
 struct PlaylistTrackRowParams {
     source: QueueSource,
+    editable: bool,
     border: gpui::Hsla,
     list_hover: gpui::Hsla,
     muted: gpui::Hsla,
@@ -431,7 +436,7 @@ fn playlist_track_row(
     let is_playing = view.is_playing;
     let track_for_queue = view.tracks_all[row.track_all_ix].clone();
     let remove_playlist_id = match p.source {
-        QueueSource::Playlist(id) => Some(id),
+        QueueSource::Playlist(id) if p.editable => Some(id),
         _ => None,
     };
     let can_reorder = remove_playlist_id.is_some() && view.filter.is_empty();

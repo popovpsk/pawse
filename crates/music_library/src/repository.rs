@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use crate::error::Result;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
-    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
-    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
-    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
-    StoredLyrics, Track, TrackAnalysis, TrackListing,
+    CoverArt, DeliveryOutcome, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally,
+    PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
+    ScanTrack, SoundGenres, SourceSummary, StoredLyrics, Track, TrackAnalysis, TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -154,6 +154,15 @@ pub trait LibraryRepository: Send + Sync {
     fn move_liked_track(&self, from: usize, to: usize) -> Result<()>;
     fn tracks_for_playlist(&self, playlist_id: i64) -> Result<Vec<Track>>;
     fn playlists_containing_track(&self, track_id: i64) -> Result<Vec<i64>>;
+    fn local_items_by_path(&self, paths: &[String]) -> Result<HashMap<String, Vec<i64>>>;
+    fn local_paths(&self) -> Result<Vec<String>>;
+    fn file_playlist_stamps(&self) -> Result<HashMap<String, (i64, i64)>>;
+    fn apply_file_playlists(
+        &self,
+        upsert: &[FilePlaylist],
+        remove: &[String],
+    ) -> Result<FilePlaylistChanges>;
+    fn clear_file_playlists(&self) -> Result<bool>;
 
     fn lyrics_variants(&self, track_id: i64) -> Result<Vec<StoredLyrics>>;
     fn upsert_lyrics(&self, track_id: i64, text: &str, source: &str, not_found: bool)

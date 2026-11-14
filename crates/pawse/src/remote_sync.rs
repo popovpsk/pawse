@@ -264,30 +264,57 @@ pub fn import_playlists(
         .into_iter()
         .collect();
     let items = repo.items_by_remote_key(source_id, &keys)?;
+    let found = remote
+        .into_iter()
+        .map(|playlist| {
+            let mut seen = HashSet::new();
+            let unique: Vec<&str> = playlist
+                .keys
+                .iter()
+                .map(String::as_str)
+                .filter(|key| seen.insert(*key))
+                .collect();
+            let found: Vec<i64> = unique
+                .iter()
+                .filter_map(|key| items.get(*key).copied())
+                .collect();
+            FoundPlaylist {
+                name: playlist.name,
+                found: found.len(),
+                total: unique.len(),
+                items: found,
+            }
+        })
+        .collect();
+    Ok(copy_into_playlists(repo, found)?)
+}
+
+pub struct FoundPlaylist {
+    pub name: String,
+    pub items: Vec<i64>,
+    pub found: usize,
+    pub total: usize,
+}
+
+pub fn copy_into_playlists(
+    repo: &dyn LibraryRepository,
+    found: Vec<FoundPlaylist>,
+) -> music_library::Result<(PlaylistImport, Vec<i64>)> {
     let mut local: HashMap<String, i64> = HashMap::new();
     for playlist in repo.playlists()? {
-        local.entry(playlist.name).or_insert(playlist.id);
+        if playlist.file_path.is_none() {
+            local.entry(playlist.name).or_insert(playlist.id);
+        }
     }
     let mut report = PlaylistImport::default();
     let mut touched = Vec::new();
-    for playlist in remote {
-        let mut seen = HashSet::new();
-        let unique: Vec<&str> = playlist
-            .keys
-            .iter()
-            .map(String::as_str)
-            .filter(|key| seen.insert(*key))
-            .collect();
-        let found: Vec<i64> = unique
-            .iter()
-            .filter_map(|key| items.get(*key).copied())
-            .collect();
-        report.total += unique.len();
-        report.found += found.len();
-        if found.is_empty() {
+    for playlist in found {
+        report.total += playlist.total;
+        report.found += playlist.found;
+        let name = playlist.name.trim();
+        if playlist.items.is_empty() || name.is_empty() {
             continue;
         }
-        let name = playlist.name.trim();
         let (id, created) = match local.get(name) {
             Some(&id) => (id, false),
             None => {
@@ -296,7 +323,7 @@ pub fn import_playlists(
                 (id, true)
             }
         };
-        let added = repo.add_tracks_to_playlist(id, &found)?;
+        let added = repo.add_tracks_to_playlist(id, &playlist.items)?;
         report.added += added;
         if (created || added > 0) && !touched.contains(&id) {
             touched.push(id);

@@ -363,6 +363,22 @@ pub struct PlaylistSummary {
     pub name: String,
     pub created_at: i64,
     pub track_count: i64,
+    pub file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilePlaylist {
+    pub path: String,
+    pub name: String,
+    pub mtime: i64,
+    pub size: i64,
+    pub items: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FilePlaylistChanges {
+    pub listing: bool,
+    pub tracks: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

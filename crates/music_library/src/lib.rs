@@ -14,10 +14,10 @@ pub use error::{LibraryError, Result};
 pub use genres::normalize_genres;
 pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow, ArtistSummary,
-    ArtistTitles, CoverArt, GenreSort, GenreSummary, LocalFolder, NewTrack, PlayStats, PlayTally,
-    Playlist, PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
-    ScanLyrics, ScanTrack, SoundGenres, SourceSummary, StoredLyrics, Track, TrackAnalysis,
-    TrackListing, lyrics_source,
+    ArtistTitles, CoverArt, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
+    LocalFolder, NewTrack, PlayStats, PlayTally, Playlist, PlaylistSummary, RecentPlay,
+    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, SoundGenres,
+    SourceSummary, StoredLyrics, Track, TrackAnalysis, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, clean_album_title, compute_sort_name, sha256_hex};
@@ -1937,6 +1937,168 @@ mod tests {
         session.finish().unwrap();
     }
 
+    fn music_folder(lib: &SqliteLibrary, path: &str) {
+        lib.reconcile_local_sources(&[LocalFolder {
+            path: path.into(),
+            available: true,
+        }])
+        .unwrap();
+    }
+
+    fn id_at(lib: &SqliteLibrary, path: &str, offset: i32) -> i64 {
+        lib.all_tracks()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.path == path && t.start_offset_ms == offset)
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn local_paths_resolve_to_items_of_enabled_folders_in_cue_order() {
+        let (lib, _path) = create_test_db();
+        music_folder(&lib, "/m");
+        let piece = |offset: u64, title: &str| ScanTrack {
+            start_offset_ms: Some(offset),
+            is_cue: true,
+            ..scan_track("/m/disc.flac", title)
+        };
+        scan(
+            &lib,
+            vec![
+                scan_track("/m/a.flac", "A"),
+                piece(60_000, "Second"),
+                piece(0, "First"),
+            ],
+        );
+        let a = id_at(&lib, "/m/a.flac", 0);
+        let first = id_at(&lib, "/m/disc.flac", 0);
+        let second = id_at(&lib, "/m/disc.flac", 60_000);
+
+        let found = lib
+            .local_items_by_path(&[
+                "/m/a.flac".into(),
+                "/m/disc.flac".into(),
+                "/m/b.flac".into(),
+            ])
+            .unwrap();
+        assert_eq!(found.get("/m/a.flac"), Some(&vec![a]));
+        assert_eq!(found.get("/m/disc.flac"), Some(&vec![first, second]));
+        assert!(!found.contains_key("/m/b.flac"));
+        let mut paths = lib.local_paths().unwrap();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec!["/m/a.flac".to_string(), "/m/disc.flac".to_string()]
+        );
+
+        music_folder(&lib, "/other");
+        assert!(
+            lib.local_items_by_path(&["/m/a.flac".into()])
+                .unwrap()
+                .is_empty()
+        );
+        assert!(lib.local_paths().unwrap().is_empty());
+    }
+
+    fn mirror(path: &str, name: &str, items: Vec<i64>) -> FilePlaylist {
+        FilePlaylist {
+            path: path.into(),
+            name: name.into(),
+            mtime: 1,
+            size: 2,
+            items,
+        }
+    }
+
+    #[test]
+    fn a_file_playlist_follows_its_file_and_stays_read_only() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        let b = seed_track(&lib, "B", "Album", "Artist");
+        let entries = |id: i64| -> Vec<i64> {
+            lib.tracks_for_playlist(id)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect()
+        };
+
+        let changes = lib
+            .apply_file_playlists(&[mirror("/m/list.m3u", "List", vec![b, a, b])], &[])
+            .unwrap();
+        assert!(changes.listing);
+        assert!(changes.tracks.is_empty());
+        let own = lib.create_playlist("Mine").unwrap();
+        let listed = lib.playlists().unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|p| (p.name.as_str(), p.file_path.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![("Mine", None), ("List", Some("/m/list.m3u"))]
+        );
+        let id = listed[1].id;
+        assert_eq!(entries(id), vec![b, a]);
+
+        lib.rename_playlist(id, "Renamed").unwrap();
+        assert_eq!(lib.add_tracks_to_playlist(id, &[a, b]).unwrap(), 0);
+        lib.remove_track_from_playlist(id, a).unwrap();
+        lib.move_track_in_playlist(id, 0, 1).unwrap();
+        lib.delete_playlist(id).unwrap();
+        assert_eq!(entries(id), vec![b, a]);
+        assert_eq!(lib.playlists().unwrap()[1].name, "List");
+
+        let same = lib
+            .apply_file_playlists(&[mirror("/m/list.m3u", "List", vec![b, a])], &[])
+            .unwrap();
+        assert_eq!(same, FilePlaylistChanges::default());
+        let edited = lib
+            .apply_file_playlists(&[mirror("/m/list.m3u", "List", vec![a])], &[])
+            .unwrap();
+        assert_eq!(edited.tracks, vec![id]);
+        assert_eq!(entries(id), vec![a]);
+
+        lib.apply_file_playlists(&[mirror("/m/empty.m3u", "Empty", vec![])], &[])
+            .unwrap();
+        assert_eq!(lib.playlists().unwrap().len(), 2);
+        assert_eq!(lib.file_playlist_stamps().unwrap().len(), 2);
+
+        let removed = lib
+            .apply_file_playlists(&[], &["/m/list.m3u".into()])
+            .unwrap();
+        assert!(removed.listing);
+        assert!(lib.clear_file_playlists().unwrap());
+        assert!(lib.file_playlist_stamps().unwrap().is_empty());
+        assert_eq!(
+            lib.playlists()
+                .unwrap()
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            vec![own]
+        );
+    }
+
+    #[test]
+    fn a_file_replacing_another_never_gets_its_playlist_id() {
+        let (lib, _path) = create_test_db();
+        let a = seed_track(&lib, "A", "Album", "Artist");
+        lib.apply_file_playlists(&[mirror("/m/old.m3u", "Old", vec![a])], &[])
+            .unwrap();
+        let old = lib.playlists().unwrap()[0].id;
+
+        lib.apply_file_playlists(
+            &[mirror("/m/new.m3u", "New", vec![a])],
+            &["/m/old.m3u".into()],
+        )
+        .unwrap();
+        let listed = lib.playlists().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "New");
+        assert_ne!(listed[0].id, old);
+    }
+
     #[test]
     fn a_track_knows_where_it_lives() {
         let track = |path: &str, is_cue: bool| Track {
@@ -3161,6 +3323,48 @@ mod tests {
         assert_eq!(id_of(&lib, "/a/y.flac"), liked);
         assert_eq!(lib.liked_tracks().unwrap().len(), 1);
         assert!(lib.liked_tracks().unwrap()[0].available);
+    }
+
+    #[test]
+    fn a_copy_in_a_folder_playlist_still_takes_over_a_lost_like() {
+        let (lib, _path) = create_test_db();
+        lib.reconcile_local_sources(&folders(&["/music"])).unwrap();
+        scan(&lib, vec![scan_track("/music/a.flac", "A")]);
+        let original = id_of(&lib, "/music/a.flac");
+        lib.set_liked(original, true).unwrap();
+        scan(
+            &lib,
+            vec![
+                scan_track("/music/a.flac", "A"),
+                scan_track("/music/copy/a.flac", "A"),
+            ],
+        );
+        let copy_id = id_of(&lib, "/music/copy/a.flac");
+        lib.apply_file_playlists(
+            &[FilePlaylist {
+                path: "/music/copy/album.m3u".into(),
+                name: "album".into(),
+                mtime: 1,
+                size: 1,
+                items: vec![copy_id],
+            }],
+            &[],
+        )
+        .unwrap();
+        let mirror = lib.playlists().unwrap()[0].id;
+
+        scan(&lib, vec![scan_track("/music/copy/a.flac", "A")]);
+
+        assert_eq!(id_of(&lib, "/music/copy/a.flac"), original);
+        assert!(lib.liked_tracks().unwrap()[0].available);
+        assert_eq!(
+            lib.tracks_for_playlist(mirror)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect::<Vec<_>>(),
+            vec![original]
+        );
     }
 
     #[test]

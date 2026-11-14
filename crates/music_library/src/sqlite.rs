@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -14,10 +14,10 @@ use crate::error::{LibraryError, Result};
 use crate::migrations::MIGRATIONS;
 use crate::models::{
     AlbumSearchEntry, AlbumSummary, ArtistGrouping, ArtistInfoRow, ArtistSummary, ArtistTitles,
-    CoverArt, DeliveryOutcome, GenreSort, GenreSummary, LocalFolder, NewLove, NewPlay, NewTrack,
-    PendingLove, PendingPlay, PlayStats, PlayTally, PlaylistSummary, RecentPlay, RemoteCover,
-    RemoteSong, RemoteSource, RemoteSyncReport, ScanTrack, SoundGenres, SourceSummary,
-    StoredLyrics, Track, TrackAnalysis, TrackListing,
+    CoverArt, DeliveryOutcome, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
+    LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally,
+    PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
+    ScanTrack, SoundGenres, SourceSummary, StoredLyrics, Track, TrackAnalysis, TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -689,7 +689,10 @@ const PROJECTABLE_REMOTE_TRACKS: &str = "SELECT b.item_id, b.source_id, b.source
             AND c.source_id <> b.source_id AND cs.enabled = 1 AND cs.available = 1)) \
     ORDER BY b.item_id, s.id, b.id";
 
+const PATH_LOOKUP_CHUNK: usize = 256;
+
 const ITEMS_WITH_USER_DATA: &str = "SELECT track_id FROM playlist_tracks \
+    WHERE playlist_id IN (SELECT id FROM playlists WHERE file_path IS NULL) \
     UNION SELECT track_id FROM lyrics WHERE source NOT IN ('lrc', 'embedded') \
     UNION SELECT track_id FROM plays WHERE track_id IS NOT NULL \
     UNION SELECT track_id FROM loves WHERE track_id IS NOT NULL";
@@ -702,7 +705,7 @@ const UNWRITE_TRACK: [&str; 5] = [
     "DELETE FROM tracks WHERE id = ?1",
 ];
 
-const ABSORB_ITEM: [&str; 9] = [
+const ABSORB_ITEM: [&str; 11] = [
     "UPDATE tracks SET id = ?1 WHERE id = ?2",
     "UPDATE track_artists SET track_id = ?1 WHERE track_id = ?2",
     "UPDATE track_album_artists SET track_id = ?1 WHERE track_id = ?2",
@@ -714,6 +717,8 @@ const ABSORB_ITEM: [&str; 9] = [
     "DELETE FROM lyrics WHERE track_id = ?2",
     "UPDATE media_bindings SET item_id = ?1 WHERE item_id = ?2",
     "DELETE FROM adoptions WHERE item_id = ?2",
+    "UPDATE OR IGNORE playlist_tracks SET track_id = ?1 WHERE track_id = ?2",
+    "DELETE FROM playlist_tracks WHERE track_id = ?2",
     "DELETE FROM media_items WHERE id = ?2",
 ];
 
@@ -1245,6 +1250,107 @@ fn create_item(
     let item_id = conn.last_insert_rowid();
     let binding_id = bind_item(conn, item_id, spec)?;
     Ok((binding_id, item_id))
+}
+
+fn apply_file_playlists(
+    conn: &mut Connection,
+    upsert: &[FilePlaylist],
+    remove: &[String],
+) -> Result<FilePlaylistChanges> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let mut changes = FilePlaylistChanges::default();
+    let now = unix_now();
+    for playlist in upsert {
+        let mut seen = HashSet::new();
+        let items: Vec<i64> = playlist
+            .items
+            .iter()
+            .copied()
+            .filter(|item| seen.insert(*item))
+            .collect();
+        let existing: Option<(i64, String, Option<i64>, Option<i64>)> = tx
+            .query_row(
+                "SELECT id, name, file_mtime, file_size FROM playlists WHERE file_path = ?1",
+                [&playlist.path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?;
+        let id = match existing {
+            Some((id, name, mtime, size)) => {
+                if name != playlist.name
+                    || mtime != Some(playlist.mtime)
+                    || size != Some(playlist.size)
+                {
+                    tx.execute(
+                        "UPDATE playlists SET name = ?2, file_mtime = ?3, file_size = ?4 \
+                         WHERE id = ?1",
+                        rusqlite::params![id, playlist.name, playlist.mtime, playlist.size],
+                    )?;
+                }
+                if name != playlist.name {
+                    changes.listing = true;
+                }
+                let current: Vec<i64> = {
+                    let mut stmt = tx.prepare_cached(
+                        "SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1 \
+                         ORDER BY position",
+                    )?;
+                    let rows = stmt.query_map([id], |row| row.get(0))?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()?
+                };
+                if current == items {
+                    continue;
+                }
+                tx.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", [id])?;
+                changes.tracks.push(id);
+                changes.listing = true;
+                id
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO playlists (name, created_at, file_path, file_mtime, file_size) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        playlist.name,
+                        now,
+                        playlist.path,
+                        playlist.mtime,
+                        playlist.size
+                    ],
+                )?;
+                changes.listing |= !items.is_empty();
+                tx.last_insert_rowid()
+            }
+        };
+        let mut insert = tx.prepare_cached(
+            "INSERT OR IGNORE INTO playlist_tracks (playlist_id, position, track_id) \
+             SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM media_items WHERE id = ?3)",
+        )?;
+        let mut position: i64 = 0;
+        for item in &items {
+            if insert.execute(rusqlite::params![id, position, item])? > 0 {
+                position += 1;
+            }
+        }
+    }
+    for path in remove {
+        if tx.execute("DELETE FROM playlists WHERE file_path = ?1", [path])? > 0 {
+            changes.listing = true;
+        }
+    }
+    tx.commit()?;
+    Ok(changes)
+}
+
+fn is_file_playlist(conn: &Connection, playlist_id: i64) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT file_path IS NOT NULL FROM playlists WHERE id = ?1",
+            [playlist_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
 }
 
 fn resolve_local_item(
@@ -2869,14 +2975,17 @@ impl LibraryRepository for SqliteLibrary {
 
     fn delete_playlist(&self, playlist_id: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM playlists WHERE id = ?1", [playlist_id])?;
+        conn.execute(
+            "DELETE FROM playlists WHERE id = ?1 AND file_path IS NULL",
+            [playlist_id],
+        )?;
         Ok(())
     }
 
     fn rename_playlist(&self, playlist_id: i64, name: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE playlists SET name = ?2 WHERE id = ?1 AND id != ?3",
+            "UPDATE playlists SET name = ?2 WHERE id = ?1 AND id != ?3 AND file_path IS NULL",
             rusqlite::params![playlist_id, name, self.liked_playlist_id],
         )?;
         Ok(())
@@ -2890,12 +2999,20 @@ impl LibraryRepository for SqliteLibrary {
                 p.id,
                 p.name,
                 p.created_at,
-                COUNT(pt.track_id) AS track_count
+                COUNT(pt.track_id) AS track_count,
+                p.file_path
             FROM playlists p
             LEFT JOIN playlist_tracks pt ON pt.playlist_id = p.id
             WHERE p.id != ?1
             GROUP BY p.id
-            ORDER BY p.created_at ASC, p.id ASC
+            HAVING p.file_path IS NULL OR COUNT(pt.track_id) > 0
+            ORDER BY
+                p.file_path IS NOT NULL,
+                CASE WHEN p.file_path IS NULL THEN p.created_at END,
+                CASE WHEN p.file_path IS NULL THEN p.id END,
+                p.name COLLATE NOCASE,
+                p.file_path,
+                p.id
             "#,
         )?;
         let rows = stmt.query_map([self.liked_playlist_id], |row| {
@@ -2904,6 +3021,7 @@ impl LibraryRepository for SqliteLibrary {
                 name: row.get(1)?,
                 created_at: row.get(2)?,
                 track_count: row.get(3)?,
+                file_path: row.get(4)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -2918,6 +3036,9 @@ impl LibraryRepository for SqliteLibrary {
     fn add_tracks_to_playlist(&self, playlist_id: i64, track_ids: &[i64]) -> Result<usize> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if is_file_playlist(&tx, playlist_id)? {
+            return Ok(0);
+        }
         let mut next_position: i64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?1",
@@ -2948,6 +3069,9 @@ impl LibraryRepository for SqliteLibrary {
     fn remove_track_from_playlist(&self, playlist_id: i64, track_id: i64) -> Result<()> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if is_file_playlist(&tx, playlist_id)? {
+            return Ok(());
+        }
         // Remove the lowest-position occurrence of the track (Spotify-ish: if
         // the same track is in the playlist multiple times, removes one copy).
         let position: Option<i64> = tx
@@ -2982,6 +3106,9 @@ impl LibraryRepository for SqliteLibrary {
         }
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if is_file_playlist(&tx, playlist_id)? {
+            return Ok(());
+        }
         let mut ids: Vec<i64> = {
             let mut stmt = tx.prepare(
                 "SELECT track_id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position",
@@ -3068,6 +3195,86 @@ impl LibraryRepository for SqliteLibrary {
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(LibraryError::Database)
+    }
+
+    fn local_items_by_path(&self, paths: &[String]) -> Result<HashMap<String, Vec<i64>>> {
+        let mut found: HashMap<String, Vec<i64>> = HashMap::new();
+        for chunk in paths.chunks(PATH_LOOKUP_CHUNK) {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare_cached(
+                "SELECT b.item_id FROM media_bindings b JOIN sources s ON s.id = b.source_id \
+                 WHERE b.source_key = ?1 AND b.present = 1 AND s.kind = 'local' \
+                 AND s.enabled = 1 ORDER BY b.start_offset_ms, b.id",
+            )?;
+            for path in chunk {
+                if found.contains_key(path) {
+                    continue;
+                }
+                let mut items: Vec<i64> = Vec::new();
+                for item in stmt.query_map([path], |row| row.get::<_, i64>(0))? {
+                    let item = item?;
+                    if !items.contains(&item) {
+                        items.push(item);
+                    }
+                }
+                if !items.is_empty() {
+                    found.insert(path.clone(), items);
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    fn local_paths(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT b.source_key FROM media_bindings b \
+             JOIN sources s ON s.id = b.source_id \
+             WHERE b.present = 1 AND s.kind = 'local' AND s.enabled = 1",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn file_playlist_stamps(&self) -> Result<HashMap<String, (i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT file_path, COALESCE(file_mtime, 0), COALESCE(file_size, 0) \
+             FROM playlists WHERE file_path IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?)))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn apply_file_playlists(
+        &self,
+        upsert: &[FilePlaylist],
+        remove: &[String],
+    ) -> Result<FilePlaylistChanges> {
+        if upsert.is_empty() && remove.is_empty() {
+            return Ok(FilePlaylistChanges::default());
+        }
+        let mut conn = Connection::open(&self.db_path)?;
+        apply_pragmas(&conn)?;
+        apply_file_playlists(&mut conn, upsert, remove)
+    }
+
+    fn clear_file_playlists(&self) -> Result<bool> {
+        let any: bool = self.conn.lock().unwrap().query_row(
+            "SELECT EXISTS (SELECT 1 FROM playlists WHERE file_path IS NOT NULL)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !any {
+            return Ok(false);
+        }
+        let conn = Connection::open(&self.db_path)?;
+        apply_pragmas(&conn)?;
+        Ok(conn.execute("DELETE FROM playlists WHERE file_path IS NOT NULL", [])? > 0)
     }
 
     fn lyrics_variants(&self, track_id: i64) -> Result<Vec<StoredLyrics>> {

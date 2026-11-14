@@ -535,4 +535,14 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         DELETE FROM lyrics WHERE source = 'lrclib';
         "#,
     ),
+    (
+        16,
+        r#"
+        ALTER TABLE playlists ADD COLUMN file_path TEXT;
+        ALTER TABLE playlists ADD COLUMN file_mtime INTEGER;
+        ALTER TABLE playlists ADD COLUMN file_size INTEGER;
+        CREATE UNIQUE INDEX idx_playlists_file_path ON playlists(file_path)
+            WHERE file_path IS NOT NULL;
+        "#,
+    ),
 ];

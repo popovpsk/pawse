@@ -2,7 +2,7 @@
 
 The library screens: the root tabs (Albums, Artists, Genres, Liked, Playlists), the
 pages reached from them (album, artist, genre, playlist, All tracks), the view-options
-menu next to the header search, and the server playlist import dialog. Views read
+menu next to the header search, and the playlist import dialog. Views read
 `LibraryService` synchronously, follow `LibraryEventsBus`, `PlaybackStatus` (current
 row) and the engine bus (play/pause icon), and start playback through `crate::track_list`.
 
@@ -34,8 +34,9 @@ trigger (`main_view/doc.md`).
 - `grouped_tracks_view.rs` — artist page and genre page (`Scope`), tracks grouped by album.
 - `liked_view.rs` — Liked tab.
 - `playlist_tracks_view.rs` — one playlist, or All tracks.
-- `playlists_view.rs` — Playlists tab: list, create / rename / delete, Import and AI.
-- `playlist_import.rs` — server playlist import dialog.
+- `playlists_view.rs` — Playlists tab: list, create / rename / delete, the folder
+  playlists button, Import and AI.
+- `playlist_import.rs` — import dialog: playlist files, then servers.
 - `track_row.rs` — shared by the track pages: Liked/playlist columns, the guest-credit
   rule, search haystacks, the unavailable label. `build_artist_map` is used by the queue.
 
@@ -199,15 +200,23 @@ trigger (`main_view/doc.md`).
   unplayable tracks anyway). The "Unavailable: N" label is computed when tracks change.
 - Playlists tab: "New playlist" and All tracks are list items that scroll away (plain
   rows when no playlist row is shown). Create and rename are inline inputs; blur cancels
-  only an empty or unchanged name, so ✓ still works; delete confirms inline. Import
-  shows while a server that imports playlists is configured (`can_import`, refreshed by
-  the settings observer); AI dispatches `tools::OpenAiPlaylist`.
+  only an empty or unchanged name, so ✓ still works; delete confirms inline. Import is
+  always there (files); AI dispatches `tools::OpenAiPlaylist`. The folder button toggles
+  `folder_playlists` (`LibraryService::set_folder_playlists`) and shows selected while on.
+  Folder playlists follow own playlists with the folder icon and their folder's name under
+  the title, and have no rename or delete; their page has no reorder or remove
+  (`PlaylistTracksView` `editable`).
 - Import dialog: `PlaylistImport` is owned by `PlaylistsView`, so closing the dialog
-  mid-import loses nothing. A syncing server's import is disabled (its songs have no
-  bindings yet); the service refuses too (`RemoteError::Syncing`), and the dialog shows
-  no result for that. The scope (only mine / all available) is one choice for every
+  mid-import loses nothing. The files section is always shown; the servers section only
+  while a server that imports playlists is configured. Files or folders picked together
+  import together, with one result line. Both buttons are disabled while a picker is open
+  (on Windows and Linux it does not block the window) and during the import, when the one
+  pressed spins. The file filter lists upper-case extensions too: GTK matches the
+  portal's `*.m3u` globs case-sensitively. A syncing server's import is disabled (its
+  songs have no bindings yet); the service refuses too (`RemoteError::Syncing`), and the
+  dialog shows no result for that. The scope (only mine / all available) is one choice for every
   server, default mine; the hint under "all" warns that a server admin also gets other
-  users' private playlists. What an import does: `pawse/src/doc.md`, "Server playlist
+  users' private playlists. What an import does: `pawse/src/doc.md`, "Playlist
   import".
 
 ## View menu

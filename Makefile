@@ -278,6 +278,7 @@ SAN_CRATES = \
 MIRI_CRATES = \
 	-p audio_common \
 	-p cue_parser \
+	-p playlist_file \
 	-p audio_decoder
 
 .PHONY: test test-careful test-asan test-tsan test-miri test-leaks test-san test-full help-test

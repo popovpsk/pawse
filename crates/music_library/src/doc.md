@@ -302,6 +302,30 @@ album apart.
   `media_items`: one without a `tracks` row comes back with `available = false` and its
   fields from the snapshot. Positions must line up with what the UI shows, or
   `move_track_in_playlist` moves the wrong row.
+- `playlists.file_path` (migration 16) marks a folder playlist, a read-only copy of a
+  playlist file in a music folder (`pawse/src/doc.md`, "Folder playlists").
+  `apply_file_playlists` writes them: in one `BEGIN IMMEDIATE` it upserts by path (name,
+  stamp and entries each written only when they differ, reported in
+  `FilePlaylistChanges`), then deletes the given paths. Inserts go first because a new
+  row takes max(id)+1: after the delete it could get a removed mirror's id, which the
+  queue would still follow. `clear_file_playlists` drops them all, after a read shows
+  there are any. `ABSORB_ITEM` also moves mirror entries and may leave a gap in their
+  positions; nothing addresses a mirror's entries by index. Both write on their own connection, as `apply_remote_listing`
+  does: they run after every scan, and waiting on a server listing's lock must not hold
+  `conn`. With the feature off a scan writes nothing.
+  `rename_playlist`, `delete_playlist`, `add_tracks_to_playlist`,
+  `remove_track_from_playlist` and `move_track_in_playlist` leave one untouched.
+- `playlists()` lists own playlists first (creation order), then folder playlists by
+  name. A folder playlist with no entries is kept, so its stamp spares re-reading the
+  file, but not listed.
+- Folder playlist entries are user rows for the item guard and the sweep: they keep an
+  item until the next sync drops the entry. They are not user data for
+  `revive_lost_items` (`ITEMS_WITH_USER_DATA`): a copy that only a folder playlist lists
+  is still a spare a lost like can take, and `ABSORB_ITEM` moves those entries onto the
+  surviving item.
+- `local_items_by_path` and `local_paths` see present bindings of enabled local sources
+  only, keyed by `source_key` (the absolute path); a cue image's path gives every piece
+  in offset order.
 - `track_artists_map` and `track_albums_map` fall back to the snapshot for ids with no
   catalog row. They and `known_album_artists_map` bind ids as one JSON parameter:
   callers pass the whole library and SQLite caps parameters.

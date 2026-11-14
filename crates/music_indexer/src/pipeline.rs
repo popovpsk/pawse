@@ -18,7 +18,7 @@ use music_library::thumbnail::generate_thumbnails;
 
 use crate::cue;
 use crate::metadata::{CoverCache, read_metadata_cached};
-use crate::types::{CoverArt, ScanEvent, ScannedTrack, SourceSet};
+use crate::types::{CoverArt, ScanEvent, ScannedTrack, SourceSet, StampedFile};
 
 pub const AUDIO_EXTENSIONS: &[&str] = &[
     "mp3", "flac", "ogg", "oga", "wav", "aif", "aiff", "m4a", "aac", "wma", "ape", "wv", "opus",
@@ -72,6 +72,7 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
     let mut listing: Vec<(String, u128, u64)> = Vec::new();
     let mut cue_files = Vec::new();
     let mut audio_files = Vec::new();
+    let mut playlist_files = Vec::new();
 
     for folder in folders {
         let walk = WalkDirGeneric::<((), Option<(u128, u64)>)>::new(folder)
@@ -82,14 +83,16 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
                     if !entry.file_type.is_file() {
                         continue;
                     }
-                    let relevant = Path::new(&entry.file_name)
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .map(|e| {
-                            let (a, c, i, l) = classify(e);
-                            a || c || i || l
-                        })
-                        .unwrap_or(false);
+                    let name = Path::new(&entry.file_name);
+                    let relevant = playlist_file::is_playlist(name)
+                        || name
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| {
+                                let (a, c, i, l) = classify(e);
+                                a || c || i || l
+                            })
+                            .unwrap_or(false);
                     if relevant && let Ok(md) = entry.metadata() {
                         let mtime = md
                             .modified()
@@ -120,6 +123,14 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
                 cue_files.push(path);
             } else if is_audio {
                 audio_files.push(path);
+            } else if playlist_file::is_playlist(&path)
+                && let Some((mtime, size)) = entry.client_state
+            {
+                playlist_files.push(StampedFile {
+                    path,
+                    mtime: i64::try_from(mtime).unwrap_or(i64::MAX),
+                    size: i64::try_from(size).unwrap_or(i64::MAX),
+                });
             }
         }
     }
@@ -136,6 +147,7 @@ pub fn collect_sources(folders: &[PathBuf]) -> SourceSet {
     SourceSet {
         cue_files,
         audio_files,
+        playlist_files,
         fingerprint,
     }
 }

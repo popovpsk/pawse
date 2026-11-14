@@ -5674,6 +5674,7 @@ dependencies = [
  "lofty",
  "log",
  "music_library",
+ "playlist_file",
  "rstest",
 ]
 
@@ -6718,6 +6719,7 @@ dependencies = [
  "nucleo-matcher",
  "objc2-foundation 0.3.2",
  "pawse_remote",
+ "playlist_file",
  "rand 0.9.5",
  "raw-window-handle",
  "rfd",
@@ -6903,6 +6905,16 @@ name = "pkg-config"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
+
+[[package]]
+name = "playlist_file"
+version = "1.0.0"
+dependencies = [
+ "chardetng",
+ "encoding_rs",
+ "icu_normalizer",
+ "rstest",
+]
 
 [[package]]
 name = "plist"

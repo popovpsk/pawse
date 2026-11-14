@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
@@ -7,7 +8,7 @@ use gpui::{
     StatefulInteractiveElement, Styled, Subscription, Window, div, px, size, svg,
 };
 use gpui_component::{
-    Icon, Sizable, VirtualListScrollHandle,
+    Icon, Selectable, Sizable, VirtualListScrollHandle,
     button::{Button, ButtonVariants},
     h_flex,
     input::{self, Input, InputEvent, InputState},
@@ -47,6 +48,7 @@ struct PlaylistRowData {
     id: i64,
     name: SharedString,
     count_label: SharedString,
+    folder: Option<SharedString>,
 }
 
 impl PlaylistRowData {
@@ -55,6 +57,13 @@ impl PlaylistRowData {
             id: summary.id,
             name: summary.name.clone().into(),
             count_label: tr().n_tracks(summary.track_count).into(),
+            folder: summary.file_path.as_deref().map(|path| {
+                Path::new(path)
+                    .parent()
+                    .and_then(Path::file_name)
+                    .map(|name| SharedString::from(name.to_string_lossy().into_owned()))
+                    .unwrap_or_default()
+            }),
         }
     }
 }
@@ -90,7 +99,7 @@ pub struct PlaylistsView {
     rename_input: Entity<InputState>,
     item_sizes: Rc<Vec<Size<Pixels>>>,
     scroll_handle: VirtualListScrollHandle,
-    can_import: bool,
+    folder_playlists: bool,
     import: Entity<PlaylistImport>,
     _subscription: Subscription,
     _create_subscription: Subscription,
@@ -170,13 +179,13 @@ impl PlaylistsView {
         });
 
         let settings_observer = cx.observe_global::<SettingsStore>(|this: &mut Self, cx| {
-            let can_import = playlist_import::available(cx);
-            if this.can_import != can_import {
-                this.can_import = can_import;
+            let folder_playlists = cx.global::<SettingsStore>().folder_playlists();
+            if this.folder_playlists != folder_playlists {
+                this.folder_playlists = folder_playlists;
                 cx.notify();
             }
         });
-        let can_import = playlist_import::available(cx);
+        let folder_playlists = cx.global::<SettingsStore>().folder_playlists();
         let import = cx.new(PlaylistImport::new);
 
         Self {
@@ -196,7 +205,7 @@ impl PlaylistsView {
             rename_input,
             item_sizes: Rc::new(item_sizes),
             scroll_handle: VirtualListScrollHandle::new(),
-            can_import,
+            folder_playlists,
             import,
             _subscription: subscription,
             _create_subscription: create_subscription,
@@ -288,6 +297,21 @@ impl PlaylistsView {
         cx.notify();
     }
 
+    fn toggle_folder_playlists(&mut self, cx: &mut Context<Self>) {
+        let enabled = !self.folder_playlists;
+        if let Err(e) = cx
+            .global_mut::<SettingsStore>()
+            .set_folder_playlists(enabled)
+        {
+            crate::settings_store::notify_save_error(cx, e);
+        }
+        cx.global::<Services>()
+            .library
+            .set_folder_playlists(enabled);
+        self.folder_playlists = enabled;
+        cx.notify();
+    }
+
     fn start_rename(&mut self, playlist_id: i64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(name) = self
             .playlists_all
@@ -354,7 +378,7 @@ impl Render for PlaylistsView {
             danger_fg: Colors::foreground(cx),
             icon_btn_hover: Colors::accent(cx),
         };
-        let actions = actions_row(self.can_import, cx);
+        let actions = actions_row(self.folder_playlists, cx);
 
         if self.row_data.is_empty() {
             let show_empty_state = self.playlists_all.is_empty() && !self.creating;
@@ -416,8 +440,13 @@ impl Render for PlaylistsView {
     }
 }
 
-fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyElement {
+fn actions_row(folder_playlists: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyElement {
     let strings = playlist_import_strings();
+    let folder_tooltip = if folder_playlists {
+        strings.folder_hide.clone()
+    } else {
+        strings.folder_show.clone()
+    };
     h_flex()
         .w_full()
         .h(px(ACTIONS_HEIGHT))
@@ -426,18 +455,25 @@ fn actions_row(can_import: bool, cx: &mut Context<PlaylistsView>) -> gpui::AnyEl
         .gap_1()
         .items_center()
         .justify_end()
-        .when(can_import, |row| {
-            row.child(
-                Button::new("playlists-import")
-                    .ghost()
-                    .rounded_full()
-                    .icon(Icon::default().path("icons/cloud-download.svg"))
-                    .tooltip(strings.import_tooltip.clone())
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        playlist_import::open(this.import.clone(), window, cx);
-                    })),
-            )
-        })
+        .child(
+            Button::new("playlists-folder-files")
+                .ghost()
+                .rounded_full()
+                .selected(folder_playlists)
+                .icon(Icon::default().path("icons/folder-playlist.svg"))
+                .tooltip(folder_tooltip)
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_folder_playlists(cx))),
+        )
+        .child(
+            Button::new("playlists-import")
+                .ghost()
+                .rounded_full()
+                .icon(Icon::default().path("icons/import.svg"))
+                .tooltip(strings.import_tooltip.clone())
+                .on_click(cx.listener(|this, _, window, cx| {
+                    playlist_import::open(this.import.clone(), window, cx);
+                })),
+        )
         .child(
             Button::new("playlists-ai")
                 .ghost()
@@ -709,6 +745,34 @@ fn playlist_row(
     let playlist_id = row.id;
     let count_label = row.count_label.clone();
     let pending_delete = view.pending_delete_id == Some(playlist_id);
+    let folder = row.folder.clone();
+    let file_backed = folder.is_some();
+    let name: gpui::AnyElement = match folder {
+        Some(folder) => v_flex()
+            .flex_1()
+            .min_w(px(0.))
+            .child(
+                div()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(row.name.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(p.muted_fg)
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(folder),
+            )
+            .into_any_element(),
+        None => div()
+            .flex_1()
+            .overflow_hidden()
+            .text_ellipsis()
+            .child(row.name.clone())
+            .into_any_element(),
+    };
 
     if view.renaming_id == Some(playlist_id) {
         return renaming_row(view, playlist_id, p, cx);
@@ -779,17 +843,15 @@ fn playlist_row(
         .hover(|s| s.bg(p.list_hover))
         .child(
             svg()
-                .path("icons/s1-playlists.svg")
+                .path(if file_backed {
+                    "icons/folder-playlist.svg"
+                } else {
+                    "icons/s1-playlists.svg"
+                })
                 .size(px(20.))
                 .text_color(p.danger_fg),
         )
-        .child(
-            div()
-                .flex_1()
-                .overflow_hidden()
-                .text_ellipsis()
-                .child(row.name.clone()),
-        )
+        .child(name)
         .child(div().text_sm().text_color(p.muted_fg).child(count_label))
         .when(pending_delete, |row| {
             let pid = playlist_id;
@@ -819,8 +881,12 @@ fn playlist_row(
                     ),
             )
         })
-        .when(!pending_delete, |row| {
+        .when(!pending_delete && !file_backed, |row| {
             row.child(pencil_button).child(trash_button)
+        })
+        .when(file_backed, |row| {
+            row.child(div().size(px(ROW_ACTION_SIZE)))
+                .child(div().size(px(ROW_ACTION_SIZE)))
         })
         .id(ElementId::Integer(playlist_id as u64))
         .on_click(cx.listener(move |this, _, _, cx| {

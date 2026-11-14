@@ -70,7 +70,10 @@ Library and sources:
 - `library_scan_indicator.rs` — global entity, the icon left of the search field.
 - `remote_settings.rs` — what the server groups share (list, connect form, remove
   dialog) and the source/sync entry points.
-- `remote_sync.rs` — one server's sync (listing, covers), star and playlist import.
+- `remote_sync.rs` — one server's sync (listing, covers), star and playlist import;
+  `copy_into_playlists`, shared with the file import.
+- `playlist_files.rs` — playlist files: the file import, the folder playlist sync and the
+  entry-to-item resolution both use.
 - `subsonic_settings.rs`, `jellyfin_settings.rs`, `dlna_settings.rs`,
   `torrent_settings.rs` — each kind's connect/add flow and group.
 - `cache_settings.rs` — the network-cache group; `cache_fill.rs` — saving server tracks
@@ -375,8 +378,11 @@ Integrations:
 - `custom` = hand-edited (append, remove, move; not shuffle, a new queue or a playlist
   refresh): replacing a custom queue asks first (`track_list/doc.md`).
 - `QueueSource::Playlist(id)` follows its playlist (`sync_queue_with_playlist` →
-  `refresh_keeping_current`). Mix and continuation set `Unknown`: a playlist-backed queue
-  is rebuilt on every edit and would lose them.
+  `refresh_keeping_current`). A `PlaylistsChanged` after which the playlist is not listed
+  turns the source `Unknown` (`detach_queue_from_gone_playlist`): playlist ids are reused,
+  and a new playlist with the old id would take the queue over on its first edit. Mix and
+  continuation set `Unknown`: a playlist-backed queue is rebuilt on every edit and would
+  lose them.
 - After a rescan (`CatalogChanged`) entries are re-matched by (path, cue offset), not id
   (`remap_to_fresh_tracks`); the current track survives a vanished file, an empty result
   is ignored. Likes are patched in place in both orders.
@@ -964,13 +970,14 @@ Integrations:
   pinging first so a dead server shows no "Syncing" flicker. Online servers are not
   re-listed on activation.
 
-## Server playlist import (`remote_sync::import_playlists`)
+## Playlist import (`remote_sync::import_playlists`, `playlist_files::import_files`)
 
 - A one-time copy: nothing is sent back and no sync touches the result again. Song keys
   become library items through their bindings (`items_by_remote_key`), so a song that is
   also a local file is that file's item and plays from disk.
-- A server playlist goes into the oldest local playlist of the same name, or a new one,
-  through `add_tracks_to_playlist`, which only appends what is missing: re-importing
+- A server playlist or a playlist file goes into the oldest own playlist of the same name
+  (never a folder playlist), or a new one, through `copy_into_playlists` and
+  `add_tracks_to_playlist`, which only appends what is missing: re-importing
   adds new server tracks and anything removed locally, never removes or reorders. Equal
   names (two discs' `.m3u`) land in one playlist; a repeated track is kept once.
 - A playlist none of whose songs is in the library creates nothing. The result counts
@@ -978,9 +985,49 @@ Integrations:
   and tracks found out of all (once per playlist). `PlaylistTracksChanged` goes out for
   the changed playlists.
 - `RemoteError::NotSynced`: the source has no enabled row to map keys through. Imports
-  run one at a time (`playlist_imports`), or two servers would each create the same new
-  name. `import_playlists_unless_syncing` refuses with `Syncing` while the server's key
-  is in `active`.
+  run one at a time (`playlist_imports`, files included), or two would each create the
+  same new name. `import_playlists_unless_syncing` refuses with `Syncing` while the
+  server's key is in `active`.
+
+### Playlist files
+
+- Entries resolve to items in `playlist_files::resolve`: exactly by path, then the rest
+  through `PathIndex` over `local_paths` (`playlist_file/src/doc.md`). Only local files
+  match; a server song has no path here. An entry naming a `.cue` sheet stands for the
+  audio it resolves to when the sheet reads here and is not a split rip, else it matches
+  nothing (library keys are audio paths). An audio path stands for every cue piece cut
+  from it: a path cannot tell pieces apart.
+- A picked folder stands for the playlist files under it, subfolders included, in path
+  order (the order they are created in). Hidden entries are skipped and symlinks are not
+  followed, as in the scan's walk.
+- `found` counts entries (a whole-disc entry is one), `total` distinct entries. The import
+  logs unmatched entries at info level and skips them.
+- Runs on `net_runtime`'s blocking pool: it shares `playlist_imports` with server imports,
+  which hold it across a network call. `PlaylistFilesImported` carries a `FilesOutcome`:
+  the report, `NoPlaylists` when the picked folders hold no playlist file, or `Failed`
+  when no file or picked folder could be read, or the database failed. A subfolder that
+  cannot be listed is logged and skipped.
+
+## Folder playlists (`playlist_files::sync_folder`)
+
+Playlist files inside the music folders shown in the Playlists tab as read-only mirrors
+(`music_library/src/doc.md`, "Playlists and likes"), behind the `folder_playlists`
+setting, off by default.
+
+- Rows exist only while the setting is on: off clears them on the toggle and on every
+  scan, so nothing filters by the setting (the web remote lists what is there).
+- The scan keeps its walk's playlist files and offline folders (`PlaylistWalk`); turning
+  the setting on syncs from that in full. Syncs are serialized (`folder_sync`) and read the
+  flag under the lock, so a quick on/off ends as the switch shows.
+- After a real scan the sync re-reads every file (any entry may have found or lost its
+  track); after the fast path only files whose (mtime, size) differ from the stored stamp.
+  It runs after `ScanComplete`, so the library and the scan indicator never wait on it.
+  The files are not in the scan fingerprint, so editing one never reindexes.
+- A stored folder playlist whose file is gone is removed, unless it lies under an offline
+  folder: it comes back with the folder.
+- Read-only everywhere: no rename or delete in the list, no reorder or remove on its page,
+  absent from the add-to-playlist popup. Importing the file makes an editable copy.
+- Unmatched entries are not logged: per-album rips would fill the log on every scan.
 
 ## Tag editing (`tag_editor_view.rs`, `library_service.rs`)
 
@@ -1383,6 +1430,12 @@ Owner's calls; ask before changing.
   acknowledgement, not a switch with an off position.
 - Artist info: no time-based refresh of found rows, no Wikipedia text, no on-demand
   loading on the card.
+- Playlist files: a one-time import of picked files or whole folders, plus folder
+  playlists, read-only mirrors of the files in the music folders, hidden by default behind
+  a button on the Playlists tab. No export, no XSPF, WPL or `.fpl`. Unmatched entries are
+  skipped; the fallback match is the folded path and the unique path tail, never
+  `#EXTINF` artist and title. A same-name import merges like a server's; an entry for a
+  cue image adds the whole disc.
 - Playlist import is a one-time copy that never removes or reorders. A server queued
   behind another server's sync is not in `active`, so its import is not refused (a
   "0 of N" result); accepted, do not fix unasked.

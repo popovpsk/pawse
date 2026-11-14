@@ -1,0 +1,19 @@
+[package]
+name = "playlist_file"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+encoding_rs = "0.8"
+chardetng = "1.0"
+icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
+
+[dev-dependencies]
+rstest = "0.26"
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

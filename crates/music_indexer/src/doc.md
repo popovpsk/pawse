@@ -24,7 +24,7 @@ tags (`tag_writer/src/doc.md`); CUE syntax (`cue_parser`, no doc); `normalize_ge
   cover re-reads.
 - `cue.rs` — `read_cue`, `process_cue_file`, audio-file resolution, disc-folder rules.
 - `types.rs` — `ScannedTrack` (cover as bytes) → `PreparedTrack` (cover as hash), `SourceSet`,
-  `ScanEvent`, `CoverArt`, `IndexedLyrics`.
+  `StampedFile`, `ScanEvent`, `CoverArt`, `IndexedLyrics`.
 - `scanner.rs` — `DirectoryScanner`, a one-shot `collect_sources` + `run`; only tests use it.
 - `lib.rs` — re-exports and the fixture-based, GUI-less tests that run a real scan.
 
@@ -46,6 +46,10 @@ tags (`tag_writer/src/doc.md`); CUE syntax (`cue_parser`, no doc); `normalize_ge
   `.cue`, jpg/jpeg/png and `.lrc` file. Images are in so swapping a cover alone triggers a
   rescan, `.lrc` so editing words alone does; other stray files stay out to avoid noise.
   A `.lrc` is a fingerprint input only, never a track.
+- Playlist files (`playlist_file::is_playlist`) are stat'ed into `SourceSet::playlist_files`
+  (mtime in ns, size) but stay out of the hash: editing one must not reindex the library.
+  The app compares their stamps instead (`pawse/src/doc.md`, "Folder playlists"); `run`
+  ignores them.
 - `collect_sources` stays stat-only: no decoding, no cue parsing, no canonicalizing. That
   is the whole cost of the fast path, so cue-referenced audio is dropped later, in `run`.
 - The hash sees only on-disk state. Bump `INDEXER_FORMAT_VERSION` whenever the same

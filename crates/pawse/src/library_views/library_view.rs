@@ -465,6 +465,7 @@ impl LibraryView {
             PlaylistTracksView::new(
                 playlist.name.clone().into(),
                 QueueSource::Playlist(playlist.id),
+                playlist.file_path.is_none(),
                 window,
                 cx,
             )
@@ -479,7 +480,13 @@ impl LibraryView {
 
     fn show_all_tracks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = cx.new(|cx| {
-            PlaylistTracksView::new(tr().all_tracks.clone(), QueueSource::AllTracks, window, cx)
+            PlaylistTracksView::new(
+                tr().all_tracks.clone(),
+                QueueSource::AllTracks,
+                false,
+                window,
+                cx,
+            )
         });
         self.stack.push(NavEntry::PlaylistTracks {
             playlist_id: None,
