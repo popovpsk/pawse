@@ -62,7 +62,7 @@ jobs:
       matrix:
         include:
           - label: macos-arm64
-            os: macos-14
+            os: macos-15
             formats: dmg
           - label: windows-x86_64
             os: windows-latest
@@ -113,6 +113,16 @@ jobs:
             libasound2-dev libfontconfig-dev libwayland-dev \
             libxkbcommon-x11-dev libssl-dev libzstd-dev libgit2-dev \
             libfuse2 build-essential cmake clang zsync squashfs-tools
+
+      - name: Ensure the Metal toolchain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          xcodebuild -version
+          if ! xcrun -sdk macosx metal -v >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -sdk macosx metal -v
 
       - uses: dtolnay/rust-toolchain@stable
 
