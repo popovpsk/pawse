@@ -11,7 +11,7 @@ use gpui_component::{
     dialog::DialogFooter,
     v_flex,
 };
-use ui_resources::i18n::bit_perfect_strings;
+use ui_resources::i18n::{bit_perfect_strings, normalization_strings};
 
 use crate::audio_settings::NATIVE_RATE_WORDING;
 use crate::services::Services;
@@ -157,6 +157,7 @@ fn issue_label(issue: &BitPerfectIssue) -> SharedString {
         }
         BitPerfectIssue::BitDepthExceedsContainer { source } => s.bit_depth(*source).into(),
         BitPerfectIssue::Equalizer => s.equalizer.clone(),
+        BitPerfectIssue::Normalization => normalization_strings().bit_perfect.clone(),
         BitPerfectIssue::NoSource => s.no_source.clone(),
     }
 }
@@ -173,6 +174,7 @@ fn issue_details(issue: &BitPerfectIssue) -> Vec<SharedString> {
         BitPerfectIssue::SampleRateMismatch { .. } => vec![s.sample_rate_desc.clone()],
         BitPerfectIssue::BitDepthExceedsContainer { .. } => vec![s.bit_depth_desc.clone()],
         BitPerfectIssue::Equalizer => vec![s.equalizer_desc.clone()],
+        BitPerfectIssue::Normalization => vec![normalization_strings().bit_perfect_desc.clone()],
         BitPerfectIssue::NoSource => vec![s.no_source_desc.clone()],
     }
 }

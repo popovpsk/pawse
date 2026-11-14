@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use audio_common::{AudioBatch, AudioSource, StreamParams};
+use audio_common::{AudioBatch, AudioSource, ReplayGain, StreamParams};
 use audio_decoder::{Decoder, MediaStream};
 
 const AHEAD_BATCHES: usize = 96;
@@ -24,6 +24,7 @@ pub(crate) enum Poll {
 pub struct StreamingSource {
     params: StreamParams,
     duration: Option<Duration>,
+    replay_gain: Option<ReplayGain>,
     control: flume::Sender<Control>,
     batches: flume::Receiver<Item>,
     epoch: u64,
@@ -61,7 +62,11 @@ impl StreamingSource {
                     }
                 };
                 if opened_tx
-                    .send(Ok((decoder.params(), decoder.duration())))
+                    .send(Ok((
+                        decoder.params(),
+                        decoder.duration(),
+                        decoder.replay_gain(),
+                    )))
                     .is_err()
                 {
                     return;
@@ -71,9 +76,10 @@ impl StreamingSource {
             })
             .map_err(|e| e.to_string())?;
         match opened_rx.recv() {
-            Ok(Ok((params, duration))) => Ok(Self {
+            Ok(Ok((params, duration, replay_gain))) => Ok(Self {
                 params,
                 duration,
+                replay_gain,
                 control: control_tx,
                 batches: batch_rx,
                 epoch: 0,
@@ -90,6 +96,10 @@ impl StreamingSource {
 
     pub fn duration(&self) -> Option<Duration> {
         self.duration
+    }
+
+    pub fn replay_gain(&self) -> Option<ReplayGain> {
+        self.replay_gain
     }
 
     pub(crate) fn seek(&mut self, position: f32) -> Result<(), String> {
@@ -198,6 +208,13 @@ impl Source {
         match self {
             Source::File(decoder) => decoder.duration(),
             Source::Stream(stream) => stream.duration(),
+        }
+    }
+
+    pub(crate) fn replay_gain(&self) -> Option<ReplayGain> {
+        match self {
+            Source::File(decoder) => decoder.replay_gain(),
+            Source::Stream(stream) => stream.replay_gain(),
         }
     }
 

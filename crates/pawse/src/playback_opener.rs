@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use audio_engine::{Command, StreamTrack, StreamingSource};
+use audio_common::ReplayGain;
+use audio_engine::{Command, StreamTrack, StreamingSource, TrackLoudness};
 use music_library::Track;
 use music_library::remote::{self, Location};
 
@@ -19,6 +20,18 @@ pub trait OpenerBackend: Send + Sync {
     fn download(&self, locator: &Path, abandoned: &dyn Fn() -> bool) -> Result<PathBuf, String>;
     fn open_stream(&self, locator: &Path) -> Result<PendingStream, String>;
     fn unreachable(&self, locator: &str) -> Option<String>;
+
+    fn wants_estimate(&self, _track: &TrackRequest) -> bool {
+        false
+    }
+
+    fn known_gain(&self, _track_id: i64) -> Option<ReplayGain> {
+        None
+    }
+
+    fn estimate(&self, _track: &TrackRequest, _file: &Path, _start_ms: i64) -> Option<ReplayGain> {
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +57,7 @@ pub struct TrackRequest {
     pub path: String,
     pub start_offset_ms: i64,
     pub duration: Option<Duration>,
+    pub is_cue: bool,
 }
 
 impl From<&Track> for TrackRequest {
@@ -55,6 +69,7 @@ impl From<&Track> for TrackRequest {
             duration: track
                 .duration_ms
                 .map(|ms| Duration::from_millis(ms.max(0) as u64)),
+            is_cue: track.is_cue,
         }
     }
 }
@@ -105,12 +120,15 @@ impl PlaybackOpener {
             Location::Remote(_) => self.backend.cached(&path).is_some(),
             Location::Invalid => false,
         };
-        if ready {
+        let loudness = self.loudness(track, track.start_offset_ms);
+        let estimate = after == AfterLoad::Play && self.backend.wants_estimate(track);
+        if ready && !estimate {
             (self.sink)(Command::SetLocalTrack {
                 path,
                 start_offset: offset(track.start_offset_ms),
                 track_duration: track.duration,
                 prepared: false,
+                loudness,
             });
             if let Some(fade_in) = after.autoplay() {
                 (self.sink)(Command::Play { fade_in });
@@ -125,7 +143,7 @@ impl PlaybackOpener {
         let track = track.clone();
         let spawned = std::thread::Builder::new()
             .name("track-opener".into())
-            .spawn(move || opener.open(&track, generation));
+            .spawn(move || opener.open(&track, generation, estimate));
         if let Err(e) = spawned {
             (self.sink)(Command::Fail(e.to_string()));
         }
@@ -149,8 +167,15 @@ impl PlaybackOpener {
         self.generation.load(Ordering::Acquire) != generation
     }
 
-    fn open(&self, track: &TrackRequest, generation: u64) {
-        let Some(command) = self.resolve(track, generation) else {
+    fn loudness(&self, track: &TrackRequest, start_ms: i64) -> TrackLoudness {
+        TrackLoudness {
+            tags: crate::normalization::takes_file_tags(track.is_cue, start_ms),
+            known: self.backend.known_gain(track.id),
+        }
+    }
+
+    fn open(&self, track: &TrackRequest, generation: u64, estimate: bool) {
+        let Some(command) = self.resolve(track, generation, estimate) else {
             return;
         };
         let _slot = self.lock_slot();
@@ -159,7 +184,7 @@ impl PlaybackOpener {
         }
     }
 
-    fn resolve(&self, track: &TrackRequest, generation: u64) -> Option<Command> {
+    fn resolve(&self, track: &TrackRequest, generation: u64, estimate: bool) -> Option<Command> {
         let mut candidates = self.backend.locators(track.id);
         if candidates.is_empty() {
             candidates.push((track.path.clone(), track.start_offset_ms));
@@ -172,20 +197,23 @@ impl PlaybackOpener {
             let candidate = PathBuf::from(&locator);
             match remote::location(&locator) {
                 Location::File(file) if file.exists() => {
-                    return Some(self.local(candidate, start_ms, track.duration));
+                    let measure = estimate.then(|| file.to_path_buf());
+                    return Some(self.local(candidate, start_ms, track, measure, generation));
                 }
                 Location::File(_) | Location::Invalid => continue,
                 Location::Remote(_) => {}
             }
             match self.open_remote(&candidate, generation) {
                 Ok(Opened::Cached) => {
-                    return Some(self.local(candidate, start_ms, track.duration));
+                    let measure = estimate.then(|| self.backend.cached(&candidate)).flatten();
+                    return Some(self.local(candidate, start_ms, track, measure, generation));
                 }
                 Ok(Opened::Stream(source)) => {
                     return Some(Command::SetStreamTrack(Box::new(StreamTrack {
                         source,
                         start_offset: offset(start_ms),
                         track_duration: track.duration,
+                        loudness: self.loudness(track, start_ms),
                     })));
                 }
                 Err(_) if self.is_stale(generation) => return None,
@@ -200,17 +228,34 @@ impl PlaybackOpener {
             None => self.local(
                 PathBuf::from(&track.path),
                 track.start_offset_ms,
-                track.duration,
+                track,
+                None,
+                generation,
             ),
         })
     }
 
-    fn local(&self, path: PathBuf, start_ms: i64, duration: Option<Duration>) -> Command {
+    fn local(
+        &self,
+        path: PathBuf,
+        start_ms: i64,
+        track: &TrackRequest,
+        measure: Option<PathBuf>,
+        generation: u64,
+    ) -> Command {
+        let mut loudness = self.loudness(track, start_ms);
+        if let Some(file) = measure
+            && loudness.known.is_none()
+            && !self.is_stale(generation)
+        {
+            loudness.known = self.backend.estimate(track, &file, start_ms);
+        }
         Command::SetLocalTrack {
             path,
             start_offset: offset(start_ms),
-            track_duration: duration,
+            track_duration: track.duration,
             prepared: true,
+            loudness,
         }
     }
 
@@ -256,6 +301,7 @@ impl PlaybackOpener {
 pub struct LibraryBackend {
     pub media: RemoteMedia,
     pub library: Arc<LibraryService>,
+    pub normalization: crate::normalization::Normalization,
 }
 
 impl OpenerBackend for LibraryBackend {
@@ -284,6 +330,18 @@ impl OpenerBackend for LibraryBackend {
         let down = self.media.ping(source_id)?.err()?;
         self.library.mark_source_offline(source_id);
         Some(crate::library_sources::describe_error(&down).to_string())
+    }
+
+    fn wants_estimate(&self, track: &TrackRequest) -> bool {
+        self.normalization.wants_click_estimate(track)
+    }
+
+    fn known_gain(&self, track_id: i64) -> Option<ReplayGain> {
+        self.normalization.known(track_id)
+    }
+
+    fn estimate(&self, track: &TrackRequest, file: &Path, start_ms: i64) -> Option<ReplayGain> {
+        self.normalization.estimate_now(track, file, start_ms)
     }
 }
 

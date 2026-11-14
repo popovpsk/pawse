@@ -45,6 +45,7 @@ pub mod main_view;
 pub mod media_bridge;
 pub mod mini_player;
 pub mod next_button;
+pub mod normalization;
 pub mod now_playing;
 pub mod onboarding_view;
 pub mod panel_header;
@@ -126,10 +127,14 @@ fn restore_engine_state(cx: &mut App) {
     let duration = track
         .duration_ms
         .map(|ms| std::time::Duration::from_millis(ms as u64));
+    let loudness = audio_engine::TrackLoudness {
+        tags: crate::normalization::takes_file_tags(track.is_cue, i64::from(track.start_offset_ms)),
+        known: services.normalization.known(track.id),
+    };
     services
         .player
         .local()
-        .set_track_with_offset(path, start_offset, duration);
+        .set_track_with_offset(path, start_offset, duration, loudness);
     if stored_position_ms > 0
         && let Some(dur_ms) = track.duration_ms
         && dur_ms > 0

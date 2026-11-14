@@ -545,4 +545,16 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
             WHERE file_path IS NOT NULL;
         "#,
     ),
+    (
+        17,
+        r#"
+        CREATE TABLE track_loudness (
+            item_id INTEGER PRIMARY KEY REFERENCES media_items(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL,
+            full    INTEGER NOT NULL,
+            lufs    REAL    NOT NULL,
+            peak    REAL    NOT NULL
+        );
+        "#,
+    ),
 ];

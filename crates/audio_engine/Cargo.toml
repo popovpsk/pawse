@@ -9,6 +9,7 @@ audio_common = { path = "../audio_common" }
 audio_decoder = { path = "../audio_decoder" }
 audio_output = { path = "../audio_output" }
 equalizer = { path = "../equalizer" }
+loudness = { path = "../loudness" }
 gpui.workspace = true
 log = { workspace = true }
 anyhow = { workspace = true }

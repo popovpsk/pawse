@@ -1,5 +1,6 @@
 use audio_common::{
-    AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, I24, Metadata, StreamParams,
+    AudioBatch, AudioError, AudioSamples, AudioSource, ChannelCount, I24, Metadata, ReplayGain,
+    StreamParams,
 };
 use std::fs::File;
 use std::io::{Read, Seek};
@@ -17,7 +18,7 @@ use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
+use symphonia::core::meta::{MetadataOptions, StandardTag, Tag};
 use symphonia::core::packet::Packet;
 use symphonia::core::units::{Time, Timestamp};
 use symphonia_common::apple::audio::alac::MagicCookie;
@@ -263,6 +264,102 @@ fn opus_output_gain(params: &AudioCodecParameters) -> Option<f32> {
     (raw != 0).then(|| 10f32.powf(f32::from(raw) / (20.0 * 256.0)))
 }
 
+#[derive(Default)]
+struct TagGain {
+    gain_db: Option<f32>,
+    peak: Option<f32>,
+    r128_db: Option<f32>,
+}
+
+impl TagGain {
+    fn collect(&mut self, tags: &[Tag]) {
+        for tag in tags {
+            match &tag.std {
+                Some(StandardTag::ReplayGainTrackGain(value)) => {
+                    self.gain_db = parse_gain_db(value).or(self.gain_db);
+                }
+                Some(StandardTag::ReplayGainTrackPeak(value)) => {
+                    self.peak = parse_peak(value).or(self.peak);
+                }
+                Some(_) => {}
+                None => {
+                    let key = tag.raw.key.trim_start_matches("TXXX:");
+                    let value = tag.raw.value.to_string();
+                    if key.eq_ignore_ascii_case("REPLAYGAIN_TRACK_GAIN") {
+                        self.gain_db = parse_gain_db(&value).or(self.gain_db);
+                    } else if key.eq_ignore_ascii_case("REPLAYGAIN_TRACK_PEAK") {
+                        self.peak = parse_peak(&value).or(self.peak);
+                    } else if key.eq_ignore_ascii_case("R128_TRACK_GAIN") {
+                        self.r128_db = parse_r128_db(&value).or(self.r128_db);
+                    }
+                }
+            }
+        }
+    }
+
+    fn gain(self) -> Option<ReplayGain> {
+        match (self.gain_db, self.r128_db) {
+            (Some(gain_db), _) => Some(ReplayGain {
+                gain_db,
+                peak: self.peak,
+            }),
+            (None, Some(r128_db)) => Some(ReplayGain {
+                gain_db: r128_db + R128_TO_REPLAY_GAIN_DB,
+                peak: None,
+            }),
+            (None, None) => None,
+        }
+    }
+}
+
+const R128_TO_REPLAY_GAIN_DB: f32 = 5.0;
+
+fn parse_gain_db(value: &str) -> Option<f32> {
+    let value = value.trim();
+    let number = match value.len().checked_sub(2) {
+        Some(cut) if value.is_char_boundary(cut) && value[cut..].eq_ignore_ascii_case("db") => {
+            value[..cut].trim_end()
+        }
+        _ => value,
+    };
+    number.parse::<f32>().ok().filter(|db| db.is_finite())
+}
+
+fn parse_peak(value: &str) -> Option<f32> {
+    value
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|peak| peak.is_finite() && *peak > 0.0)
+}
+
+fn parse_r128_db(value: &str) -> Option<f32> {
+    let q78 = value.trim().parse::<i16>().ok()?;
+    Some(f32::from(q78) / 256.0)
+}
+
+fn read_replay_gain(
+    format: &mut dyn symphonia::core::formats::FormatReader,
+    track_id: u32,
+) -> Option<ReplayGain> {
+    let mut found = TagGain::default();
+    let mut metadata = format.metadata();
+    loop {
+        if let Some(revision) = metadata.current() {
+            found.collect(&revision.media.tags);
+            for per_track in &revision.per_track {
+                if per_track.track_id == u64::from(track_id) {
+                    found.collect(&per_track.metadata.tags);
+                }
+            }
+        }
+        if metadata.pop().is_none() {
+            break;
+        }
+    }
+    found.gain()
+}
+
 fn alac_bit_depth(params: &AudioCodecParameters) -> Option<u32> {
     let cookie = MagicCookie::read(params.extra_data.as_deref()?).ok()?;
     Some(u32::from(cookie.bit_depth))
@@ -278,6 +375,7 @@ struct SymphoniaDecoder {
     start_time: Option<Time>,
     opus: bool,
     gain: Option<f32>,
+    replay_gain: Option<ReplayGain>,
     pending: Option<Packet>,
     splicer: Option<Splicer>,
     spliced_at: Option<u64>,
@@ -381,6 +479,7 @@ impl SymphoniaDecoder {
         } else {
             None
         };
+        let replay_gain = read_replay_gain(format.as_mut(), track_id);
 
         Ok(Self {
             format,
@@ -392,6 +491,7 @@ impl SymphoniaDecoder {
             start_time,
             opus,
             gain,
+            replay_gain,
             pending,
             splicer,
             spliced_at: None,
@@ -804,6 +904,13 @@ impl AudioSource for Decoder {
             Decoder::Ape(_) | Decoder::Dsd(_) => Ok(None),
         }
     }
+
+    fn replay_gain(&self) -> Option<ReplayGain> {
+        match self {
+            Decoder::Symphonia(d) => d.replay_gain,
+            Decoder::Ape(_) | Decoder::Dsd(_) => None,
+        }
+    }
 }
 
 // ============================================================================
@@ -947,6 +1054,44 @@ mod tests {
             "Samples should not be empty for {}",
             filename
         );
+    }
+
+    #[rstest]
+    #[case::vorbis_comment("replaygain.flac", Some(ReplayGain { gain_db: -6.5, peak: Some(0.5) }))]
+    #[case::id3_txxx("replaygain.mp3", Some(ReplayGain { gain_db: 2.25, peak: Some(0.25) }))]
+    #[case::untagged("tagged_basic.flac", None)]
+    fn replay_gain_comes_from_the_file_tags(
+        #[case] filename: &str,
+        #[case] expected: Option<ReplayGain>,
+    ) {
+        let decoder = Decoder::open(&fixture_path(filename)).unwrap();
+        assert_eq!(decoder.replay_gain(), expected);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn opus_r128_is_relative_to_minus_23_lufs() {
+        let decoder = Decoder::open(&fixture_path("r128.opus")).unwrap();
+        assert_eq!(
+            decoder.replay_gain(),
+            Some(ReplayGain {
+                gain_db: -5.0,
+                peak: None
+            })
+        );
+    }
+
+    #[rstest]
+    #[case::plain("-6.5", Some(-6.5))]
+    #[case::unit("+2.25 dB", Some(2.25))]
+    #[case::lowercase_unit_without_space("-1.0db", Some(-1.0))]
+    #[case::garbage("loud", None)]
+    #[case::non_ascii_tail("1 дБ", None)]
+    fn gain_tags_parse_with_or_without_the_unit(
+        #[case] value: &str,
+        #[case] expected: Option<f32>,
+    ) {
+        assert_eq!(parse_gain_db(value), expected);
     }
 
     #[rstest]

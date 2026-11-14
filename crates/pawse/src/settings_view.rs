@@ -26,7 +26,9 @@ use crate::settings_store::{
     notify_save_error,
 };
 use crate::theme_colors::Colors;
-use ui_resources::i18n::{active, artist_card_strings_for, cast_strings, similar_strings};
+use ui_resources::i18n::{
+    active, artist_card_strings_for, cast_strings, normalization_strings, similar_strings,
+};
 
 actions!(settings, [OpenScrobblingSettings, OpenSleepTimerSettings]);
 
@@ -753,6 +755,8 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
         group = group.item(close_to_tray_item());
     }
 
+    group = group.item(normalization_item());
+
     group = group.item(
         SettingItem::new(
             tr().lyrics_from_internet.clone(),
@@ -896,6 +900,30 @@ fn general_group(remote_port_input: Entity<InputState>) -> SettingGroup {
 const FEEDBACK_TELEGRAM: &str = concat!("t.me", "/", "popov", "psk");
 const FEEDBACK_EMAIL: &str = concat!("popov", ".", "psk", "@", "gmail", ".", "com");
 const FEEDBACK_GITHUB: &str = "github.com/popovpsk/pawse";
+
+fn normalization_item() -> SettingItem {
+    let strings = normalization_strings();
+    SettingItem::new(
+        strings.setting.clone(),
+        SettingField::render(|_window, cx: &mut App| {
+            let enabled = cx.global::<SettingsStore>().volume_normalization();
+            h_flex().items_center().justify_end().child(
+                Switch::new("volume-normalization-toggle")
+                    .checked(enabled)
+                    .on_click(|new_val, _, cx| {
+                        if let Err(e) = cx
+                            .global_mut::<SettingsStore>()
+                            .set_volume_normalization(*new_val)
+                        {
+                            notify_save_error(cx, e);
+                        }
+                        crate::normalization::set_enabled(*new_val, cx);
+                    }),
+            )
+        }),
+    )
+    .description(strings.setting_desc.clone())
+}
 
 fn feedback_group() -> SettingGroup {
     SettingGroup::new()

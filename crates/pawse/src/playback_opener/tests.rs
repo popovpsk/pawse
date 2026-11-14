@@ -84,6 +84,10 @@ struct Fake {
     remotes: Mutex<HashMap<PathBuf, Remote>>,
     downloads: Mutex<Vec<PathBuf>>,
     down: Option<&'static str>,
+    normalizing: bool,
+    known: HashMap<i64, ReplayGain>,
+    estimate: Option<ReplayGain>,
+    estimated: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 fn wav() -> Vec<u8> {
@@ -131,6 +135,19 @@ impl OpenerBackend for Fake {
     fn unreachable(&self, _: &str) -> Option<String> {
         self.down.map(str::to_string)
     }
+
+    fn wants_estimate(&self, track: &TrackRequest) -> bool {
+        self.normalizing && !self.known.contains_key(&track.id)
+    }
+
+    fn known_gain(&self, track_id: i64) -> Option<ReplayGain> {
+        self.known.get(&track_id).copied()
+    }
+
+    fn estimate(&self, _: &TrackRequest, file: &Path, _: i64) -> Option<ReplayGain> {
+        self.estimated.lock().unwrap().push(file.to_path_buf());
+        self.estimate
+    }
 }
 
 fn with_backend(fake: Fake) -> (PlaybackOpener, flume::Receiver<Command>) {
@@ -147,6 +164,7 @@ fn request(id: i64, path: &str) -> TrackRequest {
         path: path.into(),
         start_offset_ms: 0,
         duration: Some(Duration::from_secs(60)),
+        is_cue: false,
     }
 }
 
@@ -313,4 +331,108 @@ fn stopping_cancels_a_track_that_is_still_opening() {
     assert!(gate.aborted.load(Ordering::Acquire));
     assert!(matches!(next(&rx), Command::Stop));
     assert_quiet(&rx);
+}
+
+const GAIN: ReplayGain = ReplayGain {
+    gain_db: -4.0,
+    peak: Some(0.9),
+};
+
+fn loudness_of(command: &Command) -> TrackLoudness {
+    match command {
+        Command::SetLocalTrack { loudness, .. } => *loudness,
+        Command::SetStreamTrack(track) => track.loudness,
+        other => panic!("expected a track, got {other:?}"),
+    }
+}
+
+fn local_file(name: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(name);
+    std::fs::write(&file, b"x").unwrap();
+    (dir, file)
+}
+
+#[test]
+fn a_click_without_a_known_gain_is_estimated_before_it_plays() {
+    let (_dir, file) = local_file("a.flac");
+    let estimated = Arc::new(Mutex::new(Vec::new()));
+    let (opener, rx) = with_backend(Fake {
+        normalizing: true,
+        estimate: Some(GAIN),
+        estimated: estimated.clone(),
+        ..Default::default()
+    });
+    opener.start(&request(1, &file.to_string_lossy()), AfterLoad::Play);
+    assert!(matches!(
+        next(&rx),
+        Command::Prepare {
+            play: Some(true),
+            ..
+        }
+    ));
+    let command = next(&rx);
+    assert_eq!(local_path(&command, true), file);
+    assert_eq!(
+        loudness_of(&command),
+        TrackLoudness {
+            tags: true,
+            known: Some(GAIN)
+        }
+    );
+    assert_eq!(*estimated.lock().unwrap(), vec![file]);
+    assert_quiet(&rx);
+}
+
+#[test]
+fn a_known_gain_plays_at_once() {
+    let (_dir, file) = local_file("a.flac");
+    let (opener, rx) = with_backend(Fake {
+        normalizing: true,
+        known: HashMap::from([(1, GAIN)]),
+        ..Default::default()
+    });
+    opener.start(&request(1, &file.to_string_lossy()), AfterLoad::Play);
+    let command = next(&rx);
+    assert_eq!(local_path(&command, false), file);
+    assert_eq!(loudness_of(&command).known, Some(GAIN));
+    assert!(matches!(next(&rx), Command::Play { fade_in: true }));
+}
+
+#[test]
+fn a_gapless_start_never_waits_for_an_estimate() {
+    let (_dir, file) = local_file("a.flac");
+    let estimated = Arc::new(Mutex::new(Vec::new()));
+    let (opener, rx) = with_backend(Fake {
+        normalizing: true,
+        estimate: Some(GAIN),
+        estimated: estimated.clone(),
+        ..Default::default()
+    });
+    opener.start(&request(1, &file.to_string_lossy()), AfterLoad::PlayGapless);
+    let command = next(&rx);
+    assert_eq!(local_path(&command, false), file);
+    assert_eq!(loudness_of(&command).known, None);
+    assert!(matches!(next(&rx), Command::Play { fade_in: false }));
+    assert!(estimated.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_cue_track_and_a_stream_get_the_right_tag_rule() {
+    let server = locator(3, "k", "wav");
+    let (opener, rx) = with_backend(Fake {
+        locators: HashMap::from([(1, vec![(server.clone(), 0)])]),
+        remotes: Mutex::new(HashMap::from([(PathBuf::from(&server), Remote::Wav)])),
+        ..Default::default()
+    });
+    opener.start(&request(1, &server), AfterLoad::Play);
+    assert!(matches!(next(&rx), Command::Prepare { .. }));
+    assert!(loudness_of(&next(&rx)).tags);
+
+    let (_dir, file) = local_file("image.flac");
+    let (opener, rx) = with_backend(Fake::default());
+    let mut cue = request(2, &file.to_string_lossy());
+    cue.is_cue = true;
+    opener.start(&cue, AfterLoad::Stay);
+    assert!(!loudness_of(&next(&rx)).tags);
 }

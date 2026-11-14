@@ -62,6 +62,7 @@ pub enum BitPerfectIssue {
         source: u8,
     },
     Equalizer,
+    Normalization,
     /// No track loaded — status is undefined.
     NoSource,
 }

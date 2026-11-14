@@ -162,6 +162,12 @@ pub struct Metadata {
     pub bit_depth: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReplayGain {
+    pub gain_db: f32,
+    pub peak: Option<f32>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {
     #[error("IO error: {0}")]
@@ -213,5 +219,9 @@ pub trait AudioSource: Send {
 
     fn seek_near(&mut self, _fraction: f64, _span: u64) -> Result<Option<u64>, AudioError> {
         Ok(None)
+    }
+
+    fn replay_gain(&self) -> Option<ReplayGain> {
+        None
     }
 }

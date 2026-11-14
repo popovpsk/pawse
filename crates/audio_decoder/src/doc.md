@@ -32,6 +32,14 @@ the network readers behind `MediaStream` (`media_stream/src/doc.md`).
   not "simplify" back — Opus would stop playing and no other codec's test would notice. The
   adapter builds libopus from source through `cmake` (`opusic-sys`, statically linked), so
   every platform that compiles the app needs `cmake` on `PATH`.
+- `replay_gain` (an `AudioSource` method, default `None`) is the track gain from the file's
+  tags, read once on open from every metadata revision Symphonia has by then (an ID3v2 tag
+  before the stream, then the container's own): `REPLAYGAIN_TRACK_GAIN` / `_PEAK` through
+  Symphonia's standard keys (Vorbis comment, ID3v2 `TXXX`, APEv2, iTunes freeform), else
+  the raw key; Opus `R128_TRACK_GAIN` (Q7.8 dB relative to −23 LUFS, on top of the header
+  gain the decoder already applies) is shifted by +5 dB to the ReplayGain scale and has no
+  peak. A later revision overrides an earlier one. APE and DSD backends report none. Album
+  gain is not read. `open_stream` reads it from the stream's head the same way.
 - `seek` takes a fraction of a known duration. It is `SeekMode::Coarse` (FLAC lands up to a
   frame early), clamps the target to the track's `start_ts` (a file whose timeline starts
   late rejects a seek to 0 otherwise), resets the decoder (not for Opus) and returns where
@@ -91,7 +99,8 @@ of requests a track over the network; this is one.
   packets up to it (`discard_before`) and keeps the first packet to play in `pending`. 320
   ms, not the 80 ms spec minimum — a dense high-bitrate file was still off at 80.
 - The OpusHead output gain (Q7.8 dB) is mandatory for players and libopus does not apply it,
-  so `opus_output_gain` scales the decoded samples. ReplayGain / R128 tags are not applied.
+  so `opus_output_gain` scales the decoded samples. R128 tags are only reported
+  (`replay_gain`), never applied here.
 - The position `seek` returns is the first packet that will be played, in the stream's own
   timeline (container `start_ts` and pre-skip included), clamped at 0.
 

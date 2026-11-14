@@ -31,7 +31,10 @@ FIXTURES = \
 	$(FIXTURES_DIR)/long_44_stereo.flac \
 	$(FIXTURES_DIR)/long_44_stereo.m4a \
 	$(FIXTURES_DIR)/long_22_mono.wav \
-	$(FIXTURES_DIR)/long_44_cut.flac
+	$(FIXTURES_DIR)/long_44_cut.flac \
+	$(FIXTURES_DIR)/replaygain.flac \
+	$(FIXTURES_DIR)/replaygain.mp3 \
+	$(FIXTURES_DIR)/r128.opus
 
 .PHONY: all generate clean bin-deps
 
@@ -109,6 +112,25 @@ $(FIXTURES_DIR)/long_44_cut.flac: $(FIXTURES_DIR)/long_44_stereo.flac
 
 $(FIXTURES_DIR)/long_22_mono.wav: | $(FIXTURES_DIR)
 	$(FFMPEG) -y -f lavfi -i "$(LONG_SIGNAL):s=22050:d=120" -ac 1 -c:a pcm_s16le "$@"
+
+# --- ReplayGain tags ---
+
+$(FIXTURES_DIR)/replaygain.flac: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=1" \
+		-metadata REPLAYGAIN_TRACK_GAIN="-6.50 dB" \
+		-metadata REPLAYGAIN_TRACK_PEAK="0.500000" \
+		-c:a flac "$@"
+
+$(FIXTURES_DIR)/replaygain.mp3: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=1" \
+		-metadata REPLAYGAIN_TRACK_GAIN="+2.25 dB" \
+		-metadata REPLAYGAIN_TRACK_PEAK="0.250000" \
+		-codec:a libmp3lame "$@"
+
+$(FIXTURES_DIR)/r128.opus: | $(FIXTURES_DIR)
+	$(FFMPEG) -y -f lavfi -i "sine=frequency=440:duration=1" -ac 2 \
+		-metadata R128_TRACK_GAIN="-2560" \
+		-codec:a libopus "$@"
 
 # --- Cover art images ---
 

@@ -3,7 +3,7 @@
 The GPUI app: the files directly in `crates/pawse/src` that have no folder of their own.
 Folder modules (`library_views`, `track_list`, `servers`, `remote_media`, `cast`,
 `similar_tracks`, `tools`, `sleep_timer`, `cover_skin`, `main_view`, `spectrum_view`,
-`lyrics_blur`, `mini_player`) have their own
+`lyrics_blur`, `mini_player`, `normalization`) have their own
 `doc.md`; the library crates have theirs.
 
 ## Files
@@ -347,6 +347,13 @@ Integrations:
   `prepared: false`) and played unless `AfterLoad::Stay`. Anything else sends
   `Command::Prepare` and opens on a `track-opener` thread; the engine thread never waits
   on the network (`audio_engine/src/doc.md`). One opener per target (local, AirPlay).
+- Every track command carries a `TrackLoudness`: the gain `normalization` already knows
+  for the item and whether the file's own tags may be used (not for a cue segment). A
+  plain click (`AfterLoad::Play`) that `OpenerBackend::wants_estimate` (normalization on,
+  no known gain, not a file already found tagged) takes the `Prepare` path even for a ready
+  file, so the `track-opener` thread can spend up to
+  100 ms on a quick estimate first (`OpenerBackend::estimate`); a stream is never
+  estimated. Gapless and `Stay` starts never wait.
 - Candidates come from `playback_locators` (local first, then servers by source id:
   `music_library/src/doc.md`). The first that opens wins: a vanished file or a server
   that is down falls through to the item's next copy, and only the last failure is shown.
@@ -418,6 +425,10 @@ Integrations:
   `UserSettings::equalizer` before the local engine and handed to it and to every AirPlay
   engine (`cast/mod.rs`). Only the Tools Equalizer page changes it
   (`tools/equalizer/doc.md`).
+- `Services::normalization` holds the one `loudness::Switch`, built from
+  `UserSettings::volume_normalization` before the local engine and handed to it and to
+  every AirPlay engine; the setting changes it through `normalization::set_enabled`. Its
+  `Tracker` lives in `run_engine_events_bus` (`normalization/doc.md`).
 - Views rebuilt without a track reload (a macOS Dock reopen or the tray's Show builds a
   new `MainView`) take initial state from these atomics, not events; the DSD rate is an
   atomic only for that.
@@ -434,7 +445,8 @@ Integrations:
   window's startup tasks (not run on a reopened window) then call
   `restore_engine_state`.
 - A current track that is a local file or cached is loaded paused into the local engine
-  and seeked. A server track not in the cache is not restored: its position goes into
+  and seeked, with the same `TrackLoudness` rule as the opener (the gain may not be loaded
+  yet that early; the file's tags still apply). A server track not in the cache is not restored: its position goes into
   `resume_at`, Play loads it, and the seek happens on `Loaded`
   (`resume_restored_position`: that track id only, position inside the duration).
   Switching cast targets uses the same pair (`cast/doc.md`).

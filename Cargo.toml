@@ -37,6 +37,7 @@ members = [
     "crates/airplay",
     "crates/spectrum",
     "crates/equalizer",
+    "crates/loudness",
     "crates/autoeq",
     "crates/text_blur",
     "crates/system_tray",

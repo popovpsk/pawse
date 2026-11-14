@@ -39,6 +39,7 @@ lyrics = { path = "../lyrics" }
 artist_info = { path = "../artist_info" }
 cover_search = { path = "../cover_search" }
 equalizer = { path = "../equalizer" }
+loudness = { path = "../loudness" }
 autoeq = { path = "../autoeq" }
 diagnostics = { workspace = true }
 log = { workspace = true }

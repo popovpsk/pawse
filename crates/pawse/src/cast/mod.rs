@@ -600,6 +600,7 @@ fn activate(receiver: cast::Receiver, connected: Connected, volume: Option<f32>,
                 output.clone(),
                 player.resolver.clone(),
                 services.equalizer.clone(),
+                services.normalization.switch(),
             ));
             let opener = PlaybackOpener::new(player.backend.clone(), engine_sink(&engine));
             forward_airplay(id, &engine, &output, &player, cx);

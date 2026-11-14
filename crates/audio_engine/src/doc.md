@@ -2,11 +2,12 @@
 
 The playback engine: one `audio-engine` thread owns the decoder, feeds an `EngineOutput`,
 is driven by `Command`s and reports `EngineEvent`s. It does fades, seeking, cue-track
-ranges, gapless hand-over, streamed sources, the equalizer pass and the idle release of
-the output.
+ranges, gapless hand-over, streamed sources, the normalization and equalizer passes and the
+idle release of the output.
 
 Not here: decoding (`audio_decoder/src/doc.md`), devices, modes and the ring buffer
-(`audio_output/src/doc.md`), the filters (`equalizer/src/doc.md`), deciding what to open
+(`audio_output/src/doc.md`), the filters (`equalizer/src/doc.md`), the meter and the gain
+rule (`loudness/src/doc.md`), deciding what to open
 and when — `PlaybackOpener`, `Player`, the AirPlay and cast targets (`pawse/src/doc.md`,
 `pawse/src/cast/doc.md`).
 
@@ -19,7 +20,7 @@ and when — `PlaybackOpener`, `Player`, the AirPlay and cast targets (`pawse/sr
 - `engine_manager.rs` — `EngineManager`, the GPUI-side handle: pumps engine events into a
   channel the UI reads and mirrors the control calls. The app reaches it through
   `pawse::cast::Player`.
-- `types.rs` — `Command`, `EngineEvent`, `StreamTrack`.
+- `types.rs` — `Command`, `EngineEvent`, `StreamTrack`, `TrackLoudness`.
 - `lib.rs` — re-exports `MediaStream`, `Superseded` and `can_stream` from `audio_decoder`.
 - `test/main.rs` — manual smoke binary.
 
@@ -42,6 +43,28 @@ one. `EngineOutput` is `AudioOutput` plus the fade and `release_paused` calls th
   cached server tracks to files and rejects ones not downloaded). Failures become
   `EngineEvent::Error`.
 - `Seek` takes a fraction of the effective range — the cue track, or the whole file.
+
+## Normalization
+
+- Every engine gets the app's one `loudness::Switch` (`with_resolver`; `new` makes one that
+  is off) and runs its own `GainStage` on each freshly decoded batch, after
+  `trim_to_track_end` and before the equalizer, so the equalizer's preamp still sees the
+  final level.
+- A track's gain is chosen once, in `install`: the source's own `replay_gain` (file tags)
+  when `TrackLoudness::tags` allows it, else `TrackLoudness::known` (what the app measured),
+  else none (unity). The app clears `tags` for a cue segment: an image's tags describe the
+  whole image. It never changes until the next track; only the switch moves it mid-track,
+  over one batch.
+- A gapless `SetLocalTrack` (straight after a natural end) ramps from the previous track's
+  gain over the new track's first batch: the old tail is already in the ring at its own
+  gain. Any other start jumps to the new gain, since the output was cleared. Streams always
+  jump.
+- `EngineOutput::set_normalized(GainStage::is_active)` is written on every batch (an atomic
+  store), not only on a change: the app also clears it when the setting is turned off while
+  paused (`pawse/src/normalization/doc.md`), and a cached copy in the engine would then
+  never set it again. `Output` turns it into a bit-perfect issue, AirPlay ignores it.
+- `TrackLoudness::default()` is a whole file: tags allowed, nothing known (`set_track`
+  uses it); `set_track_with_offset` takes the caller's.
 
 ## Equalizer
 

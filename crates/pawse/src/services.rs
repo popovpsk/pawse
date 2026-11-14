@@ -26,6 +26,7 @@ pub struct Services {
     pub player: Rc<crate::cast::Player>,
     pub output: Arc<Output>,
     pub equalizer: Arc<equalizer::Control>,
+    pub normalization: crate::normalization::Normalization,
     pub engine_event_bus: Entity<EngineEventsBus>,
     pub playback_status: Entity<crate::playback_status::PlaybackStatus>,
     pub library: Arc<LibraryService>,
@@ -81,10 +82,15 @@ impl Services {
                 .equalizer()
                 .active_bands(),
         ));
+        let normalization_switch = Arc::new(loudness::Switch::new(
+            cx.global::<crate::settings_store::SettingsStore>()
+                .volume_normalization(),
+        ));
         let audio_engine = Rc::new(AudioEngine::with_resolver(
             output.clone(),
             remote_media.resolver(),
             equalizer.clone(),
+            normalization_switch.clone(),
         ));
         let engine_manager = Rc::new(EngineManager::new(audio_engine).start(cx));
         let engine_event_bus = cx.new(|_| EngineEventsBus);
@@ -106,6 +112,17 @@ impl Services {
                 settings.lyrics_prefer_web(),
             );
         }
+        let executor = cx.background_executor().clone();
+        let normalization = crate::normalization::Normalization::new(
+            normalization_switch,
+            library.repo(),
+            remote_media.clone(),
+            Arc::new(move |job| {
+                executor
+                    .spawn_with_priority(gpui::Priority::Low, async move { job() })
+                    .detach();
+            }),
+        );
         let library_event_bus = cx.new(|_| LibraryEventsBus);
         let library_event_bus_clone = library_event_bus.clone();
         let album_export = crate::album_export::AlbumExport::create(&library_event_bus, cx);
@@ -189,6 +206,7 @@ impl Services {
             Arc::new(crate::playback_opener::LibraryBackend {
                 media: remote_media.clone(),
                 library: library.clone(),
+                normalization: normalization.clone(),
             }),
             library.clone(),
             remote_media.resolver(),
@@ -218,6 +236,7 @@ impl Services {
         Services {
             output,
             equalizer,
+            normalization,
             player,
             engine_event_bus,
             playback_status,
@@ -287,6 +306,7 @@ impl Services {
 
 impl Services {
     pub fn shutdown(&self) {
+        self.normalization.shutdown();
         self.output.shutdown();
         self.player.shutdown();
     }
@@ -942,6 +962,7 @@ pub async fn run_engine_events_bus(
 ) {
     let mut current_duration: Option<Duration> = None;
     let mut prefetched = false;
+    let mut loudness = crate::normalization::Tracker::default();
     while let Ok(event) = events.recv_async().await {
         match &event {
             EngineEvent::Preparing { duration } => {
@@ -960,7 +981,10 @@ pub async fn run_engine_events_bus(
                 current_dsd_rate.store(params.dsd_rate.unwrap_or(0), Ordering::Relaxed);
                 prefetched = false;
                 let duration_ms = duration.as_millis() as u64;
-                cx.update(|cx| resume_restored_position(cx, duration_ms));
+                cx.update(|cx| {
+                    resume_restored_position(cx, duration_ms);
+                    loudness.loaded(cx);
+                });
                 publish_now_playing(cx);
             }
             EngineEvent::PositionChanged(dur) => {
@@ -972,6 +996,9 @@ pub async fn run_engine_events_bus(
                     );
                 }
                 maybe_prefetch_next_track(cx, dur, current_duration, &mut prefetched);
+                if loudness.wants_next(*dur, current_duration) {
+                    cx.update(|cx| loudness.prepare_next(cx));
+                }
             }
             EngineEvent::Playing => {
                 is_playing.store(true, Ordering::Relaxed);

@@ -80,9 +80,10 @@ impl EngineManager {
         path: PathBuf,
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
+        loudness: crate::TrackLoudness,
     ) {
         self.audio_engine
-            .set_track_with_offset(path, start_offset, track_duration);
+            .set_track_with_offset(path, start_offset, track_duration, loudness);
     }
 
     pub fn events(&self) -> &flume::Receiver<EngineEvent> {

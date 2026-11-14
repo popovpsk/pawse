@@ -1,5 +1,5 @@
 use crate::StreamingSource;
-use audio_common::StreamParams;
+use audio_common::{ReplayGain, StreamParams};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -11,11 +11,27 @@ pub enum PlaybackState {
     Paused = 2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TrackLoudness {
+    pub tags: bool,
+    pub known: Option<ReplayGain>,
+}
+
+impl Default for TrackLoudness {
+    fn default() -> Self {
+        Self {
+            tags: true,
+            known: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct StreamTrack {
     pub source: StreamingSource,
     pub start_offset: Option<Duration>,
     pub track_duration: Option<Duration>,
+    pub loudness: TrackLoudness,
 }
 
 #[derive(Debug)]
@@ -25,6 +41,7 @@ pub enum Command {
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
         prepared: bool,
+        loudness: TrackLoudness,
     },
     Prepare {
         play: Option<bool>,

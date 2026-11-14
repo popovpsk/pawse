@@ -44,6 +44,7 @@ pub trait EngineOutput: AudioOutput {
     fn reset_fade(&self);
     fn release_paused(&self);
     fn set_equalized(&self, _equalized: bool) {}
+    fn set_normalized(&self, _normalized: bool) {}
 }
 
 /// User-visible audio events. UI consumes via `drain_events`. Each variant is a
@@ -144,6 +145,7 @@ pub struct Output {
     source_bit_depth: AtomicU8,
     source_present: AtomicBool,
     equalized: AtomicBool,
+    normalized: AtomicBool,
     // App-level digital volume. Survives an exclusive round-trip (where it is
     // not applied) so the shared stream comes back at the user's level.
     app_volume: AtomicF32,
@@ -230,6 +232,7 @@ impl Output {
             source_bit_depth: AtomicU8::new(0),
             source_present: AtomicBool::new(false),
             equalized: AtomicBool::new(false),
+            normalized: AtomicBool::new(false),
             app_volume: AtomicF32::new(1.0),
             follow_default: AtomicBool::new(true),
             default_watch: default_watch::DefaultDeviceWatcher::start(),
@@ -651,6 +654,10 @@ impl Output {
         self.equalized.store(equalized, Ordering::Relaxed);
     }
 
+    pub fn set_normalized(&self, normalized: bool) {
+        self.normalized.store(normalized, Ordering::Relaxed);
+    }
+
     pub fn source_format(&self) -> Option<(u32, u8)> {
         if !self.source_present.load(Ordering::Relaxed) {
             return None;
@@ -913,6 +920,10 @@ impl Output {
             issues.push(BitPerfectIssue::Equalizer);
         }
 
+        if self.normalized.load(Ordering::Relaxed) {
+            issues.push(BitPerfectIssue::Normalization);
+        }
+
         BitPerfectStatus { issues }
     }
 }
@@ -1051,6 +1062,10 @@ impl EngineOutput for Output {
 
     fn set_equalized(&self, equalized: bool) {
         Output::set_equalized(self, equalized)
+    }
+
+    fn set_normalized(&self, normalized: bool) {
+        Output::set_normalized(self, normalized)
     }
 }
 

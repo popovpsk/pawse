@@ -17,7 +17,7 @@ pub use models::{
     ArtistTitles, CoverArt, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
     LocalFolder, NewTrack, PlayStats, PlayTally, Playlist, PlaylistSummary, RecentPlay,
     RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, SoundGenres,
-    SourceSummary, StoredLyrics, Track, TrackAnalysis, TrackListing, lyrics_source,
+    SourceSummary, StoredLoudness, StoredLyrics, Track, TrackAnalysis, TrackListing, lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, clean_album_title, compute_sort_name, sha256_hex};
@@ -6633,6 +6633,66 @@ mod tests {
             ),
             Some(id_of("Samurai feat. Refused"))
         );
+    }
+
+    fn loudness(item_id: i64, full: bool, lufs: f32) -> StoredLoudness {
+        StoredLoudness {
+            item_id,
+            full,
+            lufs,
+            peak: 0.5,
+        }
+    }
+
+    #[test]
+    fn a_full_loudness_is_never_replaced_by_a_quick_one() {
+        let (lib, _path) = create_test_db();
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+
+        assert!(lib.save_loudness(1, &loudness(id, false, -9.0)).unwrap());
+        assert!(lib.save_loudness(1, &loudness(id, true, -10.0)).unwrap());
+        assert!(!lib.save_loudness(1, &loudness(id, false, -11.0)).unwrap());
+        assert!(lib.save_loudness(1, &loudness(id, true, -12.0)).unwrap());
+
+        assert_eq!(
+            lib.loudness_values(1).unwrap(),
+            vec![loudness(id, true, -12.0)]
+        );
+    }
+
+    #[test]
+    fn a_new_loudness_version_replaces_and_prunes_the_old_one() {
+        let (lib, _path) = create_test_db();
+        let first = seed_track(&lib, "One", "Album", "Artist");
+        let second = seed_track(&lib, "Two", "Album", "Artist");
+        lib.save_loudness(1, &loudness(first, true, -9.0)).unwrap();
+        lib.save_loudness(1, &loudness(second, true, -9.0)).unwrap();
+
+        assert!(lib.save_loudness(2, &loudness(first, false, -8.0)).unwrap());
+        assert_eq!(
+            lib.loudness_values(2).unwrap(),
+            vec![loudness(first, false, -8.0)]
+        );
+        assert_eq!(lib.prune_loudness(2).unwrap(), 1);
+        assert_eq!(lib.loudness_values(1).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn loudness_of_an_unknown_item_is_not_saved_and_goes_with_its_item() {
+        let (lib, path) = create_test_db();
+        assert!(
+            !lib.save_loudness(1, &loudness(999_999, true, -9.0))
+                .unwrap()
+        );
+        let id = seed_track(&lib, "Song", "Album", "Artist");
+        lib.save_loudness(1, &loudness(id, true, -9.0)).unwrap();
+        drop(lib);
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute("DELETE FROM media_items WHERE id = ?1", [id])
+            .unwrap();
+        assert_eq!(count_rows(&path, "SELECT COUNT(*) FROM track_loudness"), 0);
     }
 
     const VERSION: &str = "test-model:1";

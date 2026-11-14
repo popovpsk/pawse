@@ -1,0 +1,19 @@
+[package]
+name = "loudness"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+audio_common = { path = "../audio_common" }
+log = { workspace = true }
+
+[dev-dependencies]
+audio_decoder = { path = "../audio_decoder" }
+rstest = "0.26"
+
+[lints]
+workspace = true

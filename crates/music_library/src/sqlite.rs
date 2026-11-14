@@ -17,7 +17,8 @@ use crate::models::{
     CoverArt, DeliveryOutcome, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
     LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally,
     PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
-    ScanTrack, SoundGenres, SourceSummary, StoredLyrics, Track, TrackAnalysis, TrackListing,
+    ScanTrack, SoundGenres, SourceSummary, StoredLoudness, StoredLyrics, Track, TrackAnalysis,
+    TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -4197,6 +4198,52 @@ impl LibraryRepository for SqliteLibrary {
         }
         tx.commit()?;
         Ok(dropped)
+    }
+
+    fn loudness_values(&self, version: u32) -> Result<Vec<StoredLoudness>> {
+        let conn = self.embedding_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT item_id, full, lufs, peak FROM track_loudness WHERE version = ?1",
+        )?;
+        let rows = stmt.query_map([version], |row| {
+            Ok(StoredLoudness {
+                item_id: row.get(0)?,
+                full: row.get(1)?,
+                lufs: row.get::<_, f64>(2)? as f32,
+                peak: row.get::<_, f64>(3)? as f32,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
+    }
+
+    fn save_loudness(&self, version: u32, row: &StoredLoudness) -> Result<bool> {
+        let conn = self.embedding_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "INSERT INTO track_loudness (item_id, version, full, lufs, peak) \
+             SELECT id, ?2, ?3, ?4, ?5 FROM media_items WHERE id = ?1 \
+             ON CONFLICT(item_id) DO UPDATE SET \
+                 version = excluded.version, full = excluded.full, \
+                 lufs = excluded.lufs, peak = excluded.peak \
+             WHERE excluded.full >= track_loudness.full \
+                OR track_loudness.version <> excluded.version",
+        )?;
+        let written = stmt.execute(rusqlite::params![
+            row.item_id,
+            version,
+            row.full,
+            f64::from(row.lufs),
+            f64::from(row.peak)
+        ])?;
+        Ok(written > 0)
+    }
+
+    fn prune_loudness(&self, keep_version: u32) -> Result<usize> {
+        let conn = self.embedding_conn.lock().unwrap();
+        Ok(conn.execute(
+            "DELETE FROM track_loudness WHERE version <> ?1",
+            [keep_version],
+        )?)
     }
 }
 

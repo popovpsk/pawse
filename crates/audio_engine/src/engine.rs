@@ -6,12 +6,13 @@ use std::{
 };
 
 use crate::stream::{Poll, Source};
-use crate::{Command, EngineEvent, StreamTrack};
+use crate::{Command, EngineEvent, StreamTrack, TrackLoudness};
 use audio_common::AudioBatch;
 use audio_decoder::Decoder;
 use audio_output::{EngineOutput, FadeEvent};
 use equalizer::{Control, Processor};
 use flume::TryRecvError;
+use loudness::{GainStage, Switch};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum AudioEngineState {
@@ -71,6 +72,7 @@ impl AudioEngine {
             out,
             Arc::new(|path| Ok(path.to_path_buf())),
             Arc::new(Control::new(None)),
+            Arc::new(Switch::new(false)),
         )
     }
 
@@ -78,6 +80,7 @@ impl AudioEngine {
         out: Arc<dyn EngineOutput>,
         resolver: TrackResolver,
         equalizer: Arc<Control>,
+        normalization: Arc<Switch>,
     ) -> Self {
         let (event_sender, event_receiver) = flume::bounded(64);
         let (command_sender, command_receiver) = flume::bounded(64);
@@ -104,6 +107,7 @@ impl AudioEngine {
             ended_naturally: false,
             equalizer: Processor::new(equalizer),
             equalized: false,
+            normalizer: GainStage::new(normalization),
         }
         .run();
 
@@ -147,6 +151,7 @@ impl AudioEngine {
             start_offset: None,
             track_duration: None,
             prepared: false,
+            loudness: TrackLoudness::default(),
         })
     }
 
@@ -155,12 +160,14 @@ impl AudioEngine {
         path: PathBuf,
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
+        loudness: TrackLoudness,
     ) {
         self.send_command(Command::SetLocalTrack {
             path,
             start_offset,
             track_duration,
             prepared: false,
+            loudness,
         })
     }
 
@@ -197,6 +204,7 @@ struct AudioEngineLoop {
     ended_naturally: bool,
     equalizer: Processor,
     equalized: bool,
+    normalizer: GainStage,
 }
 
 impl AudioEngineLoop {
@@ -307,6 +315,7 @@ impl AudioEngineLoop {
                             self.end_track();
                             continue;
                         }
+                        self.normalize(&mut batch);
                         self.equalize(&mut batch);
                         batch
                     }
@@ -345,6 +354,12 @@ impl AudioEngineLoop {
         let channels = batch.metadata.channels.to_u8() as usize;
         batch.data.truncate(frames * channels);
         false
+    }
+
+    fn normalize(&mut self, batch: &mut AudioBatch) {
+        let channels = batch.metadata.channels.to_u8() as usize;
+        self.normalizer.process(&mut batch.data, channels);
+        self.output.set_normalized(self.normalizer.is_active());
     }
 
     fn equalize(&mut self, batch: &mut AudioBatch) {
@@ -495,11 +510,13 @@ impl AudioEngineLoop {
                 start_offset,
                 track_duration,
                 prepared,
+                loudness,
             } => self.handle_set_local_track(
                 path,
                 start_offset,
                 track_duration,
                 prepared,
+                loudness,
                 after_natural_end,
             ),
             Command::Prepare {
@@ -580,13 +597,20 @@ impl AudioEngineLoop {
             source,
             start_offset,
             track_duration,
+            loudness,
         } = track;
         let pending_play = self.pending_play.take();
         if pending_play.is_none() {
             self.prepare_started = None;
         }
         self.reset_track();
-        self.install(Source::Stream(source), start_offset, track_duration);
+        self.install(
+            Source::Stream(source),
+            start_offset,
+            track_duration,
+            loudness,
+            false,
+        );
         self.preparing = false;
         match pending_play {
             Some(fade_in) => self.handle_play(fade_in),
@@ -600,6 +624,7 @@ impl AudioEngineLoop {
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
         prepared: bool,
+        loudness: TrackLoudness,
         after_natural_end: bool,
     ) {
         let pending_play = self.pending_play.take().filter(|_| prepared);
@@ -626,7 +651,13 @@ impl AudioEngineLoop {
             }
         };
 
-        self.install(Source::File(decoder), start_offset, track_duration);
+        self.install(
+            Source::File(decoder),
+            start_offset,
+            track_duration,
+            loudness,
+            after_natural_end,
+        );
         self.preparing = false;
         match pending_play {
             Some(fade_in) => self.handle_play(fade_in),
@@ -639,7 +670,17 @@ impl AudioEngineLoop {
         source: Source,
         start_offset: Option<Duration>,
         track_duration: Option<Duration>,
+        loudness: TrackLoudness,
+        continuous: bool,
     ) {
+        let tagged = loudness.tags.then(|| source.replay_gain()).flatten();
+        let gain = tagged.or(loudness.known);
+        log::debug!(
+            "audio engine: track gain {gain:?} ({})",
+            if tagged.is_some() { "tags" } else { "app" }
+        );
+        self.normalizer
+            .set_track(loudness::factor(gain), continuous);
         let file_duration = source.duration().unwrap_or_default();
         let duration_for_ui = track_duration.unwrap_or(file_duration);
 
@@ -899,6 +940,7 @@ mod tests {
         buffer: AudioRingBuffer,
         fade: Mutex<Option<FadeEvent>>,
         equalized: AtomicBool,
+        normalized: AtomicBool,
     }
 
     impl AudioOutput for RingOutput {
@@ -935,6 +977,9 @@ mod tests {
         fn set_equalized(&self, equalized: bool) {
             self.equalized.store(equalized, Ordering::Relaxed);
         }
+        fn set_normalized(&self, normalized: bool) {
+            self.normalized.store(normalized, Ordering::Relaxed);
+        }
     }
 
     struct Harness {
@@ -954,15 +999,37 @@ mod tests {
         }
 
         fn start_with(path: &Path, equalizer: Arc<Control>) -> Self {
+            Self::start_full(
+                path,
+                equalizer,
+                Arc::new(Switch::new(false)),
+                TrackLoudness::default(),
+            )
+        }
+
+        fn start_full(
+            path: &Path,
+            equalizer: Arc<Control>,
+            normalization: Arc<Switch>,
+            loudness: TrackLoudness,
+        ) -> Self {
             let output = Arc::new(RingOutput {
                 buffer: AudioRingBuffer::new(RING_CAPACITY),
                 fade: Mutex::new(None),
                 equalized: AtomicBool::new(false),
+                normalized: AtomicBool::new(false),
             });
             let resolver: TrackResolver = Arc::new(|path| Ok(path.to_path_buf()));
-            let engine = AudioEngine::with_resolver(output.clone(), resolver, equalizer);
+            let engine =
+                AudioEngine::with_resolver(output.clone(), resolver, equalizer, normalization);
             let events = engine.events();
-            engine.set_track(path.to_path_buf());
+            engine.send_command(Command::SetLocalTrack {
+                path: path.to_path_buf(),
+                start_offset: None,
+                track_duration: None,
+                prepared: false,
+                loudness,
+            });
             engine.play();
             Self {
                 output,
@@ -1103,6 +1170,48 @@ mod tests {
 
         assert_same_samples(&harness.received, &expected);
         assert_eq!(harness.output.equalized.load(Ordering::Relaxed), active);
+    }
+
+    fn known(gain_db: f32) -> Option<audio_common::ReplayGain> {
+        Some(audio_common::ReplayGain {
+            gain_db,
+            peak: None,
+        })
+    }
+
+    #[rstest]
+    #[case::tags_win(true, true, None, -6.5)]
+    #[case::tags_win_over_a_known_value(true, true, known(-2.0), -6.5)]
+    #[case::cue_segment_ignores_tags(true, false, known(-2.0), -2.0)]
+    #[case::nothing_known(true, false, None, 0.0)]
+    #[case::switch_off(false, true, known(-2.0), 0.0)]
+    fn normalization_scales_the_track_by_its_gain(
+        #[case] on: bool,
+        #[case] tags: bool,
+        #[case] known: Option<audio_common::ReplayGain>,
+        #[case] expected_db: f32,
+    ) {
+        let path = fixture("replaygain.flac");
+        let decoded = decode(&path).samples;
+        let mut harness = Harness::start_full(
+            &path,
+            Arc::new(Control::new(None)),
+            Arc::new(Switch::new(on)),
+            TrackLoudness { tags, known },
+        );
+        harness.play_to_end();
+
+        if expected_db == 0.0 {
+            assert_same_samples(&harness.received, &decoded);
+        } else {
+            let factor = 10f32.powf(expected_db / 20.0);
+            let expected: Vec<f32> = decoded.iter().map(|s| s * factor).collect();
+            assert_same_samples(&harness.received, &expected);
+        }
+        assert_eq!(
+            harness.output.normalized.load(Ordering::Relaxed),
+            expected_db != 0.0
+        );
     }
 
     #[test]

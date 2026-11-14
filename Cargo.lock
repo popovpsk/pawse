@@ -737,6 +737,7 @@ dependencies = [
  "flume",
  "gpui-pre",
  "log",
+ "loudness",
  "parking_lot",
  "rstest",
 ]
@@ -5270,6 +5271,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "loudness"
+version = "1.0.0"
+dependencies = [
+ "audio_common",
+ "audio_decoder",
+ "log",
+ "rstest",
+]
+
+[[package]]
 name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6709,6 +6720,7 @@ dependencies = [
  "interprocess",
  "jellyfin",
  "log",
+ "loudness",
  "lyrics",
  "media_integration",
  "media_stream",

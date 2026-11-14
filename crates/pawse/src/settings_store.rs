@@ -597,6 +597,8 @@ pub struct UserSettings {
     pub playlists_show_unavailable: bool,
     #[serde(default)]
     pub tools_enabled: bool,
+    #[serde(default)]
+    pub volume_normalization: bool,
     #[serde(default = "default_true")]
     pub show_track_duration: bool,
     #[serde(default = "default_true")]
@@ -764,6 +766,7 @@ impl Default for UserSettings {
             playlists_show_year: false,
             playlists_show_unavailable: true,
             tools_enabled: true,
+            volume_normalization: false,
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,
@@ -1705,6 +1708,15 @@ impl SettingsStore {
         self.settings.tools_enabled
     }
 
+    pub fn volume_normalization(&self) -> bool {
+        self.settings.volume_normalization
+    }
+
+    pub fn set_volume_normalization(&mut self, enabled: bool) -> anyhow::Result<()> {
+        self.settings.volume_normalization = enabled;
+        self.save()
+    }
+
     pub fn set_tools_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.settings.tools_enabled = enabled;
         self.save()
@@ -2583,6 +2595,7 @@ mod tests {
             playlists_show_year: true,
             playlists_show_unavailable: false,
             tools_enabled: true,
+            volume_normalization: false,
             show_track_duration: true,
             show_queue_actions: true,
             show_queue_artist: true,

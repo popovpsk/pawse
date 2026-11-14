@@ -43,8 +43,8 @@ scrobble engine (`scrobble/src/doc.md`); running the sound analysis
 - **Identity and user data** (`media_items`, `media_bindings`, `sources`, `adoptions`,
   `remote_tracks`, `playlist_tracks`, network lyrics, `plays`, `loves`, `*_deliveries`)
   is not derivable: no scan deletes it. **Derived caches** (`track_embeddings`,
-  `track_sound_genres`, `artist_info`) are costly to re-derive, so a scan leaves them
-  alone.
+  `track_sound_genres`, `track_loudness`, `artist_info`) are costly to re-derive, so a scan
+  leaves them alone.
 - `maintain_storage` (after every real scan) runs on `conn`, so a UI write waits for it
   rather than failing on the busy timeout mid-vacuum. It `VACUUM`s only when more than
   a quarter of the pages are free: a refill reuses the pages its clear freed, and a
@@ -439,6 +439,21 @@ code and queries get them from the caller (`SoundGenres::names`).
   `+` makes SQLite scan a `tracks` index instead of one rowid lookup per genre row). A
   genre no tag links to is listed at `min_tracks` tracks or more, a tag genre however
   few; one order, by key, since nothing in the row says where it came from.
+
+## Loudness (`track_loudness`)
+
+One row per item: integrated loudness (LUFS), sample peak, whether it came from the whole
+track (`full`) or a sampled estimate, and the app's `VERSION` of the measurement. Written
+and read only by `pawse::normalization`, which keeps every row in memory.
+
+- Keyed by `media_items.id` like the vectors, so a rescan keeps it and one recording held
+  by several sources is measured once; `ON DELETE CASCADE` drops it with its item. Not in
+  `media_items_guard_user_data`.
+- `save_loudness` is one upsert on `embedding_conn` that never lets a sampled value replace
+  a full one of the same version; another version is always replaced. An item that is gone
+  is skipped (`false`), not an error.
+- `loudness_values(version)` returns that version's rows; `prune_loudness(keep)` deletes the
+  rest.
 
 ## Migrations
 

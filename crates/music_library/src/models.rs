@@ -144,6 +144,14 @@ pub struct SoundGenres<'a> {
     pub min_tracks: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StoredLoudness {
+    pub item_id: i64,
+    pub full: bool,
+    pub lufs: f32,
+    pub peak: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackAnalysis {
     pub item_id: i64,
