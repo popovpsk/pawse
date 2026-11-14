@@ -9,7 +9,6 @@ path = "src/lib.rs"
 
 [dependencies]
 flume = "0.12.0"
-log = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
@@ -21,10 +20,12 @@ block2 = "0.6.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 souvlaki = "0.8"
+log = { workspace = true }
 
 # Pure-Rust zbus backend so Linux builds don't need system libdbus headers.
 [target.'cfg(target_os = "linux")'.dependencies]
 souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+log = { workspace = true }
 
 [lints.rust]
 unsafe_code = "allow"

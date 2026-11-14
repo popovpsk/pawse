@@ -6,6 +6,8 @@ use tokio::sync::{oneshot, watch};
 
 #[cfg(not(debug_assertions))]
 mod assets;
+#[cfg(debug_assertions)]
+use rust_embed as _;
 mod http;
 
 pub const DEFAULT_PORT: u16 = 8770;

@@ -6,7 +6,6 @@ publish = false
 
 [dependencies]
 audio_common = { path = "../audio_common" }
-anyhow = { workspace = true }
 symphonia = { version = "0.6", features = ["all"] }
 symphonia-common = "0.6"
 symphonia-adapter-libopus = "0.3"

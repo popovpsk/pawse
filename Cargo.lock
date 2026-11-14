@@ -678,7 +678,6 @@ dependencies = [
 name = "audio_common"
 version = "1.0.0"
 dependencies = [
- "anyhow",
  "thiserror 2.0.19",
 ]
 
@@ -686,7 +685,6 @@ dependencies = [
 name = "audio_decoder"
 version = "1.0.0"
 dependencies = [
- "anyhow",
  "ape-decoder",
  "audio_common",
  "dsd",
@@ -747,7 +745,6 @@ name = "audio_output"
 version = "1.0.0"
 dependencies = [
  "alsa",
- "anyhow",
  "atomic_float",
  "audio_common",
  "audio_thread_priority 0.35.1",
@@ -10159,7 +10156,6 @@ dependencies = [
  "gpui-pre",
  "log",
  "rust-embed",
- "sys-locale",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-[dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 log = { workspace = true }
 thiserror = "2.0"
 
