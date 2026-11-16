@@ -348,11 +348,12 @@ Integrations:
   `Command::Prepare` and opens on a `track-opener` thread; the engine thread never waits
   on the network (`audio_engine/src/doc.md`). One opener per target (local, AirPlay).
 - Every track command carries a `TrackLoudness`: the gain `normalization` already knows
-  for the item and whether the file's own tags may be used (not for a cue segment). A
+  for the item played from the locator that opened (a server's own gain belongs to that
+  server's copy only) and whether the file's own tags may be used (not for a cue segment). A
   plain click (`AfterLoad::Play`) that `OpenerBackend::wants_estimate` (normalization on,
-  no known gain, not a file already found tagged) takes the `Prepare` path even for a ready
-  file, so the `track-opener` thread can spend up to
-  100 ms on a quick estimate first (`OpenerBackend::estimate`); a stream is never
+  no known gain, not a file already found tagged, no server gain) takes the `Prepare` path
+  even for a ready file, so the `track-opener` thread can spend up to 100 ms on a quick
+  estimate first (`OpenerBackend::estimate`); a stream is never
   estimated. Gapless and `Stay` starts never wait.
 - Candidates come from `playback_locators` (local first, then servers by source id:
   `music_library/src/doc.md`). The first that opens wins: a vanished file or a server
@@ -428,7 +429,8 @@ Integrations:
 - `Services::normalization` holds the one `loudness::Switch`, built from
   `UserSettings::volume_normalization` before the local engine and handed to it and to
   every AirPlay engine; the setting changes it through `normalization::set_enabled`. Its
-  `Tracker` lives in `run_engine_events_bus` (`normalization/doc.md`).
+  `Tracker` lives in `run_engine_events_bus`, and `normalization::setup` reloads server
+  gains on library events (`normalization/doc.md`).
 - Views rebuilt without a track reload (a macOS Dock reopen or the tray's Show builds a
   new `MainView`) take initial state from these atomics, not events; the DSD rate is an
   atomic only for that.

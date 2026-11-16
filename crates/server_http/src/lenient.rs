@@ -15,6 +15,16 @@ pub fn number<'de, D: Deserializer<'de>, T: std::str::FromStr>(
     })
 }
 
+pub fn decimal<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value {
+        serde_json::Value::Number(number) => number.as_f64(),
+        serde_json::Value::String(text) => text.trim().parse().ok(),
+        _ => None,
+    }
+    .filter(|decimal: &f64| decimal.is_finite()))
+}
+
 pub fn boolean<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
     Ok(match value {

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ use crate::remote_media::RemoteMedia;
 
 mod playback;
 
-pub use playback::{Tracker, set_enabled};
+pub use playback::{Tracker, set_enabled, setup};
 
 const VERSION: u32 = 1;
 const CLICK_BUDGET: Duration = Duration::from_millis(100);
@@ -57,6 +57,12 @@ struct Queue {
     draining: bool,
 }
 
+#[derive(Default)]
+struct ServerGains {
+    generation: u64,
+    gains: HashMap<(i64, i64), f32>,
+}
+
 #[derive(Clone)]
 pub struct Normalization {
     inner: Arc<Inner>,
@@ -67,6 +73,8 @@ struct Inner {
     repo: Arc<dyn LibraryRepository>,
     media: RemoteMedia,
     values: Mutex<HashMap<i64, Value>>,
+    servers: Mutex<ServerGains>,
+    reloads: AtomicU64,
     tagged: Mutex<HashSet<i64>>,
     queue: Mutex<Queue>,
     drained: Condvar,
@@ -86,6 +94,8 @@ impl Normalization {
             repo,
             media,
             values: Mutex::default(),
+            servers: Mutex::default(),
+            reloads: AtomicU64::new(0),
             tagged: Mutex::default(),
             queue: Mutex::default(),
             drained: Condvar::new(),
@@ -93,6 +103,7 @@ impl Normalization {
             spawner,
         });
         inner.load();
+        inner.load_server_gains(0);
         Self { inner }
     }
 
@@ -127,16 +138,24 @@ impl Normalization {
         }
     }
 
-    pub fn known(&self, item_id: i64) -> Option<ReplayGain> {
-        self.inner.known(item_id)
+    pub fn reload_server_gains(&self) {
+        let generation = self.inner.reloads.fetch_add(1, Ordering::Relaxed) + 1;
+        let inner = self.inner.clone();
+        (self.inner.spawner)(Box::new(move || inner.load_server_gains(generation)));
     }
 
-    pub fn wants_estimate(&self, item_id: i64) -> bool {
-        self.is_on() && self.inner.known(item_id).is_none() && !self.inner.is_tagged(item_id)
+    pub fn known(&self, item_id: i64, locator: &str) -> Option<ReplayGain> {
+        self.inner
+            .server_gain(item_id, locator)
+            .or_else(|| self.inner.known(item_id))
+    }
+
+    fn wants_estimate(&self, track: &TrackRequest) -> bool {
+        self.is_on() && self.inner.known(track.id).is_none() && !self.inner.leaves_to_others(track)
     }
 
     pub fn wants_click_estimate(&self, track: &TrackRequest) -> bool {
-        self.wants_estimate(track.id) && !slow_to_sample(Path::new(&track.path))
+        self.wants_estimate(track) && !slow_to_sample(Path::new(&track.path))
     }
 
     pub fn estimate_now(
@@ -176,13 +195,13 @@ impl Normalization {
     }
 
     pub fn prepare(&self, track: TrackRequest) {
-        if self.wants_estimate(track.id) {
+        if self.wants_estimate(&track) {
             self.inner.push(Job::Measure { track, full: false }, true);
         }
     }
 
     pub fn measure(&self, track: TrackRequest) {
-        if self.is_on() && !self.inner.has_full(track.id) && !self.inner.is_tagged(track.id) {
+        if self.is_on() && !self.inner.has_full(track.id) && !self.inner.leaves_to_others(&track) {
             self.inner.push(Job::Measure { track, full: true }, false);
         }
     }
@@ -206,6 +225,45 @@ impl Inner {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .contains(&item_id)
+    }
+
+    fn lock_servers(&self) -> MutexGuard<'_, ServerGains> {
+        self.servers.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn server_gain(&self, item_id: i64, locator: &str) -> Option<ReplayGain> {
+        let source_id = remote::parse(locator)?.source_id;
+        let gain_db = *self.lock_servers().gains.get(&(item_id, source_id))?;
+        Some(ReplayGain {
+            gain_db,
+            peak: None,
+        })
+    }
+
+    fn leaves_to_others(&self, track: &TrackRequest) -> bool {
+        self.is_tagged(track.id) || self.server_gain(track.id, &track.path).is_some()
+    }
+
+    fn load_server_gains(&self, generation: u64) {
+        if self.stopped.load(Ordering::Relaxed) {
+            return;
+        }
+        let rows = match self.repo.server_gains() {
+            Ok(rows) => rows,
+            Err(e) => {
+                log::warn!("loudness: loading server gains failed: {e}");
+                return;
+            }
+        };
+        let gains: HashMap<(i64, i64), f32> = rows
+            .into_iter()
+            .map(|row| ((row.item_id, row.source_id), row.gain_db))
+            .collect();
+        log::debug!("loudness: {} server gains", gains.len());
+        let mut servers = self.lock_servers();
+        if generation >= servers.generation {
+            *servers = ServerGains { generation, gains };
+        }
     }
 
     fn leaves_to_tags(&self, track: &TrackRequest, start_ms: i64, decoder: &Decoder) -> bool {
@@ -351,7 +409,7 @@ impl Inner {
         } else {
             self.known(track.id).is_some()
         };
-        if satisfied || self.is_tagged(track.id) {
+        if satisfied || self.leaves_to_others(track) {
             return;
         }
         let Some(file) = self.local_file(&track.path) else {

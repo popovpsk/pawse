@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use gpui::App;
 
+use crate::library_service::LibraryEvent;
 use crate::playback_opener::TrackRequest;
 use crate::services::Services;
 
@@ -53,6 +54,19 @@ impl Tracker {
                 .prepare(TrackRequest::from(next.as_ref()));
         }
     }
+}
+
+pub fn setup(cx: &mut App) {
+    let bus = cx.global::<Services>().library_event_bus.clone();
+    cx.subscribe(&bus, |_, event: &LibraryEvent, cx| {
+        if matches!(
+            event,
+            LibraryEvent::CatalogChanged | LibraryEvent::RemoteSyncFinished { outcome: Ok(_), .. }
+        ) {
+            cx.global::<Services>().normalization.reload_server_gains();
+        }
+    })
+    .detach();
 }
 
 pub fn set_enabled(on: bool, cx: &mut App) {

@@ -152,6 +152,13 @@ pub struct StoredLoudness {
     pub peak: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ServerGain {
+    pub item_id: i64,
+    pub source_id: i64,
+    pub gain_db: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackAnalysis {
     pub item_id: i64,
@@ -170,7 +177,7 @@ pub struct SourceSummary {
     pub track_count: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct RemoteSong {
     pub key: String,
@@ -191,6 +198,8 @@ pub struct RemoteSong {
     pub cover_hash: Option<String>,
     pub artist_aliases: Vec<String>,
     pub start_offset_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gain_db: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

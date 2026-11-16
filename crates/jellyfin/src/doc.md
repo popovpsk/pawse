@@ -38,6 +38,9 @@ Not here: `Item` → `RemoteSong`, `Error` → `RemoteError` and the lyrics conv
   every song past the failure. An item without an id is skipped and logged.
 - `favorites` is the same listing with `Filters=IsFavorite`, so the import never walks the whole
   library; the main listing does not ask for user data.
+- `Item::normalization_gain` is `NormalizationGain` (10.9+): the server's analysis of the track,
+  or its ReplayGain tag, as decibels toward −18 LUFS. It is part of every item, so `Fields` does
+  not ask for it; it comes without a peak, and an album's value is never read.
 
 ## Playlists and favorites
 

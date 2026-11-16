@@ -65,6 +65,9 @@ The library's model, not a protocol's; adapters convert on the way in.
   → `m4a`).
 - `artist` is the first credited artist; `artist_aliases` are other names the recording is
   credited under, used only for matching (Subsonic adds the joined display name).
+- `gain_db` is the server's own track gain in dB on the ReplayGain 2 scale (−18 LUFS), with
+  no peak. Only Jellyfin sends one (`NormalizationGain`); Subsonic's `replayGain` is the
+  file's tags, which the decoder reads from the stream itself.
 - `[Unknown Artist]` / `[Unknown Album]` become empty and a track number above 999 is
   dropped — Navidrome takes one from a leading number in an untagged file name.
 - `genre` is one raw string: an adapter whose source lists several genres joins them with

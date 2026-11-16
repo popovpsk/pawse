@@ -11,6 +11,7 @@ use crate::remote_media::{CacheStore, RemoteMedia};
 struct Rig {
     dir: PathBuf,
     path: PathBuf,
+    source_id: i64,
     item_id: i64,
 }
 
@@ -41,16 +42,34 @@ impl Rig {
             .find(|source| source.kind == "subsonic")
             .unwrap()
             .id;
+        let mut rig = Self {
+            dir,
+            path,
+            source_id,
+            item_id: 0,
+        };
+        rig.serve(None);
+        rig.item_id = repo
+            .items_for_remote_keys(source_id, &["song".to_string()])
+            .unwrap()[0];
+        rig
+    }
+
+    fn serve(&self, gain_db: Option<f32>) {
         let song = RemoteSong {
             key: "song".into(),
             title: "Song".into(),
+            gain_db,
             ..Default::default()
         };
-        repo.apply_remote_listing(source_id, &[song], &[]).unwrap();
-        let item_id = repo
-            .items_for_remote_keys(source_id, &["song".to_string()])
-            .unwrap()[0];
-        Self { dir, path, item_id }
+        SqliteLibrary::open_at(&self.path)
+            .unwrap()
+            .apply_remote_listing(self.source_id, &[song], &[])
+            .unwrap();
+    }
+
+    fn server_locator(&self) -> String {
+        remote::locator(self.source_id, "song", "flac")
     }
 
     fn normalization(&self, on: bool) -> Normalization {
@@ -116,7 +135,7 @@ fn a_click_estimate_is_used_at_once_and_saved() {
         .estimate_within(&target, &fixture("long_44_stereo.flac"), 0, UNHURRIED)
         .unwrap();
 
-    assert_eq!(loudness.known(rig.item_id), Some(gain));
+    assert_eq!(loudness.known(rig.item_id, &target.path), Some(gain));
     wait_for("the quick value in the db", || rig.stored().len() == 1);
     assert!(!rig.stored()[0].full);
     loudness.shutdown();
@@ -132,8 +151,8 @@ fn a_tagged_file_is_left_to_its_tags() {
         loudness.estimate_now(&target, &fixture("replaygain.flac"), 0),
         None
     );
-    assert_eq!(loudness.known(rig.item_id), None);
-    assert!(!loudness.wants_estimate(rig.item_id));
+    assert_eq!(loudness.known(rig.item_id, &target.path), None);
+    assert!(!loudness.wants_estimate(&target));
     loudness.measure(target.clone());
     assert!(loudness.inner.lock_queue().jobs.is_empty());
     loudness.shutdown();
@@ -176,7 +195,7 @@ fn slow_formats_skip_the_click_estimate() {
     assert!(loudness.wants_click_estimate(&target));
     target.path = "/music/image.ape".into();
     assert!(!loudness.wants_click_estimate(&target));
-    assert!(loudness.wants_estimate(target.id));
+    assert!(loudness.wants_estimate(&target));
     loudness.shutdown();
 }
 
@@ -193,6 +212,84 @@ fn nothing_is_measured_while_switched_off() {
     loudness.measure(target.clone());
     loudness.prepare(target);
     assert!(loudness.inner.lock_queue().jobs.is_empty());
+    loudness.shutdown();
+}
+
+const SERVER_GAIN: ReplayGain = ReplayGain {
+    gain_db: -6.5,
+    peak: None,
+};
+
+#[test]
+fn a_server_gain_counts_only_for_tracks_played_from_that_server() {
+    let rig = Rig::new();
+    rig.serve(Some(SERVER_GAIN.gain_db));
+    let loudness = rig.normalization(true);
+    let local = rig.target("long_44_stereo.flac");
+    let measured = loudness
+        .estimate_within(&local, &fixture("long_44_stereo.flac"), 0, UNHURRIED)
+        .unwrap();
+
+    assert_eq!(
+        loudness.known(rig.item_id, &rig.server_locator()),
+        Some(SERVER_GAIN)
+    );
+    assert_eq!(loudness.known(rig.item_id, &local.path), Some(measured));
+    let elsewhere = remote::locator(rig.source_id + 1, "song", "flac");
+    assert_eq!(loudness.known(rig.item_id, &elsewhere), Some(measured));
+    loudness.shutdown();
+}
+
+#[test]
+fn a_track_with_a_server_gain_is_not_measured() {
+    let rig = Rig::new();
+    rig.serve(Some(SERVER_GAIN.gain_db));
+    let loudness = rig.normalization(true);
+    let target = TrackRequest {
+        path: rig.server_locator(),
+        ..rig.target("long_44_stereo.flac")
+    };
+
+    assert!(!loudness.wants_click_estimate(&target));
+    loudness.prepare(target.clone());
+    loudness.measure(target);
+    assert!(loudness.inner.lock_queue().jobs.is_empty());
+    loudness.shutdown();
+}
+
+#[test]
+fn server_gains_follow_the_next_sync() {
+    let rig = Rig::new();
+    let loudness = rig.normalization(true);
+    let locator = rig.server_locator();
+    assert_eq!(loudness.known(rig.item_id, &locator), None);
+
+    rig.serve(Some(SERVER_GAIN.gain_db));
+    loudness.reload_server_gains();
+    wait_for("the server gain", || {
+        loudness.known(rig.item_id, &locator) == Some(SERVER_GAIN)
+    });
+
+    rig.serve(None);
+    loudness.reload_server_gains();
+    wait_for("the server gain to go", || {
+        loudness.known(rig.item_id, &locator).is_none()
+    });
+    loudness.shutdown();
+}
+
+#[test]
+fn an_older_reload_never_overwrites_a_newer_one() {
+    let rig = Rig::new();
+    let loudness = rig.normalization(true);
+    rig.serve(Some(SERVER_GAIN.gain_db));
+    loudness.inner.load_server_gains(2);
+    rig.serve(None);
+    loudness.inner.load_server_gains(1);
+    assert_eq!(
+        loudness.known(rig.item_id, &rig.server_locator()),
+        Some(SERVER_GAIN)
+    );
     loudness.shutdown();
 }
 

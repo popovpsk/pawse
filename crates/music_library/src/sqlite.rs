@@ -17,8 +17,8 @@ use crate::models::{
     CoverArt, DeliveryOutcome, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
     LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally,
     PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
-    ScanTrack, SoundGenres, SourceSummary, StoredLoudness, StoredLyrics, Track, TrackAnalysis,
-    TrackListing,
+    ScanTrack, ServerGain, SoundGenres, SourceSummary, StoredLoudness, StoredLyrics, Track,
+    TrackAnalysis, TrackListing,
 };
 use crate::repository::{LibraryRepository, ScanWrite};
 
@@ -651,8 +651,9 @@ const IDENTITY_BINDINGS: &str = "SELECT b.id, b.item_id, b.source_id, s.kind = '
 
 const UPSERT_REMOTE_TRACK: &str = "INSERT INTO remote_tracks \
     (binding_id, title, artist, album, album_artist, track_number, disc_number, year, genre, \
-     duration_ms, size, suffix, content_type, bitrate, cover_key, cover_hash, updated_at) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
+     duration_ms, size, suffix, content_type, bitrate, cover_key, cover_hash, updated_at, \
+     gain_db) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18) \
     ON CONFLICT(binding_id) DO UPDATE SET title = excluded.title, artist = excluded.artist, \
     album = excluded.album, album_artist = excluded.album_artist, \
     track_number = excluded.track_number, disc_number = excluded.disc_number, \
@@ -1032,11 +1033,13 @@ fn upsert_remote_track(conn: &Connection, binding_id: i64, song: &RemoteSong) ->
             song.cover_key,
             song.cover_hash,
             unix_now(),
+            song.gain_db.map(f64::from),
         ],
     )?;
     conn.execute(
-        "UPDATE remote_tracks SET cover_key = ?1 WHERE binding_id = ?2 AND cover_key IS NOT ?1",
-        rusqlite::params![song.cover_key, binding_id],
+        "UPDATE remote_tracks SET cover_key = ?1, gain_db = ?3 WHERE binding_id = ?2 \
+         AND (cover_key IS NOT ?1 OR gain_db IS NOT ?3)",
+        rusqlite::params![song.cover_key, binding_id, song.gain_db.map(f64::from)],
     )?;
     Ok(changed)
 }
@@ -4244,6 +4247,25 @@ impl LibraryRepository for SqliteLibrary {
             "DELETE FROM track_loudness WHERE version <> ?1",
             [keep_version],
         )?)
+    }
+
+    fn server_gains(&self) -> Result<Vec<ServerGain>> {
+        let conn = self.embedding_conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
+            "SELECT b.item_id, b.source_id, rt.gain_db FROM remote_tracks rt \
+             JOIN media_bindings b ON b.id = rt.binding_id \
+             JOIN sources s ON s.id = b.source_id \
+             WHERE rt.gain_db IS NOT NULL AND b.present = 1 AND s.enabled = 1",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ServerGain {
+                item_id: row.get(0)?,
+                source_id: row.get(1)?,
+                gain_db: row.get::<_, f64>(2)? as f32,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(LibraryError::Database)
     }
 }
 

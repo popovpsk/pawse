@@ -102,6 +102,7 @@ fn song(item: dlna::Item) -> Option<RemoteSong> {
         cover_key,
         cover_hash: None,
         start_offset_ms: None,
+        gain_db: None,
     })
 }
 

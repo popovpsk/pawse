@@ -32,7 +32,7 @@ pub enum Error {
     Server(String),
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     #[serde(deserialize_with = "lenient::id")]
@@ -69,6 +69,8 @@ pub struct Item {
     pub image_tags: ImageTags,
     #[serde(default, deserialize_with = "lenient::opt_text")]
     pub album_primary_image_tag: Option<String>,
+    #[serde(default, deserialize_with = "lenient::decimal")]
+    pub normalization_gain: Option<f64>,
 }
 
 impl Item {

@@ -210,6 +210,7 @@ fn song(item: jellyfin::Item) -> RemoteSong {
         bitrate_kbps: item.bitrate().map(|bps| bps / 1000),
         cover_key: item.cover_key().map(str::to_string),
         cover_hash: None,
+        gain_db: item.normalization_gain.map(|gain| gain as f32),
         key: item.id,
         start_offset_ms: None,
     }
@@ -225,6 +226,16 @@ mod tests {
             name: "Song".into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_server_gain_is_kept_as_it_comes() {
+        let analysed = jellyfin::Item {
+            normalization_gain: Some(-6.25),
+            ..item()
+        };
+        assert_eq!(song(analysed).gain_db, Some(-6.25));
+        assert_eq!(song(item()).gain_db, None);
     }
 
     #[test]

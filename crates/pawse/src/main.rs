@@ -130,7 +130,7 @@ fn restore_engine_state(cx: &mut App) {
         .map(|ms| std::time::Duration::from_millis(ms as u64));
     let loudness = audio_engine::TrackLoudness {
         tags: crate::normalization::takes_file_tags(track.is_cue, i64::from(track.start_offset_ms)),
-        known: services.normalization.known(track.id),
+        known: services.normalization.known(track.id, &track.path),
     };
     services
         .player
@@ -426,6 +426,7 @@ fn main() {
         crate::scrobble_bridge::setup(cx);
         crate::sleep_timer::setup(cx);
         crate::similar_tracks::setup(cx);
+        crate::normalization::setup(cx);
         #[cfg(not(target_os = "macos"))]
         crate::tray_bridge::setup(cx);
 
