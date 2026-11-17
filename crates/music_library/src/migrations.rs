@@ -557,4 +557,10 @@ pub const MIGRATIONS: &[(i32, &str)] = &[
         );
         "#,
     ),
+    (
+        18,
+        r#"
+        ALTER TABLE remote_tracks ADD COLUMN gain_db REAL;
+        "#,
+    ),
 ];

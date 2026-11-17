@@ -16,8 +16,9 @@ pub use models::{
     Album, AlbumSearchEntry, AlbumSummary, Artist, ArtistGrouping, ArtistInfoRow, ArtistSummary,
     ArtistTitles, CoverArt, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
     LocalFolder, NewTrack, PlayStats, PlayTally, Playlist, PlaylistSummary, RecentPlay,
-    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, SoundGenres,
-    SourceSummary, StoredLoudness, StoredLyrics, Track, TrackAnalysis, TrackListing, lyrics_source,
+    RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport, ScanLyrics, ScanTrack, ServerGain,
+    SoundGenres, SourceSummary, StoredLoudness, StoredLyrics, Track, TrackAnalysis, TrackListing,
+    lyrics_source,
 };
 pub use repository::{LibraryRepository, ScanWrite};
 pub use sqlite::{SqliteLibrary, clean_album_title, compute_sort_name, sha256_hex};
@@ -4591,6 +4592,66 @@ mod tests {
             lib.remote_song_cover_hashes(source).unwrap(),
             HashMap::from([("s1".to_string(), hash)])
         );
+    }
+
+    #[test]
+    fn a_server_gain_is_stored_without_counting_as_a_change() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let mut song = remote_song("s1", "A");
+        lib.apply_remote_listing(source, std::slice::from_ref(&song), &[])
+            .unwrap();
+        assert!(lib.server_gains().unwrap().is_empty());
+        let item = lib
+            .items_for_remote_keys(source, &["s1".to_string()])
+            .unwrap()[0];
+
+        song.gain_db = Some(-7.5);
+        let report = lib
+            .apply_remote_listing(source, std::slice::from_ref(&song), &[])
+            .unwrap();
+        assert!(!report.changed());
+        assert_eq!(
+            lib.server_gains().unwrap(),
+            vec![ServerGain {
+                item_id: item,
+                source_id: source,
+                gain_db: -7.5,
+            }]
+        );
+
+        song.gain_db = None;
+        lib.apply_remote_listing(source, &[song], &[]).unwrap();
+        assert!(lib.server_gains().unwrap().is_empty());
+    }
+
+    #[test]
+    fn server_gains_leave_out_songs_that_are_gone_and_disabled_servers() {
+        let (lib, _path) = create_test_db();
+        let source = server(&lib);
+        let gained = |key: &str, title: &str| RemoteSong {
+            gain_db: Some(-3.0),
+            ..remote_song(key, title)
+        };
+        lib.apply_remote_listing(source, &[gained("s1", "A"), gained("s2", "B")], &[])
+            .unwrap();
+        assert_eq!(lib.server_gains().unwrap().len(), 2);
+
+        lib.apply_remote_listing(source, &[gained("s1", "A")], &[])
+            .unwrap();
+        let kept = lib
+            .items_for_remote_keys(source, &["s1".to_string()])
+            .unwrap()[0];
+        let items: Vec<i64> = lib
+            .server_gains()
+            .unwrap()
+            .iter()
+            .map(|gain| gain.item_id)
+            .collect();
+        assert_eq!(items, vec![kept]);
+
+        lib.reconcile_remote_sources("subsonic", &[]).unwrap();
+        assert!(lib.server_gains().unwrap().is_empty());
     }
 
     #[test]

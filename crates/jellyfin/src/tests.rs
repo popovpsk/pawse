@@ -369,9 +369,9 @@ fn odd_fields_become_none_and_items_without_an_id_are_skipped() {
              "ParentIndexNumber": {"x": 1}, "ProductionYear": "1999", "Artists": "oops",
              "Genres": ["Rock", 5], "MediaSources": [{"Size": "1234", "Bitrate": 320000,
              "Container": "flac", "Path": "/m/a.flac"}], "ImageTags": [],
-             "AlbumId": "al", "AlbumPrimaryImageTag": "t"},
+             "AlbumId": "al", "AlbumPrimaryImageTag": "t", "NormalizationGain": -7.43},
             {"Name": "no id"},
-            {"Id": "b", "Name": 7, "ImageTags": {"Primary": "p"}}
+            {"Id": "b", "Name": 7, "ImageTags": {"Primary": "p"}, "NormalizationGain": "loud"}
         ], "TotalRecordCount": 3}))
     });
     let songs = stub.client().songs().unwrap();
@@ -387,9 +387,11 @@ fn odd_fields_become_none_and_items_without_an_id_are_skipped() {
     assert_eq!(a.bitrate(), Some(320_000));
     assert_eq!(a.file_path(), Some("/m/a.flac"));
     assert_eq!(a.cover_key(), Some("al"));
+    assert_eq!(a.normalization_gain, Some(-7.43));
     let b = &songs[1];
     assert_eq!(b.name, "7");
     assert_eq!(b.cover_key(), Some("b"));
+    assert_eq!(b.normalization_gain, None);
 }
 
 #[test]

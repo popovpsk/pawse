@@ -163,6 +163,11 @@ Nothing here depends on the kind beyond `'local'` versus not.
   `UPDATE`: it never reaches the catalog, but `remote_cover_hashes` (key to stored
   image) is how the app recognises an image it has, and Navidrome's cover ids carry the
   album's timestamp, so a stale key would re-download the image every sync.
+- `gain_db` (migration 18) is the server's own track gain (`RemoteSong::gain_db`), written by
+  the same uncounted `UPDATE` as `cover_key`: it never reaches the catalog, and a server that
+  analyses its library after a sync must not cause a rescan. `server_gains` lists it with
+  item and source for present bindings of enabled servers, on `embedding_conn`; only
+  `pawse::normalization` reads it.
 - A NULL key marks a song whose picture is not fetched yet. The first `source_path`
   stored for an image may carry an older key; Navidrome ignores the `_<timestamp>`
   suffix, so it still works.

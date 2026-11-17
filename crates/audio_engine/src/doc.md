@@ -51,9 +51,9 @@ one. `EngineOutput` is `AudioOutput` plus the fade and `release_paused` calls th
   `trim_to_track_end` and before the equalizer, so the equalizer's preamp still sees the
   final level.
 - A track's gain is chosen once, in `install`: the source's own `replay_gain` (file tags)
-  when `TrackLoudness::tags` allows it, else `TrackLoudness::known` (what the app measured),
-  else none (unity). The app clears `tags` for a cue segment: an image's tags describe the
-  whole image. It never changes until the next track; only the switch moves it mid-track,
+  when `TrackLoudness::tags` allows it, else `TrackLoudness::known` (the server's gain or
+  what the app measured), else none (unity). The app clears `tags` for a cue segment: an
+  image's tags describe the whole image. It never changes until the next track; only the switch moves it mid-track,
   over one batch.
 - A gapless `SetLocalTrack` (straight after a natural end) ramps from the previous track's
   gain over the new track's first batch: the old tail is already in the ring at its own

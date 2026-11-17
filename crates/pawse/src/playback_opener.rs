@@ -25,7 +25,7 @@ pub trait OpenerBackend: Send + Sync {
         false
     }
 
-    fn known_gain(&self, _track_id: i64) -> Option<ReplayGain> {
+    fn known_gain(&self, _track_id: i64, _locator: &str) -> Option<ReplayGain> {
         None
     }
 
@@ -120,7 +120,7 @@ impl PlaybackOpener {
             Location::Remote(_) => self.backend.cached(&path).is_some(),
             Location::Invalid => false,
         };
-        let loudness = self.loudness(track, track.start_offset_ms);
+        let loudness = self.loudness(track, &track.path, track.start_offset_ms);
         let estimate = after == AfterLoad::Play && self.backend.wants_estimate(track);
         if ready && !estimate {
             (self.sink)(Command::SetLocalTrack {
@@ -167,10 +167,10 @@ impl PlaybackOpener {
         self.generation.load(Ordering::Acquire) != generation
     }
 
-    fn loudness(&self, track: &TrackRequest, start_ms: i64) -> TrackLoudness {
+    fn loudness(&self, track: &TrackRequest, locator: &str, start_ms: i64) -> TrackLoudness {
         TrackLoudness {
             tags: crate::normalization::takes_file_tags(track.is_cue, start_ms),
-            known: self.backend.known_gain(track.id),
+            known: self.backend.known_gain(track.id, locator),
         }
     }
 
@@ -198,7 +198,7 @@ impl PlaybackOpener {
             match remote::location(&locator) {
                 Location::File(file) if file.exists() => {
                     let measure = estimate.then(|| file.to_path_buf());
-                    return Some(self.local(candidate, start_ms, track, measure, generation));
+                    return Some(self.local(&locator, start_ms, track, measure, generation));
                 }
                 Location::File(_) | Location::Invalid => continue,
                 Location::Remote(_) => {}
@@ -206,14 +206,14 @@ impl PlaybackOpener {
             match self.open_remote(&candidate, generation) {
                 Ok(Opened::Cached) => {
                     let measure = estimate.then(|| self.backend.cached(&candidate)).flatten();
-                    return Some(self.local(candidate, start_ms, track, measure, generation));
+                    return Some(self.local(&locator, start_ms, track, measure, generation));
                 }
                 Ok(Opened::Stream(source)) => {
                     return Some(Command::SetStreamTrack(Box::new(StreamTrack {
                         source,
                         start_offset: offset(start_ms),
                         track_duration: track.duration,
-                        loudness: self.loudness(track, start_ms),
+                        loudness: self.loudness(track, &locator, start_ms),
                     })));
                 }
                 Err(_) if self.is_stale(generation) => return None,
@@ -225,25 +225,19 @@ impl PlaybackOpener {
         }
         Some(match failure {
             Some(message) => Command::Fail(message),
-            None => self.local(
-                PathBuf::from(&track.path),
-                track.start_offset_ms,
-                track,
-                None,
-                generation,
-            ),
+            None => self.local(&track.path, track.start_offset_ms, track, None, generation),
         })
     }
 
     fn local(
         &self,
-        path: PathBuf,
+        locator: &str,
         start_ms: i64,
         track: &TrackRequest,
         measure: Option<PathBuf>,
         generation: u64,
     ) -> Command {
-        let mut loudness = self.loudness(track, start_ms);
+        let mut loudness = self.loudness(track, locator, start_ms);
         if let Some(file) = measure
             && loudness.known.is_none()
             && !self.is_stale(generation)
@@ -251,7 +245,7 @@ impl PlaybackOpener {
             loudness.known = self.backend.estimate(track, &file, start_ms);
         }
         Command::SetLocalTrack {
-            path,
+            path: PathBuf::from(locator),
             start_offset: offset(start_ms),
             track_duration: track.duration,
             prepared: true,
@@ -336,8 +330,8 @@ impl OpenerBackend for LibraryBackend {
         self.normalization.wants_click_estimate(track)
     }
 
-    fn known_gain(&self, track_id: i64) -> Option<ReplayGain> {
-        self.normalization.known(track_id)
+    fn known_gain(&self, track_id: i64, locator: &str) -> Option<ReplayGain> {
+        self.normalization.known(track_id, locator)
     }
 
     fn estimate(&self, track: &TrackRequest, file: &Path, start_ms: i64) -> Option<ReplayGain> {

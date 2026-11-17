@@ -86,6 +86,7 @@ struct Fake {
     down: Option<&'static str>,
     normalizing: bool,
     known: HashMap<i64, ReplayGain>,
+    served: HashMap<String, ReplayGain>,
     estimate: Option<ReplayGain>,
     estimated: Arc<Mutex<Vec<PathBuf>>>,
 }
@@ -140,8 +141,11 @@ impl OpenerBackend for Fake {
         self.normalizing && !self.known.contains_key(&track.id)
     }
 
-    fn known_gain(&self, track_id: i64) -> Option<ReplayGain> {
-        self.known.get(&track_id).copied()
+    fn known_gain(&self, track_id: i64, locator: &str) -> Option<ReplayGain> {
+        self.served
+            .get(locator)
+            .or_else(|| self.known.get(&track_id))
+            .copied()
     }
 
     fn estimate(&self, _: &TrackRequest, file: &Path, _: i64) -> Option<ReplayGain> {
@@ -415,6 +419,36 @@ fn a_gapless_start_never_waits_for_an_estimate() {
     assert_eq!(loudness_of(&command).known, None);
     assert!(matches!(next(&rx), Command::Play { fade_in: false }));
     assert!(estimated.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_gain_follows_the_copy_that_plays() {
+    const SERVED: ReplayGain = ReplayGain {
+        gain_db: -7.0,
+        peak: None,
+    };
+    let server = locator(3, "k", "wav");
+    let (_dir, file) = local_file("a.flac");
+    let local = file.to_string_lossy().into_owned();
+    let fake = |locators: Vec<String>| Fake {
+        locators: HashMap::from([(1, locators.into_iter().map(|l| (l, 0)).collect())]),
+        remotes: Mutex::new(HashMap::from([(PathBuf::from(&server), Remote::Wav)])),
+        known: HashMap::from([(1, GAIN)]),
+        served: HashMap::from([(server.clone(), SERVED)]),
+        ..Default::default()
+    };
+
+    let (opener, rx) = with_backend(fake(vec!["/gone/a.wav".into(), server.clone()]));
+    opener.start(&request(1, "/gone/a.wav"), AfterLoad::Stay);
+    assert!(matches!(next(&rx), Command::Prepare { .. }));
+    assert_eq!(loudness_of(&next(&rx)).known, Some(SERVED));
+
+    let (opener, rx) = with_backend(fake(vec![local.clone(), server.clone()]));
+    opener.start(&request(1, &server), AfterLoad::Stay);
+    assert!(matches!(next(&rx), Command::Prepare { .. }));
+    let command = next(&rx);
+    assert_eq!(local_path(&command, true), file);
+    assert_eq!(loudness_of(&command).known, Some(GAIN));
 }
 
 #[test]

@@ -1,24 +1,26 @@
 # normalization
 
 Volume normalization on the app side: the `Normalization` handle in `Services`, the
-in-memory table of known track gains, the job queue that measures tracks on GPUI's
-background executor,
-the 100 ms estimate when a track is clicked, and the hooks that decide what to measure
+in-memory tables of known track gains (our measurements and servers' own), the job queue
+that measures tracks on GPUI's background executor, the 100 ms estimate when a track is clicked, and the hooks that decide what to measure
 when. One switch in Settings → General (`volume_normalization`, off by default).
 
 Not here: the meter, quick and full measurement, the gain rule (`loudness/src/doc.md`),
 applying the gain (`audio_engine/src/doc.md`, "Normalization"), reading tags
-(`audio_decoder/src/doc.md`), the table (`music_library/src/doc.md`, "Loudness"), how a
-click reaches the opener (`pawse/src/doc.md`, "Opening a track").
+(`audio_decoder/src/doc.md`), the table (`music_library/src/doc.md`, "Loudness"), where a
+server gain comes from (`jellyfin/src/doc.md`, `music_library/src/doc.md`, "Server
+sources"), how a click reaches the opener (`pawse/src/doc.md`, "Opening a track").
 
 ## Files
 
 - `mod.rs` — `Normalization`, `Spawner`, `takes_file_tags`, the queue and its drain
-  (`Inner::push` / `drain`), `VERSION`.
+  (`Inner::push` / `drain`), `ServerGains`, `VERSION`.
   What to measure is a `TrackRequest` (`playback_opener.rs`): item, locator, cue span.
-- `playback.rs` — `Tracker` (the engine-events hooks), `set_enabled` (the setting).
+- `playback.rs` — `Tracker` (the engine-events hooks), `set_enabled` (the setting),
+  `setup` (reloads server gains on library events).
 - `tests.rs` — click estimate, tags win, full replaces quick across a restart, nothing runs
-  while off, the cue tag rule. Real fixtures and a temp database; no GPUI.
+  while off, the cue tag rule, a server gain per copy (not measured, follows a sync, an
+  older reload never wins). Real fixtures and a temp database; no GPUI.
 
 ## Spec
 
@@ -27,6 +29,17 @@ click reaches the opener (`pawse/src/doc.md`, "Opening a track").
   first click can ask; after that the opener reads them without touching SQLite. A full value is never replaced by a quick one, in the
   map or in the table. Bump `VERSION` whenever the meter or the estimate would give other
   numbers.
+- Server gains (`ServerGains`) are keyed by item and source, since one item can have a
+  local copy and copies on several servers: `known(item, locator)` gives the server's gain
+  only when the locator that plays is that server's (`remote::parse`), else the measured
+  value. They are loaded with the measurements and again on every `CatalogChanged` and
+  successful `RemoteSyncFinished` (a sync can change a gain without changing the catalog; a
+  scan can move a binding to another item). Reloads run through the `Spawner` beside the
+  queue and may finish out of order, so each carries a generation and an older one never
+  replaces a newer table.
+- A server gain has no peak, so the gain rule (`loudness/src/doc.md`) lets it only turn a
+  track down. A track whose catalog locator has one is not measured (`leaves_to_others`,
+  like a tagged file): the opener would never use the result.
 - What is measured comes only from bytes already on this computer: a local file that
   exists, or a server or torrent track already complete in the media cache
   (`peek_cached`, so the cache order is not touched). Nothing is downloaded to measure.
@@ -69,3 +82,5 @@ Owner's calls; ask before changing.
   plays as is. A gapless start never waits.
 - Not applied on DLNA and Chromecast renderers (they get the original file), as with the
   equalizer.
+- A server's own gain (Jellyfin's `NormalizationGain`) ranks with file tags, above our
+  measurement: tags, then the server, then a measurement, then none.

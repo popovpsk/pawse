@@ -483,6 +483,7 @@ pub(super) fn song(track: PreparedTrack, file: &FileEntry) -> RemoteSong {
         start_offset_ms: track
             .is_cue
             .then(|| track.start_offset_ms.unwrap_or(0) as i64),
+        gain_db: None,
     }
 }
 

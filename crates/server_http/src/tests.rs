@@ -53,6 +53,8 @@ struct Sample {
     other: Option<String>,
     #[serde(default, deserialize_with = "lenient::number")]
     n: Option<u32>,
+    #[serde(default, deserialize_with = "lenient::decimal")]
+    x: Option<f64>,
     #[serde(default, deserialize_with = "lenient::text")]
     name: String,
     #[serde(default, deserialize_with = "lenient::list")]
@@ -82,6 +84,19 @@ fn odd_values_degrade_instead_of_failing() {
 
     let s = sample(r#"{"id": "x", "n": -1}"#).unwrap();
     assert_eq!(s.n, None);
+}
+
+#[test]
+fn decimals_keep_their_fraction_and_drop_what_is_not_a_number() {
+    let x = |json: &str| sample(json).unwrap().x;
+    assert_eq!(x(r#"{"id": "x", "x": -7.25}"#), Some(-7.25));
+    assert_eq!(x(r#"{"id": "x", "x": 3}"#), Some(3.0));
+    assert_eq!(x(r#"{"id": "x", "x": " -1.5 "}"#), Some(-1.5));
+    assert_eq!(x(r#"{"id": "x", "x": "NaN"}"#), None);
+    assert_eq!(x(r#"{"id": "x", "x": "inf"}"#), None);
+    assert_eq!(x(r#"{"id": "x", "x": null}"#), None);
+    assert_eq!(x(r#"{"id": "x", "x": true}"#), None);
+    assert_eq!(x(r#"{"id": "x"}"#), None);
 }
 
 #[test]

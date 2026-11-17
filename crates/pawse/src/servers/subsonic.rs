@@ -258,6 +258,7 @@ fn song(song: subsonic::Song) -> RemoteSong {
         cover_key: song.cover_art,
         cover_hash: None,
         start_offset_ms: None,
+        gain_db: None,
     }
 }
 

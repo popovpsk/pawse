@@ -6,8 +6,8 @@ use crate::models::{
     CoverArt, DeliveryOutcome, FilePlaylist, FilePlaylistChanges, GenreSort, GenreSummary,
     LocalFolder, NewLove, NewPlay, NewTrack, PendingLove, PendingPlay, PlayStats, PlayTally,
     PlaylistSummary, RecentPlay, RemoteCover, RemoteSong, RemoteSource, RemoteSyncReport,
-    ScanTrack, SoundGenres, SourceSummary, StoredLoudness, StoredLyrics, Track, TrackAnalysis,
-    TrackListing,
+    ScanTrack, ServerGain, SoundGenres, SourceSummary, StoredLoudness, StoredLyrics, Track,
+    TrackAnalysis, TrackListing,
 };
 
 /// A batched, single-transaction sink for a full rescan. Implementations own a
@@ -242,4 +242,5 @@ pub trait LibraryRepository: Send + Sync {
     fn loudness_values(&self, version: u32) -> Result<Vec<StoredLoudness>>;
     fn save_loudness(&self, version: u32, row: &StoredLoudness) -> Result<bool>;
     fn prune_loudness(&self, keep_version: u32) -> Result<usize>;
+    fn server_gains(&self) -> Result<Vec<ServerGain>>;
 }

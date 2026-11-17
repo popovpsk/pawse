@@ -18,7 +18,8 @@ Not here: each client's protocol and error type (`subsonic/src/doc.md`,
   calls through, and the retry between them.
 - `lenient.rs` — serde helpers: an odd value becomes `None` / empty / default instead of
   failing the record. `number` takes ints, floats (rounded) and numeric strings; a value
-  that does not fit the target type is `None`. `id` is the one strict helper: a missing or
+  that does not fit the target type is `None`. `decimal` keeps the fraction (an `f64`) and
+  turns anything not finite into `None`. `id` is the one strict helper: a missing or
   empty id is an error, so the caller can skip that record.
 - `tests.rs`.
 
