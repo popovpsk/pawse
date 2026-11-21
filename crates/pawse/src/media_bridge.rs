@@ -72,8 +72,9 @@ fn apply_engine_event(
             let dur_secs = duration.as_secs_f64();
             current_position.replace(0.0);
             current_duration.replace(dur_secs);
-            if publish_track(cx, integration, dur_secs, 0.0, MediaPlaybackState::Playing) {
-                last_state.replace(MediaPlaybackState::Playing);
+            let state = loaded_state(cx);
+            if publish_track(cx, integration, dur_secs, 0.0, state) {
+                last_state.replace(state);
             }
         }
         EngineEvent::Playing => {
@@ -109,6 +110,15 @@ fn apply_engine_event(
             integration.update_position(secs, state);
         }
         _ => {}
+    }
+}
+
+fn loaded_state(cx: &App) -> MediaPlaybackState {
+    let services = cx.global::<Services>();
+    if services.is_playing.load(Ordering::Relaxed) || services.player.plays_after_load() {
+        MediaPlaybackState::Playing
+    } else {
+        MediaPlaybackState::Paused
     }
 }
 

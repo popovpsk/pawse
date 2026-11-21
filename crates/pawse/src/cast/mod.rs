@@ -139,6 +139,7 @@ pub struct Player {
     next_id: Cell<u64>,
     local_fades: Cell<u64>,
     device_volume: Cell<bool>,
+    plays_after_load: Cell<bool>,
     events_tx: flume::Sender<EngineEvent>,
     events_rx: flume::Receiver<EngineEvent>,
     server: RefCell<Option<Arc<cast::MediaServer>>>,
@@ -185,6 +186,7 @@ impl Player {
             next_id: Cell::new(LOCAL + 1),
             local_fades: Cell::new(0),
             device_volume: Cell::new(device_volume),
+            plays_after_load: Cell::new(false),
             events_tx,
             events_rx,
             server: RefCell::new(None),
@@ -215,7 +217,12 @@ impl Player {
         !matches!(*self.target.borrow(), Target::Local)
     }
 
+    pub fn plays_after_load(&self) -> bool {
+        self.plays_after_load.get()
+    }
+
     pub fn start(&self, track: &Track, after: AfterLoad) {
+        self.plays_after_load.set(after != AfterLoad::Stay);
         match &*self.target.borrow() {
             Target::Local => self.local_opener.start(&TrackRequest::from(track), after),
             Target::AirPlay(target) => target.opener.start(&TrackRequest::from(track), after),
@@ -351,6 +358,7 @@ impl Player {
         start: Duration,
         autoplay: bool,
     ) {
+        self.plays_after_load.set(autoplay);
         let load = target.loads.fetch_add(1, Ordering::AcqRel) + 1;
         target.duration_ms.store(
             track.duration.map_or(0, |d| d.as_millis() as u64),

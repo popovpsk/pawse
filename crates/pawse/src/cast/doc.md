@@ -50,6 +50,11 @@ target being torn down (the local engine's `Stopped`, a closing session) never r
   advances exactly as with the engine; `Loaded` carries the source's sample rate and bit
   depth for the now-playing line.
 
+`Player::plays_after_load` is the intent of the latest start on any target (`start`'s
+`AfterLoad`, a renderer's `autoplay`): `Loaded` does not say whether `Playing` follows, and
+the media bridge needs it to publish a paused load as Paused (`pawse/src/doc.md`,
+"Engine-event bridges"). The launch restore bypasses `start` and leaves it false.
+
 ## Switching (`switch`)
 
 - The current track, position and play state are taken, the new target becomes active, the

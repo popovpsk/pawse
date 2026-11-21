@@ -1247,7 +1247,10 @@ keeps the Artists tab's bounded photo stores.
   only when `is_playing` is true, else they wait for `Playing`; dropping the `Loaded`
   start would stop scrobbling every auto-advanced track. Discord and the media bridge
   treat `TrackEnded` / `Stopped` as the end only when the queue has no current track.
-  The media bridge does not look at `is_playing`: its `Loaded` publishes Playing at 0.
+  The media bridge publishes `Loaded` at 0 as Playing when `is_playing` is true or the
+  load was started to play (`Player::plays_after_load`), else as Paused: a paused load gets
+  no `Paused` event, and after a natural end `is_playing` is already false while `Playing`
+  is still on its way, so `is_playing` alone would flash Paused on every track change.
 
 ## Scrobbling
 
@@ -1394,7 +1397,8 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
   thread of our own is added.
 - Inbound `MediaCommand`s arrive on a `flume` channel and a GPUI task maps them to
   `services::*` playback calls. Outbound, the bridge seeds itself from `Services`;
-  `Loaded` publishes the track (artists joined with ", ", cover path); `TrackEnded` /
+  `Loaded` publishes the track (artists joined with ", ", cover path) with the state
+  described under "Engine-event bridges"; `TrackEnded` /
   `Stopped` set Stopped only with no current track; `PositionChanged` is ignored while
   Stopped.
 - The cover path comes from `LibraryService::get_cover_art_path_for_media`, which writes
