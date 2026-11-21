@@ -1389,6 +1389,9 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
   OS flyout; the drop detaches it, `media_integration/src/doc.md`). `MainView::new` binds
   it to the main window; `tray_bridge::park` binds it to the tray's hidden window while
   the app sits in the tray, so media keys keep working.
+- On Linux `create_integration` also returns the MPRIS driver future, which the bridge
+  runs detached on GPUI's background executor; it holds the D-Bus connection, so no
+  thread of our own is added.
 - Inbound `MediaCommand`s arrive on a `flume` channel and a GPUI task maps them to
   `services::*` playback calls. Outbound, the bridge seeds itself from `Services`;
   `Loaded` publishes the track (artists joined with ", ", cover path); `TrackEnded` /

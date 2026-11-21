@@ -22,10 +22,13 @@ block2 = "0.6.2"
 souvlaki = "0.8"
 log = { workspace = true }
 
-# Pure-Rust zbus backend so Linux builds don't need system libdbus headers.
 [target.'cfg(target_os = "linux")'.dependencies]
-souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+zbus = { version = "5.18", default-features = false, features = ["async-io"] }
+futures-lite = { version = "2.6", default-features = false, features = ["std"] }
 log = { workspace = true }
+
+[dev-dependencies]
+rstest = "0.26"
 
 [lints.rust]
 unsafe_code = "allow"

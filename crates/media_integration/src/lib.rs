@@ -1,13 +1,17 @@
 #![cfg_attr(not(target_os = "macos"), forbid(unsafe_code))]
 
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::rc::Rc;
 
 use flume::Sender;
 
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "linux", test))]
+mod mpris;
+#[cfg(target_os = "windows")]
 mod souvlaki_backend;
 
 /// Snapshot of the currently playing track for system media widgets.
@@ -56,6 +60,13 @@ pub trait SystemMediaIntegration {
     fn update_position(&self, elapsed_secs: f64, state: MediaPlaybackState);
 }
 
+pub type Driver = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+pub struct Integration {
+    pub controls: Rc<dyn SystemMediaIntegration>,
+    pub driver: Option<Driver>,
+}
+
 /// Create the platform's system media integration.
 ///
 /// `hwnd` is the native window handle, required by the Windows System Media
@@ -66,16 +77,30 @@ pub trait SystemMediaIntegration {
 pub fn create_integration(
     #[allow(unused)] command_sender: Sender<MediaCommand>,
     #[allow(unused)] hwnd: Option<*mut std::ffi::c_void>,
-) -> Option<Rc<dyn SystemMediaIntegration>> {
+) -> Option<Integration> {
     #[cfg(target_os = "macos")]
     {
         let integration = macos::MacOsIntegration::new(command_sender)?;
-        Some(Rc::new(integration))
+        Some(Integration {
+            controls: Rc::new(integration),
+            driver: None,
+        })
     }
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
         let integration = souvlaki_backend::SouvlakiIntegration::new(command_sender, hwnd)?;
-        Some(Rc::new(integration))
+        Some(Integration {
+            controls: Rc::new(integration),
+            driver: None,
+        })
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let (integration, driver) = mpris::MprisIntegration::new(command_sender);
+        Some(Integration {
+            controls: Rc::new(integration),
+            driver: Some(driver),
+        })
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {

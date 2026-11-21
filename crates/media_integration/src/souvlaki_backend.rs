@@ -7,8 +7,7 @@ use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, P
 
 use crate::{MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
-/// Shared implementation for Windows (System Media Transport Controls) and
-/// Linux (MPRIS over D-Bus), backed by the `souvlaki` crate.
+/// Windows System Media Transport Controls, backed by the `souvlaki` crate.
 ///
 /// `MediaControls` is `!Send`/`!Sync`, so this lives on the GPUI main thread.
 /// Only the `attach` callback crosses threads, and it merely forwards into the

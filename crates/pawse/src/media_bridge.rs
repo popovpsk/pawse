@@ -159,13 +159,16 @@ fn create_integration(
 ) -> Option<Rc<dyn SystemMediaIntegration>> {
     let (command_tx, command_rx) = flume::unbounded::<MediaCommand>();
     let integration = media_integration::create_integration(command_tx, hwnd)?;
+    if let Some(driver) = integration.driver {
+        cx.background_executor().spawn(driver).detach();
+    }
 
     cx.spawn(async move |cx| {
         run_command_loop(cx, command_rx).await;
     })
     .detach();
 
-    Some(integration)
+    Some(integration.controls)
 }
 
 async fn run_command_loop(cx: &mut AsyncApp, rx: flume::Receiver<MediaCommand>) {
