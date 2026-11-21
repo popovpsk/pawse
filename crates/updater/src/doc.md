@@ -60,7 +60,14 @@ What the code and `release.yml` both rely on.
   in the workflow's collect step, and the release job fails on a second `-setup.exe` or
   `.dmg`. Installed copies cannot be fixed, so the naming is the guarantee: do not tidy it.
 - Trust is our release over HTTPS plus a SHA-256 check against the asset's `digest`
-  (`install/doc.md`); no code-signature verification.
+  (`install/doc.md`); no code-signature verification. So whoever can publish a release can
+  ship code to every installed copy: the workflows pin every action to a commit SHA (the tag
+  in a comment) and only the publish job gets `contents: write`. `release.yml` builds
+  cargo-packager from crates.io at a pinned version (`fallback: cargo-install`): install-action
+  has no binary of its own for it, and cargo-binstall's fallback is a third-party
+  QuickInstall build, which would run next to the signing and Last.fm secrets. The Apple
+  signing secrets reach the Package step on macOS only. The AppRun is checked against a
+  pinned SHA-256; the version input reaches shell only through `env`.
 
 ## Build variants
 
