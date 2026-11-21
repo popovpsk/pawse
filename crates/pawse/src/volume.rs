@@ -1,7 +1,7 @@
 use gpui::{
     AppContext, ClickEvent, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    Render, ScrollDelta, ScrollWheelEvent, StatefulInteractiveElement, Styled, TouchPhase, Window,
-    div, prelude::FluentBuilder, px, svg,
+    Render, ScrollDelta, ScrollEvent, StatefulInteractiveElement, Styled, TouchPhase, Window, div,
+    prelude::FluentBuilder, px, svg,
 };
 use gpui_component::{h_flex, tooltip::Tooltip};
 
@@ -29,12 +29,12 @@ struct WheelSteps {
 }
 
 impl WheelSteps {
-    fn volume_delta(&mut self, event: &ScrollWheelEvent) -> f32 {
+    fn volume_delta(&mut self, event: &ScrollEvent) -> f32 {
         let delta = self.step(event, cfg!(target_os = "macos"));
         if natural_scrolling() { -delta } else { delta }
     }
 
-    fn step(&mut self, event: &ScrollWheelEvent, macos: bool) -> f32 {
+    fn step(&mut self, event: &ScrollEvent, macos: bool) -> f32 {
         let pixels = match event.delta {
             ScrollDelta::Lines(lines) if macos => {
                 self.pending = 0.;
@@ -122,7 +122,7 @@ impl Render for Volume {
             .gap_2()
             .justify_end()
             .items_center()
-            .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .on_scroll(cx.listener(Self::on_scroll))
             .child({
                 let tooltip_text = self.tooltip_text(is_exclusive);
 
@@ -239,11 +239,11 @@ impl Volume {
         cx.notify();
     }
 
-    fn on_scroll(&mut self, e: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_scroll(&mut self, e: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.wheel(e, cx);
     }
 
-    pub fn wheel(&mut self, e: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    pub fn wheel(&mut self, e: &ScrollEvent, cx: &mut Context<Self>) {
         let delta = self.wheel.volume_delta(e);
         if delta != 0. {
             self.nudge(delta, cx);
@@ -285,23 +285,23 @@ mod tests {
     use gpui::point;
     use rstest::rstest;
 
-    fn lines(y: f32) -> ScrollWheelEvent {
-        ScrollWheelEvent {
+    fn lines(y: f32) -> ScrollEvent {
+        ScrollEvent {
             delta: ScrollDelta::Lines(point(0., y)),
             touch_phase: TouchPhase::Moved,
             ..Default::default()
         }
     }
 
-    fn pixels(y: f32, touch_phase: TouchPhase) -> ScrollWheelEvent {
-        ScrollWheelEvent {
+    fn pixels(y: f32, touch_phase: TouchPhase) -> ScrollEvent {
+        ScrollEvent {
             delta: ScrollDelta::Pixels(point(px(0.), px(y))),
             touch_phase,
             ..Default::default()
         }
     }
 
-    fn gesture(moves: Vec<ScrollWheelEvent>) -> Vec<ScrollWheelEvent> {
+    fn gesture(moves: Vec<ScrollEvent>) -> Vec<ScrollEvent> {
         [
             vec![pixels(0., TouchPhase::Started)],
             moves,
@@ -321,7 +321,7 @@ mod tests {
         vec![pixels(20., TouchPhase::Moved), pixels(-6., TouchPhase::Moved), pixels(-20., TouchPhase::Moved)],
         -1.
     )]
-    fn wheel_steps_windows_linux(#[case] events: Vec<ScrollWheelEvent>, #[case] steps: f32) {
+    fn wheel_steps_windows_linux(#[case] events: Vec<ScrollEvent>, #[case] steps: f32) {
         assert_steps(&events, false, steps);
     }
 
@@ -336,11 +336,11 @@ mod tests {
         1.
     )]
     #[case::gesture_started_elsewhere(vec![pixels(24., TouchPhase::Moved); 3], 0.)]
-    fn wheel_steps_macos(#[case] events: Vec<ScrollWheelEvent>, #[case] steps: f32) {
+    fn wheel_steps_macos(#[case] events: Vec<ScrollEvent>, #[case] steps: f32) {
         assert_steps(&events, true, steps);
     }
 
-    fn assert_steps(events: &[ScrollWheelEvent], macos: bool, steps: f32) {
+    fn assert_steps(events: &[ScrollEvent], macos: bool, steps: f32) {
         let mut wheel = WheelSteps::default();
         let total: f32 = events.iter().map(|e| wheel.step(e, macos)).sum();
         assert!((total - steps * VOLUME_STEP).abs() < 1e-6, "{total}");

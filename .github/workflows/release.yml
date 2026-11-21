@@ -62,7 +62,7 @@ jobs:
       matrix:
         include:
           - label: macos-arm64
-            os: macos-15
+            os: macos-26
             formats: dmg
           - label: windows-x86_64
             os: windows-latest

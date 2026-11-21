@@ -362,41 +362,40 @@ mod tests {
     use gpui_component::theme::ThemeColor;
 
     fn dark_theme() -> ThemeColor {
-        ThemeColor {
-            background: to_hsla(
-                Oklch {
-                    l: 0.22,
-                    c: 0.02,
-                    h: 264.,
-                },
-                1.,
-            ),
-            foreground: to_hsla(
-                Oklch {
-                    l: 0.9,
-                    c: 0.01,
-                    h: 264.,
-                },
-                1.,
-            ),
-            primary: to_hsla(
-                Oklch {
-                    l: 0.66,
-                    c: 0.13,
-                    h: 264.,
-                },
-                1.,
-            ),
-            primary_foreground: to_hsla(
-                Oklch {
-                    l: 0.98,
-                    c: 0.,
-                    h: 0.,
-                },
-                1.,
-            ),
-            ..Default::default()
-        }
+        let mut t = ThemeColor::default();
+        t.background = to_hsla(
+            Oklch {
+                l: 0.22,
+                c: 0.02,
+                h: 264.,
+            },
+            1.,
+        );
+        t.foreground = to_hsla(
+            Oklch {
+                l: 0.9,
+                c: 0.01,
+                h: 264.,
+            },
+            1.,
+        );
+        t.primary = to_hsla(
+            Oklch {
+                l: 0.66,
+                c: 0.13,
+                h: 264.,
+            },
+            1.,
+        );
+        t.primary_foreground = to_hsla(
+            Oklch {
+                l: 0.98,
+                c: 0.,
+                h: 0.,
+            },
+            1.,
+        );
+        t
     }
 
     fn light_theme() -> ThemeColor {
@@ -413,7 +412,7 @@ mod tests {
         let base = dark_theme();
         let walked = map_colors(&base, |color| color);
         let before = serde_json::to_value(base).expect("serialize");
-        assert_eq!(before.as_object().expect("object").len(), 139);
+        assert_eq!(before.as_object().expect("object").len(), 140);
         assert_eq!(before, serde_json::to_value(walked).expect("serialize"));
     }
 
@@ -463,24 +462,25 @@ mod tests {
 
     #[test]
     fn relighting_leaves_a_theme_with_no_contrast_alone() {
-        let flat = ThemeColor {
-            background: to_hsla(
+        let flat = {
+            let mut t = ThemeColor::default();
+            t.background = to_hsla(
                 Oklch {
                     l: 0.5,
                     c: 0.,
                     h: 0.,
                 },
                 1.,
-            ),
-            foreground: to_hsla(
+            );
+            t.foreground = to_hsla(
                 Oklch {
                     l: 0.52,
                     c: 0.,
                     h: 0.,
                 },
                 1.,
-            ),
-            ..Default::default()
+            );
+            t
         };
         let generated = relit(&flat, anchors(&flat, 0.9));
         assert_eq!(generated.background, flat.background);
@@ -509,16 +509,17 @@ mod tests {
 
     #[test]
     fn a_pale_theme_still_gets_a_punchy_accent() {
-        let pale = ThemeColor {
-            primary: to_hsla(
+        let pale = {
+            let mut t = dark_theme();
+            t.primary = to_hsla(
                 Oklch {
                     l: 0.4,
                     c: 0.03,
                     h: 264.,
                 },
                 1.,
-            ),
-            ..dark_theme()
+            );
+            t
         };
         let primary = to_oklch(tinted(&pale, full(30.)).primary);
         assert!(
@@ -546,16 +547,17 @@ mod tests {
 
     #[test]
     fn a_weak_tint_barely_moves_an_already_colourful_surface() {
-        let saturated = ThemeColor {
-            background: to_hsla(
+        let saturated = {
+            let mut t = dark_theme();
+            t.background = to_hsla(
                 Oklch {
                     l: 0.22,
                     c: 0.073,
                     h: 290.,
                 },
                 1.,
-            ),
-            ..dark_theme()
+            );
+            t
         };
         let nudged = to_oklch(
             tinted(
@@ -614,16 +616,17 @@ mod tests {
     #[test]
     fn two_near_neutral_surfaces_do_not_split_onto_different_hues() {
         let sample = |chroma: f32| {
-            let base = ThemeColor {
-                background: to_hsla(
+            let base = {
+                let mut t = dark_theme();
+                t.background = to_hsla(
                     Oklch {
                         l: 0.22,
                         c: chroma,
                         h: 264.,
                     },
                     1.,
-                ),
-                ..dark_theme()
+                );
+                t
             };
             to_oklch(
                 tinted(
@@ -654,16 +657,17 @@ mod tests {
 
     #[test]
     fn surfaces_keep_their_relative_colourfulness() {
-        let base = ThemeColor {
-            secondary: to_hsla(
+        let base = {
+            let mut t = dark_theme();
+            t.secondary = to_hsla(
                 Oklch {
                     l: 0.4,
                     c: 0.04,
                     h: 264.,
                 },
                 1.,
-            ),
-            ..dark_theme()
+            );
+            t
         };
         let tinted = tinted(&base, full(30.));
         let background = to_oklch(tinted.background);
@@ -713,16 +717,17 @@ mod tests {
 
     #[test]
     fn body_text_follows_the_cover_without_moving_its_lightness() {
-        let base = ThemeColor {
-            muted_foreground: to_hsla(
+        let base = {
+            let mut t = dark_theme();
+            t.muted_foreground = to_hsla(
                 Oklch {
                     l: 0.7,
                     c: 0.03,
                     h: 264.,
                 },
                 1.,
-            ),
-            ..dark_theme()
+            );
+            t
         };
         let tinted = tinted(&base, full(30.));
         for (generated, original) in [
@@ -742,24 +747,25 @@ mod tests {
 
     #[test]
     fn muted_text_stays_less_colourful_than_body_text() {
-        let base = ThemeColor {
-            muted_foreground: to_hsla(
+        let base = {
+            let mut t = dark_theme();
+            t.muted_foreground = to_hsla(
                 Oklch {
                     l: 0.7,
                     c: 0.02,
                     h: 264.,
                 },
                 1.,
-            ),
-            foreground: to_hsla(
+            );
+            t.foreground = to_hsla(
                 Oklch {
                     l: 0.9,
                     c: 0.05,
                     h: 264.,
                 },
                 1.,
-            ),
-            ..dark_theme()
+            );
+            t
         };
         let tinted = tinted(&base, full(30.));
         assert!(to_oklch(tinted.muted_foreground).c < to_oklch(tinted.foreground).c);

@@ -282,7 +282,7 @@ pub(super) fn section_slot<V: 'static>(
             .overflow_hidden()
             .children(label(docked.current))
             .children(docked.incoming.and_then(label))
-            .on_scroll_wheel(move |event, window, cx| {
+            .on_scroll(move |event, window, cx| {
                 let delta = event.delta.pixel_delta(window.line_height());
                 if delta.x.abs() > delta.y.abs() {
                     return;

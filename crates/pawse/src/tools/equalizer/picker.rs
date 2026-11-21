@@ -536,7 +536,7 @@ impl HeadphonePicker {
             .border_color(Colors::border(cx))
             .bg(Colors::background(cx))
             .p(px(LIST_INSET))
-            .on_scroll_wheel(crate::tools::contain_scroll(
+            .on_scroll(crate::tools::contain_scroll(
                 &self.scroll.0.borrow().base_handle,
             ))
             .child(body)

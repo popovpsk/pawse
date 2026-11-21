@@ -4,7 +4,7 @@ use std::rc::Rc;
 use gpui::{
     Anchor, App, AppContext, Bounds, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
-    ScrollWheelEvent, StatefulInteractiveElement, Styled, Subscription, Window, anchored, canvas,
+    ScrollEvent, StatefulInteractiveElement, Styled, Subscription, Window, anchored, canvas,
     deferred, div, point, prelude::FluentBuilder, px, svg,
 };
 
@@ -99,7 +99,7 @@ impl CoverVolume {
         cx.notify();
     }
 
-    fn on_scroll(&mut self, e: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_scroll(&mut self, e: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.volume.update(cx, |vol, cx| vol.wheel(e, cx));
         cx.stop_propagation();
     }
@@ -139,7 +139,7 @@ impl CoverVolume {
                 .child(
                     self.panel(PANEL_H.min(room), cx)
                         .occlude()
-                        .on_scroll_wheel(cx.listener(Self::on_scroll))
+                        .on_scroll(cx.listener(Self::on_scroll))
                         .child(
                             canvas(
                                 move |bounds, _, _| panel_bounds.set(Some(bounds)),
@@ -180,7 +180,7 @@ impl Render for CoverVolume {
             .flex_col()
             .items_center()
             .gap_2()
-            .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .on_scroll(cx.listener(Self::on_scroll))
             .when(self.fit_window, |d| {
                 let icon_bounds = self.icon_bounds.clone();
                 d.child(

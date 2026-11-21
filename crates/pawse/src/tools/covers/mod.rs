@@ -602,7 +602,7 @@ fn skipped_field(state: Entity<CoversState>, cx: &mut App) -> AnyElement {
         .max_h(px(SKIPPED_HEIGHT))
         .overflow_y_scroll()
         .track_scroll(&scroll)
-        .on_scroll_wheel(crate::tools::contain_scroll(&scroll))
+        .on_scroll(crate::tools::contain_scroll(&scroll))
         .p_2()
         .rounded_md()
         .border_1()

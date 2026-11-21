@@ -1289,7 +1289,7 @@ impl Render for LyricsView {
                 .size_full()
                 .overflow_y_scroll()
                 .track_scroll(&self.scroll_handle)
-                .on_scroll_wheel(cx.listener(|this, _, _, cx| this.disengage(cx)))
+                .on_scroll(cx.listener(|this, _, _, cx| this.disengage(cx)))
                 .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                     if !*hovered {
                         this.set_list_hovered(false, cx);

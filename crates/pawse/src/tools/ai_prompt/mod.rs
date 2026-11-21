@@ -535,7 +535,7 @@ fn result_field(
                 .max_h(px(PREVIEW_HEIGHT))
                 .overflow_y_scroll()
                 .track_scroll(&preview_scroll)
-                .on_scroll_wheel(crate::tools::contain_scroll(&preview_scroll))
+                .on_scroll(crate::tools::contain_scroll(&preview_scroll))
                 .p_2()
                 .rounded_md()
                 .border_1()

@@ -4,8 +4,8 @@ mod equalizer;
 mod timer;
 
 use gpui::{
-    App, AppContext, Context, Entity, IntoElement, ParentElement, Render, ScrollHandle,
-    ScrollWheelEvent, Styled, Subscription, Window, actions, div, px,
+    App, AppContext, Context, Entity, IntoElement, ParentElement, Render, ScrollEvent,
+    ScrollHandle, Styled, Subscription, Window, actions, div, px,
 };
 use gpui_component::input::{InputState, TextareaState};
 use ui_components::settings::{SettingPage, Settings};
@@ -25,7 +25,7 @@ actions!(tools, [OpenAiPlaylist]);
 
 pub(crate) fn contain_scroll(
     handle: &ScrollHandle,
-) -> impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static {
+) -> impl Fn(&ScrollEvent, &mut Window, &mut App) + 'static {
     let handle = handle.clone();
     move |_, _, cx| {
         let max = handle.max_offset().y;

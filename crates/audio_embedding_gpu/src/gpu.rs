@@ -137,7 +137,8 @@ mod tests {
             backend,
             subgroup_min_size: 0,
             subgroup_max_size: 0,
-            transient_saves_memory: false,
+            transient_saves_memory: Some(false),
+            limit_bucket: None,
         }
     }
 

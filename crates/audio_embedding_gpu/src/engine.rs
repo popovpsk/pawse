@@ -668,22 +668,25 @@ impl Engine {
         if let Some(fault) = self.gpu.fault() {
             return Err(fault);
         }
-        Ok(pending
+        let results: Vec<Result<Vec<f32>, String>> = pending
             .readback
             .iter()
             .map(|buffer| {
-                let values = {
-                    let view = buffer.get_mapped_range(..);
-                    view.as_chunks::<4>()
-                        .0
-                        .iter()
-                        .map(|b| f32::from_le_bytes(*b))
-                        .collect()
-                };
+                let values = buffer
+                    .get_mapped_range(..)
+                    .map(|view| {
+                        view.as_chunks::<4>()
+                            .0
+                            .iter()
+                            .map(|b| f32::from_le_bytes(*b))
+                            .collect()
+                    })
+                    .map_err(|e| format!("reading the results: {e}"));
                 buffer.unmap();
                 values
             })
-            .collect())
+            .collect();
+        results.into_iter().collect()
     }
 
     #[cfg(test)]

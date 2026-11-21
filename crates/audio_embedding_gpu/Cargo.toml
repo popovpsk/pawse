@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 audio_common = { path = "../audio_common" }
 audio_embedding = { path = "../audio_embedding" }
-wgpu = { version = "29.0.4", default-features = false, features = ["std", "parking_lot", "wgsl", "metal", "dx12", "vulkan"] }
+wgpu = { version = "30.0.2", default-features = false, features = ["std", "parking_lot", "wgsl", "metal", "dx12", "vulkan"] }
 bytemuck = "1"
 pollster = "0.4"
 log = { workspace = true }
