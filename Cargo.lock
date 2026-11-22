@@ -5362,6 +5362,7 @@ dependencies = [
 name = "media_integration"
 version = "1.0.0"
 dependencies = [
+ "async-io",
  "block2 0.6.2",
  "flume",
  "futures-lite",

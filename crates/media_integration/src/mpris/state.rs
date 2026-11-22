@@ -1,10 +1,12 @@
 use std::fmt::Write;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::{MediaCommand, MediaPlaybackState, NowPlayingInfo};
 
 const SEEK_TOLERANCE_SECS: f64 = 1.0;
+const VOLUME_STEPS: f64 = 100.0;
+const VOLUME_SIGNAL_INTERVAL: Duration = Duration::from_millis(200);
 const NO_TRACK: &str = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
 const TRACK_PATH_PREFIX: &str = "/io/github/popovpsk/pawse/track/";
 
@@ -36,6 +38,8 @@ pub(crate) struct Changes {
     pub(crate) can_play_pause: bool,
     pub(crate) can_seek: bool,
     pub(crate) seeked: bool,
+    pub(crate) volume: bool,
+    pub(crate) volume_restated: bool,
 }
 
 impl Changes {
@@ -49,6 +53,49 @@ impl Changes {
         self.can_play_pause |= other.can_play_pause;
         self.can_seek |= other.can_seek;
         self.seeked |= other.seeked;
+        self.volume |= other.volume;
+        self.volume_restated |= other.volume_restated;
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct VolumePacer {
+    sent: Option<f64>,
+    next_at: Option<Instant>,
+    held: bool,
+}
+
+impl VolumePacer {
+    pub(crate) fn new(known_to_clients: f64) -> Self {
+        Self {
+            sent: Some(known_to_clients),
+            next_at: None,
+            held: false,
+        }
+    }
+
+    pub(crate) fn pace(
+        &mut self,
+        changes: &mut Changes,
+        volume: f64,
+        now: Instant,
+    ) -> Option<Instant> {
+        let changed = std::mem::take(&mut changes.volume);
+        let held = std::mem::take(&mut self.held);
+        if std::mem::take(&mut changes.volume_restated) {
+            self.sent = None;
+        }
+        if !(changed || held || self.sent.is_none()) || self.sent == Some(volume) {
+            return None;
+        }
+        if let Some(next_at) = self.next_at.filter(|next_at| now < *next_at) {
+            self.held = true;
+            return Some(next_at);
+        }
+        self.sent = Some(volume);
+        self.next_at = Some(now + VOLUME_SIGNAL_INTERVAL);
+        changes.volume = true;
+        None
     }
 }
 
@@ -79,6 +126,7 @@ pub(crate) struct State {
     track_number: u64,
     live: Anchor,
     announced: Anchor,
+    volume: f64,
 }
 
 impl State {
@@ -87,6 +135,7 @@ impl State {
             status: MediaPlaybackState::Stopped,
             track: None,
             track_number: 0,
+            volume: 1.0,
             live: Anchor::new(0.0, now),
             announced: Anchor::new(0.0, now),
         }
@@ -184,6 +233,30 @@ impl State {
         changes
     }
 
+    pub(crate) fn volume(&self) -> f64 {
+        self.volume
+    }
+
+    pub(crate) fn set_volume(&mut self, volume: f64) -> Changes {
+        let Some(volume) = volume_level(volume) else {
+            return Changes::default();
+        };
+        if volume == self.volume {
+            return Changes::default();
+        }
+        self.volume = volume;
+        Changes {
+            volume: true,
+            ..Changes::default()
+        }
+    }
+
+    pub(crate) fn restate_volume(&mut self, volume: f64) -> Changes {
+        let mut changes = self.set_volume(volume);
+        changes.volume_restated = true;
+        changes
+    }
+
     pub(crate) fn seek_by(&self, offset_us: i64, now: Instant) -> Option<MediaCommand> {
         let length_us = self
             .track
@@ -237,6 +310,12 @@ pub(crate) fn file_url(path: &Path) -> String {
         }
     }
     url
+}
+
+pub(crate) fn volume_level(volume: f64) -> Option<f64> {
+    volume
+        .is_finite()
+        .then(|| (volume.clamp(0.0, 1.0) * VOLUME_STEPS).round() / VOLUME_STEPS + 0.0)
 }
 
 fn valid_secs(secs: f64) -> Option<f64> {
@@ -299,6 +378,8 @@ mod tests {
                 can_play_pause: true,
                 can_seek: true,
                 seeked: false,
+                volume: false,
+                volume_restated: false,
             }
         );
         assert_eq!(state.track_id(), format!("{TRACK_PATH_PREFIX}1"));
@@ -549,6 +630,154 @@ mod tests {
             Changes {
                 playback_status: true,
                 seeked: true,
+                ..Changes::default()
+            }
+        );
+    }
+
+    #[rstest]
+    #[case::same(1.0, false, 1.0)]
+    #[case::lower(0.5, true, 0.5)]
+    #[case::f32_noise(0.49000000953674316, true, 0.49)]
+    #[case::below_a_step(0.999, false, 1.0)]
+    #[case::negative(-0.3, true, 0.0)]
+    #[case::zero(0.0, true, 0.0)]
+    #[case::too_loud(1.7, false, 1.0)]
+    #[case::nan(f64::NAN, false, 1.0)]
+    fn volume_changes_by_whole_steps(#[case] set: f64, #[case] changed: bool, #[case] reads: f64) {
+        let mut state = State::new(Instant::now());
+        assert_eq!(state.set_volume(set).volume, changed);
+        assert_eq!(state.volume(), reads);
+    }
+
+    #[test]
+    fn volume_change_touches_nothing_else() {
+        let (mut state, _) = playing("A", 200.0);
+        assert_eq!(
+            state.set_volume(0.3),
+            Changes {
+                volume: true,
+                ..Changes::default()
+            }
+        );
+    }
+
+    fn volume_changed() -> Changes {
+        Changes {
+            volume: true,
+            ..Changes::default()
+        }
+    }
+
+    #[test]
+    fn pacer_sends_the_first_change_and_holds_the_next() {
+        let start = Instant::now();
+        let mut pacer = VolumePacer::new(1.0);
+        let mut first = volume_changed();
+        assert_eq!(pacer.pace(&mut first, 0.9, start), None);
+        assert!(first.volume);
+
+        let mut second = volume_changed();
+        let flush_at = pacer.pace(&mut second, 0.8, at(start, 0.05));
+        assert_eq!(flush_at, Some(start + VOLUME_SIGNAL_INTERVAL));
+        assert!(!second.volume);
+    }
+
+    #[test]
+    fn pacer_flushes_the_held_change_with_the_latest_value() {
+        let start = Instant::now();
+        let mut pacer = VolumePacer::new(1.0);
+        pacer.pace(&mut volume_changed(), 0.9, start);
+        pacer.pace(&mut volume_changed(), 0.8, at(start, 0.05));
+        pacer.pace(&mut volume_changed(), 0.7, at(start, 0.1));
+
+        let mut timer_fired = Changes::default();
+        assert_eq!(pacer.pace(&mut timer_fired, 0.7, at(start, 0.2)), None);
+        assert!(timer_fired.volume);
+
+        let mut idle = Changes::default();
+        assert_eq!(pacer.pace(&mut idle, 0.7, at(start, 0.5)), None);
+        assert!(!idle.volume);
+    }
+
+    #[test]
+    fn pacer_drops_a_change_that_came_back_to_the_sent_value() {
+        let start = Instant::now();
+        let mut pacer = VolumePacer::new(1.0);
+        pacer.pace(&mut volume_changed(), 0.9, start);
+        pacer.pace(&mut volume_changed(), 0.8, at(start, 0.05));
+
+        let mut back = volume_changed();
+        assert_eq!(pacer.pace(&mut back, 0.9, at(start, 0.1)), None);
+        assert!(!back.volume);
+        let mut timer_fired = Changes::default();
+        pacer.pace(&mut timer_fired, 0.9, at(start, 0.2));
+        assert!(!timer_fired.volume);
+    }
+
+    #[test]
+    fn pacer_says_nothing_about_the_volume_clients_already_read() {
+        let start = Instant::now();
+        let mut pacer = VolumePacer::new(0.4);
+        let mut queued_before_connect = volume_changed();
+        assert_eq!(pacer.pace(&mut queued_before_connect, 0.4, start), None);
+        assert!(!queued_before_connect.volume);
+    }
+
+    #[test]
+    fn pacer_restates_an_unchanged_volume_once() {
+        let start = Instant::now();
+        let mut state = State::new(start);
+        let mut pacer = VolumePacer::new(state.volume());
+        let mut refused = state.restate_volume(1.0);
+        assert_eq!(pacer.pace(&mut refused, state.volume(), start), None);
+        assert_eq!(refused, volume_changed());
+
+        let mut idle = Changes::default();
+        assert_eq!(pacer.pace(&mut idle, 1.0, at(start, 1.0)), None);
+        assert!(idle.is_empty());
+    }
+
+    #[test]
+    fn pacer_holds_a_burst_of_restatements() {
+        let start = Instant::now();
+        let mut pacer = VolumePacer::new(1.0);
+        let restated = Changes {
+            volume_restated: true,
+            ..Changes::default()
+        };
+        let mut first = restated;
+        pacer.pace(&mut first, 1.0, start);
+        let mut second = restated;
+        let flush_at = pacer.pace(&mut second, 1.0, at(start, 0.05));
+        assert_eq!(flush_at, Some(start + VOLUME_SIGNAL_INTERVAL));
+        assert!(second.is_empty());
+
+        let mut timer_fired = Changes::default();
+        assert_eq!(pacer.pace(&mut timer_fired, 1.0, at(start, 0.2)), None);
+        assert_eq!(timer_fired, volume_changed());
+    }
+
+    #[test]
+    fn negative_zero_volume_is_plain_zero() {
+        assert_eq!(volume_level(-0.0).map(f64::to_bits), Some(0.0f64.to_bits()));
+    }
+
+    #[test]
+    fn pacer_leaves_other_changes_alone() {
+        let start = Instant::now();
+        let mut pacer = VolumePacer::new(1.0);
+        pacer.pace(&mut volume_changed(), 0.9, start);
+        let mut mixed = Changes {
+            playback_status: true,
+            volume: true,
+            ..Changes::default()
+        };
+        assert!(pacer.pace(&mut mixed, 0.8, at(start, 0.05)).is_some());
+        assert_eq!(
+            mixed,
+            Changes {
+                playback_status: true,
                 ..Changes::default()
             }
         );

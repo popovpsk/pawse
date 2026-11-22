@@ -1401,6 +1401,18 @@ Engine, retry, rewrite rules: `scrobble/src/doc.md`; tables: `music_library/src/
   described under "Engine-event bridges"; `TrackEnded` /
   `Stopped` set Stopped only with no current track; `PositionChanged` is ignored while
   Stopped.
+- Linux only: the bridge publishes the volume to MPRIS: `services::effective_volume`, or
+  1.0 while `Services::volume_locked` (exclusive output, a cast device that owns its
+  volume). `republish_volume` runs at start, when `SettingsStore` or `CastState` changes
+  (the globals the volume slider follows), on every engine event and from the exclusive
+  toggle in `audio_settings.rs`: the lock is in neither global, the toggle covers a
+  paused player and the engine events cover the output falling back to shared by itself.
+  Republishing an unchanged value costs a comparison. `MediaCommand::SetVolume` goes to
+  `services::set_volume`; when the volume afterwards is not the one asked for (locked),
+  the bridge restates it so the client's slider returns. The integration sits in a
+  global and the observers are detached, so this must stay off Windows, where the
+  integration is rebuilt per window and a leftover reference would keep the old one
+  alive.
 - The cover path comes from `LibraryService::get_cover_art_path_for_media`, which writes
   `<cache_dir>/pawse/artwork/<cover id>.jpg` (and deletes the other `.jpg` files there),
   never the temp dir: the OS reads the file from outside our process, and inside a

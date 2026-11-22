@@ -7,7 +7,7 @@ use zbus::Connection;
 use zbus::object_server::{Interface, SignalEmitter};
 
 use super::interfaces::{self, Player, Root, Shared, lock};
-use super::state::{Changes, State};
+use super::state::{Changes, State, VolumePacer};
 use crate::{Driver, MediaCommand, MediaPlaybackState, NowPlayingInfo, SystemMediaIntegration};
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.pawse";
@@ -45,6 +45,14 @@ impl SystemMediaIntegration for MprisIntegration {
 
     fn update_position(&self, elapsed_secs: f64, state: MediaPlaybackState) {
         self.apply(|current, now| current.set_position(elapsed_secs, state, now));
+    }
+
+    fn set_volume(&self, volume: f64) {
+        self.apply(|current, _| current.set_volume(volume));
+    }
+
+    fn restate_volume(&self, volume: f64) {
+        self.apply(|current, _| current.restate_volume(volume));
     }
 }
 
@@ -85,15 +93,17 @@ async fn emit_changes(connection: &Connection, state: &Shared, pending: Receiver
             return;
         }
     };
-    while let Ok(mut changes) = pending.recv_async().await {
+    let mut pacer = VolumePacer::new(lock(state).volume());
+    let mut flush_at = None;
+    while let Some(mut changes) = next_changes(&pending, flush_at).await {
         for more in pending.drain() {
             changes.merge(more);
         }
         let (properties, seeked) = {
             let state = lock(state);
-            let seeked = changes
-                .seeked
-                .then(|| state.announced_position_us(Instant::now()));
+            let now = Instant::now();
+            flush_at = pacer.pace(&mut changes, state.volume(), now);
+            let seeked = changes.seeked.then(|| state.announced_position_us(now));
             (interfaces::changed_properties(&state, changes), seeked)
         };
         if !properties.is_empty() {
@@ -113,5 +123,19 @@ async fn emit_changes(connection: &Connection, state: &Shared, pending: Receiver
         {
             log::debug!("media_integration: Seeked failed: {err}");
         }
+    }
+}
+
+async fn next_changes(pending: &Receiver<Changes>, flush_at: Option<Instant>) -> Option<Changes> {
+    let received = async { pending.recv_async().await.ok() };
+    match flush_at {
+        Some(flush_at) => {
+            let flush = async {
+                async_io::Timer::at(flush_at).await;
+                Some(Changes::default())
+            };
+            futures_lite::future::or(received, flush).await
+        }
+        None => received.await,
     }
 }

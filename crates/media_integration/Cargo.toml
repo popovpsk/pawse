@@ -25,6 +25,7 @@ log = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.18", default-features = false, features = ["async-io"] }
 futures-lite = { version = "2.6", default-features = false, features = ["std"] }
+async-io = "2.6"
 log = { workspace = true }
 
 [dev-dependencies]

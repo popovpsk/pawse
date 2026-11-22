@@ -7,7 +7,7 @@ use zbus::interface;
 use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{ObjectPath, Value};
 
-use super::state::{Changes, State};
+use super::state::{Changes, State, volume_level};
 use crate::{MediaCommand, MediaPlaybackState};
 
 pub(super) type Shared = Arc<Mutex<State>>;
@@ -149,13 +149,17 @@ impl Player {
         metadata(&lock(&self.state))
     }
 
-    #[zbus(property(emits_changed_signal = "const"))]
+    #[zbus(property(emits_changed_signal = "false"))]
     fn volume(&self) -> f64 {
-        1.0
+        lock(&self.state).volume()
     }
 
     #[zbus(property)]
-    fn set_volume(&mut self, _volume: f64) {}
+    fn set_volume(&mut self, volume: f64) {
+        if let Some(volume) = volume_level(volume) {
+            self.send(MediaCommand::SetVolume(volume));
+        }
+    }
 
     #[zbus(property(emits_changed_signal = "false"))]
     fn position(&self) -> i64 {
@@ -210,6 +214,9 @@ pub(super) fn changed_properties(
     }
     if changes.can_seek {
         properties.insert("CanSeek", Value::from(state.can_seek()));
+    }
+    if changes.volume {
+        properties.insert("Volume", Value::from(state.volume()));
     }
     properties
 }

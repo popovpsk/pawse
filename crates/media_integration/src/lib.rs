@@ -42,6 +42,7 @@ pub enum MediaCommand {
     Next,
     Previous,
     Seek(f64),
+    SetVolume(f64),
 }
 
 /// Platform-agnostic interface for system media integration.
@@ -58,6 +59,13 @@ pub trait SystemMediaIntegration {
     /// Update just the elapsed playback time in the Now Playing widget.
     /// Called frequently (e.g. every second) so it should be lightweight.
     fn update_position(&self, elapsed_secs: f64, state: MediaPlaybackState);
+
+    /// Publish the player's volume (0.0..=1.0) where the OS surface shows one.
+    fn set_volume(&self, _volume: f64) {}
+
+    /// Like `set_volume`, but announced even when the value did not change:
+    /// the answer to a client's write the player did not take.
+    fn restate_volume(&self, _volume: f64) {}
 }
 
 pub type Driver = Pin<Box<dyn Future<Output = ()> + Send>>;

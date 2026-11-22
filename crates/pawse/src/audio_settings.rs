@@ -330,6 +330,7 @@ impl Render for AudioSettings {
                                     }
                                 }
                                 crate::services::publish_remote_state(cx);
+                                crate::media_bridge::republish_volume(cx);
                                 cx.notify();
                             });
                         })

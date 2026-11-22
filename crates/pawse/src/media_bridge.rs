@@ -10,6 +10,9 @@ use media_integration::{MediaCommand, MediaPlaybackState, NowPlayingInfo, System
 
 use crate::services::Services;
 
+#[cfg(target_os = "linux")]
+const VOLUME_WRITE_TOLERANCE: f64 = 0.005;
+
 #[cfg(not(target_os = "windows"))]
 pub fn setup(cx: &mut App) {
     if let Some(subscription) = subscribe(cx, None) {
@@ -43,6 +46,8 @@ fn subscribe(cx: &mut App, hwnd: Option<*mut std::ffi::c_void>) -> Option<Subscr
         &current_position,
         &current_duration,
     );
+    #[cfg(target_os = "linux")]
+    observe_volume(cx, &integration);
 
     let engine_event_bus = cx.global::<Services>().engine_event_bus.clone();
     Some(
@@ -67,6 +72,7 @@ fn apply_engine_event(
     current_position: &RefCell<f64>,
     current_duration: &RefCell<f64>,
 ) {
+    republish_volume(cx);
     match event {
         EngineEvent::Loaded { duration, .. } => {
             let dur_secs = duration.as_secs_f64();
@@ -110,6 +116,53 @@ fn apply_engine_event(
             integration.update_position(secs, state);
         }
         _ => {}
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct VolumeTarget(Rc<dyn SystemMediaIntegration>);
+
+#[cfg(target_os = "linux")]
+impl gpui::Global for VolumeTarget {}
+
+#[cfg(target_os = "linux")]
+fn observe_volume(cx: &mut App, integration: &Rc<dyn SystemMediaIntegration>) {
+    cx.set_global(VolumeTarget(integration.clone()));
+    republish_volume(cx);
+    cx.observe_global::<crate::settings_store::SettingsStore>(|cx| republish_volume(cx))
+        .detach();
+    cx.observe_global::<crate::cast::CastState>(|cx| republish_volume(cx))
+        .detach();
+}
+
+#[cfg(target_os = "linux")]
+fn shown_volume(cx: &App) -> f64 {
+    if cx.global::<Services>().volume_locked() {
+        1.0
+    } else {
+        f64::from(crate::services::effective_volume(cx))
+    }
+}
+
+pub fn republish_volume(cx: &App) {
+    #[cfg(target_os = "linux")]
+    if let Some(target) = cx.try_global::<VolumeTarget>() {
+        target.0.set_volume(shown_volume(cx));
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = cx;
+}
+
+fn set_volume_from_os(cx: &mut App, requested: f64) {
+    crate::services::set_volume(cx, requested as f32);
+    #[cfg(target_os = "linux")]
+    if let Some(target) = cx.try_global::<VolumeTarget>() {
+        let shown = shown_volume(cx);
+        if (shown - requested).abs() > VOLUME_WRITE_TOLERANCE {
+            target.0.restate_volume(shown);
+        } else {
+            target.0.set_volume(shown);
+        }
     }
 }
 
@@ -194,6 +247,7 @@ async fn run_command_loop(cx: &mut AsyncApp, rx: flume::Receiver<MediaCommand>) 
             MediaCommand::Seek(position_secs) => {
                 crate::services::seek_to_ms(cx, (position_secs.max(0.0) * 1000.0) as u64)
             }
+            MediaCommand::SetVolume(volume) => set_volume_from_os(cx, volume),
         });
     }
 }
