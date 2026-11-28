@@ -201,6 +201,7 @@ pub struct Strings {
     pub no_tracks_for_genre: SharedString,
     pub no_liked_tracks: SharedString,
     pub no_liked_match: SharedString,
+    pub search_empty_hint: SharedString,
     pub playlist_is_empty: SharedString,
     pub unknown: SharedString,
 

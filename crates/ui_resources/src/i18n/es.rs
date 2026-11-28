@@ -132,6 +132,7 @@ pub static ES: Strings = lang! {
     no_tracks_for_genre: "No hay canciones en este género.",
     no_liked_tracks: "Aún no hay favoritos. Pasa el cursor sobre una canción y toca el corazón.",
     no_liked_match: "Ningún favorito coincide con tu búsqueda.",
+    search_empty_hint: "Revisa la ortografía o prueba con una búsqueda más corta.",
     playlist_is_empty: "La lista está vacía. Añade canciones con el botón + de cada fila.",
     unknown: "Desconocido",
 

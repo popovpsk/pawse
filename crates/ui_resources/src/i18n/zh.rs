@@ -132,6 +132,7 @@ pub static ZH: Strings = lang! {
     no_tracks_for_genre: "此流派没有曲目。",
     no_liked_tracks: "还没有喜欢的曲目。将鼠标悬停在曲目上并点击爱心即可添加。",
     no_liked_match: "没有匹配搜索的喜欢曲目。",
+    search_empty_hint: "请检查拼写，或尝试更短的搜索词。",
     playlist_is_empty: "播放列表为空。用每行的 + 按钮添加曲目。",
     unknown: "未知",
 

@@ -132,6 +132,7 @@ pub static EN: Strings = lang! {
     no_tracks_for_genre: "No tracks in this genre.",
     no_liked_tracks: "No liked tracks yet. Hover a track and tap the heart to like it.",
     no_liked_match: "No liked tracks match your search.",
+    search_empty_hint: "Check the spelling or try a shorter search.",
     playlist_is_empty: "Playlist is empty. Add tracks with the + button on any row.",
     unknown: "Unknown",
 

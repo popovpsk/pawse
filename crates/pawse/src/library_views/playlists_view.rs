@@ -3,9 +3,9 @@ use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, ElementId, Entity, EventEmitter, FontWeight, Hsla, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString, Size,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px, size, svg,
+    AppContext, Context, ElementId, Entity, EventEmitter, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Pixels, Render, SharedString, Size, StatefulInteractiveElement,
+    Styled, Subscription, Window, div, px, size, svg,
 };
 use gpui_component::{
     Icon, Selectable, Sizable, VirtualListScrollHandle,
@@ -21,12 +21,14 @@ use ui_resources::i18n::playlist_import_strings;
 
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
+use crate::library_views::albums_view::no_matches;
 use crate::library_views::playlist_import::{self, PlaylistImport};
 use crate::localization::tr;
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
 use crate::theme_colors::Colors;
 use crate::track_list::LIKE_ROW_GROUP;
+use ui_components::empty_state::EmptyState;
 use ui_components::tooltip::NativeTooltip;
 
 #[derive(Clone, Debug)]
@@ -385,17 +387,11 @@ impl Render for PlaylistsView {
             let new_row = (!show_empty_state).then(|| new_playlist_row(self, &params, cx));
             let all_tracks = (self.all_tracks_count > 0).then(|| all_tracks_row(self, &params, cx));
             let body = if show_empty_state {
-                empty_state(params.muted_fg, cx).into_any_element()
+                empty_state(cx).into_any_element()
             } else if self.playlists_all.is_empty() {
                 div().into_any_element()
             } else {
-                div()
-                    .px_4()
-                    .py_2()
-                    .text_sm()
-                    .text_color(params.muted_fg)
-                    .child(tr().no_playlists_match.clone())
-                    .into_any_element()
+                no_matches(tr().no_playlists_match.clone()).into_any_element()
             };
             return v_flex()
                 .size_full()
@@ -653,42 +649,16 @@ fn create_row_button(
         .child(svg().path(icon).size(px(16.)).text_color(icon_color))
 }
 
-fn empty_state(muted_fg: Hsla, cx: &mut Context<PlaylistsView>) -> gpui::Div {
-    v_flex()
-        .flex_1()
-        .items_center()
-        .justify_center()
-        .gap_3()
-        .px_8()
-        .pb_16()
-        .child(
-            svg()
-                .path("icons/s1-playlists.svg")
-                .size(px(40.))
-                .text_color(muted_fg),
-        )
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(tr().no_playlists_yet.clone()),
-        )
-        .child(
-            div()
-                .max_w(px(360.))
-                .text_sm()
-                .text_center()
-                .text_color(muted_fg)
-                .child(tr().playlists_empty_hint.clone()),
-        )
-        .child(
-            div().pt_2().child(
-                Button::new("playlists-empty-create")
-                    .primary()
-                    .small()
-                    .icon(Icon::default().path("icons/s1-plus.svg"))
-                    .label(tr().new_playlist.clone())
-                    .on_click(cx.listener(|this, _, window, cx| this.start_create(window, cx))),
-            ),
+fn empty_state(cx: &mut Context<PlaylistsView>) -> EmptyState {
+    EmptyState::new("icons/s1-playlists.svg", tr().no_playlists_yet.clone())
+        .hint(tr().playlists_empty_hint.clone())
+        .action(
+            Button::new("playlists-empty-create")
+                .primary()
+                .small()
+                .icon(Icon::default().path("icons/s1-plus.svg"))
+                .label(tr().new_playlist.clone())
+                .on_click(cx.listener(|this, _, window, cx| this.start_create(window, cx))),
         )
 }
 

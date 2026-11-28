@@ -132,6 +132,7 @@ pub static PT: Strings = lang! {
     no_tracks_for_genre: "Nenhuma faixa neste género.",
     no_liked_tracks: "Ainda não há curtidas. Passe o cursor sobre uma faixa e toque no coração.",
     no_liked_match: "Nenhuma curtida corresponde à sua busca.",
+    search_empty_hint: "Verifique a ortografia ou tente uma busca mais curta.",
     playlist_is_empty: "A playlist está vazia. Adicione faixas com o botão + de cada linha.",
     unknown: "Desconhecido",
 

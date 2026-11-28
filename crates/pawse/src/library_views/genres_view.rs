@@ -19,7 +19,9 @@ use ui_components::artist_avatar::artist_avatar;
 
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
-use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, has_music_sources};
+use crate::library_views::albums_view::{
+    OpenLibrarySettings, empty_library, has_music_sources, no_matches,
+};
 use crate::localization::{LangChanged, tr};
 use crate::services::Services;
 use crate::settings_store::SettingsStore;
@@ -246,8 +248,7 @@ impl Render for GenresView {
             }
             return v_flex()
                 .size_full()
-                .gap_3()
-                .child(div().px_4().child(tr().no_genres_match.clone()));
+                .child(no_matches(tr().no_genres_match.clone()));
         }
 
         let item_sizes = self.item_sizes.clone();

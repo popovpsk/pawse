@@ -132,6 +132,7 @@ pub static VI: Strings = lang! {
     no_tracks_for_genre: "Không có bài hát trong thể loại này.",
     no_liked_tracks: "Chưa có bài yêu thích. Di chuột lên bài hát và chạm vào trái tim.",
     no_liked_match: "Không có bài yêu thích nào khớp với tìm kiếm.",
+    search_empty_hint: "Hãy kiểm tra chính tả hoặc thử tìm kiếm ngắn hơn.",
     playlist_is_empty: "Danh sách phát trống. Thêm bài hát bằng nút + ở mỗi hàng.",
     unknown: "Không rõ",
 

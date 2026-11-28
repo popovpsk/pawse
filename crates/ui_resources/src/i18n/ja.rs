@@ -132,6 +132,7 @@ pub static JA: Strings = lang! {
     no_tracks_for_genre: "このジャンルの曲はありません。",
     no_liked_tracks: "お気に入りはまだありません。曲にカーソルを合わせてハートをタップしてください。",
     no_liked_match: "検索に一致するお気に入りはありません。",
+    search_empty_hint: "スペルを確認するか、短いキーワードで検索してみてください。",
     playlist_is_empty: "プレイリストは空です。各行の + ボタンで曲を追加できます。",
     unknown: "不明",
 

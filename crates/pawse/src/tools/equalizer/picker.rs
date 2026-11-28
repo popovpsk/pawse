@@ -27,6 +27,7 @@ use ui_resources::i18n::equalizer_strings;
 use crate::fuzzy::fuzzy_sorted;
 use crate::localization::tr;
 use crate::theme_colors::Colors;
+use ui_components::empty_state::EmptyState;
 
 use super::{EqualizerView, graph};
 
@@ -516,7 +517,11 @@ impl HeadphonePicker {
                 .into_any_element()
             }
             Index::Ready(_) if self.searching => div().into_any_element(),
-            Index::Ready(_) => message(s.no_matches.clone()).into_any_element(),
+            Index::Ready(_) => v_flex()
+                .size_full()
+                .justify_center()
+                .child(EmptyState::search(s.no_matches.clone()).compact())
+                .into_any_element(),
             Index::Idle | Index::Loading => message(s.index_loading.clone()).into_any_element(),
             Index::Failed(error) => message(error.clone())
                 .child(

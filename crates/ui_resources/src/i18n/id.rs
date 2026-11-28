@@ -132,6 +132,7 @@ pub static ID: Strings = lang! {
     no_tracks_for_genre: "Tidak ada lagu dalam genre ini.",
     no_liked_tracks: "Belum ada lagu disukai. Arahkan ke lagu dan ketuk ikon hati.",
     no_liked_match: "Tidak ada lagu disukai yang cocok dengan pencarian.",
+    search_empty_hint: "Periksa ejaan atau coba pencarian yang lebih pendek.",
     playlist_is_empty: "Playlist kosong. Tambahkan lagu dengan tombol + di setiap baris.",
     unknown: "Tidak diketahui",
 

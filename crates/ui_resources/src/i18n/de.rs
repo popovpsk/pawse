@@ -132,6 +132,7 @@ pub static DE: Strings = lang! {
     no_tracks_for_genre: "Keine Titel in diesem Genre.",
     no_liked_tracks: "Noch keine Favoriten. Fahre über einen Titel und tippe auf das Herz.",
     no_liked_match: "Keine Favoriten passen zu deiner Suche.",
+    search_empty_hint: "Prüfe die Schreibweise oder versuche es mit einer kürzeren Suche.",
     playlist_is_empty: "Die Playlist ist leer. Füge Titel mit dem +-Button in jeder Zeile hinzu.",
     unknown: "Unbekannt",
 

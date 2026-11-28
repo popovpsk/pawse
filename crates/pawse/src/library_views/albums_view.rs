@@ -16,6 +16,7 @@ use gpui_component::{
 use crate::theme_colors::Colors;
 use nucleo_matcher::{Config, Matcher};
 use ui_components::cover_thumb::cover_thumb;
+use ui_components::empty_state::EmptyState;
 
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::{LibraryAccess, LibraryEvent};
@@ -477,6 +478,10 @@ pub fn no_music_message(nothing_found: &SharedString, cx: &App) -> SharedString 
     }
 }
 
+pub fn no_matches(title: SharedString) -> EmptyState {
+    EmptyState::search(title).hint(tr().search_empty_hint.clone())
+}
+
 pub fn empty_library<V: EventEmitter<OpenLibrarySettings>>(
     message: SharedString,
     cx: &mut Context<V>,
@@ -519,8 +524,7 @@ impl Render for AlbumsView {
             }
             return v_flex()
                 .size_full()
-                .gap_3()
-                .child(div().px_4().child(tr().no_albums_match.clone()));
+                .child(no_matches(tr().no_albums_match.clone()));
         }
 
         let grid = self.prefs.layout == LibraryLayout::Grid;

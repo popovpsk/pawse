@@ -14,6 +14,7 @@ use gpui_component::{
 };
 
 use crate::theme_colors::Colors;
+use ui_components::empty_state::EmptyState;
 
 use crate::library_service::LibraryEvent;
 use crate::localization::tr;
@@ -268,18 +269,20 @@ impl gpui::Render for PlaylistPopup {
 
         let filtered = self.filtered_playlists();
 
-        let list_items: Vec<AnyElement> = if filtered.is_empty() {
+        let list_items: Vec<AnyElement> = if self.playlists.is_empty() {
             vec![
                 div()
                     .px_3()
                     .py_2()
                     .text_sm()
                     .text_color(muted_fg)
-                    .child(if self.playlists.is_empty() {
-                        tr().no_playlists_yet.clone()
-                    } else {
-                        tr().no_playlists_match.clone()
-                    })
+                    .child(tr().no_playlists_yet.clone())
+                    .into_any_element(),
+            ]
+        } else if filtered.is_empty() {
+            vec![
+                EmptyState::search(tr().no_playlists_match.clone())
+                    .compact()
                     .into_any_element(),
             ]
         } else {

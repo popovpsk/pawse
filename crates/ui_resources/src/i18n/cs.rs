@@ -132,6 +132,7 @@ pub static CS: Strings = lang! {
     no_tracks_for_genre: "V tomto žánru nejsou žádné skladby.",
     no_liked_tracks: "Zatím žádné oblíbené. Najeďte na skladbu a klepněte na srdíčko.",
     no_liked_match: "Vašemu hledání neodpovídají žádné oblíbené skladby.",
+    search_empty_hint: "Zkontrolujte pravopis nebo zkuste kratší hledání.",
     playlist_is_empty: "Playlist je prázdný. Přidejte skladby tlačítkem + v každém řádku.",
     unknown: "Neznámý",
 

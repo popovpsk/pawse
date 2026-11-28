@@ -29,6 +29,7 @@ use ui_components::cover_thumb::cover_thumb;
 
 use crate::fuzzy::fuzzy_scored;
 use crate::library_service::{LibraryEvent, LibraryService};
+use crate::library_views::albums_view::no_matches;
 use crate::library_views::track_row::{TITLE_MIN_WIDTH, artist_column, guest_credits};
 use crate::localization::{LangChanged, tr};
 use crate::now_playing::{NavigateToAlbumRequested, NavigateToArtistRequested};
@@ -712,8 +713,8 @@ impl Render for GroupedTracksView {
         if self.groups.is_empty() {
             return v_flex()
                 .size_full()
-                .child(page_header_static(self.header_name()))
-                .child(div().px_4().child(tr().no_tracks_match.clone()));
+                .child(page_header(self, muted_fg, cx))
+                .child(no_matches(tr().no_tracks_match.clone()));
         }
 
         let p = ArtistTrackRowParams {

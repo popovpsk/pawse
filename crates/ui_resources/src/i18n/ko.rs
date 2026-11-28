@@ -132,6 +132,7 @@ pub static KO: Strings = lang! {
     no_tracks_for_genre: "이 장르의 트랙이 없습니다.",
     no_liked_tracks: "아직 좋아요한 트랙이 없습니다. 트랙에 마우스를 올리고 하트를 누르세요.",
     no_liked_match: "검색과 일치하는 좋아요 트랙이 없습니다.",
+    search_empty_hint: "철자를 확인하거나 더 짧은 검색어로 검색해 보세요.",
     playlist_is_empty: "재생목록이 비어 있습니다. 각 행의 + 버튼으로 트랙을 추가하세요.",
     unknown: "알 수 없음",
 

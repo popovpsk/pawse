@@ -1,8 +1,8 @@
 # ui_components
 
 Reusable GPUI widgets with no app dependencies (only `gpui` and `gpui-component`): the tabbed
-Settings widget, the Slider, cover and artist image tiles with placeholders, `NativeTooltip`
-and the scrollbar gutter constant. Colors come from `cx.theme()` only.
+Settings widget, the Slider, cover and artist image tiles with placeholders, the empty state,
+`NativeTooltip` and the scrollbar gutter constant. Colors come from `cx.theme()` only.
 
 Not here: what settings rows do and say (`pawse/src/doc.md`, `pawse/src/tools/doc.md`), how
 the footer sliders and the cover cache use these widgets (`pawse/src/doc.md`), the icon files
@@ -17,13 +17,16 @@ the footer sliders and the cover cache use these widgets (`pawse/src/doc.md`), t
   and `artist_tile` (`Arc<RenderImage>`).
 - `artist_avatar.rs` — up to three covers stacked for an artist row (oldest-first input,
   oldest on top).
+- `empty_state.rs` — `EmptyState`: icon, title, optional hint and action; `search` uses
+  `icons/search-x.svg`.
 - `tooltip.rs` — `NativeTooltip::native_tooltip` for `gpui_component::Button`.
 - `scrollbar_metrics.rs` — `SCROLLBAR_GUTTER`.
 
 ## Images
 
-- The placeholders draw `icons/placeholder-notes.svg` and `icons/s1-artists.svg` by asset
-  path: the app must register `ui_resources::assets::Assets`, nothing in the crate says so.
+- The placeholders draw `icons/placeholder-notes.svg` and `icons/s1-artists.svg`, the
+  search empty state `icons/search-x.svg`, by asset path: the app must register
+  `ui_resources::assets::Assets`, nothing in the crate says so.
 - `cover_tile` / `artist_tile` show images the caller decoded and owns, and the caller frees
   their atlas tile (`pawse/src/doc.md`, cover cache). `cover_thumb` takes the small
   `Arc<Image>` thumbnails of list rows.
@@ -72,6 +75,17 @@ the footer sliders and the cover cache use these widgets (`pawse/src/doc.md`), t
   the pending click hides it.
 - Differences: placed at the cursor, no slide animation. `Button` only: gpui's tooltip
   needs an element with an id.
+
+## Empty state
+
+- The full variant is a `flex_1` child: its parent must be a column with a definite height.
+  It centres with spacers, not `justify_center`, so in a short area (an album page in a
+  400 px window) the content starts at the top and is clipped at the bottom instead of
+  sliding up over the page header. `pb_16` lifts it a little above the true centre.
+- `compact` is content-sized: a popover list takes its height, a fixed box (the AutoEq
+  picker) centres it itself.
+- Text wraps at `TEXT_MAX_WIDTH` or the panel width, never ellipsized: translations run
+  long.
 
 ## Scrollbar gutter
 

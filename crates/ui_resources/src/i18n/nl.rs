@@ -132,6 +132,7 @@ pub static NL: Strings = lang! {
     no_tracks_for_genre: "Geen nummers in dit genre.",
     no_liked_tracks: "Nog geen favorieten. Beweeg over een nummer en tik op het hart.",
     no_liked_match: "Geen favorieten komen overeen met je zoekopdracht.",
+    search_empty_hint: "Controleer de spelling of probeer een kortere zoekopdracht.",
     playlist_is_empty: "De afspeellijst is leeg. Voeg nummers toe met de +-knop in elke rij.",
     unknown: "Onbekend",
 

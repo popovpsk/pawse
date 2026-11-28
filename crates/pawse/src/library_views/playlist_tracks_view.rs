@@ -23,6 +23,7 @@ use ui_components::cover_thumb::cover_thumb;
 
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::{LibraryEvent, LibraryService};
+use crate::library_views::albums_view::no_matches;
 use crate::library_views::track_row::{
     CoverTrackRow, TITLE_MIN_WIDTH, TrackListPrefs, TrackNames, build_haystacks, track_columns,
     unavailable_label,
@@ -327,14 +328,18 @@ impl Render for PlaylistTracksView {
         );
 
         if self.row_data.is_empty() {
+            if !self.tracks_all.is_empty() && !self.filter.is_empty() {
+                return v_flex()
+                    .size_full()
+                    .child(header)
+                    .child(no_matches(tr().no_tracks_match.clone()));
+            }
             let message = if self.tracks_all.is_empty() {
                 tr().playlist_is_empty.clone()
-            } else if self.filter.is_empty() {
+            } else {
                 self.unavailable
                     .clone()
                     .unwrap_or_else(|| tr().no_tracks_match.clone())
-            } else {
-                tr().no_tracks_match.clone()
             };
             return v_flex()
                 .size_full()

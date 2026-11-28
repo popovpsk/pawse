@@ -16,7 +16,8 @@ trigger (`main_view/doc.md`).
 - `library_view.rs` — `LibraryView`: root container, navigation stack (`NavKey`), search
   routing, `resolve_artist_page`.
 - `albums_view.rs` — Albums tab, List or Grid; also `empty_library` /
-  `no_music_message`, the empty state the tabs share.
+  `no_music_message`, the empty state the tabs share, and `no_matches`, the "nothing
+  found" state of every search here.
 - `albums_grid.rs` — album tile and strip of the Grid layout.
 - `artists_view.rs` — Artists tab, List or Grid, picture Photo or Covers.
 - `artists_grid.rs` — artist tile: photo, or a cover flow of the first three albums
@@ -92,7 +93,10 @@ trigger (`main_view/doc.md`).
   the view's own `observe_global::<SettingsStore>`, which compares a snapshot first: it
   fires on every settings write.
 - Search: the trimmed query is fuzzy-matched (`crate::fuzzy`) against haystacks built at
-  load, best first; the list scrolls to the top.
+  load, best first; the list scrolls to the top. No match shows `no_matches`
+  (`ui_components::empty_state`) under the page header, with the screen's own title and
+  one shared hint; Liked and playlist pages keep the plain line when the filter is empty
+  and the rows are gone because unavailable tracks are hidden.
 
 ## Albums and Artists tabs
 

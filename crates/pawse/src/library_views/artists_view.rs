@@ -21,7 +21,9 @@ use ui_components::cover_thumb::artist_tile;
 use crate::artist_card::ArtistCards;
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
-use crate::library_views::albums_view::{OpenLibrarySettings, empty_library, no_music_message};
+use crate::library_views::albums_view::{
+    OpenLibrarySettings, empty_library, no_matches, no_music_message,
+};
 use crate::library_views::artists_grid::{self, TileParams};
 use crate::library_views::cover_grid::{
     self, GridCovers, ItemLayout, LIST_PAD_X, LibraryItem, MeasuredGrid,
@@ -467,8 +469,7 @@ impl Render for ArtistsView {
             }
             return v_flex()
                 .size_full()
-                .gap_3()
-                .child(div().px_4().child(tr().no_artists_match.clone()));
+                .child(no_matches(tr().no_artists_match.clone()));
         }
 
         let grid = self.prefs.grid();

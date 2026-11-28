@@ -132,6 +132,7 @@ pub static PL: Strings = lang! {
     no_tracks_for_genre: "Brak utworów w tym gatunku.",
     no_liked_tracks: "Brak polubionych utworów. Najedź na utwór i dotknij serca.",
     no_liked_match: "Żaden polubiony utwór nie pasuje do wyszukiwania.",
+    search_empty_hint: "Sprawdź pisownię lub spróbuj krótszego wyszukiwania.",
     playlist_is_empty: "Playlista jest pusta. Dodaj utwory przyciskiem + w każdym wierszu.",
     unknown: "Nieznany",
 

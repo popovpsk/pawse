@@ -24,6 +24,7 @@ use nucleo_matcher::{Config, Matcher};
 use crate::fuzzy::fuzzy_sorted;
 use crate::library_service::LibraryEvent;
 use crate::library_views::album_info::{AlbumInfo, HeightChanged};
+use crate::library_views::albums_view::no_matches;
 use crate::library_views::track_row::{
     TITLE_MIN_WIDTH, artist_column, build_haystacks, guest_credits,
 };
@@ -340,15 +341,18 @@ impl EventEmitter<NavigateToArtistRequested> for TracksView {}
 impl Render for TracksView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.row_data.is_empty() {
-            let message = if self.tracks_all.is_empty() {
-                tr().no_tracks_for_album.clone()
+            let body = if self.tracks_all.is_empty() {
+                div()
+                    .px_4()
+                    .child(tr().no_tracks_for_album.clone())
+                    .into_any_element()
             } else {
-                tr().no_tracks_match.clone()
+                no_matches(tr().no_tracks_match.clone()).into_any_element()
             };
             return v_flex()
                 .size_full()
                 .child(self.album_info.clone())
-                .child(div().px_4().child(message));
+                .child(body);
         }
 
         let p = TrackRowParams {

@@ -132,6 +132,7 @@ pub static SV: Strings = lang! {
     no_tracks_for_genre: "Inga låtar i denna genre.",
     no_liked_tracks: "Inga gillade låtar än. Håll muspekaren över en låt och tryck på hjärtat.",
     no_liked_match: "Inga gillade låtar matchar din sökning.",
+    search_empty_hint: "Kontrollera stavningen eller prova en kortare sökning.",
     playlist_is_empty: "Spellistan är tom. Lägg till låtar med +-knappen på varje rad.",
     unknown: "Okänd",
 

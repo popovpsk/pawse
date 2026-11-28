@@ -132,6 +132,7 @@ pub static TR: Strings = lang! {
     no_tracks_for_genre: "Bu türde parça yok.",
     no_liked_tracks: "Henüz beğenilen parça yok. Bir parçanın üzerine gelip kalbe dokunun.",
     no_liked_match: "Aramanızla eşleşen beğenilen parça yok.",
+    search_empty_hint: "Yazımı kontrol edin veya daha kısa bir arama deneyin.",
     playlist_is_empty: "Çalma listesi boş. Her satırdaki + düğmesiyle parça ekleyin.",
     unknown: "Bilinmiyor",
 
